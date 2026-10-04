@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="RAIL-FORM" background="40404008" transparency="50" title="PowerSpatial" width="70" height="348" grid-size="8" snap-to-grid="true" target="Custom" form-format="Standalone" responsive="true" index-base="1" title-visible="false" corner-radius="35" resizable="false" dock-to-opener="Left" dock-gap="14" dock-length="58">
+  <FormLayout FontScaling="Fluid" MinFontScale="1" MaxFontScale="1.6"/>
+  <working-storage><![CDATA[       01 WS-PICKED GLOBAL PIC 9 VALUE 1.
+       01 WS-SET-NAME  GLOBAL PIC X(20).
+       01 WS-SET-VALUE GLOBAL PIC X(200).
+       01 WS-LANG-IX   GLOBAL PIC 9 VALUE 0.
+       01 WS-NEW-IX    GLOBAL PIC 9 VALUE 1.
+      *>   The texts the operator reads, one row per text and one
+      *>   column per language - en, pt, es, fr, jp, cn.
+       01 PS-TEXT-DATA GLOBAL.
+      *>   Home
+           05 FILLER PIC X(80) VALUE "Home".
+           05 FILLER PIC X(80) VALUE "Início".
+           05 FILLER PIC X(80) VALUE "Inicio".
+           05 FILLER PIC X(80) VALUE "Accueil".
+           05 FILLER PIC X(80) VALUE "ホーム".
+           05 FILLER PIC X(80) VALUE "主页".
+      *>   Rooms
+           05 FILLER PIC X(80) VALUE "Rooms".
+           05 FILLER PIC X(80) VALUE "Cômodos".
+           05 FILLER PIC X(80) VALUE "Habitaciones".
+           05 FILLER PIC X(80) VALUE "Pièces".
+           05 FILLER PIC X(80) VALUE "部屋".
+           05 FILLER PIC X(80) VALUE "房间".
+      *>   Security
+           05 FILLER PIC X(80) VALUE "Security".
+           05 FILLER PIC X(80) VALUE "Segurança".
+           05 FILLER PIC X(80) VALUE "Seguridad".
+           05 FILLER PIC X(80) VALUE "Sécurité".
+           05 FILLER PIC X(80) VALUE "セキュリティ".
+           05 FILLER PIC X(80) VALUE "安防".
+      *>   Cameras
+           05 FILLER PIC X(80) VALUE "Cameras".
+           05 FILLER PIC X(80) VALUE "Câmeras".
+           05 FILLER PIC X(80) VALUE "Cámaras".
+           05 FILLER PIC X(80) VALUE "Caméras".
+           05 FILLER PIC X(80) VALUE "カメラ".
+           05 FILLER PIC X(80) VALUE "摄像头".
+      *>   Energy
+           05 FILLER PIC X(80) VALUE "Energy".
+           05 FILLER PIC X(80) VALUE "Energia".
+           05 FILLER PIC X(80) VALUE "Energía".
+           05 FILLER PIC X(80) VALUE "Énergie".
+           05 FILLER PIC X(80) VALUE "エネルギー".
+           05 FILLER PIC X(80) VALUE "能源".
+      *>   Settings
+           05 FILLER PIC X(80) VALUE "Settings".
+           05 FILLER PIC X(80) VALUE "Configurações".
+           05 FILLER PIC X(80) VALUE "Ajustes".
+           05 FILLER PIC X(80) VALUE "Paramètres".
+           05 FILLER PIC X(80) VALUE "設定".
+           05 FILLER PIC X(80) VALUE "设置".
+       01 PS-TEXT-TABLE REDEFINES PS-TEXT-DATA GLOBAL.
+           05 PS-TEXT-ROW OCCURS 6.
+              10 PS-TEXT PIC X(80) OCCURS 6.
+]]></working-storage>
+  <user-procedures>
+    <Event name="PS-RAIL-SHOW" paragraph="PS-RAIL-SHOW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The picked destination wears the light disc.
+           IF WS-PICKED = 1
+               MOVE 0 TO Btn-Home::Transparency
+           ELSE
+               MOVE 100 TO Btn-Home::Transparency
+           END-IF
+           IF WS-PICKED = 2
+               MOVE 0 TO Btn-Rooms::Transparency
+           ELSE
+               MOVE 100 TO Btn-Rooms::Transparency
+           END-IF
+           IF WS-PICKED = 3
+               MOVE 0 TO Btn-Security::Transparency
+           ELSE
+               MOVE 100 TO Btn-Security::Transparency
+           END-IF
+           IF WS-PICKED = 4
+               MOVE 0 TO Btn-Cameras::Transparency
+           ELSE
+               MOVE 100 TO Btn-Cameras::Transparency
+           END-IF
+           IF WS-PICKED = 5
+               MOVE 0 TO Btn-Energy::Transparency
+           ELSE
+               MOVE 100 TO Btn-Energy::Transparency
+           END-IF
+]]></Event>
+    <Event name="PS-LANG-CHECK" paragraph="PS-LANG-CHECK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language kept in the settings; the texts follow it.
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+           EVALUATE WS-SET-VALUE(1:2)
+               WHEN "pt" MOVE 2 TO WS-NEW-IX
+               WHEN "es" MOVE 3 TO WS-NEW-IX
+               WHEN "fr" MOVE 4 TO WS-NEW-IX
+               WHEN "jp" MOVE 5 TO WS-NEW-IX
+               WHEN "cn" MOVE 6 TO WS-NEW-IX
+               WHEN OTHER MOVE 1 TO WS-NEW-IX
+           END-EVALUATE
+           IF WS-NEW-IX NOT = WS-LANG-IX
+               MOVE WS-NEW-IX TO WS-LANG-IX
+               CALL "PS-APPLY-TEXT"
+           END-IF
+]]></Event>
+    <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Btn-Home::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Btn-Rooms::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Security::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(4, WS-LANG-IX)) TO Btn-Cameras::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(5, WS-LANG-IX)) TO Btn-Energy::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(6, WS-LANG-IX)) TO Btn-Settings::Tooltip
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="RAIL-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+           CALL "PS-RAIL-SHOW"
+]]></Event>
+  </form-events>
+  <Control id="Pnl-Rail" type="Panel" x="0" y="0" w="70" h="348" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="LayoutMode">Grid</Property>
+    <Property name="GridColumns">1fr</Property>
+    <Property name="GridRows">1fr 1fr 1fr 1fr 1fr 1fr</Property>
+    <Property name="Gap">4</Property>
+    <Property name="Padding">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="Dock">Fill</Property>
+  </Control>
+  <Control id="Btn-Home" type="Button" x="13" y="16" w="44" h="44" tab-order="1" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/home.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#FFFFFF59</Property>
+    <Property name="Tooltip">Home</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Event name="onClick" paragraph="BTN-HOME--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 1 TO WS-PICKED
+           CALL "PS-RAIL-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Rooms" type="Button" x="13" y="70" w="44" h="44" tab-order="2" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/grid.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#FFFFFF59</Property>
+    <Property name="Tooltip">Rooms</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">2</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Event name="onClick" paragraph="BTN-ROOMS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 2 TO WS-PICKED
+           CALL "PS-RAIL-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Security" type="Button" x="13" y="124" w="44" h="44" tab-order="3" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/shield.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#FFFFFF59</Property>
+    <Property name="Tooltip">Security</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">3</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Event name="onClick" paragraph="BTN-SECURITY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 3 TO WS-PICKED
+           CALL "PS-RAIL-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Cameras" type="Button" x="13" y="180" w="44" h="44" tab-order="4" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/video.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#FFFFFF59</Property>
+    <Property name="Tooltip">Cameras</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">4</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Event name="onClick" paragraph="BTN-CAMERAS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 4 TO WS-PICKED
+           CALL "PS-RAIL-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Energy" type="Button" x="13" y="234" w="44" h="44" tab-order="5" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/bolt.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#FFFFFF59</Property>
+    <Property name="Tooltip">Energy</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">5</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Event name="onClick" paragraph="BTN-ENERGY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 5 TO WS-PICKED
+           CALL "PS-RAIL-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Settings" type="Button" x="13" y="288" w="44" h="44" tab-order="6" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/gear.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#FFFFFF59</Property>
+    <Property name="Tooltip">Settings</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">6</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Event name="onClick" paragraph="BTN-SETTINGS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE me::"OpenFormSync"("SETTINGS-FORM")
+]]></Event>
+  </Control>
+  <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Interval">1000</Property>
+    <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+]]></Event>
+  </Control>
+</Form>

@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="SETTINGS-FORM" background="40404008" transparency="50" title="PowerSpatial" width="440" height="240" grid-size="8" snap-to-grid="true" target="Custom" form-format="Standalone" responsive="true" index-base="1" title-visible="false" corner-radius="28" resizable="false" start-position="Center">
+  <working-storage><![CDATA[       01 WS-PICK GLOBAL PIC 9.
+       01 WS-SET-NAME  GLOBAL PIC X(20).
+       01 WS-SET-VALUE GLOBAL PIC X(200).
+       01 WS-LANG-IX   GLOBAL PIC 9 VALUE 0.
+       01 WS-NEW-IX    GLOBAL PIC 9 VALUE 1.
+      *>   The texts the operator reads, one row per text and one
+      *>   column per language - en, pt, es, fr, jp, cn.
+       01 PS-TEXT-DATA GLOBAL.
+      *>   TITLE
+           05 FILLER PIC X(80) VALUE "Settings".
+           05 FILLER PIC X(80) VALUE "Configurações".
+           05 FILLER PIC X(80) VALUE "Ajustes".
+           05 FILLER PIC X(80) VALUE "Paramètres".
+           05 FILLER PIC X(80) VALUE "設定".
+           05 FILLER PIC X(80) VALUE "设置".
+      *>   LANGUAGE
+           05 FILLER PIC X(80) VALUE "Language".
+           05 FILLER PIC X(80) VALUE "Idioma".
+           05 FILLER PIC X(80) VALUE "Idioma".
+           05 FILLER PIC X(80) VALUE "Langue".
+           05 FILLER PIC X(80) VALUE "言語".
+           05 FILLER PIC X(80) VALUE "语言".
+      *>   CLOSE
+           05 FILLER PIC X(80) VALUE "Close".
+           05 FILLER PIC X(80) VALUE "Fechar".
+           05 FILLER PIC X(80) VALUE "Cerrar".
+           05 FILLER PIC X(80) VALUE "Fermer".
+           05 FILLER PIC X(80) VALUE "閉じる".
+           05 FILLER PIC X(80) VALUE "关闭".
+       01 PS-TEXT-TABLE REDEFINES PS-TEXT-DATA GLOBAL.
+           05 PS-TEXT-ROW OCCURS 3.
+              10 PS-TEXT PIC X(80) OCCURS 6.
+]]></working-storage>
+  <user-procedures>
+    <Event name="PS-LANG-CHECK" paragraph="PS-LANG-CHECK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language kept in the settings; the texts follow it.
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+           EVALUATE WS-SET-VALUE(1:2)
+               WHEN "pt" MOVE 2 TO WS-NEW-IX
+               WHEN "es" MOVE 3 TO WS-NEW-IX
+               WHEN "fr" MOVE 4 TO WS-NEW-IX
+               WHEN "jp" MOVE 5 TO WS-NEW-IX
+               WHEN "cn" MOVE 6 TO WS-NEW-IX
+               WHEN OTHER MOVE 1 TO WS-NEW-IX
+           END-EVALUATE
+           IF WS-NEW-IX NOT = WS-LANG-IX
+               MOVE WS-NEW-IX TO WS-LANG-IX
+               CALL "PS-APPLY-TEXT"
+           END-IF
+]]></Event>
+    <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Lbl-Language::Caption
+           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Close::Caption
+           MOVE WS-LANG-IX TO Cmb-Language::SelectedIndex
+]]></Event>
+    <Event name="PS-SAVE-LANGUAGE" paragraph="PS-SAVE-LANGUAGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language picked is kept; every window follows within a second.
+           MOVE Cmb-Language::SelectedIndex TO WS-PICK
+           MOVE "LANG" TO WS-SET-NAME
+           EVALUATE WS-PICK
+               WHEN 2 MOVE "pt" TO WS-SET-VALUE
+               WHEN 3 MOVE "es" TO WS-SET-VALUE
+               WHEN 4 MOVE "fr" TO WS-SET-VALUE
+               WHEN 5 MOVE "jp" TO WS-SET-VALUE
+               WHEN 6 MOVE "cn" TO WS-SET-VALUE
+               WHEN OTHER MOVE "en" TO WS-SET-VALUE
+           END-EVALUATE
+           CALL "PS-SETTING-PUT" USING WS-SET-NAME WS-SET-VALUE
+           CALL "PS-LANG-CHECK"
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="SETTINGS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+]]></Event>
+  </form-events>
+  <Control id="Pnl-Settings" type="Panel" x="0" y="0" w="440" h="240" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Dock">Fill</Property>
+    <Property name="LayoutMode">Flex</Property>
+    <Property name="FlexDirection">Column</Property>
+    <Property name="Gap">14</Property>
+    <Property name="Padding">28</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="Lbl-Title" type="Label" x="28" y="28" w="384" h="34" tab-order="1" z-order="0" visible="true" enabled="true" parent="Pnl-Settings">
+    <Property name="Caption">Settings</Property>
+    <Property name="FontSize">24</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Transparency">100</Property>
+  </Control>
+  <Control id="Lbl-Language" type="Label" x="28" y="76" w="384" h="22" tab-order="2" z-order="0" visible="true" enabled="true" parent="Pnl-Settings">
+    <Property name="Caption">Language</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ForegroundColor">#FFFFFFAA</Property>
+  </Control>
+  <Control id="Cmb-Language" type="ComboBox" x="28" y="106" w="384" h="40" tab-order="3" z-order="0" visible="true" enabled="true" parent="Pnl-Settings">
+    <Property name="Items">English
+Português
+Español
+Français
+日本語
+中文</Property>
+    <Property name="DropDownStyle">DropDownList</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Event name="onSelectedIndexChanged" paragraph="CMB-LANGUAGE--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-SAVE-LANGUAGE"
+]]></Event>
+  </Control>
+  <Control id="Btn-Close" type="Button" x="292" y="172" w="120" h="44" tab-order="4" z-order="0" visible="true" enabled="true" parent="Pnl-Settings">
+    <Property name="Caption">Close</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="AlignSelf">End</Property>
+    <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE me::Close()
+]]></Event>
+  </Control>
+  <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="Interval">1000</Property>
+    <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+]]></Event>
+  </Control>
+</Form>

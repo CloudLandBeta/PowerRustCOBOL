@@ -1320,6 +1320,11 @@ statement catches it like any other; with no `CATCH`, it reaches
 - **Help → Examples → PowerDemo3** opens the project that carries one demo form
   per toolbox control — every widget, wired and running, with its COBOL beside
   it. It is the fastest way to see how a control is actually driven.
+- **Help → Examples → PowerSpatial** opens a smart-home dashboard in the
+  Spatial theme: frameless glass windows, a toolbar, a rail and a room bar
+  docked around the dashboard that move with it as one, a thermostat dial, a
+  music player, and six languages kept in a setting the forms share through
+  Common Code. It is the example to copy for a group of floating windows.
 
 The IDE finds each project itself, so you do not need to know where it lives:
 beside the executable in an installed build, or in the tree the IDE was built

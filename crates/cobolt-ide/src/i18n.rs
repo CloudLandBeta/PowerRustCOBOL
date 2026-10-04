@@ -2160,6 +2160,8 @@ pub struct Tr {
     pub items_file_clear: &'static str,
     /// Help → Examples → PowerChat: what the example is (hover, and Output on open).
     pub examples_powerchat_about: &'static str,
+    /// Help → Examples → PowerSpatial: what the example shows.
+    pub examples_powerspatial_about: &'static str,
     /// Help → Examples: hover of an example this build does not ship.
     pub examples_not_installed: &'static str,
 }
@@ -3767,6 +3769,7 @@ const EN: Tr = Tr {
     items_file_browse: "Load the items from a text file (.txt), one item per line. The file is read each time the form opens, so editing it changes the list.",
     items_file_clear: "Clear the file and the items",
     examples_powerchat_about: "PowerChat is an example chatbot that supports both RAG (Retrieval Augmented Generation) over your documents and real-time analysis of data in indexed files. It is built 100% in RustCOBOL, and it can easily be adapted and sold as a solution for bringing Generative AI to COBOL applications.",
+    examples_powerspatial_about: "A smart-home dashboard in the Spatial theme: frameless glass windows, a toolbar, a rail and a room bar docked around the dashboard that move with it as one, a thermostat dial, a music player and six languages. Built 100% in RustCOBOL.",
     examples_not_installed: "No example project is installed with this build.",
 };
 
@@ -5355,6 +5358,7 @@ const ES: Tr = Tr {
     items_file_browse: "Cargar los elementos de un archivo de texto (.txt), uno por línea. Se lee cada vez que se abre el formulario: al editarlo cambia la lista.",
     items_file_clear: "Borrar el archivo y los elementos",
     examples_powerchat_about: "PowerChat es un ejemplo de chatbot que admite tanto RAG (Retrieval Augmented Generation) sobre sus documentos como el análisis en tiempo real de datos en archivos indexados. Está hecho 100 % en RustCOBOL y puede modificarse fácilmente para venderse como una solución que lleva la IA generativa a las aplicaciones COBOL.",
+    examples_powerspatial_about: "Un panel de hogar inteligente con el tema Spatial: ventanas de vidrio sin marco, una barra de herramientas, un riel y una barra de habitaciones acoplados al panel que se mueven con él como uno solo, un dial de termostato, un reproductor de música y seis idiomas. Hecho 100 % en RustCOBOL.",
     examples_not_installed: "No hay ningún proyecto de ejemplo instalado con esta versión.",
 };
 
@@ -6943,6 +6947,7 @@ const PT: Tr = Tr {
     items_file_browse: "Carregar os itens de um arquivo de texto (.txt), um por linha. O arquivo é lido sempre que o formulário abre: editá-lo muda a lista.",
     items_file_clear: "Limpar o arquivo e os itens",
     examples_powerchat_about: "O PowerChat é um exemplo de chatbot que suporta tanto RAG (Retrieval Augmented Generation) sobre os seus documentos quanto análise em tempo real de dados em arquivos indexados. É feito 100% em RustCOBOL e pode ser facilmente modificado para ser vendido como uma solução para implementar IA Generativa em aplicações COBOL.",
+    examples_powerspatial_about: "Um painel de casa inteligente no tema Spatial: janelas de vidro sem moldura, uma barra de ferramentas, um trilho e uma barra de cômodos acoplados ao painel que se movem com ele como um só, um mostrador de termostato, um player de música e seis idiomas. Feito 100% em RustCOBOL.",
     examples_not_installed: "Nenhum projeto de exemplo foi instalado com esta versão.",
 };
 
@@ -8530,6 +8535,7 @@ const JA: Tr = Tr {
     items_file_browse: "テキストファイル (.txt) から項目を 1 行ずつ読み込みます。フォームを開くたびに読むため、ファイルを編集すると一覧が変わります。",
     items_file_clear: "ファイルと項目をクリア",
     examples_powerchat_about: "PowerChat は、ドキュメントに対する RAG（Retrieval Augmented Generation）と、索引ファイルのデータのリアルタイム分析の両方に対応したチャットボットのサンプルです。100% RustCOBOL で作られており、COBOL アプリケーションに生成 AI を導入するソリューションとして販売できるよう、簡単に改造できます。",
+    examples_powerspatial_about: "Spatial テーマのスマートホーム用ダッシュボード。枠のないガラスのウィンドウ、ダッシュボードの周りにドッキングして一体で動くツールバー・レール・部屋バー、サーモスタットのダイヤル、音楽プレーヤー、6 言語に対応。100% RustCOBOL で作られています。",
     examples_not_installed: "このビルドにはサンプルプロジェクトがインストールされていません。",
 };
 
@@ -10125,6 +10131,7 @@ const ZH: Tr = Tr {
     items_file_browse: "从文本文件 (.txt) 加载项目，每行一项。每次打开窗体都会读取该文件，编辑文件即可更改列表。",
     items_file_clear: "清除文件和项目",
     examples_powerchat_about: "PowerChat 是一个聊天机器人示例，既支持基于文档的 RAG（Retrieval Augmented Generation），也支持对索引文件中的数据进行实时分析。它 100% 由 RustCOBOL 编写，可以轻松修改，作为为 COBOL 应用引入生成式 AI 的解决方案出售。",
+    examples_powerspatial_about: "采用 Spatial 主题的智能家居仪表板：无边框的玻璃窗口，停靠在仪表板周围并随其一起移动的工具栏、导航栏和房间栏，恒温器旋钮，音乐播放器，支持六种语言。100% 使用 RustCOBOL 构建。",
     examples_not_installed: "此版本未安装示例项目。",
 };
 
@@ -11713,6 +11720,7 @@ const FR: Tr = Tr {
     items_file_browse: "Charger les éléments depuis un fichier texte (.txt), un par ligne. Le fichier est relu à chaque ouverture du formulaire : le modifier change la liste.",
     items_file_clear: "Effacer le fichier et les éléments",
     examples_powerchat_about: "PowerChat est un exemple de chatbot qui prend en charge à la fois le RAG (Retrieval Augmented Generation) sur vos documents et l'analyse en temps réel des données de fichiers indexés. Il est écrit à 100 % en RustCOBOL et peut facilement être adapté pour être vendu comme une solution d'IA générative pour les applications COBOL.",
+    examples_powerspatial_about: "Un tableau de bord de maison connectée dans le thème Spatial : des fenêtres de verre sans cadre, une barre d'outils, un rail et une barre des pièces ancrés au tableau de bord qui se déplacent avec lui d'un seul bloc, un cadran de thermostat, un lecteur de musique et six langues. Réalisé à 100 % en RustCOBOL.",
     examples_not_installed: "Aucun projet d'exemple n'est installé avec cette version.",
 };
 

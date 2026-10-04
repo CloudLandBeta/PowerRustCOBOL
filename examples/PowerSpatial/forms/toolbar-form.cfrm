@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TOOLBAR-FORM" background="40404008" transparency="50" title="PowerSpatial" width="1000" height="76" grid-size="8" snap-to-grid="true" target="Custom" form-format="Standalone" responsive="true" index-base="1" title-visible="false" corner-radius="29" resizable="false" dock-to-opener="Top" dock-gap="14" dock-length="100">
+  <FormLayout FontScaling="Fluid" MinFontScale="1" MaxFontScale="1.6"/>
+  <working-storage><![CDATA[       01 WS-SET-NAME  GLOBAL PIC X(20).
+       01 WS-SET-VALUE GLOBAL PIC X(200).
+       01 WS-LANG-IX   GLOBAL PIC 9 VALUE 0.
+       01 WS-NEW-IX    GLOBAL PIC 9 VALUE 1.
+      *>   The texts the operator reads, one row per text and one
+      *>   column per language - en, pt, es, fr, jp, cn.
+       01 PS-TEXT-DATA GLOBAL.
+      *>   SIDEBAR
+           05 FILLER PIC X(80) VALUE "Sidebar".
+           05 FILLER PIC X(80) VALUE "Barra lateral".
+           05 FILLER PIC X(80) VALUE "Barra lateral".
+           05 FILLER PIC X(80) VALUE "Barre latérale".
+           05 FILLER PIC X(80) VALUE "サイドバー".
+           05 FILLER PIC X(80) VALUE "侧边栏".
+      *>   BACK
+           05 FILLER PIC X(80) VALUE "Back".
+           05 FILLER PIC X(80) VALUE "Voltar".
+           05 FILLER PIC X(80) VALUE "Atrás".
+           05 FILLER PIC X(80) VALUE "Précédent".
+           05 FILLER PIC X(80) VALUE "戻る".
+           05 FILLER PIC X(80) VALUE "后退".
+      *>   FORWARD
+           05 FILLER PIC X(80) VALUE "Forward".
+           05 FILLER PIC X(80) VALUE "Avançar".
+           05 FILLER PIC X(80) VALUE "Adelante".
+           05 FILLER PIC X(80) VALUE "Suivant".
+           05 FILLER PIC X(80) VALUE "進む".
+           05 FILLER PIC X(80) VALUE "前进".
+      *>   CLOSE
+           05 FILLER PIC X(80) VALUE "Close".
+           05 FILLER PIC X(80) VALUE "Fechar".
+           05 FILLER PIC X(80) VALUE "Cerrar".
+           05 FILLER PIC X(80) VALUE "Fermer".
+           05 FILLER PIC X(80) VALUE "閉じる".
+           05 FILLER PIC X(80) VALUE "关闭".
+      *>   NEWTAB
+           05 FILLER PIC X(80) VALUE "New tab".
+           05 FILLER PIC X(80) VALUE "Nova aba".
+           05 FILLER PIC X(80) VALUE "Nueva pestaña".
+           05 FILLER PIC X(80) VALUE "Nouvel onglet".
+           05 FILLER PIC X(80) VALUE "新しいタブ".
+           05 FILLER PIC X(80) VALUE "新标签页".
+      *>   SHARE
+           05 FILLER PIC X(80) VALUE "Share".
+           05 FILLER PIC X(80) VALUE "Compartilhar".
+           05 FILLER PIC X(80) VALUE "Compartir".
+           05 FILLER PIC X(80) VALUE "Partager".
+           05 FILLER PIC X(80) VALUE "共有".
+           05 FILLER PIC X(80) VALUE "分享".
+      *>   TABS
+           05 FILLER PIC X(80) VALUE "Tabs".
+           05 FILLER PIC X(80) VALUE "Abas".
+           05 FILLER PIC X(80) VALUE "Pestañas".
+           05 FILLER PIC X(80) VALUE "Onglets".
+           05 FILLER PIC X(80) VALUE "タブ".
+           05 FILLER PIC X(80) VALUE "标签页".
+       01 PS-TEXT-TABLE REDEFINES PS-TEXT-DATA GLOBAL.
+           05 PS-TEXT-ROW OCCURS 7.
+              10 PS-TEXT PIC X(80) OCCURS 6.
+]]></working-storage>
+  <user-procedures>
+    <Event name="PS-LANG-CHECK" paragraph="PS-LANG-CHECK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language kept in the settings; the texts follow it.
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+           EVALUATE WS-SET-VALUE(1:2)
+               WHEN "pt" MOVE 2 TO WS-NEW-IX
+               WHEN "es" MOVE 3 TO WS-NEW-IX
+               WHEN "fr" MOVE 4 TO WS-NEW-IX
+               WHEN "jp" MOVE 5 TO WS-NEW-IX
+               WHEN "cn" MOVE 6 TO WS-NEW-IX
+               WHEN OTHER MOVE 1 TO WS-NEW-IX
+           END-EVALUATE
+           IF WS-NEW-IX NOT = WS-LANG-IX
+               MOVE WS-NEW-IX TO WS-LANG-IX
+               CALL "PS-APPLY-TEXT"
+           END-IF
+]]></Event>
+    <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Btn-Sidebar::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Btn-Back::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Forward::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(4, WS-LANG-IX)) TO Btn-Close::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(5, WS-LANG-IX)) TO Btn-New::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(6, WS-LANG-IX)) TO Btn-Share::Tooltip
+           MOVE FUNCTION TRIM(PS-TEXT(7, WS-LANG-IX)) TO Btn-Tabs::Tooltip
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="TOOLBAR-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+]]></Event>
+  </form-events>
+  <Control id="Pnl-Bar" type="Panel" x="0" y="0" w="1000" h="76" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="LayoutMode">Grid</Property>
+    <Property name="GridColumns">190px 42px 42px 42px 1fr 42px 42px 42px 48px</Property>
+    <Property name="GridRows">1fr</Property>
+    <Property name="Gap">10</Property>
+    <Property name="Padding">6</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="Dock">Fill</Property>
+  </Control>
+  <Control id="Pic-Logo" type="PictureBox" x="8" y="10" w="190" h="56" tab-order="1" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="ImagePath">Assets/images/Titan_Voyages_Logo_270x80.png</Property>
+    <Property name="SizeMode">Fit</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="AlignSelf">Center</Property>
+  </Control>
+  <Control id="Btn-Sidebar" type="Button" x="206" y="17" w="42" h="42" tab-order="1" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/sidebar.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">21</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="Tooltip">Sidebar</Property>
+    <Property name="GridColumn">2</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="Btn-Back" type="Button" x="258" y="17" w="42" h="42" tab-order="2" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/chevron-left.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">21</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="Tooltip">Back</Property>
+    <Property name="GridColumn">3</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="Btn-Forward" type="Button" x="310" y="17" w="42" h="42" tab-order="3" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/chevron-right.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">21</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="Tooltip">Forward</Property>
+    <Property name="GridColumn">4</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="Lbl-Title" type="Label" x="362" y="20" w="418" h="36" tab-order="5" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption">PowerSpatial Theme Demo</Property>
+    <Property name="FontSize">24</Property>
+    <Property name="ScaleFont">false</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">5</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="AlignSelf">Center</Property>
+  </Control>
+  <Control id="Btn-New" type="Button" x="790" y="17" w="42" h="42" tab-order="9" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/plus.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">21</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="Tooltip">New tab</Property>
+    <Property name="GridColumn">6</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="Btn-Share" type="Button" x="842" y="17" w="42" h="42" tab-order="10" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/share.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">21</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="Tooltip">Share</Property>
+    <Property name="GridColumn">7</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="Btn-Tabs" type="Button" x="894" y="17" w="42" h="42" tab-order="11" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/tabs.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">21</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="Tooltip">Tabs</Property>
+    <Property name="GridColumn">8</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="Btn-Close" type="Button" x="946" y="16" w="44" h="44" tab-order="12" z-order="0" visible="true" enabled="true" parent="Pnl-Bar">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/close.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Tooltip">Close</Property>
+    <Property name="GridColumn">9</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Closing the dashboard - the main form - ends the application.
+           INVOKE super::"Close"()
+]]></Event>
+  </Control>
+  <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="12" z-order="0" visible="true" enabled="true">
+    <Property name="Interval">1000</Property>
+    <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+]]></Event>
+  </Control>
+</Form>

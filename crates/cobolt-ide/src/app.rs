@@ -1754,9 +1754,11 @@ impl Example {
 
 /// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
 /// one entry per example instead of a single one).
-pub const EXAMPLES: [Example; 2] = [
+pub const EXAMPLES: [Example; 3] = [
     Example { project: "PowerChat", manifest: "PowerChat.project.toml" },
     Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml" },
+    // The Spatial theme, and a group of docked windows (operator, 2026-10-04).
+    Example { project: "PowerSpatial", manifest: "PowerSpatial.project.toml" },
 ];
 
 /// The folder the developer's own copies of the shipped examples live in.
@@ -15649,6 +15651,7 @@ impl eframe::App for CoboltApp {
                             let entry = ui.add_enabled(found.is_some(), egui::Button::new(ex.project));
                             let about = match ex.project {
                                 "PowerChat" => Some(tr.examples_powerchat_about),
+                                "PowerSpatial" => Some(tr.examples_powerspatial_about),
                                 _ => None,
                             };
                             let entry = match (&found, about) {

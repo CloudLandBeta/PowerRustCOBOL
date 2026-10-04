@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.178] — 2026-10-04
+
+### Feature: PowerSpatial joins Help → Examples
+
+**Help → Examples → PowerSpatial** opens the smart-home dashboard built in the
+Spatial theme (operator, 2026-10-04): frameless glass windows; a top bar with
+the Titan Voyages logo, the title and a round ✕ that closes the application;
+an icon rail and a room bar docked around the dashboard that move with it as
+one; a thermostat dial (Knob with a clear face and a thumb), a music player
+with a live waveform, switches, sliders and device cards; and six languages
+kept in a setting the forms share through Common Code
+(`PS-SETTING-GET` / `PS-SETTING-PUT` over an indexed `data/settings.idx`).
+`examples/PowerSpatial` ships its sources, forms, assets and agent kit — not
+its build output, generated code or the settings a run saves. The menu entry's
+hover text, in six languages, says what it shows. Guide updated.
+
 ## [PowerRustCOBOL 1.80.177] — 2026-10-04
 
 ### Feature: the agent instructions describe a group of docked windows

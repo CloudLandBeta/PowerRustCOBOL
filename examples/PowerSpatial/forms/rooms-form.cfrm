@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="ROOMS-FORM" background="40404008" transparency="50" title="PowerSpatial" width="660" height="64" grid-size="8" snap-to-grid="true" target="Custom" form-format="Standalone" responsive="true" index-base="1" title-visible="false" corner-radius="32" resizable="false" dock-to-opener="Bottom" dock-gap="14" dock-length="66">
+  <FormLayout FontScaling="Fluid" MinFontScale="1" MaxFontScale="1.6"/>
+  <working-storage><![CDATA[       01 WS-ROOM GLOBAL PIC 9 VALUE 1.
+       01 WS-SET-NAME  GLOBAL PIC X(20).
+       01 WS-SET-VALUE GLOBAL PIC X(200).
+       01 WS-LANG-IX   GLOBAL PIC 9 VALUE 0.
+       01 WS-NEW-IX    GLOBAL PIC 9 VALUE 1.
+      *>   The texts the operator reads, one row per text and one
+      *>   column per language - en, pt, es, fr, jp, cn.
+       01 PS-TEXT-DATA GLOBAL.
+      *>   ADDROOM
+           05 FILLER PIC X(80) VALUE "Add a room".
+           05 FILLER PIC X(80) VALUE "Adicionar cômodo".
+           05 FILLER PIC X(80) VALUE "Añadir habitación".
+           05 FILLER PIC X(80) VALUE "Ajouter une pièce".
+           05 FILLER PIC X(80) VALUE "部屋を追加".
+           05 FILLER PIC X(80) VALUE "添加房间".
+      *>   Living
+           05 FILLER PIC X(80) VALUE "Living Room".
+           05 FILLER PIC X(80) VALUE "Sala de estar".
+           05 FILLER PIC X(80) VALUE "Sala de estar".
+           05 FILLER PIC X(80) VALUE "Salon".
+           05 FILLER PIC X(80) VALUE "リビング".
+           05 FILLER PIC X(80) VALUE "客厅".
+      *>   Bed
+           05 FILLER PIC X(80) VALUE "Bedroom".
+           05 FILLER PIC X(80) VALUE "Quarto".
+           05 FILLER PIC X(80) VALUE "Dormitorio".
+           05 FILLER PIC X(80) VALUE "Chambre".
+           05 FILLER PIC X(80) VALUE "寝室".
+           05 FILLER PIC X(80) VALUE "卧室".
+      *>   Kitchen
+           05 FILLER PIC X(80) VALUE "Kitchen".
+           05 FILLER PIC X(80) VALUE "Cozinha".
+           05 FILLER PIC X(80) VALUE "Cocina".
+           05 FILLER PIC X(80) VALUE "Cuisine".
+           05 FILLER PIC X(80) VALUE "キッチン".
+           05 FILLER PIC X(80) VALUE "厨房".
+      *>   Dining
+           05 FILLER PIC X(80) VALUE "Dining Room".
+           05 FILLER PIC X(80) VALUE "Sala de jantar".
+           05 FILLER PIC X(80) VALUE "Comedor".
+           05 FILLER PIC X(80) VALUE "Salle à manger".
+           05 FILLER PIC X(80) VALUE "ダイニング".
+           05 FILLER PIC X(80) VALUE "餐厅".
+      *>   Play
+           05 FILLER PIC X(80) VALUE "Play Room".
+           05 FILLER PIC X(80) VALUE "Brinquedoteca".
+           05 FILLER PIC X(80) VALUE "Sala de juegos".
+           05 FILLER PIC X(80) VALUE "Salle de jeux".
+           05 FILLER PIC X(80) VALUE "プレイルーム".
+           05 FILLER PIC X(80) VALUE "游戏室".
+       01 PS-TEXT-TABLE REDEFINES PS-TEXT-DATA GLOBAL.
+           05 PS-TEXT-ROW OCCURS 6.
+              10 PS-TEXT PIC X(80) OCCURS 6.
+]]></working-storage>
+  <user-procedures>
+    <Event name="PS-ROOMS-SHOW" paragraph="PS-ROOMS-SHOW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The picked room wears the accent; the others none.
+           IF WS-ROOM = 1
+               MOVE 0 TO Btn-Living::Transparency
+           ELSE
+               MOVE 100 TO Btn-Living::Transparency
+           END-IF
+           IF WS-ROOM = 2
+               MOVE 0 TO Btn-Bed::Transparency
+           ELSE
+               MOVE 100 TO Btn-Bed::Transparency
+           END-IF
+           IF WS-ROOM = 3
+               MOVE 0 TO Btn-Kitchen::Transparency
+           ELSE
+               MOVE 100 TO Btn-Kitchen::Transparency
+           END-IF
+           IF WS-ROOM = 4
+               MOVE 0 TO Btn-Dining::Transparency
+           ELSE
+               MOVE 100 TO Btn-Dining::Transparency
+           END-IF
+           IF WS-ROOM = 5
+               MOVE 0 TO Btn-Play::Transparency
+           ELSE
+               MOVE 100 TO Btn-Play::Transparency
+           END-IF
+]]></Event>
+    <Event name="PS-LANG-CHECK" paragraph="PS-LANG-CHECK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language kept in the settings; the texts follow it.
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+           EVALUATE WS-SET-VALUE(1:2)
+               WHEN "pt" MOVE 2 TO WS-NEW-IX
+               WHEN "es" MOVE 3 TO WS-NEW-IX
+               WHEN "fr" MOVE 4 TO WS-NEW-IX
+               WHEN "jp" MOVE 5 TO WS-NEW-IX
+               WHEN "cn" MOVE 6 TO WS-NEW-IX
+               WHEN OTHER MOVE 1 TO WS-NEW-IX
+           END-EVALUATE
+           IF WS-NEW-IX NOT = WS-LANG-IX
+               MOVE WS-NEW-IX TO WS-LANG-IX
+               CALL "PS-APPLY-TEXT"
+           END-IF
+]]></Event>
+    <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Btn-Living::Caption
+           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Bed::Caption
+           MOVE FUNCTION TRIM(PS-TEXT(4, WS-LANG-IX)) TO Btn-Kitchen::Caption
+           MOVE FUNCTION TRIM(PS-TEXT(5, WS-LANG-IX)) TO Btn-Dining::Caption
+           MOVE FUNCTION TRIM(PS-TEXT(6, WS-LANG-IX)) TO Btn-Play::Caption
+           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Btn-Add-Room::Tooltip
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="ROOMS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+           CALL "PS-ROOMS-SHOW"
+]]></Event>
+  </form-events>
+  <Control id="Pnl-Rooms" type="Panel" x="0" y="0" w="660" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="LayoutMode">Grid</Property>
+    <Property name="GridColumns">1fr 1fr 1fr 1fr 1fr 44px</Property>
+    <Property name="GridRows">1fr</Property>
+    <Property name="Gap">6</Property>
+    <Property name="Padding">8</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="Dock">Fill</Property>
+  </Control>
+  <Control id="Btn-Living" type="Button" x="10" y="10" w="113" h="44" tab-order="1" z-order="0" visible="true" enabled="true" parent="Pnl-Rooms">
+    <Property name="Caption">Living Room</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">1</Property>
+    <Event name="onClick" paragraph="BTN-LIVING--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 1 TO WS-ROOM
+           CALL "PS-ROOMS-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Bed" type="Button" x="129" y="10" w="113" h="44" tab-order="2" z-order="0" visible="true" enabled="true" parent="Pnl-Rooms">
+    <Property name="Caption">Bedroom</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">2</Property>
+    <Property name="GridRow">1</Property>
+    <Event name="onClick" paragraph="BTN-BED--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 2 TO WS-ROOM
+           CALL "PS-ROOMS-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Kitchen" type="Button" x="248" y="10" w="113" h="44" tab-order="3" z-order="0" visible="true" enabled="true" parent="Pnl-Rooms">
+    <Property name="Caption">Kitchen</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">3</Property>
+    <Property name="GridRow">1</Property>
+    <Event name="onClick" paragraph="BTN-KITCHEN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 3 TO WS-ROOM
+           CALL "PS-ROOMS-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Dining" type="Button" x="368" y="10" w="113" h="44" tab-order="4" z-order="0" visible="true" enabled="true" parent="Pnl-Rooms">
+    <Property name="Caption">Dining Room</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">4</Property>
+    <Property name="GridRow">1</Property>
+    <Event name="onClick" paragraph="BTN-DINING--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 4 TO WS-ROOM
+           CALL "PS-ROOMS-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Play" type="Button" x="487" y="10" w="113" h="44" tab-order="5" z-order="0" visible="true" enabled="true" parent="Pnl-Rooms">
+    <Property name="Caption">Play Room</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="GridColumn">5</Property>
+    <Property name="GridRow">1</Property>
+    <Event name="onClick" paragraph="BTN-PLAY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 5 TO WS-ROOM
+           CALL "PS-ROOMS-SHOW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Add-Room" type="Button" x="606" y="10" w="44" h="44" tab-order="6" z-order="0" visible="true" enabled="true" parent="Pnl-Rooms">
+    <Property name="Caption"></Property>
+    <Property name="IconPath">Assets/icons/plus.svg</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="CornerRadius">22</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="Tooltip">Add a room</Property>
+    <Property name="GridColumn">6</Property>
+    <Property name="GridRow">1</Property>
+    <Property name="JustifySelf">Center</Property>
+    <Property name="AlignSelf">Center</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Transparency">30</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Interval">1000</Property>
+    <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PS-LANG-CHECK"
+]]></Event>
+  </Control>
+</Form>
