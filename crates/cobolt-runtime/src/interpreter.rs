@@ -8689,7 +8689,10 @@ impl Interpreter {
     /// language flags "did nothing" (operator, 2026-09-25). With no anchor (a
     /// console `rcrun run`, the tests) the working directory still applies.
     fn resolve_assign_path(&self, assign: &str) -> String {
-        let key = assign.trim().to_ascii_uppercase();
+        // Resolved as any other reference to the name is: a nested program's
+        // own item lives under a key its activation qualifies, and the bare
+        // name found nothing, so the file was created under the item's NAME.
+        let key = self.env.resolve_name(&assign.trim().to_ascii_uppercase(), &[]);
         let path = match self.env.get_string(&key) {
             Some(v) => v.trim_end().to_string(),
             None => assign.trim().to_string(),

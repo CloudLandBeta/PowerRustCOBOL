@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.166] — 2026-10-04
+
+### Fix: a nested program's `ASSIGN TO data-item` opens the file the item names
+
+`SELECT … ASSIGN TO WS-PATH` inside a nested (or CALLed) program looked the
+path up by the bare name, while the program's own WORKING-STORAGE lives under
+keys its activation qualifies — so the item was not found, and the file was
+created under the item's NAME (`WS-PATH`) in the working folder. The name is
+now resolved as every other reference to it is. Test
+`a_nested_programs_assign_to_a_data_item_opens_the_file_it_names`, red before
+the change; cobolt-runtime 1110/0; NIST SQ 85/85 (624 assertions), IX 41/41
+(574), RL 34/34 (354), IC 25/25 (309) — every file module's baseline holds.
+
 ## [PowerRustCOBOL 1.80.165] — 2026-10-04
 
 ### Fix: a window whose controls share ids with its opener's can be run off screen

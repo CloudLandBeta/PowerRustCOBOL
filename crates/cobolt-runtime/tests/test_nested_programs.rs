@@ -632,3 +632,56 @@ fn a_parameter_alias_does_not_outlive_its_call() {
     // After it, the caller's own DN9 is its own again.
     assert_eq!(i.env.get_i64("DN9").unwrap_or(-1), 99, "DN9 after the call");
 }
+
+/// A nested program's `ASSIGN TO <data item>` opens the file the item NAMES.
+/// The item lives in the nested program's own WORKING-STORAGE, under a key its
+/// activation qualifies, and the path was looked up by the bare name — so it
+/// was not found and the file was created under the item's NAME, `WS-PATH`, in
+/// the working folder (found linking PowerSpatial's settings programs, which
+/// keep their file's path in their own storage).
+#[test]
+fn a_nested_programs_assign_to_a_data_item_opens_the_file_it_names() {
+    let dir = std::env::temp_dir().join(format!("prc-nested-assign-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("kept.dat");
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "KEEP".
+           STOP RUN.
+       END PROGRAM OUTER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. KEEP.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT KEPT-FILE ASSIGN TO WS-PATH
+               ORGANIZATION IS LINE SEQUENTIAL.
+       DATA DIVISION.
+       FILE SECTION.
+       FD KEPT-FILE.
+       01 KEPT-LINE PIC X(10).
+       WORKING-STORAGE SECTION.
+       01 WS-PATH PIC X(200) VALUE "{}".
+       PROCEDURE DIVISION.
+           OPEN OUTPUT KEPT-FILE
+           MOVE "KEPT" TO KEPT-LINE
+           WRITE KEPT-LINE
+           CLOSE KEPT-FILE
+           GOBACK.
+       END PROGRAM KEEP.
+    "#,
+        path.display()
+    );
+    let mut i = interp(&src);
+    i.run().expect("run failed");
+    let kept = std::fs::read_to_string(&path).unwrap_or_default();
+    let _ = std::fs::remove_file("WS-PATH");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(kept.trim(), "KEPT", "the record went to the path WS-PATH holds");
+}
