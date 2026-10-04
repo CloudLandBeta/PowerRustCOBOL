@@ -1138,6 +1138,11 @@ fn generated_program_path(proj: &CoboltProject, dir: &Path, id: &str) -> Option<
 /// The manifest is named after the project (`PowerDemo3.project.toml`), not a
 /// fixed file name, so discovery scans each ancestor rather than probing one.
 pub fn find_project_manifest(start: &Path) -> Option<PathBuf> {
+    // A relative path (`rcrun run-form forms/main.cfrm` from the project
+    // folder) climbs to an EMPTY ancestor, which `read_dir` cannot open, so
+    // the search stopped one folder short of the manifest. Anchor it first.
+    let start = std::path::absolute(start).ok()?;
+    let start = start.as_path();
     let from = if start.is_dir() {
         start
     } else {

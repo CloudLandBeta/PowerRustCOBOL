@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.164] — 2026-10-04
+
+### Fix: `rcrun run-form forms/x.cfrm` in the project folder opens child forms
+
+Run in the project folder with the form given relative to it, Run Form
+could not open any other form: "has no generated program yet". The project
+manifest is found by climbing the form's folders, and a relative path climbs
+to an empty one — the working folder itself, where the manifest is — which
+cannot be listed, so the search gave up one step short. The path is made
+absolute first (`find_project_manifest`). Test
+`a_relative_form_path_finds_its_project` (its own binary: it changes the
+working folder), red before the change.
+
 ## [PowerRustCOBOL 1.80.163] — 2026-10-04
 
 ### Fix: a form named by a padded id finds its generated program
