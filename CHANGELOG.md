@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.150] — 2026-10-04
+
+### Feature: Corner radius sits in the form's Geometry section
+
+The form's **Corner radius** row moves from beside **Show title bar** to the
+form's **Geometry** section, with the window's size and position, where the
+operator looked for it. It is still offered only while the title bar is off.
+
 ## [PowerRustCOBOL 1.80.149] — 2026-10-04
 
 ### Feature: a window without a title bar can round its corners

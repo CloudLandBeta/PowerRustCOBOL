@@ -6834,8 +6834,8 @@ children still belong to it). This works for the main window and for child
 windows; a shell application's window (a main form carrying a SideMenu) does
 not move this way yet.
 
-**Rounded corners.** With **Show title bar** off, the inspector offers
-**Corner radius** (`CornerRadius`, in pixels, 0 to 255; 0 keeps the corners
+**Rounded corners.** With **Show title bar** off, the form's **Geometry**
+section offers **Corner radius** (`CornerRadius`, in pixels, 0 to 255; 0 keeps the corners
 square). The window's corners are then drawn round, and the desktop shows past
 the curve: the background colour, the gradient, the picture in every mode and
 the controls you put in a corner all stop at it. It works for the main window,

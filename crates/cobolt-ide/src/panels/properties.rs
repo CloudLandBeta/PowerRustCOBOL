@@ -10525,6 +10525,20 @@ impl PropertiesPanel {
                     .italics(),
             );
         }
+        // The window's shape sits with its size. Its corners are the OS's
+        // while it has a title bar, so the radius is offered only without one
+        // (operator, 2026-10-03); the value is kept either way.
+        if !form.title_visible {
+            let mut r = form.corner_radius as i64;
+            property_row_keyed(ui, tr.lbl_corner_radius, Some("CornerRadius"), |ui| {
+                if ui
+                    .add(DragValue::new(&mut r).speed(1).range(0..=255).suffix("px"))
+                    .changed()
+                {
+                    action.form_props.push(("CornerRadius".into(), r.to_string()));
+                }
+            });
+        }
     }
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
@@ -11001,22 +11015,6 @@ impl PropertiesPanel {
                                 .push(("TitleVisible".into(), v.to_string()));
                         }
                     });
-                    // The window's corners are the OS's while it has a title
-                    // bar, so the radius is offered only without one
-                    // (operator, 2026-10-03). The value is kept either way.
-                    if !form.title_visible {
-                        property_row_keyed(ui, tr.lbl_corner_radius, Some("CornerRadius"), |ui| {
-                            let mut r = form.corner_radius as i64;
-                            if ui
-                                .add(DragValue::new(&mut r).speed(1).range(0..=255).suffix("px"))
-                                .changed()
-                            {
-                                action
-                                    .form_props
-                                    .push(("CornerRadius".into(), r.to_string()));
-                            }
-                        });
-                    }
                 });
                 // 051 R19/R28 — how this form's own face looks while a Sync
                 // (modal) child of its own blocks it. Applies regardless of
