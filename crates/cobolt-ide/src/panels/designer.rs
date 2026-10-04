@@ -6627,6 +6627,12 @@ impl DesignerPanel {
                     self.dirty = true;
                 }
             }
+            "DockLength" => {
+                if let Ok(v) = value.trim().parse::<f32>() {
+                    self.form.dock_length = v.clamp(0.0, 100.0) as u32;
+                    self.dirty = true;
+                }
+            }
             "ModalOverlayStyle" => {
                 self.form.modal_overlay_style = cobolt_forms::model::ModalOverlayStyle::from_str(&value);
                 self.dirty = true;
@@ -6779,6 +6785,7 @@ impl DesignerPanel {
             "ScreenFill" => Some(self.form.screen_fill.to_string()),
             "DockToOpener" => Some(self.form.dock_to_opener.as_str().to_string()),
             "DockGap" => Some(self.form.dock_gap.to_string()),
+            "DockLength" => Some(self.form.dock_length.to_string()),
             "ModalOverlayStyle" => Some(self.form.modal_overlay_style.as_str().to_string()),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
             "FormFormat" => Some(self.form.form_format.as_str().to_string()),
@@ -14824,6 +14831,7 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "ScreenFill",
     "DockToOpener",
     "DockGap",
+    "DockLength",
     // 051 R19/R28
     "ModalOverlayStyle",
     "WindowEffects",
@@ -20070,7 +20078,7 @@ mod property_key_case_tests {
             // 037 main form & window lifecycle
             "mainform", "taskbaricon", "canminimize", "canmaximize", "windowstate",
             "fullscreen", "titlevisible", "cornerradius",
-            "resizable", "screenfill", "docktoopener", "dockgap",
+            "resizable", "screenfill", "docktoopener", "dockgap", "docklength",
             // 038 window effects opt-out
             "windoweffects",
             // 049 application shell

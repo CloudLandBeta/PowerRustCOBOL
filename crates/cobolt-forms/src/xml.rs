@@ -223,6 +223,7 @@ enum OwnedEvent {
         screen_fill: u32,
         dock_to_opener: crate::model::DockEdge,
         dock_gap: u32,
+        dock_length: u32,
         modal_overlay_style: crate::model::ModalOverlayStyle,
         // 049 Application shell
         form_format: crate::model::FormFormat,
@@ -361,6 +362,10 @@ fn next_owned<R: std::io::BufRead>(
                     let dock_gap = get_attr(e, b"dock-gap")?
                         .and_then(|v| v.trim().parse::<u32>().ok())
                         .unwrap_or(16);
+                    let dock_length = get_attr(e, b"dock-length")?
+                        .and_then(|v| v.trim().parse::<u32>().ok())
+                        .unwrap_or(0)
+                        .min(100);
                     // Absent means SemiTransparent — the closest match to the
                     // fade `disable()` already gave every blocked form before
                     // this property existed, so an old `.cfrm` looks the same.
@@ -429,6 +434,7 @@ fn next_owned<R: std::io::BufRead>(
                         screen_fill,
                         dock_to_opener,
                         dock_gap,
+                        dock_length,
                         modal_overlay_style,
                         form_format,
                         window_effects,
@@ -610,6 +616,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 screen_fill,
                 dock_to_opener,
                 dock_gap,
+                dock_length,
                 modal_overlay_style,
                 form_format,
                 window_effects,
@@ -648,6 +655,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.screen_fill = screen_fill;
                 f.dock_to_opener = dock_to_opener;
                 f.dock_gap = dock_gap;
+                f.dock_length = dock_length;
                 f.modal_overlay_style = modal_overlay_style;
                 f.form_format = form_format;
                 f.window_effects = window_effects;
@@ -1717,6 +1725,9 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         }
         if form.dock_gap != 16 {
             elem.push_attribute(("dock-gap", form.dock_gap.to_string().as_str()));
+        }
+        if form.dock_length > 0 {
+            elem.push_attribute(("dock-length", form.dock_length.to_string().as_str()));
         }
         // Control indexes count from 1 in this file (see
         // `migrate_zero_based_indexes`).
@@ -3729,7 +3740,7 @@ Actor Caption:string</Property>
         let path = std::env::temp_dir().join("cobolt_test_window_group.cfrm");
         save_form(&Form::new("PLAIN", "Plain", 400, 300), &path).expect("save");
         let plain = std::fs::read_to_string(&path).expect("read back");
-        for attr in ["resizable", "screen-fill", "dock-to-opener", "dock-gap"] {
+        for attr in ["resizable", "screen-fill", "dock-to-opener", "dock-gap", "dock-length"] {
             assert!(!plain.contains(attr), "a default form writes no {attr}");
         }
         let mut f = Form::new("BAR", "Bar", 600, 60);
@@ -3737,6 +3748,7 @@ Actor Caption:string</Property>
         f.screen_fill = 80;
         f.dock_to_opener = crate::model::DockEdge::Top;
         f.dock_gap = 24;
+        f.dock_length = 60;
         save_form(&f, &path).expect("save");
         let saved = std::fs::read_to_string(&path).expect("read back");
         let _ = std::fs::remove_file(&path);
@@ -3745,6 +3757,7 @@ Actor Caption:string</Property>
         assert_eq!(back.screen_fill, 80);
         assert_eq!(back.dock_to_opener, crate::model::DockEdge::Top);
         assert_eq!(back.dock_gap, 24);
+        assert_eq!(back.dock_length, 60);
     }
 
     /// Indexes count from 1 (operator, 2026-10-03): a form saved before that

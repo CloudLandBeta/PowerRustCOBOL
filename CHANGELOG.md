@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.157] — 2026-10-04
+
+### Feature: a docked window's length follows its opener (`DockLength`)
+
+A window docked to its opener (`DockToOpener`) gains **`DockLength`** (0–100 %,
+default 0): its length along the opener's edge is that share of the edge —
+the width for Top/Bottom, the height for Left/Right — and follows whenever the
+opener changes size, as it does when it opens with a `ScreenFill`. Without
+it, a toolbar designed for a 1400-pixel dashboard stayed 1400 pixels over a
+dashboard the screen made 1000 (found building the PowerSpatial example).
+`model::dock_size` gives the inner size (the share applies to the OUTER
+length, so a frame does not make it overshoot); the host sets it on the
+child's viewport each frame it differs. `.cfrm` attribute `dock-length`
+(written only when not 0), inspector row while docked, property help and
+label in six languages, designer and agent validator; test cases in
+`window_group_tests` and the attribute round trip. Guide, System KB and
+`.cfrm` reference updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.156] — 2026-10-04
 
 ### Feature: search the Properties and Events tabs by name, word, section or purpose

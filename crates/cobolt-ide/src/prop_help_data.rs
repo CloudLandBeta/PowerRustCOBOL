@@ -2713,6 +2713,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "停靠窗口与打开它的窗体之间的间距（像素）。默认 16。",
         "L'écart, en pixels, entre une fenêtre ancrée et le formulaire qui l'a ouverte. 16 par défaut.",
     ] },
+    PropHelp { ty: "Form", prop: "DockLength", text: [
+        "How long a docked window is along its opener's edge, as a percentage of that edge (1-100). It follows when the opener changes size. 0 keeps the designed size.",
+        "Qué longitud tiene una ventana acoplada a lo largo del borde del formulario que la abrió, en porcentaje de ese borde (1-100). Sigue al formulario cuando cambia de tamaño. 0 mantiene el tamaño diseñado.",
+        "O comprimento de uma janela acoplada ao longo da borda do formulário que a abriu, em porcentagem dessa borda (1-100). Acompanha quando o formulário muda de tamanho. 0 mantém o tamanho desenhado.",
+        "ドッキングしたウィンドウの、開いたフォームの辺に沿った長さ（その辺に対する割合、1～100）。開いたフォームのサイズが変わると追従します。0 は設計時のサイズのままです。",
+        "停靠窗口沿打开它的窗体边的长度，按该边的百分比（1-100）计算。窗体大小改变时随之调整。0 保持设计尺寸。",
+        "La longueur d'une fenêtre ancrée le long du bord du formulaire qui l'a ouverte, en pourcentage de ce bord (1-100). Elle suit quand le formulaire change de taille. 0 garde la taille conçue.",
+    ] },
     PropHelp { ty: "Form", prop: "Transparency", text: [
         "How see-through the form is, 0 to 100 % (0 = opaque): above 0 the main window shows the desktop through it. It also fades the gradient and image.",
         "Cuánto se transparenta el formulario, de 0 a 100 % (0 = opaco): por encima de 0 la ventana principal deja ver el escritorio. También atenúa el degradado y la imagen.",

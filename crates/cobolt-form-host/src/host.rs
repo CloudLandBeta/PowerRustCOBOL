@@ -3375,6 +3375,22 @@ fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: eg
     let opener = ctx.input_for(opener_vp, |i| i.viewport().outer_rect);
     let mine = ctx.input_for(child.viewport_id, |i| i.viewport().outer_rect);
     let (Some(o), Some(m)) = (opener, mine) else { return };
+    // `DockLength`: the window's length along the edge follows the opener's.
+    // Its inner size is what the viewport is declared with each frame, so
+    // changing it is the resize.
+    let inner = ctx.input_for(child.viewport_id, |i| i.viewport().inner_rect).map_or(m.size(), |r| r.size());
+    if let Some((w, h)) = cobolt_forms::model::dock_size(
+        child.dock,
+        child.dock_length,
+        (o.width(), o.height()),
+        (child.size.x, child.size.y),
+        ((m.width() - inner.x).max(0.0), (m.height() - inner.y).max(0.0)),
+    ) {
+        let want = egui::vec2(w, h);
+        if (want - child.size).length() > 0.5 {
+            child.size = want;
+        }
+    }
     let Some((x, y)) = cobolt_forms::model::dock_position(
         child.dock,
         child.dock_gap,
@@ -3471,6 +3487,8 @@ pub(crate) struct ChildWindow {
     /// against the window of the form that opened it.
     pub(crate) dock: cobolt_forms::model::DockEdge,
     pub(crate) dock_gap: f32,
+    /// The form's `DockLength`: a share of the opener's edge (0 = designed).
+    pub(crate) dock_length: u32,
     /// Where the host last put a docked window. A window found elsewhere was
     /// dragged by the operator, and takes its group along.
     pub(crate) dock_expected: Option<egui::Pos2>,
@@ -4618,6 +4636,7 @@ impl FormHost {
             resizable: form.resizable,
             dock: form.dock_to_opener,
             dock_gap: form.dock_gap as f32,
+            dock_length: form.dock_length,
             dock_expected: None,
             pending_start,
             initial_state,

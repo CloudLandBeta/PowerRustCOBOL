@@ -1638,6 +1638,8 @@ pub struct Tr {
     pub lbl_dock_to_opener: &'static str,
     /// Form window: the gap to its opener when docked (`DockGap`).
     pub lbl_dock_gap: &'static str,
+    /// Form window: its length along the opener's edge (`DockLength`).
+    pub lbl_dock_length: &'static str,
     /// The Properties tab's search box: what to type.
     pub prop_search_hint: &'static str,
     /// The Events tab's search box: what to type.
@@ -3334,6 +3336,7 @@ const EN: Tr = Tr {
     lbl_screen_fill: "Screen fill:",
     lbl_dock_to_opener: "Dock to opener:",
     lbl_dock_gap: "Dock gap:",
+    lbl_dock_length: "Dock length:",
     prop_search_hint: "Search properties — name, word or purpose (size, colour…)",
     event_search_hint: "Search events",
     search_clear: "Clear the search",
@@ -4921,6 +4924,7 @@ const ES: Tr = Tr {
     lbl_screen_fill: "Ocupar pantalla:",
     lbl_dock_to_opener: "Acoplar al formulario que la abre:",
     lbl_dock_gap: "Separación del acople:",
+    lbl_dock_length: "Longitud del acople:",
     prop_search_hint: "Buscar propiedades — nombre, palabra o propósito (tamaño, color…)",
     event_search_hint: "Buscar eventos",
     search_clear: "Borrar la búsqueda",
@@ -6508,6 +6512,7 @@ const PT: Tr = Tr {
     lbl_screen_fill: "Ocupar a tela:",
     lbl_dock_to_opener: "Acoplar ao formulário que a abriu:",
     lbl_dock_gap: "Distância do acoplamento:",
+    lbl_dock_length: "Comprimento do acoplamento:",
     prop_search_hint: "Buscar propriedades — nome, palavra ou finalidade (tamanho, cor…)",
     event_search_hint: "Buscar eventos",
     search_clear: "Limpar a busca",
@@ -8094,6 +8099,7 @@ const JA: Tr = Tr {
     lbl_screen_fill: "画面占有率:",
     lbl_dock_to_opener: "開いたフォームにドッキング:",
     lbl_dock_gap: "ドッキングの間隔:",
+    lbl_dock_length: "ドッキングの長さ:",
     prop_search_hint: "プロパティを検索 — 名前、単語、用途（サイズ、色…）",
     event_search_hint: "イベントを検索",
     search_clear: "検索をクリア",
@@ -9687,6 +9693,7 @@ const ZH: Tr = Tr {
     lbl_screen_fill: "占屏比例：",
     lbl_dock_to_opener: "停靠到打开它的窗体：",
     lbl_dock_gap: "停靠间距：",
+    lbl_dock_length: "停靠长度：",
     prop_search_hint: "搜索属性 — 名称、词语或用途（大小、颜色…）",
     event_search_hint: "搜索事件",
     search_clear: "清除搜索",
@@ -11275,6 +11282,7 @@ const FR: Tr = Tr {
     lbl_screen_fill: "Part de l'écran :",
     lbl_dock_to_opener: "Ancrer au formulaire ouvrant :",
     lbl_dock_gap: "Écart d'ancrage :",
+    lbl_dock_length: "Longueur d'ancrage :",
     prop_search_hint: "Rechercher des propriétés — nom, mot ou usage (taille, couleur…)",
     event_search_hint: "Rechercher des événements",
     search_clear: "Effacer la recherche",

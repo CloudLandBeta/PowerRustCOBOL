@@ -7402,6 +7402,29 @@ pub fn dock_position(
     })
 }
 
+/// The inner size a window docked to `edge` with `DockLength` (`length_percent`
+/// of its opener's edge) takes: the opener's outer `(width, height)` scaled
+/// along that edge; the other axis keeps `window`'s. `frame` is how much the
+/// window's outer size exceeds its inner size, so the OUTER length is the
+/// share. `None` when not docked or the length is 0 (the designed size).
+pub fn dock_size(
+    edge: DockEdge,
+    length_percent: u32,
+    opener: (f32, f32),
+    window: (f32, f32),
+    frame: (f32, f32),
+) -> Option<(f32, f32)> {
+    if length_percent == 0 {
+        return None;
+    }
+    let f = length_percent.min(100) as f32 / 100.0;
+    match edge {
+        DockEdge::None => None,
+        DockEdge::Top | DockEdge::Bottom => Some(((opener.0 * f - frame.0).max(64.0), window.1)),
+        DockEdge::Left | DockEdge::Right => Some((window.0, (opener.1 * f - frame.1).max(64.0))),
+    }
+}
+
 /// The size a window with `ScreenFill` (a percentage of the screen, operator
 /// 2026-10-04) opens at: that share of `screen` on each axis, kept within the
 /// window's own limits — a responsive form's smallest layout (`min`) and
@@ -7433,6 +7456,12 @@ mod window_group_tests {
         assert_eq!(dock_position(DockEdge::Left, 20.0, opener, (80.0, 300.0)), Some((0.0, 300.0)));
         assert_eq!(dock_position(DockEdge::Right, 20.0, opener, (80.0, 300.0)), Some((920.0, 300.0)));
         assert_eq!(DockEdge::from_str("bottom"), DockEdge::Bottom);
+        // DockLength: a share of the opener's edge, along that edge only.
+        assert_eq!(dock_size(DockEdge::Top, 0, (1000.0, 600.0), (400.0, 60.0), (0.0, 0.0)), None);
+        assert_eq!(dock_size(DockEdge::Top, 100, (1000.0, 600.0), (400.0, 60.0), (0.0, 0.0)), Some((1000.0, 60.0)));
+        assert_eq!(dock_size(DockEdge::Bottom, 60, (1000.0, 600.0), (400.0, 60.0), (0.0, 0.0)), Some((600.0, 60.0)));
+        assert_eq!(dock_size(DockEdge::Left, 50, (1000.0, 600.0), (80.0, 200.0), (0.0, 10.0)), Some((80.0, 290.0)), "the outer length is the share");
+        assert_eq!(dock_size(DockEdge::None, 50, (1000.0, 600.0), (80.0, 200.0), (0.0, 0.0)), None);
         assert_eq!(DockEdge::from_str("sideways"), DockEdge::None);
     }
 
@@ -7720,6 +7749,10 @@ pub struct Form {
     pub dock_to_opener: DockEdge,
     /// The gap between a docked window and its opener, in pixels. Default 16.
     pub dock_gap: u32,
+    /// How long a docked window is along its opener's edge, as a percentage
+    /// of that edge (1–100) — it follows when the opener changes size; 0, the
+    /// default, keeps the designed size.
+    pub dock_length: u32,
     /// How this form's own face looks while blocked by a Sync-opened (modal)
     /// child of its own — a child window, or a modal a ContentPane occupant
     /// opened (051 R19/R28). Defaults to `None` (the enum's default).
@@ -7849,6 +7882,7 @@ impl Form {
             screen_fill: 0,
             dock_to_opener: DockEdge::None,
             dock_gap: 16,
+            dock_length: 0,
             modal_overlay_style: ModalOverlayStyle::default(),
             form_format: FormFormat::default(),
             menu_pane_background: None,

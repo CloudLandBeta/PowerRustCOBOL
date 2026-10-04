@@ -6917,6 +6917,11 @@ properties, in the form's **Geometry** section, decide how a window opens:
   form with `OpenFormSync` or `OpenFormAsync` sits just outside that edge of
   its opener's window, centred along it. Drag the opener, or any window docked
   to it, and the whole group moves: the gaps stay as designed.
+- **Dock length** (`DockLength`, 0 to 100 %). Above 0 the docked window is
+  that share of its opener's edge long — a toolbar the opener's full width at
+  100, a tab strip at 60 — and follows when the opener changes size, as it
+  does when the opener opens with a **Screen fill**. Make the docked form
+  responsive, so its own layout adapts to the length it is given.
 
 A floating toolbar above a dashboard, a tab strip below it and a rail beside it
 are three small forms docked Top, Bottom and Left, which the dashboard opens

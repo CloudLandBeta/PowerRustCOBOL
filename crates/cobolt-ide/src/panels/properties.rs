@@ -10625,6 +10625,12 @@ impl PropertiesPanel {
                     action.form_props.push(("DockGap".into(), gap.to_string()));
                 }
             });
+            let mut len = form.dock_length as i64;
+            property_row_keyed(ui, tr.lbl_dock_length, Some("DockLength"), |ui| {
+                if ui.add(DragValue::new(&mut len).speed(1).range(0..=100).suffix("%")).changed() {
+                    action.form_props.push(("DockLength".into(), len.to_string()));
+                }
+            });
         }
     }
 
