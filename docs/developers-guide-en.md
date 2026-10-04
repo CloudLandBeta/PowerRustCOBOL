@@ -6841,7 +6841,10 @@ the curve: the background colour, the gradient, the picture in every mode and
 the controls you put in a corner all stop at it. It works for the main window,
 child windows and a shell application's window — there the rail, the
 breadcrumb strip and the ContentPane each round the corners they touch. The
-designer canvas shows the corners as they will run. While the title bar is on,
+designer canvas shows the corners as they will run, and so does **Preview**: a
+form without a title bar previews in a window without one — rounded, moved by
+dragging its background, and closed with **Esc** (or Cmd+W / Ctrl+W), which a
+notice in the middle of the window recalls for its first five seconds. While the title bar is on,
 the corners belong to the operating system, so the radius is kept but not used
 (and the row is hidden).
 

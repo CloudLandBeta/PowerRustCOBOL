@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.152] — 2026-10-04
+
+### Feature: Preview matches the run form's window
+
+A form with **Show title bar** off now previews in a window without a title bar
+(operator, 2026-10-04), so Preview shows what the run form shows: the window's
+rounded corners (`Backdrop::window` from the form's `CornerRadius`), no OS
+shadow when rounded, and a window sized to the form exactly (the 4 px slack a
+titled preview keeps would show past the corners). It moves by dragging its
+face, through the same `RenderOutput::window_drag` the run form answers with
+`StartDrag`. With no close button, **Esc** closes it — asked after the form has
+drawn, so a control that consumes Esc itself keeps it — and so does Cmd+W
+(Ctrl+W); a centred notice, "Press ESC to close this window" (new `Tr` field
+`preview_esc_hint`, six languages), shows for the first five seconds of each
+opening and takes no input. A titled form's preview is unchanged. Guide
+("Rounded corners") updated.
+
 ## [PowerRustCOBOL 1.80.151] — 2026-10-04
 
 ### Feature: a control hanging past a rounded window's corner is rounded too

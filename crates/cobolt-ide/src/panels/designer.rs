@@ -2855,6 +2855,9 @@ pub struct DesignerPanel {
     pub preview_anim_states: HashMap<String, AnimState>,
     /// Last frame time for the live preview animation ticker.
     pub preview_last_frame: Option<std::time::Instant>,
+    /// Until when a Preview without a title bar shows its "Press ESC to close"
+    /// notice — set the first frame it is open, cleared when it closes.
+    pub preview_hint_until: Option<std::time::Instant>,
     /// Tracks which ComboBox (by control ID) is currently open in the preview.
     pub(crate) preview_combo_open: HashMap<String, bool>,
     /// Designer-only clock for repeating GroupBox placement effects. It is reset
@@ -2965,6 +2968,7 @@ impl DesignerPanel {
             preview_state: HashMap::new(),
             preview_anim_states: HashMap::new(),
             preview_last_frame: None,
+            preview_hint_until: None,
             preview_combo_open: HashMap::new(),
             active_theme_pack: None,
             active_surface_theme: cobolt_forms::surface_theme::liquid_glass(),

@@ -16194,6 +16194,8 @@ impl eframe::App for CoboltApp {
         // ── Preview viewports (one per open form that has preview enabled) ───────
         for idx in 0..self.designers.len() {
             if !self.designers[idx].1.show_preview {
+                // The next opening shows its "Press ESC" notice again.
+                self.designers[idx].1.preview_hint_until = None;
                 continue;
             }
 
@@ -16211,12 +16213,23 @@ impl eframe::App for CoboltApp {
             // forbids unwinding through, taking the whole IDE and any unsaved
             // work with it. So the last word belongs here, where the window is
             // actually built, and not only at the places that set the number.
+            // The preview window is the form's window as it will run: without a
+            // title bar when the form has none (operator, 2026-10-04), so its
+            // rounded corners show here too. Without the bar it is sized to the
+            // form exactly — the 4 px of slack a titled preview keeps would show
+            // past the corners — and, like the run form, casts no OS shadow when
+            // the form is rounded (a see-through window's shadow outlines the
+            // square it no longer looks like).
+            let frameless = !self.designers[idx].1.form.title_visible;
+            let rounded = frameless && self.designers[idx].1.form.corner_radius > 0;
+            let slack = if frameless { 0.0 } else { 4.0 };
+            let esc_hint = self.lang.tr().preview_esc_hint;
             let (form_w, form_h) = {
                 let d = &self.designers[idx].1;
                 let cap = crate::panels::designer::FORM_MAX_SIZE as f32;
                 (
-                    (d.form.width as f32 + 4.0).min(cap),
-                    (d.form.height as f32 + 4.0).min(cap),
+                    (d.form.width as f32 + slack).min(cap),
+                    (d.form.height as f32 + slack).min(cap),
                 )
             };
 
@@ -16226,7 +16239,9 @@ impl eframe::App for CoboltApp {
                     .with_title(&title)
                     .with_inner_size([form_w, form_h])
                     .with_resizable(true)
-                    .with_transparent(true),
+                    .with_transparent(true)
+                    .with_decorations(!frameless)
+                    .with_has_shadow(!rounded),
                 |vp_ctx, _class| {
                     // The window that took the shot draws the placement popup, so
                     // the operator stays in the window they were working in.
@@ -16237,7 +16252,33 @@ impl eframe::App for CoboltApp {
                     if vp_ctx.input(|i| i.viewport().close_requested()) {
                         self.designers[idx].1.show_preview = false;
                     }
+                    // Without a title bar there is no close button: Cmd+W
+                    // (Ctrl+W elsewhere) closes the preview, as it closes a
+                    // running form's window.
+                    if vp_ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W)) {
+                        self.designers[idx].1.show_preview = false;
+                    }
                     self.show_preview_window(vp_ctx, idx);
+                    if frameless {
+                        // …and so does ESC (operator, 2026-10-04). Asked AFTER
+                        // the form has drawn, so a control that answers ESC
+                        // itself — an open list, the Viewer's find bar —
+                        // consumes it first and keeps the preview open.
+                        if vp_ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                            self.designers[idx].1.show_preview = false;
+                        }
+                        // Say so for the first five seconds: a window with no
+                        // title bar gives no hint of how to close it.
+                        let now = std::time::Instant::now();
+                        let until = *self.designers[idx]
+                            .1
+                            .preview_hint_until
+                            .get_or_insert(now + std::time::Duration::from_secs(5));
+                        if now < until {
+                            preview_esc_notice(vp_ctx.ctx(), esc_hint);
+                            vp_ctx.ctx().request_repaint_after(until - now);
+                        }
+                    }
                 },
             );
         }
@@ -16931,11 +16972,11 @@ impl CoboltApp {
                 behind_fill: None,
                 // Filled in below, with the DESIGNED extent.
                 image_extent: None,
-                draggable: false,
-                // The preview window always has a title bar, so its corners
-                // are the OS's: a form's CornerRadius rounds only a window
-                // without one (the run form, the designer canvas).
-                window: None,
+                // Without a title bar the preview is the form's own window:
+                // rounded at its CornerRadius, and moved by dragging its face —
+                // exactly as the run form is.
+                window: cobolt_forms::render::form_window_arc(&d.form, ctx.content_rect()),
+                draggable: !d.form.title_visible,
             }
         };
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls
@@ -17089,6 +17130,11 @@ impl CoboltApp {
                             Some(&paint_crumb),
                         );
                         updates = out.prop_updates;
+                        // A press on the face of a window without a title bar
+                        // moves the window, as in the run form.
+                        if out.window_drag {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                        }
                         // Preview has no COBOL event loop; UI events are
                         // discarded — but a toolbar button's PLATFORM action
                         // needs no interpreter, so those are carried out below.
@@ -22731,4 +22777,32 @@ mod examples_menu_tests {
             "and so is the root form"
         );
     }
+}
+
+/// The notice a Preview without a title bar shows for its first five seconds:
+/// a card in the middle of the window saying how to close it. It sits above
+/// the form and takes no input, so the form stays usable underneath.
+fn preview_esc_notice(ctx: &egui::Context, text: &str) {
+    let screen = ctx.content_rect();
+    egui::Area::new(egui::Id::new("preview-esc-notice"))
+        .order(egui::Order::Tooltip)
+        .interactable(false)
+        .fixed_pos(screen.center())
+        .pivot(egui::Align2::CENTER_CENTER)
+        .show(ctx, |ui| {
+            // Hardcoded for contrast over any form face, as the chat widgets
+            // are: never coloured from the ambient visuals.
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 24, 225))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(60)))
+                .corner_radius(10)
+                .inner_margin(egui::Margin::symmetric(22, 14))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(text)
+                            .size(16.0)
+                            .color(egui::Color32::from_rgb(240, 240, 240)),
+                    );
+                });
+        });
 }
