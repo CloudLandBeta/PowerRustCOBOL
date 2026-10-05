@@ -71,6 +71,22 @@ pub fn raise_group(parent: (f64, f64, f64, f64)) -> bool {
     }
 }
 
+/// The part of the screen a window may use — without the menu bar and the
+/// dock — as `(x, y, width, height)` in points, top-left origin on the primary
+/// screen, as egui reports window frames. The screen holding the window that
+/// has the keyboard. `None` where the platform does not say (only macOS
+/// does), so a caller falls back to the monitor's size.
+pub fn usable_screen_area() -> Option<(f64, f64, f64, f64)> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_group::usable_area()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 /// Blur (`true`) or stop blurring (`false`) the desktop behind every window of
 /// this application. Does nothing where the platform offers no blur.
 pub fn set_all_windows(blur: bool) {
@@ -179,8 +195,13 @@ mod macos_group {
     /// `[object frame]`: an `NSRect` comes back in registers on arm64 and
     /// through a hidden pointer (`objc_msgSend_stret`) on x86_64.
     unsafe fn frame_of(object: Id) -> Rect {
+        unsafe { rect_of(object, c"frame") }
+    }
+
+    /// `[object <selector>]` for a message that answers an `NSRect`.
+    unsafe fn rect_of(object: Id, selector: &std::ffi::CStr) -> Rect {
         unsafe {
-            let sel = sel_registerName(c"frame".as_ptr());
+            let sel = sel_registerName(selector.as_ptr());
             #[cfg(target_arch = "x86_64")]
             {
                 let send: extern "C" fn(*mut Rect, Id, Sel) = std::mem::transmute(objc_msgSend_stret as *const ());
@@ -235,6 +256,25 @@ mod macos_group {
                 }
             }
             std::ptr::null_mut()
+        }
+    }
+
+    pub(super) fn usable_area() -> Option<(f64, f64, f64, f64)> {
+        unsafe {
+            let send_id: extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_usize: extern "C" fn(Id, Sel) -> usize = std::mem::transmute(objc_msgSend as *const ());
+            let send_index: extern "C" fn(Id, Sel, usize) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let screens = send_id(objc_getClass(c"NSScreen".as_ptr()), sel_registerName(c"screens".as_ptr()));
+            if screens.is_null() || send_usize(screens, sel_registerName(c"count".as_ptr())) == 0 {
+                return None;
+            }
+            let screen_h = frame_of(send_index(screens, sel_registerName(c"objectAtIndex:".as_ptr()), 0)).h;
+            let main = send_id(objc_getClass(c"NSScreen".as_ptr()), sel_registerName(c"mainScreen".as_ptr()));
+            if main.is_null() {
+                return None;
+            }
+            let v = rect_of(main, c"visibleFrame");
+            (v.w > 0.0 && v.h > 0.0).then(|| (v.x, screen_h - (v.y + v.h), v.w, v.h))
         }
     }
 

@@ -7478,6 +7478,96 @@ pub fn screen_fill_size(
     Some((axis(screen.0, min.0, max.0), axis(screen.1, min.1, max.1)))
 }
 
+/// A window docked to the main window, as [`fit_window_group`] sees it: the
+/// edge it sits on, its gap, and its outer thickness across that edge (its
+/// height on Top/Bottom, its width on Left/Right), in points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DockedExtent {
+    pub edge: DockEdge,
+    pub gap: f32,
+    pub across: f32,
+}
+
+/// Where and how large the main window goes so that it and every window docked
+/// to it are all on the screen ([`fit_window_group`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GroupFit {
+    /// The application's zoom: 1 when the group fits at its own size, less
+    /// when even the smallest layout of the group is larger than the screen.
+    pub zoom: f32,
+    /// The main window's inner size, in points at `zoom`.
+    pub inner: (f32, f32),
+    /// The main window's outer top-left corner, in screen points (unzoomed).
+    pub pos: (f32, f32),
+}
+
+/// The smallest the application is ever zoomed to, so a tiny screen does not
+/// turn the forms into something nobody can read.
+pub const GROUP_MIN_ZOOM: f32 = 0.5;
+
+/// Fit the main window and the windows docked to it on a screen (operator,
+/// 2026-10-04: "I was supposed to be able to see all forms no matter what the
+/// resolution"). `area` is the usable screen `(x, y, width, height)` in screen
+/// points — without the menu bar and the dock or task bar. `frame` is how much
+/// the main window's outer size exceeds its inner size, in screen points.
+/// `min`/`max`/`current` are the main window's inner limits and size in points;
+/// `current_pos` its outer corner in screen points.
+///
+/// With `place` (the first fit, and every time the screen changes)
+/// `ScreenFill` is a share of the screen for the whole group, and `start`
+/// places the group; otherwise the size is kept and the group is only pulled
+/// back onto the screen. The main window shrinks — never below its smallest
+/// layout — before anything is zoomed; only a group whose smallest layout is
+/// still too large zooms, down to [`GROUP_MIN_ZOOM`].
+#[allow(clippy::too_many_arguments)]
+pub fn fit_window_group(
+    area: (f32, f32, f32, f32),
+    frame: (f32, f32),
+    fill_percent: u32,
+    min: (f32, f32),
+    max: (f32, f32),
+    current: (f32, f32),
+    current_pos: (f32, f32),
+    docked: &[DockedExtent],
+    start: FormStartPosition,
+    place: bool,
+) -> GroupFit {
+    let (ax, ay, aw, ah) = area;
+    let side = |edges: &[DockEdge]| -> f32 {
+        docked.iter().filter(|d| edges.contains(&d.edge)).map(|d| d.across + d.gap).sum()
+    };
+    let (left, top) = (side(&[DockEdge::Left]), side(&[DockEdge::Top]));
+    let extra = (left + side(&[DockEdge::Right]), top + side(&[DockEdge::Bottom]));
+    // The largest zoom at which the smallest layout of the group fits.
+    let zoom_for = |avail: f32, frame: f32, need: f32| if need > 0.0 { (avail - frame).max(1.0) / need } else { 1.0 };
+    let zoom = zoom_for(aw, frame.0, min.0 + extra.0)
+        .min(zoom_for(ah, frame.1, min.1 + extra.1))
+        .clamp(GROUP_MIN_ZOOM, 1.0);
+    // The room left for the main window's inside, in points at `zoom`.
+    let room = |avail: f32, frame: f32, extra: f32| ((avail - frame) / zoom - extra).max(1.0);
+    let room = (room(aw, frame.0, extra.0), room(ah, frame.1, extra.1));
+    let wanted = match (place, fill_percent) {
+        (true, f) if f > 0 => {
+            let f = f.min(100) as f32 / 100.0;
+            (((aw * f - frame.0) / zoom - extra.0), ((ah * f - frame.1) / zoom - extra.1))
+        }
+        _ => current,
+    };
+    let axis = |want: f32, room: f32, min: f32, max: f32| want.min(max).min(room).max(min).max(64.0);
+    let inner = (axis(wanted.0, room.0, min.0, max.0), axis(wanted.1, room.1, min.1, max.1));
+    // The group's outer size and the main window's place inside it.
+    let group = ((inner.0 + extra.0) * zoom + frame.0, (inner.1 + extra.1) * zoom + frame.1);
+    let offset = (left * zoom, top * zoom);
+    let corner = match place.then(|| resolved_start_position(start, (aw, ah), group)).flatten() {
+        Some((x, y)) => (ax + x, ay + y),
+        None => (current_pos.0 - offset.0, current_pos.1 - offset.1),
+    };
+    // Pulled back onto the screen; a group larger than it keeps its top-left.
+    let onto = |p: f32, lo: f32, avail: f32, size: f32| p.min(lo + avail - size).max(lo);
+    let corner = (onto(corner.0, ax, aw, group.0), onto(corner.1, ay, ah, group.1));
+    GroupFit { zoom, inner, pos: (corner.0 + offset.0, corner.1 + offset.1) }
+}
+
 #[cfg(test)]
 mod window_group_tests {
     use super::*;
@@ -7516,6 +7606,68 @@ mod window_group_tests {
             "never larger than the largest"
         );
         assert_eq!(screen_fill_size(250, screen, (0.0, 0.0), (8192.0, 8192.0)), Some((1920.0, 1080.0)), "capped at 100 %");
+    }
+
+    /// PowerSpatial's group: a 1000×600-minimum dashboard with a 76-point
+    /// toolbar above, a 64-point room bar below and a 70-point rail beside it,
+    /// 14 points apart — on the three screens of the operator's report.
+    fn power_spatial(area: (f32, f32, f32, f32), place: bool, current: (f32, f32), pos: (f32, f32)) -> GroupFit {
+        let docked = [
+            DockedExtent { edge: DockEdge::Top, gap: 14.0, across: 76.0 },
+            DockedExtent { edge: DockEdge::Bottom, gap: 14.0, across: 64.0 },
+            DockedExtent { edge: DockEdge::Left, gap: 14.0, across: 70.0 },
+        ];
+        fit_window_group(area, (0.0, 0.0), 70, (1000.0, 600.0), (8192.0, 8192.0), current, pos, &docked, FormStartPosition::Center, place)
+    }
+
+    /// The whole group's outer rect on screen, `(x, y, right, bottom)`.
+    fn group_rect(f: &GroupFit) -> (f32, f32, f32, f32) {
+        let z = f.zoom;
+        (
+            f.pos.0 - 84.0 * z,
+            f.pos.1 - 90.0 * z,
+            f.pos.0 + f.inner.0 * z,
+            f.pos.1 + (f.inner.1 + 78.0) * z,
+        )
+    }
+
+    #[test]
+    fn every_window_of_a_docked_group_is_on_the_screen_at_any_resolution() {
+        for area in [(0.0, 25.0, 1800.0, 1069.0), (0.0, 25.0, 1352.0, 778.0), (0.0, 25.0, 1147.0, 645.0), (0.0, 25.0, 800.0, 500.0)] {
+            let fit = power_spatial(area, true, (1000.0, 600.0), (0.0, 0.0));
+            let (x, y, r, b) = group_rect(&fit);
+            let tol = 0.01;
+            assert!(
+                x >= area.0 - tol && y >= area.1 - tol && r <= area.0 + area.2 + tol && b <= area.1 + area.3 + tol,
+                "{area:?}: {fit:?} puts the group at {:?}",
+                (x, y, r, b)
+            );
+            assert!(fit.inner.0 >= 1000.0 && fit.inner.1 >= 600.0, "never below the smallest layout: {fit:?}");
+        }
+    }
+
+    #[test]
+    fn a_group_zooms_only_when_its_smallest_layout_does_not_fit() {
+        let big = power_spatial((0.0, 25.0, 1800.0, 1069.0), true, (1000.0, 600.0), (0.0, 0.0));
+        assert_eq!(big.zoom, 1.0, "room to spare: no zoom");
+        // 70 % of the screen for the whole group, the rest is the bars'.
+        assert_eq!(big.inner, (1800.0 * 0.7 - 84.0, 600.0), "its share, never below the smallest layout");
+        let small = power_spatial((0.0, 25.0, 1147.0, 645.0), true, (1000.0, 600.0), (0.0, 0.0));
+        assert!(small.zoom < 1.0, "600 + 168 points cannot fit in 645: {small:?}");
+        assert!((small.zoom - 645.0 / 768.0).abs() < 1e-4, "zoomed just enough: {small:?}");
+        let tiny = power_spatial((0.0, 0.0, 300.0, 200.0), true, (1000.0, 600.0), (0.0, 0.0));
+        assert_eq!(tiny.zoom, GROUP_MIN_ZOOM, "never past the readable floor");
+    }
+
+    #[test]
+    fn a_refit_keeps_the_size_and_only_pulls_the_group_back_on_screen() {
+        let area = (0.0, 25.0, 1800.0, 1069.0);
+        let fit = power_spatial(area, false, (1100.0, 650.0), (1500.0, 900.0));
+        assert_eq!((fit.zoom, fit.inner), (1.0, (1100.0, 650.0)), "the size the operator left it at");
+        let (_, _, r, b) = group_rect(&fit);
+        assert!(r <= 1800.0 && b <= 25.0 + 1069.0, "pulled back: {fit:?}");
+        let stay = power_spatial(area, false, (1100.0, 650.0), (200.0, 200.0));
+        assert_eq!(stay.pos, (200.0, 200.0), "a group already on screen stays where it is");
     }
 }
 

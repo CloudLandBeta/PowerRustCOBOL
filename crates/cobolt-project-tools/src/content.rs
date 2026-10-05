@@ -286,7 +286,10 @@ pub const APPLICATION_RULES: [(&str, &str); 8] = [
          window's edge), and open them all from the main form's `onLoad` with \
          `INVOKE me::\"OpenFormAsync\"(\"FORM-ID\")` — never position them from COBOL: docked windows \
          follow the main window, move with it as one, and come forward together. Give the main window \
-         `screen-fill` (a share of the screen), `resizable=\"false\"` and `start-position=\"Center\"`, \
+         `screen-fill` (the share of the screen the whole group takes, docked windows included), \
+         `resizable=\"false\"` and `start-position=\"Center\"`; the group is then kept on the screen \
+         at any resolution — the main window shrinks to its smallest layout first, and only a group \
+         whose smallest layout is still too large is zoomed down as a whole, \
          and design every one of these forms at its SMALLEST size, laid out in Grid/Flex panels, so it \
          grows with the screen and never needs to shrink. Each window keeps its own language \
          timer; the language lives in a setting the forms share through Common Code.",

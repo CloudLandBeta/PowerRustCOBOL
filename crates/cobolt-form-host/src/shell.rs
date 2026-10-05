@@ -1433,10 +1433,15 @@ impl ShellApp {
             );
             (form.screen_fill, min, max)
         });
+        let window_limits = cobolt_forms::layout::size_limits_of(&form).map(|l| {
+            let (mw, mh) = l.window_max();
+            (egui::vec2(l.min.0, l.min.1), egui::vec2(mw, mh))
+        });
         let app = ShellApp {
             start_minimized,
             pending_start,
             pending_screen_fill,
+            window_limits,
             shell,
             chain,
             host,
@@ -1455,12 +1460,15 @@ impl ShellApp {
 pub(crate) struct ShellApp {
     /// The main form opens minimized (first frame: winit has no builder).
     start_minimized: bool,
-    /// A screen-relative designed StartPosition, applied once the monitor's
-    /// size is known.
+    /// A screen-relative designed StartPosition — read by every fit of the
+    /// window on the screen that places it (`FormHost::fit_group`).
     pending_start: Option<cobolt_forms::model::FormStartPosition>,
-    /// `ScreenFill` waiting for the monitor's size: the percentage and the
-    /// window's smallest and largest sizes.
+    /// `ScreenFill`: the percentage (and the window's smallest and largest
+    /// sizes), read by every fit that places the window.
     pending_screen_fill: Option<(u32, (f32, f32), (f32, f32))>,
+    /// A responsive main form's smallest and largest window sizes, which a fit
+    /// keeps the window within; `None` holds it at the size it has.
+    window_limits: Option<(egui::Vec2, egui::Vec2)>,
     shell: Shell,
     chain: NavChain,
     host: crate::FormHost,
@@ -2119,33 +2127,13 @@ impl ShellApp {
             self.start_minimized = false;
             root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
-        if self.pending_start.is_some() || self.pending_screen_fill.is_some() {
-            let ready = root_ui.ctx().input(|i| {
-                let v = i.viewport();
-                Some((v.monitor_size?, v.outer_rect?.size(), v.inner_rect?.size()))
-            });
-            if let Some((monitor, mut window, inner)) = ready {
-                // Size first, so the start position places the window it
-                // will actually be.
-                if let Some((fill, min, max)) = self.pending_screen_fill.take() {
-                    if let Some((w, h)) =
-                        cobolt_forms::model::screen_fill_size(fill, (monitor.x, monitor.y), min, max)
-                    {
-                        root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
-                        window = egui::vec2(w, h) + (window - inner);
-                    }
-                }
-                if let Some(start) = self.pending_start.take() {
-                    if let Some((x, y)) = cobolt_forms::model::resolved_start_position(
-                        start,
-                        (monitor.x, monitor.y),
-                        (window.x, window.y),
-                    ) {
-                        root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
-                    }
-                }
-            }
-        }
+        // ScreenFill, Start Position, and every window docked to the shell
+        // kept on the screen — as a form's own window does
+        // (`FormHost::fit_window_group`).
+        let ctx = root_ui.ctx().clone();
+        let fill = self.pending_screen_fill.map_or(0, |p| p.0);
+        let start = self.pending_start.unwrap_or(cobolt_forms::model::FormStartPosition::System);
+        self.host.fit_group(&ctx, fill, start, self.window_limits);
         // 051 R19 — while a Sync-opened (modal) child window lives, the WHOLE
         // shell face waits: chrome, breadcrumb and pane alike.
         if self.host.root_modal_blocked() {
@@ -3972,6 +3960,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             start_minimized: false,
             pending_start: None,
             pending_screen_fill: None,
+            window_limits: None,
             shell: Shell::default(),
             chain: NavChain::default(),
             host,
@@ -4111,6 +4100,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             start_minimized: false,
             pending_start: None,
             pending_screen_fill: None,
+            window_limits: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4285,6 +4275,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             start_minimized: false,
             pending_start: None,
             pending_screen_fill: None,
+            window_limits: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4432,6 +4423,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             start_minimized: false,
             pending_start: None,
             pending_screen_fill: None,
+            window_limits: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4563,6 +4555,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             start_minimized: false,
             pending_start: None,
             pending_screen_fill: None,
+            window_limits: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4687,6 +4680,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             start_minimized: false,
             pending_start: None,
             pending_screen_fill: None,
+            window_limits: None,
             shell: Shell::default(),
             chain,
             host,
@@ -5912,6 +5906,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             start_minimized: false,
             pending_start: None,
             pending_screen_fill: None,
+            window_limits: None,
                 shell,
                 chain,
                 host,

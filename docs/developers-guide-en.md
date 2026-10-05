@@ -6990,8 +6990,11 @@ properties, in the form's **Geometry** section, decide how a window opens:
   adapts to that size.
 - **Screen fill** (`ScreenFill`, 0 to 100 %). Above 0 the window opens at that
   share of the screen on each axis — within the form's own smallest and
-  largest layout — instead of at its designed size. Pair it with a responsive
-  layout and a Center start position, and the window fits any monitor.
+  largest layout — instead of at its designed size. When windows are docked
+  to it (below), the share is the whole group's: the main window takes what
+  is left once the docked windows and their gaps have theirs. Pair it with a
+  responsive layout and a Center start position, and the window fits any
+  monitor.
 - **Dock to opener** (`DockToOpener`: None, Top, Bottom, Left, Right) and
   **Dock gap** (`DockGap`, 16 px by default). A window opened from another
   form with `OpenFormSync` or `OpenFormAsync` sits just outside that edge of
@@ -7018,6 +7021,17 @@ from its `onLoad`:
        INVOKE me::"OpenFormAsync"("ROOMS-FORM") RETURNING WS-ROOMS
        INVOKE me::"OpenFormAsync"("RAIL-FORM") RETURNING WS-RAIL
 ```
+
+**Every window stays on the screen.** The main window and the windows docked
+to it are fitted on the screen together — the part of it a window may use,
+without the menu bar, the dock or the task bar — when the application starts
+and again whenever the screen changes (another resolution, another monitor).
+The main window shrinks first, never below its smallest layout. Only when even
+the smallest layout of the group does not fit is the whole application zoomed
+down — every window, its text and its controls alike, never below half size —
+so a 1000 × 600 dashboard with a toolbar, a rail and a tab strip around it
+still shows whole on a small laptop screen. A window you then move or resize
+stays where you put it.
 
 > ⚠️ **Caveat.** A docked window follows its opener a frame behind, so a fast
 > drag can show the gap stretch for an instant before it settles. Docking is

@@ -7313,8 +7313,12 @@ fn controls_reference_doc() -> String {
          `Resizable` (Boolean, default true — false: the borders do not drag; the layout \
          still adapts to the size the window opened at), `ScreenFill` (Integer 0-100, \
          default 0 — opens the window at that percentage of the screen on each axis, \
-         within the form's own size limits; 0 keeps the designed size; pair it with a \
-         responsive layout), `DockToOpener` (`\"None\"` | `\"Top\"` | `\"Bottom\"` | \
+         within the form's own size limits; with windows docked to it the share is the \
+         whole group's; 0 keeps the designed size; pair it with a responsive layout; the \
+         main window and its docked windows are always kept on the usable screen, at start \
+         and whenever the screen changes: the main window shrinks to its smallest layout \
+         first, and only a group still too large is zoomed down as a whole, never below \
+         half size), `DockToOpener` (`\"None\"` | `\"Top\"` | `\"Bottom\"` | \
          `\"Left\"` | `\"Right\"`, default None — a window opened with OpenFormSync or \
          OpenFormAsync sits just outside that edge of its opener's window, centred along \
          it; when the opener moves or changes size the docked window follows, once per \

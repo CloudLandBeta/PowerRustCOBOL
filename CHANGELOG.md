@@ -8,6 +8,38 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.185] — 2026-10-04
+
+### Fix: every window of a docked group stays on the screen, at any resolution
+
+PowerSpatial's dashboard, with its toolbar above, room bar below and rail
+beside it, showed whole only on a large screen: at 1352 × 878 and 1147 × 745
+the bars fell off the edges (operator, 2026-10-04: "I was supposed to be able
+to see all forms no matter what the resolution"). `ScreenFill` sized the main
+window alone and Start Position centred it alone, against the whole monitor —
+menu bar and dock included — and a main window whose smallest layout was larger
+than the screen had nowhere to go.
+
+The host now fits the main window and the windows docked to it together, on
+the usable screen (`cobolt_os_blur::usable_screen_area`: macOS's visible frame;
+elsewhere the monitor less a task bar), when the application starts — the
+docked windows open a frame or more after it, so for its first two seconds —
+and again whenever the screen changes. `ScreenFill` is the whole group's share;
+the main window shrinks first, never below its smallest layout; only a group
+whose smallest layout still does not fit zooms the whole application, down to
+half size (`cobolt_forms::model::fit_window_group`). A zoom is applied a frame
+before the sizes, which reach the platform in pixels worked out at the zoom in
+force, and the windows' limits are sent again with it. The macOS window-group
+calls now take screen points, so they still find the windows under a zoom.
+
+Hosts: the form window (`rcrun run-form`, the compiled binary through the same
+`cobolt-form-host`) and the application shell, whose own first-frame copy of the
+old sizing is replaced by the same fit. Tests
+`every_window_of_a_docked_group_is_on_the_screen_at_any_resolution`,
+`a_group_zooms_only_when_its_smallest_layout_does_not_fit`,
+`a_refit_keeps_the_size_and_only_pulls_the_group_back_on_screen`. Guide, System
+KB and the agent prompt updated.
+
 ## [PowerRustCOBOL 1.80.184] — 2026-10-04
 
 ### Fix: a chart no longer letters its type in a corner

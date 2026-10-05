@@ -634,6 +634,9 @@ impl FormHost {
                 );
                 (form.screen_fill, min, max)
             }),
+            group_fit_seen: None,
+            group_fit_started: None,
+            group_fit_zoom: 1.0,
             hooks,
             last_pane_backdrop_rect: None,
             last_pane_backdrop_fill: None,
@@ -3404,8 +3407,13 @@ fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: eg
     // in the same screen update, while the opener is dragged, instead of this
     // host chasing it a frame behind — the jagged edge between a moving
     // dashboard and its bars. Tried each frame until it takes.
+    // The native calls take screen points; egui's are those over the zoom
+    // (`fit_window_group` zooms a group too large for the screen).
+    let zoom = ctx.zoom_factor() as f64;
+    let rect = |r: egui::Rect| {
+        (r.min.x as f64 * zoom, r.min.y as f64 * zoom, r.width() as f64 * zoom, r.height() as f64 * zoom)
+    };
     if !child.dock_attached {
-        let rect = |r: egui::Rect| (r.min.x as f64, r.min.y as f64, r.width() as f64, r.height() as f64);
         child.dock_attached = cobolt_os_blur::attach_child_window(rect(o), rect(m));
     }
     // A click on a docked window brings its whole group forward: the opener
@@ -3414,7 +3422,6 @@ fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: eg
     // brings all of them to the front"). Once per gain of focus.
     let focused = ctx.input_for(child.viewport_id, |i| i.viewport().focused).unwrap_or(false);
     if focused && !child.dock_focused {
-        let rect = |r: egui::Rect| (r.min.x as f64, r.min.y as f64, r.width() as f64, r.height() as f64);
         cobolt_os_blur::raise_group(rect(o));
     }
     child.dock_focused = focused;
@@ -3447,6 +3454,11 @@ fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: eg
     }
     child.dock_opener_seen = Some(o);
 }
+
+/// What a fit of the main window's group was made for
+/// ([`FormHost::fit_window_group`]): the usable screen, rounded, and each
+/// docked window's edge, gap and thickness.
+type GroupFitKey = ([i32; 4], Vec<(cobolt_forms::model::DockEdge, i32, i32)>);
 
 /// The id space a child window's controls are rendered in: its viewport, for a
 /// real window, and its layer, for one embedded in another's viewport.
@@ -3720,13 +3732,23 @@ pub struct FormHost {
     /// pre-minimized builder, so the first frame sends the command once.
     start_minimized: bool,
     /// A screen-relative Start Position (the eight edge/corner positions or
-    /// Center) — `None` once applied, or when the form is `System`/`Custom`
-    /// and needs no first-frame command at all (`Custom` is already in the
-    /// viewport builder; `System` means "do not touch it").
+    /// Center) — `None` when the form is `System`/`Custom` (`Custom` is
+    /// already in the viewport builder; `System` means "do not touch it").
+    /// Read by every [`Self::fit_window_group`] that places the group.
     pending_start_position: Option<cobolt_forms::model::FormStartPosition>,
-    /// `ScreenFill` waiting for the monitor's size: the percentage and the
-    /// window's smallest and largest sizes.
+    /// `ScreenFill`: the percentage and the window's smallest and largest
+    /// sizes. Read by every [`Self::fit_window_group`] that places the group,
+    /// so it is kept, not consumed.
     pending_screen_fill: Option<(u32, (f32, f32), (f32, f32))>,
+    /// The main window's group — it and the windows docked to it — as last
+    /// fitted on the screen: the usable area, and each docked window's edge,
+    /// gap and thickness. A change fits the group again.
+    group_fit_seen: Option<GroupFitKey>,
+    /// When the group was first fitted: the docked windows that open within
+    /// the next moments are part of the start.
+    group_fit_started: Option<std::time::Instant>,
+    /// The zoom the windows' limits and sizes were last sent at.
+    group_fit_zoom: f32,
     /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
     supervisor: cobolt_runtime::form_host::FormSupervisor,
     /// Requests from the interpreter thread (OpenForm*, handle methods, …).
@@ -3853,6 +3875,159 @@ impl FormHost {
     /// here: in `Pane` mode the SHELL owns the only window, so a form-issued
     /// window command is a no-op by construction rather than by scattered
     /// guards.
+    /// Keep the main window and every window docked to it on the screen
+    /// (operator, 2026-10-04: "I was supposed to be able to see all forms no
+    /// matter what the resolution"). `ScreenFill` used to size the main window
+    /// alone and Start Position to centre it alone, so the bars docked around
+    /// a dashboard fell off a smaller screen — and a dashboard whose smallest
+    /// layout was larger than the screen had nowhere to go.
+    ///
+    /// The group is fitted once the monitor and every docked window have
+    /// reported, and again whenever the usable screen or the docked set
+    /// changes — never every frame, so a window the operator moves or resizes
+    /// stays where they put it. `cobolt_forms::model::fit_window_group` does
+    /// the geometry: the main window shrinks first, and only a group whose
+    /// smallest layout still does not fit zooms the whole application.
+    fn fit_window_group(&mut self, ctx: &egui::Context) {
+        if self.surface != Surface::Window {
+            return;
+        }
+        let limits = self.root.responsive.as_ref().map(|spec| spec.size_limits(&self.root.controls, self.root.form_size));
+        self.fit_group(
+            ctx,
+            self.pending_screen_fill.map_or(0, |p| p.0),
+            self.pending_start_position.unwrap_or(cobolt_forms::model::FormStartPosition::System),
+            limits,
+        );
+    }
+
+    /// [`Self::fit_window_group`] for the window this host's root draws in —
+    /// its own, or the application shell's (`shell.rs`, where the form is a
+    /// pane and the shell owns `ScreenFill` and Start Position). `limits` are
+    /// the window's smallest and largest inner sizes; `None` holds it at the
+    /// size it has.
+    pub(crate) fn fit_group(
+        &mut self,
+        ctx: &egui::Context,
+        fill: u32,
+        start: cobolt_forms::model::FormStartPosition,
+        limits: Option<(egui::Vec2, egui::Vec2)>,
+    ) {
+        use cobolt_forms::model::{DockEdge, DockedExtent};
+        let zoom = ctx.zoom_factor();
+        let Some((monitor, outer, inner, whole_screen)) = ctx.input(|i| {
+            let v = i.viewport();
+            let whole = v.maximized.unwrap_or(false) || v.fullscreen.unwrap_or(false);
+            Some((v.monitor_size?, v.outer_rect?, v.inner_rect?, whole))
+        }) else {
+            return;
+        };
+        if whole_screen {
+            return;
+        }
+        // The windows docked to this one — not those docked to another child.
+        let mut docked = Vec::new();
+        for c in &self.children {
+            if c.dock == DockEdge::None {
+                continue;
+            }
+            let on_root = self
+                .supervisor
+                .caller_of(&c.handle)
+                .is_none_or(|caller| !self.children.iter().any(|w| w.handle == caller));
+            if !on_root {
+                continue;
+            }
+            // Not up yet: wait for it rather than fit the group twice.
+            if ctx.input_for(c.viewport_id, |i| i.viewport().outer_rect).is_none() {
+                return;
+            }
+            // Its declared size, not the one it reports: right after a zoom
+            // the reported one is the old pixels over the new zoom, and would
+            // refit the group against a size that is about to change.
+            let across = if matches!(c.dock, DockEdge::Top | DockEdge::Bottom) { c.size.y } else { c.size.x };
+            docked.push(DockedExtent { edge: c.dock, gap: c.dock_gap, across });
+        }
+        // The usable screen, in screen points: what the platform reports, or
+        // the monitor less room for a task bar.
+        let area = cobolt_os_blur::usable_screen_area()
+            .map(|(x, y, w, h)| (x as f32, y as f32, w as f32, h as f32))
+            .unwrap_or((0.0, 0.0, monitor.x * zoom, (monitor.y * zoom - 48.0).max(1.0)));
+        let key: GroupFitKey = (
+            [area.0, area.1, area.2, area.3].map(|v| v.round() as i32),
+            docked.iter().map(|d| (d.edge, d.gap.round() as i32, d.across.round() as i32)).collect(),
+        );
+        if self.group_fit_seen.as_ref() == Some(&key) {
+            return;
+        }
+        // A new screen, or the docked windows arriving while the application
+        // starts (each opens a frame or more after the last), places the group
+        // as at start; a later change only pulls it back onto the screen.
+        let started = *self.group_fit_started.get_or_insert_with(std::time::Instant::now);
+        let place = self.group_fit_seen.as_ref().is_none_or(|(a, _)| *a != key.0)
+            || started.elapsed() < std::time::Duration::from_secs(2);
+        self.group_fit_seen = Some(key);
+        let size = |r: egui::Rect| (r.width(), r.height());
+        let (min, max) = limits.map_or((size(inner), size(inner)), |(a, b)| ((a.x, a.y), (b.x, b.y)));
+        let fit = cobolt_forms::model::fit_window_group(
+            area,
+            ((outer.width() - inner.width()) * zoom, (outer.height() - inner.height()) * zoom),
+            fill,
+            min,
+            max,
+            size(inner),
+            (outer.min.x * zoom, outer.min.y * zoom),
+            &docked,
+            start,
+            place,
+        );
+        // A new zoom takes effect on the next frame, and a size sent now would
+        // reach the platform worked out at the old one: change the zoom, and
+        // fit again once it is in force.
+        if (fit.zoom - zoom).abs() > 1e-3 {
+            ctx.set_zoom_factor(fit.zoom);
+            self.group_fit_seen = None;
+            ctx.request_repaint();
+            return;
+        }
+        let zoomed = (self.group_fit_zoom - zoom).abs() > 1e-3;
+        if zoomed {
+            self.group_fit_zoom = zoom;
+            // A window's limits and size reach the platform in pixels, worked
+            // out at the zoom they were sent with: send them again, limits
+            // first, so the new size is not refused by the old floor.
+            if let Some((min, max)) = limits {
+                self.root_min_inner = Some((min, max));
+                ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min));
+                ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(max));
+            }
+            for c in &mut self.children {
+                if let Some(spec) = c.body.responsive.as_ref() {
+                    let (min, max) = spec.size_limits(&c.body.controls, c.body.form_size);
+                    let extra = c.nav.as_ref().map_or(egui::Vec2::ZERO, |n| {
+                        egui::vec2(
+                            n.shell.menu_pane_width(),
+                            if n.shell.full_height { 0.0 } else { n.shell.breadcrumb_height },
+                        )
+                    });
+                    ctx.send_viewport_cmd_to(c.viewport_id, egui::ViewportCommand::MinInnerSize(min + extra));
+                    ctx.send_viewport_cmd_to(c.viewport_id, egui::ViewportCommand::MaxInnerSize(max + extra));
+                }
+                ctx.send_viewport_cmd_to(c.viewport_id, egui::ViewportCommand::InnerSize(c.size));
+                // Docked again against the opener's new size and place.
+                c.dock_opener_seen = None;
+            }
+        }
+        let want = egui::vec2(fit.inner.0, fit.inner.1);
+        if zoomed || (want - inner.size()).length() > 0.5 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(want));
+        }
+        let pos = egui::pos2(fit.pos.0 / fit.zoom, fit.pos.1 / fit.zoom);
+        if zoomed || (pos - outer.min).length() > 0.5 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+        }
+    }
+
     fn viewport_cmd(&self, ctx: &egui::Context, cmd: egui::ViewportCommand) {
         if self.surface == Surface::Window {
             ctx.send_viewport_cmd(cmd);
@@ -5667,38 +5842,11 @@ impl FormHost {
             self.start_minimized = false;
             self.viewport_cmd(ctx,egui::ViewportCommand::Minimized(true));
         }
-        // Window start position — the eight edge/corner positions and Center
-        // need the monitor's size, which (unlike `start_minimized` above)
-        // winit may not have reported yet on the very first frame; keep this
-        // pending until both it and the window's own outer size are known,
-        // rather than consuming the flag against absent data.
-        if self.pending_start_position.is_some() || self.pending_screen_fill.is_some() {
-            let ready = ctx.input(|i| {
-                let v = i.viewport();
-                Some((v.monitor_size?, v.outer_rect?.size(), v.inner_rect?.size()))
-            });
-            if let Some((monitor, mut window, inner)) = ready {
-                // Size first, so the start position places the window it
-                // will actually be.
-                if let Some((fill, min, max)) = self.pending_screen_fill.take() {
-                    if let Some((w, h)) =
-                        cobolt_forms::model::screen_fill_size(fill, (monitor.x, monitor.y), min, max)
-                    {
-                        self.viewport_cmd(ctx, egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
-                        window = egui::vec2(w, h) + (window - inner);
-                    }
-                }
-                if let Some(pos) = self.pending_start_position.take() {
-                    if let Some((x, y)) = cobolt_forms::model::resolved_start_position(
-                        pos,
-                        (monitor.x, monitor.y),
-                        (window.x, window.y),
-                    ) {
-                        self.viewport_cmd(ctx, egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
-                    }
-                }
-            }
-        }
+        // ScreenFill, Start Position, and the whole group on the screen: the
+        // main window and the windows docked to it are sized and placed
+        // together, once the monitor and every docked window have reported,
+        // and again whenever the screen changes (`fit_window_group`).
+        self.fit_window_group(ctx);
         // Theme pack + glass style for the unified painter (per frame — same
         // contract every host follows).
         self.publish_root_theme(ctx);
