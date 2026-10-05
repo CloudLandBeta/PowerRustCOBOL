@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.189] — 2026-10-05
+
+### Spec 087 draft: embedded SQL (`EXEC SQL`) in RustCOBOL
+
+`specs/087-exec-sql/spec.md` — the requirements for writing SQL inside a
+COBOL program between `EXEC SQL` and `END-EXEC`, the way the PowerCOBOL
+applications spec 086 converts do (99 `SELECT … INTO`, 34 cursors, 40
+`COMMIT` and 13 `PREPARE` across the operator's sample application, which
+086 can only keep as comments today). 52 EARS requirements and 18 acceptance
+criteria: host and indicator variables bound as parameters, never spliced
+into the text; stand-alone `SQLSTATE` / `SQLCODE` / `SQLMSG` and
+`INCLUDE SQLCA` with `WHENEVER`; cursors; database transactions kept apart
+from the INDEXED-file `COMMIT` / `ROLLBACK`; project data sources with
+credentials in the secure store, a Data Sources page with Test connection,
+and a `datasources.toml` beside a built binary; dynamic SQL with `DESCRIBE`
+and a descriptor area; and a `DataSource` property for the `SqlDatabase`
+control. The SQL text goes to SQLite, PostgreSQL or MySQL unchanged. The
+concepts follow IBM's public description of COBOL programs that issue SQL;
+no IBM example, code or layout is used. The operator settled Q1–Q7
+(2026-10-05). Specification only — no code changes.
+
 ## [PowerRustCOBOL 1.80.188] — 2026-10-04
 
 ### README: building applications with Claude Code, up front
