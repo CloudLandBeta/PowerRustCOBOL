@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.190] — 2026-10-05
+
+### Spec 087 approved: embedded SQL (`EXEC SQL`) in RustCOBOL
+
+The operator approved `specs/087-exec-sql/spec.md` with its seven questions
+settled: project data sources by name, with credentials in the machine's
+secure store and a Data Sources page with Test connection; full dynamic SQL,
+`DESCRIBE` and the descriptor area included; both status styles (stand-alone
+`SQLSTATE` / `SQLCODE` / `SQLMSG`, and `INCLUDE SQLCA` with `WHENEVER`); SQL
+text passed to the database unchanged; commit at a normal end of the run unit
+and rollback when it stops on an error; a `datasources.toml` beside a built
+binary, overridable by environment variables, never holding a password; and
+a `DataSource` property for the `SqlDatabase` control. Next: `/plan`. No code
+changes.
+
 ## [PowerRustCOBOL 1.80.189] — 2026-10-05
 
 ### Spec 087 draft: embedded SQL (`EXEC SQL`) in RustCOBOL

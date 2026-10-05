@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — Embedded SQL (`EXEC SQL`) in RustCOBOL
 
-- **Status:** draft — §7 Q1–Q7 settled by the operator (2026-10-05)
+- **Status:** approved (operator, 2026-10-05; Q1–Q7 settled in §7)
 - **Folder:** specs/087-exec-sql/
 - **Author:** Claude (for Emerson Lopes)   **Date:** 2026-10-05
 
