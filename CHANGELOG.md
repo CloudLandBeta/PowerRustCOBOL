@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.187] — 2026-10-04
+
+### PowerSpatial: the operator's touches
+
+The operator's own edits to the PowerSpatial example: the music player's
+waveform bars are rounder (`BarCornerRadius` 2 → 9), and the manifest, as the
+IDE re-saved it, lists one asset per line and records the version it was last
+built with.
+
 ## [PowerRustCOBOL 1.80.186] — 2026-10-04
 
 ### Toolbar buttons can be enabled and disabled from COBOL

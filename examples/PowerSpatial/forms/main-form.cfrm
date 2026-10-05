@@ -2230,7 +2230,7 @@
     <Property name="HideBackground">true</Property>
     <Property name="Monochrome">true</Property>
     <Property name="MonochromeColor">#0A84FFFF</Property>
-    <Property name="BarCornerRadius">2</Property>
+    <Property name="BarCornerRadius">9</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="GridColumn">2</Property>
     <Property name="GridRow">3</Property>

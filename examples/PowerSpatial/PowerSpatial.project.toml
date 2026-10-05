@@ -11,7 +11,7 @@ license_model = ""
 license_text = ""
 destination_folder = "dist"
 debug_compilation = true
-built_with_version = "1.80.181"
+built_with_version = "1.80.182"
 
 [files]
 sources = [
@@ -68,7 +68,11 @@ assets = [
     "Assets/images/thermostat.svg",
     "Assets/images/weather.svg",
     "Assets/images/Titan_Voyages_Logo_270x80.png",
-    "Assets/icons/close.svg", "Assets/images/bulb.png", "Assets/images/speaker.png", "Assets/images/speaker.jpg", "Assets/images/066440c2-53db-4f25-9719-6e6ef28d2a55.png",
+    "Assets/icons/close.svg",
+    "Assets/images/bulb.png",
+    "Assets/images/speaker.png",
+    "Assets/images/speaker.jpg",
+    "Assets/images/066440c2-53db-4f25-9719-6e6ef28d2a55.png",
 ]
 documentation = []
 generated = [
