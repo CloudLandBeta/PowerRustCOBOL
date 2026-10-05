@@ -11055,18 +11055,21 @@ rules, which the servers give it on connecting and its reviewer checks:
 
 1. **Responsive** — every form adapts to any screen resolution and form factor.
 2. **Spatial** — the IDE and the forms wear the Spatial theme.
-3. **Side menu and embedded forms** — a SideMenu on the main form, every screen
+3. **High-contrast text, in every theme** — every control that shows text
+   carries an explicit ink that contrasts strongly with the surface it sits on
+   (at least WCAG AA), checked on screens with real data in them.
+4. **Side menu and embedded forms** — a SideMenu on the main form, every screen
    loaded into its ContentPane, unless you ask for something else.
-4. **Slick and lean** — few controls per screen, even spacing, one accent
+5. **Slick and lean** — few controls per screen, even spacing, one accent
    colour, nothing decorative for its own sake.
-5. **Built-in controls first** — DataGrid, DateTimePicker, Snackbar, the charts,
+6. **Built-in controls first** — DataGrid, DateTimePicker, Snackbar, the charts,
    IndexedFile, RestClient and the rest, rather than hand-built equivalents.
-6. **Six languages** — every text the operator sees in English, Portuguese,
+7. **Six languages** — every text the operator sees in English, Portuguese,
    Spanish, French, Japanese and Chinese, switched at run time.
-7. **GitHub if you want it** — the agent offers to keep the project in a
+8. **GitHub if you want it** — the agent offers to keep the project in a
    private GitHub repository and helps you set it up; the application works
    just as well without it.
-8. **PowerChat only when asked** — the agent leaves room in the side menu for
+9. **PowerChat only when asked** — the agent leaves room in the side menu for
    an Assistant entry, and adds PowerChat only when you ask (`add_powerchat`,
    below).
 

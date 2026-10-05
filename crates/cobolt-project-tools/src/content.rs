@@ -246,7 +246,7 @@ pub fn server_instructions(version: &str) -> String {
 
 /// The golden rules for every application a coding agent builds (operator,
 /// 2026-10-03): `(id, rule)`, in the order they are told.
-pub const APPLICATION_RULES: [(&str, &str); 8] = [
+pub const APPLICATION_RULES: [(&str, &str); 9] = [
     (
         "responsive",
         "Responsive. Every form is responsive (`responsive=\"true\"`) and holds together at any screen \
@@ -274,6 +274,22 @@ pub const APPLICATION_RULES: [(&str, &str); 8] = [
          operator reads contrasts strongly with what it sits on: on Spatial's dark glass that is white \
          text — set `ForegroundColor` `#FFFFFFFF` on every TextBox, ComboBox, ListBox and other \
          data-entry control too, never their default black.",
+    ),
+    (
+        "contrast",
+        "High-contrast text — always, in EVERY theme (Spatial, Elegance, Liquid Glass, Neumorphic, any \
+         asset pack). Never leave a text colour to the theme or to a control's default: every control \
+         that shows text MUST carry an explicit ink that contrasts strongly with the surface it actually \
+         sits on — `ForegroundColor` on every Label, Button, CheckBox, RadioButton, GroupBox, TextBox, \
+         ComboBox, ListBox, NumericUpDown, DateTimePicker, TreeView, DataGrid and Snackbar, plus the \
+         control's other inks: `HeaderForegroundColor` and `FilterForegroundColor` on a DataGrid, \
+         `ActiveTabForegroundColor` and `InactiveTabForegroundColor` on a TabControl, `SelectedFgColor` \
+         and `HighlightFgColor` on a SideMenu or MenuBar. Light ink (`#FFFFFFFF`, `#F8FAFCFF`) on a dark \
+         surface, dark ink (`#0F172AFF`, `#000000FF`) on a light one; at least WCAG AA — 4.5:1 for body \
+         text, 3:1 for large text — and never grey on grey, dark on dark or light on light. Verify every \
+         screen with `render_form` AND with `run_form` once data is in it (grid rows, list items, values \
+         in boxes, disabled controls, hint text): text the operator has to squint at is a defect, and the \
+         screen is not done until it is fixed.",
     ),
     (
         "shell",

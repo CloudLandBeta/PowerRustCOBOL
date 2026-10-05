@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.194] — 2026-10-05
+
+### Agent golden rules: high-contrast text, in every theme
+
+The golden rules the coding-agent servers send on connecting
+(`APPLICATION_RULES`, crates/cobolt-project-tools/src/content.rs) gain a third
+rule, "contrast". Every control that shows text must carry an explicit ink that
+contrasts strongly with the surface it actually sits on: `ForegroundColor` and
+the control's other inks (DataGrid header and filter, TabControl tabs, SideMenu
+selection and hover). That means light ink on dark surfaces and dark ink on light
+ones, at least WCAG AA. Every screen is checked with `render_form` and with
+`run_form` once data is in it. Until now, contrast was only spelled out for Spatial,
+and agents left text colours to theme defaults in the other themes, which gave
+dark-on-dark text. The Developer's Guide's list of golden rules shows it as rule 3.
+
 ## [PowerRustCOBOL 1.80.193] — 2026-10-05
 
 ### Spec 087 tasks: embedded SQL broken into 40 verifiable steps
