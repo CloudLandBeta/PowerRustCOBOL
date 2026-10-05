@@ -2216,8 +2216,8 @@ impl FormBody {
         // `ToolbarLayout` off the live control as it always has, and the next
         // frame is already correct.
         //
-        // The interpreter has already refused anything but a colour or a tooltip,
-        // out loud; this only carries an allowed write home.
+        // The interpreter has already refused anything but a colour, a tooltip or
+        // Enabled, out loud; this only carries an allowed write home.
         if self.apply_toolbar_button_write(&key, &u.prop, &u.value) {
             return;
         }

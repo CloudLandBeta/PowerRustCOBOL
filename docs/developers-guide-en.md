@@ -4259,16 +4259,32 @@ or the form needs works the way you would write it — the handler runs first.
 
 ##### Changing a button while the form runs
 
-A button lets your COBOL change its **colours** and its **tooltip**:
+A button lets your COBOL change its **colours**, its **tooltip**, and whether
+it is **enabled**:
 
 ```cobol
            MOVE "#204080FF" TO TOOLBAR-1-FMTG-BNSQ::BackgroundColor.
            MOVE "Record saved" TO TOOLBAR-1-FMTG-BNSQ::Tooltip.
+           INVOKE TOOLBAR-1-FMTG-BNSQ::Disable().
+```
+
+A disabled button dims and ignores clicks — neither the toolbar's `onClick` nor
+the button's own fires — until `Enable()` turns it back on. `MOVE 0 TO
+TOOLBAR-1-FMTG-BNSQ::Enabled` and `MOVE 1 TO …` do the same, so a Save button can
+stay greyed out until the record has changed:
+
+```cobol
+           IF WS-RECORD-CHANGED = "Y"
+               INVOKE TOOLBAR-1-FMTG-BNSQ::Enable()
+           ELSE
+               INVOKE TOOLBAR-1-FMTG-BNSQ::Disable()
+           END-IF
 ```
 
 
 | Writable                                          |                                           |
 | ------------------------------------------------- | ----------------------------------------- |
+| `Enabled`                                         | On (`1`) or off (`0`); also `Enable()`/`Disable()`. |
 | `Tooltip`                                         | The hover text.                           |
 | `BackgroundColor`, `ForegroundColor`, `IconColor` | The button's face, its text and its icon. |
 | `GradientStartColor`, `GradientEndColor`          | Its gradient, when it has one.            |
@@ -4278,7 +4294,7 @@ Setting a colour to **spaces** puts it back to inheriting — from its group, th
 from the form's theme — exactly what the ✕ beside it does in the editor.
 
 **Everything else is refused, and refused out loud.** A write to a button's width,
-height, corner radius, label, icon, enabled flag or action is a **runtime error**
+height, corner radius, label, icon or action is a **runtime error**
 naming the property and what is allowed instead:
 
 ```cobol

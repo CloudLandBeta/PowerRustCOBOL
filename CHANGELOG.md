@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.186] — 2026-10-04
+
+### Toolbar buttons can be enabled and disabled from COBOL
+
+`INVOKE TLB-PADRAO-ZLGW-IXPR::Disable()` stopped the form with "not available
+on a toolbar button" (a developer's report, 2026-10-04): a button let COBOL
+change only its colours and its tooltip. Whether a button is enabled is state,
+not layout — a Save button greyed out until there is something to save — so it
+is now writable too (operator ruling, 2026-10-04): `Enable()`, `Disable()`,
+`MOVE 0/1 TO <button>::Enabled` and `SetProperty "Enabled"` all reach the
+toolbar's live definition, where the button dims and ignores clicks exactly as
+one designed disabled does. Size, label, icon and action stay refused, out loud.
+
+`cobolt_forms::toolbar::BUTTON_WRITABLE` gains `Enabled` (read as every
+control's Enabled is: blank, 0 or false is off), the interpreter lets
+`Enable`/`Disable` past the button gate, the refusal messages name the new
+allowed set, and the COBOL editor offers both methods on a button. Tests
+`a_button_is_enabled_and_disabled_through_every_door` (five doors) and the
+extended `apply_button_write` test. Guide, System KB updated.
+
 ## [PowerRustCOBOL 1.80.185] — 2026-10-04
 
 ### Fix: every window of a docked group stays on the screen, at any resolution

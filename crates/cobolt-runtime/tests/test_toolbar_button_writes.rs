@@ -6,7 +6,8 @@
 
 //! What a form's COBOL may change about a toolbar BUTTON while it runs.
 //!
-//! Its **colours** and its **tooltip**, and nothing else (operator, 2026-08-17).
+//! Its **colours**, its **tooltip** (operator, 2026-08-17) and whether it is
+//! **enabled** (operator, 2026-10-04), and nothing else.
 //! The toolbar owns the layout — that is what keeps the buttons arranged the way
 //! the developer built them, and there would be nothing to put a self-moving
 //! button back.
@@ -111,6 +112,43 @@ fn a_colour_and_a_tooltip_go_through() {
 }
 
 #[test]
+fn a_button_is_enabled_and_disabled_through_every_door() {
+    // The developer's report (2026-10-04) used the inline form; the others are
+    // the same write by another door.
+    let cases: [(&str, &str, &str); 5] = [
+        ("INVOKE x::Disable()", "           INVOKE TOOLBAR-1-GROUP-1-BUTTON-1::Disable().", "0"),
+        ("INVOKE x::Enable()", "           INVOKE TOOLBAR-1-GROUP-1-BUTTON-1::Enable().", "1"),
+        ("INVOKE x \"Disable\"", "           INVOKE TOOLBAR-1-GROUP-1-BUTTON-1 \"Disable\".", "0"),
+        ("MOVE … TO x::Enabled", "           MOVE 0 TO TOOLBAR-1-GROUP-1-BUTTON-1::Enabled.", "0"),
+        (
+            "INVOKE … \"SetProperty\"",
+            "           INVOKE TOOLBAR-1-GROUP-1-BUTTON-1 \"SetProperty\"\n               \
+             USING \"Enabled\" \"1\".",
+            "1",
+        ),
+    ];
+    for (door, body, want) in cases {
+        let (outcome, updates) = run_with_button(body);
+        outcome.unwrap_or_else(|e| panic!("{door} must run: {e}"));
+        assert!(
+            updates
+                .iter()
+                .any(|u| u.ctrl_id == "TOOLBAR-1-GROUP-1-BUTTON-1"
+                    && u.prop.eq_ignore_ascii_case("Enabled")
+                    // Each door spells it its own way (`0`, `false`); the host
+                    // reads them all as every control's Enabled is read.
+                    && (u.value == want || u.value == if want == "1" { "true" } else { "false" })),
+            "{door}: Enabled = {want} never reached the host: {updates:?}"
+        );
+    }
+    println!(
+        "\n  Toolbar button Enabled — {} doors (Enable(), Disable(), INVOKE \"Disable\", \
+         MOVE … TO x::Enabled, SetProperty) all run and send Enabled to the host\n",
+        cases.len()
+    );
+}
+
+#[test]
 fn everything_else_is_refused_out_loud() {
     // Geometry, through each of the three doors.
     let cases: [(&str, &str); 3] = [
@@ -137,7 +175,7 @@ fn everything_else_is_refused_out_loud() {
             "{door}: the error must say why: {err}"
         );
         assert!(
-            err.contains("colours and its tooltip"),
+            err.contains("its tooltip and whether it is enabled"),
             "{door}: …and what is allowed instead: {err}"
         );
         assert!(

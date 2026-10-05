@@ -921,8 +921,10 @@ pub fn find_button(controls: &[Control], control_id: &str) -> Option<ButtonRef> 
 
 // ── What COBOL may change about a button ──────────────────────────────────────
 
-/// The properties a form's COBOL may write on a toolbar button: its **colours**
-/// and its **tooltip** (operator, 2026-08-17). Nothing else.
+/// The properties a form's COBOL may write on a toolbar button: its **colours**,
+/// its **tooltip** (operator, 2026-08-17) and whether it is **enabled**
+/// (operator, 2026-10-04 — a Save button greyed out until there is something to
+/// save is state, not layout). Nothing else.
 ///
 /// The toolbar owns the layout, which is why geometry is not programmable — a
 /// button that could move itself would break the arrangement the developer built
@@ -933,6 +935,7 @@ pub fn find_button(controls: &[Control], control_id: &str) -> Option<ButtonRef> 
 /// silent no-op is how a developer loses an afternoon wondering why the line did
 /// nothing. See [`apply_button_write`].
 pub const BUTTON_WRITABLE: &[&str] = &[
+    "Enabled",
     "Tooltip",
     "BackgroundColor",
     "ForegroundColor",
@@ -966,8 +969,8 @@ impl std::fmt::Display for WriteRefused {
 pub fn refusal_message(control_id: &str, prop: &str) -> WriteRefused {
     WriteRefused(format!(
         "'{}::{}' cannot be written: a toolbar button is laid out by its toolbar, \
-         so only its colours and its tooltip can change while the form runs \
-         (allowed: {})",
+         so only its colours, its tooltip and whether it is enabled can change \
+         while the form runs (allowed: {})",
         control_id,
         prop.trim(),
         BUTTON_WRITABLE.join(", ")
@@ -1006,6 +1009,13 @@ pub fn apply_button_write(
     let value = value.trim().to_owned();
     if prop.eq_ignore_ascii_case("Tooltip") {
         button.tooltip = value;
+        return Ok(());
+    }
+    // The same reading every control's `Enabled` gets: empty, 0 or false turn
+    // it off. A disabled button dims and ignores presses (`toolbar_paint`,
+    // `render`), exactly as one designed disabled does.
+    if prop.eq_ignore_ascii_case("Enabled") {
+        button.enabled = !matches!(value.to_ascii_lowercase().as_str(), "" | "0" | "false");
         return Ok(());
     }
     // A colour. Empty puts the field back to inheriting — from the group, then
@@ -1534,26 +1544,34 @@ mod tests {
 
         // Everything else is refused, and the refusal names the button, the
         // property and what IS allowed.
-        for prop in ["Width", "Height", "X", "Y", "CornerRadius", "Label", "Icon", "Enabled", "Action"] {
+        for prop in ["Width", "Height", "X", "Y", "CornerRadius", "Label", "Icon", "Action"] {
             assert!(!button_writable(prop), "{prop} must not be writable");
             let err = apply_button_write(&mut def, "button-1", prop, "40")
                 .expect_err("must be refused");
             assert!(err.0.contains(prop), "the refusal must name {prop}: {}", err.0);
             assert!(
-                err.0.contains("colours and its tooltip"),
+                err.0.contains("its tooltip and whether it is enabled"),
                 "…and say what is allowed: {}",
                 err.0
             );
         }
+        // Enabled: off and back on, read the way every control's Enabled is.
+        for (value, want) in [("0", false), ("1", true), ("false", false), ("TRUE", true), ("", false)] {
+            apply_button_write(&mut def, "button-1", "Enabled", value).expect("Enabled is writable");
+            assert_eq!(def.button("button-1").expect("found").enabled, want, "Enabled = {value:?}");
+        }
+        apply_button_write(&mut def, "button-1", "enabled", "1").expect("case-insensitive");
+        assert!(def.button("button-1").expect("found").enabled);
+
         // A button that is not there is refused too, not created.
         assert!(apply_button_write(&mut def, "button-9", "Tooltip", "x").is_err());
         assert_eq!(def.buttons().count(), 1);
 
         println!(
-            "\n  Toolbar button writes — {} properties accepted (Tooltip + 6 colours) and \
-             applied where the painter reads them; blank restores inheriting; \
-             Width/Height/X/Y/CornerRadius/Label/Icon/Enabled/Action all refused with a \
-             message naming the property and the allowed set\n",
+            "\n  Toolbar button writes — {} properties accepted (Enabled + Tooltip + 6 \
+             colours) and applied where the painter reads them; blank restores inheriting; \
+             Enabled read as 0/1/false/TRUE/blank; Width/Height/X/Y/CornerRadius/Label/Icon/\
+             Action all refused with a message naming the property and the allowed set\n",
             BUTTON_WRITABLE.len()
         );
     }

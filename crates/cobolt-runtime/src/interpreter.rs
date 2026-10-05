@@ -5848,9 +5848,10 @@ impl Interpreter {
                 }
                 // `INVOKE <button> "SetSomething"` is the third door onto a
                 // property, and a toolbar button holds it to the same rule as the
-                // other two: colours and tooltip through, the rest refused out
-                // loud. Every setter but `SetProperty` writes something a button
-                // does not own, so a button answers only the two generic ones.
+                // other two: colours, tooltip and Enabled through, the rest
+                // refused out loud. Every setter but `SetProperty` writes
+                // something a button does not own, so a button answers only the
+                // two generic ones — and `Enable`/`Disable`, which write Enabled.
                 if self.is_toolbar_button(object) {
                     let m = method.trim().to_ascii_uppercase();
                     match m.as_str() {
@@ -5861,14 +5862,14 @@ impl Interpreter {
                                 .unwrap_or_default();
                             self.check_button_write(object, &prop)?;
                         }
-                        "GETPROPERTY" => {}
+                        "GETPROPERTY" | "ENABLE" | "DISABLE" => {}
                         _ => {
                             return Err(RuntimeError::General {
                                 message: format!(
                                     "'{}::{}' is not available on a toolbar button: a button \
-                                     is laid out by its toolbar, so it answers SetProperty \
-                                     and GetProperty for its colours and its tooltip \
-                                     (allowed: {})",
+                                     is laid out by its toolbar, so it answers Enable, Disable, \
+                                     and SetProperty and GetProperty for its colours, its \
+                                     tooltip and Enabled (allowed: {})",
                                     object.trim(),
                                     method.trim(),
                                     cobolt_forms::toolbar::BUTTON_WRITABLE.join(", ")
@@ -14582,8 +14583,9 @@ impl Interpreter {
     /// Refuse a COBOL write to a toolbar-button property that is not the form's
     /// to change.
     ///
-    /// A toolbar button is laid out BY ITS TOOLBAR, so only its colours and its
-    /// tooltip can change while the form runs (operator, 2026-08-17). A refused
+    /// A toolbar button is laid out BY ITS TOOLBAR, so only its colours, its
+    /// tooltip (operator, 2026-08-17) and whether it is enabled (2026-10-04) can
+    /// change while the form runs. A refused
     /// write is a runtime ERROR rather than a no-op, and deliberately: a line
     /// that silently does nothing is how a developer loses an afternoon.
     ///
@@ -15071,8 +15073,8 @@ impl Interpreter {
                     self.window_method_roundtrip(&handle, "SETPROPERTY", vec![key, v])?;
                     return Ok(());
                 }
-                // A toolbar button lets its colours and its tooltip through and
-                // refuses the rest, out loud. A nested path (`BTN::A::B`) is not a
+                // A toolbar button lets its colours, its tooltip and Enabled
+                // through and refuses the rest, out loud. A nested path (`BTN::A::B`) is not a
                 // shape a button has, so it is refused by the same rule.
                 if self.is_toolbar_button(&root) {
                     let prop = single_prop_key(&path).unwrap_or_else(|| path_display(&path));

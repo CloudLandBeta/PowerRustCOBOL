@@ -1111,7 +1111,8 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
     // Toolbar buttons, under the derived ids they answer to. A button is not a
     // control — its toolbar owns the layout — but COBOL still addresses it, so
     // IntelliSense should complete it and the handler gate should know what it
-    // exposes: its colours and its tooltip, and nothing else. That makes a write
+    // exposes: its colours, its tooltip and Enabled (with Enable/Disable), and
+    // nothing else. That makes a write
     // to a button's geometry an error while the developer is typing, rather than a
     // refusal they meet when the form runs.
     // Nested toolbars count: a bar inside a Panel or a tab page is addressed the
@@ -1132,7 +1133,12 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
                             .iter()
                             .map(|p| (*p).to_string())
                             .collect(),
-                        extra_methods: vec!["SetProperty".into(), "GetProperty".into()],
+                        extra_methods: vec![
+                            "SetProperty".into(),
+                            "GetProperty".into(),
+                            "Enable".into(),
+                            "Disable".into(),
+                        ],
                     });
                 }
             }
