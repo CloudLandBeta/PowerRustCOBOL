@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.195] — 2026-10-05
+
+### A SideMenu with no designed menu: the rail, AddItem and ActivateItem work again
+
+A main form whose SideMenu had no `<id>.menu.yaml` beside it ran with an empty
+rail. The header (`AppTitle`, `HeaderImage`) was missing, the rows the program
+added with `AddItem` never showed, and `ActivateItem` did nothing. This hit
+Run Form, `run_form` and built applications alike.
+The launchers hand the shell no menu when there is no sidecar file. `ShellApp::new`
+took the SideMenu's control id from that menu, so it lost the control as well:
+`shell.side_ctrl` stayed empty, and everything keyed on it was skipped (the
+header, `RuntimeRows`, `SelectedItemId`, `ActivateItemRequest`,
+`onMenuItemClick`).
+
+- `ShellApp::new` now falls back to the form's own SideMenu
+  (`Form::side_menu_control_id`) when no menu was loaded.
+- `shell_for_form` mounts an empty root slot for a SideMenu without a designed
+  menu. The program's rows go there, and `ActivateItem` finds them. This applies
+  to the main window and to child windows that run as shells.
+- Test: `a_side_menu_without_a_menu_file_still_takes_runtime_rows`
+  (crates/cobolt-form-host/src/shell.rs).
+
+Found while converting a PowerCOBOL application whose menu is built entirely
+with `AddItem`, so that it follows the interface language.
+
 ## [PowerRustCOBOL 1.80.194] — 2026-10-05
 
 ### Agent golden rules: high-contrast text, in every theme

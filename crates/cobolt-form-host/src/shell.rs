@@ -1354,7 +1354,15 @@ impl ShellApp {
         let icon_path = config.icon_path.clone();
         let (host, form) = crate::FormHost::new(config);
 
-        let side_menu_ctrl = root_menu.as_ref().map(|(id, _)| id.clone());
+        // The SideMenu is the form's own control. A menu that was never
+        // designed (no sidecar file, or one that would not load) gives no
+        // `root_menu`, and the shell used to lose the control with it: no
+        // header, no rows added with AddItem, no ActivateItem, no
+        // onMenuItemClick — an empty rail. Found on the form instead.
+        let side_menu_ctrl = root_menu
+            .as_ref()
+            .map(|(id, _)| id.clone())
+            .or_else(|| form.side_menu_control_id());
         let (shell, state_path) =
             shell_for_form(&form, side_menu_ctrl.as_deref(), root_menu.map(|(_, def)| def));
         let mut chain = NavChain::default();
@@ -1625,6 +1633,12 @@ pub(crate) fn shell_for_form(
         &form.background_color,
         form.transparency,
     ));
+    // A SideMenu whose menu was never designed still owns the root slot: the
+    // rows the program adds (AddItem) and ActivateItem live in it, after the
+    // designed rows — of which there are none.
+    let menu = menu.or_else(|| {
+        side_menu.map(|_| cobolt_forms::menu::MenuDefinition { menu: Vec::new(), hash: String::new() })
+    });
     if let Some(def) = menu {
         shell.mount_root_menu(&form.name, def);
     }
@@ -4846,6 +4860,54 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         assert!(
             clicked.contains(&("chat-7".to_owned(), Some("open-form:CHAT".to_owned()))),
             "{clicked:?}"
+        );
+    }
+
+    /// A SideMenu whose menu was never designed — no sidecar file, so the
+    /// launcher hands the shell no menu — still has a rail: the shell keeps
+    /// the form's control and mounts an empty root slot, so the rows the
+    /// program adds are drawn and `ActivateItem` reaches them. It used to lose
+    /// the control along with the menu: an empty rail, and ActivateItem did
+    /// nothing (PowerCBL gap report, 2026-10-05).
+    #[test]
+    fn a_side_menu_without_a_menu_file_still_takes_runtime_rows() {
+        use cobolt_forms::menu::runtime::{add_item, rows_json};
+
+        let mut form = cobolt_forms::Form::new("MAIN-FORM", "Main", 900, 600);
+        form.controls.push(cobolt_forms::Control::new(
+            "SIDE-MENU",
+            cobolt_forms::ControlType::SideMenu,
+            0,
+            0,
+        ));
+        let (mut shell, _) = shell_for_form(&form, form.side_menu_control_id().as_deref(), None);
+        assert!(shell.side_ctrl.is_some(), "the rail keeps the form's SideMenu");
+        assert!(
+            shell.mounted().0.is_some_and(|r| r.def.menu.is_empty()),
+            "an empty root slot is mounted for the program's rows"
+        );
+
+        let mut rows = Vec::new();
+        add_item(&[], &mut rows, "families", "Familias", "folder", "", "open-form:FAMILIAS-FORM").unwrap();
+        shell.live_rows = rows_json(&rows);
+        let ctx = egui::Context::default();
+        ctx.run_ui(raw(Vec2::new(900.0, 600.0)), |root_ui| {
+            shell.show(root_ui, |_ui| {}, |_ui| {});
+        })
+        .textures_delta
+        .clear();
+        assert!(shell.item_rect("families").is_some(), "the program's row is drawn");
+
+        shell.activate_item("families");
+        let clicked: Vec<_> = shell
+            .take_menu_clicks()
+            .into_iter()
+            .map(|c| (c.item_id, c.action))
+            .collect();
+        assert_eq!(
+            clicked,
+            vec![("families".to_owned(), Some("open-form:FAMILIAS-FORM".to_owned()))],
+            "ActivateItem queues the row's own action"
         );
     }
 
