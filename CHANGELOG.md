@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.196] — 2026-10-05
+
+### Fixed
+- **Clicking a control inside a Grid, Flex or Flow container no longer moves
+  it.** Releasing the mouse after a plain click ran the container's drop rule
+  with the pointer where it was: in a Grid the cell under the pointer was
+  written into the control's `GridColumn`/`GridRow`, so a click near a label's
+  edge pinned it to the neighbouring cell and the whole card reflowed (seen on
+  the Air Conditioner card of PowerSpatial's main form); in a Flex or Flow
+  container every sibling's `Order` could be renumbered. It was a real,
+  undoable edit. A gesture now counts as a drop only once the pointer has moved
+  past the drag threshold — the rule an Absolute container's x/y move always
+  kept.
+
 ## [PowerRustCOBOL 1.80.195] — 2026-10-05
 
 ### A SideMenu with no designed menu: the rail, AddItem and ActivateItem work again

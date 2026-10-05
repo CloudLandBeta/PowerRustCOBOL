@@ -12211,6 +12211,19 @@ impl DesignerPanel {
         Some(cmds)
     }
 
+    /// [`Self::item_drop`] for a gesture that moved the pointer `(dx, dy)`.
+    /// A click is not a drop: below the drag threshold nothing is placed, the
+    /// same rule the x/y path keeps in [`group_move_delta`]. Without it a click
+    /// near an item's edge picked the neighbouring grid cell from the pointer,
+    /// rewrote `GridColumn`/`GridRow` and reflowed the whole container, as an
+    /// undoable edit (operator, 2026-10-05: clicking a label in PowerSpatial).
+    pub(crate) fn item_drop_after_drag(&self, id: &str, dx: i32, dy: i32, x: f32, y: f32) -> Option<Vec<Cmd>> {
+        if dx.abs() < DRAG_THRESHOLD_PX && dy.abs() < DRAG_THRESHOLD_PX {
+            return None;
+        }
+        self.item_drop(id, x, y)
+    }
+
     /// The insertion marker (flex/flow) or target cell (grid) while an item
     /// is dragged inside its parent (R44).
     fn paint_item_drop_marker(&self, painter: &egui::Painter, origin: Pos2, id: &str, x: f32, y: f32) {
@@ -13971,7 +13984,7 @@ impl DesignerPanel {
                         .map(|(_, ox, oy)| (*ox, *oy));
                     // 056 R44 — dropped inside a flex, flow or grid container:
                     // a new place in its order or a new cell, never an x/y.
-                    if let Some(cmds) = self.item_drop(&primary_id, px as f32, py as f32) {
+                    if let Some(cmds) = self.item_drop_after_drag(&primary_id, dx, dy, px as f32, py as f32) {
                         for (id, ox, oy) in &origins {
                             if let Some(c) = self.form.find_control_mut(id) {
                                 c.rect.x = *ox;
@@ -23337,6 +23350,11 @@ mod responsive_canvas_tests_056 {
         let a = d.form.find_control("A").unwrap();
         assert_eq!((a.get_prop("GridColumn").unwrap().as_i64(), a.get_prop("GridRow").unwrap().as_i64()), (2, 2));
         assert!(d.item_drop("A", 0.0, 0.0).is_some());
+        // A click is not a drop: still at (150, 75), over cell (2, 2) — but the
+        // pointer never moved, so nothing is placed. Past the threshold it is.
+        assert!(d.item_drop_after_drag("A", 0, 0, 150.0, 75.0).is_none(), "a click never re-places");
+        assert!(d.item_drop_after_drag("A", DRAG_THRESHOLD_PX - 1, 0, 150.0, 75.0).is_none());
+        assert!(d.item_drop_after_drag("A", DRAG_THRESHOLD_PX, 0, 150.0, 75.0).is_some());
         let mut abs = setup("Absolute", None);
         assert!(abs.item_drop("A", 170.0, 15.0).is_none(), "an Absolute parent keeps x/y dragging");
         let _ = &mut abs;
