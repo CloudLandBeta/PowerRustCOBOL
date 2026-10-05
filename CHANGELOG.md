@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.192] — 2026-10-05
+
+### Spec 087 plan: how embedded SQL will be built
+
+`specs/087-exec-sql/plan.md` — the approved design for embedded SQL, grounded
+in a read of the lexer, parser, runtime, hosts, IDE and build, and in the
+three database drivers' own sources:
+
+- a shared SQL scanner, an `EXEC SQL` lexer token and a preprocessor that
+  keeps `REPLACE` out of SQL text and expands `EXEC SQL INCLUDE`;
+- a new typed runtime layer (`esql`) beside the untouched text bridge, with
+  bound parameters, NULL indicators, units of work (per-statement savepoints
+  on PostgreSQL), cursors and dynamic SQL;
+- one run unit shared by every form of a run, ended by the root interpreter,
+  with the hosts waiting for it so a commit is not lost at exit;
+- SQL connections resolved at run time from the project file, a
+  `sql-connections.toml` beside a built binary, environment variables and the
+  application key store;
+- the SQL Connections tree item, the connection editor, highlighting, go to
+  definition and an SQL debugger channel;
+- eleven milestones (M1–M11), each with its tests; every requirement and
+  acceptance criterion mapped.
+
+The spec is amended with the operator's design-review answers (§7 Q9–Q13):
+credentials in the IDE vault that holds model keys; only Build writes the
+deployment file; renames move credentials; diagnostics stay English; cursors
+declared in a DATA DIVISION reach contained programs; SQLDA entries carry
+pointers with a text fallback; AC15 runs partly on SQLite and fully against
+MySQL. No code changes.
+
 ## [PowerRustCOBOL 1.80.191] — 2026-10-05
 
 ### Spec 087 amended: SQL Connections in the project tree

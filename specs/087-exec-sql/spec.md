@@ -6,7 +6,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 # Spec — Embedded SQL (`EXEC SQL`) in RustCOBOL
 
 - **Status:** approved (operator, 2026-10-05; Q1–Q7 settled in §7);
-  amended the same day (§7 Q8: SQL connections in the project tree)
+  amended the same day (§7 Q8–Q13: SQL connections in the project tree,
+  credentials, packaging, and the design review)
 - **Folder:** specs/087-exec-sql/
 - **Author:** Claude (for Emerson Lopes)   **Date:** 2026-10-05
 
@@ -172,9 +173,10 @@ work that follows is original.
 - **R13 (ubiquitous):** Host variables used as input shall be sent as bound
   parameters of the statement, never spliced into its text.
 - **R14 (constraint):** A host variable reference shall not be subscripted or
-  reference-modified, except an indicator table; figurative constants
-  (`SPACES`, `ZERO` …) shall not be used inside a block. Each shall be a
-  compile-time error naming the block and the line.
+  reference-modified; an indicator table is named without a subscript (R9).
+  Figurative constants (`SPACES`, `ZERO` …) shall not be used inside a block;
+  a column whose name is a figurative word is written as a quoted identifier.
+  Each shall be a compile-time error naming the block and the line.
 - **R15 (ubiquitous):** Values shall be converted between COBOL and SQL types
   by a published correspondence table (alphanumeric ↔ character types;
   numeric DISPLAY, packed-decimal and binary items ↔ integer and decimal types
@@ -234,15 +236,18 @@ work that follows is original.
   open cursor is opened again, the system shall fail the statement with the
   standard SQLSTATE (`24000` invalid cursor state) and change nothing.
 - **R28 (ubiquitous):** Cursor names shall be local to the program that
-  declares them. A cursor shall be declared before, in the source, any
-  statement that uses it; a use without a declaration shall be a compile-time
-  error.
+  declares them, except that a cursor declared in a program's DATA DIVISION
+  shall also be known to the programs that program contains, as a GLOBAL data
+  item is (a form's event handlers are contained programs). A cursor shall be
+  declared before, in the source, any statement that uses it; a use without a
+  declaration shall be a compile-time error.
 - **R29 (ubiquitous):** `COMMIT [WORK]` and `ROLLBACK [WORK]` inside a block
   shall end the database unit of work on the current connection. They shall
   not affect INDEXED-file transactions, and the COBOL verbs `COMMIT` and
   `ROLLBACK` (which govern INDEXED files) shall not affect the database.
-- **R30 (event):** When a unit of work ends, cursors without `WITH HOLD` shall
-  be closed; `WITH HOLD` cursors shall stay open across `COMMIT`.
+- **R30 (event):** When a unit of work ends with `COMMIT`, cursors without
+  `WITH HOLD` shall be closed and `WITH HOLD` cursors shall stay open. When it
+  ends with `ROLLBACK`, every cursor shall be closed.
 - **R31 (ubiquitous):** `EXEC SQL INCLUDE name END-EXEC` shall bring in the
   copybook `name` as `COPY name` does (same search path), with `SQLCA` and
   `SQLDA` as the reserved names of R17 and R41.
@@ -261,15 +266,22 @@ work that follows is original.
   asks for confirmation) and whose **Test connection** button connects with
   the values in the editor and reports success or the database's own message.
   The user name and password shall be kept outside the project folder and the
-  repository, in the machine's secure store, the same way model API keys are.
+  repository, in the IDE's credential vault — the store that holds model API
+  keys, under the same policy (kept for the session by default, or in the
+  local file the developer chose). An SQL connection may be renamed: its
+  stored credentials move to the new name, and Check reports every
+  `SqlDatabase` control that still names the old one; COBOL code is never
+  rewritten.
 - **R34 (event):** When a program executes `CONNECT TO name`, where the name is
   a literal or a host variable, the system shall connect to the project's SQL
-  connection of that name. When the name is not one of the project's SQL
-  connections but is a connection string the runtime already understands
-  (`sqlite:`, a file path, `postgres://`, `mysql://`), it shall connect to it
-  directly. `CONNECT TO name AS alias` and `USER :user USING :password` shall
-  be accepted; the password item shall never appear in a log, a trace or a
-  diagnostic.
+  connection of that name, compared without regard to case. Otherwise the name
+  shall be taken as a connection string only when it starts with `sqlite:`,
+  `:memory:`, `postgres://`, `postgresql://` or `mysql://`, contains `/` or
+  `\`, or ends in `.db`, `.sqlite`, `.sqlite3` or `.db3`; any other name shall
+  fail with SQLSTATE `08001` and a message naming it, so a mistyped name never
+  creates an empty database. `CONNECT TO name AS alias` and `USER :user USING
+  :password` shall be accepted; the password item shall never appear in a log,
+  a trace or a diagnostic.
 - **R35 (state):** While a program executes SQL without a current connection,
   the system shall use the project's **default SQL connection**, if one is
   marked, and otherwise fail the statement with SQLSTATE `08003` (connection
@@ -284,8 +296,9 @@ work that follows is original.
 - **R38 (event):** When the run unit ends normally — `STOP RUN`, a `GOBACK`
   from the main program, or the main window closing — the system shall commit
   the open unit of work on every connection and close it. When the run unit
-  ends because of an error that stops it, the system shall roll the open units
-  of work back and close every connection.
+  ends because of an error that stops it, or the developer stops it from the
+  IDE, the system shall roll the open units of work back and close every
+  connection. A runtime error in a child form does not end the run unit.
 - **R39 (ubiquitous):** A built application shall resolve its SQL connections
   at run time, so that the same build runs against different databases:
   - from an `sql-connections.toml` file beside the binary, which names each SQL
@@ -297,16 +310,20 @@ work that follows is original.
     upper-cased with every character other than a letter or a digit replaced
     by `_`;
   - with the password taken only from the environment variable
-    `<APP>_SQL_<NAME>_PASSWORD` or from the machine's secure store, under an
-    entry the Guide documents. A password written in the file shall not be
-    used: connecting through that SQL connection shall fail with a message
-    that names the file and says where the password must come from.
+    `<APP>_SQL_<NAME>_PASSWORD` or, failing that, from the application's own
+    encrypted key store, under the entry `SQL:<NAME>` (filled by the
+    application, for example from a settings form). A password written in the
+    file shall not be used: connecting through that SQL connection shall fail
+    with a message that names the file and says where the password must come
+    from.
 
-  Build and Package shall write a starting `sql-connections.toml` beside the
-  binary, listing the project's SQL connections with their backends and the
+  Build shall write a starting `sql-connections.toml` beside each binary it
+  produces, listing the project's SQL connections with their backends and the
   developer's connection targets and no user name or password, and shall never
-  overwrite one that is already there. The developer's credentials shall never
-  be embedded in the binary.
+  overwrite one that is already there. A packaged project runs through `rcrun`
+  with its project file, so it takes its SQL connections from there, with the
+  same environment variables. The developer's credentials shall never be
+  embedded in the binary.
 - **R40 (ubiquitous):** The `SqlDatabase` control shall gain an `SqlConnection`
   property naming one of the project's SQL connections. When it is set, the
   control's generated `<id>-CONNECT` and its `Open()` with no argument shall
@@ -324,9 +341,11 @@ work that follows is original.
   (SQLDA), brought in by `EXEC SQL INCLUDE SQLDA END-EXEC`, with a layout
   defined by this project and documented in the Guide. It shall describe a
   number of columns or parameters, each with its SQL type, length, precision
-  and scale, nullability, name, and the data item and indicator that hold its
-  value. Where a database does not report one of these, the descriptor shall
-  say it is unknown rather than guess.
+  and scale, nullability and name, and a pointer to the data item and one to
+  the indicator that hold its value (`SET … TO ADDRESS OF`). When an entry's
+  data pointer is NULL, the value shall be placed as text, with its indicator,
+  inside the entry itself. Where a database does not report one of these
+  properties, the descriptor shall say it is unknown rather than guess.
 - **R42 (ubiquitous):** `PREPARE statement-name FROM :host-variable` (or a
   literal) shall prepare the text the item holds; `?` markers in it shall be
   parameters. `EXECUTE statement-name [USING host-variables | USING
@@ -340,9 +359,9 @@ work that follows is original.
 - **R44 (ubiquitous):** `DESCRIBE statement-name INTO sqlda` shall fill the
   descriptor with the prepared query's result columns, and `DESCRIBE INPUT`
   with its parameters — their number always, their types where the database
-  reports them (SQLite does not). When the descriptor has fewer entries than the
-  statement needs, the system shall report how many are needed and fill none,
-  so the program can allocate a larger one and describe again.
+  reports them (SQLite and MySQL do not). When the descriptor has fewer entries
+  than the statement needs, the system shall report how many are needed and
+  fill none, so the program can allocate a larger one and describe again.
 - **R45 (event):** When a prepared statement is executed after the text it
   came from changes, the system shall run the statement as prepared, not the
   new text.
@@ -355,7 +374,8 @@ work that follows is original.
   ambiguous host variable, an invalid indicator, a subscripted or
   reference-modified host variable, a figurative constant in a block, a cursor
   used before it is declared or declared twice, a statement name used before
-  it is prepared in the source, a `WHENEVER` target that does not exist, and
+  it is prepared in the source (a `DECLARE … CURSOR FOR statement-name` is not
+  a use of the statement), a `WHENEVER` target that does not exist, and
   an `INCLUDE` that is not found. Each diagnostic shall name the line.
 - **R47 (ubiquitous):** The COBOL editor shall highlight an embedded SQL block
   as SQL, with its host variables highlighted as COBOL names, and its
@@ -363,11 +383,11 @@ work that follows is original.
 - **R48 (ubiquitous):** The debugger shall step over an `EXEC SQL` block as one
   statement, and after it shall show the SQL text sent, the bound values (with
   passwords masked), SQLSTATE, SQLCODE, the message and the rows affected.
-- **R49 (ubiquitous):** Every user-facing string this feature adds to the IDE
-  (the SQL Connections item in the project tree, the connection editor and its
-  Test connection messages, the `SqlConnection` property's help, diagnostics
-  shown in IDE panels) shall be translated in all
-  six languages.
+- **R49 (ubiquitous):** Every user-facing string this feature adds to the IDE —
+  the SQL Connections item in the project tree, the connection editor and its
+  Test connection messages, and the `SqlConnection` property's help — shall be
+  translated in all six languages. Compiler diagnostics stay in English, as
+  every other diagnostic does.
 - **R50 (ubiquitous):** The Developer's Guide shall gain a chapter on embedded
   SQL written from the PowerCOBOL / isCOBOL developer's point of view, with
   original examples only, the type correspondence table (R15), the SQLSTATE →
@@ -454,9 +474,11 @@ time and throughput per phase.
 - [ ] **AC11 (R41–R45):** A program prepares a query whose columns it does not
   know, describes it into a descriptor that is too small (the system reports
   the number needed), describes again into one large enough, opens a cursor,
-  fetches all rows through the descriptor and prints them; the column names,
-  types and values match the table. `EXECUTE IMMEDIATE` creates a table;
-  `EXECUTE … USING` inserts into it with parameters.
+  fetches all rows through the descriptor — once into the program's own items
+  through the entries' pointers, once as text inside the descriptor — and
+  prints them; the column names, types and values match the table.
+  `EXECUTE IMMEDIATE` creates a table; `EXECUTE … USING` inserts into it with
+  parameters.
 - [ ] **AC12 (R2, R14, R46):** One file containing every error listed in R46
   produces exactly one diagnostic per error, each on the right line, with no
   database reachable.
@@ -468,11 +490,13 @@ time and throughput per phase.
   under `rcrun run`, Run Form, an embedded child form and the compiled binary
   (`interpreter-binary-parity`).
 - [ ] **AC15 (migration):** Two of the operator's sample programs, with their
-  `EXEC SQL` blocks live, pass Check, and their SQL paths run against a
-  SQLite copy of the tables they use: `F-ART-PURGA.cob` (stand-alone status
+  `EXEC SQL` blocks live, pass Check: `F-ART-PURGA.cob` (stand-alone status
   items, `PREPARE` + a cursor over the prepared query, `SELECT … INTO`,
   `COMMIT`) and `TyC.cob` (`CONNECT TO` / `DISCONNECT` a named SQL
-  connection, resolved through R34).
+  connection, resolved through R34). Their SQL paths run against a SQLite copy
+  of the tables they use; a statement SQLite rejects (F-ART-PURGA's `DELETE …
+  LIMIT 1`) sets its syntax-error SQLSTATE and the program continues (R22).
+  The whole of both programs runs in the MySQL-gated suite.
 - [ ] **AC16 (R49–R50, R52):** The SQL Connections item, the connection
   editor and its Test connection messages, and the `SqlConnection` property's
   help show in all six languages; the
@@ -583,3 +607,26 @@ time and throughput per phase.
   name everywhere the developer meets it — the tree, the editor, the
   `SqlDatabase` property, the deployment file and its environment variables
   (R33, R39, R40).
+- **Q9 — Credentials (settled, operator 2026-10-05, design review):** in the
+  IDE, the credential vault that holds model API keys, under its policy; in a
+  built application, the environment variable or the application's own
+  encrypted key store, entry `SQL:<NAME>` (R33, R39).
+- **Q10 — Packaging and renaming (settled, operator 2026-10-05, design
+  review):** only Build writes `sql-connections.toml`; a packaged project takes
+  its SQL connections from its project file; a rename moves the stored
+  credentials and Check reports `SqlDatabase` controls still naming the old
+  name (R33, R39).
+- **Q11 — Diagnostics and AC15 (settled, operator 2026-10-05, design
+  review):** compiler diagnostics stay in English (R49); `F-ART-PURGA.cob`
+  runs partly on SQLite and in full in the MySQL-gated suite (AC15).
+- **Q12 — Cursor scope and the SQLDA (settled, operator 2026-10-05, design
+  review):** a DATA DIVISION cursor is known to the programs its program
+  contains (R28); SQLDA entries carry pointers to the receiving items, with
+  the value inside the entry when the pointer is NULL (R41).
+- **Q13 — Clarifications from the design review (2026-10-05):** the
+  name-versus-connection-string rule of `CONNECT` (R34); `ROLLBACK` closes
+  `WITH HOLD` cursors too (R30); an IDE Stop ends the run unit with a rollback,
+  and a child form's runtime error does not end it (R38); an indicator table is
+  named without a subscript, and a figurative word used as a column name is
+  quoted (R14); MySQL reports no parameter types (R44); `DECLARE … CURSOR FOR
+  statement-name` is not a use of the statement (R46).
