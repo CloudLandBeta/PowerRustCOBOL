@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.191] — 2026-10-05
+
+### Spec 087 amended: SQL Connections in the project tree
+
+The operator moved the named database connections of spec 087 into the IDE's
+project tree (§7 Q8): an **SQL Connections** item after Indexed Files lists
+the project's connections with the default marked; its `[+]` adds one, and a
+row opens the connection's editor with its Test connection button. This
+replaces the Data Sources page in Project Settings that Q7 had settled. The
+entries are now called **SQL connections** everywhere the developer meets
+them: the `SqlDatabase` property is `SqlConnection`, a built binary reads
+`sql-connections.toml`, and its environment variables are
+`<APP>_SQL_<NAME>_URL` / `_USER` / `_PASSWORD`. The spec stays approved; 52
+requirements and 18 acceptance criteria, every requirement covered. No code
+changes.
+
 ## [PowerRustCOBOL 1.80.190] — 2026-10-05
 
 ### Spec 087 approved: embedded SQL (`EXEC SQL`) in RustCOBOL

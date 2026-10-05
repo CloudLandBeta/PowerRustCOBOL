@@ -5,7 +5,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — Embedded SQL (`EXEC SQL`) in RustCOBOL
 
-- **Status:** approved (operator, 2026-10-05; Q1–Q7 settled in §7)
+- **Status:** approved (operator, 2026-10-05; Q1–Q7 settled in §7);
+  amended the same day (§7 Q8: SQL connections in the project tree)
 - **Folder:** specs/087-exec-sql/
 - **Author:** Claude (for Emerson Lopes)   **Date:** 2026-10-05
 
@@ -30,11 +31,12 @@ the database logic of a converted application must be redone by hand.
 This feature adds embedded SQL to RustCOBOL: the statement delimiters, host
 and indicator variables, declare sections, the two ways a program learns how
 a statement went (stand-alone `SQLSTATE` / `SQLCODE` / `SQLMSG` items, or an
-`SQLCA`, with `WHENEVER`), static statements, cursors, transactions,
-connections to named data sources, and dynamic SQL including `DESCRIBE` and
-an SQL descriptor area. The SQL text itself goes to the connected database
-unchanged, so a program speaks the dialect of the database it uses: SQLite,
-PostgreSQL or MySQL, the three the runtime already supports.
+`SQLCA`, with `WHENEVER`), static statements, cursors, transactions, the
+**SQL connections** a project defines and a program connects to by name, and
+dynamic SQL including `DESCRIBE` and an SQL descriptor area. The SQL text
+itself goes to the connected database unchanged, so a program speaks the
+dialect of the database it uses: SQLite, PostgreSQL or MySQL, the three the
+runtime already supports.
 
 The concepts follow the public description of COBOL programs that issue SQL
 statements in the IBM Db2 for z/OS 12 documentation (delimiters, placement,
@@ -53,16 +55,17 @@ work that follows is original.
   RustCOBOL program does: `rcrun run`, Run Form, embedded child forms and the
   compiled binary — the same behaviour in all of them.
 - Programs migrated from PowerCOBOL (spec 086) keep their SQL as live code:
-  the status items they declare, the `SQLSTATE` values they test and the data
-  source name they connect to keep working without edits.
+  the status items they declare, the `SQLSTATE` values they test and the name
+  they connect to (an SQL connection of the project) keep working without
+  edits.
 - Programs written in the SQLCA style (`INCLUDE SQLCA`, `WHENEVER`) work too.
 - Host variables reach the database as **bound parameters**, never by
   splicing their values into the SQL text.
 - Typed values and NULL survive the round trip: numbers keep their scale,
   NULL is distinguishable from an empty value through indicator variables.
-- A database is named in the program by a **data source** of the project;
-  where it is and how to log in to it live outside the source and outside the
-  repository.
+- A database is named in the program by one of the project's **SQL
+  connections**, listed in the IDE's project tree; where it is and how to log
+  in to it live outside the source and outside the repository.
 - The IDE's Check, the editor and the debugger understand `EXEC SQL` blocks.
 
 **Non-goals**
@@ -82,8 +85,8 @@ work that follows is original.
 - Changing spec 086. Once this lands, a follow-up to 086 stops commenting
   `EXEC SQL` out; that change is 086's, not this spec's.
 - Replacing the `COBOL::"…-DB"` built-ins or the `SqlDatabase` control. They
-  keep working unchanged; the control only gains a way to name a data source
-  instead of carrying a connection string (R40).
+  keep working unchanged; the control only gains a way to name an SQL
+  connection instead of carrying a connection string (R40).
 
 ## 3. User stories
 
@@ -93,10 +96,11 @@ work that follows is original.
 - As a COBOL developer used to embedded SQL, I want to write `SELECT … INTO
   :host-variable` and cursors in a form handler, so that I use the idiom I
   know instead of a call-based API.
-- As a developer, I want to name a data source in my program and configure
-  where it points per machine, so that the same program runs against a test
-  database on my machine and the production database on the operator's,
-  without credentials in the source.
+- As a developer, I want to name an SQL connection in my program, see the
+  project's SQL connections in the project tree, and configure where each one
+  points per machine, so that the same program runs against a test database
+  on my machine and the production database on the operator's, without
+  credentials in the source.
 - As a developer, I want NULL columns, decimal amounts and dates to arrive in
   my COBOL items correctly, so that I do not lose data in the conversion to
   text.
@@ -105,8 +109,8 @@ work that follows is original.
   search screens can be generic.
 - As a developer, I want Check to tell me about an undeclared host variable
   or cursor before I run, so that errors surface while I type.
-- As a developer using the `SqlDatabase` control, I want it to name a data
-  source instead of holding a connection string with a password in it, so
+- As a developer using the `SqlDatabase` control, I want it to name an SQL
+  connection instead of holding a connection string with a password in it, so
   that no credential sits in my form files or my repository.
 
 ## 4. Requirements (EARS)
@@ -245,26 +249,29 @@ work that follows is original.
 - **R32 (ubiquitous):** `DECLARE … TABLE` shall be accepted as documentation
   and shall have no effect at run time.
 
-### 4.5 Connections and data sources
+### 4.5 SQL connections
 
-- **R33 (ubiquitous):** A project shall have a list of **data sources**, each
-  a name, a backend and a connection target (a file path for SQLite; host,
-  port and database for PostgreSQL and MySQL), any one of which may be marked
-  the default (R35). A **Data Sources** page in Project Settings shall list,
-  add, edit and remove them, and its **Test connection** button shall connect
-  with the values on the page and report success or the database's own
-  message. The user name and password shall be kept outside the project folder
-  and the repository, in the machine's secure store, the same way model API
-  keys are.
+- **R33 (ubiquitous):** A project shall define its **SQL connections**, each a
+  name, a backend and a connection target (a file path for SQLite; host, port
+  and database for PostgreSQL and MySQL), any one of which may be marked the
+  default (R35). The IDE's project tree shall show them under an **SQL
+  Connections** item, placed after Indexed Files: one row per connection, the
+  default marked. The item's `[+]` shall add a connection, and selecting a row
+  shall open that connection's editor, where it is changed or removed (removal
+  asks for confirmation) and whose **Test connection** button connects with
+  the values in the editor and reports success or the database's own message.
+  The user name and password shall be kept outside the project folder and the
+  repository, in the machine's secure store, the same way model API keys are.
 - **R34 (event):** When a program executes `CONNECT TO name`, where the name is
-  a literal or a host variable, the system shall connect to the data source of
-  that name. When the name is not a data source of the project but is a
-  connection string the runtime already understands (`sqlite:`, a file path,
-  `postgres://`, `mysql://`), it shall connect to it directly. `CONNECT TO
-  name AS alias` and `USER :user USING :password` shall be accepted; the
-  password item shall never appear in a log, a trace or a diagnostic.
+  a literal or a host variable, the system shall connect to the project's SQL
+  connection of that name. When the name is not one of the project's SQL
+  connections but is a connection string the runtime already understands
+  (`sqlite:`, a file path, `postgres://`, `mysql://`), it shall connect to it
+  directly. `CONNECT TO name AS alias` and `USER :user USING :password` shall
+  be accepted; the password item shall never appear in a log, a trace or a
+  diagnostic.
 - **R35 (state):** While a program executes SQL without a current connection,
-  the system shall use the project's **default data source**, if one is
+  the system shall use the project's **default SQL connection**, if one is
   marked, and otherwise fail the statement with SQLSTATE `08003` (connection
   does not exist).
 - **R36 (ubiquitous):** `SET CONNECTION name` shall make a connection current;
@@ -279,36 +286,36 @@ work that follows is original.
   the open unit of work on every connection and close it. When the run unit
   ends because of an error that stops it, the system shall roll the open units
   of work back and close every connection.
-- **R39 (ubiquitous):** A built application shall resolve its data sources at
-  run time, so that the same build runs against different databases:
-  - from a `datasources.toml` file beside the binary, which names each data
-    source with its backend, its connection target and, optionally, its user
-    name;
+- **R39 (ubiquitous):** A built application shall resolve its SQL connections
+  at run time, so that the same build runs against different databases:
+  - from an `sql-connections.toml` file beside the binary, which names each SQL
+    connection with its backend, its connection target and, optionally, its
+    user name;
   - with the connection target overridable by the environment variable
-    `<APP>_DS_<NAME>_URL` and the user name by `<APP>_DS_<NAME>_USER`, where
-    `<APP>` is the application's name and `<NAME>` the data source's, both
+    `<APP>_SQL_<NAME>_URL` and the user name by `<APP>_SQL_<NAME>_USER`, where
+    `<APP>` is the application's name and `<NAME>` the SQL connection's, both
     upper-cased with every character other than a letter or a digit replaced
     by `_`;
   - with the password taken only from the environment variable
-    `<APP>_DS_<NAME>_PASSWORD` or from the machine's secure store, under an
+    `<APP>_SQL_<NAME>_PASSWORD` or from the machine's secure store, under an
     entry the Guide documents. A password written in the file shall not be
-    used: connecting to that data source shall fail with a message that names
-    the file and says where the password must come from.
+    used: connecting through that SQL connection shall fail with a message
+    that names the file and says where the password must come from.
 
-  Build and Package shall write a starting `datasources.toml` beside the
-  binary, listing the project's data sources with their backends and the
+  Build and Package shall write a starting `sql-connections.toml` beside the
+  binary, listing the project's SQL connections with their backends and the
   developer's connection targets and no user name or password, and shall never
   overwrite one that is already there. The developer's credentials shall never
   be embedded in the binary.
-- **R40 (ubiquitous):** The `SqlDatabase` control shall gain a `DataSource`
-  property naming one of the project's data sources. When it is set, the
+- **R40 (ubiquitous):** The `SqlDatabase` control shall gain an `SqlConnection`
+  property naming one of the project's SQL connections. When it is set, the
   control's generated `<id>-CONNECT` and its `Open()` with no argument shall
-  connect to that data source — resolved from the project (R33) in the IDE and
-  `rcrun`, and as R39 resolves it in a built application — instead of using
-  `ConnectionString`, and the form file shall hold the data source's name and
-  no connection target, user name or password. In the designer the property
-  shall offer the project's data sources by name; a name that is not a data
-  source of the project shall be a Check error. The control's connection shall
+  connect through that SQL connection — resolved from the project (R33) in the
+  IDE and `rcrun`, and as R39 resolves it in a built application — instead of
+  using `ConnectionString`, and the form file shall hold the SQL connection's
+  name and no connection target, user name or password. In the designer the
+  property shall offer the project's SQL connections by name; a name that is
+  not one of them shall be a Check error. The control's open connection shall
   stay its own, separate from the connections of `EXEC SQL`.
 
 ### 4.6 Dynamic SQL and the descriptor area
@@ -357,15 +364,16 @@ work that follows is original.
   statement, and after it shall show the SQL text sent, the bound values (with
   passwords masked), SQLSTATE, SQLCODE, the message and the rows affected.
 - **R49 (ubiquitous):** Every user-facing string this feature adds to the IDE
-  (the Data Sources page and its Test connection messages, the `DataSource`
-  property's help, diagnostics shown in IDE panels) shall be translated in all
+  (the SQL Connections item in the project tree, the connection editor and its
+  Test connection messages, the `SqlConnection` property's help, diagnostics
+  shown in IDE panels) shall be translated in all
   six languages.
 - **R50 (ubiquitous):** The Developer's Guide shall gain a chapter on embedded
   SQL written from the PowerCOBOL / isCOBOL developer's point of view, with
   original examples only, the type correspondence table (R15), the SQLSTATE →
-  SQLCODE mapping (R19), the SQLCA and SQLDA layouts (R17, R41), the data
-  source set-up and the deployment file (R33, R39) and the `SqlDatabase`
-  control's `DataSource` (R40). The System KB and the coding-agent reference
+  SQLCODE mapping (R19), the SQLCA and SQLDA layouts (R17, R41), setting up
+  SQL connections and the deployment file (R33, R39) and the `SqlDatabase`
+  control's `SqlConnection` (R40). The System KB and the coding-agent reference
   shall describe the same.
 
 ### 4.8 Safety
@@ -374,7 +382,7 @@ work that follows is original.
   concatenating host-variable values into its text (R13). Dynamic SQL runs
   the text the program prepared, which is the developer's responsibility; the
   Guide shall say so with a caveat.
-- **R52 (constraint):** The system shall not write a data-source password to
+- **R52 (constraint):** The system shall not write an SQL connection's password to
   the project folder, the repository, a generated program, the binary, a log,
   the Output panel or a crash report.
 
@@ -425,21 +433,24 @@ time and throughput per phase.
   does not undo the committed row, and an `EXEC SQL ROLLBACK` does not undo an
   INDEXED-file write. A `WITH HOLD` cursor survives `COMMIT`; another cursor
   does not.
-- [ ] **AC9 (R33–R37):** A project with a data source `SALES` pointing at a
-  SQLite file runs `CONNECT TO 'SALES'` and reads it. The project folder and
+- [ ] **AC9 (R33–R37):** A project with an SQL connection `SALES` pointing at
+  a SQLite file runs `CONNECT TO 'SALES'` and reads it. The project folder and
   the repository contain no password afterwards (searched). A child form
   opened by the main form reads through the connection the main form opened.
-  With no `CONNECT` and a default data source marked, statements use it; with
-  none marked, they give `08003`. The Test connection action (the function
-  behind the button) reports success for `SALES` and, for a PostgreSQL data
-  source on a port nothing listens on, the driver's connection error.
-- [ ] **AC10 (R38–R39):** Build writes a starting `datasources.toml` beside the
-  binary with no user name or password, and a rebuild leaves an edited one
-  untouched. The binary, with that file pointing `SALES` at a different SQLite
-  file, reads that file; with `<APP>_DS_SALES_URL` set to a third file, it
-  reads the third; a `password` key in the file makes the connection fail with
-  the documented message. Uncommitted work is committed at a normal end and
-  rolled back when the program ends with an error.
+  With no `CONNECT` and a default SQL connection marked, statements use it;
+  with none marked, they give `08003`. The project tree's model shows an SQL
+  Connections item after Indexed Files, listing `SALES` with the default
+  marked, and its `[+]` adds a connection. The Test connection action (the
+  function behind the button) reports success for `SALES` and, for a
+  PostgreSQL SQL connection on a port nothing listens on, the driver's
+  connection error.
+- [ ] **AC10 (R38–R39):** Build writes a starting `sql-connections.toml`
+  beside the binary with no user name or password, and a rebuild leaves an
+  edited one untouched. The binary, with that file pointing `SALES` at a
+  different SQLite file, reads that file; with `<APP>_SQL_SALES_URL` set to a
+  third file, it reads the third; a `password` key in the file makes the
+  connection fail with the documented message. Uncommitted work is committed
+  at a normal end and rolled back when the program ends with an error.
 - [ ] **AC11 (R41–R45):** A program prepares a query whose columns it does not
   know, describes it into a descriptor that is too small (the system reports
   the number needed), describes again into one large enough, opens a cursor,
@@ -460,21 +471,23 @@ time and throughput per phase.
   `EXEC SQL` blocks live, pass Check, and their SQL paths run against a
   SQLite copy of the tables they use: `F-ART-PURGA.cob` (stand-alone status
   items, `PREPARE` + a cursor over the prepared query, `SELECT … INTO`,
-  `COMMIT`) and `TyC.cob` (`CONNECT TO` / `DISCONNECT` a named data source,
-  resolved through R34).
-- [ ] **AC16 (R49–R50, R52):** The Data Sources page, its Test connection
-  messages and the `DataSource` property's help show in all six languages; the
+  `COMMIT`) and `TyC.cob` (`CONNECT TO` / `DISCONNECT` a named SQL
+  connection, resolved through R34).
+- [ ] **AC16 (R49–R50, R52):** The SQL Connections item, the connection
+  editor and its Test connection messages, and the `SqlConnection` property's
+  help show in all six languages; the
   Guide chapter, the System KB and the agent reference describe embedded SQL;
   a search of the project, the generated programs, the binary, the
-  `datasources.toml` that Build wrote and the logs after AC9–AC10 finds no
+  `sql-connections.toml` that Build wrote and the logs after AC9–AC10 finds no
   password.
-- [ ] **AC17 (R40):** A form whose `SqlDatabase` names `SALES` in `DataSource`,
-  with `ConnectionString` left at its default, opens and queries the `SALES`
-  file through `<id>-CONNECT` and through `Open()` with no argument, in Run Form
-  and in the compiled binary (resolved through R39 there). With both properties
-  set, `DataSource` wins. The saved `.cfrm` holds the data source's name and no
-  connection target, user name or password, and a `DataSource` naming no data
-  source of the project is a Check error.
+- [ ] **AC17 (R40):** A form whose `SqlDatabase` names `SALES` in
+  `SqlConnection`, with `ConnectionString` left at its default, opens and
+  queries the `SALES` file through `<id>-CONNECT` and through `Open()` with no
+  argument, in Run Form and in the compiled binary (resolved through R39
+  there). With both properties set, `SqlConnection` wins. The saved `.cfrm`
+  holds the SQL connection's name and no connection target, user name or
+  password, and an `SqlConnection` naming none of the project's SQL
+  connections is a Check error.
 - [ ] **AC18 (R6, R16, R31–R32, R34, R36, R44–R45):** In one program:
   - a host variable qualified with `OF` and one qualified with a period each
     reach the right item of two that share a name;
@@ -497,9 +510,13 @@ time and throughput per phase.
 
 ## 6. Constraints & steering check
 
-- **i18n (6 languages):** yes — the Data Sources page and its Test connection
-  messages, the `DataSource` property's help, and any IDE-shown diagnostic text
-  (R49). COBOL keywords, SQL text and identifiers stay English.
+- **i18n (6 languages):** yes — the SQL Connections item, the connection
+  editor and its Test connection messages, the `SqlConnection` property's
+  help, and any IDE-shown diagnostic text (R49). COBOL keywords, SQL text and
+  identifiers stay English.
+- **Project tree:** a new top-level item, SQL Connections (R33). Like
+  Project's Crates (spec 044), its rows come from the project, not from files
+  on disk, and its `[+]` opens an editor instead of a file picker.
 - **Generated-code / regenerate contract:** a form handler may contain `EXEC
   SQL`; the generated program carries the block as written and is regenerated
   as usual. Codegen itself generates no SQL.
@@ -509,7 +526,7 @@ time and throughput per phase.
   has its five translations deleted in the same change.
 - **System KB:** compiler/runtime behaviour changes, so the KB documentation
   tables and `assets/knowledge/chunked.data` are updated in the same change —
-  the `SqlDatabase` property table gains `DataSource` (R40) — and the
+  the `SqlDatabase` property table gains `SqlConnection` (R40) — and the
   coding-agent reference (`cobolt-project-tools`) learns `EXEC SQL` too.
 - **Three hosts:** the runtime change must reach `rcrun run-form`, embedded
   child forms and `run_form_app` in the compiled binary (the
@@ -535,9 +552,10 @@ time and throughput per phase.
 
 ## 7. Open questions
 
-- **Q1 — Data sources (settled, operator 2026-10-05):** project data sources
-  by name, credentials in the secure store, a connection string accepted
-  directly, and an optional default data source (R33–R35).
+- **Q1 — Named connections (settled, operator 2026-10-05):** the project's
+  SQL connections by name, credentials in the secure store, a connection
+  string accepted directly, and an optional default SQL connection (R33–R35).
+  First called "data sources"; renamed SQL connections by Q8.
 - **Q2 — Dynamic SQL (settled, operator 2026-10-05):** full — `PREPARE`,
   `EXECUTE`, `EXECUTE IMMEDIATE`, dynamic cursors, `DESCRIBE` and the SQLDA
   (R41–R45).
@@ -551,11 +569,17 @@ time and throughput per phase.
   the main window closing) and roll them back when the program ends with an
   error (R38).
 - **Q6 — Deployment configuration (settled, operator 2026-10-05):** a
-  `datasources.toml` beside the binary, which Build writes as a starting point
-  and never overwrites; the connection target and user name overridable by
-  `<APP>_DS_<NAME>_URL` / `_USER`; the password only from
-  `<APP>_DS_<NAME>_PASSWORD` or the secure store, never from the file (R39).
-- **Q7 — Data-source editor and `SqlDatabase` (settled, operator
-  2026-10-05):** a "Data Sources" page in Project Settings with a "Test
-  connection" button (R33), and the `SqlDatabase` control can name a data
-  source through a `DataSource` property (R40).
+  `sql-connections.toml` beside the binary, which Build writes as a starting
+  point and never overwrites; the connection target and user name overridable
+  by `<APP>_SQL_<NAME>_URL` / `_USER`; the password only from
+  `<APP>_SQL_<NAME>_PASSWORD` or the secure store, never from the file (R39).
+- **Q7 — Editor and `SqlDatabase` (settled, operator 2026-10-05):** an editor
+  with a "Test connection" button (R33) — first planned as a page in Project
+  Settings, moved to the project tree by Q8 — and the `SqlDatabase` control
+  can name an SQL connection through its `SqlConnection` property (R40).
+- **Q8 — Where connections live, and their name (settled, operator
+  2026-10-05, after approval):** an **SQL Connections** item in the IDE's
+  project tree replaces the Project Settings page, and "SQL connection" is the
+  name everywhere the developer meets it — the tree, the editor, the
+  `SqlDatabase` property, the deployment file and its environment variables
+  (R33, R39, R40).
