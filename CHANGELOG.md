@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.193] — 2026-10-05
+
+### Spec 087 tasks: embedded SQL broken into 40 verifiable steps
+
+`specs/087-exec-sql/tasks.md` turns the approved plan into T0–T39 across the
+milestones M0 (baseline) to M11 (migration acceptance) plus a final sweep.
+Each task names its files, the requirements it satisfies and the exact
+`cargo` command and observable result that verify it; every requirement
+R1–R52 and every acceptance criterion AC1–AC18 is mapped to the tasks that
+prove it. Each milestone ends with its own version bump, CHANGELOG entry and
+the Guide and System KB slice for what it makes observable. Two places where
+reality may differ from the plan are flagged to stop and report: Check on the
+operator's PowerCOBOL listings (T10) and PostgreSQL parameters inside
+`DECLARE … CURSOR` (T27). No code changes.
+
 ## [PowerRustCOBOL 1.80.192] — 2026-10-05
 
 ### Spec 087 plan: how embedded SQL will be built
