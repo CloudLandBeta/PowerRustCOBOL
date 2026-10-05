@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.197] — 2026-10-05
+
+### Added
+- **Spec 088 — grid editing in the Form Designer (draft).** A Show Grid toggle
+  (on by default) that switches the canvas between editing a Grid container
+  and editing its controls; a floating icon-only grid toolbar (add, remove and
+  restore rows/columns, merge and split cells through the existing
+  `ColumnSpan`/`RowSpan`); draggable track lines; and, with the grid hidden,
+  control resizing that resizes the control's cell. Requirements only — no
+  code yet.
+
 ## [PowerRustCOBOL 1.80.196] — 2026-10-05
 
 ### Fixed
