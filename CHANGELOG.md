@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.198] — 2026-10-05
+
+### Added
+- **Spec 089 — zoom in the Form Designer (draft).** A designer-only canvas zoom
+  (25 %–400 %): toolbar buttons, a readout that resets to 100 %, Fit,
+  Ctrl/Cmd+wheel around the pointer and Ctrl/Cmd + `+`/`−`/`0`. Every gesture
+  commits the same form values as at 100 %, overlays keep their on-screen size,
+  and the form, its `.cfrm`, Preview, Run Form and built applications are
+  never affected. Requirements only — no code yet.
+
 ## [PowerRustCOBOL 1.80.197] — 2026-10-05
 
 ### Added
