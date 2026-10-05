@@ -23,6 +23,127 @@ See the LICENSE file in the project root for full license information.
 
 ---
 
+> ### 🤖 New: build whole COBOL applications with Claude Code
+>
+> PowerRustCOBOL AI now plugs into **[Claude Code](https://www.anthropic.com/claude-code)**,
+> Anthropic's coding agent. Describe an application, paste a sketch of the screen you
+> want, or hand it a written specification — Claude Code designs the forms, writes the
+> COBOL, defines the indexed files, compiles, **looks at every screen and clicks through
+> it** before it calls the work done. One menu item connects the two:
+> **File ▸ Configure Claude Code**. [How it works ↓](#build-applications-with-claude-code)
+
+## Build applications with Claude Code
+
+On its own, a coding agent does not know RustCOBOL: it cannot see the compiler, it
+guesses at controls and properties, and it does not know that generated COBOL is never
+edited by hand. PowerRustCOBOL AI gives it what it is missing, so it works the way an
+experienced PowerRustCOBOL developer would — only much faster.
+
+### How the integration works
+
+```mermaid
+flowchart LR
+    CC["Claude Code<br/>(your installation)"] -- "PowerRustCOBOL plugin:<br/>skills, reviewer" --> P[(plugin)]
+    CC -- "HTTP 127.0.0.1, access token" --> IDE["PowerRustCOBOL AI<br/>tool server"]
+    CC -- "stdio, when the IDE is closed" --> R["rcrun mcp"]
+    IDE --> PRJ["the project open<br/>in the IDE"]
+    R --> PRJ2["the project in<br/>Claude Code's folder"]
+```
+
+**File ▸ Configure Claude Code** installs the **PowerRustCOBOL plugin** into the Claude Code
+already on your machine, once, for every project. It uses Claude Code's own
+`claude plugin` commands, writes nothing into your project folders, and refuses to install
+if the bundle would carry an API key or a personal path. The plugin brings:
+
+- **Two tool servers (MCP).** `powerrustcobol-ide` is served by the running IDE on
+  `127.0.0.1` (port 5720 by default) and admits only requests carrying the IDE's access
+  token; it works on the project open in the IDE, which reloads what the agent changes.
+  When the IDE is closed, Claude Code starts `rcrun mcp` instead and works on the project
+  in its own folder.
+- **Thirteen tools** that act through the product itself, never around it:
+  `create_project` and `open_project`; `add_to_project`; `regenerate` (the IDE's own
+  generator); `check` (the IDE's own Check, which names the form, the control ▸ event
+  and the handler line of each error); `validate`; `build`; `list_files`; `kb_lookup`
+  and `kb_search` over the same Knowledge Base the IDE's assistant uses; `render_form`,
+  which gives the agent **a picture of a form** as Run Form draws it — at any window size,
+  or inside the application shell; `run_form`, which **runs a form off screen through a
+  script** (type, click, wait, read a property back) and returns what the program
+  displayed, any runtime error and a picture of where the form ended up; and
+  `add_powerchat`, which adds a complete AI chat to the application on request.
+- **The live reference** of the version you run — the Developer's Guide, the supported
+  COBOL-85 syntax, every control with its properties, methods and events, every built-in,
+  the `.cfrm` and `.cidx` formats — plus a **patterns pack** of working forms (application
+  shell, ContentPane screen, indexed-file maintenance, DataGrid, REST call, AI question,
+  modal dialog). A name that is not in the reference does not exist for the agent.
+- **Ten skills** — create a form, add a control and bind its event, define an indexed
+  file, add assets, write a Common Code procedure, check and fix, report a gap, build an
+  application, the application shell and navigation, layout and themes — and a
+  **reviewer** the agent runs before it calls a change done.
+- **Golden rules** every generated application follows: responsive at any resolution,
+  the Spatial theme, a side menu with screens embedded in its content pane, a slick and
+  lean layout, built-in controls first, every text in six languages switched at run time,
+  GitHub if you want it, and PowerChat only when you ask.
+
+When you ask for something the product cannot do yet, the agent does not invent it: it
+builds the part that works and writes a **gap report** in `docs/compiler-requests/`,
+shown in the project tree under **Compiler requests**.
+
+### Getting started
+
+1. Install Claude Code (see Anthropic's
+   [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)) and sign in.
+2. Start PowerRustCOBOL AI. The first time, it offers to **Connect a coding agent**;
+   otherwise use **File ▸ Configure Claude Code**. **Help ▸ Coding Agent Settings** shows
+   the plugin version, the tool server's address, the port and the access token, and
+   updates the plugin after an IDE upgrade.
+3. Start a new Claude Code session in your project's folder (or in an empty folder for
+   a new application).
+4. The first time the agent uses each PowerRustCOBOL tool, Claude Code asks you to allow
+   it — answer *Yes, and don't ask again*.
+
+### Three ways to work
+
+**From a few sentences.** Describe the application and let the agent ask what it needs:
+
+```text
+Create a Marketing Campaign Management application: campaigns, audiences and results
+kept in indexed files, a dashboard with a chart of results per campaign, and a screen
+to maintain each table.
+```
+
+The agent agrees the screens and the data with you, then builds in a fixed order — the
+indexed files first, then the main form with its side menu, then one screen at a time.
+After each screen it regenerates, checks until the compiler is clean, looks at the
+screen with `render_form` and drives it with `run_form` before going on.
+
+**From a sketch or a picture of the interface.** Paste a hand-drawn sketch, a mock-up or
+a screenshot of an existing system into the Claude Code prompt and ask for that screen.
+The agent builds the form with real controls and a responsive layout, renders it, and
+compares the picture with what you gave it — at a laptop size and a wide-monitor size
+when you ask.
+
+**With Spec-Driven Development.** For anything larger, have the agent write the
+specification before any code, and review each step yourself:
+
+1. **Specify** — `docs/specs/<feature>/spec.md`: what the operator needs, in plain words,
+   with acceptance criteria you can check. No implementation yet.
+2. **Plan** — `plan.md`: the forms, indexed files, Common Code and controls the
+   specification needs, checked against the product's reference, with the gaps named.
+3. **Tasks** — `tasks.md`: small, ordered steps, each one verifiable with `check`,
+   `render_form` or `run_form`.
+4. **Implement** — the agent works through the tasks one at a time, ticking each off
+   only when its check passes, and the reviewer runs before it reports.
+
+Because every step is written down, you can stop and resume between sessions, hand a
+task to a teammate, and see exactly why the application is shaped the way it is.
+
+The agent can also write the documentation of what it built, keep the project in a
+private GitHub repository, and — when a screen needs more than COBOL — write Rust
+directly into a form's `EXEC RUST` block.
+
+The full reference is the Developer's Guide chapter
+[Working with a coding agent (Claude Code)](docs/developers-guide-en.md#working-with-a-coding-agent-claude-code).
+
 ## Overview
 
 <!-- 📷 welcome.png — ## Overview […] **PowerRustCOBOL AI** brings COBOL into -->

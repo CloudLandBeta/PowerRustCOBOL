@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.188] — 2026-10-04
+
+### README: building applications with Claude Code, up front
+
+The README opened with the IDE and never mentioned the coding-agent
+integration (spec 084), the fastest way to build an application with the
+product. It now leads with it: a callout under the badges, then a section on
+how the integration works (the plugin, the two tool servers, the thirteen
+tools, the live reference and patterns pack, the ten skills and the reviewer,
+the golden rules, gap reports), how to set it up, and three ways to work —
+from a few sentences, from a sketch or screenshot of the interface, and with
+Spec-Driven Development (spec → plan → tasks → implement). Every claim is
+checked against the code and the Developer's Guide chapter it links to.
+
 ## [PowerRustCOBOL 1.80.187] — 2026-10-04
 
 ### PowerSpatial: the operator's touches
