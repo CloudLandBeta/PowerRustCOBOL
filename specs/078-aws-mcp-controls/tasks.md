@@ -142,7 +142,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.3 Route table
 
-- [ ] **T-A8 — `routes.toml`, the loader, placeholders and override** (R14, R15, R16)
+- [x] **T-A8 — `routes.toml`, the loader, placeholders and override** (R14, R15, R16)
   - Files: `crates/cobolt-runtime/src/aws/{routes.rs, routes.toml}` (new).
   - Do:
     - Schema: `[servers.<id>]` has `command`, `args` (pinned `@version`), `env`, `readonly_args`, `write_args` and `protocol`. `[ops."<Type>.<Method>"]` has `server`, `tool`, `input`, `result`, `rows` and `mutating`.
@@ -152,10 +152,11 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - A grep test keeps every server or tool name out of `.rs` files (R15).
   - Verify: `routes_parse_and_every_op_names_a_server`, `placeholders_expand`, `override_replaces_one_key`, `no_server_or_tool_named_in_code`.
 
-- [ ] **T-A9 — Recorded fixtures and the drift test** (R17; AC9)
+- [x] **T-A9 — Recorded fixtures and the drift test** (R17; AC9)
   - Files: `crates/cobolt-runtime/tests/fixtures/aws-mcp/lambda.tools.json` (recorded with `uvx awslabs.lambda-tool-mcp-server@2.1.1` against an empty function selection, or from the pinned source's schema if no account is available, stating which in the fixture's header), `tests/aws_routes.rs` (new).
   - Do: for each op, check that the tool exists (or matches the dynamic shape, for Lambda) and that every `required` input of its `inputSchema` is filled by `input`.
   - Verify: `every_route_names_a_real_tool_with_its_required_inputs` is green. `a_renamed_tool_fails_the_route_test` runs against an in-test mutated copy and must fail the check (AC9).
+  - Result (1.80.231): the pinned server's facts were read from its published source (PyPI 2.1.1, Python ≥ 3.10; `server.py`): the tool is the function name with `FUNCTION_PREFIX` removed and `[^a-zA-Z0-9_]` → `_` (a leading `_` before a digit); its only argument is `parameters` (the payload); a function error comes back as TEXT ("Function f returned with error: …"), not `isError`. The route table expresses all of it as data — filters `|strip:` / `|ident` / `|json`, extractor `$after:` — with no Lambda code. **The fixture is derived from that source, not recorded live** (no AWS account; its `_provenance` says so): re-record it with an operator profile. `a_drifted_fixture_fails_the_route_check` covers a renamed input and a renamed tool.
 
 ### A.4 Model, runtime dispatch, the two controls
 

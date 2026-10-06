@@ -1,0 +1,25 @@
+{
+  "_provenance": "awslabs.lambda-tool-mcp-server@2.1.1. NOT a live recording: no AWS account was available when this was written (2026-10-06). Derived from the pinned source: each selected Lambda function is registered as a tool named sanitize_tool_name(function name) (FUNCTION_PREFIX removed, [^a-zA-Z0-9_] -> '_', a leading '_' before a digit), whose only argument is `parameters: dict` (the JSON payload). The schema below is what FastMCP generates for that signature. Re-record it with a live `tools/list` (FUNCTION_LIST set to two test functions) when an operator profile is available.",
+  "tools": [
+    {
+      "name": "order_sync",
+      "description": "Synchronises one order. Input: {\"id\": <number>}",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "parameters": { "type": "object", "additionalProperties": true, "title": "Parameters" } },
+        "required": ["parameters"],
+        "title": "order_syncArguments"
+      }
+    },
+    {
+      "name": "price_quote",
+      "description": "Quotes a price. Input: {\"sku\": <text>, \"qty\": <number>}",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "parameters": { "type": "object", "additionalProperties": true, "title": "Parameters" } },
+        "required": ["parameters"],
+        "title": "price_quoteArguments"
+      }
+    }
+  ]
+}

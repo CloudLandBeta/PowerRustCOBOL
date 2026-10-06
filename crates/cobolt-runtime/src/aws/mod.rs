@@ -16,7 +16,9 @@
 //! - [`pool`] — one shared server per connection and server, timeouts,
 //!   restarts.
 //! - [`lifetime`] — making sure no server outlives the application.
+//! - [`routes`] — which server and tool serve each operation, as data.
 
 pub mod lifetime;
 pub mod pool;
 pub mod process;
+pub mod routes;

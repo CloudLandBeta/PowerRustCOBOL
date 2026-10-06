@@ -83,7 +83,9 @@ office = ["cobolt-forms/office"]
 # AWS SDK, no HTTP stack, no TLS — because the servers do their own TLS and
 # signing; it gates code only, so an application without an AWS control does
 # not carry the process pool. The compiler turns it on when a form has one.
-aws = []
+# `toml` reads the route table; every form application already links it
+# through `cobolt-forms`, so it adds no crate to a build.
+aws = ["dep:toml"]
 
 [dependencies]
 # Free memory, for the fit test of a registered file (spec 075 R18); the
@@ -116,6 +118,7 @@ cobolt-forms    = { path = "../cobolt-forms" }
 # spec 065 — the MCP protocol. serde-only and transport-free, so linking it
 # adds no network stack to an application that serves a tool.
 cobolt-mcp      = { path = "../cobolt-mcp" }
+toml            = { workspace = true, optional = true }
 # spec 068 — the application Knowledge Base engine (feature `kb`).
 cobolt-kb       = { path = "../cobolt-kb", optional = true }
 thiserror       = { workspace = true }

@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  The AWS route table (spec 078 R14–R17)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Which MCP server serves each AWS control operation, as DATA. No `.rs` file
+# names a server, a tool or a launch command (R15): moving a service to a new
+# server is an edit here and a fixture re-record, not a code change.
+#
+# [servers.<id>]
+#   command, args   how to start it. Versions are PINNED (`pkg@x.y.z`): a new
+#                   server release must not silently change a built
+#                   application.
+#   env             the server's own variables (placeholders allowed).
+#   readonly_args   added while no control on the connection allows writes.
+#   write_args      added when one does (the server restarts to take them).
+#   protocol        "handshake" (default) or "stateless".
+#
+# [ops."<ControlType>.<Method>"]
+#   server          a server id — or a placeholder (`AwsMcp` names its own).
+#   tool            the tool to call (placeholders allowed).
+#   input           the tool's arguments: a table whose string leaves are
+#                   expanded; a leaf that is exactly one `|json` placeholder
+#                   becomes that JSON value.
+#   mutating        true: refused while `AllowWrite` is off (R25).
+#                   "by-tool": decided by the tool's `readOnlyHint` (R26).
+#   result          property = extractor.
+#
+# Placeholders:  {arg:N}  the N-th COBOL argument (1-based)
+#                {prop:Name}  a property of the control
+#                {Connection.Field}  a field of the control's AWS connection
+#   followed by filters, applied left to right:
+#                |json   parse as JSON (an invalid one is an error naming the
+#                        argument, R21)
+#                |strip:<text>  remove a leading <text> when present
+#                |ident  [^A-Za-z0-9_] -> `_`, and a leading `_` before a digit
+#
+# Extractors:    $text        every text block, joined
+#                $isError     "1" when the tool reported an error, else "0"
+#                $json:/ptr   a JSON Pointer into the structured result (or
+#                             the text, read as JSON); `$json:` is the whole
+#                $after:m1|m2 the text after the first marker found; "" if none
+
+# ── Lambda — awslabs.lambda-tool-mcp-server 2.1.1 (Python ≥ 3.10) ───────────
+# Each selected function is a tool named after it: the connection's prefix
+# removed, then sanitised. The payload is the tool's `parameters` argument.
+# The server reports a function error in TEXT ("Function <f> returned with
+# error: Unhandled"), not as a tool error, so FunctionError reads it there.
+[servers.lambda]
+command       = "uvx"
+args          = ["awslabs.lambda-tool-mcp-server@2.1.1"]
+env           = { FUNCTION_PREFIX = "{Connection.FunctionPrefix}", FUNCTION_LIST = "{Connection.FunctionList}" }
+readonly_args = []
+write_args    = []
+protocol      = "handshake"
+
+[ops."AwsLambda.Invoke"]
+server   = "lambda"
+tool     = "{arg:1|strip:{Connection.FunctionPrefix}|ident}"
+input    = { parameters = "{arg:2|json}" }
+mutating = true
+result   = { ResponseBody = "$after:returned: |returned payload: ", FunctionError = "$after:returned with error: " }
+
+[ops."AwsLambda.ListFunctions"]
+server   = "lambda"
+tool     = "$list"
+mutating = false
+
+# ── The escape hatch: any tool of any routed server ─────────────────────────
+[ops."AwsMcp.Call"]
+server   = "{prop:ServerId}"
+tool     = "{arg:1}"
+input    = "{arg:2|json}"
+mutating = "by-tool"
+result   = { ResponseBody = "$text", ResultJson = "$json:" }
+
+[ops."AwsMcp.ListTools"]
+server   = "{prop:ServerId}"
+tool     = "$list"
+mutating = false

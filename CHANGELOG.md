@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.231] — 2026-10-06
+
+### Added
+- **Spec 078 A.3 — the AWS route table.** Which MCP server and tool serve
+  each AWS control operation, how its COBOL arguments become the tool's
+  input and how the answer becomes properties, is data in one table shipped
+  with the product, with server versions pinned. A connection may override
+  it for one project. A test checks every route against the server's
+  recorded tool list, so a renamed tool fails the build rather than an end
+  user's form. The first route is AWS Lambda's MCP server.
+
 ## [PowerRustCOBOL 1.80.230] — 2026-10-06
 
 ### Added
