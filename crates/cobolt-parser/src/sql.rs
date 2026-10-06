@@ -252,7 +252,10 @@ fn conv(h: &scan::HostName) -> SqlHostName {
 enum Parsed {
     Kind(SqlKind),
     Cursor(SqlCursor),
-    /// A `WHENEVER` (already applied) or another compile-time declaration.
+    /// A `WHENEVER` (already applied to the parser's state): carries only the
+    /// target it set, so Check can report a missing one on its own line.
+    Whenever(SqlWhenever),
+    /// Another compile-time declaration.
     Declarative,
     /// `BEGIN/END DECLARE SECTION`, `DECLARE … TABLE`: no effect at all.
     Transparent,
@@ -346,12 +349,22 @@ fn classify(p: &mut Parser, b: &SqlBlock, span: Span, in_data: bool, diags: &mut
                 err(diags, first_off, "WHENEVER needs CONTINUE or GO TO paragraph".into());
                 None
             };
+            let mut set = SqlWhenever::default();
             match cond {
-                0 => p.sql_whenever.sqlerror = target,
-                1 => p.sql_whenever.sqlwarning = target,
-                _ => p.sql_whenever.not_found = target,
+                0 => {
+                    p.sql_whenever.sqlerror = target.clone();
+                    set.sqlerror = target;
+                }
+                1 => {
+                    p.sql_whenever.sqlwarning = target.clone();
+                    set.sqlwarning = target;
+                }
+                _ => {
+                    p.sql_whenever.not_found = target.clone();
+                    set.not_found = target;
+                }
             }
-            Parsed::Declarative
+            Parsed::Whenever(set)
         }
         "DECLARE" => {
             let name = blk.word(1).unwrap_or("").to_string();
@@ -581,15 +594,15 @@ pub(crate) fn parse_exec_sql_stmt(p: &mut Parser) -> Stmt {
     let mut diags = Vec::new();
     let parsed = classify(p, &block, span, false, &mut diags);
     p.diagnostics.extend(diags);
-    let kind = match parsed {
-        Parsed::Kind(k) => k,
+    let (kind, whenever) = match parsed {
+        Parsed::Kind(k) => (k, p.sql_whenever.clone()),
         Parsed::Cursor(c) => {
             p.sql_cursors.push(c);
-            SqlKind::Declarative
+            (SqlKind::Declarative, SqlWhenever::default())
         }
-        Parsed::Declarative | Parsed::Transparent => SqlKind::Declarative,
+        Parsed::Whenever(set) => (SqlKind::Declarative, set),
+        Parsed::Declarative | Parsed::Transparent => (SqlKind::Declarative, SqlWhenever::default()),
     };
-    let whenever = if matches!(kind, SqlKind::Declarative) { SqlWhenever::default() } else { p.sql_whenever.clone() };
     Stmt::ExecSql(Box::new(ExecSql {
         kind,
         whenever,

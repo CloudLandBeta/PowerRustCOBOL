@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.202] — 2026-10-06
+
+### Added
+- **Spec 087 M3 (part) — Check understands embedded SQL.** Without contacting
+  any database, Check (`rcrun check`, the IDE's Check and the coding-agent
+  `check` tool) reports, each on its own line: an undeclared or ambiguous host
+  variable or indicator, an indicator that is not a `PIC S9(4)` binary or
+  display item (a table of them for a host structure), a cursor used before it
+  is declared or declared twice, an `EXECUTE` or `DESCRIBE` before its
+  `PREPARE`, and a `WHENEVER … GO TO` naming no paragraph or section. GLOBAL
+  items and DATA DIVISION cursors are seen by the programs inside. An
+  unterminated block now says so (`unterminated EXEC SQL block (missing
+  END-EXEC)`), and `rcrun check` prints a copybook error on its line and fails
+  on it.
+
 ## [PowerRustCOBOL 1.80.201] — 2026-10-06
 
 ### Added

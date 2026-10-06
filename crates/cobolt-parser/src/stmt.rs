@@ -217,6 +217,10 @@ fn parse_stmt_list(
                          fit on one line."
                             .to_string()
                     }
+                    // An unterminated EXEC block: the lexer already named it.
+                    Token::Error(t) if t.starts_with("unterminated EXEC") => {
+                        format!("{t} (missing END-EXEC)")
+                    }
                     other => format!("unexpected token in statement: {other:?}"),
                 };
                 p.emit_error(msg);

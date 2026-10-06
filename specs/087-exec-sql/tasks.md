@@ -146,7 +146,7 @@ pushed unless the operator asks.
 
 ## M3 — Check
 
-- [ ] **T9 — Semantic pass** (R14, R21, R28, R46)
+- [x] **T9 — Semantic pass** (R14, R21, R28, R46)
   - Files: `crates/cobolt-semantic/src/exec_sql.rs` (new),
     `crates/cobolt-semantic/src/lib.rs`, `crates/cobolt-semantic/src/resolver.rs`.
   - Do: an index of declarations (ancestors, PICTURE digits and sign, usage,
@@ -162,7 +162,7 @@ pushed unless the operator asks.
     reachable (AC12); `rcrun check` on the same file prints the same lines
     (`cargo test -p cobolt-cli`).
 
-- [ ] **T10 — Check on the operator's samples** (R46; AC15 Check part)
+- [x] **T10 — Check on the operator's samples** (R46; AC15 Check part)
   - Files: `crates/cobolt-project-tools/tests/exec_sql_check.rs` (gated case).
   - Do: run Check on `$PRC_LEGACY_CBL_DIR/M-ARTICULOS/Debug/F-ART-PURGA.cob`
     and `$PRC_LEGACY_CBL_DIR/TyC/Debug/TyC.cob`.
@@ -170,6 +170,10 @@ pushed unless the operator asks.
     the variable. **If non-SQL PowerCOBOL constructs in these listings fail
     Check, stop and report**: AC15's "pass Check" would then depend on spec
     086's conversion.
+  - Result (2026-10-06): 0 diagnostics inside the 40 SQL blocks
+    (F-ART-PURGA 35, TyC 5); the programs still fail Check on non-SQL
+    PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`, `CALL … WITH STDCALL`,
+    `BY VALUE`) — reported to the operator; AC15's scope awaits a decision.
 
 - [ ] **T11 — M3 wrap-up**
   - Do: `z` bump, CHANGELOG entry, Guide (the Check section of the new
