@@ -28,6 +28,7 @@ use indexmap::IndexMap;
 
 /// Spec 072 — the AgentObject tool loop.
 mod agent_loop;
+mod aws;
 mod exec_sql;
 mod kb;
 use std::collections::HashMap;
@@ -1656,6 +1657,12 @@ pub struct Interpreter {
     /// Spec 068 — the values each queued KnowledgeBase event carries, applied
     /// when that event is dispatched. Keyed by the form's spelling, upper-cased.
     kb_payloads: HashMap<String, std::collections::VecDeque<kb::KbPayload>>,
+    /// Spec 078 — the values each queued AWS event carries, applied when that
+    /// event is dispatched. Keyed by the form's spelling, upper-cased.
+    aws_payloads: HashMap<String, std::collections::VecDeque<aws::AwsPayload>>,
+    /// Spec 078 — each AWS control's last row set, which `GetRow` and
+    /// `GetField` read. Keyed by the control id, upper-cased.
+    aws_rows: HashMap<String, Vec<serde_json::Value>>,
     /// Spec 068 — collections handed to agents as tools (every agent sees
     /// them, as with `AllowFile`).
     kb_tools: Vec<kb::KbTool>,
@@ -2112,6 +2119,8 @@ impl Interpreter {
             async_generations: HashMap::new(),
             kb_states: HashMap::new(),
             kb_payloads: HashMap::new(),
+            aws_payloads: HashMap::new(),
+            aws_rows: HashMap::new(),
             kb_tools: Vec::new(),
             control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
@@ -3613,6 +3622,11 @@ impl Interpreter {
                 | crate::async_op::AsyncOutcome::KbError { .. }) => {
                     self.kb_delivered(&r.ctrl_id, o);
                 }
+                o @ (crate::async_op::AsyncOutcome::Aws { .. }
+                | crate::async_op::AsyncOutcome::AwsError { .. }
+                | crate::async_op::AsyncOutcome::AwsTimeout { .. }) => {
+                    self.aws_delivered(&r.ctrl_id, o);
+                }
                 crate::async_op::AsyncOutcome::KbToolResult { call_id, text } => {
                     self.kb_tool_delivered(&r.ctrl_id, &call_id, text);
                 }
@@ -3743,6 +3757,7 @@ impl Interpreter {
                 // Spec 068 — a KnowledgeBase event's own values, written as it
                 // is presented, so its handler reads exactly them.
                 self.kb_apply_payload(&ctrl, &event_id);
+                self.aws_apply_payload(&ctrl, &event_id);
                 if event_id == "onToolCall" {
                     self.tool_loop_dispatched(&ctrl);
                 }
@@ -15529,6 +15544,13 @@ impl Interpreter {
         // mean something else on other controls.
         if self.is_knowledge_base(obj) {
             if let Some(answer) = self.kb_method(obj, &m, args) {
+                return val(answer);
+            }
+        }
+        // Spec 078 — routed by class first too: `Call` and `Invoke` mean
+        // something else on other controls.
+        if self.is_aws(obj) {
+            if let Some(answer) = self.aws_method(obj, &m, args) {
                 return val(answer);
             }
         }

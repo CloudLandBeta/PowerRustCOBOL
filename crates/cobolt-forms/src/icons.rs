@@ -1020,6 +1020,8 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-side-menu",
             "control-snackbar",
             "control-viewer",
+            "control-aws-mcp",
+            "control-aws-lambda",
             "control-custom",
         ],
     ),
@@ -7325,6 +7327,24 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(5.0, 12.4), (15.4, 12.4)]),
             p(&[(5.0, 15.4), (19.0, 15.4)]),
             p(&[(5.0, 18.4), (12.2, 18.4)]),
+        ],
+        // Spec 078: the AWS controls. In the menu catalogue's single-weight
+        // line set — the toolbox and the designer card draw the full-colour
+        // AWS-style tiles (amendment A5).
+        // AwsLambda: λ in the service's rounded tile.
+        "control-aws-lambda" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            p(&[(7.4, 6.6), (9.4, 6.6), (16.6, 17.6)]),
+            p(&[(12.4, 11.6), (7.6, 17.6)]),
+        ],
+        // AwsMcp: one client linked to two tool servers.
+        "control-aws-mcp" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            c(7.6, 12.0, 2.2),
+            c(16.4, 7.6, 2.2),
+            c(16.4, 16.4, 2.2),
+            p(&[(9.6, 11.0), (14.4, 8.6)]),
+            p(&[(9.6, 13.0), (14.4, 15.4)]),
         ],
         "control-web-search" => vec![
             rr(2.5, 4.5, 19.0, 15.0, 1.5),

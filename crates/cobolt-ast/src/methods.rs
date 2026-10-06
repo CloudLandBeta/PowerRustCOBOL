@@ -126,6 +126,9 @@ pub fn is_known_method(name: &str) -> bool {
         // DataGrid property, which is why the tab-joined accessor is called
         // `ColumnNames`.
             | "COLUMNNAMES" | "COLUMNCOUNT" | "COLUMNNAME"
+        // AWS controls (078) — the route table's operations plus the row-set
+        // accessors. `Call` is listed above.
+            | "INVOKE" | "LISTFUNCTIONS" | "LISTTOOLS" | "GETROW" | "GETFIELD"
         // Collection verbs + scalar transforms (exec_member_method)
             | "COUNT" | "SIZE" | "REMOVE" | "ADD" | "APPEND"
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"

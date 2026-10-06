@@ -279,10 +279,14 @@ built application, and the spec treats it as one (R22–R24).
 
 ### 4.9 IDE, documentation and knowledge
 
-- **R30 (ubiquitous):** Each AWS control shall have an original tray icon (not an
-  AWS logo), property rows in the inspector, property help in all six languages,
+- **R30 (ubiquitous):** Each AWS control shall have a **hand-drawn SVG icon in
+  the style of its AWS service's official icon** (the service's colour tile and
+  a simplified glyph — λ for Lambda), drawn for this product rather than traced
+  or copied from AWS's icon files, and carrying no AWS wordmark or logo;
+  property rows in the inspector, property help in all six languages,
   IntelliSense for its methods, and a Grace synonym so it can be asked for in
-  plain words.
+  plain words. *(Amended 2026-10-06, A5, operator: "AWS controls must use
+  handwritten copycat versions of AWS official service's icons" — "svg".)*
 - **R31 (ubiquitous):** The System KB tables (`property_reference`,
   `event_reference`, `control_purpose`, `control_method_docs`) shall document
   every AWS control, and `assets/knowledge/chunked.data` shall be regenerated in
@@ -373,8 +377,9 @@ built application, and the spec treats it as one (R22–R24).
 - **Interpreter-binary parity:** R28 / AC16.
 - **Windows:** the golden rule that a window never resizes itself applies to the
   connection dialog and the Test-connection report.
-- **Trademarks:** "AWS" and service names are used descriptively; no AWS logo or
-  artwork is reproduced (R30).
+- **Trademarks:** "AWS" and service names are used descriptively. The icons
+  are hand-drawn look-alikes in the style of AWS's service icons (A5); no AWS
+  file is copied or traced, and no AWS wordmark or logo is reproduced (R30).
 
 ## 7. Open questions
 

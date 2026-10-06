@@ -3278,6 +3278,15 @@ fn type_aliases(ty: &str) -> &'static [&'static str] {
             "google search",
             "pesquisa google",
         ],
+        "AwsLambda" => &[
+            "lambda",
+            "aws lambda",
+            "função lambda",
+            "funcao lambda",
+            "función lambda",
+            "funcion lambda",
+        ],
+        "AwsMcp" => &["aws mcp", "servidor mcp", "mcp server", "ferramenta aws", "herramienta aws"],
         _ => &[],
     }
 }
@@ -4111,6 +4120,9 @@ mod tests {
         assert!(names_type("add a Maps control", "Maps"));
         assert!(names_type("adicione uma busca na web", "WebSearch"));
         assert!(names_type("add a web search control", "WebSearch"));
+        assert!(names_type("add a lambda control", "AwsLambda"));
+        assert!(names_type("adicione uma função lambda", "AwsLambda"));
+        assert!(names_type("add an aws mcp control", "AwsMcp"));
     }
 
     /// The same slice, end to end: the events legend must survive a plural.

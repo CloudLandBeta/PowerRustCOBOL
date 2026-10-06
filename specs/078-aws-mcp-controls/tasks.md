@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — AWS controls through MCP (spec 078)
 
-- **Status:** draft → awaiting approval (then `/implement`)
+- **Status:** approved by the operator 2026-10-06 ("go on on 078"); implementation in progress on `features-spec-078`
 - **Plan:** ./plan.md (approved 2026-09-30)   **Date:** 2026-09-30
 - **Line:** a **feature**. Work goes on the operator's working line (`1.80.x` today, or `features` if the operator says so), never on `main`, and is pushed only when the operator allows.
 
@@ -42,7 +42,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.1 The MCP client (`cobolt-mcp`)
 
-- [ ] **T-A1 — Wire types for the client and a tolerant `Content`** (R1, R6; AC4)
+- [x] **T-A1 — Wire types for the client and a tolerant `Content`** (R1, R6; AC4)
   - Read first: `cobolt-mcp/src/types.rs` (the whole file), `server.rs` `handle_one`/`finish`.
   - Files: `crates/cobolt-mcp/src/types.rs`, `lib.rs`.
   - Do:
@@ -55,7 +55,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `cargo test -p cobolt-mcp` is green.
     - New tests: `an_image_content_decodes_as_other`, `message_classifies_request_notification_and_response`, and `every_client_request_parses_as_a_server_request`, which round-trips each client request through the server's parser (AC4).
 
-- [ ] **T-A2 — `client.rs`: session, id correlation and the pump** (R1, R3, R4, R5)
+- [x] **T-A2 — `client.rs`: session, id correlation and the pump** (R1, R3, R4, R5)
   - Read first: T-A1's types, `transport.rs` `read_message`/`write_message`.
   - Files: `crates/cobolt-mcp/src/client.rs` (new), `lib.rs`.
   - Do:
@@ -78,13 +78,14 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - an unsupported answered version rejected with a clear error.
     `cargo test -p cobolt-mcp` is green (AC1 at the unit level, AC3 notifications, AC4).
 
-- [ ] **T-A3 — Dependency audit** (R2; AC2)
+- [x] **T-A3 — Dependency audit** (R2; AC2)
   - Do: confirm `cobolt-mcp/Cargo.toml` still lists only `serde` and `serde_json`.
   - Verify: `cargo tree -p cobolt-mcp -e normal` shows no `rustls`, `ring`, `aws-lc`, `hyper`, `reqwest` or `ureq`. Record the output in the commit message.
+  - Result (1.80.229): `cobolt-mcp` depends on `serde` and `serde_json` only (with their own `serde_core`, `serde_derive`, `itoa`, `memchr`, `zmij`); none of the banned crates. `cobolt-mcp` 32 tests green. Deviation from T-A1's wording: `SUPPORTED_VERSIONS` stays the server's two revisions, because growing it would change what the server's `negotiate` echoes (the task's own constraint); the client's revisions are separate constants (`CLIENT_OFFERED_VERSION`, `CLIENT_ACCEPTED_VERSIONS`, `STATELESS_REVISION`). `ToolResult` also gained `structuredContent` (2025-06-18), which AWS servers send.
 
 ### A.2 Transport, pool, lifetime (`cobolt-runtime`, feature `aws`)
 
-- [ ] **T-A4 — Feature `aws` and the fake MCP server** (R29; test infrastructure for AC1, AC3, AC5, AC12, AC13, AC15)
+- [x] **T-A4 — Feature `aws` and the fake MCP server** (R29; test infrastructure for AC1, AC3, AC5, AC12, AC13, AC15)
   - Read first: `cobolt-runtime/Cargo.toml` `[features]`, `cobolt-form-host/Cargo.toml` `[features]`, and how existing test binaries are declared in the workspace.
   - Files:
     - `crates/cobolt-runtime/Cargo.toml`, `crates/cobolt-form-host/Cargo.toml` (`aws = []`, forwarded, in `default`);
@@ -95,7 +96,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - It appends one JSON line per received request to a call log, and writes its PID and argv marker to a file.
   - Verify: `cargo build -p cobolt-runtime --features aws --bin fake_mcp`; a smoke test runs it over pipes and lists its tools.
 
-- [ ] **T-A5 — `aws/process.rs`: spawn, the built environment, stderr ring** (R7, R10, R11; AC7)
+- [x] **T-A5 — `aws/process.rs`: spawn, the built environment, stderr ring** (R7, R10, R11; AC7)
   - Read first: `cobolt-ide/src/form_runtime.rs` `BuiltAppRun::spawn`/`Drop` (the closest template), `cobolt-form-host/src/os_handoff.rs` (NotFound mapping).
   - Files: `crates/cobolt-runtime/src/aws/process.rs` (new).
   - Do:
@@ -108,7 +109,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `mask_hides_planted_token`.
     - `missing_program_names_uv`.
 
-- [ ] **T-A6 — `aws/pool.rs`: shared servers, timeouts, restart** (R5, R8; AC3, AC5)
+- [x] **T-A6 — `aws/pool.rs`: shared servers, timeouts, restart** (R5, R8; AC3, AC5)
   - Read first: T-A2, T-A5, `interpreter.rs` `async_result_tx` (how workers report).
   - Files: `crates/cobolt-runtime/src/aws/pool.rs` (new).
   - Do:
@@ -122,7 +123,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `progress_and_log_notifications_do_not_stall_a_call` (AC3);
     - `first_start_uses_start_timeout`.
 
-- [ ] **T-A7 — No orphaned servers: EOF, orderly shutdown, OS backstop** (R9; AC6)
+- [x] **T-A7 — No orphaned servers: EOF, orderly shutdown, OS backstop** (R9; AC6)
   - Read first: `cobolt-forms/src/text_scale.rs` (hand-declared Windows FFI pattern), the three hosts' exit paths:
     - `cobolt-cli/src/form_gui.rs`, where the run loop returns;
     - `cobolt-form-host/src/host.rs`, at shell exit;
@@ -137,10 +138,11 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - (b) is killed with SIGKILL / `TerminateProcess`;
     - then scans for the fake's marker PID. It is run for the Run Form path, a child-form session and a built binary (the last in T-A16).
     The result is reported per platform the test ran on (AC6). The operator runs it on Windows and Linux before release, and the release notes record which platforms were measured.
+  - Result (1.80.230): `aws_no_orphans` on **macOS** — the server is gone 7 ms after a normal exit, 2 ms after `process::exit` with no shutdown, 2 ms after SIGKILL (stdin EOF). The Linux (`PR_SET_PDEATHSIG`, process group) and Windows (kill-on-close Job Object, hand-declared) backstops compile under `cargo check --target x86_64-unknown-linux-gnu` / `x86_64-pc-windows-gnu`; **they still need the operator's run on those platforms.** AC5: one process for two calls; a crash fails that call and the next starts fresh. AC3: a silent server times out at 502 ms for a 500 ms budget; progress, log and ping do not stall a call. AC7: 4 planted secrets, none reaches the server. A3: a 400 ms start passes on the start budget with a 100 ms call budget. The shutdown runs from `rcrun` (run, run-form) and the generated binary's `main` via `cobolt_runtime::shutdown_child_processes()`; child forms share the process-global pool, so the root's exit covers them.
 
 ### A.3 Route table
 
-- [ ] **T-A8 — `routes.toml`, the loader, placeholders and override** (R14, R15, R16)
+- [x] **T-A8 — `routes.toml`, the loader, placeholders and override** (R14, R15, R16)
   - Files: `crates/cobolt-runtime/src/aws/{routes.rs, routes.toml}` (new).
   - Do:
     - Schema: `[servers.<id>]` has `command`, `args` (pinned `@version`), `env`, `readonly_args`, `write_args` and `protocol`. `[ops."<Type>.<Method>"]` has `server`, `tool`, `input`, `result`, `rows` and `mutating`.
@@ -150,14 +152,15 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - A grep test keeps every server or tool name out of `.rs` files (R15).
   - Verify: `routes_parse_and_every_op_names_a_server`, `placeholders_expand`, `override_replaces_one_key`, `no_server_or_tool_named_in_code`.
 
-- [ ] **T-A9 — Recorded fixtures and the drift test** (R17; AC9)
+- [x] **T-A9 — Recorded fixtures and the drift test** (R17; AC9)
   - Files: `crates/cobolt-runtime/tests/fixtures/aws-mcp/lambda.tools.json` (recorded with `uvx awslabs.lambda-tool-mcp-server@2.1.1` against an empty function selection, or from the pinned source's schema if no account is available, stating which in the fixture's header), `tests/aws_routes.rs` (new).
   - Do: for each op, check that the tool exists (or matches the dynamic shape, for Lambda) and that every `required` input of its `inputSchema` is filled by `input`.
   - Verify: `every_route_names_a_real_tool_with_its_required_inputs` is green. `a_renamed_tool_fails_the_route_test` runs against an in-test mutated copy and must fail the check (AC9).
+  - Result (1.80.231): the pinned server's facts were read from its published source (PyPI 2.1.1, Python ≥ 3.10; `server.py`): the tool is the function name with `FUNCTION_PREFIX` removed and `[^a-zA-Z0-9_]` → `_` (a leading `_` before a digit); its only argument is `parameters` (the payload); a function error comes back as TEXT ("Function f returned with error: …"), not `isError`. The route table expresses all of it as data — filters `|strip:` / `|ident` / `|json`, extractor `$after:` — with no Lambda code. **The fixture is derived from that source, not recorded live** (no AWS account; its `_provenance` says so): re-record it with an operator profile. `a_drifted_fixture_fails_the_route_check` covers a renamed input and a renamed tool.
 
 ### A.4 Model, runtime dispatch, the two controls
 
-- [ ] **T-A10 — `AwsMcp` and `AwsLambda` in the model** (R18, R19, R25; AC10 in part)
+- [x] **T-A10 — `AwsMcp` and `AwsLambda` in the model** (R18, R19, R25; AC10 in part)
   - Read first: `cobolt-forms/src/model.rs`:
     - `ControlType` and `ALL`, `as_str`, `from_str`, `default_size`, `primary_event`, `supported_events`, `is_non_visual`;
     - the WebSearch arm of `Control::new`;
@@ -171,7 +174,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - Add an `AWS_ASYNC` runtime-names const.
   - Verify: `cargo test -p cobolt-forms --features render` is green (Gate G unchanged), and `aws_controls_are_non_visual_and_round_trip_a_cfrm` passes.
 
-- [ ] **T-A11 — `interpreter/aws.rs`: class-first dispatch and the async path** (R19–R21, R25, R26; AC11, AC12, AC15)
+- [x] **T-A11 — `interpreter/aws.rs`: class-first dispatch and the async path** (R19–R21, R25, R26; AC11, AC12, AC15)
   - Read first: `interpreter/kb.rs` (`is_knowledge_base`, `kb_method`, the non-`kb` stub, `kb_delivered`), and `interpreter.rs`:
     - `exec_method` and its class routing;
     - `spawn_rest_op`;
@@ -244,11 +247,11 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.6 IDE, knowledge, docs
 
-- [ ] **T-A17 — Toolbox category, glyphs, canvas cards** (R18, R30; AC10)
+- [x] **T-A17 — Toolbox category, glyphs, canvas cards** (R18, R30; AC10)
   - Read first: `panels/toolbox.rs` (`TOOLS`, `CATEGORIES`, `TREE_CATEGORY_ORDER`, `category_of`, `paint_control_icon`, and `the_toolbox_snackbar_is_the_controls_own_glyph`); `cobolt-forms/src/paint.rs` (the non-visual card branch and `nv_icon_*`); `i18n.rs` (`cat_*` and `category_name`).
   - Files: those three, plus `crates/cobolt-ide/src/i18n.rs` (`cat_aws` in 6 languages; the English value is "AWS" in every language).
   - Do:
-    - `nv_icon_aws_lambda` and `nv_icon_aws_mcp` are original line glyphs, drawn by both the toolbox and the card.
+    - `crates/cobolt-forms/assets/aws/AwsLambda.svg` and `AwsMcp.svg` are hand-drawn SVGs in the style of the AWS service icons (amendment A5): the service's colour tile and a simplified glyph, never traced from AWS's files, no wordmark. Both the toolbox and the card draw them through `resvg`, cached as textures.
     - Add the "AWS" category after NonVisual.
   - Verify: the `toolbox_layout_tests` gain `the_aws_category_lists_its_controls_in_every_language`; the glyph-parity test is extended; Gate G.
 
@@ -269,7 +272,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - The window keeps its fixed size (GOLDEN RULE).
   - Verify: `aws_test_connection_reports_four_outcomes`, driven with the fake through `diagnose` rather than the UI (AC14); the `i18n_tests` are green.
 
-- [ ] **T-A20 — Help, System KB, IntelliSense, Grace** (R30, R31; AC18)
+- [x] **T-A20 — Help, System KB, IntelliSense, Grace** (R30, R31; AC18)
   - Read first: `prop_help_data.rs` (the WebSearch entries); `cobolt-compiler/src/lib.rs` `property_reference_for`, `event_reference`, `control_purpose`, `control_method_docs`, `control_usage_notes`, `methods_reference_doc` (a hand-kept list) and `every_control_property_is_documented` (a hand-kept type list); `grace_host.rs` `type_aliases`; `agent.rs` `ALL_CONTROL_TYPES`; `crates/cobolt-runtime/tests/test_nonvisual_property_readers.rs` (`declared_readers`, `RUNTIME_SOURCES`).
   - Do:
     - Add every seeded property and event, in 6 languages.

@@ -901,6 +901,7 @@ mod agent_provider_tests {
             rest: Vec::new(),
             search: vec![conn.clone()],
             agent: Vec::new(),
+            aws: Vec::new(),
         };
 
         // The shell: no service controls at all.
@@ -959,6 +960,7 @@ mod agent_provider_tests {
             rest: Vec::new(),
             search: Vec::new(),
             agent: Vec::new(),
+            aws: Vec::new(),
         };
 
         let want = cobolt_forms::connections::control_key_env(&form.name, "Agent-Helper");
@@ -1006,6 +1008,7 @@ mod agent_provider_tests {
             rest: Vec::new(),
             search: vec![conn.clone()],
             agent: Vec::new(),
+            aws: Vec::new(),
         };
 
         let env = credential_env_for(std::slice::from_ref(&form), &llm, &catalogue);

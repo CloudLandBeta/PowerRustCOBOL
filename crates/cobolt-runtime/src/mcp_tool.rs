@@ -775,6 +775,7 @@ pub fn tool_for(description: &FileDescription) -> cobolt_mcp::Tool {
             "type": "object",
             "properties": serde_json::Value::Object(properties),
         }),
+        annotations: None,
     }
 }
 

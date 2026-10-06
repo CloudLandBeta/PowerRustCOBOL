@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Hand-drawn for PowerRustCOBOL in the style of the AWS Lambda service icon
+       (spec 078, amendment A5). Not an AWS file and not traced from one. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#C8511B"/>
+      <stop offset="1" stop-color="#FF9900"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="6" fill="url(#tile)"/>
+  <path d="M21 14 H28 L45 48 H49 V52 H42 L32 32 L23 52 H15 L28 25 L24 18 H21 Z"
+        fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linejoin="round"/>
+</svg>

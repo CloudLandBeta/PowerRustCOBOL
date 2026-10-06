@@ -39,6 +39,10 @@ const RUNTIME_SOURCES: &[&str] = &[
     include_str!("../src/interpreter.rs"),
     include_str!("../src/interpreter/agent_loop.rs"),
     include_str!("../src/http_runtime.rs"),
+    include_str!("../src/interpreter/aws.rs"),
+    // The AWS route table reads a control's properties as `{prop:Name}`
+    // placeholders — data, not code (spec 078 R15).
+    include_str!("../src/aws/routes.toml"),
 ];
 
 /// The sources a [`Reader::Resolved`] claim is checked against — where a
@@ -186,7 +190,24 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 ("OperatorName", Generated),
             ],
         ),
+        (ControlType::AwsLambda, aws_readers(&[("FunctionName", Runtime)])),
+        (ControlType::AwsMcp, aws_readers(&[("ServerId", Runtime), ("ToolName", Runtime)])),
     ]
+}
+
+/// What every AWS control seeds (spec 078), plus its own `extra`.
+fn aws_readers(extra: &[(&'static str, Reader)]) -> Vec<(&'static str, Reader)> {
+    let mut v = vec![
+        ("Connection", Runtime),
+        ("Mode", Runtime),
+        ("Busy", Runtime),
+        ("TimeoutMs", Runtime),
+        ("StartTimeoutMs", Runtime),
+        ("AllowWrite", Runtime),
+        ("Verbose", Runtime),
+    ];
+    v.extend_from_slice(extra);
+    v
 }
 
 /// The properties `Control::new` gives **every** control whatever its type —
@@ -252,7 +273,8 @@ fn every_property_declared_runtime_read_is_actually_read_by_the_runtime() {
                 continue;
             }
             let quoted = format!("\"{name}\"");
-            if !RUNTIME_SOURCES.iter().any(|s| s.contains(&quoted)) {
+            let placeholder = format!("{{prop:{name}}}");
+            if !RUNTIME_SOURCES.iter().any(|s| s.contains(&quoted) || s.contains(&placeholder)) {
                 orphans.push(format!(
                     "{ct:?}::{name} is declared Runtime-read, but no runtime source \
                      mentions {quoted}. Either the read was refactored away — which \

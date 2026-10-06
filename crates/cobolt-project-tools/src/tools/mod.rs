@@ -125,6 +125,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                         .into(),
                 ),
                 input_schema: none.clone(),
+                annotations: None,
             },
             Tool {
                 name: "check".into(),
@@ -141,6 +142,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "properties": { "path": path_arg("Optional project-relative .cfrm, .cidx or COBOL source; omit for the whole project.") },
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "regenerate".into(),
@@ -155,6 +157,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "properties": { "path": path_arg("Optional project-relative .cfrm or .cidx; omit for all.") },
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "add_to_project".into(),
@@ -174,6 +177,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["path"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "build".into(),
@@ -188,6 +192,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "properties": { "full": { "type": "boolean", "description": "Discard cached build artefacts first." } },
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "validate".into(),
@@ -202,6 +207,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["path"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "kb_lookup".into(),
@@ -221,6 +227,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["name"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "render_form".into(),
@@ -253,6 +260,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["path"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "run_form".into(),
@@ -279,6 +287,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["path", "steps"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "add_powerchat".into(),
@@ -300,6 +309,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     },
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "create_project".into(),
@@ -319,6 +329,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["folder", "name"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "open_project".into(),
@@ -335,6 +346,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["path"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
             Tool {
                 name: "kb_search".into(),
@@ -355,6 +367,7 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "required": ["query"],
                     "additionalProperties": false
                 }),
+                annotations: None,
             },
         ]
     }

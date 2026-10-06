@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps", "kb", "smb", "pdf", "office"]
+default = ["sql", "http", "maps", "kb", "smb", "pdf", "office", "aws"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -78,6 +78,15 @@ pdf = ["cobolt-forms/pdf"]
 # text. Pure Rust; on when a form has a Viewer, like `pdf`.
 office = ["cobolt-forms/office"]
 
+# The AWS controls (spec 078): an MCP client of AWS's own MCP servers, started
+# as child processes and spoken to over stdio. It pulls in NO dependency — no
+# AWS SDK, no HTTP stack, no TLS — because the servers do their own TLS and
+# signing; it gates code only, so an application without an AWS control does
+# not carry the process pool. The compiler turns it on when a form has one.
+# `toml` reads the route table; every form application already links it
+# through `cobolt-forms`, so it adds no crate to a build.
+aws = ["dep:toml"]
+
 [dependencies]
 # Free memory, for the fit test of a registered file (spec 075 R18); the
 # host name, for the key store's cipher key (spec 076 R10).
@@ -109,6 +118,7 @@ cobolt-forms    = { path = "../cobolt-forms" }
 # spec 065 — the MCP protocol. serde-only and transport-free, so linking it
 # adds no network stack to an application that serves a tool.
 cobolt-mcp      = { path = "../cobolt-mcp" }
+toml            = { workspace = true, optional = true }
 # spec 068 — the application Knowledge Base engine (feature `kb`).
 cobolt-kb       = { path = "../cobolt-kb", optional = true }
 thiserror       = { workspace = true }
@@ -185,3 +195,19 @@ tempfile          = "3"
 # /dev/null so a Format 1 ACCEPT cannot block the suite forever — already in
 # the lockfile transitively, so this adds no new code to the build.
 libc              = "0.2"
+
+# A scriptable MCP server for the AWS tests (spec 078 T-A4): it speaks the
+# protocol over stdio and records every request, so no test needs an AWS
+# account. Test infrastructure only — never shipped in an application.
+[[bin]]
+name              = "fake_mcp"
+path              = "src/bin/fake_mcp.rs"
+required-features = ["aws"]
+
+# A stand-in application for the no-orphans test (spec 078 T-A7): starts the
+# fake through the pool, then exits normally, exits abruptly, or waits to be
+# killed. Test infrastructure only.
+[[bin]]
+name              = "aws_host_probe"
+path              = "src/bin/aws_host_probe.rs"
+required-features = ["aws"]

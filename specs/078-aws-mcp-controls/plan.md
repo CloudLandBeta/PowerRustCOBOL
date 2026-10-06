@@ -148,7 +148,7 @@ mutating = true
   - 16 `TOOLS` entries with `category: "AWS"`;
   - `("AWS", "AWS")` in `CATEGORIES`, and an entry in `TREE_CATEGORY_ORDER`;
   - `cat_aws` in `Tr`.
-- **Icons.** One glyph per service, drawn by `nv_icon_aws_*` in `paint.rs` and shared by the toolbox and the canvas card ("one glyph, both places"). All are original line drawings, with no AWS artwork (R30).
+- **Icons (amended A5, 2026-10-06).** One **hand-drawn SVG** per service, in the style of AWS's official service icon (its colour tile and a simplified glyph), kept in `crates/cobolt-forms/assets/aws/<Control>.svg` (beside the renderer that compiles them in), compiled in with `include_str!`, rasterised by the `resvg` path `paint.rs` already has and cached as a texture. The toolbox and the canvas card draw the same picture ("one glyph, both places"). Drawn for this product, never traced from AWS's files; no wordmark or logo (R30).
 - **Properties.** `show_type_specific` gets an `Aws*` arm that shows the Connection combo, copied from WebSearch's combo, then the type's own rows.
 - **Help, KB and IntelliSense:**
   - `prop_help_data.rs`: every seeded property, in six languages;
@@ -256,6 +256,8 @@ mutating = true
 - **A2 — §1 table.** Record that the SigV4 proxy is now `mcp-proxy-for-aws-cli`; that the hosted server's endpoints are `us-east-1` and `eu-central-1`, with the operation region passed as `AWS_REGION` metadata; and that S3 Tables needs Python ≥ 3.11.
 - **A3 — R8.** Add `StartTimeoutMs` for a server's first start, separate from the per-call `TimeoutMs`.
 - **A4 — R25.** State that a server's read-only flag is dropped only when a control on that connection has `AllowWrite` on, since one server process serves the whole connection.
+
+- **A5 — R30 (operator, 2026-10-06).** Icons are hand-drawn SVG look-alikes of AWS's service icons instead of original line glyphs.
 
 ## 9. Open questions — how the plan settles them
 

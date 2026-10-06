@@ -1440,6 +1440,8 @@ pub struct Tr {
     pub cat_menu: &'static str,
     pub cat_nonvisual: &'static str,
     pub cat_charts: &'static str,
+    /// Spec 078: the AWS controls' toolbox category — the brand, in every language.
+    pub cat_aws: &'static str,
     pub cat_dialogs: &'static str,
 
     // ── Designer collapsible panes (toolbox rail / properties drawer) ────────
@@ -2221,6 +2223,7 @@ impl Tr {
             "Menu" => self.cat_menu,
             "NonVisual" => self.cat_nonvisual,
             "Charts" => self.cat_charts,
+            "AWS" => self.cat_aws,
             "Dialogs" => self.cat_dialogs,
             other => other,
         }
@@ -3241,7 +3244,8 @@ const EN: Tr = Tr {
     cat_menu:      "Menus & Bars",
     cat_nonvisual: "Non-Visual",
     cat_charts:    "Charts",
-    cat_dialogs:   "Dialogs",
+    cat_aws: "AWS",
+        cat_dialogs:   "Dialogs",
 
     toolbox_collapse: "Collapse toolbox to icons",
     toolbox_expand:   "Expand toolbox",
@@ -4863,7 +4867,8 @@ const ES: Tr = Tr {
     cat_menu:      "Menús y barras",
     cat_nonvisual: "No visual",
     cat_charts:    "Gráficas",
-    cat_dialogs:   "Diálogos",
+    cat_aws: "AWS",
+        cat_dialogs:   "Diálogos",
 
     toolbox_collapse: "Contraer la caja de herramientas a iconos",
     toolbox_expand:   "Expandir la caja de herramientas",
@@ -6485,7 +6490,8 @@ const PT: Tr = Tr {
     cat_menu:      "Menus e barras",
     cat_nonvisual: "Não visual",
     cat_charts:    "Gráficos",
-    cat_dialogs:   "Diálogos",
+    cat_aws: "AWS",
+        cat_dialogs:   "Diálogos",
 
     toolbox_collapse: "Recolher a caixa de ferramentas para ícones",
     toolbox_expand:   "Expandir a caixa de ferramentas",
@@ -8106,7 +8112,8 @@ const JA: Tr = Tr {
     cat_menu:      "メニューとバー",
     cat_nonvisual: "非表示",
     cat_charts:    "チャート",
-    cat_dialogs:   "ダイアログ",
+    cat_aws: "AWS",
+        cat_dialogs:   "ダイアログ",
 
     toolbox_collapse: "ツールボックスをアイコンに折りたたむ",
     toolbox_expand:   "ツールボックスを展開",
@@ -9734,7 +9741,8 @@ const ZH: Tr = Tr {
     cat_menu: "菜单和工具栏",
     cat_nonvisual: "非视觉",
     cat_charts: "图表",
-    cat_dialogs: "对话框",
+    cat_aws: "AWS",
+        cat_dialogs: "对话框",
 
     toolbox_collapse: "将工具箱折叠为图标",
     toolbox_expand:   "展开工具箱",
@@ -11357,7 +11365,8 @@ const FR: Tr = Tr {
     cat_menu:      "Menus et barres",
     cat_nonvisual: "Non visuels",
     cat_charts:    "Diagrammes",
-    cat_dialogs:   "Boîtes de dialogue",
+    cat_aws: "AWS",
+        cat_dialogs:   "Boîtes de dialogue",
 
     toolbox_collapse: "Réduire la boîte à outils en icônes",
     toolbox_expand:   "Développer la boîte à outils",

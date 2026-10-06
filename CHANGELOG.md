@@ -8,6 +8,69 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.232] — 2026-10-06
+
+### Added
+- **Spec 078 A.4 — the `AwsLambda` and `AwsMcp` controls.** Two new
+  non-visual controls in a new **AWS** toolbox section, drawn as hand-made
+  tiles in the style of AWS's service icons. `AwsLambda` invokes a Lambda
+  function with a JSON payload (`Invoke`) and lists the connection's
+  functions (`ListFunctions`); `AwsMcp` calls any tool of one of the
+  connection's AWS servers (`Call`) and lists them (`ListTools`). Both are
+  asynchronous by default — the control's own event (`onInvoked`,
+  `onToolResult`, …), then `onComplete`; or `onError`, `onTimeout`,
+  `onCancelled` — and `Mode = Sync` returns the answer in the statement. An
+  answer that is a JSON array is read as rows with `RowCount`, `GetRow(n)`
+  and `GetField(n, name)`. `AllowWrite` is off by default: invoking a
+  function, or calling a tool the server does not mark read-only, is refused
+  before anything is sent, and so is an argument that is not valid JSON,
+  with `LastError` naming it. A profile that is not signed in is reported
+  with the profile's name and the `aws login` command, never the server's
+  raw text. Help, the System Knowledge Base and Grace know both controls.
+  The project manifest and Settings do not list AWS connections yet (next
+  step), so the controls run only where a host publishes a connection.
+
+## [PowerRustCOBOL 1.80.231] — 2026-10-06
+
+### Added
+- **Spec 078 A.3 — the AWS route table.** Which MCP server and tool serve
+  each AWS control operation, how its COBOL arguments become the tool's
+  input and how the answer becomes properties, is data in one table shipped
+  with the product, with server versions pinned. A connection may override
+  it for one project. A test checks every route against the server's
+  recorded tool list, so a renamed tool fails the build rather than an end
+  user's form. The first route is AWS Lambda's MCP server.
+
+## [PowerRustCOBOL 1.80.230] — 2026-10-06
+
+### Added
+- **Spec 078 A.2 — starting and talking to AWS's MCP servers.** The runtime
+  (feature `aws`, no new dependency) starts an MCP server as a child process
+  and talks to it over stdio: one shared server per connection, a timeout on
+  every call, a separate budget for the first start (which downloads
+  packages), a crashed server replaced on the next call. The server's
+  environment is built, never inherited: it gets the AWS profile name and
+  region and never an access key, secret or session token, even when the
+  application's own environment holds them. A missing `uvx` is reported in
+  plain words with how to install it. No server outlives its application:
+  stdin end-of-file, an orderly shutdown in `rcrun` and in built
+  applications, and an operating-system backstop on Linux and Windows.
+- Spec 078 amendment A5: the AWS controls' icons will be hand-drawn SVG
+  look-alikes of AWS's service icons.
+
+## [PowerRustCOBOL 1.80.229] — 2026-10-06
+
+### Added
+- **Spec 078 A.1 — an MCP client.** `cobolt-mcp` now speaks the client side
+  of the Model Context Protocol as well as the server side: the handshake
+  (offering revision 2025-11-25, accepting 2025-06-18 and 2024-11-05), the
+  stateless 2026-07-28 revision, paged tool listing, tool calls with
+  structured and text results, and the server's own traffic (progress,
+  logging, `ping`, refused sampling) handled without stalling a call. Tool
+  content the crate does not model is kept rather than failing the answer.
+  Still no dependency beyond `serde` and `serde_json`. This is the
+  foundation for the AWS controls.
+
 ## [PowerRustCOBOL 1.80.228] — 2026-10-06
 
 ### Added
