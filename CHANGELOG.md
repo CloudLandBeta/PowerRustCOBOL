@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.217] — 2026-10-06
+
+### Fixed
+- **Run Form keeps what a program DISPLAYs just before it ends.** The form
+  host closed the window on the frame it saw the program finish, before that
+  frame's output was written, so the last lines — a closing message, a
+  report's totals — never reached the Output pane; a program that ended at
+  once lost all of them. The same held for a form opened by another form. Both
+  now write every line before the window goes.
+
 ## [PowerRustCOBOL 1.80.216] — 2026-10-06
 
 ### Added

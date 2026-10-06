@@ -896,6 +896,23 @@ pub(crate) fn footer_id_scope() -> egui::Id {
 }
 
 impl FormBody {
+    /// Everything the form's program has DISPLAYed, to stdout — which the
+    /// IDE's Output pane reads. Explicit flush: stdout is BLOCK-buffered when
+    /// piped, so without it the lines sit in the buffer instead of reaching
+    /// the reader live. Called every frame, and once more when the program
+    /// ends: its last lines are written before the window goes.
+    pub(crate) fn flush_display(&self) {
+        let mut any = false;
+        while let Ok(line) = self.display_rx.try_recv() {
+            println!("{line}");
+            any = true;
+        }
+        if any {
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+        }
+    }
+
     /// Spec 058 R5/R5.1 — give every Viewer on this form its own decode
     /// thread, and collect whatever those threads have finished.
     ///
@@ -2956,17 +2973,7 @@ impl FormBody {
         self.drive_viewer_os_handoffs(ctx);
 
         // DISPLAY → stdout (the IDE's Output pane reads it there).
-        {
-            let mut any = false;
-            while let Ok(line) = self.display_rx.try_recv() {
-                println!("{line}");
-                any = true;
-            }
-            if any {
-                use std::io::Write;
-                let _ = std::io::stdout().flush();
-            }
-        }
+        self.flush_display();
 
         // Warm-up, then the form-level lifecycle pair — exactly once.
         let armed = self.start.elapsed().as_millis() > 450;
@@ -5112,6 +5119,8 @@ impl FormHost {
             .iter_mut()
             .filter(|c| !c.finish_reported && c.body.finished.load(Ordering::Relaxed))
             .map(|c| {
+                // Its last DISPLAY lines, before the window is released.
+                c.body.flush_display();
                 c.finish_reported = true;
                 c.handle.clone()
             })
@@ -5887,6 +5896,8 @@ impl FormHost {
         // the exit effect when one is configured (038 R10, plan D6: one close
         // choreography regardless of why the window closes).
         if self.root.finished.load(Ordering::Relaxed) {
+            // What the program DISPLAYed last, before the window closes.
+            self.root.flush_display();
             if self.fx_exit.is_active() && self.fx_exit_start.is_none() {
                 self.fx_exit_start = Some(std::time::Instant::now());
             }
@@ -6499,19 +6510,7 @@ impl FormHost {
         }
 
         // DISPLAY output → stdout (the IDE pipes this into its Output pane).
-        // Explicit flush: stdout is BLOCK-buffered when piped, so without it
-        // DISPLAY lines sit in the buffer instead of reaching the reader live.
-        {
-            let mut any = false;
-            while let Ok(line) = self.root.display_rx.try_recv() {
-                println!("{line}");
-                any = true;
-            }
-            if any {
-                use std::io::Write;
-                let _ = std::io::stdout().flush();
-            }
-        }
+        self.root.flush_display();
 
         // Ignore input for a brief warm-up after the window appears.
         let armed = self.root.start.elapsed().as_millis() > 450;
