@@ -164,13 +164,48 @@ impl DbConn {
             BackendKind::Postgres => Backend::Postgres(Self::open_postgres(conn_str)?),
             BackendKind::MySql => Backend::MySql(Self::open_mysql(conn_str)?),
         };
-        Ok(Self {
+        Ok(Self::over(backend))
+    }
+
+    #[cfg(feature = "sql")]
+    fn over(backend: Backend) -> Self {
+        Self {
             backend,
             columns: Vec::new(),
             rows: Vec::new(),
             cursor: 0,
             exhausted: false,
-        })
+        }
+    }
+
+    /// Open the database a named SQL connection resolved to (spec 087 R40).
+    /// A SQLite file the connection does not allow creating must exist.
+    #[cfg(feature = "sql")]
+    fn open_target(target: &crate::esql::catalog::Target) -> Result<Self, String> {
+        use crate::esql::backend::BackendKind as Kind;
+        use crate::esql::catalog::Target;
+        let backend = match target {
+            Target::Sqlite { path, create } => {
+                if !*create && !path.exists() {
+                    return Err(format!("the database file {} does not exist", path.display()));
+                }
+                Backend::Sqlite(Self::open_sqlite(&path.display().to_string())?)
+            }
+            Target::ConnString(s) => return Self::open(s),
+            Target::Server { kind, host, port, database, user, password } => {
+                let (user, password) = (user.as_deref(), password.as_ref().map(|p| p.expose()));
+                match kind {
+                    Kind::MySql => Backend::MySql(crate::db_connect::open_mysql_fields(host, *port, database, user, password)?),
+                    _ => Backend::Postgres(crate::db_connect::open_postgres_fields(host, *port, database, user, password)?),
+                }
+            }
+        };
+        Ok(Self::over(backend))
+    }
+
+    #[cfg(not(feature = "sql"))]
+    fn open_target(_target: &crate::esql::catalog::Target) -> Result<Self, String> {
+        Err(SQL_NOT_LINKED.to_string())
     }
 
     /// No drivers were linked, so there is nothing to open.
@@ -182,35 +217,19 @@ impl DbConn {
         ))
     }
 
-    /// Open a SQLite connection from a file path, `sqlite:<path>`, or `:memory:`.
     #[cfg(feature = "sql")]
     fn open_sqlite(conn_str: &str) -> Result<rusqlite::Connection, String> {
-        let path = conn_str
-            .trim()
-            .strip_prefix("sqlite:")
-            .unwrap_or(conn_str.trim());
-        if path == ":memory:" {
-            rusqlite::Connection::open_in_memory()
-        } else {
-            rusqlite::Connection::open(path)
-        }
-        .map_err(|e| e.to_string())
+        crate::db_connect::open_sqlite(conn_str)
     }
 
-    /// Open a PostgreSQL connection from a `postgres://` / `postgresql://` URL.
-    ///
-    /// Connections are made without TLS (`NoTls`) — suitable for local and
-    /// trusted-network servers. See `docs/database-runtime-en.md` for enabling TLS.
     #[cfg(feature = "sql")]
     fn open_postgres(conn_str: &str) -> Result<postgres::Client, String> {
-        postgres::Client::connect(conn_str.trim(), postgres::NoTls).map_err(|e| e.to_string())
+        crate::db_connect::open_postgres(conn_str)
     }
 
-    /// Open a MySQL connection from a `mysql://` URL.
     #[cfg(feature = "sql")]
     fn open_mysql(conn_str: &str) -> Result<mysql::Conn, String> {
-        let opts = mysql::Opts::from_url(conn_str.trim()).map_err(|e| e.to_string())?;
-        mysql::Conn::new(opts).map_err(|e| e.to_string())
+        crate::db_connect::open_mysql(conn_str)
     }
 
     /// Execute a SQL statement and cache the result set.
@@ -511,10 +530,22 @@ impl DbRegistry {
     /// Returns `Err(message)` if the connection fails.
     pub fn open(&mut self, conn_str: &str) -> Result<u32, String> {
         let conn = DbConn::open(conn_str)?;
+        Ok(self.register(conn))
+    }
+
+    /// Open the database a named SQL connection resolved to (spec 087 R40)
+    /// and return its handle — a connection of this registry's own, apart
+    /// from those of `EXEC SQL`.
+    pub fn open_target(&mut self, target: &crate::esql::catalog::Target) -> Result<u32, String> {
+        let conn = DbConn::open_target(target)?;
+        Ok(self.register(conn))
+    }
+
+    fn register(&mut self, conn: DbConn) -> u32 {
         let handle = self.next_handle;
         self.next_handle += 1;
         self.connections.insert(handle, conn);
-        Ok(handle)
+        handle
     }
 
     /// Execute SQL on an existing connection.

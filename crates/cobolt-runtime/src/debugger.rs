@@ -108,8 +108,8 @@ pub struct VarInfo {
     /// The item's own name, unqualified — the tree supplies the path.
     pub name: String,
     pub value: String,
-    /// COBOL category: `group`, `alphanumeric`, `numeric`, `float`,
-    /// `condition`, `index`.
+    /// COBOL category: `group`, `alphanumeric`, `national`, `utf-8`,
+    /// `numeric`, `float`, `condition`, `index`.
     pub category: String,
     /// Non-zero when the row expands. Pass back as [`DebugQuery::Variables`].
     pub reference: i64,
@@ -279,6 +279,10 @@ pub enum OutputChannel {
     Problems,
     /// Ordered record of what happened, including irreversible side effects.
     Timeline,
+    /// Spec 087 R48: each embedded SQL statement — its text with
+    /// placeholders, the bound values (a password masked), SQLSTATE, SQLCODE,
+    /// rows and message.
+    Sql,
 }
 
 // ── Shared breakpoint set ─────────────────────────────────────────────────────

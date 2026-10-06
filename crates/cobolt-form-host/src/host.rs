@@ -150,8 +150,9 @@ pub struct FormHostConfig {
     /// 051 — per-form theme resolution for spawned children (asset pack +
     /// procedural look). `None` ⇒ children paint procedural Liquid Glass.
     pub child_theme: Option<ChildThemeSource>,
-    /// 051 — per-interpreter setup for spawned children (the compiled
-    /// application registers its EXEC RUST blocks here; `rcrun` needs none).
+    /// 051 — per-interpreter setup for spawned children: both glues join the
+    /// main form's SQL run unit here (spec 087 R37), and the compiled
+    /// application also registers its EXEC RUST blocks.
     pub child_interpreter_setup:
         Option<std::sync::Arc<dyn Fn(&mut cobolt_runtime::interpreter::Interpreter) + Send + Sync>>,
     /// The indexed-file engine the application creates new files with — the
@@ -316,6 +317,7 @@ pub(crate) fn modal_overlay_fill(
 pub fn run(config: FormHostConfig) {
     let title_fallback = config.title_fallback.clone();
     let icon_path = config.icon_path.clone();
+    let finished = Arc::clone(&config.finished);
     let (app, form) = FormHost::new(config);
     let (fw, fh) = (form.width as f32, form.height as f32);
     let title = window_title(&form.title, title_fallback);
@@ -399,6 +401,9 @@ pub fn run(config: FormHostConfig) {
             Ok(Box::new(app) as Box<dyn eframe::App>)
         }),
     );
+    // The window is gone and the host with it, which ends the main form's
+    // event loop: give its program the moment it needs to end the run unit.
+    crate::wait_for_root(&finished, crate::ROOT_END_WAIT);
 }
 
 impl FormHost {
@@ -891,6 +896,23 @@ pub(crate) fn footer_id_scope() -> egui::Id {
 }
 
 impl FormBody {
+    /// Everything the form's program has DISPLAYed, to stdout — which the
+    /// IDE's Output pane reads. Explicit flush: stdout is BLOCK-buffered when
+    /// piped, so without it the lines sit in the buffer instead of reaching
+    /// the reader live. Called every frame, and once more when the program
+    /// ends: its last lines are written before the window goes.
+    pub(crate) fn flush_display(&self) {
+        let mut any = false;
+        while let Ok(line) = self.display_rx.try_recv() {
+            println!("{line}");
+            any = true;
+        }
+        if any {
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+        }
+    }
+
     /// Spec 058 R5/R5.1 — give every Viewer on this form its own decode
     /// thread, and collect whatever those threads have finished.
     ///
@@ -2971,17 +2993,7 @@ impl FormBody {
         self.drive_viewer_os_handoffs(ctx);
 
         // DISPLAY → stdout (the IDE's Output pane reads it there).
-        {
-            let mut any = false;
-            while let Ok(line) = self.display_rx.try_recv() {
-                println!("{line}");
-                any = true;
-            }
-            if any {
-                use std::io::Write;
-                let _ = std::io::stdout().flush();
-            }
-        }
+        self.flush_display();
 
         // Warm-up, then the form-level lifecycle pair — exactly once.
         let armed = self.start.elapsed().as_millis() > 450;
@@ -5127,6 +5139,8 @@ impl FormHost {
             .iter_mut()
             .filter(|c| !c.finish_reported && c.body.finished.load(Ordering::Relaxed))
             .map(|c| {
+                // Its last DISPLAY lines, before the window is released.
+                c.body.flush_display();
                 c.finish_reported = true;
                 c.handle.clone()
             })
@@ -5902,6 +5916,8 @@ impl FormHost {
         // the exit effect when one is configured (038 R10, plan D6: one close
         // choreography regardless of why the window closes).
         if self.root.finished.load(Ordering::Relaxed) {
+            // What the program DISPLAYed last, before the window closes.
+            self.root.flush_display();
             if self.fx_exit.is_active() && self.fx_exit_start.is_none() {
                 self.fx_exit_start = Some(std::time::Instant::now());
             }
@@ -6514,19 +6530,7 @@ impl FormHost {
         }
 
         // DISPLAY output → stdout (the IDE pipes this into its Output pane).
-        // Explicit flush: stdout is BLOCK-buffered when piped, so without it
-        // DISPLAY lines sit in the buffer instead of reaching the reader live.
-        {
-            let mut any = false;
-            while let Ok(line) = self.root.display_rx.try_recv() {
-                println!("{line}");
-                any = true;
-            }
-            if any {
-                use std::io::Write;
-                let _ = std::io::stdout().flush();
-            }
-        }
+        self.root.flush_display();
 
         // Ignore input for a brief warm-up after the window appears.
         let armed = self.root.start.elapsed().as_millis() > 450;
@@ -7519,6 +7523,275 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         println!(
             "child spawn — W1 built (form DETAIL), ran to STOP RUN, released; \
              NotifyClosed delivered: {closed:?}"
+        );
+    }
+
+    /// Spec 087 AC14 (parity), the embedded-child half: the AC2, AC7 and
+    /// AC9 programs, each run as a form opened by the main form — through
+    /// the real spawn path, joined to the application's SQL run unit — give
+    /// the same results as the same program run on its own.
+    #[test]
+    fn ac2_ac7_ac9_agree_as_embedded_child_forms_087() {
+        use cobolt_runtime::esql::catalog::{SqlCatalog, Source};
+        use cobolt_runtime::esql::SqlRunUnit;
+        let esql = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol/esql");
+        let dir = tempfile::tempdir().unwrap();
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.path = "sales.db".into();
+        sales.create_if_missing = true;
+        let catalog = SqlCatalog::new("parity", vec![sales], dir.path().to_path_buf(), Source::Injected);
+        let parse = |src: &str| {
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free)).program.expect("parses")
+        };
+        // The verdict and the counts; never the measured times.
+        let results = |lines: Vec<String>| -> Vec<String> {
+            lines
+                .into_iter()
+                .map(|l| l.trim_end().to_string())
+                .filter(|l| l.starts_with("PASS ") || l.starts_with("rows:"))
+                .map(|l| {
+                    let w: Vec<&str> = l.split_whitespace().collect();
+                    let digits = |x: &str| !x.is_empty() && x.trim_start_matches('(').bytes().all(|b| b.is_ascii_digit());
+                    let mut out = Vec::new();
+                    let mut i = 0;
+                    while i < w.len() {
+                        let next = w.get(i + 1).copied().unwrap_or("");
+                        if digits(w[i]) && (next.starts_with("ms") || next.starts_with("rows/s")) {
+                            i += 2;
+                            continue;
+                        }
+                        out.push(w[i]);
+                        i += 1;
+                    }
+                    out.join(" ")
+                })
+                .collect()
+        };
+        let mut table = Vec::new();
+        for name in ["ac2_host_structure.cbl", "ac7_cursors.cbl", "ac9_named_connection.cbl"] {
+            let src = std::fs::read_to_string(esql.join(name)).unwrap();
+
+            // On its own.
+            let (_ev_tx, ev_rx) = mpsc::channel();
+            let (state_tx, _state_rx) = mpsc::channel();
+            let (display_tx, display_rx) = mpsc::channel();
+            let mut alone = cobolt_runtime::interpreter::Interpreter::new_with_channels(parse(&src), ev_rx, state_tx, display_tx);
+            alone.set_sql_catalog(catalog.clone());
+            alone.run().ok();
+            let expected = results(display_rx.try_iter().collect());
+
+            // As a child form of the main form, joined to the run unit.
+            let program = parse(&src);
+            let (mut host, _closed_rx, _req_tx) = host_with_source(false);
+            host.form_source = Some(Box::new(move |id: &str| Ok((cobolt_forms::Form::new(id, "Child", 240, 160), program.clone()))));
+            let unit = Arc::new(std::sync::Mutex::new(SqlRunUnit::default()));
+            let (joined, cat) = (Arc::clone(&unit), catalog.clone());
+            host.child_interpreter_setup = Some(Arc::new(move |i: &mut cobolt_runtime::interpreter::Interpreter| {
+                i.set_sql_run_unit(Arc::clone(&joined), false);
+                i.set_sql_catalog(cat.clone());
+            }));
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(640.0, 480.0)));
+            host.supervisor_open_for_test("CHILD");
+            let mut f = ctx.run_ui(input.clone(), |ui| host.apply_host_actions(ui.ctx(), vec![spawn_action("W1", "CHILD")]));
+            f.textures_delta.clear();
+            // The child's DISPLAY lines, read here instead of on stdout.
+            let child_display = std::mem::replace(&mut host.children[0].body.display_rx, mpsc::channel().1);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while !host.children.is_empty() && std::time::Instant::now() < deadline {
+                let mut f = ctx.run_ui(input.clone(), |ui| {
+                    let c = ui.ctx().clone();
+                    host.update_children(&c);
+                });
+                f.textures_delta.clear();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(host.children.is_empty(), "{name} ran to its end as a child form");
+            let got = results(child_display.try_iter().collect());
+            assert!(got.iter().any(|l| l.starts_with("PASS ") && l.ends_with("FAIL 000")), "{name} as a child: {got:?}");
+            assert_eq!(got, expected, "{name}: a child form and the program on its own disagree");
+            table.push(format!("{name}: {}", got.last().cloned().unwrap_or_default()));
+        }
+        println!("087 AC14 embedded child = on its own: {}", table.join("; "));
+    }
+
+    /// Spec 087 R40 (AC17, Run Form part) — a designed `SqlDatabase` whose
+    /// `SqlConnection` names SALES reaches the SALES file through `Open()`
+    /// with no argument: the host's seeding carries the property to the
+    /// running form, and it wins over the designed `ConnectionString`.
+    #[test]
+    fn a_designed_sqldatabase_opens_its_named_sql_connection_087() {
+        use cobolt_runtime::esql::catalog::{SqlCatalog, Source};
+        let dir = tempfile::tempdir().unwrap();
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.path = "sales.db".into();
+        sales.create_if_missing = true;
+        let catalog = || SqlCatalog::new("shop", vec![sales.clone()], dir.path().to_path_buf(), Source::Injected);
+        let run = |src: &str, seed: Vec<(String, String, Vec<(String, String)>)>| -> Vec<String> {
+            let program = cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses");
+            let (_ev_tx, ev_rx) = mpsc::channel();
+            let (state_tx, _state_rx) = mpsc::channel();
+            let (display_tx, display_rx) = mpsc::channel();
+            let mut i = cobolt_runtime::interpreter::Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            i.set_sql_catalog(catalog());
+            i.seed_objects(seed);
+            i.run().ok();
+            display_rx.try_iter().map(|l| l.trim_end().to_string()).collect()
+        };
+        run(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. SEED.\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                 EXEC SQL CONNECT TO 'SALES' END-EXEC\n\
+                 EXEC SQL CREATE TABLE ORDERS (NAME TEXT) END-EXEC\n\
+                 EXEC SQL INSERT INTO ORDERS VALUES ('in-sales') END-EXEC\n    STOP RUN.\n",
+            Vec::new(),
+        );
+
+        let mut f = cobolt_forms::Form::new("DB-FORM", "Db", 400, 300);
+        let mut db = cobolt_forms::Control::new("DB-1", cobolt_forms::ControlType::SqlDatabase, 0, 0);
+        db.set_prop("ConnectionString", cobolt_forms::PropValue::String("sqlite::memory:".into()));
+        db.set_prop("SqlConnection", cobolt_forms::PropValue::String("SALES".into()));
+        db.set_prop("ResultSetDataItem", cobolt_forms::PropValue::String("WS-ROW".into()));
+        f.controls.push(db);
+        let seed = crate::seeding::build_object_seed(&f, &f.controls, None, None);
+        let out = run(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. DB-FORM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 WS-H PIC 9(9).\n01 WS-ROW PIC X(40).\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                 MOVE DB-1::Open() TO WS-H\n\
+                 DB-1::Query(\"SELECT NAME FROM ORDERS\").\n\
+                 DB-1::Fetch().\n\
+                 DISPLAY \"ROW \" WS-ROW\n    STOP RUN.\n",
+            seed,
+        );
+        assert_eq!(out, ["ROW in-sales"], "the SALES file, not the in-memory connection string");
+        println!("087 R40: a designed SqlDatabase (SqlConnection = SALES, ConnectionString = sqlite::memory:) read 'in-sales' from SALES");
+    }
+
+    /// Spec 087 R37 — ONE SQL run unit for the application: a form the host
+    /// opens joins the main form's run unit through `child_interpreter_setup`
+    /// (as both glues wire it), reads through the connection the main form
+    /// opened — the main form's uncommitted row included — and its own end
+    /// commits nothing; the main form's end commits the work of both.
+    #[test]
+    fn a_child_form_uses_the_main_forms_sql_connection_087() {
+        use cobolt_runtime::esql::catalog::{SqlCatalog, Source};
+        use cobolt_runtime::esql::SqlRunUnit;
+        let parse = |src: &str| {
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.path = "sales.db".into();
+        sales.create_if_missing = true;
+        let catalog = || SqlCatalog::new("shop", vec![sales.clone()], dir.path().to_path_buf(), Source::Injected);
+        // Run `src` as a whole run unit of its own; what it displayed.
+        let run_alone = |src: &str| -> Vec<String> {
+            let (_ev_tx, ev_rx) = mpsc::channel();
+            let (state_tx, _state_rx) = mpsc::channel();
+            let (display_tx, display_rx) = mpsc::channel();
+            let mut i = cobolt_runtime::interpreter::Interpreter::new_with_channels(parse(src), ev_rx, state_tx, display_tx);
+            i.set_sql_catalog(catalog());
+            i.run().ok();
+            display_rx.try_iter().map(|l| l.trim_end().to_string()).collect()
+        };
+        run_alone(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. SEED.\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                 EXEC SQL CONNECT TO 'SALES' END-EXEC\n\
+                 EXEC SQL CREATE TABLE ORDERS (ID INTEGER) END-EXEC\n\
+                 EXEC SQL INSERT INTO ORDERS VALUES (41) END-EXEC\n    STOP RUN.\n",
+        );
+
+        // The main form: connects, inserts 42 with no COMMIT, then waits for
+        // events until its window closes.
+        let unit = Arc::new(std::sync::Mutex::new(SqlRunUnit::default()));
+        let (root_ev_tx, root_ev_rx) = mpsc::channel::<FormEvent>();
+        let (root_display_tx, root_display_rx) = mpsc::channel();
+        let root = {
+            let unit = Arc::clone(&unit);
+            let program = parse(
+                "IDENTIFICATION DIVISION.\nPROGRAM-ID. MAIN-FORM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+                 01 COBOL-QUIT PIC 9 VALUE 0.\n01 COBOL-EVENT-ID PIC X(64).\n01 COBOL-CONTROL-ID PIC X(64).\n\
+                 PROCEDURE DIVISION.\nMAIN-PARA.\n\
+                     EXEC SQL CONNECT TO 'SALES' END-EXEC\n\
+                     EXEC SQL INSERT INTO ORDERS VALUES (42) END-EXEC\n\
+                     DISPLAY \"READY\"\n\
+                     PERFORM UNTIL COBOL-QUIT = 1\n\
+                         COBOL::\"WAIT-EVENT\" ( COBOL-EVENT-ID COBOL-CONTROL-ID )\n\
+                     END-PERFORM\n    STOP RUN.\n",
+            );
+            let catalog = catalog();
+            std::thread::spawn(move || {
+                let (state_tx, _state_rx) = mpsc::channel();
+                let mut i = cobolt_runtime::interpreter::Interpreter::new_with_channels(
+                    program, root_ev_rx, state_tx, root_display_tx,
+                );
+                i.set_sql_run_unit(unit, true);
+                i.set_sql_catalog(catalog);
+                i.run()
+            })
+        };
+        assert_eq!(
+            root_display_rx.recv_timeout(std::time::Duration::from_secs(5)).map(|l| l.trim_end().to_string()),
+            Ok("READY".to_string())
+        );
+
+        // The child: no CONNECT. Two rows visible means the main form's
+        // connection — a connection of its own would see only the committed 41.
+        let child_src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. DETAIL.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+            01 WS-N PIC 9(3).\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                EXEC SQL SELECT COUNT(*) INTO :WS-N FROM ORDERS END-EXEC\n\
+                IF WS-N = 2\n        EXEC SQL INSERT INTO ORDERS VALUES (99) END-EXEC\n    END-IF\n\
+                STOP RUN.\n";
+        let child_program = parse(child_src);
+        let (mut host, _closed_rx, _req_tx) = host_with_source(false);
+        host.form_source = Some(Box::new(move |id: &str| {
+            Ok((cobolt_forms::Form::new(id, "Detail", 240, 160), child_program.clone()))
+        }));
+        let joined = Arc::clone(&unit);
+        host.child_interpreter_setup = Some(Arc::new(move |i: &mut cobolt_runtime::interpreter::Interpreter| {
+            i.set_sql_run_unit(Arc::clone(&joined), false);
+        }));
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(640.0, 480.0)));
+        host.supervisor_open_for_test("DETAIL");
+        let mut f = ctx.run_ui(input.clone(), |ui| {
+            host.apply_host_actions(ui.ctx(), vec![spawn_action("W1", "DETAIL")]);
+        });
+        f.textures_delta.clear();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !host.children.is_empty() && std::time::Instant::now() < deadline {
+            let mut f = ctx.run_ui(input.clone(), |ui| {
+                let c = ui.ctx().clone();
+                host.update_children(&c);
+            });
+            f.textures_delta.clear();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(host.children.is_empty(), "the child ran to STOP RUN");
+        assert_eq!(unit.lock().unwrap().sessions.len(), 1, "the child's end leaves the connection open");
+
+        // The main window closes: the event loop ends and the root ends the
+        // run unit, committing what both forms did.
+        drop(root_ev_tx);
+        let r = root.join().unwrap();
+        assert!(r.is_ok() || r.as_ref().is_err_and(|e| e.is_exit_signal()), "{r:?}");
+        assert!(unit.lock().unwrap().sessions.is_empty(), "the root's end closes the connection");
+        let out = run_alone(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. VERIFY.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 WS-N PIC 9(3).\n01 WS-S PIC 9(5).\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                 EXEC SQL CONNECT TO 'SALES' END-EXEC\n\
+                 EXEC SQL SELECT COUNT(*), SUM(ID) INTO :WS-N, :WS-S FROM ORDERS END-EXEC\n\
+                 DISPLAY WS-N \" \" WS-S\n    STOP RUN.\n",
+        );
+        assert_eq!(out, ["003 00182"], "41 + 42 + 99, all committed");
+        println!(
+            "087 R37: DETAIL (no CONNECT) counted 2 rows through MAIN-FORM's connection and inserted 99; \
+             its STOP RUN left the connection open; MAIN-FORM's end committed 41, 42, 99 (count 3, sum 182)"
         );
     }
 

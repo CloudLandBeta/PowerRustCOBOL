@@ -462,6 +462,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
     let mut blank_when_zero = false;
     let mut justified = false;
     let mut sign: Option<cobolt_ast::data::SignClause> = None;
+    let mut byte_length: Option<u32> = None;
 
     // Parse clauses until the period that terminates this item.
     loop {
@@ -526,8 +527,29 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
             | Token::Comp5
             | Token::PackedDecimal
             | Token::Index
-            | Token::Pointer => {
+            | Token::Pointer
+            | Token::NationalUsage => {
                 usage = parse_usage_clause(p);
+            }
+            // `UTF-8` without the word USAGE (spec 077, IBM extension).
+            Token::Identifier(ref w) if w.eq_ignore_ascii_case("UTF-8") => {
+                usage = parse_usage_clause(p);
+            }
+            // `PIC U BYTE-LENGTH n` (spec 077): a UTF-8 item of exactly n bytes.
+            Token::Identifier(ref w) if w.eq_ignore_ascii_case("BYTE-LENGTH") => {
+                p.advance();
+                p.eat(&Token::Is);
+                match p.peek().clone() {
+                    Token::IntegerLiteral(n, _) if n > 0 => {
+                        p.advance();
+                        byte_length = Some(n as u32);
+                    }
+                    Token::LevelNumber(n) if n > 0 => {
+                        p.advance();
+                        byte_length = Some(n as u32);
+                    }
+                    other => p.emit_error(format!("BYTE-LENGTH needs a positive byte count, found {other:?}")),
+                }
             }
 
             // OCCURS
@@ -632,6 +654,16 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         }
     }
 
+    // Spec 077: `PIC N` is national and `PIC U` UTF-8 without the USAGE
+    // clause saying so, as the standard and IBM have it.
+    if usage == Usage::Display {
+        match picture.as_ref().map(|p| p.kind) {
+            Some(PicKind::National) => usage = Usage::National,
+            Some(PicKind::Utf8) => usage = Usage::Utf8,
+            _ => {}
+        }
+    }
+
     DataDecl {
         level,
         name,
@@ -650,6 +682,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         span,
         justified,
         sign,
+        byte_length,
     }
 }
 
@@ -715,7 +748,14 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
             | Token::Comp5
             | Token::PackedDecimal
             | Token::Index
-            | Token::Pointer => break,
+            | Token::Pointer
+            | Token::NationalUsage => break,
+            // `UTF-8` and `BYTE-LENGTH` follow a picture (spec 077).
+            Token::Identifier(ref w)
+                if w.eq_ignore_ascii_case("UTF-8") || w.eq_ignore_ascii_case("BYTE-LENGTH") =>
+            {
+                break
+            }
 
             // A `.` is the editing decimal point when more picture characters
             // follow it (e.g. `ZZ9.99`); otherwise it terminates the clause.
@@ -956,6 +996,16 @@ fn analyze_pic(template: &str) -> (PicKind, u16, u16) {
             .min(u16::MAX as usize) as u16
     };
 
+    // Spec 077: `N` is a national character position and `U` a UTF-8 one. A
+    // picture that mixes them with other symbols (national-edited, Q3) keeps
+    // its class here; Check reports what it cannot be.
+    if expanded.iter().any(|&c| c == 'N') {
+        return (PicKind::National, count(&|c| c == 'N').max(1), 0);
+    }
+    if expanded.iter().any(|&c| c == 'U') {
+        return (PicKind::Utf8, count(&|c| c == 'U').max(1), 0);
+    }
+
     if expanded.iter().any(|&c| c == 'X') {
         let kind = if has_editing {
             PicKind::AlphanumericEdited
@@ -1134,6 +1184,15 @@ fn parse_usage_clause(p: &mut Parser) -> Usage {
         Token::Pointer => {
             p.advance();
             Usage::Pointer
+        }
+        // Spec 077: `NATIONAL` (COBOL 2002) and `UTF-8` (IBM extension).
+        Token::NationalUsage => {
+            p.advance();
+            Usage::National
+        }
+        Token::Identifier(ref s) if s.eq_ignore_ascii_case("UTF-8") => {
+            p.advance();
+            Usage::Utf8
         }
         // OBJECT REFERENCE <class-name>  (COBOL-2002; spec 005 Rust-FFI bridge).
         // The class name is captured onto the data item being built so the

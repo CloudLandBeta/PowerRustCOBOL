@@ -53,6 +53,9 @@ pub struct FieldPos {
     /// as if it were an elementary item finds nothing and yields spaces, which
     /// is what made a `RECORD KEY` naming a group search the file for blanks.
     pub is_group: bool,
+    /// A national (`PIC N`) or UTF-8 (`PIC U`) field's class (spec 077): the
+    /// record holds its image — UTF-16 big-endian, or padded UTF-8.
+    pub class: Option<crate::national::CharClass>,
 }
 
 /// Byte layout of an FD record: total length plus every elementary field.
@@ -120,6 +123,7 @@ fn walk(
                         decimals: 0,
                         signed: false,
                         is_group: true,
+                        class: None,
                     });
                 }
             }
@@ -133,7 +137,13 @@ fn walk(
             let sep = usize::from(
                 matches!(pic.kind, PicKind::Numeric) && sign.is_some_and(|s| s.separate),
             );
-            let len = (pic.digits as usize + pic.decimals as usize + sep).max(1);
+            // A national or UTF-8 field takes its image's bytes (spec 077):
+            // `PIC N(20)` is forty, `PIC U(5)` twenty.
+            let class = crate::environment::decl_class(d);
+            let len = match class {
+                Some(c) => c.width(),
+                None => (pic.digits as usize + pic.decimals as usize + sep).max(1),
+            };
             // A `FILLER` occupies its bytes like any other item — it simply
             // has no name to read or write. Skipping it *and* its width put
             // every following field at the wrong offset, so a record
@@ -154,6 +164,7 @@ fn walk(
                         && pic.template.to_ascii_uppercase().starts_with('S')
                         && !sign.is_some_and(|s| s.separate),
                     is_group: false,
+                    class,
                 });
             }
             *offset += len;
@@ -353,6 +364,76 @@ impl RecordLayout {
         }
     }
 
+    /// The record's national and UTF-8 fields, by offset, leaving out any
+    /// that overlaps one already listed (a REDEFINES of it).
+    fn class_fields(&self) -> Vec<&FieldPos> {
+        let mut out: Vec<&FieldPos> = self.fields.iter().filter(|f| f.class.is_some()).collect();
+        out.sort_by_key(|f| f.offset);
+        let mut end = 0usize;
+        out.retain(|f| {
+            let keep = f.offset >= end;
+            if keep {
+                end = f.offset + f.len;
+            }
+            keep
+        });
+        out
+    }
+
+    /// A record image as a LINE SEQUENTIAL line (spec 077, D10): every
+    /// national or UTF-8 field becomes its characters as UTF-8 text, so the
+    /// file is readable text; every other byte is written as it stands. A
+    /// record with no such field is returned unchanged.
+    pub fn image_to_line(&self, image: &[u8]) -> Vec<u8> {
+        let fields = self.class_fields();
+        if fields.is_empty() {
+            return image.to_vec();
+        }
+        let mut out = Vec::with_capacity(image.len());
+        let mut pos = 0usize;
+        for f in fields {
+            if f.offset >= image.len() {
+                break;
+            }
+            out.extend_from_slice(&image[pos..f.offset]);
+            let end = (f.offset + f.len).min(image.len());
+            let class = f.class.expect("a class field");
+            out.extend_from_slice(crate::national::class_text(class, &image[f.offset..end]).as_bytes());
+            pos = end;
+        }
+        out.extend_from_slice(&image[pos..]);
+        out
+    }
+
+    /// The inverse of [`Self::image_to_line`]: a LINE SEQUENTIAL line read
+    /// back into a record image, each national or UTF-8 field taking its own
+    /// characters' worth of the text. A record with no such field is the
+    /// line unchanged.
+    pub fn line_to_image(&self, line: &[u8]) -> Vec<u8> {
+        let fields = self.class_fields();
+        if fields.is_empty() {
+            return line.to_vec();
+        }
+        let mut out: Vec<u8> = Vec::with_capacity(self.len);
+        let mut src = 0usize;
+        for f in fields {
+            // The bytes before this field stand as they are.
+            let gap = f.offset.saturating_sub(out.len());
+            let take = gap.min(line.len().saturating_sub(src));
+            out.extend_from_slice(&line[src..src + take]);
+            out.resize(out.len() + (gap - take), b' ');
+            src += take;
+            let class = f.class.expect("a class field");
+            let (text, used) = crate::national::take_text(class, &line[src.min(line.len())..]);
+            out.extend_from_slice(&crate::national::class_image(class, &text));
+            src += used;
+        }
+        if src < line.len() {
+            out.extend_from_slice(&line[src..]);
+        }
+        out
+    }
+
     /// Distribute a record buffer back into the subfields.
     pub fn distribute(&self, env: &mut CobolEnvironment, buf: &[u8]) {
         for f in &self.fields {
@@ -362,6 +443,11 @@ impl RecordLayout {
             let end = (f.offset + f.len).min(buf.len());
             let slice = &buf[f.offset..end];
             let key = env_key(env, f);
+            if f.class.is_some() {
+                // The field's image: the environment reads it back by class.
+                env.set_verbatim_bytes(&key, slice);
+                continue;
+            }
             if f.numeric {
                 // The trailing byte may carry the sign overpunch; a leading
                 // `-` (a SIGN SEPARATE writer, or hand-made data) is honoured
@@ -439,6 +525,11 @@ fn field_bytes(env: &CobolEnvironment, f: &FieldPos) -> Vec<u8> {
         b.resize(f.len, b' ');
         return b;
     }
+    if f.class.is_some() {
+        let mut b = env.storage_image(&env_key(env, f));
+        b.resize(f.len, b' ');
+        return b;
+    }
     match env.get(&env_key(env, f)) {
         Some(CobolValue::Numeric(n)) => {
             let digits = n.mantissa.unsigned_abs().to_string();
@@ -505,6 +596,7 @@ mod tests {
             span: Span::dummy(),
             justified: false,
             sign: None,
+            byte_length: None,
         }
     }
     fn group(name: &str, children: Vec<DataDecl>) -> DataDecl {
@@ -526,6 +618,7 @@ mod tests {
             span: Span::dummy(),
             justified: false,
             sign: None,
+            byte_length: None,
         }
     }
 

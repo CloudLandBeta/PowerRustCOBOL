@@ -2932,7 +2932,12 @@ impl DesignerPanel {
             tab_order_modal: None,
             event_modal: None,
             handler_sites: std::collections::HashMap::new(),
-            event_editor: super::editor::EditorPanel::new(),
+            event_editor: {
+                let mut e = super::editor::EditorPanel::new();
+                // Spec 087 R47: the form's data items live in other sites.
+                e.defer_external_definitions = true;
+                e
+            },
             ai_prompt_editor: super::editor::EditorPanel::new(),
             cs_editor: super::editor::EditorPanel::new(),
             cs_loaded: None,
@@ -5818,6 +5823,25 @@ impl DesignerPanel {
     /// already resolves their derived ids), or the structure window for a
     /// section / user procedure. Returns `false` for a site this designer
     /// cannot edit (a Common Code file belongs to the main editor).
+    /// Go to where the form declares `name` (spec 087 R47 — a host variable
+    /// in a handler names an item of the form's WORKING-STORAGE, or of
+    /// another site): found in the form's whole generated program and mapped
+    /// back to its site through the spec-053 source map, then opened there.
+    /// A name that is no data item falls back to a paragraph search in the
+    /// handler being edited.
+    pub fn goto_form_definition(&mut self, name: &str) -> bool {
+        let (src, map) = cobolt_codegen::generate_with_map(&self.form);
+        let site = super::editor::data_item_definition(&src, name).and_then(|off| {
+            let line = src[..off].matches('\n').count() as u32 + 1;
+            let col = (off - src[..off].rfind('\n').map_or(0, |p| p + 1)) as u32 + 1;
+            map.resolve(line).map(|(site, site_line)| (site.clone(), site_line, col))
+        });
+        match site {
+            Some((site, line, col)) => self.open_site_editor(&site, line, col),
+            None => self.event_editor.goto_paragraph(name),
+        }
+    }
+
     pub fn open_site_editor(
         &mut self,
         site: &cobolt_forms::code_site::CodeSite,
@@ -11227,6 +11251,9 @@ impl DesignerPanel {
                     ui.set_max_size(editor_box);
                     frame.show(ui, |ui| {
                         self.event_editor.render_code_area(&ectx, ui);
+                        if let Some(name) = self.event_editor.unresolved_definition.take() {
+                            self.goto_form_definition(&name);
+                        }
                     });
                 });
                 {
@@ -11934,6 +11961,26 @@ impl DesignerPanel {
                 ui.add_space(4.0);
 
                 self.cs_editor.status_row(ui);
+                // Spec 077 R23: a national or UTF-8 item's characters and bytes
+                // differ, so the declaration under the caret says both.
+                if let Some(size) = self
+                    .cs_editor
+                    .active_text()
+                    .and_then(|text| cs::item_size(text, self.cs_editor.caret_line()))
+                {
+                    let line = match size.chars {
+                        Some(chars) => tr
+                            .cs_item_size
+                            .replace("{name}", &size.name)
+                            .replace("{chars}", &chars.to_string())
+                            .replace("{bytes}", &size.bytes.to_string()),
+                        None => tr
+                            .cs_item_size_bytes
+                            .replace("{name}", &size.name)
+                            .replace("{bytes}", &size.bytes.to_string()),
+                    };
+                    ui.label(egui::RichText::new(line).monospace().size(12.0));
+                }
                 ui.add_space(4.0);
 
                 // ── Hosted COBOL editor — a BOUNDED, user-resizable box. ─────
@@ -16899,6 +16946,30 @@ mod shell_prop_tests {
     /// The operator asked for the completion fixes on "IDE editor AND cobol
     /// event handler editor" (2026-09-07); there is one implementation, and
     /// this is what keeps it one.
+    /// Spec 087 R47 — go to definition from a form handler: a host variable
+    /// naming an item of the form's WORKING-STORAGE opens that site, at the
+    /// declaration's line, through the spec-053 source map.
+    #[test]
+    fn host_var_goto_definition_from_a_form_handler() {
+        let mut form = Form::new("F1", "F1", 640, 480);
+        form.controls.push(Control::new("Btn-Go", ControlType::Button, 10, 10));
+        form.user_ws_source = "       01 WS-COUNT PIC 9(3).\n       01 WS-TOTAL PIC 9(5).\n".to_owned();
+        let mut dp = DesignerPanel::new(form);
+        dp.open_event_modal("Btn-Go", "onClick");
+        assert!(dp.event_editor.defer_external_definitions, "the handler editor hands names over");
+        assert!(dp.goto_form_definition("WS-TOTAL"));
+        let target = dp.cobol_structure_edit.clone().expect("a structure window opens");
+        assert_eq!(
+            Some(target),
+            super::super::cobol_structure::CsTarget::from_code_site(
+                &cobolt_forms::code_site::CodeSite::Section(cobolt_forms::code_site::StructureSection::WorkingStorage),
+                &dp.form
+            ),
+            "the WORKING-STORAGE site"
+        );
+        assert_eq!(dp.cs_pending_caret.map(|(l, _)| l), Some(2), "at the declaration's line");
+    }
+
     #[test]
     fn the_event_handler_editor_gets_the_forms_completion_catalogue() {
         let mut form = Form::new("F1", "F1", 640, 480);

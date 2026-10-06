@@ -237,9 +237,17 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
                 None => found = found.union(RuntimeFeatures::all()),
             },
             Stmt::ExecRust { source, .. } => found = found.union(scan_rust(source)),
+            // Embedded SQL (spec 087) reaches its database through the same
+            // drivers as the built-ins.
+            Stmt::ExecSql(_) => found.sql = true,
             _ => {}
         }
     });
+    // A cursor declared in WORKING-STORAGE is SQL even before a statement
+    // opens it.
+    if !program.sql_cursors.is_empty() {
+        found.sql = true;
+    }
     // An item-level block is Rust at module scope; it can name the runtime too.
     for item in &program.rust_items {
         found = found.union(scan_rust(&item.source));
@@ -418,6 +426,17 @@ mod tests {
     }
 
     /// A form's event handlers are nested programs; a CALL in one counts.
+    #[test]
+    fn scan_marks_exec_sql() {
+        let statement = prog("EXEC SQL DELETE FROM ORDERS END-EXEC");
+        assert!(scan(&statement).sql, "an EXEC SQL statement links the drivers");
+        let cursor = "IDENTIFICATION DIVISION.\nPROGRAM-ID. CURSOR-ONLY.\nDATA DIVISION.\n\
+                      WORKING-STORAGE SECTION.\n    EXEC SQL DECLARE C1 CURSOR FOR SELECT ID FROM ORDERS END-EXEC.\n\
+                      PROCEDURE DIVISION.\nMAIN-PARA.\n    STOP RUN.\n";
+        assert!(scan(cursor).sql, "a declared cursor links the drivers");
+        assert!(!scan(&prog("DISPLAY \"EXEC SQL\"")).sql, "the words in a literal do not");
+    }
+
     #[test]
     fn a_nested_program_is_read_too() {
         let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. OUTER.\n\

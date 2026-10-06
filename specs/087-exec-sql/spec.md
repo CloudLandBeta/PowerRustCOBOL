@@ -5,9 +5,10 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — Embedded SQL (`EXEC SQL`) in RustCOBOL
 
-- **Status:** approved (operator, 2026-10-05; Q1–Q7 settled in §7);
-  amended the same day (§7 Q8–Q13: SQL connections in the project tree,
-  credentials, packaging, and the design review)
+- **Status:** implemented except live-server verification (2026-10-06):
+  17 of 18 acceptance criteria proved; AC15's MySQL half and the live
+  PostgreSQL/MySQL runs (T27, T28) need a server. Approved by the operator
+  2026-10-05 (Q1–Q7, §7); amended the same day (Q8–Q13) and 2026-10-06 (Q14).
 - **Folder:** specs/087-exec-sql/
 - **Author:** Claude (for Emerson Lopes)   **Date:** 2026-10-05
 
@@ -16,8 +17,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 COBOL programs that work with relational databases write their SQL inside
 the program, between `EXEC SQL` and `END-EXEC`, and exchange values with
 the database through COBOL data items called *host variables*. That is how
-most business COBOL reaches a database, and it is what the PowerCOBOL
-applications that spec 086 converts are full of: across the 32 compiled
+most business COBOL reaches a database, and it is what PowerCOBOL
+applications are full of: across the 32 compiled
 `.cob` listings of the operator's sample application (a few of them the same
 program in two build folders) there are 99 `SELECT … INTO`, 34 cursors
 (declare, open, fetch, close), 40 `COMMIT`, 28 declare sections, 29
@@ -26,8 +27,7 @@ program in two build folders) there are 99 `SELECT … INTO`, 34 cursors
 RustCOBOL reaches SQL today only through built-in calls
 (`COBOL::"OPEN-DB"`, `"EXEC-SQL"`, `"FETCH-ROW"` …), with every value
 handled as text. A program written with embedded SQL does not compile, so
-spec 086 keeps each `EXEC SQL` block as a marked comment (086 R27, Q1) and
-the database logic of a converted application must be redone by hand.
+the database logic of a migrated application had to be redone by hand.
 
 This feature adds embedded SQL to RustCOBOL: the statement delimiters, host
 and indicator variables, declare sections, the two ways a program learns how
@@ -55,7 +55,7 @@ work that follows is original.
 - A program with embedded SQL compiles, runs and builds in every place a
   RustCOBOL program does: `rcrun run`, Run Form, embedded child forms and the
   compiled binary — the same behaviour in all of them.
-- Programs migrated from PowerCOBOL (spec 086) keep their SQL as live code:
+- Programs migrated from PowerCOBOL keep their SQL as live code:
   the status items they declare, the `SQLSTATE` values they test and the name
   they connect to (an SQL connection of the project) keep working without
   edits.
@@ -83,8 +83,6 @@ work that follows is original.
 - Distributed units of work across two databases in one transaction.
 - National (`PIC N`) host variables. RustCOBOL has no national category
   today; it is its own work before it can reach SQL.
-- Changing spec 086. Once this lands, a follow-up to 086 stops commenting
-  `EXEC SQL` out; that change is 086's, not this spec's.
 - Replacing the `COBOL::"…-DB"` built-ins or the `SqlDatabase` control. They
   keep working unchanged; the control only gains a way to name an SQL
   connection instead of carrying a connection string (R40).
@@ -415,45 +413,53 @@ configured. Every new test program follows GOLDEN RULE #7: a final result
 block naming each statement form exercised, the row counts and the elapsed
 time and throughput per phase.
 
-- [ ] **AC1 (R1–R5):** A program in fixed format and the same program in free
+- [x] **AC1 (R1–R5):** A program in fixed format and the same program in free
   format, each with blocks spanning several lines, with comments of all three
   kinds inside, one block inside an `IF` with no period and one ending a
   sentence, compile and produce identical results. An `END-EXEC` inside an SQL
   string literal does not end its block.
-- [ ] **AC2 (R6–R9, R13, R51):** A `SELECT … INTO` a host structure of five
+  *Proved by T1, T2, T6 (2026-10-06).*
+- [x] **AC2 (R6–R9, R13, R51):** A `SELECT … INTO` a host structure of five
   elementary items (one under `FILLER`, one `REDEFINES`d) fills exactly the
   four named items in order. A table holding a row whose text is
   `x' OR '1'='1` is matched only by itself when used as an input host
   variable, which proves the value was bound, not spliced.
-- [ ] **AC3 (R10–R12):** For a NULL column: with an indicator, the indicator is
+  *Proved by T14 on SQLite; servers: T27 (2026-10-06).*
+- [x] **AC3 (R10–R12):** For a NULL column: with an indicator, the indicator is
   -1 and the item unchanged; without one, SQLSTATE is `22002`. Writing a row
   with an indicator of -1 stores NULL. A 30-character value fetched into
   `PIC X(10)` sets the indicator to 30 and SQLSTATE `01004`.
-- [ ] **AC4 (R15):** Values round-trip unchanged between the database and
+  *Proved by T14 on SQLite; servers: T27–T28 (2026-10-06).*
+- [x] **AC4 (R15):** Values round-trip unchanged between the database and
   `PIC S9(7)V99 COMP-3`, `PIC S9(9) COMP-5`, `PIC 9(5) DISPLAY`,
   `PIC X(40)` and an ISO date in `PIC X(10)`, including
   negative values and the largest value each item holds; a value one larger
   fails with `22003` and leaves the item unchanged.
-- [ ] **AC5 (R17–R19):** The same failing statement sets, in one program,
+  *Proved by T14 on SQLite; servers: T27–T28 (2026-10-06).*
+- [x] **AC5 (R17–R19):** The same failing statement sets, in one program,
   stand-alone `SQLSTATE` / `SQLCODE` / `SQLMSG` and, in another, the SQLCA's
   fields, to the same SQLSTATE, SQLCODE and message. Success, no data,
   truncation warning, a constraint violation and a syntax error each give the
   documented pair.
-- [ ] **AC6 (R20–R22):** With `WHENEVER NOT FOUND GO TO END-OF-DATA` placed
+  *Proved by T14 on SQLite; servers: T27–T28 (2026-10-06).*
+- [x] **AC6 (R20–R22):** With `WHENEVER NOT FOUND GO TO END-OF-DATA` placed
   after a fetch in the source but executed before it at run time, that fetch
   is not affected (source order wins). A syntax error with no `WHENEVER
   SQLERROR` in force continues with the next statement.
-- [ ] **AC7 (R23–R28):** A cursor over 10,000 rows is opened, fetched to the
+  *Proved by T7, T14 (2026-10-06).*
+- [x] **AC7 (R23–R28):** A cursor over 10,000 rows is opened, fetched to the
   end (the 10,001st fetch reports `02000`) and closed; the result block
   reports rows per second. Updating every third row `WHERE CURRENT OF` the
   cursor changes exactly those rows. Fetching a closed cursor gives `24000`.
   A cursor used before its declaration is a Check error.
-- [ ] **AC8 (R29–R30):** An `INSERT` followed by `ROLLBACK` leaves no row; one
+  *Proved by T16 (2026-10-06).*
+- [x] **AC8 (R29–R30):** An `INSERT` followed by `ROLLBACK` leaves no row; one
   followed by `COMMIT` leaves it. A COBOL `ROLLBACK` verb in the same program
   does not undo the committed row, and an `EXEC SQL ROLLBACK` does not undo an
   INDEXED-file write. A `WITH HOLD` cursor survives `COMMIT`; another cursor
   does not.
-- [ ] **AC9 (R33–R37):** A project with an SQL connection `SALES` pointing at
+  *Proved by T16 (2026-10-06).*
+- [x] **AC9 (R33–R37):** A project with an SQL connection `SALES` pointing at
   a SQLite file runs `CONNECT TO 'SALES'` and reads it. The project folder and
   the repository contain no password afterwards (searched). A child form
   opened by the main form reads through the connection the main form opened.
@@ -464,14 +470,16 @@ time and throughput per phase.
   function behind the button) reports success for `SALES` and, for a
   PostgreSQL SQL connection on a port nothing listens on, the driver's
   connection error.
-- [ ] **AC10 (R38–R39):** Build writes a starting `sql-connections.toml`
+  *Proved by T22, T23, T32, T33 (2026-10-06).*
+- [x] **AC10 (R38–R39):** Build writes a starting `sql-connections.toml`
   beside the binary with no user name or password, and a rebuild leaves an
   edited one untouched. The binary, with that file pointing `SALES` at a
   different SQLite file, reads that file; with `<APP>_SQL_SALES_URL` set to a
   third file, it reads the third; a `password` key in the file makes the
   connection fail with the documented message. Uncommitted work is committed
   at a normal end and rolled back when the program ends with an error.
-- [ ] **AC11 (R41–R45):** A program prepares a query whose columns it does not
+  *Proved by T25 (2026-10-06).*
+- [x] **AC11 (R41–R45):** A program prepares a query whose columns it does not
   know, describes it into a descriptor that is too small (the system reports
   the number needed), describes again into one large enough, opens a cursor,
   fetches all rows through the descriptor — once into the program's own items
@@ -479,32 +487,44 @@ time and throughput per phase.
   prints them; the column names, types and values match the table.
   `EXECUTE IMMEDIATE` creates a table; `EXECUTE … USING` inserts into it with
   parameters.
-- [ ] **AC12 (R2, R14, R46):** One file containing every error listed in R46
+  *Proved by T18 (2026-10-06).*
+- [x] **AC12 (R2, R14, R46):** One file containing every error listed in R46
   produces exactly one diagnostic per error, each on the right line, with no
   database reachable.
-- [ ] **AC13 (R47–R48):** The editor highlights an SQL block and its host
+  *Proved by T9 (2026-10-06).*
+- [x] **AC13 (R47–R48):** The editor highlights an SQL block and its host
   variables; go-to-definition from a host variable reaches its declaration.
   Stepping over an `EXEC SQL` block in the debugger shows the SQL text, the
   bound values with the password masked, SQLSTATE, SQLCODE and rows affected.
-- [ ] **AC14 (parity):** The AC2, AC7 and AC9 programs give the same results
+  *Proved by T34, T35 (2026-10-06).*
+- [x] **AC14 (parity):** The AC2, AC7 and AC9 programs give the same results
   under `rcrun run`, Run Form, an embedded child form and the compiled binary
   (`interpreter-binary-parity`).
-- [ ] **AC15 (migration):** Two of the operator's sample programs, with their
-  `EXEC SQL` blocks live, pass Check: `F-ART-PURGA.cob` (stand-alone status
-  items, `PREPARE` + a cursor over the prepared query, `SELECT … INTO`,
-  `COMMIT`) and `TyC.cob` (`CONNECT TO` / `DISCONNECT` a named SQL
-  connection, resolved through R34). Their SQL paths run against a SQLite copy
-  of the tables they use; a statement SQLite rejects (F-ART-PURGA's `DELETE …
-  LIMIT 1`) sets its syntax-error SQLSTATE and the program continues (R22).
-  The whole of both programs runs in the MySQL-gated suite.
-- [ ] **AC16 (R49–R50, R52):** The SQL Connections item, the connection
+  *Proved by T39 — `esql_parity` (rcrun run = Run Form), `ac2_ac7_ac9_agree_as_embedded_child_forms_087`, `ac2_ac7_ac9_agree_in_a_built_binary` (2026-10-06).*
+- [ ] **AC15 (migration, narrowed to the SQL — Q14):** In two of the
+  operator's sample programs — `F-ART-PURGA.cob` (stand-alone status items,
+  `PREPARE` + a cursor over the prepared query, `SELECT … INTO`, `COMMIT`) and
+  `TyC.cob` (`CONNECT TO` / `DISCONNECT` a named SQL connection, resolved
+  through R34) — no Check diagnostic comes from an `EXEC SQL` block. Their SQL
+  statements, run by a test program that declares the host variables they use
+  as the samples declare them, work against a SQLite copy of the tables they
+  use; a statement SQLite rejects (F-ART-PURGA's `DELETE … LIMIT 1`) sets its
+  syntax-error SQLSTATE and the program continues (R22). With a MySQL server
+  configured, the same statements run against MySQL. The programs as a whole
+  (their non-SQL PowerCOBOL constructs) are not part of this criterion: no
+  PowerCOBOL converter is planned (spec 086 withdrawn, operator 2026-10-06).
+  *Status 2026-10-06: the Check half (T10) and the SQLite half (T38: 24 + 3
+  statements as written; `DELETE … LIMIT 1` → `42601`, the program goes on)
+  are proved; the MySQL half waits for a server (T28). Left unticked.*
+- [x] **AC16 (R49–R50, R52):** The SQL Connections item, the connection
   editor and its Test connection messages, and the `SqlConnection` property's
   help show in all six languages; the
   Guide chapter, the System KB and the agent reference describe embedded SQL;
   a search of the project, the generated programs, the binary, the
   `sql-connections.toml` that Build wrote and the logs after AC9–AC10 finds no
   password.
-- [ ] **AC17 (R40):** A form whose `SqlDatabase` names `SALES` in
+  *Proved by T33, T37 (2026-10-06).*
+- [x] **AC17 (R40):** A form whose `SqlDatabase` names `SALES` in
   `SqlConnection`, with `ConnectionString` left at its default, opens and
   queries the `SALES` file through `<id>-CONNECT` and through `Open()` with no
   argument, in Run Form and in the compiled binary (resolved through R39
@@ -512,7 +532,8 @@ time and throughput per phase.
   holds the SQL connection's name and no connection target, user name or
   password, and an `SqlConnection` naming none of the project's SQL
   connections is a Check error.
-- [ ] **AC18 (R6, R16, R31–R32, R34, R36, R44–R45):** In one program:
+  *Proved by T30 (2026-10-06).*
+- [x] **AC18 (R6, R16, R31–R32, R34, R36, R44–R45):** In one program:
   - a host variable qualified with `OF` and one qualified with a period each
     reach the right item of two that share a name;
   - `SELECT QTY-1 INTO :WS-QTY-LESS-ONE …` returns the column minus one: the
@@ -531,6 +552,7 @@ time and throughput per phase.
     parameters;
   - changing the item a statement was prepared from and executing the
     statement again runs it as prepared.
+  *Proved by T19 (2026-10-06).*
 
 ## 6. Constraints & steering check
 
@@ -623,6 +645,11 @@ time and throughput per phase.
   review):** a DATA DIVISION cursor is known to the programs its program
   contains (R28); SQLDA entries carry pointers to the receiving items, with
   the value inside the entry when the pointer is NULL (R41).
+- **Q14 — AC15 narrowed to the SQL (settled, operator 2026-10-06):** T10
+  found no diagnostic inside the samples' 40 SQL blocks, while the programs
+  still fail Check on non-SQL PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`,
+  `CALL … WITH STDCALL`, `BY VALUE`). AC15 covers the SQL only; the rest is
+  out of scope (spec 086, the converter, was withdrawn on 2026-10-06).
 - **Q13 — Clarifications from the design review (2026-10-05):** the
   name-versus-connection-string rule of `CONNECT` (R34); `ROLLBACK` closes
   `WITH HOLD` cursors too (R30); an IDE Stop ends the run unit with a rollback,

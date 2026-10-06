@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — Embedded SQL (`EXEC SQL`) in RustCOBOL
 
-- **Status:** draft → awaiting approval (then `/implement`)
+- **Status:** done except T27/T28's live-server runs (2026-10-06) — see T39
 - **Plan:** ./plan.md   **Date:** 2026-10-05
 
 Ordered, small, independently verifiable. Each task names its files, the
@@ -168,14 +168,15 @@ pushed unless the operator asks.
     and `$PRC_LEGACY_CBL_DIR/TyC/Debug/TyC.cob`.
   - Verify: no diagnostic comes from an `EXEC SQL` block; `SKIPPED` without
     the variable. **If non-SQL PowerCOBOL constructs in these listings fail
-    Check, stop and report**: AC15's "pass Check" would then depend on spec
-    086's conversion.
+    Check, stop and report**: AC15's "pass Check" would then depend on
+    converting them.
   - Result (2026-10-06): 0 diagnostics inside the 40 SQL blocks
     (F-ART-PURGA 35, TyC 5); the programs still fail Check on non-SQL
     PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`, `CALL … WITH STDCALL`,
-    `BY VALUE`) — reported to the operator; AC15's scope awaits a decision.
+    `BY VALUE`) — reported to the operator, who narrowed AC15 to the SQL
+    (spec §7 Q14, 2026-10-06).
 
-- [ ] **T11 — M3 wrap-up**
+- [x] **T11 — M3 wrap-up**
   - Do: `z` bump, CHANGELOG entry, Guide (the Check section of the new
     chapter) and System KB slice; regenerate `chunked.data`.
   - Verify: `cargo run -p cobolt-ide --example build_chunked_kb`, then
@@ -184,7 +185,7 @@ pushed unless the operator asks.
 
 ## M4a — SQLite: static statements, conversion, status
 
-- [ ] **T12 — Shared connect helpers** (no behaviour change)
+- [x] **T12 — Shared connect helpers** (no behaviour change)
   - Files: `crates/cobolt-runtime/src/db_connect.rs` (new),
     `crates/cobolt-runtime/src/db_runtime.rs`, `crates/cobolt-runtime/Cargo.toml`
     (rusqlite `column_decltype`).
@@ -192,7 +193,7 @@ pushed unless the operator asks.
     `--test test_methods` green — `classify_routes_by_scheme` and
     `sqlite_end_to_end_crud` unchanged.
 
-- [ ] **T13 — Core types and the SQLite backend** (R13, R18, R19, R23, R24, R29, R34, R36)
+- [x] **T13 — Core types and the SQLite backend** (R13, R18, R19, R23, R24, R29, R34, R36)
   - Files: `crates/cobolt-runtime/src/esql/{mod.rs, value.rs, state.rs, session.rs, rewrite.rs}`,
     `crates/cobolt-runtime/src/esql/backend/{mod.rs, sqlite.rs, unlinked.rs}`.
   - Do: `SqlValue`, `SqlError`, the SQLSTATE normalization table and the
@@ -207,7 +208,7 @@ pushed unless the operator asks.
     bind as REAL and longer ones as TEXT; a reading program holds no lock
     (a second connection can write); COMMIT and ROLLBACK.
 
-- [ ] **T14 — Executing static statements from COBOL** (R6–R13, R15, R17–R24, R34–R36, R48 runtime side, R51)
+- [x] **T14 — Executing static statements from COBOL** (R6–R13, R15, R17–R24, R34–R36, R48 runtime side, R51)
   - Files: `crates/cobolt-runtime/src/interpreter/exec_sql.rs` (new),
     `crates/cobolt-runtime/src/interpreter.rs`, `crates/cobolt-runtime/src/environment.rs`
     (`host_structure_leaves`, `is_unsigned_numeric`, `top_level_item`),
@@ -235,7 +236,7 @@ pushed unless the operator asks.
     - AC6: source-order `WHENEVER`; with none in force, an error continues;
     - the SQL debugger line masks a `CONNECT … USING` password.
 
-- [ ] **T15 — M4a wrap-up**
+- [x] **T15 — M4a wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (delimiters, host variables,
     indicators, the type table, status items, SQLSTATE and SQLCODE,
     `WHENEVER`, the SQLCA layout, `CONNECT` by connection string) and System
@@ -245,7 +246,7 @@ pushed unless the operator asks.
 
 ## M4b — Cursors and units of work
 
-- [ ] **T16 — Cursors on SQLite** (R25–R30)
+- [x] **T16 — Cursors on SQLite** (R25–R30)
   - Files: `crates/cobolt-runtime/src/esql/{session.rs, rewrite.rs, backend/sqlite.rs}`,
     `crates/cobolt-runtime/src/interpreter/exec_sql.rs`, `tests/cobol/esql/*.cbl`,
     `crates/cobolt-runtime/tests/test_esql_cursors.rs` (new).
@@ -263,14 +264,14 @@ pushed unless the operator asks.
       ROLLBACK` does not undo an INDEXED-file write; a `WITH HOLD` cursor
       survives COMMIT, another does not, and ROLLBACK closes both.
 
-- [ ] **T17 — M4b wrap-up**
+- [x] **T17 — M4b wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (cursors, positioned updates, units
     of work) and System KB slice; regenerate `chunked.data`.
   - Verify: KB freshness test green.
 
 ## M4c — Dynamic SQL and the SQLDA
 
-- [ ] **T18 — Dynamic SQL and the SQLDA** (R41–R45)
+- [x] **T18 — Dynamic SQL and the SQLDA** (R41–R45)
   - Files: `crates/cobolt-runtime/src/esql/{sqlda.rs, session.rs, backend/sqlite.rs}`,
     `crates/cobolt-runtime/src/interpreter/exec_sql.rs`, `tests/cobol/esql/*.cbl`,
     `crates/cobolt-runtime/tests/test_esql_dynamic.rs` (new).
@@ -286,7 +287,7 @@ pushed unless the operator asks.
     once inline; names, types and values match the table; EXECUTE IMMEDIATE
     creates a table and EXECUTE … USING inserts into it.
 
-- [ ] **T19 — Mixed forms** (R6, R16, R31, R32, R34, R36, R44, R45)
+- [x] **T19 — Mixed forms** (R6, R16, R31, R32, R34, R36, R44, R45)
   - Files: `tests/cobol/esql/*.cbl`, `crates/cobolt-runtime/tests/test_esql_mixed.rs` (new).
   - Verify: `cargo test -p cobolt-runtime --test test_esql_mixed` — AC18 in
     one program: `OF` and period qualification of two same-named items;
@@ -296,7 +297,7 @@ pushed unless the operator asks.
     trace or debug event; `DESCRIBE INPUT` reports the parameter count; a
     statement re-executed after its source item changed runs as prepared.
 
-- [ ] **T20 — M4c wrap-up**
+- [x] **T20 — M4c wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (dynamic SQL, the SQLDA layout and
     its pointer and inline modes, the R51 caveat) and System KB slice;
     regenerate `chunked.data`.
@@ -304,7 +305,7 @@ pushed unless the operator asks.
 
 ## M5 — Run unit, SQL connections, hosts
 
-- [ ] **T21 — The SQL connection record and the project file** (R33)
+- [x] **T21 — The SQL connection record and the project file** (R33)
   - Files: `crates/cobolt-forms/src/connections.rs`, `crates/cobolt-ide/src/project_model.rs`,
     `crates/cobolt-compiler/src/lib.rs` (its own copy of the project file).
   - Do: the `SqlConnection` record and `sql_env_var`; the
@@ -314,7 +315,7 @@ pushed unless the operator asks.
     cobolt-ide the_headless_new_project_manifest_is_the_ides` (golden
     unchanged).
 
-- [ ] **T22 — The catalog** (R34, R35, R39 runtime part, R52)
+- [x] **T22 — The catalog** (R34, R35, R39 runtime part, R52)
   - Files: `crates/cobolt-runtime/src/esql/catalog.rs`, `crates/cobolt-runtime/src/esql/mod.rs`.
   - Do: published project definitions, the deployment-file finder, an
     injected catalog; precedence of `_URL`, `_USER`, `_PASSWORD`; the
@@ -325,7 +326,7 @@ pushed unless the operator asks.
     `Secret` prints `***` in `Debug` and `Display`; a default is used when no
     connection is current, `08003` without one.
 
-- [ ] **T23 — One run unit for every form; hosts** (R33, R35, R37, R38, R39)
+- [x] **T23 — One run unit for every form; hosts** (R33, R35, R37, R38, R39)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (roles, end reason,
     `set_sql_catalog`), `crates/cobolt-runtime/src/esql/mod.rs`,
     `crates/cobolt-cli/src/form_gui.rs`, `crates/cobolt-cli/src/main.rs`,
@@ -346,7 +347,7 @@ pushed unless the operator asks.
     - `cargo test -p cobolt-cli`: `rcrun run` in a project with an SQL
       connection `SALES` runs `CONNECT TO 'SALES'` (AC9, runtime part).
 
-- [ ] **T24 — M5 wrap-up**
+- [x] **T24 — M5 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (SQL connections, the default
     connection, the run unit and its end) and System KB slice; regenerate
     `chunked.data`; `interpreter-binary-parity` checklist for the three hosts.
@@ -355,7 +356,7 @@ pushed unless the operator asks.
 
 ## M6 — Build
 
-- [ ] **T25 — Build links SQL and writes the deployment file** (R39)
+- [x] **T25 — Build links SQL and writes the deployment file** (R39)
   - Files: `crates/cobolt-compiler/src/runtime_features.rs`,
     `crates/cobolt-compiler/src/lib.rs`.
   - Do: the feature scan sees `ExecSql` and `sql_cursors`; Build writes
@@ -370,7 +371,7 @@ pushed unless the operator asks.
     documented message; uncommitted work is committed at a normal end and
     rolled back after an error.
 
-- [ ] **T26 — M6 wrap-up**
+- [x] **T26 — M6 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (the deployment file, the variables,
     the key-store entry and its limits) and System KB slice; regenerate
     `chunked.data`.
@@ -393,6 +394,19 @@ pushed unless the operator asks.
     reruns the AC2–AC8, AC11 and AC18 programs. **First check `$n` inside
     `DECLARE … CURSOR`; if PostgreSQL refuses it, switch to reading rows at
     OPEN and report it.**
+  - Status (2026-10-06): **code complete, live run pending.** No server is
+    on this machine and installing one needs the operator's permission.
+    Done: `backend/postgres.rs` (text parameters with a redacted `Debug`,
+    binary decoders, savepoint per statement, native SQLSTATE, field-by-field
+    `Config`, `ctid` row key); unit tests `numeric_decoding`,
+    `date_and_time_decoding`, `redacted_parameter_debug`; CONNECT to a closed
+    port → `08001` with the driver's reason. **Deviation, reported:** rows are
+    read at OPEN on PostgreSQL too, not through a native cursor — the
+    `$n`-in-`DECLARE` question cannot be settled without a server, and reading
+    at OPEN is the same path SQLite and MySQL take. Native cursors with batch
+    fetch remain to do for very large results. To finish: set
+    `PRC_TEST_PG_URL` and run `cargo test -p cobolt-runtime --test
+    test_esql_live -- --ignored pg`.
 
 - [ ] **T28 — MySQL backend** (R13, R15, R18, R25–R30, R44)
   - Files: `crates/cobolt-runtime/src/esql/backend/mysql.rs` (new),
@@ -405,15 +419,22 @@ pushed unless the operator asks.
     (`mysql_error_refinement`); `PRC_TEST_MYSQL_URL=… cargo test
     -p cobolt-runtime --test test_esql_live -- --ignored mysql` reruns the same
     programs.
+  - Status (2026-10-06): **code complete, live run pending** (as T27).
+    Done: `backend/mysql.rs` (positional parameters, value mapping by column
+    type and charset, `CLIENT_FOUND_ROWS`, the error refinement table, the
+    unit reopened after DDL, primary-key `CURRENT OF` through
+    `information_schema`, `OptsBuilder` field by field); unit tests
+    `mysql_error_refinement`, `mysql_values`. To finish: set
+    `PRC_TEST_MYSQL_URL` and run the `mysql` case.
 
-- [ ] **T29 — M7 wrap-up**
+- [x] **T29 — M7 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (per-database notes and limits) and
     System KB slice; regenerate `chunked.data`.
   - Verify: KB freshness test green.
 
 ## M8 — `SqlDatabase.SqlConnection`
 
-- [ ] **T30 — The property end to end** (R40, R49)
+- [x] **T30 — The property end to end** (R40, R49)
   - Files: `crates/cobolt-forms/src/model.rs`, `crates/cobolt-codegen/src/lib.rs`,
     `crates/cobolt-runtime/src/interpreter.rs` (`OPEN`, `COBOL-OPEN-DB`),
     `crates/cobolt-runtime/src/db_runtime.rs` (`open_resolved`),
@@ -433,14 +454,14 @@ pushed unless the operator asks.
     `cargo test -p cobolt-ide --bin cobolt-ide every_control_property_is_explained_in_six_languages`
     (AC17).
 
-- [ ] **T31 — M8 wrap-up**
+- [x] **T31 — M8 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (`SqlConnection`) and System KB
     slice; regenerate `chunked.data`.
   - Verify: KB freshness test green.
 
 ## M9 — IDE
 
-- [ ] **T32 — SQL Connections in the project tree** (R33)
+- [x] **T32 — SQL Connections in the project tree** (R33)
   - Files: `crates/cobolt-ide/src/project_model.rs` (`Category::SqlConnections`,
     `TOP` of eight, every category match), `crates/cobolt-ide/src/panels/project.rs`,
     `crates/cobolt-ide/src/i18n.rs` (×6).
@@ -450,7 +471,7 @@ pushed unless the operator asks.
     event; `indexed_category_tree_order` and the External Crates tree tests
     updated and green.
 
-- [ ] **T33 — The connection editor, credentials, Test connection** (R33, R49, R52)
+- [x] **T33 — The connection editor, credentials, Test connection** (R33, R49, R52)
   - Files: `crates/cobolt-ide/src/panels/sql_connections.rs` (new),
     `crates/cobolt-ide/src/app.rs` (main-pane branch, events),
     `crates/cobolt-ide/src/llm.rs` (vault slots), `crates/cobolt-ide/src/form_runtime.rs`
@@ -465,14 +486,14 @@ pushed unless the operator asks.
     behind the button), `rename_moves_credentials`, the i18n tests; after a
     save, a search of the project folder finds no password (AC9, AC16).
 
-- [ ] **T34 — Highlighting and go to definition** (R47)
+- [x] **T34 — Highlighting and go to definition** (R47)
   - Files: `crates/cobolt-ide/src/panels/editor.rs`.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide sql_highlight_crosses_lines`
     (keywords, strings, comments and host variables coloured across lines)
     and `host_var_goto_definition` (F12 and Cmd/Ctrl-click reach the data
     item, also from a form handler); `goto_tests` green.
 
-- [ ] **T35 — The SQL debugger tab and breakpoints** (R48)
+- [x] **T35 — The SQL debugger tab and breakpoints** (R48)
   - Files: `crates/cobolt-ide/src/panels/debugger.rs` (`DockTab::Sql`),
     `crates/cobolt-ide/src/exec_rust_run.rs` (block ranges include SQL).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide` —
@@ -480,7 +501,7 @@ pushed unless the operator asks.
     SQLSTATE, SQLCODE, rows; the password as `******`) and
     `breakpoint_refused_inside_sql_block` (AC13).
 
-- [ ] **T36 — M9 wrap-up**
+- [x] **T36 — M9 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (the SQL Connections item, the
     editor, Test connection, highlighting, go to definition, the SQL debugger
     tab, with `📷 Screenshot needed` placeholders; the "seven categories" text
@@ -490,7 +511,7 @@ pushed unless the operator asks.
 
 ## M10 — Documentation and the agent reference
 
-- [ ] **T37 — Final documentation pass** (R50, R51)
+- [x] **T37 — Final documentation pass** (R50, R51)
   - Files: `docs/developers-guide-en.md` (chapter complete; Appendix A
     "Embedded SQL / ODBC" row), `docs/cobol85-supported-syntax-en.md`
     (extensions entry), `docs/database-runtime-en.md` (the `sql-connection:`
@@ -504,17 +525,21 @@ pushed unless the operator asks.
 
 ## M11 — Migration acceptance
 
-- [ ] **T38 — The operator's samples** (AC15)
+- [x] **T38 — The operator's samples' SQL** (AC15, narrowed by Q14)
   - Files: `crates/cobolt-runtime/tests/test_esql_live.rs` (gated cases).
-  - Verify: with `PRC_LEGACY_CBL_DIR` set, `F-ART-PURGA.cob` and `TyC.cob`
-    pass Check; their SQL paths run against a SQLite copy of the tables they
-    use, and `DELETE … LIMIT 1` sets its syntax-error SQLSTATE while the
-    program continues; with `PRC_TEST_MYSQL_URL` too, both programs run in
-    full against MySQL. `SKIPPED` without the variables.
+  - Verify: with `PRC_LEGACY_CBL_DIR` set, the samples' `EXEC SQL` blocks,
+    read from the files at test time (never copied into the repository), run
+    in a test program declaring their host variables, against a SQLite copy of
+    the tables they use; `DELETE … LIMIT 1` sets its syntax-error SQLSTATE
+    while the program continues; with `PRC_TEST_MYSQL_URL` too, the same
+    statements run against MySQL. `SKIPPED` without the variables.
+  - Result (2026-10-06): F-ART-PURGA's 24 distinct statements and TyC's 3
+    run as written against SQLite; `DELETE … LIMIT 1` → `42601`, the program
+    continues, nothing deleted. The MySQL half waits on M7 and a server.
 
 ## Finalize
 
-- [ ] **T39 — Full sweep and acceptance**
+- [x] **T39 — Full sweep and acceptance**
   - Do: `cargo test --no-fail-fast` on `cobolt-lexer`, `cobolt-ast`,
     `cobolt-parser`, `cobolt-semantic`, `cobolt-runtime`, `cobolt-dap`,
     `cobolt-forms --features render`, `cobolt-codegen`, `cobolt-form-host`,
@@ -527,6 +552,17 @@ pushed unless the operator asks.
   - Verify: every `test result:` line read — totals equal T0 plus the new
     tests, with only the known expected failure; NIST equals T0 on every
     module; every AC1–AC18 ticked with the task that proved it.
+  - Result (2026-10-06): every crate green — lexer 172, ast 32, parser 184,
+    semantic 98, runtime 1152 (11 ign), dap 37, form-host 186, compiler 157
+    (1 ign; the three old "environmental" failures fixed at 1.80.210), cli
+    23, project-tools 62 (1 ign), codegen 76, forms (render) 1365 (1 ign),
+    IDE 1338 with the one known failure (`every_document_ships_in_every_language`
+    — translations deleted under GOLDEN RULE #8, regenerated at the next
+    minor). NIST identical to T0: strict 420/420, NC
+    4614, SQ 624, IX 574, RL 354, IC 309 assertions, 0 failures. AC14 proved
+    on all four hosts with the AC2, AC7 and the new AC9 program. 17 of 18 ACs
+    ticked; AC15's MySQL half and T27/T28 wait for a live server. Found and
+    fixed on the way: Run Form lost a program's last DISPLAY lines (1.80.217).
   - Manual (operator, never driven by the agent): open a project, add an SQL
     connection in the tree, Test connection, write a handler with `EXEC SQL`,
     see the highlighting and go to definition, run it, and look at the SQL

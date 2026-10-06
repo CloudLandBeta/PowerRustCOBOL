@@ -41,6 +41,8 @@ pub mod async_op;
 pub mod channels;
 pub mod collation;
 pub mod compress;
+#[cfg(feature = "sql")]
+pub(crate) mod db_connect;
 pub mod db_runtime;
 pub mod debug_eval;
 pub mod debug_session;
@@ -49,6 +51,7 @@ pub mod debugger;
 pub mod diag_path;
 pub mod environment;
 pub mod error;
+pub mod esql;
 pub mod exec_rust;
 pub mod files;
 pub mod form_host;
@@ -60,6 +63,7 @@ pub mod indexed_import;
 pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
+pub mod national;
 #[cfg(feature = "kb")]
 pub mod kb_transport;
 #[cfg(feature = "kb")]

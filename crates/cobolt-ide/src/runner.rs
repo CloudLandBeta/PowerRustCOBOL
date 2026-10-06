@@ -83,6 +83,46 @@ fn apply_project_indexed_engine(interp: &mut Interpreter) {
     }
 }
 
+/// The open project's file and name (spec 087 R33): an interpreter the IDE
+/// runs in-process reads its SQL connections from that file when it starts,
+/// so a run always sees what the project file says at that moment.
+/// With them, the SQL connections' credentials from the IDE's vault, as the
+/// `<APP>_SQL_<NAME>_*` values the catalog reads (never the IDE's own
+/// process environment).
+static PROJECT_SQL: std::sync::Mutex<Option<ProjectSql>> = std::sync::Mutex::new(None);
+
+#[derive(Clone)]
+struct ProjectSql {
+    manifest: std::path::PathBuf,
+    app: String,
+    credentials: Vec<(String, String)>,
+}
+
+/// Record the open project's file, name and SQL credentials. Called when a
+/// project loads, whenever it is saved, and when an SQL connection's
+/// credentials change.
+pub fn set_project_sql(manifest: Option<&std::path::Path>, app: &str, credentials: Vec<(String, String)>) {
+    if let Ok(mut g) = PROJECT_SQL.lock() {
+        *g = manifest.map(|m| ProjectSql { manifest: m.to_path_buf(), app: app.to_string(), credentials });
+    }
+}
+
+/// Hand the project's SQL connections to an interpreter about to run. `Err`
+/// says why the project file's SQL connections cannot be used.
+fn apply_project_sql_catalog(interp: &mut Interpreter) -> Result<(), String> {
+    let Some(p) = PROJECT_SQL.lock().ok().and_then(|g| g.clone()) else {
+        return Ok(());
+    };
+    let mut catalog = cobolt_runtime::esql::catalog::SqlCatalog::from_project(&p.manifest, &p.app)?;
+    catalog.injected_env = p
+        .credentials
+        .into_iter()
+        .map(|(k, v)| (k, cobolt_runtime::esql::catalog::Secret::new(v)))
+        .collect();
+    interp.set_sql_catalog(catalog);
+    Ok(())
+}
+
 pub fn dbg_log(msg: &str) {
     use std::io::Write;
     let path = cobolt_runtime::diag_path::diagnostics_file("cobolt-debug.log");
@@ -389,6 +429,12 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new(program);
         apply_project_indexed_engine(&mut interp);
+        if let Err(e) = apply_project_sql_catalog(&mut interp) {
+            let _ = tx.send(RunMsg::Output(format!("SQL connections: {e}")));
+        }
+        // Stop is a cancel: the program ends between two statements, and its
+        // open SQL work is rolled back (spec 087 R38).
+        interp.set_cancel_flag(Arc::clone(&stop));
 
         // Run — the interpreter's DISPLAY calls println!() for now.
         // Future: swap in a channel-backed IoBackend.
@@ -399,15 +445,15 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
     }));
 
     match result {
+        // A cancelled run ends cleanly; Stop is what ended it.
+        Ok(_) if stop_flag.load(Ordering::Relaxed) => {
+            let _ = tx.send(RunMsg::Stopped);
+        }
         Ok(Ok(())) => {
             let _ = tx.send(RunMsg::Finished);
         }
         Ok(Err(e)) if e.is_exit_signal() => {
-            if stop_flag.load(Ordering::Relaxed) {
-                let _ = tx.send(RunMsg::Stopped);
-            } else {
-                let _ = tx.send(RunMsg::Finished);
-            }
+            let _ = tx.send(RunMsg::Finished);
         }
         Ok(Err(e)) => {
             let _ = tx.send(RunMsg::Error(e.to_string()));
@@ -691,6 +737,9 @@ fn run_debug_pipeline(
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new_with_debug_channels(program, cmd_rx, ev_tx, breakpoints);
         apply_project_indexed_engine(&mut interp);
+        if let Err(e) = apply_project_sql_catalog(&mut interp) {
+            let _ = run_tx.send(RunMsg::Output(format!("SQL connections: {e}")));
+        }
         interp.set_debug_user_scope(user_scope);
         dbg_log("pipeline: interpreter created, calling run()");
         let r = interp.run();
@@ -723,4 +772,36 @@ fn run_debug_pipeline(
 
 pub(crate) fn detect_format(source: &str) -> SourceFormat {
     SourceFormat::detect(source)
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+
+    /// Stop ends a console run that loops forever: the program stops between
+    /// two statements and the run reports Stopped, not an error.
+    #[test]
+    fn stop_ends_a_looping_console_run() {
+        let src = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. SPIN.\n       PROCEDURE DIVISION.\n\
+                   \x20      MAIN-PARA.\n           PERFORM UNTIL 1 = 0\n               CONTINUE\n\
+                   \x20          END-PERFORM\n           STOP RUN.\n";
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stop);
+        let run = std::thread::spawn(move || run_pipeline("spin.cbl".into(), src.into(), tx, flag));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let pressed = std::time::Instant::now();
+        stop.store(true, Ordering::Relaxed);
+        let deadline = pressed + std::time::Duration::from_secs(5);
+        let mut ended = None;
+        while ended.is_none() && std::time::Instant::now() < deadline {
+            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(m @ (RunMsg::Stopped | RunMsg::Finished | RunMsg::Error(_))) => ended = Some(m),
+                _ => {}
+            }
+        }
+        assert!(matches!(ended, Some(RunMsg::Stopped)), "Stop ends the run as Stopped: {ended:?}");
+        run.join().unwrap();
+        println!("Stop: a PERFORM UNTIL 1 = 0 loop ended {} ms after Stop, reported Stopped", pressed.elapsed().as_millis());
+    }
 }

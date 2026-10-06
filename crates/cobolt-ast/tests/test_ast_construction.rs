@@ -155,6 +155,7 @@ fn data_decl_elementary() {
         blank_when_zero: false,
         justified: false,
         sign: None,
+        byte_length: None,
         children: vec![],
         span: dummy_span(),
     };
@@ -187,6 +188,7 @@ fn data_decl_group() {
         blank_when_zero: false,
         justified: false,
         sign: None,
+        byte_length: None,
         children: vec![],
         span: dummy_span(),
     };
@@ -206,6 +208,7 @@ fn data_decl_group() {
         blank_when_zero: false,
         justified: false,
         sign: None,
+        byte_length: None,
         children: vec![child],
         span: dummy_span(),
     };
@@ -244,6 +247,7 @@ fn data_decl_table() {
         blank_when_zero: false,
         justified: false,
         sign: None,
+        byte_length: None,
         children: vec![],
         span: dummy_span(),
     };
@@ -445,6 +449,7 @@ fn program_construction() {
                 blank_when_zero: false,
         justified: false,
         sign: None,
+        byte_length: None,
                 children: vec![],
                 span: dummy_span(),
             }])],

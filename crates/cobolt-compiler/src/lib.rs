@@ -902,6 +902,9 @@ struct CoboltProject {
     /// `[ide]` — only the one setting a built application carries.
     #[serde(default)]
     ide: IdeConfig,
+    /// `[[sql-connections]]` — the project's named SQL connections (spec 087).
+    #[serde(default, rename = "sql-connections")]
+    sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
 }
 
 /// `[ide]` in the project manifest — the subset a build reads. Everything else
@@ -1021,6 +1024,138 @@ struct RagConfig {
     /// nothing in the build.
     #[serde(default)]
     embedder: String,
+}
+
+/// The file a built application reads its SQL connections from, beside the
+/// binary (spec 087 R39).
+pub const SQL_CONNECTIONS_FILE: &str = "sql-connections.toml";
+
+/// The starting deployment file Build writes beside a binary (R39): the
+/// project's SQL connections, each SQLite path made absolute so the binary
+/// finds the developer's database wherever it is started from, with no user
+/// name and no password, under a header naming the environment variables and
+/// the key-store entry that supply them. `None` when the project has none.
+pub fn starting_sql_connections_toml(
+    app: &str,
+    project_dir: &Path,
+    connections: &[cobolt_forms::connections::SqlConnection],
+) -> Option<String> {
+    use cobolt_forms::connections::sql_env_var;
+    if connections.is_empty() {
+        return None;
+    }
+    let mut out = format!(
+        "# The SQL connections of {app}, read by the application when it starts.\n\
+         # Point each one at your own database here; Build never overwrites this\n\
+         # file once it exists.\n#\n\
+         # Never put a password in this file: an entry with a `password` key is\n\
+         # refused. The environment variables below override an entry, and the\n\
+         # password comes only from its variable or from the application's key\n\
+         # store entry SQL:<NAME>.\n"
+    );
+    for c in connections {
+        out.push_str(&format!(
+            "#   {}: {}, {}, {}; key store SQL:{}\n",
+            c.name,
+            sql_env_var(app, &c.name, "URL"),
+            sql_env_var(app, &c.name, "USER"),
+            sql_env_var(app, &c.name, "PASSWORD"),
+            c.name.trim().to_ascii_uppercase()
+        ));
+    }
+    #[derive(serde::Serialize)]
+    struct DeploymentFile {
+        connection: Vec<cobolt_forms::connections::SqlConnection>,
+    }
+    let connection = connections
+        .iter()
+        .map(|c| {
+            let mut c = c.clone();
+            c.user.clear();
+            let sqlite = matches!(c.backend.trim().to_ascii_lowercase().as_str(), "" | "sqlite");
+            if sqlite && !c.path.trim().is_empty() && Path::new(&c.path).is_relative() {
+                c.path = project_dir.join(&c.path).display().to_string();
+            }
+            c
+        })
+        .collect();
+    out.push('\n');
+    out.push_str(&toml::to_string(&DeploymentFile { connection }).ok()?);
+    Some(out)
+}
+
+/// Write `text` as the deployment file in `dir` unless one is already there —
+/// it is the operator's to edit, and a rebuild must not undo that (R39).
+/// `true` when it was written.
+pub fn write_sql_connections_file(dir: &Path, text: &str) -> std::io::Result<bool> {
+    let path = dir.join(SQL_CONNECTIONS_FILE);
+    if path.exists() {
+        return Ok(false);
+    }
+    std::fs::write(&path, text)?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod sql_connections_file_tests {
+    use super::*;
+    use cobolt_forms::connections::{parse_sql_connections, SqlConnection};
+
+    /// R39: the starting file lists every SQL connection with an absolute
+    /// SQLite path, no user name and no password, names the variables in its
+    /// header, reads back as the same connections — and is never overwritten.
+    #[test]
+    fn starting_toml_no_credentials_never_overwritten() {
+        let root = std::env::temp_dir().join(format!("prc-sql-deploy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let dir = Scratch(root);
+        let mut sales = SqlConnection::new("SALES");
+        sales.path = "data/sales.db".into();
+        sales.default = true;
+        sales.user = "developer".into();
+        let mut stock = SqlConnection::new("Stock-DB");
+        stock.backend = "postgresql".into();
+        stock.host = "db.local".into();
+        stock.port = Some(5432);
+        stock.database = "stock".into();
+        assert!(starting_sql_connections_toml("Shop", dir.path(), &[]).is_none(), "no connections, no file");
+
+        let text = starting_sql_connections_toml("Shop", dir.path(), &[sales, stock]).unwrap();
+        println!("{text}");
+        for want in ["SHOP_SQL_SALES_URL", "SHOP_SQL_SALES_PASSWORD", "SHOP_SQL_STOCK_DB_USER", "SQL:STOCK-DB"] {
+            assert!(text.contains(want), "the header names {want}");
+        }
+        assert!(!text.contains("developer"), "no user name is written");
+        assert!(!text.lines().any(|l| l.trim_start().starts_with("password")), "no password key");
+        let (back, with_password) = parse_sql_connections(&text, "connection").unwrap();
+        assert!(with_password.is_empty());
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].path, dir.path().join("data/sales.db").display().to_string(), "the SQLite path is absolute");
+        assert!(back[0].default && back[0].user.is_empty());
+        assert_eq!((back[1].host.as_str(), back[1].port, back[1].database.as_str()), ("db.local", Some(5432), "stock"));
+
+        assert!(write_sql_connections_file(dir.path(), &text).unwrap(), "written when absent");
+        std::fs::write(dir.path().join(SQL_CONNECTIONS_FILE), "# edited by the operator\n").unwrap();
+        assert!(!write_sql_connections_file(dir.path(), &text).unwrap(), "kept when present");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(SQL_CONNECTIONS_FILE)).unwrap(),
+            "# edited by the operator\n"
+        );
+    }
+
+    /// A scratch folder, removed when the test ends.
+    struct Scratch(std::path::PathBuf);
+    impl Scratch {
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 }
 
 /// The project's named REST connections, read straight from `cobolt.toml`.
@@ -1494,6 +1629,7 @@ pub fn build_single_file(
         rag: RagConfig::default(),
         agents: AgentsConfig::default(),
         ide: IdeConfig::default(),
+        sql_connections: Vec::new(),
     };
     build_core(proj, project_dir, opts, false)
 }
@@ -2434,6 +2570,10 @@ fn build_core(
             let mut child = std::process::Command::new("cargo")
                 .args(&args)
                 .current_dir(&build_dir)
+                // The binary is installed from `build_dir/target` (step 11);
+                // a `CARGO_TARGET_DIR` inherited from the developer's shell
+                // would send cargo's output elsewhere and fail the install.
+                .env("CARGO_TARGET_DIR", build_dir.join("target"))
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()
@@ -2590,6 +2730,24 @@ fn build_core(
         ));
     }
 
+    // Spec 087 R39 — the starting SQL connections file, beside the binary in
+    // `bin/` and in the destination folder, each written only when absent.
+    let sql_connections_toml =
+        starting_sql_connections_toml(&proj.project.name, &project_dir, &proj.sql_connections);
+    let write_sql_connections = |dir: &Path| {
+        if let Some(text) = &sql_connections_toml {
+            match write_sql_connections_file(dir, text) {
+                Ok(true) => log(&format!("🗄️  Wrote {}", dir.join(SQL_CONNECTIONS_FILE).display())),
+                Ok(false) => log(&format!(
+                    "🗄️  Kept the existing {}",
+                    dir.join(SQL_CONNECTIONS_FILE).display()
+                )),
+                Err(e) => log(&format!("⚠️  Could not write {SQL_CONNECTIONS_FILE} to {}: {e}", dir.display())),
+            }
+        }
+    };
+    write_sql_connections(&bin_dir);
+
     // Drop the required Apache-2.0 notices next to the binary so the
     // distribution carries them.
     if let Err(e) = write_license_notices(&bin_dir) {
@@ -2682,6 +2840,8 @@ fn build_core(
     // an unused second executable next to the application is something the end
     // user has to wonder about. `rcrun` remains the developer's tool inside the
     // IDE, where Run Form and debugging do spawn it.
+
+    write_sql_connections(&dest_path);
 
     // The destination folder is what the developer actually hands over, so the
     // Apache-2.0 notices belong here too — `bin/` alone was getting them.
@@ -3800,7 +3960,11 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // `WHEN "Agent-Helper"` and matches nothing. A built binary runs the same
     // generated loop as `rcrun run-form`, so it needs the same answer.
     let control_ids: Vec<String> = first_form.controls.iter().map(|c| c.id.clone()).collect();
+    // ONE SQL run unit for the application (spec 087 R37): the main form owns
+    // it and ends it at the end of the run (R38); every opened form joins it.
+    let sql_unit = Arc::new(std::sync::Mutex::new(cobolt_runtime::esql::SqlRunUnit::default()));
     {
+        let sql_unit = Arc::clone(&sql_unit);
         let finished = Arc::clone(&finished);
         let pending = Arc::clone(&pending);
         let form_object = form_object.clone();
@@ -3808,6 +3972,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         let root_form_id = root_form_id.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            interp.set_sql_run_unit(sql_unit, true);
             interp.set_control_ids(control_ids);
             interp.set_indexed_engine(indexed_engine());
             let _ = bridge_tx.send(interp.shared_rust_bridge());
@@ -3918,10 +4083,12 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         form_req_tx,
         form_source: Some(form_source),
         child_theme: Some(child_theme),
-        // Every spawned interpreter carries the compiled EXEC RUST blocks.
+        // Every spawned interpreter carries the compiled EXEC RUST blocks and
+        // joins the main form's SQL run unit.
         child_interpreter_setup: Some(std::sync::Arc::new(
-            |interp: &mut cobolt_runtime::interpreter::Interpreter| {
+            move |interp: &mut cobolt_runtime::interpreter::Interpreter| {
                 interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
+                interp.set_sql_run_unit(Arc::clone(&sql_unit), false);
             },
         )),
         // Every child form creates indexed files in the same format as the
@@ -4017,8 +4184,27 @@ fn main() {{
         .with_target(false)
         .init();
 
+    install_sql_connections();
     let program = load_program();
     {run_call}
+}}
+
+/// The SQL connections this application reaches by name (spec 087 R39): the
+/// `sql-connections.toml` beside the binary, with the environment and the
+/// application's key store supplying credentials. Without the file a program
+/// can still connect by a connection string.
+fn install_sql_connections() {{
+    let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) else {{
+        return;
+    }};
+    let file = dir.join("sql-connections.toml");
+    if !file.is_file() {{
+        return;
+    }}
+    match cobolt_runtime::esql::catalog::SqlCatalog::from_deployment_file(&file, APP_NAME) {{
+        Ok(catalog) => cobolt_runtime::esql::catalog::install(catalog),
+        Err(e) => eprintln!("{{APP_NAME}}: the SQL connections cannot be read: {{e}}"),
+    }}
 }}
 
 // ── AST loader ────────────────────────────────────────────────────────────────
@@ -4689,6 +4875,43 @@ What the form declares governs the whole nest. With `DECIMAL-POINT IS COMMA` in 
 - a numeric literal carries a comma — `MOVE 7,49 TO WS-PRICE`.
 
 Without the clause, `.` is the decimal point and `,` groups digits, the usual way round. Comma-formatted currency is obtained by putting the clause on the FORM — never by declaring it inside a handler to compensate.
+
+## Embedded SQL — `EXEC SQL … END-EXEC`
+**Status: runs on SQLite, PostgreSQL and MySQL** (the last two a preview, not yet verified against live servers). Every statement below executes — static statements, cursors (`WITH HOLD`, `WHERE CURRENT OF`), `COMMIT`/`ROLLBACK`, dynamic SQL (`PREPARE`, `EXECUTE [USING]`, `EXECUTE IMMEDIATE`, cursors over a prepared statement, `DESCRIBE [INPUT]`) and the SQLDA — with `CONNECT TO 'connection-string' [AS name]`, `CONNECT TO` a project SQL connection by name, `SET CONNECTION` and `DISCONNECT` — under Run, Debug, Run Form, `rcrun` and in a built application. Differences: PostgreSQL begins a unit before the first statement and runs each under a savepoint (a failure does not poison the unit); a PostgreSQL value of an unusual type (array, range, geometry) is `0A000` — cast it (`::text`); MySQL commits the unit on CREATE/ALTER/DROP, `WHERE CURRENT OF` on MySQL needs a primary key (`0A000` without one), and MySQL counts matched rows for UPDATE. Cursors read their rows at OPEN on all three. No TLS to the servers.
+
+- **The block**: `EXEC SQL`, one SQL statement, `END-EXEC`, over any number of lines, fixed or free format. A period after `END-EXEC` ends the sentence; without one the block is an ordinary statement and stays inside an `IF`/`PERFORM` scope. `END-EXEC` inside an SQL string, quoted name or comment does not end it. COBOL comment lines, `*>` and SQL `--` comments are allowed inside and are never sent.
+- **Host variables**: `:NAME` — any data item the program can see (its own, or a GLOBAL item of an enclosing program). Qualify duplicates as `:NAME OF GROUP` or `:NAME.GROUP`. A hyphen belongs to the name only after the colon (`SELECT QTY-1 INTO :WS-QTY-LESS-ONE` subtracts). NEVER subscript or reference-modify a host variable, and never write a figurative constant (`SPACES`, `ZERO` …) inside SQL — both are compile errors. Values are bound as parameters, never pasted into the SQL text.
+- **Indicators**: `:HOST:IND` or `:HOST INDICATOR :IND`, where IND is `PIC S9(4)` in `COMP-5`, `COMP`, `BINARY` or `DISPLAY` (a table of them for a group host structure).
+- **Where blocks may go**: WORKING-STORAGE, LOCAL-STORAGE and LINKAGE take `BEGIN/END DECLARE SECTION` (optional), `DECLARE … TABLE`, `DECLARE … CURSOR`, `WHENEVER` and `INCLUDE`; the data entries around them are ordinary items. Executable statements go in the PROCEDURE DIVISION. A block in the FILE SECTION is an error.
+- **`INCLUDE name`** brings in a copybook exactly as `COPY name` does; `INCLUDE SQLCA` (status area: `SQLCODE`, `SQLSTATE`, `SQLCA-MESSAGE`, `SQLCA-ROWS` …) and `INCLUDE SQLDA` (descriptor for dynamic SQL) insert PowerRustCOBOL's own layouts. COPY/REPLACE never alter SQL text.
+- **Statements recognised**: `SELECT … INTO :h …` (INTO may stand after the select list, after FROM or after WHERE), `INSERT`, `UPDATE`, `DELETE`, data definition and any other statement returning no rows; cursors `DECLARE c CURSOR [WITH HOLD] FOR SELECT … [FOR UPDATE]` / `FOR statement-name`, `OPEN c [USING …]`, `FETCH c INTO :h …` or `USING DESCRIPTOR`, `CLOSE c`, `… WHERE CURRENT OF c`; `COMMIT [WORK]`, `ROLLBACK [WORK]` (database only — the COBOL `COMMIT`/`ROLLBACK` verbs stay INDEXED-file transactions); `CONNECT TO name [AS alias] [USER :u USING :p]`, `SET CONNECTION`, `DISCONNECT [name|CURRENT|ALL]`; `PREPARE s FROM :h`, `EXECUTE s [USING …]`, `EXECUTE IMMEDIATE :h`, `DESCRIBE [INPUT] s INTO sqlda`. The SQL dialect is the database's: the text is passed on as written.
+- **`WHENEVER {SQLERROR | SQLWARNING | NOT FOUND} {CONTINUE | GO TO para}`** applies to the SQL statements written AFTER it in the source, not to what runs after it.
+- **Connecting**: `CONNECT TO` a connection string — `':memory:'`, `'sqlite:path.db'`, a path containing `/` or ending `.db`/`.sqlite`/`.sqlite3`/`.db3`; any other word is a project SQL connection NAME (case-insensitive), never a new database file — an unknown name → `08001`.
+- **Project SQL connections**: `[[sql-connections]]` entries in the project file — `name`, `backend` (`sqlite`, the default), `path` (relative to the project folder), `default = true` for the one a statement uses when the program made no connection (none and no connection → `08003`), `create-if-missing = true` to let the first run create the SQLite file (otherwise a missing file → `08001`). Environment overrides, named `<APP>_SQL_<NAME>_URL|USER|PASSWORD` (APP = the project name, NAME = the connection's, upper-cased, non-alphanumerics → `_`): `_URL` replaces the whole target. NEVER put a password in the project file — an entry with a `password` key fails with `28000`; the password comes only from `<APP>_SQL_<NAME>_PASSWORD`.
+- **A built application's SQL connections**: Build writes a starting `sql-connections.toml` beside the binary (in `bin/` and the destination folder) — `[[connection]]` entries with absolute SQLite paths, no user, no password — and NEVER overwrites one that exists; the operator edits it to point at the real databases. The binary reads it at start; the same `<APP>_SQL_<NAME>_*` variables override it; a `user` may be written there, a `password` never (→ `28000`). A built binary also takes the password from its key store entry `SQL:<NAME>`, which the application fills with `COBOL::"KEY-SET" ( "SQL:SALES" WS-PASSWORD WS-STATUS )` and can never read back. A PACKAGED project runs under `rcrun` and reads the project file instead; only Build writes the deployment file.
+- **In the IDE**: the editor highlights an SQL block as SQL across lines (host variables as COBOL names) and Go to definition (F12, Cmd/Ctrl-click) on a host variable reaches its data item — from a form handler, the site that declares it. The debugger steps over a block as ONE statement: a breakpoint inside a block is refused (set it on the `EXEC SQL` line); the dock's SQL tab shows each statement with `?` placeholders, the bound values, SQLSTATE, SQLCODE, rows and message, a CONNECT password as `******`. Run, Debug and Run Form receive the vault's credentials as the `<APP>_SQL_<NAME>_USER/PASSWORD` variables.
+- **`SqlDatabase.SqlConnection`**: set to a project SQL connection's name, the control's generated `<id>-CONNECT` and `Open()` with no argument connect through it (it WINS over `ConnectionString`), resolved like `CONNECT TO 'NAME'` — the project under the IDE/`rcrun`, `sql-connections.toml` in a built application. `COBOL::"OPEN-DB" ( "sql-connection:NAME" handle status )` does the same. The control's connection stays separate from `EXEC SQL`'s. An unknown name is a Check error.
+- **Values**: numeric items go as exact decimals (integers when they have no decimals), `PIC X` as text with TRAILING SPACES REMOVED, dates as ISO text in `PIC X(10)`. Received values are checked BEFORE anything is stored and either all `INTO` items are set or none: integer part too large or negative into unsigned → `22003`; non-numeric text into a numeric item → `22018`; NULL with no indicator → `22002`; text cut to the item → warning `01004` with the original length in the indicator. `SELECT … INTO` with no row → `02000` (items unchanged), several rows → `21000`. An `INSERT`/`UPDATE`/`DELETE` touching no row → `02000`.
+- **Status after every statement**: stand-alone `SQLSTATE` `PIC X(5)`, `SQLCODE` (signed integer), `SQLMSG` (the database's message) — and/or the SQLCA (`INCLUDE SQLCA`: `SQLCODE`, `SQLSTATE`, `SQLCA-ROWS`, `SQLCA-MESSAGE`, `SQLCA-MESSAGE-LENGTH`, `SQLCA-NATIVE-CODE`, `SQLCA-WARNING`, `SQLCA-TRUNCATED`, `SQLCA-CONNECTION`). SQLCODE = 0 for `00000`, +100 for `02000`, a warning's five digits (`01004` → +1004), an all-digit error negated (`23505` → −23505), −(class×1000) when the subclass has letters (`42P01` → −42000), else −99000. An SQL failure NEVER stops the program: test `SQLSTATE` (or use `WHENEVER`).
+- **Cursors**: `OPEN` reads the cursor's host variables at that moment; `FETCH c INTO …` past the last row → `02000`, INTO items unchanged; FETCH/CLOSE of a cursor that is not open, or OPEN of one that is → `24000`. `UPDATE/DELETE … WHERE CURRENT OF c` acts on the row last fetched and needs a cursor over ONE table (a join, several tables, DISTINCT or GROUP BY → `0A000`). A cursor in a form's WORKING-STORAGE is known to its handlers. `EXEC SQL COMMIT` closes every cursor not declared `WITH HOLD`; `ROLLBACK` closes all. On SQLite a cursor's rows are read at OPEN.
+- **Dynamic SQL**: `PREPARE s FROM :h|'text'` snapshots the text (later changes to the item do not affect `s`); `?` marks parameters; `EXECUTE s [USING :a, :b | USING DESCRIPTOR d]`; `EXECUTE IMMEDIATE :h|'text'` for a statement with no parameters and no rows; `DECLARE c CURSOR FOR s` then `OPEN c USING …`. An unprepared name → `07003`. Never string user input into prepared text — bind it with `?` and `USING`.
+- **SQLDA** (`INCLUDE SQLDA`, 100 entries): `SQLDA-CAPACITY`, `SQLDA-NEEDED`, `SQLDA-COUNT`, `SQLDA-ENTRY OCCURS 100` with `SQLDA-NAME`, `SQLDA-TYPE` (1 integer, 2 decimal, 3 float, 4 character, 5 binary, 6 date, 7 time, 8 timestamp, 9 boolean, 0 unknown), `SQLDA-TYPE-NAME`, `SQLDA-LENGTH`, `SQLDA-PRECISION`, `SQLDA-SCALE`, `SQLDA-NULLABLE` (−1 = unknown), `SQLDA-DATA` and `SQLDA-IND-PTR` (`USAGE POINTER`), `SQLDA-IND`, `SQLDA-VALUE PIC X(1024)`. `DESCRIBE s INTO SQLDA` fills the entries; more columns than `SQLDA-CAPACITY` → `SQLDA-NEEDED` set, nothing filled, `01005`. `FETCH c USING DESCRIPTOR SQLDA` writes each value through `SQLDA-DATA(i)` when it was `SET … TO ADDRESS OF item`, else as text into `SQLDA-VALUE(i)` with `SQLDA-IND(i)`. `DESCRIBE INPUT` gives the parameter count (types unknown on SQLite).
+- **Units of work**: one starts with the first statement after a connect or the last `COMMIT`/`ROLLBACK` (on SQLite, only before a statement that changes data). `EXEC SQL COMMIT`/`ROLLBACK` end it; the COBOL `COMMIT`/`ROLLBACK` verbs are INDEXED-file transactions and never touch the database.
+- **End of the run**: work still open when the application ends is COMMITTED after a normal end (`STOP RUN`, `GOBACK` from the main program, the main window closing) and ROLLED BACK after a runtime error or an IDE Stop; then every connection closes. Every form of an application shares ONE set of SQL connections: a form opened later reads through the connection another form made (uncommitted rows included) without a `CONNECT`; closing a form releases only its own cursors and prepared statements, and a runtime error in a child form rolls nothing back — only the MAIN form's end settles the work.
+- **Check reports**, each on its line and without any database: an unterminated block, a misplaced block, an undeclared or ambiguous host variable or indicator, an indicator of the wrong shape, a subscripted host variable, a figurative constant in SQL, a cursor used before it is declared or declared twice, `EXECUTE`/`DESCRIBE` of a statement not prepared earlier in the source, a `WHENEVER … GO TO` with no such paragraph or section, an `INCLUDE` not found, and a literal password in `CONNECT … USING`. Table and column names are NOT checked.
+
+## National and UTF-8 data — `PIC N`, `PIC U`
+`PIC X` counts BYTES, so accented or non-Latin text in it can be cut in half a character. Declare text by CHARACTERS instead:
+
+- `PIC N(n)` (or `PIC N(n) USAGE NATIONAL`): n national characters (UTF-16 code units; a character above U+FFFF takes two), stored as 2·n bytes, UTF-16 big-endian.
+- `PIC U(n)` (or `USAGE UTF-8`): n characters, stored as 4·n bytes of UTF-8 padded with spaces. `PIC U BYTE-LENGTH n`: the whole characters that fit n bytes.
+- Literals: `N"Ação"`, `NX"004100E7"` (4 hex digits per code unit), `U"Ação"` (escapes `\uhhhh`, `\U00hhhhhh`, `\\`), `UX"C3A7"` (well-formed UTF-8). A malformed `NX`/`UX` literal is a Check error on its line. ⚠️ `X"…"` reads each hex pair as a CHARACTER, not a byte: write `UX"C3A7"`, not `X"C3A7"`, for UTF-8 text.
+- `FUNCTION LENGTH` counts characters (`PIC N(30)` → 30); `FUNCTION BYTE-LENGTH` counts storage (→ 60). `ULENGTH`, `USUBSTR(x, start, len)` count characters; `UPOS(x, n)` / `UWIDTH(x, n)` answer in bytes (0 when out of range); `UVALID(x)` is 0 or the position of the first ill-formed byte; `USUPPLEMENTARY(x)` is where the first character above U+FFFF starts, or 0. For a national argument, `UVALID` and `USUPPLEMENTARY` count UTF-16 code units.
+- `FUNCTION NATIONAL-OF(x [, cp])` reads bytes in a code page as characters; `FUNCTION DISPLAY-OF(n [, cp])` writes characters as bytes in one. `cp` is `"UTF-8"`/1208 (default), `"WINDOWS-1252"`/1252 or `"ISO-8859-1"`/819 — any other literal is a Check error; a character a single-byte page cannot hold becomes X'7F'. `UPPER-CASE`/`LOWER-CASE` of national or UTF-8 data follow Unicode.
+- `MOVE` fits by whole characters, also into `PIC X`; figuratives take the class's characters (`HIGH-VALUE` = U+FFFF national, U+10FFFF UTF-8); `JUSTIFIED RIGHT` works by character. Comparisons are by code point, padded with spaces, no collating sequence. `STRING` into, and `UNSTRING`/`INSPECT` of, a national or UTF-8 item count characters (POINTER, COUNT IN, TALLYING, BEFORE/AFTER). `INITIALIZE … REPLACING NATIONAL DATA BY N"…"` / `UTF-8 DATA BY U"…"`. `ACCEPT` into one reads UTF-8, or Windows-1252 when the bytes are not UTF-8.
+- A group, a `REDEFINES` and a record see the storage bytes; a national `RECORD KEY` orders by code point; a LINE SEQUENTIAL file holds the characters as UTF-8 text. A `.cidx` field may be `PIC N(n)` or `PIC U(n)`.
+- A form property is text: `MOVE TXT-NAME::Text TO WS-NAME` (`PIC N(40)`) and `MOVE WS-NAME TO LBL-OUT::Caption` keep every character.
+- Check refuses: arithmetic on a national or UTF-8 item; `USAGE NATIONAL` without `PIC N`, `USAGE UTF-8` without `PIC U`; `BYTE-LENGTH` other than on a single `PIC U`; a VALUE longer than the item; national numeric (`PIC 9 USAGE NATIONAL`) and national-edited pictures, which are not supported yet.
 "##;
     docs.push(("rustcobol_extensions.md", rc_ext.to_string()));
 
@@ -5233,7 +5456,7 @@ unchanged.
 - **`assets`** — images and other resources.
 - **`documentation`** — the project's own Knowledge Base documents.
 
-## The project tree's seven categories
+## The project tree's eight categories
 
 The IDE owns these top-level nodes; developers add entries *within* a category,
 never a category of their own. In display order, with the folder each one owns:
@@ -5242,6 +5465,7 @@ never a category of their own. In display order, with the folder each one owns:
 |---|---|---|
 | Forms | `forms/` | `.cfrm` |
 | Indexed Files | `indexed/` | `.cidx` |
+| SQL Connections | none — entries of the project file | one row per `[[sql-connections]]` entry, the default marked; a row opens the SQL connection editor (Test connection, Remove); user and password live in the IDE credential vault, never in the project |
 | Common Code | `src/` | hand-written COBOL only |
 | Generated Code | `generated/` | **read-only**, populated by the designer |
 | External Crates | vendor folder | one node per registered crate pin |
@@ -6071,6 +6295,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── SqlDatabase ──
         "Driver" => ("one of: `sqlite` | `postgres` | `mysql`", "A label for the generated comments. The engine is chosen by the ConnectionString's scheme, not by this."),
         "ConnectionString" => ("e.g. `sqlite::memory:`, `postgres://user:pw@host/db`", "Connection string; the scheme selects the engine. Used by the generated `<id>-CONNECT` paragraph, and by `Open()` when it is called with no argument."),
+        "SqlConnection" => ("the name of one of the project's SQL connections, or empty", "Names one of the project's SQL connections (`[[sql-connections]]`). When set it WINS over ConnectionString: the generated `<id>-CONNECT` and `Open()` with no argument connect through it — from the project under the IDE and `rcrun`, from `sql-connections.toml` in a built application, with the `<APP>_SQL_<NAME>_*` variables. The form keeps the name only, never a target, user or password. A name that is not one of the project's is a Check error. The control's connection stays its own, apart from `EXEC SQL`'s."),
         "AutoConnect" => (BOOL_DOMAIN, "Connects as the form starts (the generated `<id>-CONNECT`, before any handler runs) and closes as it ends."),
         "MaximumConnections" => ("retired", "**Retired.** There is no connection pool; every Open() is its own connection. No longer seeded or shown; a value in an older form, or a COBOL read or write of it, is kept and ignored."),
         "ConnectionDataItem" => ("COBOL data-item name", "An item the program declares that receives the connection handle — from the generated `<id>-CONNECT` and from `Open()` — for the COBOL-EXEC-SQL CALL surface."),
@@ -8827,6 +9052,7 @@ mod resolve_main_tests {
             rag: RagConfig::default(),
             agents: AgentsConfig::default(),
             ide: IdeConfig::default(),
+            sql_connections: Vec::new(),
         }
     }
 
@@ -9969,8 +10195,12 @@ mod resolve_main_tests {
         let src = dir.join("rebuildme.cbl");
         fs::write(&src, cobol).unwrap();
 
+        // The crates under test, not whichever checkout the test binary's
+        // folder sits in: a worktree sharing a target directory would
+        // otherwise build today's generated code against another tree.
         let opts = BuildOptions {
             verbose: false,
+            workspace_root: Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf),
             ..Default::default()
         };
 

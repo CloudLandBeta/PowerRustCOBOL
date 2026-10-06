@@ -366,6 +366,10 @@ pub enum InitCategory {
     Numeric,
     AlphanumericEdited,
     NumericEdited,
+    /// `REPLACING NATIONAL` (spec 077). Appended — bincode ordinals.
+    National,
+    /// `REPLACING UTF-8` (spec 077).
+    Utf8,
 }
 
 // ── Stmt ──────────────────────────────────────────────────────────────────────

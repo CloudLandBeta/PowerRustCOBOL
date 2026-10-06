@@ -523,6 +523,116 @@ pub fn resolve_all(
     dangling
 }
 
+// ── SQL connections (spec 087 R33–R39) ───────────────────────────────────────
+
+fn default_sql_backend() -> String {
+    "sqlite".to_string()
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// One of a project's named SQL connections: what embedded SQL's
+/// `CONNECT TO name` and an `SqlDatabase` control's `SqlConnection` reach.
+///
+/// The **non-secret half only**, as with [`RestConnection`]: no user name or
+/// password ever lives in the project file (R33). In the IDE they are kept in
+/// the credential vault; a running application takes them from the
+/// environment ([`sql_env_var`]) or its own key store. The same record is a
+/// `[[connection]]` of the deployment file beside a built binary, where a
+/// `user` may be written (R39) but never a password.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SqlConnection {
+    /// Unique within the project, compared without regard to case.
+    pub name: String,
+    /// `sqlite`, `postgresql` or `mysql`.
+    #[serde(default = "default_sql_backend")]
+    pub backend: String,
+    /// SQLite: the database file, relative to the project (or, in the
+    /// deployment file, absolute).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    /// PostgreSQL and MySQL: where the server is.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub host: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub database: String,
+    /// The deployment file only: the user name, overridable by
+    /// `<APP>_SQL_<NAME>_USER`. Never written to the project file.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub user: String,
+    /// The connection SQL uses when no `CONNECT` was made (R35).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub default: bool,
+    /// SQLite: create the file when it does not exist; otherwise a missing
+    /// file is an error rather than a new empty database.
+    #[serde(default, rename = "create-if-missing", skip_serializing_if = "is_false")]
+    pub create_if_missing: bool,
+}
+
+impl SqlConnection {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            backend: default_sql_backend(),
+            path: String::new(),
+            host: String::new(),
+            port: None,
+            database: String::new(),
+            user: String::new(),
+            default: false,
+            create_if_missing: false,
+        }
+    }
+}
+
+/// `name` as it appears in an environment variable: upper-cased, every
+/// character other than a letter or a digit replaced by `_` (R39).
+pub fn sql_env_name(name: &str) -> String {
+    name.trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .collect()
+}
+
+/// The environment variable that overrides `part` (`URL`, `USER`,
+/// `PASSWORD`) of SQL connection `name` of application `app`:
+/// `<APP>_SQL_<NAME>_<PART>` (R39).
+pub fn sql_env_var(app: &str, name: &str, part: &str) -> String {
+    format!("{}_SQL_{}_{}", sql_env_name(app), sql_env_name(name), part.to_ascii_uppercase())
+}
+
+/// The IDE credential-vault slot that keeps `part` (`user` or `password`) of
+/// SQL connection `name` of application `app` (spec 087 R33) — never the
+/// project file.
+pub fn sql_credential_slot(app: &str, name: &str, part: &str) -> String {
+    format!("sql::{}::{}::{}", sql_env_name(app), sql_env_name(name), part.to_ascii_lowercase())
+}
+
+/// The SQL connections in a TOML document's `table` array — the project
+/// file's `sql-connections`, or the deployment file's `connection` — and the
+/// names of those that carry a `password` key, which is never honoured (R39):
+/// the caller refuses them with a message naming the file.
+pub fn parse_sql_connections(text: &str, table: &str) -> Result<(Vec<SqlConnection>, Vec<String>), String> {
+    let value: toml::Value = toml::from_str(text).map_err(|e| e.to_string())?;
+    let Some(items) = value.get(table).and_then(|v| v.as_array()) else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let mut out = Vec::new();
+    let mut with_password = Vec::new();
+    for item in items {
+        let conn: SqlConnection = item.clone().try_into().map_err(|e: toml::de::Error| e.to_string())?;
+        if item.get("password").is_some() {
+            with_password.push(conn.name.clone());
+        }
+        out.push(conn);
+    }
+    Ok((out, with_password))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -811,5 +921,59 @@ mod credential_serialisation_tests {
             connections::control_key_env("a_b", "c"),
             connections::control_key_env("a", "b_c"),
         );
+    }
+}
+
+// ── SQL connections (spec 087 T21) ──────────────────────────────────────────
+#[cfg(test)]
+mod sql_connection_tests {
+    use super::*;
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    struct Holder {
+        #[serde(default, rename = "sql-connections", skip_serializing_if = "Vec::is_empty")]
+        sql_connections: Vec<SqlConnection>,
+    }
+
+    /// The record round-trips through TOML, writing only what is set — and
+    /// never a password, which it has no field for.
+    #[test]
+    fn an_sql_connection_round_trips_and_writes_only_what_is_set() {
+        let mut sales = SqlConnection::new("SALES");
+        sales.path = "data/sales.db".into();
+        sales.default = true;
+        let mut wh = SqlConnection::new("Warehouse");
+        wh.backend = "postgresql".into();
+        wh.host = "db.example.local".into();
+        wh.port = Some(5432);
+        wh.database = "stock".into();
+        let h = Holder { sql_connections: vec![sales, wh] };
+        let text = toml::to_string(&h).unwrap();
+        println!("{text}");
+        assert!(text.contains("[[sql-connections]]"));
+        assert!(!text.contains("password") && !text.contains("user"), "{text}");
+        assert!(!text.contains("create-if-missing"), "an unset flag is not written");
+        let back: Holder = toml::from_str(&text).unwrap();
+        assert_eq!(back, h);
+        let empty = toml::to_string(&Holder { sql_connections: vec![] }).unwrap();
+        assert_eq!(empty.trim(), "", "a project without SQL connections writes nothing");
+        let minimal: Holder = toml::from_str("[[sql-connections]]\nname = \"X\"\n").unwrap();
+        assert_eq!(minimal.sql_connections[0].backend, "sqlite");
+    }
+
+    #[test]
+    fn a_password_in_the_file_is_named_not_read() {
+        let text = "[[connection]]\nname = \"SALES\"\nbackend = \"postgresql\"\nhost = \"h\"\npassword = \"oops\"\n\n[[connection]]\nname = \"LOCAL\"\npath = \"/tmp/l.db\"\n";
+        let (conns, with_pw) = parse_sql_connections(text, "connection").unwrap();
+        assert_eq!(conns.len(), 2);
+        assert_eq!(with_pw, ["SALES"]);
+        assert_eq!(parse_sql_connections("[project]\nname = \"x\"\n", "sql-connections").unwrap().0, vec![]);
+    }
+
+    #[test]
+    fn environment_variable_names_are_normalised() {
+        assert_eq!(sql_env_var("My App", "sales-db", "url"), "MY_APP_SQL_SALES_DB_URL");
+        assert_eq!(sql_env_var("powerchat", "SALES", "PASSWORD"), "POWERCHAT_SQL_SALES_PASSWORD");
+        assert_eq!(sql_env_name("a.b c"), "A_B_C");
     }
 }

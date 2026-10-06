@@ -167,6 +167,12 @@ fn cmd_run(args: &[String]) {
         process::exit(1);
     }
 
+    // The project's SQL connections (spec 087 R33), when the program is part
+    // of one; a program outside any project has none.
+    if let Some(manifest) = cobolt_compiler::find_project_manifest(&path) {
+        install_project_sql_catalog(&manifest);
+    }
+
     // Execute.
     let mut interp = Interpreter::new(program);
     interp.set_indexed_engine(resolve_indexed_engine(args));
@@ -181,6 +187,18 @@ fn cmd_run(args: &[String]) {
             eprintln!("cobolt: runtime error: {e}");
             process::exit(1);
         }
+    }
+}
+
+/// Publish the project's SQL connections (spec 087 R33) to every interpreter
+/// this process builds — `rcrun run`'s program, and every form `rcrun
+/// run-form` opens. A project file whose SQL connections cannot be read is
+/// reported; the program still runs, and a `CONNECT` names what is missing.
+pub(crate) fn install_project_sql_catalog(manifest: &std::path::Path) {
+    let app = cobolt_compiler::project_manifest_view(manifest).map(|v| v.name).unwrap_or_default();
+    match cobolt_runtime::esql::catalog::SqlCatalog::from_project(manifest, &app) {
+        Ok(catalog) => cobolt_runtime::esql::catalog::install(catalog),
+        Err(e) => eprintln!("rcrun: the project's SQL connections cannot be read: {e}"),
     }
 }
 

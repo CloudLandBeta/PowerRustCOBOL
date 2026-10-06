@@ -407,6 +407,19 @@ file. The damage now stops at the newline.
 ✅ `COMMIT` / `ROLLBACK` (program-controlled INDEXED-file transactions — see
 File verbs) · `CANCEL` (re‑initialises the program's storage) ·
 ✅ `INVOKE` — drives GUI/runtime objects (windows, forms, control methods); a no‑op only for **COBOL** objects, since class/method definitions are out of scope
+✅ **Embedded SQL — `EXEC SQL … END-EXEC`** (the precompiler convention, not
+part of COBOL-85 itself): static statements with `:host` variables and
+indicators (host structures, `FILLER` and `REDEFINES` skipped), `SELECT … INTO`,
+`INSERT`/`UPDATE`/`DELETE`, cursors (`DECLARE … CURSOR [WITH HOLD] FOR`,
+`OPEN`, `FETCH … INTO`, `CLOSE`, `WHERE CURRENT OF`), `COMMIT`/`ROLLBACK`
+(the database's — the COBOL verbs stay INDEXED-file transactions),
+`CONNECT TO` a connection string or a project SQL connection by name,
+`SET CONNECTION`, `DISCONNECT`, `WHENEVER`, `INCLUDE` (SQLCA, SQLDA, copybooks),
+`BEGIN/END DECLARE SECTION`, and dynamic SQL (`PREPARE`, `EXECUTE [USING]`,
+`EXECUTE IMMEDIATE`, `DESCRIBE`, cursors over a prepared statement, the
+SQLDA). Status in a stand-alone `SQLSTATE`/`SQLCODE` or the SQLCA. Runs on
+SQLite, PostgreSQL and MySQL (the last two a preview). Details, the value and status
+tables, and what Check reports: the Developer's Guide, *Embedded SQL*.
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 A block may `use` the always-linked crates (std, egui, eframe and the linked
 runtime set) **plus any crate the project registers under Project's Crates**
@@ -839,7 +852,9 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   STANDARD-DEVIATION, FACTORIAL, SIN, COS, TAN, ASIN, ACOS, ATAN, LOG, LOG10,
   EXP, EXP10, PI, STORED-CHAR-LENGTH, WHEN-COMPILED, INTEGER-OF-DATE,
   DATE-OF-INTEGER, INTEGER-OF-DAY, DAY-OF-INTEGER, FRACTION-PART, ANNUITY,
-  PRESENT-VALUE, YEAR-TO-YYYY, BYTE-LENGTH, LENGTH-AN, NUMVAL-F, TEST-NUMVAL`.
+  PRESENT-VALUE, YEAR-TO-YYYY, BYTE-LENGTH, LENGTH-AN, NUMVAL-F, TEST-NUMVAL`,
+  and for national and UTF-8 data `NATIONAL-OF, DISPLAY-OF, ULENGTH, UPOS,
+  USUBSTR, UVALID, UWIDTH, USUPPLEMENTARY` (spec 077, below).
   (Date conversions use the standard base 1601‑01‑01 = day 1.) The **complete
   COBOL‑85 standard intrinsic set** is implemented.
 - ✅ **The date and time registers read the LOCAL clock.** `ACCEPT … FROM DATE /
@@ -919,6 +934,36 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   odd count or a non-hex digit is a malformed literal and is reported, not
   quietly re-read as the word `X` beside a string. Usable anywhere a quoted
   literal is (`DELIMITED BY`, `MOVE`, `VALUE`, comparisons).
+  ⚠️ Each pair is read as one **character** (U+0000–U+00FF), not one byte,
+  so a pair at `80` or above is stored as two UTF-8 bytes; `X"C3A7"` is not
+  `ç`. Use `UX"C3A7"` for UTF-8 text.
+- ✅ **National and UTF-8 data** (spec 077, an extension beyond COBOL‑85 that
+  follows IBM Enterprise COBOL):
+  - `PIC N(n)` / `USAGE NATIONAL` — n UTF-16 code units, stored as 2·n bytes
+    big-endian; `PIC U(n)` / `USAGE UTF-8` — n characters, stored as 4·n bytes
+    of UTF-8 padded with spaces; `PIC U BYTE-LENGTH n` — the whole characters
+    that fit n bytes.
+  - Literals `N"…"`, `NX"…"` (four hex digits per code unit), `U"…"` (escapes
+    `\uhhhh`, `\U00hhhhhh`, `\\`) and `UX"…"` (well-formed UTF-8). A malformed
+    `NX` or `UX` literal is a Check error on its line.
+  - `LENGTH` counts characters and `BYTE-LENGTH` bytes. Moves fit by whole
+    characters (also into `PIC X`); figuratives take the class's characters
+    (`HIGH-VALUE` is U+FFFF / U+10FFFF); comparisons are by code point, with no
+    collating sequence; `STRING`, `UNSTRING` and `INSPECT` count characters;
+    `ACCEPT` reads UTF-8 with a Windows-1252 fallback; `INITIALIZE …
+    REPLACING NATIONAL / UTF-8 DATA BY`.
+  - Groups, `REDEFINES` and records see the storage bytes; LINE SEQUENTIAL
+    files carry the characters as UTF-8 text; national keys order by code
+    point.
+  - Code pages for `NATIONAL-OF` / `DISPLAY-OF`: UTF-8 (1208), WINDOWS-1252
+    (1252), ISO-8859-1 (819); a literal naming any other is a Check error.
+  - Check refuses arithmetic on national / UTF-8 items, a USAGE that
+    contradicts its PICTURE, `BYTE-LENGTH` other than on `PIC U`, and a VALUE
+    longer than its item. ⬜ National numeric (`PIC 9 USAGE NATIONAL`) and
+    national-edited items are not supported yet.
+
+  See the Developer's Guide, *International text: national (`PIC N`) and
+  UTF-8 (`PIC U`) data*.
 
 ---
 

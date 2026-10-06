@@ -375,7 +375,9 @@ fn architecture() -> String {
      ContentPane where other forms (`Embedded` or `Both`) load. Without one, forms open as \
      windows (`OpenFormSync` is modal, `OpenFormAsync` modeless).\n\
      - Data lives in indexed files described by `.cidx` (or declared in a form's file-control), in \
-     web services reached with RestClient, and in SQL databases. A model is asked through an \
+     web services reached with RestClient, and in SQL databases — through embedded SQL \
+     (`EXEC SQL … END-EXEC` with `:host` variables, connecting by the name of one of the \
+     project's SQL connections) or a SqlDatabase control. A model is asked through an \
      AgentObject.\n\
      - Common Code in `src/` holds COBOL programs several forms `CALL`.\n"
         .to_owned()
@@ -888,6 +890,49 @@ fn skills(version: &str) -> Vec<Skill> {
             ),
         },
         Skill {
+            name: "powerrustcobol-use-sql".into(),
+            summary: "Read or write an SQL database from COBOL with embedded SQL (`EXEC SQL … \
+                      END-EXEC`); use whenever a program or a handler needs a database table."
+                .into(),
+            steps: vec![
+                s("Read the embedded SQL section of `powerrustcobol://reference/developers-guide.md` \
+                   (search it for `EXEC SQL`), or `kb_search` \"embedded SQL\". Use only the \
+                   statements it lists."),
+                s("Connect by the NAME of one of the project's SQL connections — \
+                   `EXEC SQL CONNECT TO 'SALES' END-EXEC`, or nothing at all when one is marked \
+                   the default. SQL connections are created by the developer in the IDE, under the \
+                   project tree's SQL Connections item, where Test connection proves them. If the \
+                   one you need does not exist, ask the developer to create it there. Never write \
+                   it into the project file, and never write a password anywhere — not in COBOL, \
+                   a form, the project or a test."),
+                s("Pass every value through a host variable (`:WS-CUSTOMER-ID`), declared in the \
+                   program — a handler's items, or form-level items marked `GLOBAL`. Never build \
+                   SQL text from what the operator typed; dynamic SQL takes `?` markers and \
+                   `USING`."),
+                s("After each statement test `SQLSTATE` (`00000` succeeded, `02000` no row) or \
+                   declare `EXEC SQL WHENEVER SQLERROR GO TO …`, and end a unit of work with \
+                   `EXEC SQL COMMIT END-EXEC` — the COBOL `COMMIT` verb is for indexed files."),
+                s("Call `regenerate` with the form (or nothing for Common Code), then `check`; \
+                   fix every error it reports in the block — an undeclared host variable, a \
+                   cursor used before it is declared — until `check` reports none."),
+            ],
+            uses_tools: tools(&["kb_search", "regenerate", "check"]),
+            example: Some(
+                "```cobol\n\
+                 \x20          EXEC SQL\n\
+                 \x20              SELECT NAME, CITY INTO :WS-NAME, :WS-CITY\n\
+                 \x20                FROM CUSTOMERS WHERE ID = :WS-CUSTOMER-ID\n\
+                 \x20          END-EXEC\n\
+                 \x20          EVALUATE SQLSTATE\n\
+                 \x20              WHEN \"00000\" SET LBL-NAME::Caption TO WS-NAME\n\
+                 \x20              WHEN \"02000\" SET LBL-NAME::Caption TO \"Not found\"\n\
+                 \x20              WHEN OTHER  SET LBL-NAME::Caption TO SQLMSG\n\
+                 \x20          END-EVALUATE\n\
+                 ```"
+                    .into(),
+            ),
+        },
+        Skill {
             name: "powerrustcobol-gap-report".into(),
             summary: "Write a gap report when a request needs a verb, control, property, method, \
                       event, file feature or IDE capability the reference does not list."
@@ -1004,8 +1049,8 @@ pub(crate) mod tests {
     }
 
     /// AC8 + R8 + R9: the template carries every R18 field, the brief every
-    /// R8 rule (plus R16 and R19), and ten skills cover the R9 subjects and
-    /// building an application (spec 084 R32).
+    /// R8 rule (plus R16 and R19), and eleven skills cover the R9 subjects,
+    /// building an application (spec 084 R32) and embedded SQL (spec 087).
     #[test]
     fn gap_template_has_every_r18_field() {
         let c = sample();
@@ -1033,8 +1078,9 @@ pub(crate) mod tests {
             ("a common procedure", "powerrustcobol-write-common-procedure"),
             ("the check-and-fix loop", "powerrustcobol-check-and-fix"),
             ("a gap report", "powerrustcobol-gap-report"),
+            ("embedded SQL", "powerrustcobol-use-sql"),
         ];
-        assert_eq!(c.skills.len(), 10);
+        assert_eq!(c.skills.len(), 11);
         let tool_names: Vec<&str> = c.tools.iter().map(|t| t.name.as_str()).collect();
         for (subject, name) in subjects {
             let skill = c.skills.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no skill for {subject}"));

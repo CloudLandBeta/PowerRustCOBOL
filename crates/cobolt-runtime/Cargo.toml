@@ -27,7 +27,7 @@ default = ["sql", "http", "maps", "kb", "smb", "pdf", "office"]
 # (`link.exe` on Windows, `cc` elsewhere) on top of `rustc`, including console
 # programs that never open a database. The compiler now turns this off for a
 # program it can prove never reaches SQL, and those builds need Rust alone.
-sql = ["dep:rusqlite", "dep:postgres", "dep:mysql"]
+sql = ["dep:rusqlite", "dep:postgres", "dep:mysql", "dep:bytes"]
 
 # The REST client: `COBOL-HTTP-GET` and its five companions, plus the
 # OpenRouteService door (`TraceRoad`) that goes over the same agent.
@@ -120,8 +120,11 @@ tracing         = { workspace = true }
 # SQLite is bundled (no system library required). PostgreSQL and MySQL use the
 # pure-Rust synchronous drivers; MySQL is pinned to its rustls feature set so no
 # OpenSSL / system library is needed to build.
-rusqlite        = { workspace = true, optional = true }
+rusqlite        = { workspace = true, optional = true, features = ["column_decltype"] }  # spec 087: declared column types for typed values
 postgres        = { version = "0.19", optional = true }
+# spec 087: the buffer type PostgreSQL parameters are written into (already
+# in the graph through `postgres`).
+bytes           = { version = "1", optional = true }
 mysql           = { version = "28", default-features = false, features = ["minimal-rust"], optional = true }
 # Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).
 #

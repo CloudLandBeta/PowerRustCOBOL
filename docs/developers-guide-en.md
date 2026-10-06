@@ -44,6 +44,7 @@ See the LICENSE file in the project root for full license information.
 12. [Generated code](#12-generated-code)
 13. [The RustCOBOL language](#13-the-rustcobol-language)
     - [Writing it the way the standard lets you](#writing-it-the-way-the-standard-lets-you)
+    - [International text: national (`PIC N`) and UTF-8 (`PIC U`) data](#international-text-national-pic-n-and-utf-8-pic-u-data)
     - [Handing a whole table to a function](#handing-a-whole-table-to-a-function)
     - [Closing a file for good: `WITH LOCK`](#closing-a-file-for-good-with-lock)
     - [Debugging lines](#debugging-lines)
@@ -51,6 +52,7 @@ See the LICENSE file in the project root for full license information.
     - [Writing a text file without an `FD`](#writing-a-text-file-without-an-fd)
 14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
 15. [SQL databases](#15-sql-databases)
+    - [Embedded SQL: `EXEC SQL`](#embedded-sql-exec-sql)
 16. [HTTP / REST and AI agents](#16-http--rest-and-ai-agents)
     - [Working with a coding agent (Claude Code)](#working-with-a-coding-agent-claude-code)
 17. [The command line (rcrun)](#17-the-command-line-rcrun)
@@ -346,8 +348,8 @@ flowchart TB
     MB --> TB --> Body --> OUT
 ```
 
-- **Project Explorer (left).** A tree rooted at your project. Seven fixed
-  categories — **Forms**, **Indexed Files**, **Common Code**, **Generated Code**,
+- **Project Explorer (left).** A tree rooted at your project. Eight fixed
+  categories — **Forms**, **Indexed Files**, **SQL Connections**, **Common Code**, **Generated Code**,
   **Project's Crates (Beta)**, **Assets**, **Knowledge Base** — each with a **➕**
   button, except **Generated Code**, which the Form Designer fills on its own and
   which you never add to by hand. To the left of each
@@ -1620,13 +1622,14 @@ you can **Run** straight away and then grow.
 > `Documentation/` and `docs/` project folders is moved into `Knowledge Base/`
 > without overwriting conflicting files.
 
-### The seven tree categories
+### The eight tree categories
 
 
 | Category           | Holds                                                        | Editable?                       |
 | ------------------ | ------------------------------------------------------------ | ------------------------------- |
 | **Forms**          | `.cfrm` form-designer files                                  | via the Designer                |
 | **Indexed Files**  | `.cidx` indexed-file definitions                             | via the Indexed File Editor     |
+| **SQL Connections** | the databases your `EXEC SQL` and `SqlDatabase` reach by name (see [Embedded SQL](#embedded-sql-exec-sql)) | via the SQL connection editor |
 | **Common Code**    | hand-written COBOL you `CALL` from forms or run directly      | yes                             |
 | **Generated Code** | the `.cbl` PowerRustCOBOL generates from each form or `.cidx` | **read-only** (blue, lock icon) |
 | **Project's Crates (Beta)** | third-party libraries you register for `EXEC RUST` blocks | via the External Crates dialog |
@@ -1672,6 +1675,7 @@ The **➕** on a category **creates a new item**:
 
 - **Forms ➕** → *New Form* dialog.
 - **Indexed Files ➕** → *New Indexed File* wizard (name, assign path, record layout, keys, storage).
+- **SQL Connections ➕** → a new SQL connection, in its editor.
 - **Common Code ➕** → a new `.cbl` from a starter template, opened in the editor.
 - **Knowledge Base ➕** → a new Markdown file.
 - **Assets ➕** → file picker (assets are authored externally, so "create" = import).
@@ -8073,6 +8077,162 @@ duplicated name can be made unique by naming as many of its parents as it takes:
 > **Note.** You need only enough qualifiers to be unambiguous, and they must
 > appear in inner-to-outer order — but they need not be *consecutive* levels.
 
+### International text: national (`PIC N`) and UTF-8 (`PIC U`) data
+
+An alphanumeric item (`PIC X`) counts **bytes**. That is fine for English and
+for most accented Latin text, but a `PIC X(10)` holding `Configuração` has
+room for only ten bytes, and the `ç` and the `ã` take two each. Cut at the
+tenth byte, the text can end in half a character. If you built forms in
+PowerCOBOL with `PIC N` for Japanese, or in isCOBOL with `PIC N` for
+Unicode, you already know the cure: declare the item by **characters**
+instead. RustCOBOL gives you two ways to do that.
+
+| Declaration | Holds | Storage (what a group, a record or `BYTE-LENGTH` sees) |
+|---|---|---|
+| `PIC N(n)` or `PIC N(n) USAGE NATIONAL` | n national characters | 2 × n bytes, UTF-16 big-endian |
+| `PIC U(n)` or `PIC U(n) USAGE UTF-8` | n characters | 4 × n bytes, UTF-8 padded with spaces |
+| `PIC U BYTE-LENGTH n` | the whole characters that fit n bytes | n bytes, UTF-8 padded with spaces |
+
+```cobol
+       01  WS-MSG     PIC N(30) VALUE N"Configuração concluída – ok".
+       01  WS-CITY    PIC U(20) VALUE U"São Paulo".
+       01  WS-CODE    PIC U BYTE-LENGTH 8.
+       01  WS-LEN     PIC 9(4).
+
+           MOVE FUNCTION LENGTH(WS-MSG)      TO WS-LEN    *> 30 — characters
+           MOVE FUNCTION BYTE-LENGTH(WS-MSG) TO WS-LEN    *> 60 — bytes
+           DISPLAY "[" WS-MSG "]"
+```
+
+The `DISPLAY` shows the 27 characters of the text followed by three spaces.
+The item never splits a character: a `MOVE` that is too long keeps the whole
+characters that fit and drops the rest.
+
+**Literals.** `N"…"` (or `N'…'`) is a national literal and `U"…"` a UTF-8
+one. Two hexadecimal forms name exact code points:
+
+- `NX"00410063"` is four hex digits per UTF-16 code unit, here `Ac`.
+- `UX"C3A7"` is the UTF-8 bytes of the characters, here `ç`.
+
+A `U"…"` literal accepts three escapes: `\uhhhh`, `\U00hhhhhh` and `\\`.
+A malformed hexadecimal literal is reported by **Check** on its own line, so
+the program never runs with it. That covers a digit count that is not a
+multiple of four in `NX`, and bytes that are not valid UTF-8 in `UX`.
+
+**Moving between classes.** Alphanumeric data is UTF-8 text in RustCOBOL, so
+a `MOVE` from `PIC X` into `PIC N` takes its characters. Moving national
+data back into `PIC X` fits the characters into the receiver's bytes, and
+again never breaks one. Figurative constants take the class's own
+characters: `SPACES` is the space character and `ZEROS` the digit zero. One
+difference matters if you compare against `HIGH-VALUES`: in a national item
+it is U+FFFF, and in a UTF-8 item U+10FFFF. `JUSTIFIED RIGHT` works as it
+does for `PIC X`, by character.
+
+**Groups and REDEFINES see the bytes.** A group made of a `PIC N(3)` and a
+`PIC X(2)` is eight bytes long, and a `PIC X(8)` that `REDEFINES` it shows
+the UTF-16 bytes of the three characters. A group `MOVE` to a group of the
+same shape restores the characters exactly.
+
+**Comparisons** with a national or UTF-8 operand compare characters by their
+Unicode code point. The shorter operand is padded with spaces first. A
+`COLLATING SEQUENCE` does not apply to them.
+
+**String handling counts characters.** When the item being examined is
+national or UTF-8, these verbs count positions in characters:
+
+- `INSPECT` tallies `CHARACTERS`, finds `BEFORE` and `AFTER` delimiters, and
+  replaces by character;
+- `UNSTRING` gives `COUNT IN` and `POINTER` in characters;
+- `STRING` into such an item fills and points by character.
+
+Alphanumeric items keep counting bytes, exactly as before.
+
+```cobol
+       01  WS-FRUIT   PIC N(13) VALUE N"maçã,pêra,uva".
+       01  WS-1       PIC N(5).
+       01  WS-2       PIC N(5).
+       01  WS-COUNT   PIC 9(3).
+
+           UNSTRING WS-FRUIT DELIMITED BY N","
+               INTO WS-1 COUNT IN WS-COUNT  WS-2
+      *>   WS-1 = "maçã ", WS-COUNT = 4, WS-2 = "pêra "
+```
+
+**ACCEPT.** Typed text is read as UTF-8. When the console sends
+Windows-1252 instead, as an older Windows console does, an `ACCEPT` into a
+national or UTF-8 item still receives the right characters.
+
+**Functions.**
+
+| Function | Returns |
+|---|---|
+| `NATIONAL-OF(x [, code-page])` | the characters that the bytes of `x` spell in the code page (UTF-8 if none is given) |
+| `DISPLAY-OF(n [, code-page])` | the characters of `n` as bytes in the code page (UTF-8 if none is given) |
+| `ULENGTH(x)` | how many characters `x` holds |
+| `UPOS(x, n)` | the byte position where the n-th character starts (0 when there is none) |
+| `UWIDTH(x, n)` | the n-th character's width in bytes (0 when there is none) |
+| `USUBSTR(x, start, length)` | `length` characters from the `start`-th |
+| `UVALID(x)` | 0 when `x` is well-formed text; otherwise where the first bad byte is |
+| `USUPPLEMENTARY(x)` | where the first character beyond U+FFFF starts, or 0 |
+
+A code page is written by name or by number: `"UTF-8"` (1208),
+`"WINDOWS-1252"` (1252) or `"ISO-8859-1"` (819). **Check** rejects any other
+code page written as a literal. A character that a single-byte code page
+cannot hold comes out as X'7F'. For a national argument, `UVALID` and
+`USUPPLEMENTARY` count in UTF-16 code units, and `UPOS` and `UWIDTH` count in
+bytes of the UTF-16 storage. `UPPER-CASE` and `LOWER-CASE` follow Unicode for
+national and UTF-8 data, so `ação` becomes `AÇÃO`.
+
+**Files.** In a record, a national field is its UTF-16 bytes and a UTF-8
+field its padded bytes, so record lengths follow the storage column of the
+table above. A key over a national field orders records by code point. A
+**LINE SEQUENTIAL** file is the exception: it is meant to be read by people
+and other programs, so national and UTF-8 fields are written as plain UTF-8
+text and read back from it. In the IDE's indexed-file editor, a field
+declared `PIC N(n)` or `PIC U(n)` takes its storage width, and its grid cells
+show and accept characters.
+
+**Forms.** A property is text, so moving a TextBox's `Text` into a
+`PIC N` item, and the item into a Label's `Caption`, keeps every character.
+The item's padding spaces are not part of the text the Label shows. The same
+program behaves identically under `rcrun run`, Run Form and a built
+application.
+
+**In the IDE.** The editor draws `N"…"`, `NX"…"`, `U"…"` and `UX"…"` in the
+string colour, prefix included, and IntelliSense offers the clauses and the
+functions. When the caret sits on a national or UTF-8 declaration in the
+COBOL Structure editor, a line under the status bar gives its size, for
+example "WS-MSG — 30 characters, 60 bytes". The debugger lists such an item
+under the category `national` or `utf-8`, showing its characters as the
+value and its storage in bytes as the length.
+
+> 📷 Screenshot needed — `national-structure-size.png`: open a form's COBOL
+> Structure → WORKING-STORAGE, type `01 WS-MSG PIC N(30).` and leave the
+> caret on that line. Capture the editor with the size line beneath the
+> status bar.
+
+**What Check refuses**, each on its line:
+
+- arithmetic on a national or UTF-8 item, as an operand or a receiver;
+- `USAGE NATIONAL` with `PIC X`, `USAGE UTF-8` with `PIC N`, and the other
+  mismatches;
+- `BYTE-LENGTH` anywhere but on a single `PIC U`;
+- a `VALUE` longer than its item.
+
+> ⚠️ **Caveats**
+>
+> - National numeric items (`PIC 9 USAGE NATIONAL`) and national-edited
+>   pictures are not supported yet; Check says so.
+> - A `PIC N` position is one UTF-16 code unit, as in other COBOL
+>   implementations, so a character beyond U+FFFF (most emoji) takes two
+>   positions.
+> - A national item holds text. Bytes laid into it that are not text, such
+>   as half of a surrogate pair written through a `REDEFINES`, read back as
+>   U+FFFD.
+> - A hexadecimal literal `X"…"` currently reads each pair of digits as one
+>   character rather than one byte. `X"C3A7"` is therefore not the two bytes
+>   of `ç`. Write `UX"C3A7"` for UTF-8 text.
+
 ### Handing a whole table to a function
 
 The statistical intrinsics take a variable number of arguments, and COBOL-85
@@ -9991,6 +10151,440 @@ reference: `docs/database-runtime-en.md`.
 > data items its events populate), or drive it entirely from code with the
 > `CALL`s above.
 
+### Embedded SQL: `EXEC SQL`
+
+If your PowerCOBOL or isCOBOL programs talk to a database, they almost
+certainly do it the classic way: SQL written right in the COBOL source between
+`EXEC SQL` and `END-EXEC`, exchanging values with COBOL data items called
+**host variables**. RustCOBOL reads that style directly.
+
+> ⚠️ **Caveat — PostgreSQL and MySQL are a preview.** Embedded SQL runs
+> against **SQLite, PostgreSQL and MySQL** — every statement in this section,
+> under Run, Debug, Run Form and `rcrun` and in a built application. SQLite is
+> proven end to end; PostgreSQL and MySQL are new in this release and have not
+> yet been run against live servers by this release's own test suite, so try
+> them on a test database first. The differences that matter are under
+> **Per database** below.
+
+**The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
+over as many lines as you like, with no continuation mark. A period after
+`END-EXEC` ends the sentence exactly as it would after a `MOVE`; without one,
+the block is just another statement, so it can sit inside an `IF` or a
+`PERFORM … END-PERFORM`:
+
+```cobol
+           IF WS-DELETE-REQUESTED
+               EXEC SQL
+                   DELETE FROM ORDERS
+                    WHERE ORDER-NO = :WS-ORDER-NO   -- the one on screen
+               END-EXEC
+               MOVE "Deleted" TO WS-MESSAGE
+           END-IF
+```
+
+Inside a block you may write COBOL comment lines (fixed format), `*>`
+comments, and SQL `--` comments; none of them is sent to the database. An
+`END-EXEC` inside an SQL string (`'…END-EXEC…'`), a quoted name or a comment
+does not end the block.
+
+**Host variables.** A colon in front of a data-item name — `:WS-ORDER-NO` —
+makes it a host variable. Any item your program declares can be one; the
+value travels to the database as a *parameter*, never pasted into the SQL
+text. A hyphen belongs to the name only right after the colon: in
+`SELECT QTY-1 INTO :WS-QTY-LESS-ONE` the first hyphen is SQL subtraction, the
+second part of the COBOL name. When two items share a name, qualify it:
+`:CITY OF CUSTOMER`, or `:CITY.CUSTOMER`. A host variable is never subscripted
+or reference-modified, and COBOL figurative constants (`SPACES`, `ZERO` …)
+have no meaning inside SQL — write an SQL literal instead.
+
+**Indicator variables** follow their host variable, with or without the word
+`INDICATOR` — `:WS-PHONE:WS-PHONE-IND` or `:WS-PHONE INDICATOR :WS-PHONE-IND`.
+An indicator is a `PIC S9(4)` item in `COMP-5`, `COMP`, `BINARY` or `DISPLAY`
+usage; for a group used as a host structure, a table of them.
+
+**In the DATA DIVISION.** WORKING-STORAGE, LOCAL-STORAGE and LINKAGE accept
+`BEGIN DECLARE SECTION` / `END DECLARE SECTION` (optional — every item is
+usable either way), `DECLARE … TABLE` (documentation only), `DECLARE … CURSOR`
+and `INCLUDE`. The items around them stay ordinary data items:
+
+```cobol
+       WORKING-STORAGE SECTION.
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+       01  WS-ORDER-NO          PIC 9(8).
+       01  WS-CUSTOMER          PIC X(40).
+       01  WS-PHONE             PIC X(20).
+       01  WS-PHONE-IND         PIC S9(4) COMP-5.
+           EXEC SQL END DECLARE SECTION END-EXEC.
+           EXEC SQL INCLUDE SQLCA END-EXEC.
+```
+
+**`INCLUDE`.** `EXEC SQL INCLUDE name END-EXEC` brings in a copybook found
+exactly as `COPY name` would find it. Two names are reserved: `SQLCA` (the
+status area — `SQLCODE`, `SQLSTATE`, the message, the rows affected) and
+`SQLDA` (the descriptor for dynamic SQL); both layouts are PowerRustCOBOL's
+own. `COPY` and `REPLACE` never change the text inside an SQL block.
+
+**`WHENEVER`** works the way precompilers have always made it work: it applies
+to the SQL statements written *after* it in the source, until the next
+`WHENEVER` for the same condition — not to whatever happens to run after it.
+
+```cobol
+           EXEC SQL WHENEVER SQLERROR GO TO DB-FAILED END-EXEC
+           EXEC SQL WHENEVER NOT FOUND CONTINUE END-EXEC
+```
+
+**Connecting.** `CONNECT TO` names the database. A **connection string**
+connects directly — `':memory:'`, `'sqlite:data/sales.db'`, a path such as
+`'data/sales.db'`; `AS name` gives the connection a name to switch to later:
+
+```cobol
+           EXEC SQL CONNECT TO 'sqlite:data/sales.db' AS SALES END-EXEC
+           EXEC SQL CONNECT TO ':memory:' AS SCRATCH END-EXEC
+           EXEC SQL SET CONNECTION SALES END-EXEC
+           EXEC SQL DISCONNECT SCRATCH END-EXEC
+```
+
+Only clearly-shaped strings count as connection strings (a scheme such as
+`sqlite:`, a `/` or `\`, or a `.db`/`.sqlite`/`.sqlite3`/`.db3` ending). Any
+other word is taken as the name of one of the project's SQL connections, so a
+mistyped name fails with `08001` instead of quietly creating an empty database
+file. `DISCONNECT` rolls back what the connection had not committed.
+
+**The project's SQL connections.** Rather than spell a file or a server in the
+program, name it once in the project and connect by that name. The project
+tree's **SQL Connections** item, right after Indexed Files, lists them — the
+default marked *(default)* — and its **➕** adds one. A row opens the
+connection's editor in the main pane: its name, the database (SQLite, or
+PostgreSQL or MySQL with host, port and database name), the default mark and,
+for SQLite, whether the first run may create the file. **Test connection**
+connects with what the editor shows — saved or not — and reports success or
+the database's own message. **Remove** asks first. The user name and password
+of a server connection are kept in the IDE's credential vault, the store that
+holds your model API keys, never in the project; renaming a connection takes
+them along, and Run, Debug and Run Form receive them as the variables below.
+
+> 📷 **Screenshot needed — `sql-connections-editor.png`.** Open a project,
+> click the **➕** on **SQL Connections**, choose PostgreSQL, fill in a host,
+> and press **Test connection**; capture the project tree with the new row and
+> the editor showing the database's answer.
+
+In the project file each one is a `[[sql-connections]]` entry:
+
+```toml
+[[sql-connections]]
+name = "SALES"
+path = "data/sales.db"       # relative to the project folder
+default = true               # used when the program connects to nothing
+create-if-missing = false    # true lets the first run create the file
+```
+
+```cobol
+           EXEC SQL CONNECT TO 'SALES' END-EXEC
+           EXEC SQL CONNECT TO SALES AS ARCHIVE END-EXEC
+```
+
+The name is compared without regard to case. A SQLite file is never created
+behind your back: unless the entry says `create-if-missing = true`, a path that
+does not exist fails with `08001` and names the file. The SQL connection marked
+`default = true` is the one a statement uses when the program has made no
+connection at all — a program that runs in one database need not say
+`CONNECT` anywhere. With no default and no connection, a statement fails with
+`08003`.
+
+Each SQL connection can be pointed elsewhere without touching the project, by
+an environment variable named after the application and the connection —
+both upper-cased, every character other than a letter or a digit turned into
+`_`. For a project named `Shop`:
+
+| Variable | Replaces |
+|----------|----------|
+| `SHOP_SQL_SALES_URL` | the whole target — `sqlite:/srv/sales.db` |
+| `SHOP_SQL_SALES_USER` | the user name (a server database) |
+| `SHOP_SQL_SALES_PASSWORD` | the password — the only place one is accepted |
+
+> ⚠️ **Never put a password in the project file.** An entry that carries a
+> `password` key is refused: connecting through it fails with `28000`, and the
+> message names the file and the variable to use instead.
+
+**A built application's SQL connections.** The databases you test against are
+rarely the ones the application will use, so a built application does not
+carry its connections inside the binary. **Build** writes a starting
+`sql-connections.toml` beside the program — in `bin/` and in the destination
+folder — listing the project's SQL connections as `[[connection]]` entries,
+each SQLite path made absolute, and with no user name and no password. Whoever
+installs the application edits that file to point each name at the real
+database; Build never overwrites it once it exists, so a rebuild keeps the
+edit:
+
+```toml
+[[connection]]
+name = "SALES"
+path = "/srv/shop/sales.db"
+default = true
+```
+
+The application reads the file when it starts, and the same environment
+variables override it — `SHOP_SQL_SALES_URL`, `SHOP_SQL_SALES_USER`,
+`SHOP_SQL_SALES_PASSWORD`. A deployed file may carry a `user`, never a
+`password`. Besides its variable, a built application also takes the password
+from its own encrypted key store, under the entry `SQL:SALES` (the
+connection's name in capitals), which your application fills itself — from a
+settings form, say — and can never read back:
+
+```cobol
+           COBOL::"KEY-SET" ( "SQL:SALES" WS-PASSWORD WS-STATUS )
+```
+
+Without the file, the program can still connect by a connection string.
+
+> ⚠️ **A packaged project is not a built one.** **Package** hands over the
+> project for `rcrun` to run, and `rcrun` reads the SQL connections from the
+> project file, as the IDE does; only Build writes `sql-connections.toml`.
+
+**Units of work.** A unit of work starts with the first statement after a
+connect or after the previous `COMMIT`/`ROLLBACK` — on SQLite only before a
+statement that *changes* data, so a program that only reads never holds the
+database's write lock. `EXEC SQL COMMIT` keeps the changes, `EXEC SQL ROLLBACK`
+discards them. The COBOL verbs `COMMIT` and `ROLLBACK` (without `EXEC SQL`)
+are unrelated: they govern INDEXED files, and the two never affect each other.
+
+**The end of the run.** Work still open when the application ends is settled
+for you, the way a PowerCOBOL or isCOBOL runtime does at the end of the run
+unit: after a normal end — `STOP RUN`, `GOBACK` from the main program, the
+main window closing — every connection **commits**; after a runtime error, or
+when you press **Stop** in the IDE, every connection **rolls back**. Then every
+connection is closed. Ending with an explicit `EXEC SQL COMMIT` is still the
+clearer program.
+
+**Forms share one run unit.** Every form of an application — the main form,
+the windows it opens, the forms loaded into a side menu's pane — uses the same
+SQL connections. A form that connects makes the connection current for all of
+them, a form opened later reads through it (uncommitted rows included), and
+closing a form releases only its own cursors and prepared statements: the
+connection, and the work on it, belong to the application and are settled
+when the **main** form ends. A runtime error in a child form does not roll
+anything back.
+
+**Cursors** read a query's rows one at a time. Declare the cursor — in
+WORKING-STORAGE or in the PROCEDURE DIVISION, before the statements that use
+it — then open it, fetch until no data, and close it:
+
+```cobol
+       WORKING-STORAGE SECTION.
+           EXEC SQL
+               DECLARE C-ORDERS CURSOR FOR
+                   SELECT ORDER-NO, TOTAL FROM ORDERS
+                    WHERE CUSTOMER = :WS-CUSTOMER
+                    ORDER BY ORDER-NO
+                   FOR UPDATE OF STATUS
+           END-EXEC.
+      ...
+           EXEC SQL OPEN C-ORDERS END-EXEC
+           PERFORM UNTIL SQLSTATE NOT = "00000"
+               EXEC SQL FETCH C-ORDERS INTO :WS-ORDER-NO, :WS-TOTAL
+               END-EXEC
+               IF SQLSTATE = "00000" AND WS-TOTAL > 1000
+                   EXEC SQL UPDATE ORDERS SET STATUS = 'REVIEW'
+                             WHERE CURRENT OF C-ORDERS END-EXEC
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE C-ORDERS END-EXEC
+```
+
+- `OPEN` reads the cursor's host variables at that moment: changing
+  `WS-CUSTOMER` afterwards does not change an open cursor.
+- A `FETCH` past the last row reports no data (`02000`) and leaves the `INTO`
+  items unchanged.
+- Fetching or closing a cursor that is not open, or opening one that is,
+  fails with `24000` (invalid cursor state) and changes nothing.
+- `UPDATE … WHERE CURRENT OF` and `DELETE … WHERE CURRENT OF` act on the row
+  the cursor last fetched. The cursor must read ONE table — a join, a list of
+  tables, `DISTINCT` or `GROUP BY` gives `0A000`.
+- A cursor declared in a form's WORKING-STORAGE is known to the form's event
+  handlers; one declared inside a handler belongs to that handler. Two copies
+  of the same form open at once each have their own cursors.
+- `EXEC SQL COMMIT` closes every cursor except those declared `WITH HOLD`;
+  `EXEC SQL ROLLBACK` closes them all.
+
+> **Note — SQLite.** On SQLite a cursor's rows are read when it is opened, so
+> a very large result is held in memory until the cursor is closed; filter in
+> the `WHERE` clause rather than in COBOL. `FOR UPDATE` is accepted and
+> ignored there — SQLite locks the whole database for the duration of a
+> write.
+
+**Dynamic SQL** is for statements the program builds while it runs — a
+search screen whose filters the user chooses, a report over a table named at
+run time. Prepare the text once, then run it as often as needed; `?` marks
+each parameter:
+
+```cobol
+           MOVE "UPDATE STOCK SET QTY = QTY - ? WHERE CODE = ?"
+             TO WS-STMT
+           EXEC SQL PREPARE TAKE-STOCK FROM :WS-STMT END-EXEC
+           EXEC SQL EXECUTE TAKE-STOCK USING :WS-TAKEN, :WS-CODE
+           END-EXEC
+           EXEC SQL EXECUTE IMMEDIATE 'DELETE FROM STOCK WHERE QTY = 0'
+           END-EXEC
+```
+
+- `PREPARE` keeps the text as it is at that moment; changing `WS-STMT`
+  afterwards does not change `TAKE-STOCK`.
+- `EXECUTE IMMEDIATE` prepares and runs at once a statement with no
+  parameters that returns no rows.
+- A query is read through a cursor declared over the statement name:
+  `DECLARE C-FIND CURSOR FOR FIND-STMT`, then `OPEN C-FIND USING :WS-LOW,
+  :WS-HIGH`.
+- Executing a statement name that was never prepared fails with `07003`.
+
+> ⚠️ **Caveat — dynamic SQL runs the text you prepare.** Host variables are
+> always bound, never pasted into SQL — but the text of a PREPARE is yours,
+> and RustCOBOL sends it as it stands. Never build it by stringing in what a
+> user typed: put the user's value behind a `?` and pass it with `USING`.
+
+**The descriptor area (SQLDA)** describes columns or parameters the program
+did not know when it was written. `EXEC SQL INCLUDE SQLDA END-EXEC` declares
+one with room for 100 entries:
+
+| Field | Holds |
+|---|---|
+| `SQLDA-TAG` `PIC X(8)` | `RCSQLDA1` |
+| `SQLDA-CAPACITY` | how many entries the program lets it use (100) |
+| `SQLDA-NEEDED` | how many entries the last `DESCRIBE` needed |
+| `SQLDA-COUNT` | how many entries are in use |
+| `SQLDA-ENTRY OCCURS 100` | one per column or parameter: |
+| ·  `SQLDA-NAME` `PIC X(128)` | the column's name (`?1`, `?2` … for parameters) |
+| ·  `SQLDA-TYPE`, `SQLDA-TYPE-NAME` | a type code — 1 integer, 2 decimal, 3 float, 4 character, 5 binary, 6 date, 7 time, 8 timestamp, 9 boolean, 0 unknown — and the database's own type name |
+| ·  `SQLDA-LENGTH`, `SQLDA-PRECISION`, `SQLDA-SCALE`, `SQLDA-NULLABLE` | as declared; −1 when the database does not say |
+| ·  `SQLDA-DATA`, `SQLDA-IND-PTR` `USAGE POINTER` | where the value and its indicator go, when set |
+| ·  `SQLDA-IND`, `SQLDA-VALUE` `PIC X(1024)` | the indicator and the value as text, when `SQLDA-DATA` is NULL |
+
+```cobol
+           EXEC SQL PREPARE ANY-QUERY FROM :WS-STMT END-EXEC
+           EXEC SQL DESCRIBE ANY-QUERY INTO SQLDA END-EXEC
+           IF SQLSTATE = "01005"
+      *>       More columns than SQLDA-CAPACITY: SQLDA-NEEDED says how many.
+               ...
+           END-IF
+           EXEC SQL DECLARE C-ANY CURSOR FOR ANY-QUERY END-EXEC
+           EXEC SQL OPEN C-ANY END-EXEC
+           PERFORM UNTIL SQLSTATE NOT = "00000"
+               EXEC SQL FETCH C-ANY USING DESCRIPTOR SQLDA END-EXEC
+               IF SQLSTATE = "00000"
+                   PERFORM VARYING WS-I FROM 1 BY 1
+                           UNTIL WS-I > SQLDA-COUNT
+                       DISPLAY SQLDA-NAME (WS-I) " = " SQLDA-VALUE (WS-I)
+                   END-PERFORM
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE C-ANY END-EXEC
+```
+
+Each entry can deliver its value two ways. With `SQLDA-DATA (i)` set by
+`SET SQLDA-DATA (i) TO ADDRESS OF item`, the value goes straight into that
+item, converted exactly as `INTO :item` would (and `SQLDA-IND-PTR` likewise
+names its indicator). With `SQLDA-DATA (i)` NULL — its initial state — the
+value arrives as text in `SQLDA-VALUE (i)` and its indicator in `SQLDA-IND (i)`,
+which is what a generic display screen wants. `DESCRIBE INPUT` describes a
+statement's parameters instead; SQLite reports how many there are but not
+their types, so those entries say *unknown*. A program that needs more than
+100 entries declares its own copy of the layout with a larger `OCCURS` and
+`SQLDA-CAPACITY`, and names it in `INTO` / `USING DESCRIPTOR`.
+
+**How values travel.** Every host variable reaches the database as a bound
+parameter. The table below is the correspondence used in both directions:
+
+| COBOL item | Sent as | Received from |
+|---|---|---|
+| `PIC 9`/`S9` with `V` — DISPLAY, `COMP-3`/`PACKED-DECIMAL`, `COMP`/`BINARY`/`COMP-5` | an exact decimal (an integer when it has no decimals) | integer, decimal, float or numeric text, cut to the item's decimal places |
+| `COMP-1`, `COMP-2` | a float | any number |
+| `PIC X`, `PIC A` | text, **trailing spaces removed** | any value as text, cut to the item's length |
+| numeric-edited | its edited text | a number, edited by the item's PICTURE |
+| a date, time or timestamp | `PIC X(10)` / `X(8)` / `X(26)` holding ISO text (`2026-10-06`) | ISO text |
+
+Received values are checked before anything is stored, and either every
+`INTO` item is set or none is: a number whose integer part does not fit the
+item — or a negative one for an unsigned item — fails with `22003`;
+non-numeric text for a numeric item with `22018`; NULL for an item with no
+indicator with `22002`. Text longer than its item is cut and reported as the
+warning `01004`, with the original length in the indicator. A `SELECT … INTO`
+that finds no row reports no data (`02000`) and leaves its items alone; one
+that finds several fails with `21000` (use a cursor). An `INSERT`, `UPDATE` or
+`DELETE` that touches no row reports no data too.
+
+> **Note — SQLite and decimals.** SQLite stores a decimal of up to 15
+> significant digits as an exact double; a longer one is sent as text so no
+> digit is lost. Declare money columns `NUMERIC` and keep `PIC S9(13)V99` or
+> smaller if you need SQLite arithmetic on them.
+
+**Knowing how a statement went.** After every statement the program's status
+items are set — whichever of these it declares:
+
+- the stand-alone items `SQLSTATE` (`PIC X(5)`), `SQLCODE` (a signed integer)
+  and `SQLMSG` (alphanumeric, the database's message, cut to the item) — the
+  style migrated PowerCOBOL programs use;
+- the SQLCA, from `EXEC SQL INCLUDE SQLCA END-EXEC`:
+
+| SQLCA field | Holds |
+|---|---|
+| `SQLCA-TAG` `PIC X(8)` | `RCSQLCA1` |
+| `SQLCODE` `PIC S9(9) COMP-5` | see the rule below |
+| `SQLSTATE` `PIC X(5)` | the standard five-character code |
+| `SQLCA-ROWS` `PIC S9(18) COMP-5` | rows affected or read |
+| `SQLCA-MESSAGE-LENGTH`, `SQLCA-MESSAGE` `PIC X(512)` | the database's message |
+| `SQLCA-NATIVE-CODE` | the database's own error number |
+| `SQLCA-WARNING`, `SQLCA-TRUNCATED` `PIC X` | `W` after any warning / after a cut value |
+| `SQLCA-CONNECTION` `PIC X(64)` | the current connection's name |
+
+SQLSTATE follows the standard classes — `00000` success, class `01` a warning,
+`02000` no data, anything else an error — and keeps the database's own message.
+SQLCODE is derived from it by one rule, so the two never disagree:
+
+| SQLSTATE | SQLCODE |
+|---|---|
+| `00000` | 0 |
+| `02000` | +100 |
+| a warning (class `01`) | the five characters as a number when all are digits (`01004` → +1004), otherwise +1000 |
+| an error, all digits | the number, negated (`23505` → −23505) |
+| an error whose subclass has letters | −(class × 1000) (`42P01` → −42000) |
+| any other error | −99000 |
+
+An SQL failure **never stops the program** on its own, exactly like a file
+status: with no `WHENEVER SQLERROR GO TO` in force the next statement runs, and
+it is the program's job to look at the status.
+
+```cobol
+           EXEC SQL
+               SELECT NAME, BALANCE
+                 INTO :CUST-NAME, :CUST-BALANCE:CUST-BALANCE-IND
+                 FROM CUSTOMER
+                WHERE ID = :CUST-ID
+           END-EXEC
+           EVALUATE SQLSTATE
+               WHEN "00000" CONTINUE
+               WHEN "02000" MOVE "No such customer" TO WS-MESSAGE
+               WHEN OTHER   MOVE SQLMSG TO WS-MESSAGE
+           END-EVALUATE
+```
+
+**What Check tells you** — before anything runs, and without reaching any
+database. Each message names its line:
+
+| Check reports | Example |
+|---|---|
+| a block with no `END-EXEC` | `unterminated EXEC SQL block (missing END-EXEC)` |
+| a block where SQL cannot go (the FILE SECTION), or an executable statement in the DATA DIVISION | |
+| an undeclared, or ambiguous, host variable or indicator | `host variable :WS-NAM is not declared in the DATA DIVISION` |
+| an indicator that is not `PIC S9(4)` | |
+| a subscripted host variable, or a figurative constant inside SQL | |
+| a cursor used before it is declared, or declared twice | |
+| `EXECUTE` or `DESCRIBE` of a statement not prepared before it | |
+| a `WHENEVER … GO TO` naming no paragraph or section | |
+| an `INCLUDE` whose copybook is not found | |
+| a password written as a literal in `CONNECT … USING` | |
+
+Check validates the COBOL side only: table and column names, and the SQL
+dialect itself, are the database's to judge when the statement runs.
+
 ---
 
 ## 16. HTTP / REST and AI agents
@@ -10032,6 +10626,40 @@ reference: `docs/database-runtime-en.md`.
 The control's properties configure **every request it sends**, so a handler is
 usually a single line — the address and the credentials live in the properties
 pane, not repeated through your COBOL.
+
+**Per database.** The same statements reach all three; these are the
+differences a program can notice.
+
+| | SQLite | PostgreSQL | MySQL |
+|---|---|---|---|
+| A unit of work begins | before the first statement that changes data | before the first statement | before the first statement |
+| A failing statement inside a unit | the unit carries on | the unit carries on (each statement runs under a savepoint) | the unit carries on |
+| `CREATE`/`ALTER`/`DROP` inside a unit | part of the unit | part of the unit | **commits the unit** (MySQL's rule); the next statement starts a new one |
+| `WHERE CURRENT OF` names the row by | its `rowid` | its physical address — a row the same unit changed since the FETCH is not found (`02000`) | the table's **primary key** — a table without one gives `0A000` |
+| `UPDATE` counts | the rows changed | the rows changed | the rows **matched**, as the other two do |
+| Values a host variable cannot take | — | arrays, ranges, geometry and other special types give `0A000`: cast them in the query (`::text`) | — |
+| `DESCRIBE INPUT` parameter types | unknown | known | unknown |
+
+On all three a cursor reads its rows when it opens, so a query over a very
+large table belongs behind a `WHERE` that narrows it. PostgreSQL and MySQL are
+reached without TLS: use them on a trusted network, or through a tunnel.
+
+**In the editor and the debugger.** The COBOL editor draws an `EXEC SQL`
+block as SQL — keywords, strings and comments in their colours, across as many
+lines as the block takes, with each host variable drawn as the COBOL name it
+is — and goes back to COBOL after `END-EXEC`. **Go to definition** (F12, or a
+click with ⌘ on macOS / Ctrl elsewhere) on a host variable lands on the data
+item's declaration; in a form's event handler it opens the site that declares
+it, the form's WORKING-STORAGE for instance. The debugger steps over a block
+as one statement, so a breakpoint goes on its `EXEC SQL` line — one inside the
+block is refused, with the reason. After each statement the dock's **SQL** tab
+shows what was sent, with `?` where the host variables went, the values bound
+to them, and the SQLSTATE, SQLCODE, rows and message; a `CONNECT` password
+appears only as `******`.
+
+> 📷 **Screenshot needed — `debugger-sql-tab.png`.** Debug a program with an
+> `EXEC SQL INSERT` that uses a host variable, step over it, and capture the
+> dock with the **SQL** tab selected.
 
 #### Local settings, or a project connection
 
@@ -10273,7 +10901,17 @@ the same rule as every other `…DataItem`.
 
 A `SqlDatabase` with **`AutoConnect`** connects as the form starts — before any
 handler runs — and closes as it ends, and `Open()` called with no argument
-opens the control's own `ConnectionString`. An `IndexedFile`'s
+opens the control's own `ConnectionString` — or, when its **`SqlConnection`**
+names one of the project's SQL connections (see [Embedded SQL](#embedded-sql-exec-sql)),
+that SQL connection, which then wins over `ConnectionString`. Pick the name
+from the drop-down in the Properties panel; the form keeps the name only,
+never where the database is or who logs on, so the same form reaches a test
+database under the IDE and the production one in the built application
+(through its `sql-connections.toml`). A name the project does not define is a
+Check error, and the drop-down marks it ⚠. The control's connection is its
+own — separate from the connections `EXEC SQL` uses, even when both name the
+same SQL connection. `COBOL::"OPEN-DB" ( "sql-connection:SALES" WS-H WS-ERR )`
+reaches a SQL connection by name the same way. An `IndexedFile`'s
 **`OperatorName`** (recorded by `OPEN … REGISTERED USER`) is sent as a literal,
 unless it names an item your form declares.
 
@@ -13534,7 +14172,7 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | The event loop hidden by the runtime  | The explicit **`COBOL::"WAIT-EVENT"`** loop in generated code                                               |
 | `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
 | Vendor ISAM                           | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`)                 |
-| Embedded SQL / ODBC                   | `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL)                                            |
+| Embedded SQL / ODBC                   | `EXEC SQL … END-EXEC` with host variables, cursors, SQLCA — [Embedded SQL](#embedded-sql-exec-sql) (SQLite, PostgreSQL, MySQL); or `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL) |
 | Building an `.exe` with a runtime DLL  | `rcrun build` → **one self-contained binary**, no runtime to install                                   |
 | Project/workspace file                | `cobolt.toml` + the standard folder layout                                                              |
 

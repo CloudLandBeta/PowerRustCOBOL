@@ -39,7 +39,9 @@ pub fn source_has_blocks(source: &str) -> bool {
         .any(|t| matches!(t.token, Token::ExecRustBlock(_)))
 }
 
-/// The 1-based, inclusive line range of every `EXEC RUST … END-EXEC` block.
+/// The 1-based, inclusive line range of every `EXEC RUST … END-EXEC` and
+/// `EXEC SQL … END-EXEC` block (spec 087 R48: an SQL block is one statement
+/// too, stepped over as one).
 ///
 /// A block is ONE COBOL statement that happens to span many lines, and the
 /// debugger treats it as one step. A breakpoint on a line *inside* it therefore
@@ -52,6 +54,16 @@ pub fn source_has_blocks(source: &str) -> bool {
 /// developer sees a red dot, runs, sails past it, and concludes the debugger is
 /// broken.
 pub fn block_line_ranges(source: &str) -> Vec<(u32, u32)> {
+    ranges_of(source, |t| matches!(t, Token::ExecRustBlock(_) | Token::ExecSqlBlock(_)))
+}
+
+/// The line ranges of the `EXEC SQL … END-EXEC` blocks alone (spec 087 R48),
+/// for the refusal's wording.
+pub fn sql_block_line_ranges(source: &str) -> Vec<(u32, u32)> {
+    ranges_of(source, |t| matches!(t, Token::ExecSqlBlock(_)))
+}
+
+fn ranges_of(source: &str, wanted: impl Fn(&Token) -> bool) -> Vec<(u32, u32)> {
     let fmt = if looks_fixed(source) {
         SourceFormat::Fixed
     } else {
@@ -59,7 +71,7 @@ pub fn block_line_ranges(source: &str) -> Vec<(u32, u32)> {
     };
     tokenize(source, fmt)
         .iter()
-        .filter(|t| matches!(t.token, Token::ExecRustBlock(_)))
+        .filter(|t| wanted(&t.token))
         .map(|t| {
             let first = t.span.line;
             // The span covers `EXEC RUST` through `END-EXEC`, so the newlines
@@ -264,6 +276,37 @@ mod tests {
             );
         }
         println!("  block at lines {:?}; body {:?} refused, statement line 6 allowed", ranges[0], [7, 8, 9]);
+    }
+
+    /// Spec 087 R48 (AC13) — a breakpoint inside an `EXEC SQL` block is
+    /// refused like one inside `EXEC RUST`; its statement line is allowed.
+    #[test]
+    fn breakpoint_refused_inside_sql_block() {
+        let src = [
+            "IDENTIFICATION DIVISION.",          // 1
+            "PROGRAM-ID. T.",                    // 2
+            "DATA DIVISION.",                    // 3
+            "WORKING-STORAGE SECTION.",          // 4
+            "01 WS-N PIC 9(5).",                 // 5
+            "PROCEDURE DIVISION.",               // 6
+            "MAIN.",                             // 7
+            "    EXEC SQL",                      // 8  <- the statement
+            "        SELECT COUNT(*) INTO :WS-N",  // 9
+            "        FROM T",                    // 10
+            "    END-EXEC",                      // 11
+            "    DISPLAY WS-N",                  // 12
+            "    STOP RUN.",                     // 13
+        ]
+        .join("\n");
+        let ranges = block_line_ranges(&src);
+        assert_eq!(ranges, [(8, 11)]);
+        assert_eq!(sql_block_line_ranges(&src), [(8, 11)], "and it is an SQL block");
+        assert!(!line_is_inside_block(&ranges, 8), "the EXEC SQL line is a stop");
+        for line in [9, 10, 11] {
+            assert!(line_is_inside_block(&ranges, line), "line {line} is refused");
+        }
+        assert!(!line_is_inside_block(&ranges, 12));
+        assert!(!source_has_blocks(&src), "an SQL block does not need a build");
     }
 
     #[test]

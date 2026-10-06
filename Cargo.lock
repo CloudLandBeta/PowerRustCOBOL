@@ -1729,6 +1729,7 @@ name = "cobolt-runtime"
 version = "0.2.0"
 dependencies = [
  "aes-gcm",
+ "bytes",
  "chrono",
  "cobolt-ast",
  "cobolt-codegen",

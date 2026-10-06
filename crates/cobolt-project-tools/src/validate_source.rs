@@ -140,13 +140,96 @@ pub fn validate_form_source(
 ) -> (Vec<Diag>, String, cobolt_codegen::SourceMap) {
     // Generated form source is always free-form.
     let (src, map) = cobolt_codegen::generate_with_map(form);
-    let diags = validate_text(&src, program, SourceFormat::Free, external_crates);
+    let mut diags = validate_text(&src, program, SourceFormat::Free, external_crates);
+    diags.extend(unknown_sql_connections(form, program));
     (diags, src, map)
+}
+
+/// Spec 087 R40 — every `SqlDatabase` whose `SqlConnection` names none of
+/// the project's SQL connections, read from the project file `program`
+/// belongs to. A form outside any project has none to name.
+fn unknown_sql_connections(form: &cobolt_forms::Form, program: &Path) -> Vec<Diag> {
+    fn walk<'a>(list: &'a [cobolt_forms::Control], out: &mut Vec<&'a cobolt_forms::Control>) {
+        for c in list {
+            out.push(c);
+            walk(&c.children, out);
+        }
+    }
+    let mut controls = Vec::new();
+    walk(&form.controls, &mut controls);
+    let named: Vec<(&str, String)> = controls
+        .iter()
+        .filter(|c| c.control_type == cobolt_forms::ControlType::SqlDatabase)
+        .filter_map(|c| {
+            let name = c.get_prop("SqlConnection")?.as_str().trim().to_string();
+            (!name.is_empty()).then_some((c.id.as_str(), name))
+        })
+        .collect();
+    if named.is_empty() {
+        return Vec::new();
+    }
+    let known: Vec<String> = cobolt_compiler::find_project_manifest(program)
+        .and_then(|m| std::fs::read_to_string(m).ok())
+        .and_then(|text| cobolt_forms::connections::parse_sql_connections(&text, "sql-connections").ok())
+        .map(|(list, _)| list.into_iter().map(|c| c.name).collect())
+        .unwrap_or_default();
+    named
+        .into_iter()
+        .filter(|(_, name)| !known.iter().any(|k| k.trim().eq_ignore_ascii_case(name)))
+        .map(|(id, name)| Diag {
+            line: 0,
+            col: 0,
+            message: if known.is_empty() {
+                format!("{id}: SqlConnection '{name}' names an SQL connection, but the project defines none")
+            } else {
+                format!(
+                    "{id}: SqlConnection '{name}' is not one of the project's SQL connections ({})",
+                    known.join(", ")
+                )
+            },
+            severity: Severity::Error,
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 087 R40 (AC17) — an `SqlConnection` naming none of the project's
+    /// SQL connections is a Check error; a known name, in any case, is not.
+    #[test]
+    fn unknown_sql_connection_is_a_check_error() {
+        let dir = std::env::temp_dir().join(format!("prc087-check-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("generated")).unwrap();
+        std::fs::write(
+            dir.join("shop.project.toml"),
+            "[project]\nname = \"Shop\"\nversion = \"1.0.0\"\nmain = \"forms/main.cfrm\"\n\n\
+             [[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\n",
+        )
+        .unwrap();
+        let mut form = cobolt_forms::Form::new("MAIN-FORM", "Main", 400, 300);
+        let mut db = cobolt_forms::Control::new("DB-1", cobolt_forms::ControlType::SqlDatabase, 0, 0);
+        db.set_prop("SqlConnection", cobolt_forms::PropValue::String("SALEZ".into()));
+        form.controls.push(db);
+        let program = dir.join("generated/main-form.cbl");
+        let errors = |f: &cobolt_forms::Form| -> Vec<String> {
+            validate_form_source(f, &program, None)
+                .0
+                .into_iter()
+                .filter(|d| d.severity == Severity::Error)
+                .map(|d| d.message)
+                .collect()
+        };
+        let found = errors(&form);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("DB-1") && found[0].contains("SALEZ") && found[0].contains("SALES"), "{found:?}");
+        form.controls[0].set_prop("SqlConnection", cobolt_forms::PropValue::String("sales".into()));
+        assert!(errors(&form).is_empty(), "a known name is fine, in any case");
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("unknown SqlConnection: '{}'", found[0]);
+    }
 
     #[test]
     fn validate_source_heuristic_and_diagnostics() {

@@ -23,6 +23,7 @@ use cobolt_ast::{
     program::{DataDivision, DataSection},
 };
 
+use crate::national::{class_image, class_text, fit_class, CharClass};
 use crate::value::{CobolNumeric, CobolValue};
 
 // ── ItemScope ────────────────────────────────────────────────────────────────
@@ -103,6 +104,10 @@ pub struct ItemSym {
     /// *current* length is read from it — [`occurs`](Self::occurs) stays the
     /// declared maximum, which is the storage that was reserved.
     pub depending_on: Option<String>,
+    /// How a national (`PIC N`) or UTF-8 (`PIC U`) item holds its characters
+    /// (spec 077); `None` for every other item. Kept on the symbol so it
+    /// travels with a nested program's items into the shared environment.
+    pub char_class: Option<CharClass>,
 }
 
 /// The data store for a running COBOL program.
@@ -251,6 +256,10 @@ pub struct CobolEnvironment {
     /// receiver. It is a depth counter so the recursion into subordinate groups
     /// inherits the mode and only the outermost call clears it.
     odo_receiving: u32,
+    /// National and UTF-8 items by storage key (spec 077), including unnamed
+    /// FILLERs, which have no [`ItemSym`] to carry the class. See
+    /// [`Self::char_class`].
+    char_classes: IndexMap<String, CharClass>,
 }
 
 /// Distribute `src`'s characters across an alphanumeric-edited PICTURE.
@@ -862,6 +871,42 @@ impl CobolEnvironment {
         }
     }
 
+    /// The national / UTF-8 class of an item, by storage key or by an
+    /// occurrence's base item; `None` for every other item (spec 077).
+    pub fn char_class(&self, name: &str) -> Option<CharClass> {
+        // The common case — a program with no national or UTF-8 data — pays
+        // one emptiness test and nothing else.
+        if self.char_classes.is_empty() {
+            return None;
+        }
+        let key = name.to_ascii_uppercase();
+        self.char_classes.get(&key).or_else(|| self.char_classes.get(base_name(&key))).copied()
+    }
+
+    /// An item's bytes as storage holds them — a group's image, a national
+    /// item's UTF-16BE, a UTF-8 item's padded bytes, anything else its stored
+    /// form (spec 077).
+    pub fn storage_image(&self, name: &str) -> Vec<u8> {
+        self.item_image(&name.to_ascii_uppercase())
+    }
+
+    /// Whether an item is declared `JUSTIFIED RIGHT`.
+    pub fn is_justified(&self, name: &str) -> bool {
+        self.justified.contains(base_name(&name.to_ascii_uppercase()))
+    }
+
+    /// Whether this program declares any national or UTF-8 item.
+    pub fn has_char_classes(&self) -> bool {
+        !self.char_classes.is_empty()
+    }
+
+    /// Store `text` in a national or UTF-8 item, fitted to its class.
+    fn store_class_text(&mut self, key: &str, class: CharClass, text: &str) {
+        let justified = self.justified.contains(base_name(key));
+        self.store.insert(key.to_string(), class_value(class, text, justified));
+        self.refresh_redefine_peers(key);
+    }
+
     /// Whether two descriptions cover their shared bytes the **same way** —
     /// the same items in the same order, each with the same OCCURS dimensions
     /// and the same PICTURE. Only then may they share storage.
@@ -936,6 +981,19 @@ impl CobolEnvironment {
             // bytes into the wrong place.
             let own = self.addr_aliases.get(&own).cloned().unwrap_or(own);
             let peer = self.addr_aliases.get(&peer).cloned().unwrap_or(peer);
+            // A national or UTF-8 item on either side shares its byte IMAGE,
+            // not its text (spec 077, R12): `PIC N(2)` holding "AB" is
+            // X'00410042' to a `PIC X(4)` that redefines it.
+            if self.overlay_has_class(&own) || self.overlay_has_class(&peer) {
+                let mut bytes = self.item_image(&own);
+                let existing = self.item_image(&peer);
+                if existing.len() > bytes.len() {
+                    bytes.extend_from_slice(&existing[bytes.len()..]);
+                }
+                self.set_from_image(&peer, &bytes);
+                self.syncing.remove(&peer);
+                continue;
+            }
             let mut bytes = self.display_string(&own).unwrap_or_default();
             // A **01-level** REDEFINES may describe more storage than the item
             // it redefines, and CCVS85 tests exactly that: NC107A overlays a
@@ -954,6 +1012,38 @@ impl CobolEnvironment {
             }
             self.set_from_bytes(&peer, &bytes);
             self.syncing.remove(&peer);
+        }
+    }
+
+    /// Whether a REDEFINES description holds a national or UTF-8 item.
+    fn overlay_has_class(&self, key: &str) -> bool {
+        !self.char_classes.is_empty()
+            && self.subtree_keys(base_name(key)).iter().any(|k| self.char_classes.contains_key(k))
+    }
+
+    /// An item's bytes as storage holds them: a group's image, a national or
+    /// UTF-8 item's image, anything else its stored form.
+    fn item_image(&self, key: &str) -> Vec<u8> {
+        if let Some(g) = self.group_bytes(key) {
+            return g;
+        }
+        self.image_bytes(key)
+    }
+
+    /// The inverse of [`Self::item_image`]: bytes laid over an item.
+    fn set_from_image(&mut self, key: &str, bytes: &[u8]) {
+        if self.is_group(key) || self.table_extent_keys(key).is_some() {
+            self.set_group_bytes(key, bytes);
+        } else if self.field_caps.contains_key(base_name(key)) || self.edited_templates.contains_key(base_name(key)) {
+            // A numeric or edited reading of the bytes: the existing rule.
+            let width = self.item_width(key).max(1);
+            let cut = &bytes[..width.min(bytes.len())];
+            self.set_from_bytes(key, &String::from_utf8_lossy(cut));
+        } else {
+            // National, UTF-8 or alphanumeric: the bytes as they stand. An
+            // alphanumeric reading of UTF-16 is not text, and must not be
+            // decoded as if it were.
+            self.set_verbatim_bytes(key, bytes);
         }
     }
 
@@ -1279,6 +1369,7 @@ impl CobolEnvironment {
                             pic_decimals: 0,
                             origin: origin.to_owned(),
                             depending_on: None,
+                            char_class: None,
                         },
                     );
                     let tkey = self.canon_key(&target.to_ascii_uppercase(), quals);
@@ -1419,6 +1510,7 @@ impl CobolEnvironment {
                         .as_ref()
                         .and_then(|o| o.depending_on.as_ref())
                         .map(|n| n.to_ascii_uppercase()),
+                    char_class: None,
                 },
             );
             self.by_leaf
@@ -1501,6 +1593,7 @@ impl CobolEnvironment {
                                 pic_decimals: 0,
                                 origin: origin.to_owned(),
                                 depending_on: None,
+                                char_class: None,
                             },
                         );
                         let tkey = self.canon_key(&target.to_ascii_uppercase(), quals);
@@ -1564,6 +1657,24 @@ impl CobolEnvironment {
 
     /// Insert one item's base value + caps / edited template.
     fn insert_value(&mut self, upper: &str, decl: &DataDecl) {
+        if let Some(class) = decl_class(decl) {
+            // A national or UTF-8 item holds its characters, fitted to the
+            // class; its VALUE is text whichever literal spelled it.
+            if decl.justified {
+                self.justified.insert(upper.to_string());
+            }
+            let text = match &decl.value {
+                Some(Literal::String(t) | Literal::National(t) | Literal::Utf8(t)) => t.clone(),
+                Some(Literal::Figurative(f)) => figurative_text(class, f),
+                _ => String::new(),
+            };
+            self.char_classes.insert(upper.to_string(), class);
+            if let Some(sym) = self.symbols.get_mut(upper) {
+                sym.char_class = Some(class);
+            }
+            self.store.insert(upper.to_string(), class_value(class, &text, decl.justified));
+            return;
+        }
         if let Some(pic) = &decl.picture {
             if pic.kind == PicKind::NumericEdited {
                 self.init_edited(
@@ -1864,6 +1975,9 @@ impl CobolEnvironment {
         let base = base_name(&key);
         if self.edited_templates.contains_key(base) {
             return None;
+        }
+        if let Some(class) = self.char_class(&key) {
+            return Some(class.width());
         }
         if let Some(&(int_digits, decimals)) = self.field_caps.get(base) {
             return Some(int_digits as usize + decimals as usize);
@@ -2378,6 +2492,63 @@ impl CobolEnvironment {
     /// it) out of `CORRESPONDING`: `04 DD-LEVEL REDEFINES DD-LEVEL-FALSE. 05
     /// HARRY PIC X(5).` must not receive the sender's `HARRY` (NC209A
     /// MOV-TEST-F2-6).
+    /// Every storage key the item name `leaf` has — one, or several when the
+    /// name is declared more than once (a stand-alone `SQLSTATE` and the
+    /// SQLCA's, say). Empty when it is not declared (spec 087 R17).
+    pub fn keys_of_leaf(&self, leaf: &str) -> Vec<String> {
+        let up = leaf.to_ascii_uppercase();
+        if let Some(c) = self.by_leaf.get(&up) {
+            if !c.is_empty() {
+                return c.clone();
+            }
+        }
+        if self.symbols.contains_key(&up) || self.store.contains_key(&up) {
+            vec![up]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The elementary items a group stands for when used as an SQL host
+    /// structure (spec 087 R8), in order: `FILLER`, `REDEFINES` and 88-level
+    /// items are skipped, nested groups are opened. `Err(name)` names a
+    /// subordinate item with OCCURS, which a host structure cannot hold.
+    pub fn host_structure_leaves(&self, key: &str) -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        self.collect_host_leaves(&key.to_ascii_uppercase(), &mut out)?;
+        Ok(out)
+    }
+
+    fn collect_host_leaves(&self, key: &str, out: &mut Vec<String>) -> Result<(), String> {
+        let Some(sym) = self.symbols.get(base_name(key)) else { return Ok(()) };
+        for child in &sym.child_keys {
+            if self.is_redefinition(child) {
+                continue;
+            }
+            let Some(cs) = self.symbols.get(child) else { continue };
+            if cs.occurs > 0 {
+                return Err(child.clone());
+            }
+            if self.is_group(child) {
+                self.collect_host_leaves(child, out)?;
+            } else {
+                out.push(child.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// `true` for a numeric item whose PICTURE carries no sign — it cannot
+    /// receive a negative value (spec 087 R11).
+    pub fn is_unsigned_numeric(&self, key: &str) -> bool {
+        let Some(sym) = self.symbols.get(base_name(&key.to_ascii_uppercase())) else { return false };
+        let pic = sym.pic.to_ascii_uppercase();
+        if pic.is_empty() || self.is_alphanumeric_field(key) {
+            return false;
+        }
+        !(pic.contains('S') || pic.contains('-') || pic.contains('+') || pic.contains("CR") || pic.contains("DB"))
+    }
+
     pub fn is_redefinition(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
         self.redefinitions.contains(&key) || self.redefinitions.contains(base_name(&key))
@@ -2601,7 +2772,10 @@ impl CobolEnvironment {
         if let Some(keys) = self.table_extent_keys(&key) {
             let mut out = Vec::new();
             for ck in keys {
-                out.extend_from_slice(&self.display_bytes(&ck).unwrap_or_default());
+                match self.char_class(&ck) {
+                    Some(_) => out.extend_from_slice(&self.image_bytes(&ck)),
+                    None => out.extend_from_slice(&self.display_bytes(&ck).unwrap_or_default()),
+                }
             }
             return Some(out);
         }
@@ -2629,6 +2803,9 @@ impl CobolEnvironment {
     /// fields deep — and every CHK-TEST compared the shifted snapshot.
     /// Positive values already render at width and stay plain digits.
     fn image_bytes(&self, ck: &str) -> Vec<u8> {
+        if let Some(class) = self.char_class(ck) {
+            return class_image(class, &self.display_string(ck).unwrap_or_default());
+        }
         let bytes = self.display_bytes(ck).unwrap_or_default();
         if bytes.first() == Some(&b'-')
             && bytes[1..].iter().all(|b| b.is_ascii_digit())
@@ -2673,6 +2850,9 @@ impl CobolEnvironment {
     fn item_width(&self, key: &str) -> usize {
         if let Some(keys) = self.table_extent_keys(key) {
             return keys.iter().map(|k| self.item_width(k)).sum();
+        }
+        if let Some(class) = self.char_class(key) {
+            return class.width();
         }
         if let Some(sym) = self.symbols.get(base_name(&key.to_ascii_uppercase())) {
             if sym.is_group && !sym.layout_keys.is_empty() {
@@ -3090,6 +3270,11 @@ impl CobolEnvironment {
     /// Store `s` left-justified (space-padded) into an alphanumeric field.
     pub fn set_str_left(&mut self, name: &str, s: &str) {
         let key = self.storage_key(name.to_ascii_uppercase());
+        if let Some(class) = self.char_class(&key) {
+            self.store.insert(key.clone(), class_value(class, s, false));
+            self.refresh_redefine_peers(&key);
+            return;
+        }
         // An alphanumeric-edited receiver still imposes its template on the
         // characters: this shortcut would otherwise drop the insertions and
         // store the sender's digits raw.
@@ -3296,6 +3481,17 @@ impl CobolEnvironment {
     /// If the item does not exist it is inserted directly.
     pub fn set(&mut self, name: &str, value: CobolValue) {
         let key = self.storage_key(name.to_ascii_uppercase());
+        // A national or UTF-8 receiver takes the sender's characters and fits
+        // them by character (spec 077, D6). Alphanumeric data in this runtime
+        // is UTF-8 text.
+        if let Some(class) = self.char_class(&key) {
+            let text = match &value {
+                CobolValue::String { bytes, .. } => String::from_utf8_lossy(bytes).into_owned(),
+                other => other.as_display_string(),
+            };
+            self.store_class_text(&key, class, &text);
+            return;
+        }
         // An alphanumeric-edited receiver re-imposes its own insertion
         // characters on whatever arrives: the sender supplies only the
         // characters for the `X`/`A`/`9` positions.
@@ -3509,6 +3705,12 @@ impl CobolEnvironment {
 
     /// Set a data item from a `&str`, padding/truncating to the existing capacity.
     pub fn set_str(&mut self, name: &str, s: &str) {
+        // The slot's capacity is bytes of text, not a national item's size:
+        // cut there, a character could split. `set` fits it by character.
+        if self.char_class(name).is_some() {
+            self.set(name, CobolValue::from_str(s, s.len()));
+            return;
+        }
         let cap = match self.get(name) {
             Some(CobolValue::String { capacity, .. }) => *capacity,
             _ => s.len(),
@@ -3531,6 +3733,10 @@ impl CobolEnvironment {
     /// [`Self::set_str`] over raw bytes, for a value that may hold a byte which
     /// is not a character. See [`Self::group_bytes`].
     pub fn set_bytes(&mut self, name: &str, b: &[u8]) {
+        if self.char_class(name).is_some() {
+            self.set(name, CobolValue::String { bytes: b.to_vec(), capacity: b.len() });
+            return;
+        }
         let cap = match self.get(name) {
             Some(CobolValue::String { capacity, .. }) => *capacity,
             _ => b.len(),
@@ -3575,6 +3781,14 @@ impl CobolEnvironment {
     /// receiver to align goes through [`Self::set_move_bytes`] instead.
     pub fn set_verbatim_bytes(&mut self, name: &str, bytes: &[u8]) {
         let key = self.storage_key(name.to_ascii_uppercase());
+        // A slice of a group's image: a national or UTF-8 child reads it as
+        // its own image (UTF-16BE, or padded UTF-8) — spec 077, R12.
+        if let Some(class) = self.char_class(&key) {
+            let text = class_text(class, bytes);
+            self.store.insert(key.clone(), class_value(class, &text, false));
+            self.refresh_redefine_peers(&key);
+            return;
+        }
         let width = self.item_width(&key).max(1);
         let mut out = bytes.to_vec();
         out.truncate(width);
@@ -3601,6 +3815,12 @@ impl CobolEnvironment {
     /// width and must not be re-aligned.
     pub fn set_move_bytes(&mut self, name: &str, bytes: &[u8]) {
         let key = self.storage_key(name.to_ascii_uppercase());
+        // A group sender is alphanumeric, so a national or UTF-8 receiver
+        // takes its characters, not an image (spec 077, D6).
+        if let Some(class) = self.char_class(&key) {
+            self.store_class_text(&key, class, &String::from_utf8_lossy(bytes));
+            return;
+        }
         if !self.justified.contains(base_name(&key)) {
             self.set_verbatim_bytes(&key, bytes);
             return;
@@ -3688,6 +3908,11 @@ impl CobolEnvironment {
             let upper = key.to_ascii_uppercase();
             if !self.symbols.contains_key(&upper) {
                 self.symbols.insert(upper.clone(), sym.clone());
+                // A nested program's national and UTF-8 items (spec 077):
+                // the class travels on the symbol and is looked up here.
+                if let Some(class) = sym.char_class {
+                    self.char_classes.insert(upper.clone(), class);
+                }
                 if !self.store.contains_key(&upper) {
                     // Track symbol-only names too, so the pop is exact. The
                     // store guard in `pop_local_scope` tolerates keys with no
@@ -3705,6 +3930,7 @@ impl CobolEnvironment {
         for key in keys {
             self.store.shift_remove(key);
             self.symbols.shift_remove(key);
+            self.char_classes.shift_remove(key);
         }
     }
 
@@ -3799,10 +4025,59 @@ fn default_value(decl: &DataDecl) -> CobolValue {
             let cap = pic.digits as usize + pic.decimals as usize;
             CobolValue::spaces(cap.max(1))
         }
+        // Spec 077 D1: a national or UTF-8 item's slot holds its characters
+        // — n spaces to start with; its byte image is produced on demand.
+        PicKind::National | PicKind::Utf8 => CobolValue::spaces((pic.digits as usize).max(1)),
     }
 }
 
 /// Apply a `VALUE` clause literal on top of a default value.
+/// The national / UTF-8 class a declaration gives its item (spec 077).
+pub(crate) fn decl_class(decl: &DataDecl) -> Option<CharClass> {
+    let pic = decl.picture.as_ref()?;
+    let n = (pic.digits as usize).max(1);
+    match pic.kind {
+        PicKind::National => Some(CharClass::National { chars: n }),
+        PicKind::Utf8 => Some(match decl.byte_length {
+            Some(b) => CharClass::Utf8Bytes { bytes: (b as usize).max(1) },
+            None => CharClass::Utf8 { chars: n },
+        }),
+        _ => None,
+    }
+}
+
+/// A national or UTF-8 item's slot: its text, fitted to the class.
+fn class_value(class: CharClass, text: &str, justified: bool) -> CobolValue {
+    let fitted = fit_class(class, text, justified);
+    CobolValue::String { capacity: fitted.len(), bytes: fitted.into_bytes() }
+}
+
+/// A figurative constant as the text that fills a national or UTF-8 item:
+/// SPACE is U+0020, ZERO `0`, QUOTE `"`, LOW-VALUE U+0000, HIGH-VALUE the
+/// class's highest character, `ALL x` x repeated by character. More text than
+/// the item holds is produced; [`fit_class`] cuts it on a whole character.
+pub fn figurative_text(class: CharClass, f: &cobolt_ast::expr::FigurativeConstant) -> String {
+    use cobolt_ast::expr::FigurativeConstant as F;
+    let n = class.positions().max(1);
+    let fill = |c: char| std::iter::repeat_n(c, n).collect::<String>();
+    match f {
+        F::Space => fill(' '),
+        F::Zero => fill('0'),
+        F::Quote => fill('"'),
+        F::LowValue | F::Null => fill('\0'),
+        F::HighValue => fill(class.high_value()),
+        F::All(inner) => {
+            let unit = match inner.as_ref() {
+                Literal::String(t) | Literal::National(t) | Literal::Utf8(t) => t.clone(),
+                Literal::Integer(_) | Literal::IntegerDigits(..) => inner.integer_digits().unwrap_or_default(),
+                Literal::Figurative(f) => return figurative_text(class, f),
+                _ => String::new(),
+            };
+            if unit.is_empty() { fill(' ') } else { unit.repeat(n) }
+        }
+    }
+}
+
 fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
     match lit {
         // A `VALUE` literal written with leading zeros carries them into an
@@ -3837,7 +4112,9 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
                 _ => src,
             }
         }
-        Literal::String(s) => match default {
+        // Spec 077: a national or UTF-8 literal is text like any other; a
+        // classed receiver fits it by characters when the class applies.
+        Literal::String(s) | Literal::National(s) | Literal::Utf8(s) => match default {
             CobolValue::String { capacity, .. } => CobolValue::from_str(s, *capacity),
             // A numeric item keeps its **category** whatever the literal's is:
             // `PICTURE IS 9 VALUE IS "5"` holds the number five, not the
@@ -4157,6 +4434,24 @@ fn serialize_decl(
                 }
                 serialize_decl(env, c, &mut local_quals, &mut local_indices, bytes);
             }
+        } else if let Some(class) = decl_class(decl) {
+            // A national or UTF-8 item contributes its image (spec 077, R12).
+            let key = env.canon_key(&name_upper, quals);
+            let key = if !local_indices.is_empty() {
+                let idx_i64: Vec<i64> = local_indices.iter().map(|&x| x as i64).collect();
+                subscript_key(&key, &idx_i64)
+            } else {
+                key
+            };
+            let text = match env.store.get(&key) {
+                Some(v) => v.as_display_string(),
+                None => match &decl.value {
+                    Some(Literal::String(t) | Literal::National(t) | Literal::Utf8(t)) => t.clone(),
+                    Some(Literal::Figurative(f)) => figurative_text(class, f),
+                    _ => String::new(),
+                },
+            };
+            bytes.extend_from_slice(&class_image(class, &text));
         } else if let Some(pic) = &decl.picture {
             // A separate sign is a declared storage position, so it widens the
             // item by one and a REDEFINES overlay sees it (NC116A GF-1/GF-2).
@@ -4276,6 +4571,21 @@ fn deserialize_decl(
                 }
                 deserialize_decl(env, c, &mut local_quals, &mut local_indices, bytes, offset);
             }
+        } else if let Some(class) = decl_class(decl) {
+            // A national or UTF-8 item reads its image back (spec 077, R12).
+            let start = (*offset).min(bytes.len());
+            let end = (*offset + class.width()).min(bytes.len());
+            *offset += class.width();
+            if name_upper != "FILLER" {
+                let key = env.canon_key(&name_upper, quals);
+                let key = if !local_indices.is_empty() {
+                    let idx_i64: Vec<i64> = local_indices.iter().map(|&x| x as i64).collect();
+                    subscript_key(&key, &idx_i64)
+                } else {
+                    key
+                };
+                env.set_verbatim_bytes(&key, &bytes[start..end]);
+            }
         } else if let Some(pic) = &decl.picture {
             let sep_sign = separate_sign_of_decl(decl);
             let len =
@@ -4321,6 +4631,11 @@ fn deserialize_decl(
                         &key,
                         CobolValue::Numeric(CobolNumeric::new(mantissa, decimals)),
                     );
+                } else if env.has_char_classes() {
+                    // Beside national data the bytes may be UTF-16, which is
+                    // not text: an alphanumeric reading keeps them as they
+                    // stand (spec 077). Without national data, the old rule.
+                    env.set_bytes(&key, slice);
                 } else {
                     env.set_str(&key, &String::from_utf8_lossy(slice));
                 }

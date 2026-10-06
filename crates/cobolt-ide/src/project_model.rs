@@ -73,6 +73,12 @@ pub struct CoboltProject {
     /// `[agents]` — run-time settings for the model's tools (spec 075).
     #[serde(default, skip_serializing_if = "AgentsSettings::is_default")]
     pub agents: AgentsSettings,
+    /// `[[sql-connections]]` — the project's named SQL connections (spec 087
+    /// R33): what `EXEC SQL CONNECT TO name` and an `SqlDatabase` control's
+    /// `SqlConnection` reach. The non-secret half only; written only when
+    /// there is one, so a project without them keeps its file unchanged.
+    #[serde(default, rename = "sql-connections", skip_serializing_if = "Vec::is_empty")]
+    pub sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
 }
 
 /// `[agents]` in the project manifest (spec 065 R34 / 075).
@@ -856,6 +862,7 @@ impl CoboltProject {
             integrations: ProjectIntegrationSettings::default(),
             rag: RagSettings::default(),
             agents: AgentsSettings::default(),
+            sql_connections: Vec::new(),
         }
     }
 
@@ -867,7 +874,7 @@ impl CoboltProject {
     pub fn add_file_to(&mut self, rel: &str, category: Category) {
         // External Crates holds registered crates, not tracked files — its
         // add action is the dialog, never a file (spec 044 R3).
-        if matches!(category, Category::ExternalCrates) {
+        if matches!(category, Category::ExternalCrates | Category::SqlConnections) {
             return;
         }
         let rel = rel.replace('\\', "/");
@@ -902,8 +909,8 @@ impl CoboltProject {
             Category::IndexedFiles => &mut self.files.indexed,
             // Unreachable: `add_file_to` returns before routing here, and no
             // `FileKind` maps to the category (spec 044 R3 — crates ≠ files).
-            Category::ExternalCrates => {
-                unreachable!("External Crates is not a file category")
+            Category::ExternalCrates | Category::SqlConnections => {
+                unreachable!("{category:?} is not a file category")
             }
         }
     }
@@ -1050,6 +1057,8 @@ impl CoboltProject {
             // Crates are pins, not tracked files (spec 044 R3); the tree
             // renders them from `self.crates` instead.
             Category::ExternalCrates => &[],
+            // SQL connections are entries of the project file (spec 087 R33).
+            Category::SqlConnections => &[],
         }
     }
 
@@ -1117,6 +1126,10 @@ pub enum Category {
     Forms,
     /// Indexed-file definitions (`.cidx`).
     IndexedFiles,
+    /// The project's named SQL connections (spec 087 R33) — one row per
+    /// `[[sql-connections]]` entry, not a file list; a row opens the
+    /// connection editor and the `[+]` adds one.
+    SqlConnections,
     CommonCode,
     /// RAD output — its own read-only top category (one file per form).
     Generated,
@@ -1132,9 +1145,11 @@ impl Category {
     /// The fixed top categories, in display order. `Generated` is IDE-owned and
     /// read-only (developers cannot add to it — forms populate it). External
     /// Crates sits after it, before Assets (spec 044 R1/Q5).
-    pub const TOP: [Category; 7] = [
+    pub const TOP: [Category; 8] = [
         Category::Forms,
         Category::IndexedFiles,
+        // Spec 087 R33 — right after Indexed Files.
+        Category::SqlConnections,
         Category::CommonCode,
         Category::Generated,
         Category::ExternalCrates,
@@ -1155,6 +1170,10 @@ impl Category {
         match self {
             Category::Forms => "forms",
             Category::IndexedFiles => "indexed",
+            // No folder: the definitions live in the project file. The name
+            // only keys the tree's state; `from_root_component` never maps a
+            // folder to this category.
+            Category::SqlConnections => "sql-connections",
             Category::CommonCode => "src",
             Category::Generated => "generated",
             Category::ExternalCrates => cobolt_compiler::external_crates::VENDOR_SUBDIR,
@@ -1185,6 +1204,7 @@ impl Category {
         let top = top.split('/').next().unwrap_or("");
         Category::TOP
             .into_iter()
+            .filter(|c| *c != Category::SqlConnections)
             .find(|c| c.root_subdir().eq_ignore_ascii_case(top))
     }
 
@@ -2158,6 +2178,8 @@ main = "src/main.cbl"
             vec![
                 Category::Forms,
                 Category::IndexedFiles,
+                // Spec 087 R33 — SQL Connections after Indexed Files.
+                Category::SqlConnections,
                 Category::CommonCode,
                 Category::Generated,
                 // Spec 044 R1/Q5 — External Crates after Generated Code.

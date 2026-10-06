@@ -33,6 +33,7 @@
 pub mod duplicates;
 pub mod exec_rust;
 pub mod exec_sql;
+pub mod national;
 pub mod flagging;
 pub mod external;
 pub mod file_keys;
@@ -204,6 +205,7 @@ pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult 
     // Spec 087: embedded SQL is checked across the whole unit at once, since a
     // cursor or a GLOBAL host variable crosses program boundaries.
     exec_sql::check(program, &mut result.diagnostics);
+    national::check(program, &mut result.diagnostics);
     result
 }
 

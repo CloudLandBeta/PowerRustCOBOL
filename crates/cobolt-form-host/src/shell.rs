@@ -1325,6 +1325,7 @@ pub fn run_shell(
     config: crate::host::FormHostConfig,
     root_menu: Option<(String, cobolt_forms::menu::MenuDefinition)>,
 ) {
+    let finished = std::sync::Arc::clone(&config.finished);
     let (app, title, viewport) = ShellApp::new(config, root_menu);
     let native_options = crate::native_options(viewport);
     let _ = eframe::run_native(
@@ -1336,6 +1337,8 @@ pub fn run_shell(
             Ok(Box::new(app) as Box<dyn eframe::App>)
         }),
     );
+    // As `host::run`: let the main form's program end the run unit.
+    crate::wait_for_root(&finished, crate::ROOT_END_WAIT);
 }
 
 impl ShellApp {

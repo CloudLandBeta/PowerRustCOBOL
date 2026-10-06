@@ -16,6 +16,11 @@ pub enum PicCategory {
     Numeric,
     /// Single-byte `PIC 9` / `PIC 9(1)` used as an indicator.
     Indicator,
+    /// `PIC N(n)` (spec 077): n UTF-16 code units, 2·n bytes, big-endian.
+    National,
+    /// `PIC U(n)` (spec 077): n characters in UTF-8, 4·n bytes, padded with
+    /// spaces.
+    Utf8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +70,8 @@ pub fn parse_pic(pic: &str) -> ParsedPic {
     let mut has_numeric = false;
     let mut has_alphabetic = false;
     let mut has_alphanumeric = false;
+    let mut has_national = false;
+    let mut has_utf8 = false;
 
     while i < chars.len() {
         let c = chars[i];
@@ -87,6 +94,19 @@ pub fn parse_pic(pic: &str) -> ParsedPic {
                 width += count;
                 i = next_i;
             }
+            // A national position is two bytes, a UTF-8 one four (spec 077).
+            'N' => {
+                has_national = true;
+                let (count, next_i) = parse_count(&chars, i + 1);
+                width += 2 * count;
+                i = next_i;
+            }
+            'U' => {
+                has_utf8 = true;
+                let (count, next_i) = parse_count(&chars, i + 1);
+                width += 4 * count;
+                i = next_i;
+            }
             'V' => {
                 // V is implicit decimal point, it consumes 0 bytes of disk space
                 i += 1;
@@ -105,7 +125,11 @@ pub fn parse_pic(pic: &str) -> ParsedPic {
     }
 
     // Determine category
-    if has_alphanumeric {
+    if has_national {
+        category = PicCategory::National;
+    } else if has_utf8 {
+        category = PicCategory::Utf8;
+    } else if has_alphanumeric {
         category = PicCategory::Alphanumeric;
     } else if has_alphabetic {
         category = PicCategory::Alphabetic;
@@ -159,6 +183,12 @@ pub fn format_field_display(field: &IndexedField, bytes: &[u8]) -> String {
         }
         PicCategory::Numeric => format_numeric_display(slice, pic.width, pic.signed),
         PicCategory::Indicator => format_indicator_display(slice),
+        PicCategory::National => {
+            let units = slice.chunks(2).map(|c| u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)]));
+            let text: String = char::decode_utf16(units).map(|r| r.unwrap_or('\u{FFFD}')).collect();
+            text.trim_end().to_string()
+        }
+        PicCategory::Utf8 => String::from_utf8_lossy(slice).trim_end().to_string(),
     }
 }
 
@@ -178,8 +208,43 @@ pub fn encode_field_display(
         PicCategory::Alphabetic => encode_alphabetic(input, len, &mut out)?,
         PicCategory::Numeric => encode_numeric(input, len, pic.width, pic.signed, &mut out)?,
         PicCategory::Indicator => encode_indicator(input, len, &mut out)?,
+        PicCategory::National => encode_national(input, len, &mut out),
+        PicCategory::Utf8 => encode_utf8(input, len, &mut out),
     }
     Ok(out)
+}
+
+/// A national field's bytes: UTF-16 big-endian, cut on a whole character and
+/// padded with national spaces (X'0020').
+fn encode_national(input: &str, len: usize, out: &mut [u8]) {
+    let mut bytes: Vec<u8> = Vec::with_capacity(len);
+    for c in input.chars() {
+        let mut buf = [0u16; 2];
+        let units = c.encode_utf16(&mut buf);
+        if bytes.len() + 2 * units.len() > len {
+            break;
+        }
+        for u in units.iter() {
+            bytes.extend_from_slice(&u.to_be_bytes());
+        }
+    }
+    while bytes.len() + 2 <= len {
+        bytes.extend_from_slice(&[0x00, 0x20]);
+    }
+    out[..bytes.len()].copy_from_slice(&bytes);
+}
+
+/// A UTF-8 field's bytes: whole characters, padded with spaces.
+fn encode_utf8(input: &str, len: usize, out: &mut [u8]) {
+    let mut used = 0usize;
+    for c in input.chars() {
+        let n = c.len_utf8();
+        if used + n > len {
+            break;
+        }
+        c.encode_utf8(&mut out[used..used + n]);
+        used += n;
+    }
 }
 
 /// Encode from a checkbox widget (`true` → `1`, `false` → `0`).
@@ -353,5 +418,28 @@ mod tests {
         assert!(encode_field_display(&ind, "2", 1).is_err());
         let enc = encode_indicator_bool(true, 1);
         assert_eq!(enc, vec![b'1']);
+    }
+
+    /// Spec 077 T19: `PIC N` and `PIC U` in a `.cidx` definition take their
+    /// storage widths, and a grid cell shows and edits characters.
+    #[test]
+    fn national_and_utf8_fields() {
+        let n = parse_pic("N(20)");
+        assert_eq!((n.category, n.width), (PicCategory::National, 40));
+        let u = parse_pic("U(5)");
+        assert_eq!((u.category, u.width), (PicCategory::Utf8, 20));
+
+        let fname = field("N(4)", 8);
+        let bytes = encode_field_display(&fname, "Ação ok", 8).unwrap();
+        assert_eq!(bytes, vec![0x00, 0x41, 0x00, 0xE7, 0x00, 0xE3, 0x00, 0x6F]);
+        assert_eq!(format_field_display(&fname, &bytes), "Ação");
+        let short = encode_field_display(&fname, "Ab", 8).unwrap();
+        assert_eq!(short, vec![0x00, 0x41, 0x00, 0x62, 0x00, 0x20, 0x00, 0x20]);
+
+        let fu = field("U(2)", 8);
+        let bytes = encode_field_display(&fu, "日本語", 8).unwrap();
+        assert_eq!(&bytes[..6], "日本".as_bytes());
+        assert_eq!(&bytes[6..], b"  ");
+        assert_eq!(format_field_display(&fu, &bytes), "日本");
     }
 }

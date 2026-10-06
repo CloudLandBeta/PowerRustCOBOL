@@ -8,6 +8,51 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.228] — 2026-10-06
+
+### Added
+- **Spec 077 complete — national and UTF-8 character data.** The
+  Developer's Guide explains `PIC N`, `PIC U`, their literals, functions,
+  files and caveats (chapter 13, *International text*); the COBOL-85 syntax
+  reference lists them; the System KB carries them, so the AI assistant
+  knows them. All 18 acceptance criteria are proved; every existing test
+  still passes, and the NIST suite is unchanged at 8,362 of 8,362
+  assertions.
+
+## [PowerRustCOBOL 1.80.227] — 2026-10-06
+
+### Added
+- **Spec 077 M7 — the IDE knows national and UTF-8 data.** The editor draws
+  `N"…"`, `NX"…"`, `U"…"` and `UX"…"` literals whole in the string colour, and
+  a function name after `FUNCTION` in the keyword colour. IntelliSense offers
+  every intrinsic function, the new ones included, and the `UTF-8` and
+  `BYTE-LENGTH` clauses. In the COBOL Structure editor, a national or UTF-8
+  declaration under the caret shows its size in characters and bytes —
+  "WS-MSG — 30 characters, 60 bytes" — in all six IDE languages.
+
+## [PowerRustCOBOL 1.80.226] — 2026-10-06
+
+### Added
+- **Spec 077 M6 — national data in forms, and the same results on every
+  host.** A form moves a TextBox's text into a `PIC N(30)` item and back
+  into a Label with every character intact. Four new test programs —
+  `tests/cobol/national/nat_basics.cbl`, `nat_functions.cbl`,
+  `nat_indexed.cbl` and `tests/cobol/utf8/utf8_basics.cbl` — each list the
+  cases they exercise and time their bulk work, and give identical results
+  under `rcrun run`, Run Form and a compiled binary.
+
+## [PowerRustCOBOL 1.80.225] — 2026-10-06
+
+### Added
+- **Spec 077 M5 — national and UTF-8 data in files.** A national field is
+  its UTF-16 bytes in a record and a UTF-8 field its padded bytes, so record
+  lengths, keys and `RECORD KEY` order follow (an INDEXED file keyed on a
+  `PIC N(20)` item writes, reads by key, rewrites and scans in key order). A
+  LINE SEQUENTIAL file carries national and UTF-8 fields as readable UTF-8
+  text and reads them back by character. The IDE's indexed-file definitions
+  accept `PIC N(n)` and `PIC U(n)`, with their storage widths, and the grid
+  shows and accepts characters in them.
+
 ## [PowerRustCOBOL 1.80.224] — 2026-10-06
 
 ### Fixed
@@ -19,6 +64,304 @@
   the radio held `Selected` 1 beside a stale `Checked` 0 and the screen
   usually showed the 0. A write from code now stores both, in Run Form, in a
   form opened by another form and in a built application alike.
+
+## [PowerRustCOBOL 1.80.223] — 2026-10-06
+
+### Added
+- **Spec 077 M4 — STRING, UNSTRING and INSPECT on characters.** With a
+  national or UTF-8 receiver, STRING fills, points and overflows by
+  character; UNSTRING of a national or UTF-8 source splits, counts (COUNT IN)
+  and points by character; INSPECT of one tallies CHARACTERS, honours
+  BEFORE/AFTER and replaces by character. Alphanumeric data keeps its byte
+  positions exactly. `N"…"` and `U"…"` literals are accepted wherever a
+  literal operand is (a DISPLAY list, STRING senders, abbreviated
+  conditions).
+
+## [PowerRustCOBOL 1.80.222] — 2026-10-06
+
+### Added
+- **Spec 077 M3 — functions for national and UTF-8 data.**
+  `FUNCTION NATIONAL-OF(x [, code-page])` reads bytes in a code page as
+  characters and `FUNCTION DISPLAY-OF(n [, code-page])` writes characters as
+  bytes in one — UTF-8 (1208, the default), WINDOWS-1252 (1252) or
+  ISO-8859-1 (819), by name or number; a character a single-byte code page
+  cannot hold becomes X'7F', as IBM documents. `ULENGTH`, `UPOS`,
+  `USUBSTR`, `UVALID`, `UWIDTH` and `USUPPLEMENTARY` return what IBM
+  documents for them, checked against IBM's own examples. `UPPER-CASE` and
+  `LOWER-CASE` of national or UTF-8 data follow Unicode.
+
+## [PowerRustCOBOL 1.80.221] — 2026-10-06
+
+### Added
+- **Spec 077 M2 — national and UTF-8 items at run time.** A `PIC N(n)` item
+  holds n characters (UTF-16 code units), a `PIC U(n)` item n characters and
+  a `PIC U BYTE-LENGTH n` item the whole characters that fit n bytes —
+  truncated on a whole character and padded with spaces, `JUSTIFIED RIGHT`
+  honoured. Their storage is UTF-16 big-endian (2n bytes) and padded UTF-8
+  (4n or n bytes): that is what a group, a `REDEFINES` and `BYTE-LENGTH`
+  see, and a group move restores the characters. `FUNCTION LENGTH` counts
+  characters. Moving one into a `PIC X` item keeps whole characters only.
+  Figurative constants take the class's own characters (HIGH-VALUE is
+  U+FFFF / U+10FFFF). Comparisons are by code point. `INITIALIZE …
+  REPLACING NATIONAL / UTF-8` reaches them. `ACCEPT` into one reads UTF-8,
+  or Windows-1252 when the typed bytes are not UTF-8. The debugger shows
+  them as `national` / `utf-8` with their storage length. Nested programs
+  (and so form event handlers) keep the class. Programs without national
+  or UTF-8 data are unchanged: NIST is 8,362 of 8,362 assertions.
+
+## [PowerRustCOBOL 1.80.220] — 2026-10-06
+
+### Added
+- **Spec 077 M1 — national and UTF-8 syntax, and Check.** `PIC N(n)`,
+  `PIC U(n)`, `PIC U BYTE-LENGTH n`, `USAGE NATIONAL` and `USAGE UTF-8` are
+  now recognised (they used to read as alphanumeric pictures, or as an
+  unknown USAGE), together with the literals `N"…"`, `NX"…"`, `U"…"` (with
+  `\uhhhh`, `\U00hhhhhh`, `\\` escapes) and `UX"…"`, and
+  `INITIALIZE … REPLACING NATIONAL / UTF-8`. A malformed `NX` or `UX`
+  literal is reported on its line. Check refuses a national or UTF-8 item in
+  arithmetic; national numeric and national-edited items, which are not
+  supported yet; USAGE and PICTURE that disagree; `BYTE-LENGTH` on anything
+  but a single `U`; a VALUE longer than its item; and a literal code page
+  that `NATIONAL-OF` / `DISPLAY-OF` cannot convert. The runtime support
+  (milestones M2–M8) is still to come: for now these items hold their
+  characters as alphanumeric text.
+
+## [PowerRustCOBOL 1.80.219] — 2026-10-06
+
+### Removed
+- **Spec 086 (PowerCOBOL converter) withdrawn** (operator, 2026-10-06): no
+  longer needed. `specs/086-powercobol-converter/` is deleted, and spec 087
+  and its tests no longer hand the samples' non-SQL constructs to it — they
+  are out of scope.
+
+## [PowerRustCOBOL 1.80.218] — 2026-10-06
+
+### Added
+- **Spec 087 — acceptance.** The same embedded-SQL programs (AC2's host
+  structure, AC7's 10,000-row cursor, and a new AC9 program that connects to a
+  project SQL connection by name) give identical results under `rcrun run`,
+  Run Form, a form opened by another form, and a compiled binary — three
+  tests, one per pair of hosts. The full sweep is green apart from the one
+  known documentation-translation test; NIST is unchanged (420/420 compile;
+  NC, SQ, IX, RL and IC execute with 0 failures). 17 of the spec's 18
+  acceptance criteria are proved; the MySQL half of AC15 and the live
+  PostgreSQL and MySQL runs wait for a server.
+
+## [PowerRustCOBOL 1.80.217] — 2026-10-06
+
+### Fixed
+- **Run Form keeps what a program DISPLAYs just before it ends.** The form
+  host closed the window on the frame it saw the program finish, before that
+  frame's output was written, so the last lines — a closing message, a
+  report's totals — never reached the Output pane; a program that ended at
+  once lost all of them. The same held for a form opened by another form. Both
+  now write every line before the window goes.
+
+## [PowerRustCOBOL 1.80.216] — 2026-10-06
+
+### Added
+- **Spec 087 M7 — embedded SQL on PostgreSQL and MySQL (preview).** `EXEC
+  SQL` reaches PostgreSQL and MySQL — by a `postgres://` or `mysql://`
+  connection string, or by a project SQL connection whose server is reached
+  field by field, the password never in a URL. PostgreSQL: parameters in text
+  form, results decoded exactly (NUMERIC, dates, times, timestamps, UUID …),
+  a savepoint around each statement so one failure does not spoil the unit of
+  work, the server's own SQLSTATE. MySQL: exact decimals, matched-row counts,
+  standard SQLSTATEs refined from MySQL's error numbers, the unit of work
+  reopened after a data-definition statement. `WHERE CURRENT OF` names the
+  row by `rowid` (SQLite), physical address (PostgreSQL) or primary key
+  (MySQL). A gated suite reruns every AC program against a live server
+  (`PRC_TEST_PG_URL`, `PRC_TEST_MYSQL_URL`); it has not been run yet, so the
+  Guide calls both databases a preview and lists the differences per
+  database.
+
+## [PowerRustCOBOL 1.80.215] — 2026-10-06
+
+### Added
+- **Spec 087 M11 — the operator's samples' SQL, as written.** A gated test
+  (`PRC_LEGACY_CBL_DIR`) reads `F-ART-PURGA.cob` and `TyC.cob` at test time,
+  lifts their host-variable declarations and every `EXEC SQL` block, and runs
+  each distinct statement — 24 and 3 — against SQLite copies of the tables
+  they use: cursors over queries and over a prepared statement, counts,
+  deletes, `COMMIT`, `CONNECT TO 'JOSBER'` through a named SQL connection and
+  `SELECT … INTO … LIMIT 1`. `DELETE … LIMIT 1`, which SQLite rejects, sets
+  `42601` and the program carries on. Nothing of the samples is copied into
+  the repository.
+
+## [PowerRustCOBOL 1.80.214] — 2026-10-06
+
+### Added
+- **Spec 087 M10 — embedded SQL documented end to end.** The syntax
+  reference lists `EXEC SQL` among the extensions; the Guide's Appendix A maps
+  "Embedded SQL / ODBC" to it; `docs/database-runtime-en.md` documents the
+  `sql-connection:<NAME>` connection string and `SqlDatabase.SqlConnection`,
+  points to embedded SQL, and now writes every example with the inline
+  `COBOL::"…"` calls — its CRUD example is run, as written, by the test suite.
+  The coding-agent kit gains a `powerrustcobol-use-sql` skill: connect by the
+  name of a project SQL connection the developer creates in the IDE, bind
+  every value through a host variable, never write a password.
+
+### Removed
+- The five translations of `database-runtime` (GOLDEN RULE #8): their
+  English changed; the next minor release regenerates them.
+
+## [PowerRustCOBOL 1.80.213] — 2026-10-06
+
+### Added
+- **Spec 087 M9 — embedded SQL in the IDE.** The project tree has an **SQL
+  Connections** item after Indexed Files: one row per SQL connection, the
+  default marked, and a **➕** that adds one. A row opens the SQL connection
+  editor (name, SQLite file or PostgreSQL/MySQL server, default,
+  create-if-missing) with **Test connection** — the database's own answer,
+  on a worker thread — and **Remove** with a confirmation. User names and
+  passwords are kept in the IDE's credential vault, moved on a rename, and
+  handed to Run, Debug and Run Form as `<APP>_SQL_<NAME>_*` variables; none
+  reaches the project. Everything in six languages.
+- The editor highlights `EXEC SQL` blocks as SQL across lines, host variables
+  as COBOL names; **Go to definition** (F12, Cmd/Ctrl-click) reaches a data
+  item's declaration — from a form handler, the form site that declares it.
+- The debugger's dock gains an **SQL** tab (statement with placeholders,
+  bound values, SQLSTATE, SQLCODE, rows, message; passwords as `******`), and
+  a breakpoint inside an `EXEC SQL` block is refused with its reason.
+
+## [PowerRustCOBOL 1.80.212] — 2026-10-06
+
+### Added
+- **Spec 087 M8 — `SqlDatabase.SqlConnection`.** A `SqlDatabase` control can
+  name one of the project's SQL connections instead of carrying a connection
+  string: set, it wins over `ConnectionString`, and the generated
+  `<id>-CONNECT` and `Open()` with no argument connect through it — from the
+  project under Run Form and `rcrun`, from `sql-connections.toml` in a built
+  application. The form keeps the name only. The Properties panel offers the
+  project's names in a drop-down (in all six languages) and marks a name the
+  project no longer defines; Check reports it as an error.
+  `COBOL::"OPEN-DB" ( "sql-connection:SALES" … )` reaches a SQL connection by
+  name too, and a server connection is opened field by field, never through a
+  URL holding the password.
+
+## [PowerRustCOBOL 1.80.211] — 2026-10-06
+
+### Added
+- **Spec 087 M6 — a built application's SQL connections.** Build links the
+  SQL drivers into any program that uses `EXEC SQL` (or declares a cursor),
+  and writes a starting `sql-connections.toml` beside the binary — in `bin/`
+  and in the destination folder — listing the project's SQL connections with
+  absolute SQLite paths and no user name or password, under a header naming
+  the `<APP>_SQL_<NAME>_URL`/`_USER`/`_PASSWORD` variables and the key-store
+  entry `SQL:<NAME>`. A rebuild never overwrites the file, so the operator's
+  edits stay. The built application reads it at start; the environment
+  overrides it, a `password` key in it is refused with `28000`, and the
+  application's key store (`COBOL::"KEY-SET" ( "SQL:SALES" … )`) can supply
+  the password.
+
+## [PowerRustCOBOL 1.80.210] — 2026-10-06
+
+### Fixed
+- **Build no longer fails when `CARGO_TARGET_DIR` is set** in the
+  environment the IDE or `rcrun build` was started from. Cargo put the
+  program where that variable said, and Build then looked for it in its own
+  build folder and stopped with "install the program … No such file". Build
+  now tells cargo where to put it.
+
+## [PowerRustCOBOL 1.80.209] — 2026-10-06
+
+### Added
+- **Spec 087 M5 — the project's SQL connections, and one run unit for every
+  form.** The project file lists named SQL connections as
+  `[[sql-connections]]` (name, SQLite path relative to the project, `default`,
+  `create-if-missing`); `CONNECT TO 'SALES'` reaches one by name under Run,
+  Debug, Run Form and `rcrun run`/`run-form`, and a program that connects to
+  nothing uses the one marked `default` (none → `08003`). A missing SQLite
+  file is `08001` unless the entry allows creating it.
+  `<APP>_SQL_<NAME>_URL`/`_USER`/`_PASSWORD` override an entry from the
+  environment; a `password` written in the file is refused with `28000` and
+  a message naming the file and the variable to use.
+- Every form of an application shares one set of SQL connections: a form
+  opened later reads through the connection the main form made, uncommitted
+  rows included, in Run Form and in a built application alike. Closing a form
+  releases only its own cursors and prepared statements.
+- **The end of the run settles open work.** The main program's or main form's
+  end commits every connection's open unit of work after `STOP RUN`, `GOBACK`
+  or the main window closing, and rolls it back after a runtime error or an
+  IDE Stop, then closes every connection. A form window that closes waits up
+  to 10 s for its program to finish that before the process exits.
+
+## [PowerRustCOBOL 1.80.208] — 2026-10-06
+
+### Fixed
+- The IDE's **Stop** on a console **Run** stops the program. It used to take
+  effect only when pressed before the program started: a running program —
+  one in a loop, say — ran on to its end while the IDE showed it stopped.
+  Stop now ends it between two statements, and the Output pane reports
+  "Stopped by user".
+
+## [PowerRustCOBOL 1.80.207] — 2026-10-06
+
+### Added
+- **Spec 087 M4c — dynamic SQL and the descriptor area on SQLite.** `PREPARE
+  s FROM :host` (the text as it is at that moment), `EXECUTE s [USING …]`,
+  `EXECUTE IMMEDIATE`, cursors over a prepared statement (`DECLARE c CURSOR
+  FOR s`, `OPEN c USING …`), `DESCRIBE [INPUT] s INTO SQLDA` and `FETCH …
+  USING DESCRIPTOR`. `EXEC SQL INCLUDE SQLDA` declares a 100-entry
+  descriptor: each entry's name, type code and name, length, precision, scale
+  and nullability, with "unknown" (−1) where the database does not say. A
+  descriptor too small gets `SQLDA-NEEDED`, nothing filled, and `01005`.
+  Values travel through each entry's `SQLDA-DATA` pointer (`SET … TO ADDRESS
+  OF item`) — converted exactly as `INTO :item` — or as text inside the entry
+  when the pointer is NULL. An unprepared statement name is `07003`. The Guide
+  carries a caveat: prepared text is sent as written, so a user's value
+  belongs behind a `?`.
+
+## [PowerRustCOBOL 1.80.206] — 2026-10-06
+
+### Added
+- **Spec 087 M4b — cursors and units of work on SQLite.** `DECLARE … CURSOR
+  [WITH HOLD] FOR SELECT … [FOR UPDATE]` in WORKING-STORAGE or the PROCEDURE
+  DIVISION, `OPEN` (host variables read at that moment), `FETCH … INTO` (no
+  data `02000` past the last row), `CLOSE`, and `UPDATE`/`DELETE … WHERE
+  CURRENT OF` on the row last fetched. A wrong-state OPEN/FETCH/CLOSE is
+  `24000` and changes nothing; a positioned cursor over more than one table,
+  or with DISTINCT or GROUP BY, is `0A000`. Cursors belong to the program that
+  declared them — a form's WORKING-STORAGE cursors are its handlers' too — and
+  two copies of one form never share one. `EXEC SQL COMMIT` closes every cursor
+  not declared `WITH HOLD`, `ROLLBACK` closes them all; the COBOL `COMMIT` and
+  `ROLLBACK` verbs and `EXEC SQL` never undo each other's work. Measured in a
+  debug build: 10,000 rows fetched at about 31,000 rows/s.
+
+## [PowerRustCOBOL 1.80.205] — 2026-10-06
+
+### Added
+- **Spec 087 M4a — embedded SQL runs on SQLite.** Static statements execute:
+  `SELECT … INTO`, `INSERT`, `UPDATE`, `DELETE`, data definition, `COMMIT`,
+  `ROLLBACK`, `CONNECT TO 'connection-string' [AS name]`, `SET CONNECTION` and
+  `DISCONNECT`. Host variables are bound as parameters, never pasted into the
+  SQL (a value like `x' OR '1'='1` matches only itself). A group is a host
+  structure — its elementary items in order, `FILLER` and `REDEFINES`
+  skipped. Values keep their type and scale through packed, binary, display,
+  alphanumeric and date items; every `INTO` item is set or none is: a number
+  that does not fit gives `22003`, NULL with no indicator `22002`, a cut text
+  the warning `01004` with its original length in the indicator, and a
+  negative indicator sends NULL. After every statement the stand-alone
+  `SQLSTATE`/`SQLCODE`/`SQLMSG` and the SQLCA (`INCLUDE SQLCA`) are set, by
+  one published SQLSTATE → SQLCODE rule; `WHENEVER` acts in source order; an
+  SQL error never stops the program. SQLite's errors map to standard
+  SQLSTATEs (`23505`, `42601`, `42P01`, `42703`, `23502` …). A program that
+  only reads holds no write lock. The debugger gains an SQL output channel
+  (one line per statement, a `CONNECT` password masked). Cursors, dynamic SQL,
+  named SQL connections, PostgreSQL and MySQL report `0A000`/`08001` until
+  their milestones.
+
+## [PowerRustCOBOL 1.80.204] — 2026-10-06
+
+### Added
+- **Spec 087 M3 — embedded SQL is documented.** The Developer's Guide gains
+  "Embedded SQL: `EXEC SQL`" in §15 — the block, host variables and
+  indicators, declare sections, `INCLUDE`, `WHENEVER` in source order, and the
+  table of what Check reports — and says plainly that blocks do not run yet.
+  The System KB's extensions document carries the same, so the coding agents
+  write embedded SQL correctly and know it does not execute in this release.
+  Spec 087's AC15 is narrowed to the SQL of the operator's sample programs
+  (operator, 2026-10-06): their non-SQL PowerCOBOL constructs are spec 086's.
 
 ## [PowerRustCOBOL 1.80.203] — 2026-10-06
 

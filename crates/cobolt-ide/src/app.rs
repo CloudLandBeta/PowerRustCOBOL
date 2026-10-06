@@ -654,6 +654,8 @@ pub struct CoboltApp {
 
     // Inline indexed-file inspector in the Main Pane
     indexed_inspect: Option<IndexedInspectState>,
+    /// Spec 087 R33 — the SQL connection editor in the main pane.
+    sql_editor: Option<crate::panels::sql_connections::SqlConnectionEditor>,
 
     // Inline asset preview in the Main Pane
     asset_preview: Option<AssetPreviewState>,
@@ -2051,6 +2053,7 @@ impl CoboltApp {
             indexed_grids: Vec::new(),
             inspect: None,
             indexed_inspect: None,
+            sql_editor: None,
             asset_preview: None,
             raw_preferred_indexed: std::collections::HashSet::new(),
             checked: std::collections::HashMap::new(),
@@ -2811,7 +2814,16 @@ impl CoboltApp {
             }
         }
 
-        crate::form_runtime::credential_env_for(&forms, &self.llm, &catalogue)
+        let mut env = crate::form_runtime::credential_env_for(&forms, &self.llm, &catalogue);
+        // Spec 087 R33 — the SQL connections' credentials, from the vault.
+        if let Some(project) = self.cobolt_project.as_ref() {
+            env.extend(crate::form_runtime::sql_credential_env(
+                &project.project.name,
+                &project.sql_connections,
+                &self.llm,
+            ));
+        }
+        env
     }
 
     fn built_app_env(&self, form_path: &Path) -> Vec<(String, String)> {
@@ -3946,8 +3958,15 @@ impl CoboltApp {
                 let blocks = crate::exec_rust_run::file_block_line_ranges(&path);
                 if crate::exec_rust_run::line_is_inside_block(&blocks, line) {
                     let tr = self.lang.tr();
-                    self.output
-                        .push_status(tr.status_exec_rust_bp_in_block.to_owned());
+                    let sql = std::fs::read_to_string(&path)
+                        .map(|s| crate::exec_rust_run::sql_block_line_ranges(&s))
+                        .unwrap_or_default();
+                    let reason = if crate::exec_rust_run::line_is_inside_block(&sql, line) {
+                        tr.status_exec_sql_bp_in_block
+                    } else {
+                        tr.status_exec_rust_bp_in_block
+                    };
+                    self.output.push_status(reason.to_owned());
                     return;
                 }
                 self.editor.toggle_breakpoint_at(&path, line);
@@ -4396,6 +4415,7 @@ impl CoboltApp {
                         .unwrap_or_default(),
                 );
                 self.project_path = Some(path);
+                self.publish_project_sql();
                 if let Some(dir) = dir {
                     // Create the standard project sub-folders: one per category
                     // (Common Code / Forms / Generated Code / Assets / Docs) plus
@@ -4547,6 +4567,7 @@ impl CoboltApp {
                         .unwrap_or_default(),
                 );
                 self.project_path = Some(path);
+                self.publish_project_sql();
                 self.agents_modal = None;
                 self.models_modal = None;
                 if migrated_ai {
@@ -4675,7 +4696,19 @@ impl CoboltApp {
         self.do_save_project();
     }
 
-    fn do_save_project(&mut self) {
+    /// Spec 087 R33 — tell the in-process runner where the project file is,
+    /// the application's name and the SQL connections' vault credentials.
+    fn publish_project_sql(&self) {
+        let app = self.cobolt_project.as_ref().map(|p| p.project.name.clone()).unwrap_or_default();
+        let credentials = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| crate::form_runtime::sql_credential_env(&app, &p.sql_connections, &self.llm))
+            .unwrap_or_default();
+        crate::runner::set_project_sql(self.project_path.as_deref(), &app, credentials);
+    }
+
+        fn do_save_project(&mut self) {
         // Settings may have just changed the engine; republish before writing.
         crate::runner::set_project_indexed_engine(
             &self
@@ -4684,6 +4717,7 @@ impl CoboltApp {
                 .map(|p| p.ide.indexed_engine.clone())
                 .unwrap_or_default(),
         );
+        self.publish_project_sql();
         if self.cobolt_project.is_none() {
             return;
         }
@@ -7443,6 +7477,11 @@ impl CoboltApp {
                     .unwrap_or_default();
                 // Hoisted off `self` beside `indexed_files`, for the same reason:
                 // the inspector borrows the designer mutably just below.
+                let sql_connection_names: Vec<String> = self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|project| project.sql_connections.iter().map(|c| c.name.clone()).collect())
+                    .unwrap_or_default();
                 let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
                     .cobolt_project
                     .as_ref()
@@ -7473,6 +7512,7 @@ impl CoboltApp {
                     let form = &d.form as *const cobolt_forms::Form;
                     let props = &mut d.properties;
                     props.set_rest_connections(&rest_connections);
+                props.set_sql_connections(&sql_connection_names);
                 props.set_search_connections(&search_connections);
                 props.set_agent_connections(&agent_connections);
                     props.set_search_connections(&search_connections);
@@ -8160,6 +8200,103 @@ impl CoboltApp {
         self.output
             .push_status(format!("Imported indexed file → {rel}"));
         self.open_indexed_inspect(cidx_path, None);
+    }
+
+    /// Spec 087 R33 — open the SQL connection editor: `name`'s, or a new one.
+    fn open_sql_editor(&mut self, name: Option<&str>) {
+        let Some(project) = self.cobolt_project.as_ref() else { return };
+        let existing = name.and_then(|n| project.sql_connections.iter().find(|c| c.name.eq_ignore_ascii_case(n)));
+        let app = project.project.name.clone();
+        let (user, password_stored) = match existing {
+            Some(c) => {
+                let slot = |part| cobolt_forms::connections::sql_credential_slot(&app, &c.name, part);
+                (
+                    self.llm.api_keys.get(&slot("user")).cloned().unwrap_or_default(),
+                    self.llm.api_keys.get(&slot("password")).is_some_and(|p| !p.is_empty()),
+                )
+            }
+            None => (String::new(), false),
+        };
+        let base = self.project_dir().unwrap_or_default();
+        self.sql_editor = Some(crate::panels::sql_connections::SqlConnectionEditor::new(existing, user, password_stored, &base));
+        self.show_project_settings = false;
+        self.inspect = None;
+        self.indexed_inspect = None;
+        self.asset_preview = None;
+    }
+
+    /// Draw the SQL connection editor and carry out what it asks: save the
+    /// definition to the project file and the credentials to the vault
+    /// (moving them on a rename), or remove the connection.
+    fn show_sql_editor(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        use crate::panels::sql_connections::SqlEditorAction;
+        let ctx = panel_ui.ctx().clone();
+        let card = crate::theme::glass_panel_frame(
+            crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill),
+            self.current_theme(),
+        );
+        let others = self.cobolt_project.as_ref().map(|p| p.sql_connections.clone()).unwrap_or_default();
+        let mut action = SqlEditorAction::None;
+        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
+            crate::aurora::glow_card(ui);
+            if let Some(ed) = self.sql_editor.as_mut() {
+                egui::ScrollArea::vertical().show(ui, |ui| action = ed.show(ui, &others, tr));
+            }
+        });
+        let Some(original) = self.sql_editor.as_ref().map(|e| e.original.clone()) else { return };
+        match action {
+            SqlEditorAction::None => {}
+            SqlEditorAction::Close => self.sql_editor = None,
+            SqlEditorAction::Save { def, user, password } => {
+                let Some(project) = self.cobolt_project.as_mut() else { return };
+                let app = project.project.name.clone();
+                let at = original
+                    .as_deref()
+                    .and_then(|o| project.sql_connections.iter().position(|c| c.name.eq_ignore_ascii_case(o)));
+                if def.default {
+                    for c in project.sql_connections.iter_mut() {
+                        c.default = false;
+                    }
+                }
+                match at {
+                    Some(i) => project.sql_connections[i] = def.clone(),
+                    None => project.sql_connections.push(def.clone()),
+                }
+                if let Some(old) = original.as_deref().filter(|o| *o != def.name) {
+                    crate::form_runtime::move_sql_credentials(&mut self.llm, &app, old, Some(&def.name));
+                }
+                let slot = |part| cobolt_forms::connections::sql_credential_slot(&app, &def.name, part);
+                if user.is_empty() {
+                    self.llm.withdraw_api_key(&slot("user"));
+                } else {
+                    self.llm.store_api_key(slot("user"), &user);
+                }
+                // An empty password box keeps the stored one.
+                if !password.is_empty() {
+                    self.llm.store_api_key(slot("password"), &password);
+                }
+                if let Err(e) = self.llm.save() {
+                    self.output.push_status(format!("could not store the SQL connection's credentials: {e}"));
+                }
+                self.do_save_project();
+                self.output.push_status(format!("Saved SQL connection {}", def.name));
+                self.open_sql_editor(Some(&def.name));
+            }
+            SqlEditorAction::Remove => {
+                let Some(project) = self.cobolt_project.as_mut() else { return };
+                let app = project.project.name.clone();
+                if let Some(name) = original {
+                    project.sql_connections.retain(|c| !c.name.eq_ignore_ascii_case(&name));
+                    crate::form_runtime::move_sql_credentials(&mut self.llm, &app, &name, None);
+                    if let Err(e) = self.llm.save() {
+                        self.output.push_status(format!("could not remove the SQL connection's credentials: {e}"));
+                    }
+                    self.do_save_project();
+                    self.output.push_status(format!("Removed SQL connection {name}"));
+                }
+                self.sql_editor = None;
+            }
+        }
     }
 
     fn show_indexed_inspector(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
@@ -15833,7 +15970,13 @@ impl eframe::App for CoboltApp {
                 if !matches!(&ev, ProjectPanelEvent::OpenGraceChat) {
                     self.show_grace_chat = false;
                 }
+                // Anything else the tree opens replaces the SQL editor.
+                if !matches!(&ev, ProjectPanelEvent::NewSqlConnection | ProjectPanelEvent::OpenSqlConnection(_)) {
+                    self.sql_editor = None;
+                }
                 match ev {
+                    ProjectPanelEvent::NewSqlConnection => self.open_sql_editor(None),
+                    ProjectPanelEvent::OpenSqlConnection(name) => self.open_sql_editor(Some(&name)),
                     ProjectPanelEvent::OpenGraceChat => {
                         self.show_grace_chat = true;
                         self.show_project_settings = false;
@@ -16022,6 +16165,8 @@ impl eframe::App for CoboltApp {
             }
         } else if self.show_project_settings && self.settings_form.is_some() {
             self.show_settings_pane(root_ui, &tr);
+        } else if self.sql_editor.is_some() {
+            self.show_sql_editor(root_ui, &tr);
         } else if self.indexed_inspect.is_some() {
             self.show_indexed_inspector(root_ui, &tr);
         } else if self.asset_preview.is_some() {
@@ -19111,7 +19256,12 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.files.indexed.clone())
             .unwrap_or_default();
-        let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
+        let sql_connection_names: Vec<String> = self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|project| project.sql_connections.iter().map(|c| c.name.clone()).collect())
+                    .unwrap_or_default();
+                let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
             .cobolt_project
             .as_ref()
             .map(|project| project.integrations.rest_connections.clone())
@@ -19182,6 +19332,7 @@ impl CoboltApp {
                 let form = &d.form as *const cobolt_forms::Form;
                 let props = &mut d.properties;
                 props.set_rest_connections(&rest_connections);
+                props.set_sql_connections(&sql_connection_names);
                 props.set_search_connections(&search_connections);
                 props.set_agent_connections(&agent_connections);
                 props.set_stored_credentials(&stored_creds);
@@ -20390,7 +20541,7 @@ fn collect_decl_values(decl: &DataDecl, values: &mut Vec<(String, String)>) {
 
 fn literal_preview_value(value: &Literal) -> String {
     match value {
-        Literal::String(value) => value.clone(),
+        Literal::String(value) | Literal::National(value) | Literal::Utf8(value) => value.clone(),
         Literal::Integer(value) => value.to_string(),
         // A preview shows the source, so a literal written with leading zeros
         // previews with them: `VALUE 0012` reads `0012`, not `12`.

@@ -357,6 +357,46 @@ pub fn credential_env_for(
     out
 }
 
+/// Spec 087 R33 — the user names and passwords of the project's SQL
+/// connections, from the IDE's credential vault, as the `<APP>_SQL_<NAME>_USER`
+/// / `_PASSWORD` variables a run reads them through. Run Form passes them to
+/// its process; the in-process runner hands them to the catalog.
+pub fn sql_credential_env(
+    app: &str,
+    connections: &[cobolt_forms::connections::SqlConnection],
+    llm: &crate::llm::LlmConfig,
+) -> Vec<(String, String)> {
+    use cobolt_forms::connections::{sql_credential_slot, sql_env_var};
+    let mut out = Vec::new();
+    for c in connections {
+        for part in ["user", "password"] {
+            if let Some(v) = llm.api_keys.get(&sql_credential_slot(app, &c.name, part)).filter(|v| !v.is_empty()) {
+                out.push((sql_env_var(app, &c.name, part), v.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// Spec 087 R33 — a renamed SQL connection keeps its credentials: both vault
+/// slots move to the new name. A connection removed takes them with it
+/// (`to` = `None`).
+pub fn move_sql_credentials(llm: &mut crate::llm::LlmConfig, app: &str, from: &str, to: Option<&str>) {
+    use cobolt_forms::connections::sql_credential_slot;
+    for part in ["user", "password"] {
+        let old = sql_credential_slot(app, from, part);
+        match to {
+            Some(to) => {
+                let new = sql_credential_slot(app, to, part);
+                if old != new {
+                    llm.rekey_credential(&old, &new);
+                }
+            }
+            None => llm.withdraw_api_key(&old),
+        }
+    }
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.
@@ -804,6 +844,34 @@ impl Drop for BuiltAppRun {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+}
+
+#[cfg(test)]
+mod sql_credential_tests {
+    use super::*;
+    use cobolt_forms::connections::{sql_credential_slot, SqlConnection};
+
+    /// R33 — a rename moves both credentials to the new name; the run then
+    /// receives them under the new name's variables, and nothing remains
+    /// under the old one.
+    #[test]
+    fn rename_moves_credentials() {
+        let mut llm = crate::llm::LlmConfig::defaults();
+        llm.store_api_key(sql_credential_slot("Shop", "SALES", "user"), "clerk");
+        llm.store_api_key(sql_credential_slot("Shop", "SALES", "password"), "s3cret");
+        move_sql_credentials(&mut llm, "Shop", "SALES", Some("Sales-2026"));
+        let env = sql_credential_env("Shop", &[SqlConnection::new("Sales-2026")], &llm);
+        assert_eq!(
+            env,
+            [
+                ("SHOP_SQL_SALES_2026_USER".to_string(), "clerk".to_string()),
+                ("SHOP_SQL_SALES_2026_PASSWORD".to_string(), "s3cret".to_string())
+            ]
+        );
+        assert!(sql_credential_env("Shop", &[SqlConnection::new("SALES")], &llm).is_empty(), "nothing left under the old name");
+        move_sql_credentials(&mut llm, "Shop", "Sales-2026", None);
+        assert!(sql_credential_env("Shop", &[SqlConnection::new("Sales-2026")], &llm).is_empty(), "removal takes them");
     }
 }
 

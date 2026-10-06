@@ -28,6 +28,7 @@ use indexmap::IndexMap;
 
 /// Spec 072 — the AgentObject tool loop.
 mod agent_loop;
+mod exec_sql;
 mod kb;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
@@ -1521,6 +1522,22 @@ pub struct Interpreter {
     perform_depth: usize,
     /// Database runtime engine (Phase 8) — manages SQLite connections.
     db: DbRegistry,
+    /// Spec 087: the run unit's embedded-SQL connections (shared by every form
+    /// of the run from M5).
+    sql_unit: std::sync::Arc<std::sync::Mutex<crate::esql::SqlRunUnit>>,
+    /// Spec 087: where this program's SQL status items live, found once.
+    sql_status: Option<exec_sql::StatusKeys>,
+    /// Spec 087: this interpreter's identity in the run unit's cursor table.
+    sql_instance: u64,
+    /// Spec 087 R38: whether this interpreter started the run unit (and so
+    /// ends it) or joined it (a child form, which releases only its own).
+    sql_root: bool,
+    /// The debugger's Stop ended this run (spec 087 R38: an IDE Stop is a
+    /// cancel, so the run unit's open SQL work is rolled back).
+    stopped_by_host: bool,
+    /// Spec 087: the cursors each program of this tree can name, by
+    /// (program, cursor) — built on first use.
+    sql_cursor_decls: Option<std::collections::HashMap<(String, String), cobolt_ast::sql::SqlCursor>>,
     /// HTTP client (Phase 10) — manages persistent headers and sends requests.
     http: crate::http_runtime::HttpClient,
     /// Spec 065 — the indexed files this application lets a model consult.
@@ -2055,6 +2072,12 @@ impl Interpreter {
             program_locals: HashMap::new(),
             perform_depth: 0,
             db: DbRegistry::new(),
+            sql_unit: Default::default(),
+            sql_status: None,
+            sql_instance: exec_sql::next_instance(),
+            sql_root: true,
+            stopped_by_host: false,
+            sql_cursor_decls: None,
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             free_memory_probe: None,
@@ -3867,7 +3890,10 @@ impl Interpreter {
                 )
                 .map_err(|_| ())
             }
-            Ok(crate::debugger::DebugCmd::Terminate) => Err(()),
+            Ok(crate::debugger::DebugCmd::Terminate) => {
+                self.stopped_by_host = true;
+                Err(())
+            }
             // A step or Continue sent while the form is idle is the answer to
             // no stop; it takes effect at the next statement as before.
             Ok(other) => {
@@ -4362,6 +4388,9 @@ impl Interpreter {
         // ours back so a later activation in the same run unit sees them.
         self.load_external();
         let result = self.run_inner();
+        // Spec 087 R38: the end of the run unit's SQL work.
+        let normal = match &result { Ok(()) => true, Err(e) => e.is_exit_signal() };
+        self.sql_end(normal && !self.is_cancelled() && !self.stopped_by_host);
         // Spec 062 — STOP RUN closes every open file, and closing a report is
         // what shows it. Without this a program that writes a report and ends
         // without CLOSE leaves the document written and never displayed: the
@@ -4762,6 +4791,7 @@ impl Interpreter {
                         reason = Some(StopReason::Pause);
                     }
                     Ok(crate::debugger::DebugCmd::Terminate) => {
+                        self.stopped_by_host = true;
                         return Err(RuntimeError::StopRun);
                     }
                     _ => return Ok(()),
@@ -4862,6 +4892,7 @@ impl Interpreter {
                     break;
                 }
                 Ok(crate::debugger::DebugCmd::Terminate) => {
+                    self.stopped_by_host = true;
                     return Err(RuntimeError::StopRun);
                 }
                 // Answer and STAY STOPPED. Opening a group, then a table,
@@ -4877,6 +4908,7 @@ impl Interpreter {
                 Ok(crate::debugger::DebugCmd::Pause) => {}
                 Err(_) => {
                     // Channel dropped — the IDE closed. Stop the program.
+                    self.stopped_by_host = true;
                     return Err(RuntimeError::StopRun);
                 }
             }
@@ -5109,6 +5141,13 @@ impl Interpreter {
                     crate::value::CobolValue::Float(_) => "float",
                     crate::value::CobolValue::String { .. } => "alphanumeric",
                     crate::value::CobolValue::Unset => "unset",
+                };
+                // A national or UTF-8 item shows its characters under its own
+                // category; its length below is its storage in bytes.
+                let cat = match self.env.char_class(key) {
+                    Some(c) if c.is_national() => "national",
+                    Some(_) => "utf-8",
+                    None => cat,
                 };
                 (text, cat.to_owned(), None)
             }
@@ -6001,9 +6040,8 @@ impl Interpreter {
                 })
             }
 
-            // Spec 087: embedded SQL. Executed from M4a (T14); until then a
-            // block parses and does nothing.
-            Stmt::ExecSql(_) => Ok(()),
+            // Spec 087: embedded SQL.
+            Stmt::ExecSql(e) => self.exec_sql(e),
 
             // ── PowerCOBOL extensions ─────────────────────────────────────────
             Stmt::WindowOp { op, .. } => {
@@ -6126,9 +6164,26 @@ impl Interpreter {
         let src_bytes = match from {
             Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
                 let key = self.resolve_lvalue(from);
-                self.env.display_bytes(&key)
+                // A national or UTF-8 sender gives a group its storage image,
+                // unconverted, as IBM documents for a group receiver.
+                match self.env.char_class(&key) {
+                    Some(_) => Some(self.env.storage_image(&key)),
+                    None => self.env.display_bytes(&key),
+                }
             }
             _ => None,
+        };
+        // A national or UTF-8 sender — a classed item, or an `N"…"` / `U"…"`
+        // literal. An alphanumeric receiver takes its characters cut on a
+        // whole character, never a broken UTF-8 sequence (spec 077, R8).
+        let src_classed = match from {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.char_class(&key).is_some()
+            }
+            Expr::Literal(Literal::National(_) | Literal::Utf8(_), _) => true,
+            Expr::FunctionCall { name, .. } => name.eq_ignore_ascii_case("NATIONAL-OF"),
+            _ => false,
         };
         // A **group** sending item makes the whole move alphanumeric-to-
         // alphanumeric (COBOL-85 6.18.4): the receiver's PICTURE contributes
@@ -6173,6 +6228,27 @@ impl Interpreter {
                 continue;
             }
             let name = self.resolve_lvalue(target);
+            // A figurative constant into a national or UTF-8 receiver is that
+            // class's own character: HIGH-VALUE is U+FFFF or U+10FFFF, not the
+            // byte X'FF' (spec 077, D6).
+            if let (Some(class), Expr::Literal(Literal::Figurative(fc), _)) = (self.env.char_class(&name), from) {
+                let text = crate::environment::figurative_text(class, fc);
+                self.env.set_str_left(&name, &text);
+                continue;
+            }
+            if src_classed && self.env.char_class(&name).is_none() && !self.env.is_group(&name) {
+                if let Some(cap) = self.env.alphanumeric_capacity(&name) {
+                    let justified = self.env.is_justified(&name);
+                    let text = val.as_display_string();
+                    let cut = crate::national::fit_class(
+                        crate::national::CharClass::Utf8Bytes { bytes: cap },
+                        &text,
+                        justified,
+                    );
+                    self.env.set_verbatim_bytes(&name, cut.as_bytes());
+                    continue;
+                }
+            }
             // `ALL literal` fills this receiver to its declared width, so the
             // value depends on the target and is built per target rather than
             // once above. An empty literal has no fill character and is left
@@ -6797,6 +6873,8 @@ impl Interpreter {
             Some(PicKind::Numeric) => InitCategory::Numeric,
             Some(PicKind::AlphanumericEdited) => InitCategory::AlphanumericEdited,
             Some(PicKind::NumericEdited) => InitCategory::NumericEdited,
+            Some(PicKind::National) => InitCategory::National,
+            Some(PicKind::Utf8) => InitCategory::Utf8,
             None => return,
         };
         if let Some((_, val)) = repl.iter().find(|(c, _)| *c == cat) {
@@ -7832,12 +7910,21 @@ impl Interpreter {
                 // Read one line from stdin.
                 use std::io::BufRead;
                 let stdin = std::io::stdin();
-                let mut line = String::new();
-                let _ = stdin.lock().read_line(&mut line);
-                let s = line
-                    .trim_end_matches('\n')
-                    .trim_end_matches('\r')
-                    .to_owned();
+                let s = if self.env.char_class(&name).is_some() {
+                    // A national or UTF-8 receiver takes the typed characters:
+                    // UTF-8, or Windows-1252 when the bytes are not UTF-8
+                    // (spec 077, Q7).
+                    let mut raw = Vec::new();
+                    let _ = stdin.lock().read_until(b'\n', &mut raw);
+                    while matches!(raw.last(), Some(b'\n' | b'\r')) {
+                        raw.pop();
+                    }
+                    crate::national::typed_text(&raw)
+                } else {
+                    let mut line = String::new();
+                    let _ = stdin.lock().read_line(&mut line);
+                    line.trim_end_matches('\n').trim_end_matches('\r').to_owned()
+                };
                 // The receiver may be a group — `NC109M` accepts into
                 // `ACCEPT-D1` (two subordinate items) and into
                 // `X80-CHARACTER-FIELD` (one `FILLER`) — so the line has to be
@@ -8036,6 +8123,42 @@ impl Interpreter {
             }
         }
         let name = self.resolve_lvalue(into);
+        // A national or UTF-8 receiver is filled by CHARACTER: its size, the
+        // POINTER and the overflow test count characters (spec 077, D9). The
+        // senders have already given their characters' text above.
+        if let Some(class) = self.env.char_class(&name) {
+            let text: Vec<char> = String::from_utf8_lossy(&result).chars().collect();
+            let capacity = class.positions();
+            let overflowed = match pointer {
+                Some(ptr_e) => {
+                    let ptr_name = self.resolve_lvalue(ptr_e);
+                    let start = self.env.get_i64(&ptr_name).unwrap_or(1).max(1) as usize;
+                    let mut dest: Vec<char> = self.env.display_string(&name).unwrap_or_default().chars().collect();
+                    dest.resize(capacity, ' ');
+                    let mut idx = start - 1;
+                    let mut placed = 0usize;
+                    let mut overflow = start - 1 >= capacity && !text.is_empty();
+                    for c in text {
+                        if idx >= capacity {
+                            overflow = true;
+                            break;
+                        }
+                        dest[idx] = c;
+                        idx += 1;
+                        placed += 1;
+                    }
+                    self.env.set_str(&name, &dest.into_iter().collect::<String>());
+                    self.env.set_i64(&ptr_name, (start + placed) as i64);
+                    overflow
+                }
+                None => {
+                    let overflow = text.len() > capacity;
+                    self.env.set_str(&name, &text.into_iter().collect::<String>());
+                    overflow
+                }
+            };
+            return self.run_overflow(overflowed, on_overflow, not_on_overflow);
+        }
         let capacity = self
             .env
             .display_bytes(&name)
@@ -8111,17 +8234,26 @@ impl Interpreter {
         not_on_overflow: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let src: Vec<u8> = self
-            .eval_expr(from, span)?
-            .as_display_string()
-            .into_bytes();
-        let delims: Vec<Vec<u8>> = delimited_by
+        // A national or UTF-8 source is split by CHARACTER: POINTER, COUNT IN
+        // and every position count characters (spec 077, D9). Any other
+        // source keeps its byte positions — the same scan, over bytes.
+        let chars = match from {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.char_class(&key).is_some()
+            }
+            Expr::Literal(Literal::National(_) | Literal::Utf8(_), _) => true,
+            _ => false,
+        };
+        let src: Vec<u32> = inspect_units(&self.eval_expr(from, span)?.as_display_string(), chars);
+        let delims: Vec<Vec<u32>> = delimited_by
             .iter()
             .map(|d| {
-                self.eval_expr(d, span)
+                let text = self
+                    .eval_expr(d, span)
                     .unwrap_or_else(|_| CobolValue::from_str(" ", 1))
-                    .as_display_string()
-                    .into_bytes()
+                    .as_display_string();
+                inspect_units(&text, chars)
             })
             .filter(|d| !d.is_empty())
             .collect();
@@ -8156,7 +8288,11 @@ impl Interpreter {
                 // sizes, each taking exactly its own width (COBOL-85 6.28.4
                 // GR5). Treating the whole remainder as one field gave the
                 // first receiver everything and left the rest untouched.
-                let width = self.env.stored_width(&name).max(1);
+                let width = match self.env.char_class(&name) {
+                    Some(class) if chars => class.positions(),
+                    _ => self.env.stored_width(&name),
+                }
+                .max(1);
                 ((pos + width).min(src.len()), 0, 0)
             } else {
                 match Self::find_delimiter(&src, pos, &delims, all) {
@@ -8164,7 +8300,7 @@ impl Interpreter {
                     None => (src.len(), 0, 0),
                 }
             };
-            let field = String::from_utf8_lossy(&src[pos..field_end]).into_owned();
+            let field = units_text(&src[pos..field_end], chars);
             // The receiver takes the field under ordinary MOVE rules: a numeric
             // one converts, an alphanumeric one is padded or truncated.
             if self.env.is_group(&name) {
@@ -8186,7 +8322,7 @@ impl Interpreter {
                 // **single** occurrence is delivered here (COBOL-85 6.28.4
                 // GR8): `DELIMITED BY ALL ZERO` on "1200000" hands a receiver
                 // "0", not "00000".
-                let text = String::from_utf8_lossy(&src[field_end..field_end + unit_len]);
+                let text = units_text(&src[field_end..field_end + unit_len], chars);
                 self.env.set_str(&dname, &text);
             }
             if let Some(c) = &target.count {
@@ -8220,9 +8356,9 @@ impl Interpreter {
     /// of blanks into one separator — so the run length (what the scan skips)
     /// and one occurrence (what `DELIMITER IN` receives) differ there.
     fn find_delimiter(
-        src: &[u8],
+        src: &[u32],
         from: usize,
-        delims: &[Vec<u8>],
+        delims: &[Vec<u32>],
         all: bool,
     ) -> Option<(usize, usize, usize)> {
         let mut best: Option<(usize, usize, usize)> = None;
@@ -8268,16 +8404,20 @@ impl Interpreter {
     /// Resolve a `BEFORE/AFTER INITIAL` region to a `[lo, hi)` byte window of
     /// `s`. `AFTER INITIAL d` starts just past the first `d`; `BEFORE INITIAL d`
     /// ends just before the first `d` (searched from `lo`). Whole field by default.
+    ///
+    /// Works on INSPECT's code units — bytes, or characters for national and
+    /// UTF-8 data (spec 077); see [`inspect_units`].
     fn inspect_window(
         &mut self,
-        s: &str,
+        s: &[u32],
+        chars: bool,
         region: &InspectRegion,
         span: Span,
     ) -> Result<(usize, usize), RuntimeError> {
         let lo = match &region.after {
             Some(e) => {
-                let d = self.eval_expr(e, span)?.as_display_string();
-                match (d.is_empty(), s.find(&d)) {
+                let d = inspect_units(&self.eval_expr(e, span)?.as_display_string(), chars);
+                match (d.is_empty(), find_units(s, &d)) {
                     (false, Some(p)) => p + d.len(),
                     _ => s.len(),
                 }
@@ -8286,8 +8426,8 @@ impl Interpreter {
         };
         let hi = match &region.before {
             Some(e) => {
-                let d = self.eval_expr(e, span)?.as_display_string();
-                match (d.is_empty(), s[lo..].find(&d)) {
+                let d = inspect_units(&self.eval_expr(e, span)?.as_display_string(), chars);
+                match (d.is_empty(), find_units(&s[lo.min(s.len())..], &d)) {
                     (false, Some(p)) => lo + p,
                     _ => s.len(),
                 }
@@ -8386,6 +8526,10 @@ impl Interpreter {
         if overpunched {
             s.remove(0);
         }
+        // A national or UTF-8 item is inspected by CHARACTER: positions,
+        // CHARACTERS and BEFORE/AFTER count characters, not bytes (spec 077,
+        // D9). Everything else keeps its byte positions.
+        let chars = self.env.char_class(&name).is_some();
         // Only the selected positions are inspected; the characters before and
         // after them are kept aside and put back unchanged.
         let mut outside: Option<(String, String)> = None;
@@ -8396,14 +8540,21 @@ impl Interpreter {
         // taken with that count lost its last bytes (operator, 2026-09-28:
         // PowerChat showed "/html>" after a page).
         if let Some((start, length, rspan)) = refmod {
+            let units = inspect_units(&s, chars);
             let first = self.eval_expr(start, rspan)?.as_i64().unwrap_or(1).max(1) as usize;
-            let begin = (first - 1).min(s.len());
+            let begin = (first - 1).min(units.len());
             let len = match length {
                 Some(l) => self.eval_expr(l, rspan)?.as_i64().unwrap_or(0).max(0) as usize,
-                None => s.len() - begin,
+                None => units.len() - begin,
             };
-            let end = (begin + len).min(s.len());
-            let (before, inner, after) = if s.is_char_boundary(begin) && s.is_char_boundary(end) {
+            let end = (begin + len).min(units.len());
+            let (before, inner, after) = if chars {
+                (
+                    units_text(&units[..begin], true),
+                    units_text(&units[begin..end], true),
+                    units_text(&units[end..], true),
+                )
+            } else if s.is_char_boundary(begin) && s.is_char_boundary(end) {
                 (s[..begin].to_owned(), s[begin..end].to_owned(), s[end..].to_owned())
             } else {
                 let b = s.as_bytes();
@@ -8437,6 +8588,7 @@ impl Interpreter {
                 //
                 // Each operand keeps its own BEFORE/AFTER window, computed once
                 // on the item as it stands, and is eligible only inside it.
+                let units = inspect_units(&s, chars);
                 let mut counters: Vec<(String, i64)> = Vec::with_capacity(tallies.len());
                 let mut ops: Vec<TallyOp> = Vec::new();
                 for tally in tallies {
@@ -8446,11 +8598,11 @@ impl Interpreter {
                     let ti = counters.len();
                     counters.push((ctr_name, start));
                     for (kind, region) in &tally.for_ {
-                        let (lo, hi) = self.inspect_window(&s, region, span)?;
+                        let (lo, hi) = self.inspect_window(&units, chars, region, span)?;
                         let pat = match kind {
-                            TallyFor::Characters => String::new(),
+                            TallyFor::Characters => Vec::new(),
                             TallyFor::All(e) | TallyFor::Leading(e) | TallyFor::Trailing(e) => {
-                                self.eval_expr(e, span)?.as_display_string()
+                                inspect_units(&self.eval_expr(e, span)?.as_display_string(), chars)
                             }
                         };
                         // A TRAILING operand's run is fixed by the item as it
@@ -8458,7 +8610,7 @@ impl Interpreter {
                         // positions are known before the scan starts.
                         let trail_start = match kind {
                             TallyFor::Trailing(_) if !pat.is_empty() => {
-                                hi - count_run(&s[lo..hi], &pat, false) * pat.len()
+                                hi - count_run(&units[lo..hi], &pat, false) * pat.len()
                             }
                             _ => hi,
                         };
@@ -8474,7 +8626,7 @@ impl Interpreter {
                         });
                     }
                 }
-                let bytes = s.as_bytes();
+                let bytes = &units[..];
                 let mut p = 0usize;
                 while p < bytes.len() {
                     let mut taken = 0usize;
@@ -8482,7 +8634,7 @@ impl Interpreter {
                         if p < op.lo || p >= op.hi {
                             continue;
                         }
-                        let pat = op.pat.as_bytes();
+                        let pat = &op.pat[..];
                         let fits = !pat.is_empty()
                             && p + pat.len() <= op.hi
                             && &bytes[p..p + pat.len()] == pat;
@@ -8540,10 +8692,11 @@ impl Interpreter {
                 //
                 // Each operand keeps its own BEFORE/AFTER window, computed once
                 // on the item as it stands before any replacement.
+                let units = inspect_units(&s, chars);
                 let mut ops: Vec<ReplOp> = Vec::with_capacity(replaces.len());
                 for rep in replaces {
-                    let by = self.eval_expr(&rep.by, span)?.as_display_string();
-                    let (lo, hi) = self.inspect_window(&s, &rep.region, span)?;
+                    let by = inspect_units(&self.eval_expr(&rep.by, span)?.as_display_string(), chars);
+                    let (lo, hi) = self.inspect_window(&units, chars, &rep.region, span)?;
                     let (kind, pat) = match &rep.what {
                         ReplaceWhat::Characters => (ReplKind::Characters, String::new()),
                         ReplaceWhat::All(e) => {
@@ -8561,11 +8714,12 @@ impl Interpreter {
                             self.eval_expr(e, span)?.as_display_string(),
                         ),
                     };
+                    let pat = inspect_units(&pat, chars);
                     // A TRAILING run is the tail of the window, so where it
                     // starts is known before the scan does.
                     let trail_start = match kind {
                         ReplKind::Trailing if !pat.is_empty() => {
-                            hi - count_run(&s[lo..hi], &pat, false) * pat.len()
+                            hi - count_run(&units[lo..hi], &pat, false) * pat.len()
                         }
                         _ => hi,
                     };
@@ -8581,8 +8735,8 @@ impl Interpreter {
                         spent: false,
                     });
                 }
-                let bytes = s.as_bytes().to_vec();
-                let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+                let bytes = units;
+                let mut out: Vec<u32> = Vec::with_capacity(bytes.len());
                 let mut p = 0usize;
                 while p < bytes.len() {
                     let mut taken = 0usize;
@@ -8590,7 +8744,7 @@ impl Interpreter {
                         if p < op.lo || p >= op.hi || op.spent {
                             continue;
                         }
-                        let pat = op.pat.as_bytes();
+                        let pat = &op.pat[..];
                         let fits = !pat.is_empty()
                             && p + pat.len() <= op.hi
                             && &bytes[p..p + pat.len()] == pat;
@@ -8621,9 +8775,9 @@ impl Interpreter {
                                 // `BY` for CHARACTERS is a single character,
                                 // written over each position in turn.
                                 ReplKind::Characters => {
-                                    out.push(op.by.as_bytes().first().copied().unwrap_or(b' '))
+                                    out.push(op.by.first().copied().unwrap_or(u32::from(b' ')))
                                 }
-                                _ => out.extend_from_slice(op.by.as_bytes()),
+                                _ => out.extend_from_slice(&op.by),
                             }
                             break;
                         }
@@ -8640,7 +8794,7 @@ impl Interpreter {
                         }
                     }
                 }
-                s = String::from_utf8_lossy(&out).into_owned();
+                s = units_text(&out, chars);
                 self.store_inspect_text(&name, &whole(&s), overpunched);
             }
             InspectSpec::Converting { from, to } => {
@@ -8654,14 +8808,15 @@ impl Interpreter {
             InspectSpec::ConvertingIn { from, to, region } => {
                 // The same character-for-character conversion, applied only
                 // inside the BEFORE/AFTER window.
-                let (lo, hi) = self.inspect_window(&s, region, span)?;
+                let units = inspect_units(&s, chars);
+                let (lo, hi) = self.inspect_window(&units, chars, region, span)?;
                 let from_s = self.eval_expr(from, span)?.as_display_string();
                 let to_s = self.eval_expr(to, span)?.as_display_string();
-                let mut window = s[lo..hi].to_string();
+                let mut window = units_text(&units[lo..hi], chars);
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     window = window.replace(fc, &tc.to_string());
                 }
-                s.replace_range(lo..hi, &window);
+                s = format!("{}{window}{}", units_text(&units[..lo], chars), units_text(&units[hi..], chars));
                 self.store_inspect_text(&name, &whole(&s), overpunched);
             }
             InspectSpec::TallyingReplacing(tallies, replaces) => {
@@ -9605,6 +9760,9 @@ impl Interpreter {
             .file_specs
             .get(&fkey)
             .is_some_and(|s| s.is_varying());
+        // Spec 077, D10: a LINE SEQUENTIAL line carries national and UTF-8
+        // fields as text; the record holds their images.
+        let line_layout = self.file_specs.get(&fkey).map(|s| s.layout.clone());
         let mut out = Vec::new();
         loop {
             let rec = match self.open_files.get_mut(&fkey) {
@@ -9617,7 +9775,10 @@ impl Interpreter {
                                 while line.ends_with('\n') || line.ends_with('\r') {
                                     line.pop();
                                 }
-                                Some(line.into_bytes())
+                                Some(match &line_layout {
+                                    Some(l) => l.line_to_image(line.as_bytes()),
+                                    None => line.into_bytes(),
+                                })
                             }
                             Err(_) => None,
                         }
@@ -9752,6 +9913,13 @@ impl Interpreter {
                 .into_bytes(),
         };
 
+        // Spec 077, D10: a LINE SEQUENTIAL file holds national and UTF-8
+        // fields as readable text, not as their images.
+        let line_buf: Option<Vec<u8>> = self
+            .file_specs
+            .get(&file)
+            .filter(|s| s.organization == FileOrganization::LineSequential)
+            .map(|s| s.layout_for(&rec_name).image_to_line(&buf));
         // A length outside the FD's declared `FROM … TO` range is a boundary
         // violation: the record does not fit the file as described, so nothing
         // is written.
@@ -9858,7 +10026,7 @@ impl Interpreter {
             Some(OpenFile::Writer { w, org }) => {
                 let r = match org {
                     FileOrganization::LineSequential => {
-                        let s = String::from_utf8_lossy(&buf);
+                        let s = String::from_utf8_lossy(line_buf.as_deref().unwrap_or(&buf));
                         writeln!(w, "{}", s.trim_end())
                     }
                     // A variable-length record carries its own length, so the
@@ -10363,7 +10531,9 @@ impl Interpreter {
                             while line.ends_with('\n') || line.ends_with('\r') {
                                 line.pop();
                             }
-                            (Some(line.into_bytes()), status::OK)
+                            // A national or UTF-8 field is text in the line and
+                            // an image in the record (spec 077, D10).
+                            (Some(spec.layout.line_to_image(line.as_bytes())), status::OK)
                         }
                         Err(e) => {
                             tracing::warn!("READ failed: {e}");
@@ -11175,7 +11345,7 @@ impl Interpreter {
                 let conn_str = conn_str.trim().to_owned();
                 let handle_name = self.expr_to_name(call_arg_expr(&using[1]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[2]));
-                match self.db.open(&conn_str) {
+                match self.db_open(&conn_str) {
                     Ok(h) => {
                         self.env.set(&handle_name, CobolValue::from_i64(h as i64));
                         self.env.set_str(&status_name, "");
@@ -16784,9 +16954,18 @@ impl Interpreter {
             // With no argument, the control's own `ConnectionString` — the
             // property the designer sets, which only the generated CONNECT
             // paragraph ever read (property audit, 2026-09-26).
-            "OPEN" => match self.db.open(&{
+            // An `SqlConnection` names one of the project's SQL connections
+            // and wins over `ConnectionString` (spec 087 R40).
+            "OPEN" => match self.db_open(&{
                 let given = arg(0);
-                if given.trim().is_empty() { self.obj_get(obj, "ConnectionString").trim().to_owned() } else { given }
+                let named = self.obj_get(obj, "SqlConnection");
+                if !given.trim().is_empty() {
+                    given
+                } else if !named.trim().is_empty() {
+                    format!("{}{}", crate::esql::catalog::SQL_CONNECTION_PREFIX, named.trim())
+                } else {
+                    self.obj_get(obj, "ConnectionString").trim().to_owned()
+                }
             }) {
                 Ok(h) => {
                     self.obj_set(obj, "_Handle", h.to_string());
@@ -17218,6 +17397,14 @@ impl Interpreter {
                 Ok(CobolValue::from_i64(len as i64))
             }
             "UPPER-CASE" => {
+                // National and UTF-8 data change case by Unicode's rules, as
+                // IBM documents; alphanumeric data keeps the ASCII rule.
+                if self.is_classed_arg(&args[0]) {
+                    let (bytes, class) = self.char_arg(&args[0], span)?;
+                    let class = class.expect("a classed argument has a class");
+                    let s = crate::national::class_bytes_text(class, &bytes).to_uppercase();
+                    return Ok(CobolValue::from_str(&s, s.len()));
+                }
                 let s = self
                     .eval_expr(&args[0], span)?
                     .as_display_string()
@@ -17226,6 +17413,12 @@ impl Interpreter {
                 Ok(CobolValue::from_str(&s, len))
             }
             "LOWER-CASE" => {
+                if self.is_classed_arg(&args[0]) {
+                    let (bytes, class) = self.char_arg(&args[0], span)?;
+                    let class = class.expect("a classed argument has a class");
+                    let s = crate::national::class_bytes_text(class, &bytes).to_lowercase();
+                    return Ok(CobolValue::from_str(&s, s.len()));
+                }
                 let s = self
                     .eval_expr(&args[0], span)?
                     .as_display_string()
@@ -17561,7 +17754,69 @@ impl Interpreter {
                 }
                 Ok(CobolValue::from_i64(yyyy))
             }
+            // Spec 077: the U-functions, over the argument's bytes — UTF-16
+            // for a national argument, UTF-8 for any other (Q6).
+            "ULENGTH" | "UVALID" | "USUPPLEMENTARY" | "UPOS" | "UWIDTH" | "USUBSTR" => {
+                use crate::national::{ulength, upos, usubstr, usupplementary, uvalid, uwidth, UArg};
+                let (bytes, class) = self.char_arg(&args[0], span)?;
+                let arg = UArg { bytes: &bytes, national: class.is_some_and(|c| c.is_national()) };
+                let int = |me: &mut Self, i: usize| -> Result<i64, RuntimeError> {
+                    match args.get(i) {
+                        Some(e) => Ok(me.eval_expr(e, span)?.as_i64().unwrap_or(0)),
+                        None => Err(RuntimeError::General {
+                            message: format!("FUNCTION {name} needs {} arguments", i + 1),
+                        }),
+                    }
+                };
+                let n = match name.to_ascii_uppercase().as_str() {
+                    "ULENGTH" => ulength(arg),
+                    "UVALID" => uvalid(arg),
+                    "USUPPLEMENTARY" => usupplementary(arg),
+                    "UPOS" => upos(arg, int(self, 1)?),
+                    "UWIDTH" => uwidth(arg, int(self, 1)?),
+                    _ => {
+                        let (start, len) = (int(self, 1)?, int(self, 2)?);
+                        let text = usubstr(arg, start, len);
+                        return Ok(CobolValue::from_str(&text, text.len()));
+                    }
+                };
+                Ok(CobolValue::from_i64(n as i64))
+            }
+            // Spec 077: code-page conversion. NATIONAL-OF reads bytes in a code
+            // page (UTF-8 by default) as characters; DISPLAY-OF writes
+            // characters as bytes in one.
+            "NATIONAL-OF" => {
+                let (bytes, class) = self.char_arg(&args[0], span)?;
+                let cp = self.code_page_arg(args.get(1), span)?;
+                let text = match class {
+                    Some(c) => crate::national::class_bytes_text(c, &bytes),
+                    None => crate::national::decode(cp, &bytes),
+                };
+                Ok(CobolValue::from_str(&text, text.len()))
+            }
+            "DISPLAY-OF" => {
+                let (bytes, class) = self.char_arg(&args[0], span)?;
+                let cp = self.code_page_arg(args.get(1), span)?;
+                let text = match class {
+                    Some(c) => crate::national::class_bytes_text(c, &bytes),
+                    None => String::from_utf8_lossy(&bytes).into_owned(),
+                };
+                let out = crate::national::encode(cp, &text);
+                let n = out.len();
+                Ok(CobolValue::String { bytes: out, capacity: n })
+            }
             "BYTE-LENGTH" | "LENGTH-AN" => {
+                // A national or UTF-8 item, or a group holding one, is
+                // measured by its storage, not by its text (spec 077).
+                if matches!(&args[0], Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }) {
+                    let key = self.expr_to_name(&args[0]);
+                    if let Some(class) = self.env.char_class(&key) {
+                        return Ok(CobolValue::from_i64(class.width() as i64));
+                    }
+                    if self.env.has_char_classes() && self.env.is_group(&key) {
+                        return Ok(CobolValue::from_i64(self.env.stored_width(&key) as i64));
+                    }
+                }
                 let v = self.eval_expr(&args[0], span)?;
                 let len = match &v {
                     CobolValue::String { bytes, .. } => bytes.len(),
@@ -18438,7 +18693,78 @@ impl Interpreter {
     ///
     /// Both fall through to the value path, which is what they did before, so
     /// neither can regress here.
+    /// An argument of a function that works on characters (spec 077): its
+    /// bytes, and its national / UTF-8 class when it has one. A national item
+    /// or `N"…"` literal gives its UTF-16BE image; a UTF-8 item its text; any
+    /// other argument the bytes it holds.
+    fn char_arg(&mut self, e: &Expr, span: Span) -> Result<(Vec<u8>, Option<crate::national::CharClass>), RuntimeError> {
+        use crate::national::{class_image, utf16be, CharClass};
+        match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(e);
+                if let Some(class) = self.env.char_class(&key) {
+                    let text = self.env.display_string(&key).unwrap_or_default();
+                    let bytes = if class.is_national() { class_image(class, &text) } else { text.into_bytes() };
+                    return Ok((bytes, Some(class)));
+                }
+                if let Some(b) = self.env.display_bytes(&key) {
+                    return Ok((b, None));
+                }
+            }
+            Expr::Literal(Literal::National(t), _) => {
+                let units = t.encode_utf16().count();
+                return Ok((utf16be(t), Some(CharClass::National { chars: units })));
+            }
+            Expr::Literal(Literal::Utf8(t), _) => {
+                return Ok((t.clone().into_bytes(), Some(CharClass::Utf8 { chars: t.chars().count() })));
+            }
+            _ => {}
+        }
+        let bytes = match self.eval_expr(e, span)? {
+            CobolValue::String { bytes, .. } => bytes,
+            other => other.as_display_string().into_bytes(),
+        };
+        Ok((bytes, None))
+    }
+
+    /// Whether a function argument is national or UTF-8 data — an item of
+    /// either class, or an `N"…"` / `U"…"` literal — without evaluating it.
+    fn is_classed_arg(&mut self, e: &Expr) -> bool {
+        match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                self.env.has_char_classes() && {
+                    let key = self.resolve_lvalue(e);
+                    self.env.char_class(&key).is_some()
+                }
+            }
+            Expr::Literal(Literal::National(_) | Literal::Utf8(_), _) => true,
+            _ => false,
+        }
+    }
+
+    /// A NATIONAL-OF / DISPLAY-OF code page, by name or CCSID; UTF-8 when
+    /// omitted. Check refuses an unknown literal; one held in a data item is
+    /// refused here.
+    fn code_page_arg(&mut self, e: Option<&Expr>, span: Span) -> Result<crate::national::CodePage, RuntimeError> {
+        let Some(e) = e else { return Ok(crate::national::CodePage::Utf8) };
+        let text = self.eval_expr(e, span)?.as_display_string();
+        let text = text.trim();
+        crate::national::CodePage::parse(text).ok_or_else(|| RuntimeError::General {
+            message: format!(
+                "'{text}' is not a code page RustCOBOL converts; use {}",
+                crate::national::CodePage::ACCEPTED
+            ),
+        })
+    }
+
     fn declared_length(&self, expr: &Expr) -> Option<usize> {
+        // A national or UTF-8 item's LENGTH is its character positions, not
+        // its bytes (spec 077: `PIC N(30)` is 30, `PIC U(5)` is 5).
+        if matches!(expr, Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }) {
+            if let Some(class) = self.env.char_class(&self.expr_to_name(expr)) {
+                return Some(class.positions());
+            }
+        }
         match expr {
             Expr::Identifier(..) | Expr::Qualified { .. } => {
                 let key = self.expr_to_name(expr);
@@ -18800,9 +19126,9 @@ struct TallyOp {
     /// one (`TALLYING X FOR ALL "A" ALL "B"`).
     ti: usize,
     kind: TallyKind,
-    /// The evaluated pattern; empty for `CHARACTERS`.
-    pat: String,
-    /// The operand's `BEFORE`/`AFTER` window, as byte offsets: `[lo, hi)`.
+    /// The evaluated pattern, in INSPECT's code units; empty for `CHARACTERS`.
+    pat: Vec<u32>,
+    /// The operand's `BEFORE`/`AFTER` window, as code-unit offsets: `[lo, hi)`.
     lo: usize,
     hi: usize,
     /// Where this operand's `LEADING` run must match next; starts at `lo`.
@@ -18829,11 +19155,11 @@ enum ReplKind {
 /// `Replacing` arm of [`Interpreter::exec_inspect`].
 struct ReplOp {
     kind: ReplKind,
-    /// The evaluated pattern; empty for `CHARACTERS`.
-    pat: String,
-    /// The evaluated `BY` operand.
-    by: String,
-    /// The operand's `BEFORE`/`AFTER` window, as byte offsets: `[lo, hi)`.
+    /// The evaluated pattern, in INSPECT's code units; empty for `CHARACTERS`.
+    pat: Vec<u32>,
+    /// The evaluated `BY` operand, in code units.
+    by: Vec<u32>,
+    /// The operand's `BEFORE`/`AFTER` window, as code-unit offsets: `[lo, hi)`.
     lo: usize,
     hi: usize,
     /// Where this operand's `LEADING` run must match next; starts at `lo`.
@@ -18847,11 +19173,11 @@ struct ReplOp {
     spent: bool,
 }
 
-fn count_run(hay: &str, pat: &str, from_start: bool) -> usize {
+fn count_run(hay: &[u32], pat: &[u32], from_start: bool) -> usize {
     if pat.is_empty() || pat.len() > hay.len() {
         return 0;
     }
-    let (h, p) = (hay.as_bytes(), pat.as_bytes());
+    let (h, p) = (hay, pat);
     let mut n = 0usize;
     let mut i = 0usize;
     while i + p.len() <= h.len() {
@@ -18867,6 +19193,34 @@ fn count_run(hay: &str, pat: &str, from_start: bool) -> usize {
         i += p.len();
     }
     n
+}
+
+/// INSPECT's code units: the bytes of alphanumeric data, the characters of
+/// national or UTF-8 data (spec 077, D9). One scan serves both, so byte
+/// positions stay exactly what they always were.
+fn inspect_units(s: &str, chars: bool) -> Vec<u32> {
+    if chars {
+        s.chars().map(u32::from).collect()
+    } else {
+        s.bytes().map(u32::from).collect()
+    }
+}
+
+/// The text of INSPECT's code units — the inverse of [`inspect_units`].
+fn units_text(units: &[u32], chars: bool) -> String {
+    if chars {
+        units.iter().filter_map(|&c| char::from_u32(c)).collect()
+    } else {
+        String::from_utf8_lossy(&units.iter().map(|&b| b as u8).collect::<Vec<u8>>()).into_owned()
+    }
+}
+
+/// Where `needle` first occurs in `hay`, in code units.
+fn find_units(hay: &[u32], needle: &[u32]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|w| w == needle)
 }
 
 fn append_collection_line(existing: &str, line: &str) -> String {
@@ -18895,7 +19249,7 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
         Literal::Integer(n) | Literal::IntegerDigits(n, _) => CobolValue::from_i64(*n),
         Literal::Float(f) => CobolValue::from_f64(*f),
         Literal::Decimal(m, s) => CobolValue::Numeric(CobolNumeric::new(*m, *s)),
-        Literal::String(s) => CobolValue::from_str(s, s.len()),
+        Literal::String(s) | Literal::National(s) | Literal::Utf8(s) => CobolValue::from_str(s, s.len()),
         Literal::Figurative(fig) => match fig {
             FigurativeConstant::Zero => CobolValue::from_i64(0),
             FigurativeConstant::Space => CobolValue::spaces(1),
@@ -21422,6 +21776,69 @@ MAIN.
         assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some(""), "spaces once the rows run out");
     }
 
+    /// Spec 087 R40 (AC17, runtime part) — an `SqlDatabase` whose
+    /// `SqlConnection` names a project SQL connection opens THAT database
+    /// through `Open()` with no argument, winning over `ConnectionString`;
+    /// `COBOL::"OPEN-DB"` resolves `sql-connection:<NAME>` the same way; and
+    /// the control's connection is its own, apart from `EXEC SQL`'s.
+    #[test]
+    fn sqlconnection_wins_over_the_connection_string() {
+        use crate::esql::catalog::{SqlCatalog, Source};
+        let dir = std::env::temp_dir().join(format!("prc087-sqlconn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        rusqlite::Connection::open(dir.join("sales.db"))
+            .unwrap()
+            .execute_batch("CREATE TABLE ORDERS (NAME TEXT); INSERT INTO ORDERS VALUES ('from-sales');")
+            .unwrap();
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.path = "sales.db".into();
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-CONN PIC X(40) VALUE 'sql-connection:sales'.
+01 WS-H    PIC 9(9).
+01 WS-ERR  PIC X(200).
+01 WS-ROW  PIC X(40).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.set_sql_catalog(SqlCatalog::new("shop", vec![sales], dir.clone(), Source::Injected));
+        interp.seed_objects([(
+            "DB-1".to_owned(),
+            "SqlDatabase".to_owned(),
+            vec![
+                ("ConnectionString".to_owned(), ":memory:".to_owned()),
+                ("SqlConnection".to_owned(), "SALES".to_owned()),
+                ("ResultSetDataItem".to_owned(), "WS-ROW".to_owned()),
+            ],
+        )]);
+        interp.run().expect("runs");
+        let s = |x: &str| CobolValue::from_str(x, x.len());
+        let h = interp.exec_method("DB-1", "Open", &[]).as_display_string();
+        assert_ne!(h.trim(), "0", "Open() reaches SALES: {}", interp.obj_get("DB-1", "LastError"));
+        interp.exec_method("DB-1", "Query", &[s("SELECT NAME FROM ORDERS")]);
+        interp.exec_method("DB-1", "Fetch", &[]);
+        assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some("from-sales"));
+        assert!(interp.sql_run_unit().lock().unwrap().sessions.is_empty(), "EXEC SQL's connections are untouched");
+
+        // The built-in, by the same name (case-insensitive).
+        assert_eq!(interp.db_open("sql-connection:sales").map(|h| h > 0), Ok(true));
+        // A name that is not one of them, and a missing file, are errors.
+        let unknown = interp.db_open("sql-connection:NOPE").unwrap_err();
+        assert!(unknown.contains("NOPE"), "{unknown}");
+        std::fs::remove_file(dir.join("sales.db")).unwrap();
+        let gone = interp.db_open("sql-connection:SALES").unwrap_err();
+        assert!(gone.contains("does not exist"), "no empty database is created: {gone}");
+        assert!(!dir.join("sales.db").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `SetRowHeight(row, pixels)` gives one row its own height; the height
     /// stays with its row through `Sort` and `DeleteRow`, 0 pixels hands the
     /// row back, `ClearRows` drops them all, and `SetRowHeight(pixels)` is
@@ -22681,6 +23098,9 @@ MAIN.
             "REM", "REVERSE", "SIN", "SQRT", "STANDARD-DEVIATION",
             "STORED-CHAR-LENGTH", "SUM", "TAN", "TEST-NUMVAL", "UPPER-CASE",
             "VARIANCE", "WHEN-COMPILED", "YEAR-TO-YYYY",
+            // Spec 077.
+            "DISPLAY-OF", "NATIONAL-OF", "ULENGTH", "UPOS", "USUBSTR",
+            "USUPPLEMENTARY", "UVALID", "UWIDTH",
         ];
 
         let body = |from: &str, to: &str| {

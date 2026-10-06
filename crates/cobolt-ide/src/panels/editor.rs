@@ -197,6 +197,9 @@ pub(crate) const DATA_KEYWORDS: &[&str] = &[
     "QUOTES",
     "NULL",
     "NULLS",
+    // Spec 077: UTF-8 data (`NATIONAL` is a COBOL-2002 word, listed below).
+    "UTF-8",
+    "BYTE-LENGTH",
 ];
 
 /// COBOL-2002 reserved words (object orientation, the new data types, dynamic
@@ -1265,6 +1268,15 @@ pub struct EditorPanel {
     cur_col: usize,
     /// Overwrite (vs. insert) typing mode — toggled with the Insert key.
     overwrite: bool,
+    /// F12 or Cmd/Ctrl-click asked for the definition of the name at this
+    /// character; carried out at the top of the next frame (spec 087 R47).
+    pending_goto_def: Option<usize>,
+    /// A host that edits one piece of a larger program — the designer's
+    /// event-handler editor — sets this: a name the buffer does not declare
+    /// is then handed over in [`Self::unresolved_definition`] for the host
+    /// to find in the whole program, instead of searched for here.
+    pub defer_external_definitions: bool,
+    pub unresolved_definition: Option<String>,
     /// Trim trailing whitespace from every line when saving.
     pub trim_on_save: bool,
 
@@ -1307,6 +1319,9 @@ impl Default for EditorPanel {
             cur_line: 1,
             cur_col: 1,
             overwrite: false,
+            pending_goto_def: None,
+            defer_external_definitions: false,
+            unresolved_definition: None,
             trim_on_save: true,
             beautify_modal_open: false,
             beautify_errors: Vec::new(),
@@ -2356,6 +2371,33 @@ impl EditorPanel {
         true
     }
 
+    /// Go to the definition of the name at character `char_idx` of the
+    /// active tab (F12 / Cmd- or Ctrl-click, spec 087 R47): a data item —
+    /// which is what an `EXEC SQL` host variable names — lands on its
+    /// declaration, anything else on a paragraph of that name. `false` when
+    /// there is no name there or nothing defines it.
+    pub fn goto_definition_at(&mut self, char_idx: usize) -> bool {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return false;
+        };
+        let byte = tab.content.char_indices().nth(char_idx).map_or(tab.content.len(), |(b, _)| b);
+        let Some(name) = word_at(&tab.content, byte).map(str::to_string) else {
+            return false;
+        };
+        if let Some(off) = data_item_definition(&tab.content, &name) {
+            self.search.matches = vec![off];
+            self.search.current = 0;
+            self.search.needs_scroll = true;
+            self.search.focus_editor_on_scroll = true;
+            return true;
+        }
+        if self.defer_external_definitions {
+            self.unresolved_definition = Some(name);
+            return true;
+        }
+        self.goto_paragraph(&name)
+    }
+
     /// Scroll the active tab to the definition of `paragraph` (a COBOL paragraph
     /// header or `PROGRAM-ID. NAME`) and place the cursor there. Reuses the
     /// search-scroll machinery. Returns `false` if the name isn't found.
@@ -3082,6 +3124,16 @@ impl EditorPanel {
         ctx.fonts_mut(|f| f.row_height(&FontId::monospace(self.font_size)))
     }
 
+    /// The text of the active tab, if there is one.
+    pub(crate) fn active_text(&self) -> Option<&str> {
+        self.tabs.get(self.active).map(|t| t.content.as_str())
+    }
+
+    /// The caret's line, 1-based, as the status row shows it.
+    pub(crate) fn caret_line(&self) -> usize {
+        self.cur_line
+    }
+
     pub(crate) fn status_row(&mut self, ui: &mut egui::Ui) {
         let active_tab = self.tabs.get(self.active);
         let read_only = active_tab.map(|tab| tab.read_only).unwrap_or(false);
@@ -3231,6 +3283,9 @@ impl EditorPanel {
     /// panel; the embedded RAD event editor calls it inside its modal — so both
     /// share identical behaviour.
     pub(crate) fn render_code_area(&mut self, ctx: &Context, ui: &mut egui::Ui) {
+        if let Some(at) = self.pending_goto_def.take() {
+            self.goto_definition_at(at);
+        }
         if self.tabs.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(
@@ -3732,6 +3787,14 @@ impl EditorPanel {
                             self.ac.member_mode = false;
                         }
                         let char_idx = cr.primary.index.0;
+                        // Go to definition: F12, or a click with Cmd (macOS)
+                        // / Ctrl held.
+                        let f12 = te_out.response.has_focus()
+                            && ctx.input(|i| i.key_pressed(Key::F12) && i.modifiers.is_none());
+                        let cmd_click = te_out.response.clicked() && ctx.input(|i| i.modifiers.command);
+                        if f12 || cmd_click {
+                            self.pending_goto_def = Some(char_idx);
+                        }
                         let (l, c) = char_index_to_line_col(&tab.content, char_idx);
                         self.cur_line = l;
                         self.cur_col = c;
@@ -4905,6 +4968,16 @@ fn build_completions(
         }
     }
 
+    // ── 2. Intrinsic functions — the list the runtime and Check share, so a
+    // function is offered exactly when it exists (spec 077 added eight).
+    if !context_only {
+        for &f in cobolt_ast::intrinsics::INTRINSIC_FUNCTIONS {
+            if f.starts_with(&up) && seen.insert(f.into()) {
+                items.push(AcItem::kw(f));
+            }
+        }
+    }
+
     // ── 3. Paragraph names ────────────────────────────────────────────────
     if !context_only {
         for p in extract_paragraphs(source) {
@@ -5054,6 +5127,66 @@ fn cursor_screen_pos(
     Pos2::new(x, y)
 }
 
+// ── Go to definition (spec 087 R47) ─────────────────────────────────────────
+
+fn is_cobol_word_byte(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'-' || c == b'_'
+}
+
+/// The COBOL word around byte `at` — the `WS-ID` of a host variable
+/// `:WS-ID` included — without a hyphen at either end.
+pub(crate) fn word_at(text: &str, at: usize) -> Option<&str> {
+    let b = text.as_bytes();
+    let at = at.min(b.len());
+    let mut s = at;
+    while s > 0 && is_cobol_word_byte(b[s - 1]) {
+        s -= 1;
+    }
+    let mut e = at;
+    while e < b.len() && is_cobol_word_byte(b[e]) {
+        e += 1;
+    }
+    let w = text[s..e].trim_matches('-');
+    (w.bytes().any(|c| c.is_ascii_alphabetic())).then_some(w)
+}
+
+/// The byte offset of the name in the line that declares data item `name` —
+/// a level number (01–49, 66, 77, 78, 88) followed by the name — skipping
+/// comment lines and a fixed-format sequence area.
+pub(crate) fn data_item_definition(text: &str, name: &str) -> Option<usize> {
+    let mut off = 0usize;
+    for line in text.split_inclusive('\n') {
+        let start = off;
+        off += line.len();
+        let body = line.trim_end_matches(['\n', '\r']);
+        if body.chars().nth(6).is_some_and(|c| c == '*' || c == '/') || body.trim_start().starts_with("*>") {
+            continue;
+        }
+        let mut words = body.split_whitespace().enumerate().peekable();
+        while let Some((i, w)) = words.next() {
+            if i > 1 {
+                break;
+            }
+            let level = w.parse::<u32>().ok().filter(|l| (1..=49).contains(l) || matches!(l, 66 | 77 | 78 | 88));
+            if level.is_none() {
+                continue;
+            }
+            let Some((_, item)) = words.peek() else { break };
+            if item.trim_end_matches('.').eq_ignore_ascii_case(name) {
+                let item = *item;
+                let col = body.find(item).unwrap_or(0);
+                // The level number's own text may contain the name's prefix;
+                // look for the name after it.
+                let after_level = body.find(w).map_or(0, |p| p + w.len());
+                let col = body[after_level..].find(item).map_or(col, |p| after_level + p);
+                return Some(start + col);
+            }
+            break;
+        }
+    }
+    None
+}
+
 // ── Syntax highlighting ───────────────────────────────────────────────────────
 
 pub fn cobol_layout_job(
@@ -5079,15 +5212,188 @@ pub fn cobol_layout_job(
     };
 
     let mut job = LayoutJob::default();
+    // Spec 087 R47: inside `EXEC SQL … END-EXEC` the text is SQL, and what
+    // a SQL string or comment left open at the end of a line carries on.
+    let mut sql: Option<cobolt_lexer::sql::LineState> = None;
+    let colors = SqlColors { plain: c_plain, kw: c_kw, data: c_data, string: c_str, comment: c_comment };
     for (li, line) in text.split('\n').enumerate() {
         if li > 0 {
             job.append("\n", 0.0, fmt(c_plain));
         }
-        cobol_highlight_line(
-            &mut job, line, kw_set, &fmt, c_plain, c_kw, c_data, c_para, c_str, c_comment,
-        );
+        let mut rest = line;
+        if let Some(state) = sql.as_mut() {
+            // A COBOL comment line inside a block stays a comment.
+            if line.chars().nth(6).is_some_and(|c| c == '*' || c == '/') && matches!(state, cobolt_lexer::sql::LineState::Code) {
+                job.append(line, 0.0, fmt(c_comment));
+                continue;
+            }
+            match sql_highlight(&mut job, line, state, &fmt, &colors) {
+                Some(after) => {
+                    sql = None;
+                    rest = &line[after..];
+                }
+                None => continue,
+            }
+        }
+        // COBOL — up to an `EXEC SQL` that opens a block on this line.
+        match exec_sql_start(rest) {
+            Some((open_start, open_end)) => {
+                cobol_highlight_line(
+                    &mut job, &rest[..open_start], kw_set, &fmt, c_plain, c_kw, c_data, c_para, c_str, c_comment,
+                );
+                job.append(&rest[open_start..open_end], 0.0, fmt(c_kw));
+                let mut state = cobolt_lexer::sql::LineState::Code;
+                let body = &rest[open_end..];
+                match sql_highlight(&mut job, body, &mut state, &fmt, &colors) {
+                    Some(after) => cobol_highlight_line(
+                        &mut job, &body[after..], kw_set, &fmt, c_plain, c_kw, c_data, c_para, c_str, c_comment,
+                    ),
+                    None => sql = Some(state),
+                }
+            }
+            None => cobol_highlight_line(
+                &mut job, rest, kw_set, &fmt, c_plain, c_kw, c_data, c_para, c_str, c_comment,
+            ),
+        }
     }
     job
+}
+
+/// The colours SQL is drawn in — the theme's own COBOL colours.
+struct SqlColors {
+    plain: Color32,
+    kw: Color32,
+    data: Color32,
+    string: Color32,
+    comment: Color32,
+}
+
+/// The words drawn as SQL keywords.
+const SQL_KEYWORDS: &[&str] = &[
+    "ALL", "ALTER", "AND", "AS", "ASC", "AVG", "BEGIN", "BETWEEN", "BY", "CASE", "CHAR", "CHECK", "CLOSE",
+    "COMMIT", "CONNECT", "CONNECTION", "CONTINUE", "COUNT", "CREATE", "CURRENT", "CURSOR", "DATE", "DECIMAL",
+    "DECLARE", "DEFAULT", "DELETE", "DESC", "DESCRIBE", "DESCRIPTOR", "DISCONNECT", "DISTINCT", "DROP", "ELSE",
+    "END", "EXECUTE", "EXISTS", "FETCH", "FOR", "FOREIGN", "FOUND", "FROM", "GO", "GROUP", "HAVING", "HOLD",
+    "IF", "IMMEDIATE", "IN", "INCLUDE", "INDEX", "INDICATOR", "INNER", "INPUT", "INSERT", "INTEGER", "INTO",
+    "IS", "JOIN", "KEY", "LEFT", "LIKE", "LIMIT", "MAX", "MIN", "NOT", "NULL", "NUMERIC", "OF", "OFFSET", "ON",
+    "OPEN", "OR", "ORDER", "OUTER", "PREPARE", "PRIMARY", "REFERENCES", "RIGHT", "ROLLBACK", "SECTION", "SELECT",
+    "SET", "SQLERROR", "SQLWARNING", "SUM", "TABLE", "TEXT", "THEN", "TIME", "TIMESTAMP", "TO", "UNION",
+    "UNIQUE", "UPDATE", "USER", "USING", "VALUES", "VARCHAR", "WHEN", "WHENEVER", "WHERE", "WITH", "WORK",
+];
+
+/// Where `EXEC SQL` opens a block on a COBOL line: the byte range of the two
+/// words, when they come before any string or `*>` comment on the line.
+fn exec_sql_start(line: &str) -> Option<(usize, usize)> {
+    if line.chars().nth(6).is_some_and(|c| c == '*' || c == '/') {
+        return None;
+    }
+    let upper = line.to_ascii_uppercase();
+    let b = upper.as_bytes();
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'-' || c == b'_';
+    let mut from = 0;
+    while let Some(k) = upper[from..].find("EXEC") {
+        let s = from + k;
+        let before = &upper[..s];
+        if before.contains('"') || before.contains('\'') || before.contains("*>") {
+            return None;
+        }
+        let mut j = s + 4;
+        if (s == 0 || !word(b[s - 1])) && b.get(j).is_some_and(|c| c.is_ascii_whitespace()) {
+            while b.get(j).is_some_and(|c| c.is_ascii_whitespace()) {
+                j += 1;
+            }
+            if upper[j..].starts_with("SQL") && b.get(j + 3).is_none_or(|c| !word(*c)) {
+                return Some((s, j + 3));
+            }
+        }
+        from = s + 4;
+    }
+    None
+}
+
+/// Draw `text` as SQL that starts in `state`, up to the `END-EXEC` that ends
+/// the block, which is drawn as a keyword. Returns the byte offset just
+/// after `END-EXEC`, or `None` when the block carries on past this text
+/// (with `state` advanced to where it ends).
+fn sql_highlight(
+    job: &mut egui::text::LayoutJob,
+    text: &str,
+    state: &mut cobolt_lexer::sql::LineState,
+    fmt: &impl Fn(Color32) -> egui::text::TextFormat,
+    c: &SqlColors,
+) -> Option<usize> {
+    use cobolt_lexer::sql::SqlKind;
+    let pieces = cobolt_lexer::sql::scan_line(text, state);
+    // The END-EXEC that closes the block: the first one in SQL code.
+    let mut end: Option<(usize, usize)> = None;
+    for p in pieces.iter().filter(|p| p.kind == SqlKind::Code) {
+        let upper = text[p.start..p.end].to_ascii_uppercase();
+        let b = text.as_bytes();
+        let mut from = 0;
+        while let Some(k) = upper[from..].find("END-EXEC") {
+            let s = p.start + from + k;
+            let e = s + "END-EXEC".len();
+            let word = |x: u8| x.is_ascii_alphanumeric() || x == b'-' || x == b'_';
+            if (s == 0 || !word(b[s - 1])) && (e >= b.len() || !word(b[e])) {
+                end = Some((s, e));
+                break;
+            }
+            from += k + 1;
+        }
+        if end.is_some() {
+            break;
+        }
+    }
+    let body_end = end.map_or(text.len(), |(s, _)| s);
+    for p in &pieces {
+        let (ps, pe) = (p.start, p.end.min(body_end));
+        if ps >= pe {
+            continue;
+        }
+        let piece = &text[ps..pe];
+        match p.kind {
+            SqlKind::Code => sql_code(job, piece, fmt, c),
+            SqlKind::String | SqlKind::DollarQuoted => job.append(piece, 0.0, fmt(c.string)),
+            SqlKind::QuotedIdent => job.append(piece, 0.0, fmt(c.plain)),
+            SqlKind::LineComment | SqlKind::BlockComment => job.append(piece, 0.0, fmt(c.comment)),
+            SqlKind::Param | SqlKind::Cast => job.append(piece, 0.0, fmt(c.kw)),
+        }
+    }
+    end.map(|(s, e)| {
+        job.append(&text[s..e], 0.0, fmt(c.kw));
+        e
+    })
+}
+
+/// SQL code: keywords, host variables as COBOL names, everything else plain.
+fn sql_code(job: &mut egui::text::LayoutJob, code: &str, fmt: &impl Fn(Color32) -> egui::text::TextFormat, c: &SqlColors) {
+    let hosts = cobolt_lexer::sql::host_variables(code);
+    let mut i = 0;
+    let b = code.as_bytes();
+    let word = |x: u8| x.is_ascii_alphanumeric() || x == b'_';
+    while i < code.len() {
+        if let Some(h) = hosts.iter().find(|h| h.start == i) {
+            job.append(&code[h.start..h.end], 0.0, fmt(c.data));
+            i = h.end;
+            continue;
+        }
+        if word(b[i]) {
+            let s = i;
+            while i < code.len() && word(b[i]) {
+                i += 1;
+            }
+            let w = &code[s..i];
+            let is_kw = SQL_KEYWORDS.binary_search(&w.to_ascii_uppercase().as_str()).is_ok();
+            job.append(w, 0.0, fmt(if is_kw { c.kw } else { c.plain }));
+            continue;
+        }
+        let s = i;
+        i += code[i..].chars().next().map_or(1, |ch| ch.len_utf8());
+        while i < code.len() && !word(b[i]) && !hosts.iter().any(|h| h.start == i) {
+            i += code[i..].chars().next().map_or(1, |ch| ch.len_utf8());
+        }
+        job.append(&code[s..i], 0.0, fmt(c.plain));
+    }
 }
 
 /// Lay out `text` in a single flat colour (used for read-only generated code).
@@ -5186,6 +5492,10 @@ fn cobol_highlight_line(
     let mut seg = 0usize;
     let mut in_str: Option<u8> = None;
     let mut tok_num = 0usize;
+    // The previous word, upper-cased: a name after `FUNCTION` that is an
+    // intrinsic is drawn as a keyword (spec 077 R23), and only there, so a
+    // paragraph or data item that happens to be called `SUM` keeps its colour.
+    let mut prev_up = String::new();
 
     while i < n {
         if let Some(q) = in_str {
@@ -5225,6 +5535,13 @@ fn cobol_highlight_line(
         }
 
         if bytes[i] == b'"' || bytes[i] == b'\'' {
+            // A literal's prefix is part of the literal: `N"…"`, `NX"…"`,
+            // `U"…"`, `UX"…"` and `X"…"` are drawn whole in the string colour.
+            if is_literal_prefix(&line[seg..i]) {
+                in_str = Some(bytes[i]);
+                i += 1;
+                continue;
+            }
             if i > seg {
                 emit_word(
                     job,
@@ -5253,19 +5570,24 @@ fn cobol_highlight_line(
             if i > seg {
                 let word = &line[seg..i];
                 if word.chars().any(|c| c.is_alphanumeric()) {
-                    emit_word(
-                        job,
-                        word,
-                        tok_num,
-                        next_is_data,
-                        first_is_para,
-                        kw_set,
-                        fmt,
-                        c_plain,
-                        c_kw,
-                        c_data,
-                        c_para,
-                    );
+                    if prev_up == "FUNCTION" && cobolt_ast::intrinsics::is_intrinsic(word) {
+                        job.append(word, 0.0, fmt(c_kw));
+                    } else {
+                        emit_word(
+                            job,
+                            word,
+                            tok_num,
+                            next_is_data,
+                            first_is_para,
+                            kw_set,
+                            fmt,
+                            c_plain,
+                            c_kw,
+                            c_data,
+                            c_para,
+                        );
+                    }
+                    prev_up = word.to_ascii_uppercase();
                     tok_num += 1;
                 } else {
                     job.append(word, 0.0, fmt(c_plain));
@@ -5284,24 +5606,34 @@ fn cobol_highlight_line(
         } else {
             let word = &line[seg..];
             if word.chars().any(|c| c.is_alphanumeric()) {
-                emit_word(
-                    job,
-                    word,
-                    tok_num,
-                    next_is_data,
-                    first_is_para,
-                    kw_set,
-                    fmt,
-                    c_plain,
-                    c_kw,
-                    c_data,
-                    c_para,
-                );
+                if prev_up == "FUNCTION" && cobolt_ast::intrinsics::is_intrinsic(word.trim_end_matches('.')) {
+                    job.append(word, 0.0, fmt(c_kw));
+                } else {
+                    emit_word(
+                        job,
+                        word,
+                        tok_num,
+                        next_is_data,
+                        first_is_para,
+                        kw_set,
+                        fmt,
+                        c_plain,
+                        c_kw,
+                        c_data,
+                        c_para,
+                    );
+                }
             } else {
                 job.append(word, 0.0, fmt(c_plain));
             }
         }
     }
+}
+
+/// Whether `word` is a literal prefix glued to the quote that follows it:
+/// `X`, `N`, `NX`, `U` or `UX` (spec 077 added the last four).
+fn is_literal_prefix(word: &str) -> bool {
+    ["X", "N", "NX", "U", "UX"].iter().any(|p| word.eq_ignore_ascii_case(p))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5589,6 +5921,77 @@ mod goto_tests {
         ));
         ed.active = 0;
         ed
+    }
+
+    /// Spec 087 R47 — F12 / Cmd-click on a host variable reaches the data
+    /// item it names, in fixed format past a commented-out declaration; a
+    /// name that is no data item falls back to the paragraph search.
+    #[test]
+    fn host_var_goto_definition() {
+        let src = "\
+000100 IDENTIFICATION DIVISION.
+000200 PROGRAM-ID. HV.
+000300 DATA DIVISION.
+000400 WORKING-STORAGE SECTION.
+000500*01 WS-ID PIC 9(9).
+000600 01  WS-REC.
+000700     05  WS-ID      PIC 9(5).
+000800 PROCEDURE DIVISION.
+000900     EXEC SQL SELECT ID INTO :WS-ID FROM T END-EXEC
+001000     PERFORM SHOW-IT.
+001100 SHOW-IT.
+001200     DISPLAY WS-ID.
+";
+        let mut ed = editor_with(src);
+        let at = |needle: &str| src[..src.find(needle).unwrap()].chars().count();
+        // The cursor inside `:WS-ID` (on the I).
+        assert!(ed.goto_definition_at(at(":WS-ID") + 2));
+        let off = ed.search.matches[0];
+        assert!(src[off..].starts_with("WS-ID      PIC 9(5)"), "landed on {:?}", &src[off..off + 20]);
+        assert!(src[..off].ends_with("05  "), "the declaration, not the commented-out line");
+        // A paragraph name.
+        assert!(ed.goto_definition_at(at("SHOW-IT.") + 1));
+        assert!(src[ed.search.matches[0]..].starts_with("SHOW-IT."));
+        assert_eq!(word_at(":WS-ID FROM", 2), Some("WS-ID"));
+    }
+
+    /// Spec 087 R47 — an SQL block is drawn as SQL across lines: keywords,
+    /// host variables as COBOL names, comments, and a string that runs onto
+    /// the next line; after `END-EXEC` the line is COBOL again.
+    #[test]
+    fn sql_highlight_crosses_lines() {
+        let src = "       PROCEDURE DIVISION.
+           EXEC SQL
+             SELECT NAME INTO :WS-NAME
+               FROM CUSTOMERS -- by id
+              WHERE NOTE = 'two
+           lines' AND ID = :WS-ID
+           END-EXEC
+           MOVE 1 TO WS-X.
+";
+        let job = highlight_cobol(src);
+        let th = crate::theme::active();
+        let color_of = |needle: &str| {
+            let at = src.find(needle).unwrap_or_else(|| panic!("{needle}"));
+            job.sections
+                .iter()
+                .find(|s| s.byte_range.start.0 <= at && at < s.byte_range.end.0)
+                .map(|s| s.format.color)
+                .unwrap()
+        };
+        assert_eq!(color_of("EXEC SQL"), th.ed_keyword);
+        assert_eq!(color_of("SELECT"), th.ed_keyword);
+        assert_eq!(color_of("FROM"), th.ed_keyword);
+        assert_eq!(color_of(":WS-NAME"), th.ed_data);
+        assert_eq!(color_of(":WS-ID"), th.ed_data);
+        assert_eq!(color_of("CUSTOMERS"), th.ed_plain);
+        assert_eq!(color_of("-- by id"), th.ed_comment);
+        assert_eq!(color_of("'two"), th.ed_string);
+        assert_eq!(color_of("lines'"), th.ed_string, "the string carries onto the next line");
+        assert_eq!(color_of(" AND ID"), th.ed_plain);
+        assert_eq!(color_of("END-EXEC"), th.ed_keyword);
+        assert_eq!(color_of("MOVE"), th.ed_keyword, "COBOL again after END-EXEC");
+        assert_eq!(job.text, src, "nothing added or lost");
     }
 
     const SRC: &str = "\
@@ -6622,5 +7025,55 @@ mod encoding_tests {
         assert!(String::from_utf8(saved).unwrap().contains("Ação\n      *> 日本"), "UTF-8 rather than lose 日本");
         assert!(!ed.tabs[0].windows_1252);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod national_editor_tests {
+    use super::*;
+
+    /// The colour the highlighter gives the text starting at `needle`.
+    fn colour_at(job: &egui::text::LayoutJob, text: &str, needle: &str) -> Color32 {
+        let at = text.find(needle).expect("needle");
+        job.sections
+            .iter()
+            .find(|s| s.byte_range.start.0 <= at && at < s.byte_range.end.0)
+            .map(|s| s.format.color)
+            .expect("a section covers it")
+    }
+
+    /// Spec 077 AC15: a literal's prefix is drawn with the literal, and a
+    /// function name after FUNCTION as a keyword — the new ones included.
+    #[test]
+    fn national_literals_and_functions_are_coloured() {
+        let th = crate::theme::active();
+        let text = "           MOVE N\"Ação\" TO WS-N NX\"0041\" U\"ç\" UX\"C3A7\"\n           COMPUTE WS-I = FUNCTION ULENGTH(WS-U)\n";
+        let job = highlight_cobol(text);
+        for lit in ["N\"Ação\"", "NX\"0041\"", "U\"ç\"", "UX\"C3A7\""] {
+            assert_eq!(colour_at(&job, text, lit), th.ed_string, "{lit} starts in the string colour");
+        }
+        assert_eq!(colour_at(&job, text, "ULENGTH"), th.ed_keyword);
+        // A word that is NOT after FUNCTION keeps its own colour.
+        let plain = "       SUM.\n";
+        assert_ne!(colour_at(&highlight_cobol(plain), plain, "SUM"), th.ed_keyword);
+    }
+
+    /// AC15: IntelliSense offers the clauses and the new functions.
+    #[test]
+    fn intellisense_offers_the_national_words() {
+        let labels = |pfx: &str| -> Vec<String> {
+            build_completions(pfx, "", &[], &[], false).into_iter().map(|i| i.label).collect()
+        };
+        for (pfx, want) in [
+            ("ULEN", "ULENGTH"),
+            ("USUB", "USUBSTR"),
+            ("NATIONAL-", "NATIONAL-OF"),
+            ("DISPLAY-", "DISPLAY-OF"),
+            ("UTF", "UTF-8"),
+            ("BYTE-", "BYTE-LENGTH"),
+            ("NATIONAL", "NATIONAL"),
+        ] {
+            assert!(labels(pfx).iter().any(|l| l == want), "{pfx} offers {want}: {:?}", labels(pfx));
+        }
     }
 }

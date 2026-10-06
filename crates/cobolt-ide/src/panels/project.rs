@@ -82,6 +82,10 @@ pub enum ProjectPanelEvent {
     /// and its crate rows both route here; crates are managed in the dialog,
     /// never through file operations.
     OpenExternalCrates,
+    /// Spec 087 R33 — the SQL Connections item's `[+]`: a new connection.
+    NewSqlConnection,
+    /// Spec 087 R33 — a SQL Connections row: open that connection's editor.
+    OpenSqlConnection(String),
     /// User chose "Import existing…" — add an existing file of this kind.
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
@@ -1016,6 +1020,7 @@ impl ProjectPanel {
         let label: &str = match cat {
             Category::Forms => tr.panel_forms,
             Category::IndexedFiles => tr.cat_indexed_files,
+            Category::SqlConnections => tr.cat_sql_connections,
             Category::CommonCode => tr.cat_common_code,
             Category::Generated => tr.cat_generated_code,
             Category::ExternalCrates => tr.cat_external_crates,
@@ -1033,7 +1038,7 @@ impl ProjectPanel {
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
             .show_header(ui, |ui| {
                 match cat {
-                    Category::IndexedFiles => tree_icon(ui, draw_indexed_icon),
+                    Category::IndexedFiles | Category::SqlConnections => tree_icon(ui, draw_indexed_icon),
                     Category::ExternalCrates => tree_icon(ui, draw_crate_icon),
                     _ => tree_icon(ui, draw_folder_icon),
                 }
@@ -1056,6 +1061,16 @@ impl ProjectPanel {
                                 ui.close();
                             }
                         });
+                    } else if cat == Category::SqlConnections {
+                        // Spec 087 R33 — a new SQL connection, in its editor.
+                        let plus = ui
+                            .small_button("+")
+                            .on_hover_text(format!("{}: {label}", tr.tree_create_hover));
+                        #[cfg(test)]
+                        ui.data_mut(|d| d.insert_temp(egui::Id::new("sql_plus_probe"), plus.rect));
+                        if plus.clicked() {
+                            events.push(ProjectPanelEvent::NewSqlConnection);
+                        }
                     } else if cat == Category::ExternalCrates {
                         // Spec 044 R3 — the `[+]` opens the External Crates
                         // dialog, never a file creator.
@@ -1068,8 +1083,9 @@ impl ProjectPanel {
                         }
                     }
                     // New-folder affordance for every category (spec 033, R1) —
-                    // except External Crates, whose rows are pins, not files.
-                    if cat != Category::ExternalCrates
+                    // except External Crates and SQL Connections, whose rows
+                    // are not files.
+                    if !matches!(cat, Category::ExternalCrates | Category::SqlConnections)
                         && ui
                             .small_button("📁+")
                             .on_hover_text(tr.tree_new_folder)
@@ -1092,6 +1108,10 @@ impl ProjectPanel {
                 header_hover
             })
             .body(|ui| {
+                if cat == Category::SqlConnections {
+                    show_sql_connection_rows(ui, proj, events, tr);
+                    return;
+                }
                 if cat == Category::ExternalCrates {
                     // Spec 044 R2 — one row per registered crate: name +
                     // pinned exact version. Rows open the dialog, where
@@ -1161,7 +1181,7 @@ impl ProjectPanel {
         // subfolder under the pointer overrides this (set later in the frame).
         // External Crates is excluded: `crates/` holds vendored pins, and a
         // dropped file must never be moved into it (spec 044 R3).
-        if cat != Category::ExternalCrates
+        if !matches!(cat, Category::ExternalCrates | Category::SqlConnections)
             && self.hovered_dir.is_none()
             && header_inner.inner.contains_pointer()
         {
@@ -1931,6 +1951,41 @@ fn collect_dirs_rel(abs: &Path, root: &Path, out: &mut BTreeSet<String>) {
 /// The category header and every folder row inside that category both read this,
 /// so a folder offers exactly the create affordance its category offers — only
 /// the destination differs.
+/// Spec 087 R33 — one row per SQL connection, the default marked; a row
+/// opens that connection's editor.
+fn show_sql_connection_rows(ui: &mut Ui, proj: &CoboltProject, events: &mut Vec<ProjectPanelEvent>, tr: &Tr) {
+    if proj.sql_connections.is_empty() {
+        ui.label(
+            RichText::new(format!("  {}", tr.tree_empty))
+                .color(crate::theme::active().text_dim)
+                .small(),
+        );
+        return;
+    }
+    for c in &proj.sql_connections {
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            tree_icon(ui, draw_indexed_icon);
+            let text = if c.default {
+                format!("{} {}", c.name, tr.sqlc_default_mark)
+            } else {
+                c.name.clone()
+            };
+            #[cfg(test)]
+            let shown = text.clone();
+            let row = ui.selectable_label(false, RichText::new(text).monospace());
+            #[cfg(test)]
+            ui.data_mut(|d| {
+                d.insert_temp(egui::Id::new(("sql_row_probe", c.name.as_str())), row.rect);
+                d.insert_temp(egui::Id::new(("sql_row_text", c.name.as_str())), shown);
+            });
+            if row.clicked() {
+                events.push(ProjectPanelEvent::OpenSqlConnection(c.name.clone()));
+            }
+        });
+    }
+}
+
 fn creatable_kind(cat: Category) -> Option<FileKind> {
     match cat {
         Category::Forms => Some(FileKind::Form),
@@ -1940,6 +1995,8 @@ fn creatable_kind(cat: Category) -> Option<FileKind> {
         // The category's `[+]` opens the External Crates dialog, not a file
         // creator (spec 044 R3) — see `show_category`'s add routing.
         Category::ExternalCrates => None,
+        // Its `[+]` opens the SQL connection editor (spec 087 R33).
+        Category::SqlConnections => None,
         Category::Assets => Some(FileKind::Asset),
         Category::Documentation => Some(FileKind::Documentation),
     }
@@ -3149,5 +3206,76 @@ mod compiler_requests_tests {
         let mut panel = ProjectPanel { root: Some(tmp.path().to_path_buf()), ..Default::default() };
         assert_eq!(panel.compiler_request_rows().len(), 2);
         println!("compiler requests: {} reports listed newest first {rows:?}; 1 non-.md ignored; empty → no node", rows.len());
+    }
+}
+
+#[cfg(test)]
+mod sql_connections_category_rows {
+    use super::*;
+
+    fn frame(ctx: &egui::Context, at: f64, events_in: Vec<egui::Event>, panel: &mut ProjectPanel, proj: &CoboltProject, out: &mut Vec<ProjectPanelEvent>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(900.0, 700.0))),
+            time: Some(at),
+            events: events_in,
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let tr = crate::i18n::Language::English.tr();
+            Panel::left("project_panel").default_size(410.0).show(root_ui, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    let id = ui.make_persistent_id(("project_cat", tr.cat_sql_connections));
+                    egui::collapsing_header::CollapsingState::load_with_default_open(&ctx, id, true).store(&ctx);
+                    let cur = None;
+                    panel.show_category(ui, Category::SqlConnections, proj, &cur, out, &tr);
+                });
+            });
+        })
+        .textures_delta
+        .clear();
+    }
+
+    fn click(ctx: &egui::Context, at: f64, p: egui::Pos2, panel: &mut ProjectPanel, proj: &CoboltProject, out: &mut Vec<ProjectPanelEvent>) {
+        let button = |pressed| egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        frame(ctx, at, vec![egui::Event::PointerMoved(p), button(true)], panel, proj, out);
+        frame(ctx, at + 0.05, vec![button(false)], panel, proj, out);
+    }
+
+    /// Spec 087 R33 — the item comes right after Indexed Files, lists the
+    /// project's SQL connections with the default marked, a row opens that
+    /// connection's editor, and the `[+]` asks for a new one.
+    #[test]
+    fn sql_connections_category_rows() {
+        let pos = Category::TOP.iter().position(|c| *c == Category::SqlConnections).unwrap();
+        assert_eq!(Category::TOP[pos - 1], Category::IndexedFiles);
+
+        let mut proj = CoboltProject::new("Demo", "src/main.cbl");
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.default = true;
+        proj.sql_connections.push(sales);
+        proj.sql_connections.push(cobolt_forms::connections::SqlConnection::new("ARCHIVE"));
+        let ctx = egui::Context::default();
+        let mut panel = ProjectPanel::new();
+        let mut out = Vec::new();
+        frame(&ctx, 0.0, vec![], &mut panel, &proj, &mut out);
+        frame(&ctx, 0.4, vec![], &mut panel, &proj, &mut out);
+        let tr = crate::i18n::Language::English.tr();
+        let text = |n: &str| -> String { ctx.data(|d| d.get_temp(egui::Id::new(("sql_row_text", n)))).unwrap_or_default() };
+        assert_eq!(text("SALES"), format!("SALES {}", tr.sqlc_default_mark), "the default is marked");
+        assert_eq!(text("ARCHIVE"), "ARCHIVE");
+
+        let row: egui::Rect = ctx.data(|d| d.get_temp(egui::Id::new(("sql_row_probe", "ARCHIVE")))).expect("the ARCHIVE row rendered");
+        click(&ctx, 0.5, row.center(), &mut panel, &proj, &mut out);
+        assert!(out.iter().any(|e| matches!(e, ProjectPanelEvent::OpenSqlConnection(n) if n == "ARCHIVE")), "a row opens its editor");
+
+        let plus: egui::Rect = ctx.data(|d| d.get_temp(egui::Id::new("sql_plus_probe"))).expect("the [+] rendered");
+        click(&ctx, 0.8, plus.center(), &mut panel, &proj, &mut out);
+        assert!(out.iter().any(|e| matches!(e, ProjectPanelEvent::NewSqlConnection)), "the [+] asks for a new one");
     }
 }

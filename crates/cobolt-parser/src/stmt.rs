@@ -217,6 +217,11 @@ fn parse_stmt_list(
                          fit on one line."
                             .to_string()
                     }
+                    // Spec 077: a malformed national or UTF-8 literal, named
+                    // by the lexer.
+                    Token::Error(t) if t.starts_with("invalid national literal") || t.starts_with("invalid UTF-8 literal") => {
+                        t.clone()
+                    }
                     // An unterminated EXEC block: the lexer already named it.
                     Token::Error(t) if t.starts_with("unterminated EXEC") => {
                         format!("{t} (missing END-EXEC)")
@@ -3424,6 +3429,8 @@ fn parse_initialize(p: &mut Parser) -> Stmt {
     if p.eat(&Token::Replacing) {
         loop {
             let cat = match ident_upper(p).as_deref() {
+                _ if p.at(&Token::NationalUsage) => InitCategory::National,
+                Some("UTF-8") => InitCategory::Utf8,
                 Some("ALPHABETIC") => InitCategory::Alphabetic,
                 Some("ALPHANUMERIC") => InitCategory::Alphanumeric,
                 Some("NUMERIC") => InitCategory::Numeric,
@@ -3807,6 +3814,8 @@ pub(crate) fn is_expr_start(p: &Parser) -> bool {
             | Token::LevelNumber(_)
             | Token::DecimalLiteral { .. }
             | Token::StringLiteral(_)
+            | Token::NationalLiteral(_)
+            | Token::Utf8Literal(_)
             | Token::Spaces
             | Token::Zeros
             | Token::HighValues
