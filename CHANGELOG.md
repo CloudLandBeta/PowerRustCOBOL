@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.199] — 2026-10-05
+
+### Fixed
+- **A DataGrid's arrow keys choose the cell they land on, as a click does.**
+  Up, Down, Left, Right, Page Up/Down, Home and End moved the highlight and
+  fired `onRowSelect`/`onSelectionChanged`, but never `onCellClick`, and left
+  `ClickedRow`/`ClickedColumn` on the last cell clicked with the mouse — so a
+  list whose `onCellClick` loads the clicked row's record stayed on the old
+  record while the highlight moved. A keyboard move now writes both properties
+  and fires `onCellClick` for the new cell; a key that cannot move (Up on the
+  first row) fires nothing. Run Form, child forms and built applications share
+  the one renderer, so all three behave the same.
 ## [PowerRustCOBOL 1.80.198] — 2026-10-05
 
 ### Added

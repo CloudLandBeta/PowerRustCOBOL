@@ -3242,7 +3242,11 @@ background/foreground).
 **Which cell was clicked, and Edit/Delete buttons per row.** Every click on a
 cell writes **`ClickedRow`** and **`ClickedColumn`** — the data row and data
 column, numbered from 1 like `GetCellValue` — just before `onCellClick` (and
-`onCellDoubleClick`) fires. A column whose kind is **Button** (set in **Edit
+`onCellDoubleClick`) fires. Moving onto a cell with the arrow keys (and
+Page Up/Down, Home, End) counts as clicking it: the same two properties are
+written and `onCellClick` fires for the new cell, so a handler that loads the
+clicked row follows the keyboard too. A key that cannot move, such as Up on
+the first row, fires nothing. A column whose kind is **Button** (set in **Edit
 DataGrid settings…**) draws each cell as a button; a cell value of
 `icon:<name>` draws that icon from the catalogue instead, flat, in the grid's
 text colour — `icon:pencil` and `icon:trash` give each row its Edit and Delete

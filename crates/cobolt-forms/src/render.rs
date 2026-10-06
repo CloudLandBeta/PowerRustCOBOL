@@ -10205,6 +10205,27 @@ fn render_interactive(
                         if new_selection.row_index != selected.row_index {
                             out.events.push(UiEvent::ev(id, "onRowSelect"));
                         }
+                        // Moving onto a cell with the keyboard is choosing it,
+                        // as clicking it is: the same `ClickedRow` /
+                        // `ClickedColumn` and the same `onCellClick`. A list
+                        // whose handler loads the clicked row's record stayed
+                        // on the old record while the arrows moved the
+                        // highlight (operator, 2026-10-05).
+                        let data_col = match display_cols.get(display_col) {
+                            Some((src, _, _)) if *src != usize::MAX => src + 1,
+                            _ => 0,
+                        };
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "ClickedRow".to_owned(),
+                            (new_selection.row_index + 1).to_string(),
+                        ));
+                        out.prop_updates.push((id.to_owned(), "ClickedColumn".to_owned(), data_col.to_string()));
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onCellClick",
+                            &format!("{},{}", new_selection.row_index, display_col),
+                        ));
                     }
 
                     if display_row >= frozen_rows {
@@ -23398,6 +23419,41 @@ mod tests {
         println!(
             "DataGrid copy — Event::Copy {copied:?}; Cmd/Ctrl+C key {by_key:?}; with a text box focused {elsewhere:?}"
         );
+    }
+
+    /// Moving onto a cell with the arrow keys chooses it as clicking it does:
+    /// `onCellClick` fires with `ClickedRow`/`ClickedColumn` naming the new
+    /// cell, so a handler that loads the clicked row follows the keyboard
+    /// (operator, 2026-10-05). A key that cannot move — Up on the first row —
+    /// fires nothing.
+    #[test]
+    fn a_datagrid_arrow_key_fires_on_cell_click_for_the_new_cell() {
+        let key = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let bob = pos2(100.0, 53.0);
+        let mut frames = click_at(bob, 0.0);
+        frames.push((0.20, vec![key(egui::Key::ArrowDown)]));
+        frames.push((0.25, vec![key(egui::Key::ArrowDown)]));
+        frames.push((0.30, vec![]));
+        let (events, props) = drive(&[audit_grid(&[])], frames);
+        let clicks: Vec<String> =
+            events.iter().filter(|e| e.event == "onCellClick").filter_map(|e| e.value.clone()).collect();
+        assert_eq!(clicks, ["0,0", "1,0", "2,0"], "the click, then one per arrow: {events:?}");
+        assert_eq!(props["DG"]["ClickedRow"], "3", "ClickedRow follows the keyboard (1-based)");
+        assert_eq!(props["DG"]["ClickedColumn"], "1");
+
+        // Up on the first row cannot move, so it chooses nothing new.
+        let mut frames = click_at(bob, 0.0);
+        frames.push((0.20, vec![key(egui::Key::ArrowUp)]));
+        frames.push((0.25, vec![]));
+        let (events, _) = drive(&[audit_grid(&[])], frames);
+        assert_eq!(events.iter().filter(|e| e.event == "onCellClick").count(), 1, "{events:?}");
+        println!("DataGrid keyboard — onCellClick values {clicks:?}, ClickedRow {}", props["DG"]["ClickedRow"]);
     }
 
     /// `AllowSorting`: a click on a column title orders the rows the grid

@@ -6483,7 +6483,7 @@ fn event_reference(name: &str) -> &'static str {
         "onEnded" => "animation reached its end",
         "onFrameChanged" => "animation advanced a frame",
         "onLooped" => "animation restarted a loop",
-        "onCellClick" => "a cell was clicked — `ClickedRow` / `ClickedColumn` say which. A column whose kind is Button draws its cell value as a button; a value `icon:<name>` (e.g. `icon:pencil`, `icon:trash`) draws that catalogue icon instead, the usual way to give each row Edit and Delete buttons",
+        "onCellClick" => "a cell was clicked, or the arrow keys (Page Up/Down, Home, End) moved the selection onto it — `ClickedRow` / `ClickedColumn` say which. A column whose kind is Button draws its cell value as a button; a value `icon:<name>` (e.g. `icon:pencil`, `icon:trash`) draws that catalogue icon instead, the usual way to give each row Edit and Delete buttons",
         "onNodeRenamed" => "TreeView with `AllowEdit`: the operator renamed a node in place — `CONTROL-NODE` holds the new label, `PreviousNodeText` the old one; `Items` already carries it",
         "onNodeDrop" => "TreeView with `AllowDrag`: the operator dropped one node on another — the DRAGGED node in `CONTROL-NODE`, `CONTROL-NODE-INDEX`, `CONTROL-NODE-LEVEL`, `CONTROL-NODE-CHECKED`, and the target in `CONTROL-TARGET-INDEX` (1-based line in `Items`, 0 for the tree's empty space) and `CONTROL-TARGET-NODE` (its label, blank for empty space). The handler decides what the drop means and rebuilds `Items`",
         "onCellEdited" => "DataGrid with `AllowCellEditing`: the operator changed a cell — `EditedRow`, `EditedColumn`, `EditedValue`, `PreviousValue` say which and how; the new text is already in `Rows`",
