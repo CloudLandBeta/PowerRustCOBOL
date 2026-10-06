@@ -18,7 +18,9 @@
 //! - [`lifetime`] — making sure no server outlives the application.
 //! - [`routes`] — which server and tool serve each operation, as data.
 
+pub mod connections;
 pub mod lifetime;
+pub mod ops;
 pub mod pool;
 pub mod process;
 pub mod routes;

@@ -14508,6 +14508,8 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::WebSearch => "WebSearch",
         CT::Snackbar => "Snackbar",
         CT::Viewer => "Viewer",
+        CT::AwsMcp => "AwsMcp",
+        CT::AwsLambda => "AwsLambda",
         CT::Custom { .. } => "Control",
     }
 }

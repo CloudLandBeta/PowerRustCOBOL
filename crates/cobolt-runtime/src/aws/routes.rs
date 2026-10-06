@@ -81,6 +81,8 @@ pub struct OpDef {
     pub mutating: Mutating,
     #[serde(default)]
     pub result: BTreeMap<String, String>,
+    /// The control's own completion event, raised before `onComplete`.
+    pub event: String,
 }
 
 /// The whole table.

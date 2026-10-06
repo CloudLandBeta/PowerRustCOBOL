@@ -51,7 +51,7 @@ fn a_drifted_fixture_fails_the_route_check() {
     assert!(e.contains("payload"), "{e}");
 
     // A route naming a fixed tool, against a fixture where it was renamed.
-    let fixed: OpDef = toml::from_str("server = \"lambda\"\ntool = \"order_sync\"\nmutating = false\ninput = { parameters = \"{arg:1|json}\" }").unwrap();
+    let fixed: OpDef = toml::from_str("server = \"lambda\"\ntool = \"order_sync\"\nmutating = false\nevent = \"onInvoked\"\ninput = { parameters = \"{arg:1|json}\" }").unwrap();
     let ok = fixture("lambda").unwrap();
     assert!(check_route("t", &fixed, &ok).is_ok());
     let mut renamed = ok.clone();

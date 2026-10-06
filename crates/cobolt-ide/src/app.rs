@@ -2794,6 +2794,7 @@ impl CoboltApp {
                 .map(|p| p.integrations.search_connections.clone())
                 .unwrap_or_default(),
             agent: Vec::new(),
+            aws: Vec::new(),
         };
 
         // The launched form first, then every other form the project lists.

@@ -98,6 +98,14 @@ pub enum AsyncOutcome {
     /// worker because it needed the embedding server. Delivered to the
     /// AGENT's tool loop, which it moves on; not the end of the agent's `Ask`.
     KbToolResult { call_id: String, text: String },
+    /// Spec 078 — an AWS control's operation finished: the properties it
+    /// sets, its row set, and the control's own completion event
+    /// (`onInvoked`, `onToolResult`, …), which `onComplete` follows.
+    Aws { props: Vec<(String, String)>, rows: Vec<serde_json::Value>, event: String },
+    /// Spec 078 — the operation failed; `onError`.
+    AwsError { message: String },
+    /// Spec 078 — the server did not answer within its budget; `onTimeout`.
+    AwsTimeout { message: String },
 }
 
 /// One passage a KnowledgeBase search found (spec 068 R33).

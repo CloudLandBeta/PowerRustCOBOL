@@ -559,7 +559,7 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
 /// operation this rejects is exactly one the apply path would silently skip.
 /// Every control type the designer can deploy. One list, used to build the
 /// context block AND to prove an event name wrong without a form.
-pub(crate) const ALL_CONTROL_TYPES: [&str; 36] = [
+pub(crate) const ALL_CONTROL_TYPES: [&str; 38] = [
     "Button",
     "TextBox",
     "Label",
@@ -596,6 +596,8 @@ pub(crate) const ALL_CONTROL_TYPES: [&str; 36] = [
     "AreaChart",
     "ScatterChart",
     "DonutChart",
+    "AwsLambda",
+    "AwsMcp",
 ];
 
 /// The real event names that resemble `event` — what the agent probably meant.

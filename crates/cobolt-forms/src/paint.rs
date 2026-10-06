@@ -2328,6 +2328,65 @@ pub fn nv_icon_globe(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
 /// code, so the two cannot drift apart the way two hand-drawn copies do
 /// (operator, 2026-09-07: "the control has one that can be used there too —
 /// use that icon in both places").
+/// The AWS-style icon of an AWS control: a hand-drawn SVG in the style of the
+/// service's own icon (spec 078, amendment A5). `None` for any other type.
+pub fn aws_icon_svg(ct: &crate::ControlType) -> Option<&'static str> {
+    match ct {
+        crate::ControlType::AwsLambda => Some(include_str!("../assets/aws/AwsLambda.svg")),
+        crate::ControlType::AwsMcp => Some(include_str!("../assets/aws/AwsMcp.svg")),
+        _ => None,
+    }
+}
+
+/// An SVG rendered into a `px`-square image, scaled to fit.
+pub fn rasterize_svg_square(svg: &str, px: u32) -> Option<egui::ColorImage> {
+    let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
+    let native = tree.size();
+    let scale = px as f32 / native.width().max(native.height()).max(1.0);
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(px, px)?;
+    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    let pixels = pixmap
+        .pixels()
+        .iter()
+        .map(|p| egui::Color32::from_rgba_premultiplied(p.red(), p.green(), p.blue(), p.alpha()))
+        .collect();
+    Some(egui::ColorImage {
+        size: [px as usize, px as usize],
+        source_size: egui::vec2(px as f32, px as f32),
+        pixels,
+    })
+}
+
+/// Paint an AWS control's icon into the square centred in `rect`, rasterised
+/// at the pixels it covers and cached per type and size — the toolbox and the
+/// designer card both draw through here, so the two cannot drift apart.
+/// `false` when the type has no AWS icon.
+pub fn paint_aws_icon(painter: &egui::Painter, rect: Rect, ct: &crate::ControlType) -> bool {
+    let Some(svg) = aws_icon_svg(ct) else { return false };
+    let ctx = painter.ctx();
+    let side = rect.width().min(rect.height());
+    let px = (side * ctx.pixels_per_point()).round().clamp(8.0, 512.0) as u32;
+    let key = egui::Id::new(("aws-icon", ct.as_str(), px));
+    let cached: Option<egui::TextureHandle> = ctx.data(|d| d.get_temp(key));
+    let tex = match cached {
+        Some(t) => t,
+        None => {
+            let Some(img) = rasterize_svg_square(svg, px) else { return false };
+            let t = ctx.load_texture(format!("aws-icon-{}-{px}", ct.as_str()), img, egui::TextureOptions::LINEAR);
+            ctx.data_mut(|d| d.insert_temp(key, t.clone()));
+            t
+        }
+    };
+    let square = Rect::from_center_size(rect.center(), Vec2::splat(side));
+    painter.image(
+        tex.id(),
+        square,
+        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+        Color32::WHITE,
+    );
+    true
+}
+
 pub fn nv_icon_search(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     let lens_r = s * 0.72;
     let lens_c = Pos2::new(c.x - s * 0.18, c.y - s * 0.18);
@@ -3233,6 +3292,20 @@ fn draw_control_body(
             CT::Snackbar => {
                 nv_icon_snackbar(painter, cen, s, st);
                 crate::snackbar::category_of(ctrl).as_str().to_owned()
+            }
+            // Spec 078 A5: the AWS-style tile. The caption names what the
+            // control will reach — the function, or the server.
+            CT::AwsLambda | CT::AwsMcp => {
+                paint_aws_icon(painter, Rect::from_center_size(cen, Vec2::splat(s * 2.3)), &ctrl.control_type);
+                let (prop, fallback) = if ctrl.control_type == CT::AwsLambda {
+                    ("FunctionName", "Lambda")
+                } else {
+                    ("ServerId", "MCP")
+                };
+                ctrl.get_prop(prop)
+                    .map(|v| v.as_str().trim().to_owned())
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| fallback.into())
             }
             // A non-visual type added to the catalogue but not yet given a
             // glyph here. It still gets the card and a caption naming it, so it

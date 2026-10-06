@@ -1395,6 +1395,10 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // RestClient and WebSearch but not for Maps, and listing it twice is
     // harmless — the callers union the two lists.
     const ASYNC: &[&str] = &["ResponseBody", "StatusCode", "Busy", "LastError"];
+    // Spec 078: an AWS operation's answer — its text, the whole JSON, the row
+    // set's size — and the failure text. Lambda adds the function's own error.
+    const AWS_ASYNC: &[&str] = &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError"];
+    const AWS_LAMBDA: &[&str] = &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "FunctionError"];
     const MAPS: &[&str] = &[
         "ResponseBody",
         "StatusCode",
@@ -1513,6 +1517,8 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::TreeView => TREE_VIEW,
         ControlType::KnowledgeBase => KNOWLEDGE_BASE,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
+        ControlType::AwsMcp => AWS_ASYNC,
+        ControlType::AwsLambda => AWS_LAMBDA,
         ControlType::Snackbar => SNACKBAR,
         ControlType::ToolBar => TOOLBAR,
         ControlType::FileDropZone => FILE_DROP_ZONE,
@@ -2593,6 +2599,13 @@ pub enum ControlType {
     // paginated, off-thread decoding, up to two independent split views, and
     // a Streamed layout for chatbot-style conversations (spec 058 R1-R32).
     Viewer,
+    // Spec 078: the AWS controls — non-visual, in the toolbox's AWS category,
+    // reaching AWS as an MCP client of AWS's own MCP servers (no SDK, no TLS,
+    // no credential in the application).
+    /// Call any tool of an AWS MCP server by name — the escape hatch.
+    AwsMcp,
+    /// Invoke an AWS Lambda function with a JSON payload.
+    AwsLambda,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -2715,6 +2728,8 @@ impl ControlType {
         ControlType::WebSearch,
         ControlType::Snackbar,
         ControlType::Viewer,
+        ControlType::AwsMcp,
+        ControlType::AwsLambda,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -2764,6 +2779,8 @@ impl ControlType {
             ControlType::WebSearch => "WebSearch",
             ControlType::Snackbar => "Snackbar",
             ControlType::Viewer => "Viewer",
+            ControlType::AwsMcp => "AwsMcp",
+            ControlType::AwsLambda => "AwsLambda",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -2818,6 +2835,8 @@ impl ControlType {
             "WebSearch" => ControlType::WebSearch,
             "Snackbar" => ControlType::Snackbar,
             "Viewer" => ControlType::Viewer,
+            "AwsMcp" => ControlType::AwsMcp,
+            "AwsLambda" => ControlType::AwsLambda,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {
@@ -2893,6 +2912,8 @@ impl ControlType {
             // `Size` class, not from anything the designer placed.
             ControlType::Snackbar => (56, 56),
             ControlType::Viewer => (400, 320),
+            // Spec 078: non-visual, the tray card's footprint.
+            ControlType::AwsMcp | ControlType::AwsLambda => (56, 56),
             ControlType::Custom { .. } => (100, 30),
         }
     }
@@ -2927,6 +2948,8 @@ impl ControlType {
             ControlType::Maps => "onMapClick",
             ControlType::WebSearch => "onResultsReceived",
             ControlType::Snackbar => "onButtonClick",
+            ControlType::AwsMcp => "onToolResult",
+            ControlType::AwsLambda => "onInvoked",
             // Gauge is read-only (no interactive primary event, R10); the
             // catch-all below applies but is functionally inert since
             // Gauge's supported_events() never lists onClick.
@@ -3264,6 +3287,25 @@ impl ControlType {
                 "onError",
                 "onTimeout",
                 "onComplete",
+                "onCancelled",
+            ],
+            // Spec 078 R19: the operation's own completion event, then
+            // onComplete; onError, onTimeout and onCancelled as for every
+            // asynchronous non-visual control.
+            ControlType::AwsMcp => &[
+                "onToolResult",
+                "onToolsListed",
+                "onComplete",
+                "onError",
+                "onTimeout",
+                "onCancelled",
+            ],
+            ControlType::AwsLambda => &[
+                "onInvoked",
+                "onFunctionsListed",
+                "onComplete",
+                "onError",
+                "onTimeout",
                 "onCancelled",
             ],
             ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch => &[
@@ -3840,6 +3882,8 @@ impl ControlType {
                 | ControlType::IndexedFile
                 | ControlType::WebSearch
                 | ControlType::Snackbar
+                | ControlType::AwsMcp
+                | ControlType::AwsLambda
         )
     }
 }
@@ -5923,6 +5967,34 @@ impl Control {
                 // answer. Without it a search that yields nothing looks the
                 // same as a search that never ran.
                 props.insert("Verbose".into(), PropValue::Bool(false));
+            }
+            // Spec 078: the AWS controls share one design-time set; what an
+            // operation returns (ResponseBody, ResultJson, RowCount, LastError,
+            // FunctionError) is runtime-only — see `runtime_property_names_for`.
+            ControlType::AwsMcp | ControlType::AwsLambda => {
+                // The project's AWS connection, by name: a profile NAME and a
+                // region — never a key (R11, R12).
+                props.insert("Connection".into(), PropValue::String("".into()));
+                // Async I/O (spec 032), as RestClient and WebSearch.
+                props.insert("Mode".into(), PropValue::String("Async".into())); // Async | Sync
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(30000));
+                // A server's first start downloads packages (amendment A3).
+                props.insert("StartTimeoutMs".into(), PropValue::Int(120000));
+                // Read-only unless the developer opts in (R25).
+                props.insert("AllowWrite".into(), PropValue::Bool(false));
+                // Narrates each call into the output, credentials masked (R27).
+                props.insert("Verbose".into(), PropValue::Bool(false));
+                match control_type {
+                    ControlType::AwsLambda => {
+                        props.insert("FunctionName".into(), PropValue::String("".into()));
+                    }
+                    _ => {
+                        // The route-table server whose tools `Call` reaches.
+                        props.insert("ServerId".into(), PropValue::String("".into()));
+                        props.insert("ToolName".into(), PropValue::String("".into()));
+                    }
+                }
             }
             ControlType::SqlDatabase => {
                 // Connection

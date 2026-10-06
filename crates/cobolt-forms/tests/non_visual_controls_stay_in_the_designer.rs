@@ -85,15 +85,10 @@ fn painted(ct: &ControlType, run: bool) -> Vec<Rect> {
 /// Every non-visual type in the catalogue, both paths, reported as a table.
 #[test]
 fn a_non_visual_control_draws_its_tray_card_only_in_the_designer() {
-    let types = [
-        ControlType::Timer,
-        ControlType::AgentObject,
-        ControlType::RestClient,
-        ControlType::SqlDatabase,
-        ControlType::IndexedFile,
-        ControlType::WebSearch,
-        ControlType::Snackbar,
-    ];
+    // Every non-visual type the catalogue has — read from it rather than kept
+    // by hand, so a new type (the AWS controls, spec 078) cannot be missed.
+    let types: Vec<ControlType> = ControlType::ALL.iter().filter(|ct| ct.is_non_visual()).cloned().collect();
+    assert!(types.len() >= 9, "the catalogue's non-visual types: {types:?}");
     eprintln!("\n  control        non-visual   designer shapes   run-form shapes");
     eprintln!("  ------------   ----------   ---------------   ---------------");
     let mut leaked = Vec::new();
@@ -111,7 +106,7 @@ fn a_non_visual_control_draws_its_tray_card_only_in_the_designer() {
         "non-visual control(s) painted in the running form:\n  {}",
         leaked.join("\n  ")
     );
-    eprintln!("  → 7 non-visual types, 0 shapes in the running form\n");
+    eprintln!("  → {} non-visual types, 0 shapes in the running form\n", types.len());
 }
 
 /// The other half: hiding them at run time must not blank the designer canvas,

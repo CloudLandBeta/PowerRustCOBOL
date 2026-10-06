@@ -148,7 +148,7 @@ mutating = true
   - 16 `TOOLS` entries with `category: "AWS"`;
   - `("AWS", "AWS")` in `CATEGORIES`, and an entry in `TREE_CATEGORY_ORDER`;
   - `cat_aws` in `Tr`.
-- **Icons (amended A5, 2026-10-06).** One **hand-drawn SVG** per service, in the style of AWS's official service icon (its colour tile and a simplified glyph), kept in `assets/icons/aws/<control>.svg`, compiled in with `include_str!`, rasterised by the `resvg` path `paint.rs` already has and cached as a texture. The toolbox and the canvas card draw the same picture ("one glyph, both places"). Drawn for this product, never traced from AWS's files; no wordmark or logo (R30).
+- **Icons (amended A5, 2026-10-06).** One **hand-drawn SVG** per service, in the style of AWS's official service icon (its colour tile and a simplified glyph), kept in `crates/cobolt-forms/assets/aws/<Control>.svg` (beside the renderer that compiles them in), compiled in with `include_str!`, rasterised by the `resvg` path `paint.rs` already has and cached as a texture. The toolbox and the canvas card draw the same picture ("one glyph, both places"). Drawn for this product, never traced from AWS's files; no wordmark or logo (R30).
 - **Properties.** `show_type_specific` gets an `Aws*` arm that shows the Connection combo, copied from WebSearch's combo, then the type's own rows.
 - **Help, KB and IntelliSense:**
   - `prop_help_data.rs`: every seeded property, in six languages;

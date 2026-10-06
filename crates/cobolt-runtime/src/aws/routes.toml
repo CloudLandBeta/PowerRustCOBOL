@@ -30,6 +30,8 @@
 #   mutating        true: refused while `AllowWrite` is off (R25).
 #                   "by-tool": decided by the tool's `readOnlyHint` (R26).
 #   result          property = extractor.
+#   event           the control's own completion event, raised before
+#                   onComplete (R19).
 #
 # Placeholders:  {arg:N}  the N-th COBOL argument (1-based)
 #                {prop:Name}  a property of the control
@@ -60,6 +62,7 @@ write_args    = []
 protocol      = "handshake"
 
 [ops."AwsLambda.Invoke"]
+event    = "onInvoked"
 server   = "lambda"
 tool     = "{arg:1|strip:{Connection.FunctionPrefix}|ident}"
 input    = { parameters = "{arg:2|json}" }
@@ -67,12 +70,14 @@ mutating = true
 result   = { ResponseBody = "$after:returned: |returned payload: ", FunctionError = "$after:returned with error: " }
 
 [ops."AwsLambda.ListFunctions"]
+event    = "onFunctionsListed"
 server   = "lambda"
 tool     = "$list"
 mutating = false
 
 # ── The escape hatch: any tool of any routed server ─────────────────────────
 [ops."AwsMcp.Call"]
+event    = "onToolResult"
 server   = "{prop:ServerId}"
 tool     = "{arg:1}"
 input    = "{arg:2|json}"
@@ -80,6 +85,7 @@ mutating = "by-tool"
 result   = { ResponseBody = "$text", ResultJson = "$json:" }
 
 [ops."AwsMcp.ListTools"]
+event    = "onToolsListed"
 server   = "{prop:ServerId}"
 tool     = "$list"
 mutating = false

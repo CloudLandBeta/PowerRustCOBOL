@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.232] — 2026-10-06
+
+### Added
+- **Spec 078 A.4 — the `AwsLambda` and `AwsMcp` controls.** Two new
+  non-visual controls in a new **AWS** toolbox section, drawn as hand-made
+  tiles in the style of AWS's service icons. `AwsLambda` invokes a Lambda
+  function with a JSON payload (`Invoke`) and lists the connection's
+  functions (`ListFunctions`); `AwsMcp` calls any tool of one of the
+  connection's AWS servers (`Call`) and lists them (`ListTools`). Both are
+  asynchronous by default — the control's own event (`onInvoked`,
+  `onToolResult`, …), then `onComplete`; or `onError`, `onTimeout`,
+  `onCancelled` — and `Mode = Sync` returns the answer in the statement. An
+  answer that is a JSON array is read as rows with `RowCount`, `GetRow(n)`
+  and `GetField(n, name)`. `AllowWrite` is off by default: invoking a
+  function, or calling a tool the server does not mark read-only, is refused
+  before anything is sent, and so is an argument that is not valid JSON,
+  with `LastError` naming it. A profile that is not signed in is reported
+  with the profile's name and the `aws login` command, never the server's
+  raw text. Help, the System Knowledge Base and Grace know both controls.
+  The project manifest and Settings do not list AWS connections yet (next
+  step), so the controls run only where a host publishes a connection.
+
 ## [PowerRustCOBOL 1.80.231] — 2026-10-06
 
 ### Added

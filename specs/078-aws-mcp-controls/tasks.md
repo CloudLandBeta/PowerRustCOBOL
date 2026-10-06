@@ -160,7 +160,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.4 Model, runtime dispatch, the two controls
 
-- [ ] **T-A10 — `AwsMcp` and `AwsLambda` in the model** (R18, R19, R25; AC10 in part)
+- [x] **T-A10 — `AwsMcp` and `AwsLambda` in the model** (R18, R19, R25; AC10 in part)
   - Read first: `cobolt-forms/src/model.rs`:
     - `ControlType` and `ALL`, `as_str`, `from_str`, `default_size`, `primary_event`, `supported_events`, `is_non_visual`;
     - the WebSearch arm of `Control::new`;
@@ -174,7 +174,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - Add an `AWS_ASYNC` runtime-names const.
   - Verify: `cargo test -p cobolt-forms --features render` is green (Gate G unchanged), and `aws_controls_are_non_visual_and_round_trip_a_cfrm` passes.
 
-- [ ] **T-A11 — `interpreter/aws.rs`: class-first dispatch and the async path** (R19–R21, R25, R26; AC11, AC12, AC15)
+- [x] **T-A11 — `interpreter/aws.rs`: class-first dispatch and the async path** (R19–R21, R25, R26; AC11, AC12, AC15)
   - Read first: `interpreter/kb.rs` (`is_knowledge_base`, `kb_method`, the non-`kb` stub, `kb_delivered`), and `interpreter.rs`:
     - `exec_method` and its class routing;
     - `spawn_rest_op`;
@@ -247,11 +247,11 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.6 IDE, knowledge, docs
 
-- [ ] **T-A17 — Toolbox category, glyphs, canvas cards** (R18, R30; AC10)
+- [x] **T-A17 — Toolbox category, glyphs, canvas cards** (R18, R30; AC10)
   - Read first: `panels/toolbox.rs` (`TOOLS`, `CATEGORIES`, `TREE_CATEGORY_ORDER`, `category_of`, `paint_control_icon`, and `the_toolbox_snackbar_is_the_controls_own_glyph`); `cobolt-forms/src/paint.rs` (the non-visual card branch and `nv_icon_*`); `i18n.rs` (`cat_*` and `category_name`).
   - Files: those three, plus `crates/cobolt-ide/src/i18n.rs` (`cat_aws` in 6 languages; the English value is "AWS" in every language).
   - Do:
-    - `assets/icons/aws/AwsLambda.svg` and `AwsMcp.svg` are hand-drawn SVGs in the style of the AWS service icons (amendment A5): the service's colour tile and a simplified glyph, never traced from AWS's files, no wordmark. Both the toolbox and the card draw them through `resvg`, cached as textures.
+    - `crates/cobolt-forms/assets/aws/AwsLambda.svg` and `AwsMcp.svg` are hand-drawn SVGs in the style of the AWS service icons (amendment A5): the service's colour tile and a simplified glyph, never traced from AWS's files, no wordmark. Both the toolbox and the card draw them through `resvg`, cached as textures.
     - Add the "AWS" category after NonVisual.
   - Verify: the `toolbox_layout_tests` gain `the_aws_category_lists_its_controls_in_every_language`; the glyph-parity test is extended; Gate G.
 
@@ -272,7 +272,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - The window keeps its fixed size (GOLDEN RULE).
   - Verify: `aws_test_connection_reports_four_outcomes`, driven with the fake through `diagnose` rather than the UI (AC14); the `i18n_tests` are green.
 
-- [ ] **T-A20 — Help, System KB, IntelliSense, Grace** (R30, R31; AC18)
+- [x] **T-A20 — Help, System KB, IntelliSense, Grace** (R30, R31; AC18)
   - Read first: `prop_help_data.rs` (the WebSearch entries); `cobolt-compiler/src/lib.rs` `property_reference_for`, `event_reference`, `control_purpose`, `control_method_docs`, `control_usage_notes`, `methods_reference_doc` (a hand-kept list) and `every_control_property_is_documented` (a hand-kept type list); `grace_host.rs` `type_aliases`; `agent.rs` `ALL_CONTROL_TYPES`; `crates/cobolt-runtime/tests/test_nonvisual_property_readers.rs` (`declared_readers`, `RUNTIME_SOURCES`).
   - Do:
     - Add every seeded property and event, in 6 languages.

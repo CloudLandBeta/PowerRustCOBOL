@@ -1175,6 +1175,8 @@ pub fn project_connections(manifest_path: &Path) -> cobolt_forms::connections::C
             // a form through the environment instead — see
             // `cobolt_forms::connections::AGENT_PROVIDERS_ENV`.
             agent: Vec::new(),
+            // Spec 078: the manifest does not list AWS connections yet.
+            aws: Vec::new(),
         })
         .unwrap_or_default()
 }
@@ -2524,6 +2526,8 @@ fn build_core(
             // application would be wrong. The operator sets
             // COBOLT_AGENT_PROVIDERS on the machine that runs it.
             agent: Vec::new(),
+            // Spec 078: the manifest does not list AWS connections yet.
+            aws: Vec::new(),
         }
         .to_json(),
         proj.agents.file_memory_limit_mb(),
@@ -5722,6 +5726,30 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
             "retired",
             "**Retired** on this control: its operations are synchronous, so it is never busy. `IsBusy()` answers 0.",
         )),
+        ("AwsMcp", "ToolName") => Some((
+            "a tool name of the control's server",
+            "The tool `Call` runs when it is given no name. `ListTools` lists the names the server offers.",
+        )),
+        ("AwsLambda", "TimeoutMs") | ("AwsMcp", "TimeoutMs") => Some((
+            "milliseconds (default 30000)",
+            "How long the server may take to answer one call, once it has started (starting has its own `StartTimeoutMs`). Past it the call is abandoned and `onTimeout` fires with `LastError` saying so.",
+        )),
+        ("AwsLambda", "Mode") | ("AwsMcp", "Mode") => Some((
+            "one of: `Async` | `Sync` (default Async)",
+            "`Async`: the method returns 1 at once (0 when it was refused) and the answer arrives with the control's own event — `onInvoked`, `onToolResult`, … — followed by `onComplete`; or `onError`, `onTimeout`, `onCancelled`. `Sync`: the method waits and returns `ResponseBody`, raises no event, and leaves `LastError` set when it failed.",
+        )),
+        ("AwsLambda", "Verbose") | ("AwsMcp", "Verbose") => Some((
+            BOOL_DOMAIN,
+            "Narrate each call into the program's output: the tool and the arguments sent, then the answer or the error. Anything that looks like an AWS access key, session token or pre-signed URL signature is masked.",
+        )),
+        ("AwsLambda", "ResponseBody") => Some((
+            "runtime-only, read-only",
+            "In `onInvoked`, what the function returned — usually JSON. When it is a JSON array, `RowCount`, `GetRow(n)` and `GetField(n, name)` read its elements.",
+        )),
+        ("AwsMcp", "ResponseBody") => Some((
+            "runtime-only, read-only",
+            "In `onToolResult`, the tool's answer as text; after `ListTools`, one tool name per line.",
+        )),
         ("Viewer", "Format") => Some((
             "one of: `Text` | `Markdown` | `Image` | `Pdf` | `HtmlSubset` (runtime-set)",
             "The format the runtime detected for the loaded document, from its extension and content; written on every load. Setting it does not change how the document is decoded.",
@@ -6583,6 +6611,40 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "SelectedMarkerId" => ("marker id string or empty (runtime-only)", "Id of the marker the user last clicked, delivered with onMarkerClick."),
 
+        // ── AWS controls (spec 078) ──
+        "Connection" => (
+            "the name of one of the project's AWS connections, or empty",
+            "AWS controls: which AWS connection (Settings → Integrations → AWS) the control works through — its profile, its region and, for Lambda, which functions are offered. Empty means the project's ONLY AWS connection, when it has exactly one. A name the project does not have fails the call with `onError`, naming the connections it does have. A connection holds no secret: credentials come from the AWS profile on the machine that runs the application (`aws login --profile <name>`), never from the form or the project.",
+        ),
+        "StartTimeoutMs" => (
+            "milliseconds (default 120000)",
+            "AWS controls: how long the connection's server may take to START, separately from `TimeoutMs`. The first use on a machine downloads the server, which can take a minute; later starts take about a second, and a started server is reused by every AWS control on the connection. Past this limit the call fails with `onError`.",
+        ),
+        "AllowWrite" => (
+            "true | false (default false)",
+            "AWS controls: whether this control may CHANGE anything in AWS. Off by default: an operation that writes — invoking a Lambda function, or an `AwsMcp` tool its server does not mark read-only — is refused with `onError` before anything is sent, and a server that has a read-only mode starts in it. One server serves a whole connection, so it leaves read-only mode as soon as any control on that connection turns this on; every other control is still refused by its own `AllowWrite`.",
+        ),
+        "ResultJson" => (
+            "JSON text (runtime-only, read-only)",
+            "AWS controls: the whole answer of the last operation, as JSON, for a program that wants more than the row set. Empty when the answer was not JSON.",
+        ),
+        "RowCount" => (
+            "integer (runtime-only, read-only)",
+            "AWS controls: how many rows the last operation returned — the elements of its answer when the answer is a JSON array, 0 otherwise. Read each with `GetRow(n)` or `GetField(n, name)`.",
+        ),
+        "FunctionName" => (
+            "a Lambda function name",
+            "AwsLambda: the function `Invoke` calls when it is given no name. The connection's `FunctionPrefix` may be included or left off.",
+        ),
+        "FunctionError" => (
+            "text (runtime-only, read-only)",
+            "AwsLambda: in `onInvoked`, the error the FUNCTION itself reported (for example `Unhandled`), empty when it ran cleanly. A function that fails still completes the call: `onInvoked` fires and this says what went wrong inside it, while `onError` is kept for calls that never reached the function.",
+        ),
+        "ServerId" => (
+            "a server id from the AWS route table, e.g. `lambda`",
+            "AwsMcp: which of the connection's AWS servers this control talks to.",
+        ),
+
         // ── WebSearch (spec 039) ──
         "Provider" => (
             "one of: `Google` | `Brave` | `Serper` | `Tavily` | `SearXNG`",
@@ -6751,6 +6813,10 @@ fn event_reference(name: &str) -> &'static str {
         "onMapClick" => "the map background was clicked (not a marker) — the primary event",
         "onMarkerClick" => "a marker was clicked (`SelectedMarkerId` holds its id)",
         "onBoundsChanged" => "the map was panned or zoomed (`CenterLat`/`CenterLng`/`Zoom` updated)",
+        "onInvoked" => "AwsLambda: the function ran — `ResponseBody` holds what it returned, `FunctionError` what it reported as an error (empty when clean), `RowCount` the rows of an array answer. Its primary event; `onComplete` follows",
+        "onFunctionsListed" => "AwsLambda: `ListFunctions` finished — `RowCount` functions, each read with `GetField(n, \"Name\")` / `GetField(n, \"Description\")`; `onComplete` follows",
+        "onToolResult" => "AwsMcp: a tool answered — `ResponseBody` holds its text, `ResultJson` its JSON, `RowCount` the rows of an array answer. Its primary event; `onComplete` follows",
+        "onToolsListed" => "AwsMcp: `ListTools` finished — `RowCount` tools, each read with `GetField(n, \"Name\")`, `\"Description\"` and `\"ReadOnly\"` (1 when the server marks it read-only); `onComplete` follows",
         "onResultsReceived" => "Fired when a search comes back with results, before the uniform `onComplete`. This is WebSearch's PRIMARY event — the one a double-click on the control binds — and it is the natural place to read `ResultCount`/`TopTitle`/`GetResult(n)`. Until 1.65.75 it was documented as a mere label and nothing raised it, so a handler bound here never ran: the search succeeded, `ResponseBody` filled, and no COBOL executed. Both events are raised now, so a form bound to `onComplete` instead is unaffected. Errors and timeouts still arrive on `onError`/`onTimeout`.",
         _ => "",
     }
@@ -6822,6 +6888,8 @@ fn control_purpose(name: &str) -> &'static str {
         "FileDropZone" => "Non-visual: accepts files via drag-and-drop or a native file-picker click.",
         "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix). Wheel zoom is continuous: one notch is one level, released a slice per frame, and while it travels the map is drawn BETWEEN levels by scaling the tiles it already has, with the point under the pointer held fixed and markers/routes/regions scaling along with the basemap.",
         "WebSearch" => "Non-visual Google Custom Search JSON API client (async by default, same lifecycle as RestClient).",
+        "AwsLambda" => "Non-visual: invokes AWS Lambda functions with a JSON payload and reads their answer, through the control's AWS connection. Async by default; refused unless `AllowWrite` is on, since running a function can change anything.",
+        "AwsMcp" => "Non-visual escape hatch to AWS: calls any tool of one of the connection's AWS servers by name with a JSON argument, and lists the tools it offers. A tool the server does not mark read-only is refused unless `AllowWrite` is on.",
         _ => "",
     }
 }
@@ -7168,6 +7236,22 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Cancel()", "Cancel the in-flight search."),
             ("IsBusy() → Boolean (0/1)", "A search is in flight."),
         ],
+        "AwsLambda" => vec![
+            ("Invoke(function: String?, payload: String?) → 1/0", "Run a Lambda function — `FunctionName` when none is named — with a JSON payload (`{}` when none). Async: returns 1, then `onInvoked` and `onComplete`. Sync: returns the function's answer. Refused with `onError`, nothing sent, when `AllowWrite` is off or the payload is not valid JSON."),
+            ("ListFunctions() → 1/0", "List the functions the connection offers; `onFunctionsListed`, then read the rows."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsMcp" => vec![
+            ("Call(tool: String?, arguments: String?) → 1/0", "Run one tool of the `ServerId` server — `ToolName` when none is named — with a JSON object of arguments (`{}` when none). Async: returns 1, then `onToolResult` and `onComplete`. Sync: returns the tool's answer. Refused with `onError`, nothing sent, when the arguments are not valid JSON, or when the server does not mark the tool read-only and `AllowWrite` is off."),
+            ("ListTools() → 1/0", "List the server's tools; `onToolsListed`, then read the rows (`Name`, `Description`, `ReadOnly`)."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
         // 051 — the SideMenu's programmatic door to standalone child windows,
         // and (066) the rows a program adds at run time.
         "SideMenu" => vec![
@@ -7342,6 +7426,19 @@ The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) 
 Every colour the map paints is a property, in the inspector's **Basic properties** section and writable from COBOL: `MarkerColor`, `MarkerBorderColor`, `RouteColor`, `RouteCasingColor`, `RegionFillColor`, `RegionBorderColor`, `TileBackgroundColor`, `TileLoadingColor`. Each starts EMPTY, meaning the built-in the map has always painted, so a form that sets none of them is unchanged.\n\
 \n\
 Colour carried by the DATA still wins: `AddRoute` USING id colour width geometry keeps that route's own colour, and `AddRegion`'s fill and stroke keep theirs — `RouteColor`, `RegionFillColor` and `RegionBorderColor` are what a line naming none falls back to. Two exceptions, because their data carries no colour at all: `MarkerColor`/`MarkerBorderColor` (an `AddMarker` has no colour argument) and `RouteCasingColor` (the halo under EVERY route, whatever colour the route itself names). Never tell a developer a map colour cannot be changed, and never suggest editing the `.cfrm` by hand to change one.\n",
+        "AwsLambda" | "AwsMcp" => "\
+### Usage — AWS controls\n\
+An AWS control works through one of the project's AWS connections (Settings → Integrations → AWS), which names an AWS profile and a region. The application signs in with that profile on the machine it runs on — run `aws login --profile <name>` once there — and no key is ever kept in a form, a project or a built application. The first call on a machine starts the connection's AWS server with `uvx`, which must be installed (`LastError` says so, with the fix, when it is not); every AWS control on the connection then shares that one server, and it ends with the application.\n\
+\n\
+```cobol\n\
+           MOVE '{\"orderId\": 42}' TO WS-PAYLOAD\n\
+           INVOKE LAMBDA-1 \"Invoke\" USING WS-FUNCTION WS-PAYLOAD RETURNING WS-OK\n\
+      *> later, in the onInvoked handler:\n\
+           MOVE LAMBDA-1::ResponseBody TO WS-ANSWER\n\
+           MOVE LAMBDA-1::FunctionError TO WS-FAILED\n\
+```\n\
+\n\
+`AllowWrite` is off by default and every Lambda invocation needs it. A payload or argument that is not valid JSON is refused before anything is sent, with `LastError` naming the argument. A profile that is not signed in fails with `onError` and a `LastError` that names the profile and the `aws login` command.\n",
         "WebSearch" => "\
 ### Usage — the generated paragraph vs. `INVOKE 'Search'`\n\
 Every `WebSearch` control also gets a generated `<id>-SEARCH` paragraph (`PERFORM SEARCH-1-SEARCH`) that builds a Custom Search URL and calls `COBOL-HTTP-GET` directly — but it does PLAIN, UNENCODED string concatenation: a multi-word `Query` truncates at its first space, and it never includes the API key (so it 401s against the real API on its own). **Use `INVOKE <id> 'Search'` instead** — it percent-encodes the query and resolves the credential-store key automatically; the paragraph exists only as a low-level fallback. Same \"not configured\" contract as Maps: no `google-custom-search` key configured (Settings → Integrations) fails immediately with `onError`, no request sent (R33).\n",
@@ -8266,6 +8363,16 @@ fn methods_reference_doc() -> String {
             ],
         ),
         (
+            "AwsLambda / AwsMcp (spec 078)",
+            "Reach AWS through an AWS connection (profile + region, no key in the project). `AwsLambda` invokes Lambda functions; `AwsMcp` calls any tool of the connection's AWS server. Async by default — the control's own event (`onInvoked` / `onToolResult`), then `onComplete`; or `onError`, `onTimeout`, `onCancelled`. `AllowWrite` (off by default) guards everything that changes AWS. Answers that are JSON arrays are read as rows.",
+            &[
+                ("AwsLambda: Invoke(function?, payload?) / ListFunctions()", "Run a function with a JSON payload / list the connection's functions."),
+                ("AwsMcp: Call(tool?, arguments?) / ListTools()", "Run a tool with a JSON object / list the server's tools."),
+                ("GetRow(n) / GetField(n, name) → String", "Read the last answer's rows, 1-based."),
+                ("Cancel() / IsBusy() → Boolean", "Async control."),
+            ],
+        ),
+        (
             "Viewer (spec 058)",
             "A document viewer: text, Markdown, images, PDF and an HTML subset, with Find, Save As, Print, split view and — under `Layout = Streamed` — an append-only chatbot conversation surface. Decoding runs off the UI thread. Every property is readable and writable too (`View1X`/`View2X` per view, with the plain names aliasing the FIRST view), so nothing here is reachable only by mouse.",
             &[
@@ -8934,6 +9041,8 @@ mod resolve_main_tests {
             // Model providers are never baked — they are the machine's, and
             // reach a running application through the environment instead.
             agent: Vec::new(),
+            // Spec 078: the manifest does not list AWS connections yet.
+            aws: Vec::new(),
         }
         .to_json();
 
@@ -11499,6 +11608,8 @@ generated = ["generated/inner-form1.cbl"]
             cobolt_forms::ControlType::FileDropZone,
             cobolt_forms::ControlType::Maps,
             cobolt_forms::ControlType::WebSearch,
+            cobolt_forms::ControlType::AwsLambda,
+            cobolt_forms::ControlType::AwsMcp,
         ];
         for ct in all {
             let type_name = ct.as_str().to_owned();

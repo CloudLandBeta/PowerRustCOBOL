@@ -230,6 +230,17 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::Snackbar,
         category: "NonVisual",
     },
+    // ── AWS (spec 078) — non-visual, reaching AWS through its MCP servers ─────
+    ToolEntry {
+        label: "AwsLambda",
+        ct: ControlType::AwsLambda,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsMcp",
+        ct: ControlType::AwsMcp,
+        category: "AWS",
+    },
     // ── Charts ─────────────────────────────────────────────────────────────────
     ToolEntry {
         label: "BarChart",
@@ -290,6 +301,7 @@ pub fn category_display(key: &str) -> &'static str {
 /// rest of the toolbox order.
 pub const TREE_CATEGORY_ORDER: &[&str] = &[
     "NonVisual",
+    "AWS",
     "Common",
     "Container",
     "Data",
@@ -306,6 +318,7 @@ const CATEGORIES: &[(&str, &str)] = &[
     ("Graphics", "Graphics"),
     ("Menu", "Menus & Bars"),
     ("NonVisual", "Non-Visual"),
+    ("AWS", "AWS"),
     ("Charts", "Charts"),
     ("Dialogs", "Dialogs"),
 ];
@@ -1496,6 +1509,11 @@ pub(crate) fn paint_control_icon(
                 th,
             );
         }
+        // Spec 078 A5: the hand-drawn AWS-style tile, from the same function
+        // the designer card draws with.
+        ControlType::AwsLambda | ControlType::AwsMcp => {
+            cobolt_forms::paint::paint_aws_icon(painter, rect.shrink(rect.width() * 0.12), &ct);
+        }
         ControlType::WebSearch => {
             // The catalogue's own magnifying-glass glyph — distinct from
             // RestClient's globe-and-connectors motif — drawn from the same
@@ -1771,6 +1789,27 @@ mod snackbar_icon_tests {
             toolbox.len()
         );
     }
+
+    /// Spec 078 A5 — the AWS tiles too: the toolbox paints the same SVG tile
+    /// the placed control's card paints, not a second drawing, and a real
+    /// picture rather than the fallback box.
+    #[test]
+    fn the_toolbox_aws_icons_are_the_controls_own_tiles() {
+        let color = Color32::from_rgb(200, 205, 215);
+        for ct in [ControlType::AwsLambda, ControlType::AwsMcp] {
+            let toolbox = shapes(|p, rect| paint_control_icon(p, rect, ct.clone(), color));
+            let drew = std::cell::Cell::new(false);
+            let control = shapes(|p, rect| {
+                drew.set(cobolt_forms::paint::paint_aws_icon(p, rect.shrink(rect.width() * 0.12), &ct));
+            });
+            assert!(drew.get(), "{ct:?}: its SVG did not rasterise");
+            assert_eq!(toolbox, control, "{ct:?}: the toolbox must paint the control's own tile");
+            assert!(
+                toolbox.iter().any(|s| s.starts_with("Mesh")),
+                "{ct:?}: expected the textured tile, got {toolbox:?}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1847,6 +1886,49 @@ mod toolbox_layout_tests {
         let common = texts.iter().filter(|t| t.ends_with(tr.cat_common)).count();
         assert_eq!(common, 1, "one Common header: {texts:?}");
         assert!(!texts.iter().any(|t| t.contains('🔍')), "no search row: {texts:?}");
+    }
+
+    /// Spec 078 T-A17 — an "AWS" section, drawn once in every language, and
+    /// holding exactly the two AWS controls. The palette draws its controls as
+    /// icons, so membership is read from the palette's own list.
+    #[test]
+    fn the_aws_category_lists_its_controls_in_every_language() {
+        for lang in crate::i18n::Language::ALL {
+            let tr = &lang.tr();
+            let ctx = egui::Context::default();
+            let mut tb = ToolboxPanel::new();
+            let mut texts: Vec<String> = Vec::new();
+            for _ in 0..3 {
+                texts.clear();
+                let mut full = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(260.0, 4000.0))),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        egui::CentralPanel::default().show_inside(ui, |ui| {
+                            let _ = tb.show(ui, tr, &[], false, 3800.0);
+                        });
+                    },
+                );
+                full.textures_delta.clear();
+                fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+                    match s {
+                        egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                        _ => {}
+                    }
+                }
+                for cs in &full.shapes {
+                    walk(&cs.shape, &mut texts);
+                }
+            }
+            let headers: Vec<usize> =
+                texts.iter().enumerate().filter(|(_, t)| t.ends_with(tr.cat_aws)).map(|(i, _)| i).collect();
+            assert_eq!(headers.len(), 1, "{lang:?}: one AWS header: {texts:?}");
+        }
+        let aws: Vec<&str> = TOOLS.iter().filter(|t| t.category == "AWS").map(|t| t.label).collect();
+        assert_eq!(aws, ["AwsLambda", "AwsMcp"]);
     }
 }
 

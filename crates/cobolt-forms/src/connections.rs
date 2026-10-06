@@ -315,6 +315,46 @@ pub fn resolve_agent_all(
     dangling
 }
 
+/// One project AWS connection (spec 078 R12): an AWS CLI profile NAME and a
+/// region, the Lambda functions the application may reach, and an optional
+/// route-table override — and nothing secret. The credential chain is the AWS
+/// CLI's own (a profile, SSO, `aws login`), read by the AWS MCP server
+/// process, never by the application.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AwsConnection {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub profile: String,
+    #[serde(default)]
+    pub region: String,
+    /// Lambda functions whose names start with this are reachable (the
+    /// server's `FUNCTION_PREFIX`).
+    #[serde(default)]
+    pub function_prefix: String,
+    /// …or these, comma-separated (`FUNCTION_LIST`).
+    #[serde(default)]
+    pub function_list: String,
+    /// A TOML fragment replacing route-table entries for this connection.
+    #[serde(default)]
+    pub routes_override: String,
+}
+
+impl AwsConnection {
+    /// A connection field by the name a route-table placeholder uses
+    /// (`{Connection.FunctionPrefix}`).
+    pub fn field(&self, name: &str) -> String {
+        match name {
+            "Name" => self.name.clone(),
+            "Profile" => self.profile.clone(),
+            "Region" => self.region.clone(),
+            "FunctionPrefix" => self.function_prefix.clone(),
+            "FunctionList" => self.function_list.clone(),
+            _ => String::new(),
+        }
+    }
+}
+
 /// Every named connection a project defines, in one record.
 ///
 /// One record rather than one per kind because a built application carries the
@@ -330,6 +370,9 @@ pub struct Catalogue {
     /// project — see [`AgentConnection`].
     #[serde(default)]
     pub agent: Vec<AgentConnection>,
+    /// Spec 078: the project's AWS connections.
+    #[serde(default)]
+    pub aws: Vec<AwsConnection>,
 }
 
 impl Catalogue {
@@ -346,7 +389,7 @@ impl Catalogue {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rest.is_empty() && self.search.is_empty() && self.agent.is_empty()
+        self.rest.is_empty() && self.search.is_empty() && self.agent.is_empty() && self.aws.is_empty()
     }
 }
 
