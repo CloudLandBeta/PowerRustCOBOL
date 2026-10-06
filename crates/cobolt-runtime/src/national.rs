@@ -141,6 +141,13 @@ pub fn class_text(class: CharClass, bytes: &[u8]) -> String {
     fit_class(class, &text, false)
 }
 
+/// The text a function argument's bytes hold in `class`: UTF-16BE for
+/// national, UTF-8 otherwise. Unlike [`class_text`] it is not fitted — an
+/// argument is as long as it is.
+pub fn class_bytes_text(class: CharClass, bytes: &[u8]) -> String {
+    if class.is_national() { from_utf16be(bytes) } else { String::from_utf8_lossy(bytes).into_owned() }
+}
+
 /// `text` as UTF-16 big-endian bytes.
 pub fn utf16be(text: &str) -> Vec<u8> {
     text.encode_utf16().flat_map(u16::to_be_bytes).collect()
@@ -218,6 +225,131 @@ pub fn typed_text(bytes: &[u8]) -> String {
         Ok(s) => s.to_owned(),
         Err(_) => decode(CodePage::Windows1252, bytes),
     }
+}
+
+// ── The U-functions (spec 077, Q6) ───────────────────────────────────────────
+//
+// Each works on an argument's BYTES, as IBM documents: UTF-8 for an
+// alphanumeric or UTF-8 argument, UTF-16 big-endian for a national one.
+// Positions are 1-based. UPOS and UWIDTH answer in bytes; USUBSTR counts
+// characters; UVALID and USUPPLEMENTARY answer in bytes for UTF-8 and in
+// UTF-16 code units for national.
+
+/// One argument of a U-function.
+#[derive(Debug, Clone, Copy)]
+pub struct UArg<'a> {
+    pub bytes: &'a [u8],
+    pub national: bool,
+}
+
+/// Each character of `arg` as `(byte offset, byte width, code point)`.
+/// Ill-formed data is walked a byte (UTF-8) or a unit (UTF-16) at a time, as
+/// U+FFFD, so the functions never stop the program.
+fn chars_of(arg: UArg) -> Vec<(usize, usize, char)> {
+    let mut out = Vec::new();
+    if arg.national {
+        let units: Vec<u16> = arg.bytes.chunks(2).map(|c| u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect();
+        let mut i = 0;
+        while i < units.len() {
+            let u = units[i];
+            if (0xD800..0xDC00).contains(&u) && units.get(i + 1).is_some_and(|l| (0xDC00..0xE000).contains(l)) {
+                let c = char::decode_utf16([u, units[i + 1]]).next().and_then(Result::ok).unwrap_or('\u{FFFD}');
+                out.push((2 * i, 4, c));
+                i += 2;
+            } else {
+                out.push((2 * i, 2, char::from_u32(u as u32).unwrap_or('\u{FFFD}')));
+                i += 1;
+            }
+        }
+        return out;
+    }
+    let mut i = 0;
+    let b = arg.bytes;
+    while i < b.len() {
+        match std::str::from_utf8(&b[i..]) {
+            Ok(rest) => {
+                for (off, c) in rest.char_indices() {
+                    out.push((i + off, c.len_utf8(), c));
+                }
+                break;
+            }
+            Err(e) => {
+                let good = e.valid_up_to();
+                let rest = std::str::from_utf8(&b[i..i + good]).unwrap_or_default();
+                for (off, c) in rest.char_indices() {
+                    out.push((i + off, c.len_utf8(), c));
+                }
+                let bad = e.error_len().unwrap_or(b.len() - i - good).max(1);
+                out.push((i + good, bad, '\u{FFFD}'));
+                i += good + bad;
+            }
+        }
+    }
+    out
+}
+
+/// `ULENGTH`: how many characters.
+pub fn ulength(arg: UArg) -> usize {
+    chars_of(arg).len()
+}
+
+/// `UPOS(arg, n)`: the byte where the n-th character starts; 0 out of range.
+pub fn upos(arg: UArg, n: i64) -> usize {
+    nth(arg, n).map_or(0, |(off, _, _)| off + 1)
+}
+
+/// `UWIDTH(arg, n)`: the n-th character's width in bytes; 0 out of range.
+pub fn uwidth(arg: UArg, n: i64) -> usize {
+    nth(arg, n).map_or(0, |(_, w, _)| w)
+}
+
+fn nth(arg: UArg, n: i64) -> Option<(usize, usize, char)> {
+    if n < 1 {
+        return None;
+    }
+    chars_of(arg).get(n as usize - 1).copied()
+}
+
+/// `USUBSTR(arg, start, len)`: `len` characters from the `start`-th. IBM
+/// leaves a range past the end undefined; here it is the characters that
+/// exist, and an empty result before the first.
+pub fn usubstr(arg: UArg, start: i64, len: i64) -> String {
+    if start < 1 || len < 1 {
+        return String::new();
+    }
+    chars_of(arg).into_iter().skip(start as usize - 1).take(len as usize).map(|(_, _, c)| c).collect()
+}
+
+/// `UVALID`: 0 when the argument is well-formed; otherwise where the first
+/// ill-formed sequence starts — its byte for UTF-8 (a sequence cut off at
+/// the end is reported at its lead byte), its code unit for national.
+pub fn uvalid(arg: UArg) -> usize {
+    if arg.national {
+        let units: Vec<u16> = arg.bytes.chunks(2).map(|c| u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect();
+        let mut i = 0;
+        while i < units.len() {
+            match units[i] {
+                0xD800..=0xDBFF if units.get(i + 1).is_some_and(|l| (0xDC00..0xE000).contains(l)) => i += 2,
+                0xD800..=0xDFFF => return i + 1,
+                _ => i += 1,
+            }
+        }
+        // An odd final byte is half a code unit.
+        return if arg.bytes.len() % 2 == 1 { units.len() } else { 0 };
+    }
+    match std::str::from_utf8(arg.bytes) {
+        Ok(_) => 0,
+        Err(e) => e.valid_up_to() + 1,
+    }
+}
+
+/// `USUPPLEMENTARY`: where the first character above U+FFFF starts — its
+/// byte for UTF-8, its code unit for national — or 0.
+pub fn usupplementary(arg: UArg) -> usize {
+    chars_of(arg)
+        .into_iter()
+        .find(|(_, _, c)| (*c as u32) > 0xFFFF)
+        .map_or(0, |(off, _, _)| if arg.national { off / 2 + 1 } else { off + 1 })
 }
 
 #[cfg(test)]
@@ -332,5 +464,60 @@ mod tests {
     fn typed_text_falls_back_to_windows_1252() {
         assert_eq!(typed_text("Olá, João".as_bytes()), "Olá, João");
         assert_eq!(typed_text(b"Ol\xE1, Jo\xE3o"), "Olá, João");
+    }
+
+    // IBM's own examples (Enterprise COBOL 6.4 LR, the U-function chapters).
+    const KAEFER: UArg = UArg { bytes: b"K\xC3\xA4fer", national: false };
+
+    fn tb() -> Vec<u8> {
+        // nx'005400F6006200750072D858DC6B0073'
+        vec![0x00, 0x54, 0x00, 0xF6, 0x00, 0x62, 0x00, 0x75, 0x00, 0x72, 0xD8, 0x58, 0xDC, 0x6B, 0x00, 0x73]
+    }
+
+    #[test]
+    fn ibm_examples_utf8() {
+        assert_eq!(ulength(KAEFER), 5);
+        assert_eq!((1..=6).map(|n| upos(KAEFER, n)).collect::<Vec<_>>(), [1, 2, 4, 5, 6, 0]);
+        assert_eq!((1..=5).map(|n| uwidth(KAEFER, n)).collect::<Vec<_>>(), [1, 2, 1, 1, 1]);
+        assert_eq!(usubstr(KAEFER, 1, 2), "Kä");
+        assert_eq!(usubstr(KAEFER, 2, 2), "äf");
+        assert_eq!(usubstr(KAEFER, 3, 2), "fe");
+        assert_eq!(uvalid(KAEFER), 0);
+        let decomposed = UArg { bytes: b"a\xCC\x88K", national: false };
+        assert_eq!((ulength(decomposed), upos(decomposed, 3), uwidth(decomposed, 2)), (3, 4, 2));
+        let clef = UArg { bytes: b"  \xF0\x9D\x84\x9E", national: false };
+        assert_eq!(usupplementary(clef), 3);
+        let b = UArg { bytes: b"\xC3\xA4\xF0\xA1\xB7\xA4K", national: false };
+        assert_eq!(usupplementary(b), 3);
+    }
+
+    #[test]
+    fn ibm_examples_national() {
+        let bytes = tb();
+        let b = UArg { bytes: &bytes, national: true };
+        assert_eq!(ulength(b), 7);
+        assert_eq!((1..=7).map(|n| upos(b, n)).collect::<Vec<_>>(), [1, 3, 5, 7, 9, 11, 15]);
+        assert_eq!((1..=7).map(|n| uwidth(b, n)).collect::<Vec<_>>(), [2, 2, 2, 2, 2, 4, 2]);
+        assert_eq!(usubstr(b, 1, 2), "Tö");
+        assert_eq!(usubstr(b, 6, 2).chars().count(), 2);
+        assert_eq!(uvalid(b), 0);
+        let clef = [0x00, 0x20, 0x00, 0x20, 0xD8, 0x34, 0xDD, 0x1E];
+        assert_eq!(usupplementary(UArg { bytes: &clef, national: true }), 3);
+        // nx'0054D9C3006200750072D858DC6B0073': unpaired high surrogate at unit 2.
+        let c = [0x00, 0x54, 0xD9, 0xC3, 0x00, 0x62, 0x00, 0x75, 0x00, 0x72, 0xD8, 0x58, 0xDC, 0x6B, 0x00, 0x73];
+        assert_eq!(uvalid(UArg { bytes: &c, national: true }), 2);
+        // nx'005400F60062DC01…': a lone low surrogate at unit 4.
+        let d = [0x00, 0x54, 0x00, 0xF6, 0x00, 0x62, 0xDC, 0x01, 0x00, 0x72, 0xD8, 0x58, 0xDC, 0x6B, 0x00, 0x73];
+        assert_eq!(uvalid(UArg { bytes: &d, national: true }), 4);
+    }
+
+    #[test]
+    fn out_of_range_and_ill_formed() {
+        assert_eq!((upos(KAEFER, 0), uwidth(KAEFER, -1), upos(KAEFER, 9)), (0, 0, 0));
+        assert_eq!(usubstr(KAEFER, 4, 10), "er");
+        assert_eq!(usubstr(KAEFER, 9, 1), "");
+        // A sequence cut off at the end is reported at its lead byte.
+        assert_eq!(uvalid(UArg { bytes: b"A\xC3", national: false }), 2);
+        assert_eq!(uvalid(UArg { bytes: b"AB\xFF", national: false }), 3);
     }
 }

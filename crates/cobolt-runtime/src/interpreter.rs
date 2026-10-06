@@ -6182,6 +6182,7 @@ impl Interpreter {
                 self.env.char_class(&key).is_some()
             }
             Expr::Literal(Literal::National(_) | Literal::Utf8(_), _) => true,
+            Expr::FunctionCall { name, .. } => name.eq_ignore_ascii_case("NATIONAL-OF"),
             _ => false,
         };
         // A **group** sending item makes the whole move alphanumeric-to-
@@ -17313,6 +17314,14 @@ impl Interpreter {
                 Ok(CobolValue::from_i64(len as i64))
             }
             "UPPER-CASE" => {
+                // National and UTF-8 data change case by Unicode's rules, as
+                // IBM documents; alphanumeric data keeps the ASCII rule.
+                if self.is_classed_arg(&args[0]) {
+                    let (bytes, class) = self.char_arg(&args[0], span)?;
+                    let class = class.expect("a classed argument has a class");
+                    let s = crate::national::class_bytes_text(class, &bytes).to_uppercase();
+                    return Ok(CobolValue::from_str(&s, s.len()));
+                }
                 let s = self
                     .eval_expr(&args[0], span)?
                     .as_display_string()
@@ -17321,6 +17330,12 @@ impl Interpreter {
                 Ok(CobolValue::from_str(&s, len))
             }
             "LOWER-CASE" => {
+                if self.is_classed_arg(&args[0]) {
+                    let (bytes, class) = self.char_arg(&args[0], span)?;
+                    let class = class.expect("a classed argument has a class");
+                    let s = crate::national::class_bytes_text(class, &bytes).to_lowercase();
+                    return Ok(CobolValue::from_str(&s, s.len()));
+                }
                 let s = self
                     .eval_expr(&args[0], span)?
                     .as_display_string()
@@ -17655,6 +17670,57 @@ impl Interpreter {
                     yyyy -= 100;
                 }
                 Ok(CobolValue::from_i64(yyyy))
+            }
+            // Spec 077: the U-functions, over the argument's bytes — UTF-16
+            // for a national argument, UTF-8 for any other (Q6).
+            "ULENGTH" | "UVALID" | "USUPPLEMENTARY" | "UPOS" | "UWIDTH" | "USUBSTR" => {
+                use crate::national::{ulength, upos, usubstr, usupplementary, uvalid, uwidth, UArg};
+                let (bytes, class) = self.char_arg(&args[0], span)?;
+                let arg = UArg { bytes: &bytes, national: class.is_some_and(|c| c.is_national()) };
+                let int = |me: &mut Self, i: usize| -> Result<i64, RuntimeError> {
+                    match args.get(i) {
+                        Some(e) => Ok(me.eval_expr(e, span)?.as_i64().unwrap_or(0)),
+                        None => Err(RuntimeError::General {
+                            message: format!("FUNCTION {name} needs {} arguments", i + 1),
+                        }),
+                    }
+                };
+                let n = match name.to_ascii_uppercase().as_str() {
+                    "ULENGTH" => ulength(arg),
+                    "UVALID" => uvalid(arg),
+                    "USUPPLEMENTARY" => usupplementary(arg),
+                    "UPOS" => upos(arg, int(self, 1)?),
+                    "UWIDTH" => uwidth(arg, int(self, 1)?),
+                    _ => {
+                        let (start, len) = (int(self, 1)?, int(self, 2)?);
+                        let text = usubstr(arg, start, len);
+                        return Ok(CobolValue::from_str(&text, text.len()));
+                    }
+                };
+                Ok(CobolValue::from_i64(n as i64))
+            }
+            // Spec 077: code-page conversion. NATIONAL-OF reads bytes in a code
+            // page (UTF-8 by default) as characters; DISPLAY-OF writes
+            // characters as bytes in one.
+            "NATIONAL-OF" => {
+                let (bytes, class) = self.char_arg(&args[0], span)?;
+                let cp = self.code_page_arg(args.get(1), span)?;
+                let text = match class {
+                    Some(c) => crate::national::class_bytes_text(c, &bytes),
+                    None => crate::national::decode(cp, &bytes),
+                };
+                Ok(CobolValue::from_str(&text, text.len()))
+            }
+            "DISPLAY-OF" => {
+                let (bytes, class) = self.char_arg(&args[0], span)?;
+                let cp = self.code_page_arg(args.get(1), span)?;
+                let text = match class {
+                    Some(c) => crate::national::class_bytes_text(c, &bytes),
+                    None => String::from_utf8_lossy(&bytes).into_owned(),
+                };
+                let out = crate::national::encode(cp, &text);
+                let n = out.len();
+                Ok(CobolValue::String { bytes: out, capacity: n })
             }
             "BYTE-LENGTH" | "LENGTH-AN" => {
                 // A national or UTF-8 item, or a group holding one, is
@@ -18544,6 +18610,70 @@ impl Interpreter {
     ///
     /// Both fall through to the value path, which is what they did before, so
     /// neither can regress here.
+    /// An argument of a function that works on characters (spec 077): its
+    /// bytes, and its national / UTF-8 class when it has one. A national item
+    /// or `N"…"` literal gives its UTF-16BE image; a UTF-8 item its text; any
+    /// other argument the bytes it holds.
+    fn char_arg(&mut self, e: &Expr, span: Span) -> Result<(Vec<u8>, Option<crate::national::CharClass>), RuntimeError> {
+        use crate::national::{class_image, utf16be, CharClass};
+        match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(e);
+                if let Some(class) = self.env.char_class(&key) {
+                    let text = self.env.display_string(&key).unwrap_or_default();
+                    let bytes = if class.is_national() { class_image(class, &text) } else { text.into_bytes() };
+                    return Ok((bytes, Some(class)));
+                }
+                if let Some(b) = self.env.display_bytes(&key) {
+                    return Ok((b, None));
+                }
+            }
+            Expr::Literal(Literal::National(t), _) => {
+                let units = t.encode_utf16().count();
+                return Ok((utf16be(t), Some(CharClass::National { chars: units })));
+            }
+            Expr::Literal(Literal::Utf8(t), _) => {
+                return Ok((t.clone().into_bytes(), Some(CharClass::Utf8 { chars: t.chars().count() })));
+            }
+            _ => {}
+        }
+        let bytes = match self.eval_expr(e, span)? {
+            CobolValue::String { bytes, .. } => bytes,
+            other => other.as_display_string().into_bytes(),
+        };
+        Ok((bytes, None))
+    }
+
+    /// Whether a function argument is national or UTF-8 data — an item of
+    /// either class, or an `N"…"` / `U"…"` literal — without evaluating it.
+    fn is_classed_arg(&mut self, e: &Expr) -> bool {
+        match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                self.env.has_char_classes() && {
+                    let key = self.resolve_lvalue(e);
+                    self.env.char_class(&key).is_some()
+                }
+            }
+            Expr::Literal(Literal::National(_) | Literal::Utf8(_), _) => true,
+            _ => false,
+        }
+    }
+
+    /// A NATIONAL-OF / DISPLAY-OF code page, by name or CCSID; UTF-8 when
+    /// omitted. Check refuses an unknown literal; one held in a data item is
+    /// refused here.
+    fn code_page_arg(&mut self, e: Option<&Expr>, span: Span) -> Result<crate::national::CodePage, RuntimeError> {
+        let Some(e) = e else { return Ok(crate::national::CodePage::Utf8) };
+        let text = self.eval_expr(e, span)?.as_display_string();
+        let text = text.trim();
+        crate::national::CodePage::parse(text).ok_or_else(|| RuntimeError::General {
+            message: format!(
+                "'{text}' is not a code page RustCOBOL converts; use {}",
+                crate::national::CodePage::ACCEPTED
+            ),
+        })
+    }
+
     fn declared_length(&self, expr: &Expr) -> Option<usize> {
         // A national or UTF-8 item's LENGTH is its character positions, not
         // its bytes (spec 077: `PIC N(30)` is 30, `PIC U(5)` is 5).
@@ -22857,6 +22987,9 @@ MAIN.
             "REM", "REVERSE", "SIN", "SQRT", "STANDARD-DEVIATION",
             "STORED-CHAR-LENGTH", "SUM", "TAN", "TEST-NUMVAL", "UPPER-CASE",
             "VARIANCE", "WHEN-COMPILED", "YEAR-TO-YYYY",
+            // Spec 077.
+            "DISPLAY-OF", "NATIONAL-OF", "ULENGTH", "UPOS", "USUBSTR",
+            "USUPPLEMENTARY", "UVALID", "UWIDTH",
         ];
 
         let body = |from: &str, to: &str| {

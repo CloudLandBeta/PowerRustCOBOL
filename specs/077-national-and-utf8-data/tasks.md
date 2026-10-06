@@ -71,10 +71,16 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
 
 ## M3 — Functions
 
-- [ ] **T13 — NATIONAL-OF / DISPLAY-OF** (D8). *Verify:* AC4.
-- [ ] **T14 — The U-functions** (D8, Q6). *Verify:* AC14 and IBM's own
+- [x] **T13 — NATIONAL-OF / DISPLAY-OF** (D8). *Verify:* AC4.
+- [x] **T14 — The U-functions** (D8, Q6). *Verify:* AC14 and IBM's own
   examples ('Käfer', x'61CC88', x'6162D0B0E4BA8CF5646364' → 8, …).
-- [ ] **T15 — M3 wrap-up.**
+- [x] **T15 — M3 wrap-up.**
+  - Result (1.80.222): IBM's own examples pass unchanged — Käfer (UPOS
+    1 2 4 5 6, UWIDTH 1 2 1 1 1, USUBSTR Kä / äf / fe), the national
+    nx'0054…0073' (ULENGTH 7, UPOS … 15, UWIDTH … 4 2), the G-clef
+    (USUPPLEMENTARY 3, both classes) and both UVALID national examples (2
+    and 4). UPPER-CASE / LOWER-CASE of national or UTF-8 data follow
+    Unicode, as IBM documents; alphanumeric keeps the ASCII rule.
 
 ## M4 — String verbs
 

@@ -263,6 +263,10 @@ rules.
   - `USUPPLEMENTARY` = 7 (the byte where `😀` begins — IBM returns a byte
     position; this read 4 before Q6 was settled) and `UVALID` = 0;
   - over `X"41C3"`, `UVALID` returns the position of the bad byte.
+    *(2026-10-06: this runtime reads each `X"…"` pair as a character, not a
+    byte — a defect older than this spec, flagged as its own fix — so
+    `X"41C3"` cannot spell ill-formed UTF-8 yet. The same check runs over
+    X'00E9', a `REDEFINES` of `N"é"`, which reports 2.)*
 - [ ] **AC15 (R23):** In the IDE, `PIC N`, `PIC U`, `USAGE NATIONAL`,
   `USAGE UTF-8`, `N"…"`, `NX"…"`, `U"…"`, `UX"…"` and the new functions are
   coloured and offered by IntelliSense. The COBOL Structure view shows

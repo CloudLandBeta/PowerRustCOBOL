@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.222] — 2026-10-06
+
+### Added
+- **Spec 077 M3 — functions for national and UTF-8 data.**
+  `FUNCTION NATIONAL-OF(x [, code-page])` reads bytes in a code page as
+  characters and `FUNCTION DISPLAY-OF(n [, code-page])` writes characters as
+  bytes in one — UTF-8 (1208, the default), WINDOWS-1252 (1252) or
+  ISO-8859-1 (819), by name or number; a character a single-byte code page
+  cannot hold becomes X'7F', as IBM documents. `ULENGTH`, `UPOS`,
+  `USUBSTR`, `UVALID`, `UWIDTH` and `USUPPLEMENTARY` return what IBM
+  documents for them, checked against IBM's own examples. `UPPER-CASE` and
+  `LOWER-CASE` of national or UTF-8 data follow Unicode.
+
 ## [PowerRustCOBOL 1.80.221] — 2026-10-06
 
 ### Added

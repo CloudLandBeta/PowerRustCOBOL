@@ -99,3 +99,13 @@ fn an_unknown_code_page_is_refused() {
     assert!(e.iter().any(|(l, m)| *l == 9 && m.contains("'EBCDIC-037' is not a code page RustCOBOL converts")), "{e:?}");
     assert!(!e.iter().any(|(l, m)| *l == 10 && m.contains("code page")), "1252 is accepted: {e:?}");
 }
+
+/// The spec 077 functions are known to Check.
+#[test]
+fn the_new_functions_check_clean() {
+    let src = prog(
+        "01 WS-X PIC X(10).\n01 WS-N PIC N(10).\n01 WS-I PIC 9(3).",
+        "    COMPUTE WS-I = FUNCTION ULENGTH(WS-X) + FUNCTION UPOS(WS-X, 2) + FUNCTION UWIDTH(WS-X, 1)\n    COMPUTE WS-I = FUNCTION UVALID(WS-X) + FUNCTION USUPPLEMENTARY(WS-N)\n    MOVE FUNCTION USUBSTR(WS-X, 1, 2) TO WS-X\n    MOVE FUNCTION NATIONAL-OF(WS-X, \"UTF-8\") TO WS-N\n    MOVE FUNCTION DISPLAY-OF(WS-N, 819) TO WS-X",
+    );
+    assert_eq!(errors(&src), Vec::<(u32, String)>::new());
+}

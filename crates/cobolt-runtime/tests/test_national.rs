@@ -184,3 +184,48 @@ END PROGRAM OUTER.
     let out: Vec<String> = display_rx.try_iter().map(|s| s.trim_end().to_owned()).collect();
     assert_eq!(out, vec!["[Cora] 008", "[Cora] 008"]);
 }
+
+/// AC4: NATIONAL-OF / DISPLAY-OF round trips, through UTF-8 and through
+/// Windows-1252 bytes.
+#[test]
+fn ac4_code_page_conversion() {
+    let (out, interp) = run(
+        "01 WS-X PIC X(10).\n01 WS-N PIC N(10).\n01 WS-CP PIC X(12) VALUE \"WINDOWS-1252\".",
+        "    MOVE FUNCTION DISPLAY-OF(FUNCTION NATIONAL-OF(\"Ação\")) TO WS-X\n    DISPLAY \"[\" WS-X \"]\"\n    MOVE FUNCTION DISPLAY-OF(N\"Ação\", 1252) TO WS-X\n    MOVE FUNCTION NATIONAL-OF(WS-X, WS-CP) TO WS-N\n    DISPLAY \"[\" WS-N \"]\"",
+    );
+    // PIC X(10) is ten bytes: "Ação" takes six. PIC N(10) is ten characters.
+    assert_eq!(out, vec!["[Ação    ]", "[Ação      ]"]);
+    // The Windows-1252 bytes themselves: one per character.
+    assert_eq!(&interp.env.display_bytes("WS-X").unwrap()[..4], b"A\xE7\xE3o");
+}
+
+/// AC12: ULENGTH on a PIC U(5) item.
+#[test]
+fn ac12_ulength_of_a_utf8_item() {
+    let out = lines(
+        "01 WS-U PIC U(5) VALUE U\"Ação!\".\n01 WS-L PIC 9(3).",
+        "    MOVE FUNCTION ULENGTH(WS-U) TO WS-L\n    DISPLAY WS-L",
+    );
+    assert_eq!(out, vec!["005"]);
+}
+
+/// AC14: each U-function over the alphanumeric text "Aç€😀".
+#[test]
+fn ac14_u_functions_over_alphanumeric_text() {
+    let out = lines(
+        "01 WS-T PIC X(10) VALUE \"Aç€😀\".\n01 WS-S PIC X(10).\n01 WS-L PIC 9(3).\n01 G.\n   05 G-N PIC N(1) VALUE N\"é\".\n01 G-R REDEFINES G PIC X(2).",
+        "    MOVE FUNCTION ULENGTH(FUNCTION TRIM(WS-T)) TO WS-L\n    DISPLAY WS-L\n    MOVE FUNCTION UPOS(WS-T, 3) TO WS-L\n    DISPLAY WS-L\n    MOVE FUNCTION USUBSTR(WS-T, 2, 2) TO WS-S\n    DISPLAY \"[\" WS-S \"]\"\n    MOVE FUNCTION UWIDTH(WS-T, 4) TO WS-L\n    DISPLAY WS-L\n    MOVE FUNCTION USUPPLEMENTARY(WS-T) TO WS-L\n    DISPLAY WS-L\n    MOVE FUNCTION UVALID(WS-T) TO WS-L\n    DISPLAY WS-L\n    MOVE FUNCTION UVALID(G-R) TO WS-L\n    DISPLAY WS-L",
+    );
+    // G-R holds X'00E9' — the national image of "é" — and X'E9' alone is
+    // not UTF-8: the bad byte is the second.
+    assert_eq!(out, vec!["004", "004", "[ç€     ]", "004", "007", "000", "002"]);
+}
+
+#[test]
+fn upper_case_of_national_data_is_unicode() {
+    let out = lines(
+        "01 WS-N PIC N(5) VALUE N\"ação\".\n01 WS-M PIC N(5).",
+        "    MOVE FUNCTION UPPER-CASE(WS-N) TO WS-M\n    DISPLAY \"[\" WS-M \"]\"",
+    );
+    assert_eq!(out, vec!["[AÇÃO ]"]);
+}
