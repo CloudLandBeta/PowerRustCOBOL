@@ -2450,6 +2450,10 @@ fn build_core(
             let mut child = std::process::Command::new("cargo")
                 .args(&args)
                 .current_dir(&build_dir)
+                // The binary is installed from `build_dir/target` (step 11);
+                // a `CARGO_TARGET_DIR` inherited from the developer's shell
+                // would send cargo's output elsewhere and fail the install.
+                .env("CARGO_TARGET_DIR", build_dir.join("target"))
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()

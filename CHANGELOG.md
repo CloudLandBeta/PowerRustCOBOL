@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.210] — 2026-10-06
+
+### Fixed
+- **Build no longer fails when `CARGO_TARGET_DIR` is set** in the
+  environment the IDE or `rcrun build` was started from. Cargo put the
+  program where that variable said, and Build then looked for it in its own
+  build folder and stopped with "install the program … No such file". Build
+  now tells cargo where to put it.
+
 ## [PowerRustCOBOL 1.80.209] — 2026-10-06
 
 ### Added
