@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.206] — 2026-10-06
+
+### Added
+- **Spec 087 M4b — cursors and units of work on SQLite.** `DECLARE … CURSOR
+  [WITH HOLD] FOR SELECT … [FOR UPDATE]` in WORKING-STORAGE or the PROCEDURE
+  DIVISION, `OPEN` (host variables read at that moment), `FETCH … INTO` (no
+  data `02000` past the last row), `CLOSE`, and `UPDATE`/`DELETE … WHERE
+  CURRENT OF` on the row last fetched. A wrong-state OPEN/FETCH/CLOSE is
+  `24000` and changes nothing; a positioned cursor over more than one table,
+  or with DISTINCT or GROUP BY, is `0A000`. Cursors belong to the program that
+  declared them — a form's WORKING-STORAGE cursors are its handlers' too — and
+  two copies of one form never share one. `EXEC SQL COMMIT` closes every cursor
+  not declared `WITH HOLD`, `ROLLBACK` closes them all; the COBOL `COMMIT` and
+  `ROLLBACK` verbs and `EXEC SQL` never undo each other's work. Measured in a
+  debug build: 10,000 rows fetched at about 31,000 rows/s.
+
 ## [PowerRustCOBOL 1.80.205] — 2026-10-06
 
 ### Added

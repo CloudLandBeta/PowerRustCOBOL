@@ -1527,6 +1527,11 @@ pub struct Interpreter {
     sql_unit: std::sync::Arc<std::sync::Mutex<crate::esql::SqlRunUnit>>,
     /// Spec 087: where this program's SQL status items live, found once.
     sql_status: Option<exec_sql::StatusKeys>,
+    /// Spec 087: this interpreter's identity in the run unit's cursor table.
+    sql_instance: u64,
+    /// Spec 087: the cursors each program of this tree can name, by
+    /// (program, cursor) — built on first use.
+    sql_cursor_decls: Option<std::collections::HashMap<(String, String), cobolt_ast::sql::SqlCursor>>,
     /// HTTP client (Phase 10) — manages persistent headers and sends requests.
     http: crate::http_runtime::HttpClient,
     /// Spec 065 — the indexed files this application lets a model consult.
@@ -2063,6 +2068,8 @@ impl Interpreter {
             db: DbRegistry::new(),
             sql_unit: Default::default(),
             sql_status: None,
+            sql_instance: exec_sql::next_instance(),
+            sql_cursor_decls: None,
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             free_memory_probe: None,

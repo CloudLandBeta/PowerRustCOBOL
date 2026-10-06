@@ -21,8 +21,10 @@
 //! 6. `WHENEVER` acts, through the interpreter's own `GO TO` (R20). An SQL
 //!    failure is never a runtime error by itself (R22).
 
+use cobolt_ast::program::Program;
 use cobolt_ast::sql::{
-    ExecSql, SqlDisconnect, SqlHostName, SqlHostRef, SqlKind, SqlPart, SqlText, SqlValue as SqlValue_,
+    ExecSql, SqlCursor, SqlCursorQuery, SqlDisconnect, SqlHostName, SqlHostRef, SqlInto, SqlKind, SqlPart, SqlText,
+    SqlUsing, SqlValue as SqlValue_,
 };
 
 use super::Interpreter;
@@ -91,6 +93,29 @@ struct Ready {
     cut: bool,
 }
 
+/// A fresh identity for an interpreter in the run unit's cursor table.
+pub(crate) fn next_instance() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Every cursor each program of a tree can name (R28): its own, and the
+/// DATA DIVISION cursors of the programs around it.
+fn index_cursors(p: &Program, inherited: &[SqlCursor], into: &mut std::collections::HashMap<(String, String), SqlCursor>) {
+    let owner = p.identification.program_id.to_ascii_uppercase();
+    for c in inherited {
+        into.insert((owner.clone(), c.name.clone()), c.clone());
+    }
+    for c in &p.sql_cursors {
+        into.insert((owner.clone(), c.name.clone()), c.clone());
+    }
+    let mut pass: Vec<SqlCursor> = inherited.to_vec();
+    pass.extend(p.sql_cursors.iter().filter(|c| c.in_data_division).cloned());
+    for n in &p.nested_programs {
+        index_cursors(n, &pass, into);
+    }
+}
+
 /// A password inside a connection URL (`scheme://user:secret@host`) masked.
 fn mask_url(s: &str) -> String {
     if let Some(p) = s.find("://") {
@@ -111,7 +136,7 @@ impl Interpreter {
             return Ok(());
         }
         let mut trace = Trace::default();
-        let done = match self.sql_run(&e.kind, &mut trace) {
+        let done = match self.sql_run(&e.kind, &e.owner, &mut trace) {
             Ok(d) => d,
             Err(err) => Done::from(err),
         };
@@ -138,12 +163,12 @@ impl Interpreter {
         Ok(unit.current_mut()?.kind())
     }
 
-    fn sql_run(&mut self, kind: &SqlKind, trace: &mut Trace) -> Result<Done, SqlError> {
+    fn sql_run(&mut self, kind: &SqlKind, owner: &str, trace: &mut Trace) -> Result<Done, SqlError> {
         match kind {
             SqlKind::Declarative => Ok(Done::ok(0)),
             SqlKind::Execute(t) => {
                 let bk = self.sql_current_kind()?;
-                let (sql, params) = self.sql_bind(t, bk, trace)?;
+                let (sql, params) = self.sql_bind(t, bk, owner, trace)?;
                 let n = self.sql_lock()?.current_mut()?.execute(&sql, &params, true)?;
                 // An INSERT, UPDATE or DELETE that touched no row found no data.
                 let verb = sql.split_whitespace().next().unwrap_or("").to_ascii_uppercase();
@@ -154,7 +179,7 @@ impl Interpreter {
             }
             SqlKind::SelectInto { text, into } => {
                 let bk = self.sql_current_kind()?;
-                let (sql, params) = self.sql_bind(text, bk, trace)?;
+                let (sql, params) = self.sql_bind(text, bk, owner, trace)?;
                 let rows = self.sql_lock()?.current_mut()?.query(&sql, &params)?;
                 match rows.rows.len() {
                     0 => Ok(Done { state: code::NO_DATA.into(), message: "no row was found".into(), rows: 0, native: 0 }),
@@ -168,14 +193,20 @@ impl Interpreter {
                     )),
                 }
             }
-            SqlKind::Commit => {
-                trace.text = "COMMIT".into();
-                self.sql_lock()?.current_mut()?.commit()?;
-                Ok(Done::ok(0))
-            }
-            SqlKind::Rollback => {
-                trace.text = "ROLLBACK".into();
-                self.sql_lock()?.current_mut()?.rollback()?;
+            SqlKind::Commit | SqlKind::Rollback => {
+                let committed = matches!(kind, SqlKind::Commit);
+                trace.text = if committed { "COMMIT" } else { "ROLLBACK" }.into();
+                let mut unit = self.sql_lock()?;
+                let session = unit.current_mut()?;
+                let name = session.name.clone();
+                if committed {
+                    session.commit()?;
+                } else {
+                    session.rollback()?;
+                }
+                // R30: cursors end with the unit of work, WITH HOLD ones
+                // surviving a COMMIT.
+                unit.end_unit(&name, committed);
                 Ok(Done::ok(0))
             }
             SqlKind::Connect { target, alias, user, password: _ } => {
@@ -228,14 +259,107 @@ impl Interpreter {
                 }
                 Ok(Done::ok(0))
             }
-            SqlKind::Open { .. } | SqlKind::Fetch { .. } | SqlKind::Close { .. } => Err(SqlError::new(
-                code::NOT_SUPPORTED,
-                "cursors are not available in this release of embedded SQL",
-            )),
+            SqlKind::Open { cursor, using } => self.sql_open(owner, cursor, using, trace),
+            SqlKind::Fetch { cursor, into } => self.sql_fetch(owner, cursor, into, trace),
+            SqlKind::Close { cursor } => {
+                trace.text = format!("CLOSE {cursor}");
+                let key = (self.sql_instance, owner.to_string(), cursor.clone());
+                match self.sql_lock()?.cursors.remove(&key) {
+                    Some(_) => Ok(Done::ok(0)),
+                    None => Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is not open"))),
+                }
+            }
             SqlKind::Prepare { .. } | SqlKind::ExecutePrepared { .. } | SqlKind::ExecuteImmediate(_) | SqlKind::Describe { .. } => {
                 Err(SqlError::new(code::NOT_SUPPORTED, "dynamic SQL is not available in this release of embedded SQL"))
             }
         }
+    }
+
+    /// The declaration of the cursor `name` as program `owner` sees it.
+    fn sql_cursor_decl(&mut self, owner: &str, name: &str) -> Result<SqlCursor, SqlError> {
+        if self.sql_cursor_decls.is_none() {
+            let mut map = std::collections::HashMap::new();
+            index_cursors(&self.program, &[], &mut map);
+            self.sql_cursor_decls = Some(map);
+        }
+        self.sql_cursor_decls
+            .as_ref()
+            .and_then(|m| m.get(&(owner.to_string(), name.to_string())))
+            .cloned()
+            .ok_or_else(|| SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {name} is not declared")))
+    }
+
+    /// `OPEN cursor` (R25): evaluate its host variables now and read its rows.
+    fn sql_open(&mut self, owner: &str, cursor: &str, using: &SqlUsing, trace: &mut Trace) -> Result<Done, SqlError> {
+        let key = (self.sql_instance, owner.to_string(), cursor.to_string());
+        if self.sql_lock()?.cursors.contains_key(&key) {
+            return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is already open")));
+        }
+        let decl = self.sql_cursor_decl(owner, cursor)?;
+        let text = match &decl.query {
+            SqlCursorQuery::Static(t) => t.clone(),
+            SqlCursorQuery::Prepared(_) => {
+                return Err(SqlError::new(code::NOT_SUPPORTED, "a cursor over a prepared statement is not available yet"))
+            }
+        };
+        if !matches!(using, SqlUsing::None) {
+            return Err(SqlError::new(code::NOT_SUPPORTED, "OPEN … USING is for a cursor over a prepared statement"));
+        }
+        let bk = self.sql_current_kind()?;
+        let (mut sql, params) = self.sql_bind(&text, bk, owner, trace)?;
+        let keyed = decl.positioned && bk == BackendKind::Sqlite;
+        if bk == BackendKind::Sqlite {
+            sql = crate::esql::rewrite::strip_for_update(&sql);
+            if keyed {
+                sql = crate::esql::rewrite::sqlite_keyed_select(&sql)?;
+            }
+        }
+        trace.text = format!("OPEN {cursor}: {sql}");
+        let mut unit = self.sql_lock()?;
+        let session = unit.current_mut()?;
+        let name = session.name.clone();
+        let rows = session.query(&sql, &params)?;
+        unit.cursors.insert(
+            key,
+            crate::esql::OpenCursor {
+                session: name,
+                rows: rows.rows,
+                next: 0,
+                with_hold: decl.with_hold,
+                keyed,
+                current: None,
+            },
+        );
+        Ok(Done::ok(0))
+    }
+
+    /// `FETCH cursor INTO …` (R25): the next row, or no data past the last.
+    fn sql_fetch(&mut self, owner: &str, cursor: &str, into: &SqlInto, trace: &mut Trace) -> Result<Done, SqlError> {
+        trace.text = format!("FETCH {cursor}");
+        let key = (self.sql_instance, owner.to_string(), cursor.to_string());
+        let (row, keyed) = {
+            let mut unit = self.sql_lock()?;
+            let Some(cur) = unit.cursors.get_mut(&key) else {
+                return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is not open")));
+            };
+            if cur.next >= cur.rows.len() {
+                cur.current = None;
+                return Ok(Done { state: code::NO_DATA.into(), message: "no more rows".into(), rows: 0, native: 0 });
+            }
+            let row = cur.rows[cur.next].clone();
+            cur.next += 1;
+            cur.current = if cur.keyed { row.first().cloned() } else { Some(SqlValue::Null) };
+            (row, cur.keyed)
+        };
+        let values = if keyed { &row[1..] } else { &row[..] };
+        let targets = match into {
+            SqlInto::Hosts(h) => h,
+            SqlInto::Descriptor(_) => {
+                return Err(SqlError::new(code::NOT_SUPPORTED, "FETCH … USING DESCRIPTOR is not available yet"))
+            }
+        };
+        let state = self.sql_assign(targets, values)?;
+        Ok(Done { state, message: String::new(), rows: 1, native: 0 })
     }
 
     /// `CONNECT TO target [AS alias]` (R34): a project's SQL connection by
@@ -367,7 +491,7 @@ impl Interpreter {
     }
 
     /// A statement's text for `kind`, with its parameters in order.
-    fn sql_bind(&self, t: &SqlText, kind: BackendKind, trace: &mut Trace) -> Result<(String, Vec<SqlValue>), SqlError> {
+    fn sql_bind(&self, t: &SqlText, kind: BackendKind, owner: &str, trace: &mut Trace) -> Result<(String, Vec<SqlValue>), SqlError> {
         let mut sql = String::new();
         let mut params = Vec::new();
         for part in &t.parts {
@@ -381,11 +505,25 @@ impl Interpreter {
                     sql.push_str(&marks.join(", "));
                     params.extend(vals);
                 }
-                SqlPart::CurrentOf(_) => {
-                    return Err(SqlError::new(
-                        code::NOT_SUPPORTED,
-                        "WHERE CURRENT OF is not available in this release of embedded SQL",
-                    ))
+                SqlPart::CurrentOf(c) => {
+                    // R26: the row the cursor last fetched, by its key.
+                    let key = (self.sql_instance, owner.to_string(), c.clone());
+                    let unit = self.sql_lock()?;
+                    let Some(cur) = unit.cursors.get(&key) else {
+                        return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {c} is not open")));
+                    };
+                    let Some(row) = cur.current.clone() else {
+                        return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {c} is not on a row")));
+                    };
+                    if !cur.keyed || kind != BackendKind::Sqlite {
+                        return Err(SqlError::new(
+                            code::NOT_SUPPORTED,
+                            format!("WHERE CURRENT OF {c} is not available for this cursor"),
+                        ));
+                    }
+                    sql.push_str("rowid = ");
+                    sql.push_str(&crate::esql::rewrite::placeholder(kind, params.len()));
+                    params.push(row);
                 }
             }
         }

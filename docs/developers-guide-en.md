@@ -9999,13 +9999,14 @@ certainly do it the classic way: SQL written right in the COBOL source between
 `EXEC SQL` and `END-EXEC`, exchanging values with COBOL data items called
 **host variables**. RustCOBOL reads that style directly.
 
-> ⚠️ **Caveat — work in progress.** Today embedded SQL runs **static
-> statements against SQLite**: `SELECT … INTO`, `INSERT`, `UPDATE`, `DELETE`,
-> data definition, `COMMIT`, `ROLLBACK`, and `CONNECT` by a connection string.
-> Cursors, dynamic SQL (`PREPARE`, `EXECUTE`, `DESCRIBE`), the project's named
-> SQL connections, and PostgreSQL and MySQL arrive in the next releases of this
-> feature; until then such a statement reports SQLSTATE `0A000` (or `08001` for
-> a connection name) and the program carries on.
+> ⚠️ **Caveat — work in progress.** Today embedded SQL runs **against
+> SQLite**: `SELECT … INTO`, `INSERT`, `UPDATE`, `DELETE`, data definition,
+> cursors (`DECLARE`, `OPEN`, `FETCH`, `CLOSE`, `WHERE CURRENT OF`), `COMMIT`,
+> `ROLLBACK`, and `CONNECT` by a connection string. Dynamic SQL (`PREPARE`,
+> `EXECUTE`, `DESCRIBE`), the project's named SQL connections, and PostgreSQL
+> and MySQL arrive in the next releases of this feature; until then such a
+> statement reports SQLSTATE `0A000` (or `08001` for a connection name) and
+> the program carries on.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -10097,6 +10098,53 @@ statement that *changes* data, so a program that only reads never holds the
 database's write lock. `EXEC SQL COMMIT` keeps the changes, `EXEC SQL ROLLBACK`
 discards them. The COBOL verbs `COMMIT` and `ROLLBACK` (without `EXEC SQL`)
 are unrelated: they govern INDEXED files, and the two never affect each other.
+
+**Cursors** read a query's rows one at a time. Declare the cursor — in
+WORKING-STORAGE or in the PROCEDURE DIVISION, before the statements that use
+it — then open it, fetch until no data, and close it:
+
+```cobol
+       WORKING-STORAGE SECTION.
+           EXEC SQL
+               DECLARE C-ORDERS CURSOR FOR
+                   SELECT ORDER-NO, TOTAL FROM ORDERS
+                    WHERE CUSTOMER = :WS-CUSTOMER
+                    ORDER BY ORDER-NO
+                   FOR UPDATE OF STATUS
+           END-EXEC.
+      ...
+           EXEC SQL OPEN C-ORDERS END-EXEC
+           PERFORM UNTIL SQLSTATE NOT = "00000"
+               EXEC SQL FETCH C-ORDERS INTO :WS-ORDER-NO, :WS-TOTAL
+               END-EXEC
+               IF SQLSTATE = "00000" AND WS-TOTAL > 1000
+                   EXEC SQL UPDATE ORDERS SET STATUS = 'REVIEW'
+                             WHERE CURRENT OF C-ORDERS END-EXEC
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE C-ORDERS END-EXEC
+```
+
+- `OPEN` reads the cursor's host variables at that moment: changing
+  `WS-CUSTOMER` afterwards does not change an open cursor.
+- A `FETCH` past the last row reports no data (`02000`) and leaves the `INTO`
+  items unchanged.
+- Fetching or closing a cursor that is not open, or opening one that is,
+  fails with `24000` (invalid cursor state) and changes nothing.
+- `UPDATE … WHERE CURRENT OF` and `DELETE … WHERE CURRENT OF` act on the row
+  the cursor last fetched. The cursor must read ONE table — a join, a list of
+  tables, `DISTINCT` or `GROUP BY` gives `0A000`.
+- A cursor declared in a form's WORKING-STORAGE is known to the form's event
+  handlers; one declared inside a handler belongs to that handler. Two copies
+  of the same form open at once each have their own cursors.
+- `EXEC SQL COMMIT` closes every cursor except those declared `WITH HOLD`;
+  `EXEC SQL ROLLBACK` closes them all.
+
+> **Note — SQLite.** On SQLite a cursor's rows are read when it is opened, so
+> a very large result is held in memory until the cursor is closed; filter in
+> the `WHERE` clause rather than in COBOL. `FOR UPDATE` is accepted and
+> ignored there — SQLite locks the whole database for the duration of a
+> write.
 
 **How values travel.** Every host variable reaches the database as a bound
 parameter. The table below is the correspondence used in both directions:

@@ -28,6 +28,29 @@ pub struct SqlRunUnit {
     pub sessions: Vec<session::Session>,
     /// Index of the current connection.
     pub current: Option<usize>,
+    /// Open cursors, by (interpreter instance, owning program, name) — two
+    /// open copies of one form never share a cursor (R28).
+    pub cursors: std::collections::HashMap<CursorKey, OpenCursor>,
+}
+
+/// Which cursor: the interpreter instance, the program that declared it, its name.
+pub type CursorKey = (u64, String, String);
+
+/// A cursor between OPEN and CLOSE (R25).
+#[derive(Debug, Clone)]
+pub struct OpenCursor {
+    /// The connection it reads through.
+    pub session: String,
+    /// The rows, read at OPEN.
+    pub rows: Vec<Vec<value::SqlValue>>,
+    /// The next row FETCH returns.
+    pub next: usize,
+    pub with_hold: bool,
+    /// The first column of each row is the row's key (SQLite's `rowid`),
+    /// added so `WHERE CURRENT OF` can name the row; it is never fetched.
+    pub keyed: bool,
+    /// The key of the row last fetched (R26).
+    pub current: Option<value::SqlValue>,
 }
 
 impl SqlRunUnit {
@@ -45,12 +68,26 @@ impl SqlRunUnit {
         }
     }
 
+    /// End of a unit of work on `session` (R30): a COMMIT keeps the cursors
+    /// declared `WITH HOLD` open and closes the rest; a ROLLBACK closes all.
+    pub fn end_unit(&mut self, session: &str, committed: bool) {
+        self.cursors.retain(|_, c| c.session != session || (committed && c.with_hold));
+    }
+
+    /// Close every cursor an interpreter instance owns — the program that
+    /// opened them has ended.
+    pub fn release_instance(&mut self, instance: u64) {
+        self.cursors.retain(|k, _| k.0 != instance);
+    }
+
     /// Close connection `i`, rolling back its open work (R36).
     pub fn close(&mut self, i: usize) {
         if i >= self.sessions.len() {
             return;
         }
         let mut s = self.sessions.remove(i);
+        let name = s.name.clone();
+        self.cursors.retain(|_, c| c.session != name);
         let _ = s.rollback();
         self.current = match self.current {
             Some(c) if c == i => None,

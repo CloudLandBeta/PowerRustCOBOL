@@ -246,7 +246,7 @@ pushed unless the operator asks.
 
 ## M4b — Cursors and units of work
 
-- [ ] **T16 — Cursors on SQLite** (R25–R30)
+- [x] **T16 — Cursors on SQLite** (R25–R30)
   - Files: `crates/cobolt-runtime/src/esql/{session.rs, rewrite.rs, backend/sqlite.rs}`,
     `crates/cobolt-runtime/src/interpreter/exec_sql.rs`, `tests/cobol/esql/*.cbl`,
     `crates/cobolt-runtime/tests/test_esql_cursors.rs` (new).
@@ -264,7 +264,7 @@ pushed unless the operator asks.
       ROLLBACK` does not undo an INDEXED-file write; a `WITH HOLD` cursor
       survives COMMIT, another does not, and ROLLBACK closes both.
 
-- [ ] **T17 — M4b wrap-up**
+- [x] **T17 — M4b wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (cursors, positioned updates, units
     of work) and System KB slice; regenerate `chunked.data`.
   - Verify: KB freshness test green.
