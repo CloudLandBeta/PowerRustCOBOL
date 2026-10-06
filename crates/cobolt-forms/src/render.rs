@@ -5440,14 +5440,18 @@ fn viewer_view_interactive(
     if find_open && !streamed {
         for (control, slot) in chrome.find_bar.map(vw::find_slots).unwrap_or_default() {
             let r = to_rect(slot);
-            let sense = if control == vw::FindControl::Field {
-                Sense::click()
+            // The field is registered under the id its focus is requested
+            // with. egui keeps focus only on a widget it saw this frame, and
+            // the field used to be interacted with under another id: focus
+            // lasted the one frame it was requested in, so the first keys
+            // typed landed and every later key was dropped (operator,
+            // 2026-10-06: "I can't type anything in the search input").
+            let widget_id = if control == vw::FindControl::Field {
+                field_id
             } else {
-                Sense::click()
+                vid.with(("viewer-find", control.as_str()))
             };
-            let br = ui
-                .interact(r, vid.with(("viewer-find", control.as_str())), sense)
-                .on_hover_text(control.default_tooltip());
+            let br = ui.interact(r, widget_id, Sense::click()).on_hover_text(control.default_tooltip());
             if br.hovered() || br.is_pointer_button_down_on() {
                 find_busy = true;
             }
@@ -14340,6 +14344,54 @@ mod tests {
     }
 
     const FIND_DOC: &str = "COBOL is not cobol, and Cobol is neither.\nA COBOL program in cobol stays COBOL.\n";
+
+    /// Typing into the Find field works under every form theme: open the bar
+    /// with Cmd/Ctrl+F over the Viewer, type, and the query is searched
+    /// (operator, 2026-10-06: the field took no keys outside Neumorphic Light).
+    #[test]
+    fn typing_into_the_find_field_works_under_every_theme() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, FIND_DOC).unwrap();
+        let mut results = Vec::new();
+        for theme in [crate::theme::LIQUID_GLASS, crate::theme::ELEGANCE, crate::theme::SPATIAL] {
+            let mut h = ViewerHarness::new(
+                Vec2::new(620.0, 420.0),
+                560,
+                360,
+                &[
+                    ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                    ("Layout", PropValue::String("Raw".into())),
+                ],
+            );
+            let surface = crate::surface_theme::for_theme_id(theme);
+            crate::paint::set_surface_theme(&h.ctx, surface.clone());
+            surface.install_widget_visuals(&h.ctx);
+            let inside = Pos2::new(200.0, 200.0);
+            h.frame(0.0, vec![egui::Event::PointerMoved(inside)]);
+            h.frame(
+                0.05,
+                vec![egui::Event::Key {
+                    key: egui::Key::F,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::COMMAND,
+                }],
+            );
+            h.frame(0.10, vec![egui::Event::Text("cob".into())]);
+            h.frame(0.15, vec![egui::Event::Text("ol".into())]);
+            h.frame(0.20, vec![]);
+            h.frame(0.25, vec![]);
+            let (text, total) = (h.prop("View1SearchText"), h.prop("SearchMatchCount"));
+            println!("{theme:>14}: typed \"cobol\" -> View1SearchText {text:?}, SearchMatchCount {total:?}");
+            results.push((theme, text, total));
+        }
+        for (theme, text, total) in &results {
+            assert_eq!(text, "cobol", "{theme}: the Find field took the keys");
+            assert_eq!(total, "6", "{theme}: and searched them");
+        }
+    }
 
     /// **AC22** — typing highlights every match and the counter updates live.
     #[test]

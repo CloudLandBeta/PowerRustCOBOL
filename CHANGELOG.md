@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.203] — 2026-10-06
+
+### Fixed
+- **A Viewer's Find field keeps the keyboard.** Typing into the search box
+  took the first keys and then nothing more. The field asked for the keyboard
+  under one name and registered itself on screen under another, and the
+  framework keeps the keyboard only on a widget it has seen in the frame — so
+  focus lasted the one frame it was asked for in. The field is now registered
+  under the name its focus uses: it keeps the keyboard until you close the bar
+  or click elsewhere, under every form theme. Run Form, child forms and built
+  applications share the one renderer, so all three are fixed.
+
 ## [PowerRustCOBOL 1.80.202] — 2026-10-06
 
 ### Added
