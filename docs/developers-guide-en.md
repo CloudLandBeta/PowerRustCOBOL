@@ -44,6 +44,7 @@ See the LICENSE file in the project root for full license information.
 12. [Generated code](#12-generated-code)
 13. [The RustCOBOL language](#13-the-rustcobol-language)
     - [Writing it the way the standard lets you](#writing-it-the-way-the-standard-lets-you)
+    - [International text: national (`PIC N`) and UTF-8 (`PIC U`) data](#international-text-national-pic-n-and-utf-8-pic-u-data)
     - [Handing a whole table to a function](#handing-a-whole-table-to-a-function)
     - [Closing a file for good: `WITH LOCK`](#closing-a-file-for-good-with-lock)
     - [Debugging lines](#debugging-lines)
@@ -8075,6 +8076,162 @@ duplicated name can be made unique by naming as many of its parents as it takes:
 
 > **Note.** You need only enough qualifiers to be unambiguous, and they must
 > appear in inner-to-outer order — but they need not be *consecutive* levels.
+
+### International text: national (`PIC N`) and UTF-8 (`PIC U`) data
+
+An alphanumeric item (`PIC X`) counts **bytes**. That is fine for English and
+for most accented Latin text, but a `PIC X(10)` holding `Configuração` has
+room for only ten bytes, and the `ç` and the `ã` take two each. Cut at the
+tenth byte, the text can end in half a character. If you built forms in
+PowerCOBOL with `PIC N` for Japanese, or in isCOBOL with `PIC N` for
+Unicode, you already know the cure: declare the item by **characters**
+instead. RustCOBOL gives you two ways to do that.
+
+| Declaration | Holds | Storage (what a group, a record or `BYTE-LENGTH` sees) |
+|---|---|---|
+| `PIC N(n)` or `PIC N(n) USAGE NATIONAL` | n national characters | 2 × n bytes, UTF-16 big-endian |
+| `PIC U(n)` or `PIC U(n) USAGE UTF-8` | n characters | 4 × n bytes, UTF-8 padded with spaces |
+| `PIC U BYTE-LENGTH n` | the whole characters that fit n bytes | n bytes, UTF-8 padded with spaces |
+
+```cobol
+       01  WS-MSG     PIC N(30) VALUE N"Configuração concluída – ok".
+       01  WS-CITY    PIC U(20) VALUE U"São Paulo".
+       01  WS-CODE    PIC U BYTE-LENGTH 8.
+       01  WS-LEN     PIC 9(4).
+
+           MOVE FUNCTION LENGTH(WS-MSG)      TO WS-LEN    *> 30 — characters
+           MOVE FUNCTION BYTE-LENGTH(WS-MSG) TO WS-LEN    *> 60 — bytes
+           DISPLAY "[" WS-MSG "]"
+```
+
+The `DISPLAY` shows the 27 characters of the text followed by three spaces.
+The item never splits a character: a `MOVE` that is too long keeps the whole
+characters that fit and drops the rest.
+
+**Literals.** `N"…"` (or `N'…'`) is a national literal and `U"…"` a UTF-8
+one. Two hexadecimal forms name exact code points:
+
+- `NX"00410063"` is four hex digits per UTF-16 code unit, here `Ac`.
+- `UX"C3A7"` is the UTF-8 bytes of the characters, here `ç`.
+
+A `U"…"` literal accepts three escapes: `\uhhhh`, `\U00hhhhhh` and `\\`.
+A malformed hexadecimal literal is reported by **Check** on its own line, so
+the program never runs with it. That covers a digit count that is not a
+multiple of four in `NX`, and bytes that are not valid UTF-8 in `UX`.
+
+**Moving between classes.** Alphanumeric data is UTF-8 text in RustCOBOL, so
+a `MOVE` from `PIC X` into `PIC N` takes its characters. Moving national
+data back into `PIC X` fits the characters into the receiver's bytes, and
+again never breaks one. Figurative constants take the class's own
+characters: `SPACES` is the space character and `ZEROS` the digit zero. One
+difference matters if you compare against `HIGH-VALUES`: in a national item
+it is U+FFFF, and in a UTF-8 item U+10FFFF. `JUSTIFIED RIGHT` works as it
+does for `PIC X`, by character.
+
+**Groups and REDEFINES see the bytes.** A group made of a `PIC N(3)` and a
+`PIC X(2)` is eight bytes long, and a `PIC X(8)` that `REDEFINES` it shows
+the UTF-16 bytes of the three characters. A group `MOVE` to a group of the
+same shape restores the characters exactly.
+
+**Comparisons** with a national or UTF-8 operand compare characters by their
+Unicode code point. The shorter operand is padded with spaces first. A
+`COLLATING SEQUENCE` does not apply to them.
+
+**String handling counts characters.** When the item being examined is
+national or UTF-8, these verbs count positions in characters:
+
+- `INSPECT` tallies `CHARACTERS`, finds `BEFORE` and `AFTER` delimiters, and
+  replaces by character;
+- `UNSTRING` gives `COUNT IN` and `POINTER` in characters;
+- `STRING` into such an item fills and points by character.
+
+Alphanumeric items keep counting bytes, exactly as before.
+
+```cobol
+       01  WS-FRUIT   PIC N(13) VALUE N"maçã,pêra,uva".
+       01  WS-1       PIC N(5).
+       01  WS-2       PIC N(5).
+       01  WS-COUNT   PIC 9(3).
+
+           UNSTRING WS-FRUIT DELIMITED BY N","
+               INTO WS-1 COUNT IN WS-COUNT  WS-2
+      *>   WS-1 = "maçã ", WS-COUNT = 4, WS-2 = "pêra "
+```
+
+**ACCEPT.** Typed text is read as UTF-8. When the console sends
+Windows-1252 instead, as an older Windows console does, an `ACCEPT` into a
+national or UTF-8 item still receives the right characters.
+
+**Functions.**
+
+| Function | Returns |
+|---|---|
+| `NATIONAL-OF(x [, code-page])` | the characters that the bytes of `x` spell in the code page (UTF-8 if none is given) |
+| `DISPLAY-OF(n [, code-page])` | the characters of `n` as bytes in the code page (UTF-8 if none is given) |
+| `ULENGTH(x)` | how many characters `x` holds |
+| `UPOS(x, n)` | the byte position where the n-th character starts (0 when there is none) |
+| `UWIDTH(x, n)` | the n-th character's width in bytes (0 when there is none) |
+| `USUBSTR(x, start, length)` | `length` characters from the `start`-th |
+| `UVALID(x)` | 0 when `x` is well-formed text; otherwise where the first bad byte is |
+| `USUPPLEMENTARY(x)` | where the first character beyond U+FFFF starts, or 0 |
+
+A code page is written by name or by number: `"UTF-8"` (1208),
+`"WINDOWS-1252"` (1252) or `"ISO-8859-1"` (819). **Check** rejects any other
+code page written as a literal. A character that a single-byte code page
+cannot hold comes out as X'7F'. For a national argument, `UVALID` and
+`USUPPLEMENTARY` count in UTF-16 code units, and `UPOS` and `UWIDTH` count in
+bytes of the UTF-16 storage. `UPPER-CASE` and `LOWER-CASE` follow Unicode for
+national and UTF-8 data, so `ação` becomes `AÇÃO`.
+
+**Files.** In a record, a national field is its UTF-16 bytes and a UTF-8
+field its padded bytes, so record lengths follow the storage column of the
+table above. A key over a national field orders records by code point. A
+**LINE SEQUENTIAL** file is the exception: it is meant to be read by people
+and other programs, so national and UTF-8 fields are written as plain UTF-8
+text and read back from it. In the IDE's indexed-file editor, a field
+declared `PIC N(n)` or `PIC U(n)` takes its storage width, and its grid cells
+show and accept characters.
+
+**Forms.** A property is text, so moving a TextBox's `Text` into a
+`PIC N` item, and the item into a Label's `Caption`, keeps every character.
+The item's padding spaces are not part of the text the Label shows. The same
+program behaves identically under `rcrun run`, Run Form and a built
+application.
+
+**In the IDE.** The editor draws `N"…"`, `NX"…"`, `U"…"` and `UX"…"` in the
+string colour, prefix included, and IntelliSense offers the clauses and the
+functions. When the caret sits on a national or UTF-8 declaration in the
+COBOL Structure editor, a line under the status bar gives its size, for
+example "WS-MSG — 30 characters, 60 bytes". The debugger lists such an item
+under the category `national` or `utf-8`, showing its characters as the
+value and its storage in bytes as the length.
+
+> 📷 Screenshot needed — `national-structure-size.png`: open a form's COBOL
+> Structure → WORKING-STORAGE, type `01 WS-MSG PIC N(30).` and leave the
+> caret on that line. Capture the editor with the size line beneath the
+> status bar.
+
+**What Check refuses**, each on its line:
+
+- arithmetic on a national or UTF-8 item, as an operand or a receiver;
+- `USAGE NATIONAL` with `PIC X`, `USAGE UTF-8` with `PIC N`, and the other
+  mismatches;
+- `BYTE-LENGTH` anywhere but on a single `PIC U`;
+- a `VALUE` longer than its item.
+
+> ⚠️ **Caveats**
+>
+> - National numeric items (`PIC 9 USAGE NATIONAL`) and national-edited
+>   pictures are not supported yet; Check says so.
+> - A `PIC N` position is one UTF-16 code unit, as in other COBOL
+>   implementations, so a character beyond U+FFFF (most emoji) takes two
+>   positions.
+> - A national item holds text. Bytes laid into it that are not text, such
+>   as half of a surrogate pair written through a `REDEFINES`, read back as
+>   U+FFFD.
+> - A hexadecimal literal `X"…"` currently reads each pair of digits as one
+>   character rather than one byte. `X"C3A7"` is therefore not the two bytes
+>   of `ç`. Write `UX"C3A7"` for UTF-8 text.
 
 ### Handing a whole table to a function
 

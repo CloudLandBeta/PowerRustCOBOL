@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.228] — 2026-10-06
+
+### Added
+- **Spec 077 complete — national and UTF-8 character data.** The
+  Developer's Guide explains `PIC N`, `PIC U`, their literals, functions,
+  files and caveats (chapter 13, *International text*); the COBOL-85 syntax
+  reference lists them; the System KB carries them, so the AI assistant
+  knows them. All 18 acceptance criteria are proved; every existing test
+  still passes, and the NIST suite is unchanged at 8,362 of 8,362
+  assertions.
+
 ## [PowerRustCOBOL 1.80.227] — 2026-10-06
 
 ### Added

@@ -5,8 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — National and UTF-8 character data
 
-- **Status:** in progress (implementation authorised by the operator,
-  2026-10-06)
+- **Status:** done (1.80.228, 2026-10-06)
 - **Plan:** ./plan.md   **Date:** 2026-10-06
 
 Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
@@ -145,6 +144,12 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
     `nat_functions` 7/7 (F01–F07, 1252 round trips ×50,000), `nat_indexed`
     4/4 (2,000 records: write, read by key, rewrite, key-order scan, each
     timed), `utf8_basics` 14/14 (U01–U14, bulk ×100,000).
-- [ ] **T27 — Guide, syntax reference, System KB** (R24); regenerate
+- [x] **T27 — Guide, syntax reference, System KB** (R24); regenerate
   `chunked.data`.
-- [ ] **T28 — Full sweep and NIST** (AC16); tick the ACs; final `z` bump.
+- [x] **T28 — Full sweep and NIST** (AC16); tick the ACs; final `z` bump.
+  - Result (1.80.228): the Developer's Guide gains *International text:
+    national (`PIC N`) and UTF-8 (`PIC U`) data* (chapter 13, in the ToC; no
+    translations existed to delete), the syntax reference its national /
+    UTF-8 entry and the eight functions, and the System KB a section in
+    `rustcobol_extensions.md`; `chunked.data` regenerated (2,167 records),
+    freshness test green. Final sweep and NIST as AC16 records.

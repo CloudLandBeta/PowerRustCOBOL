@@ -5,8 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Plan — National and UTF-8 character data
 
-- **Status:** approved for implementation (operator, 2026-10-06: "continue
-  077 … do what is right in the long term")
+- **Status:** implemented (1.80.220–1.80.228, 2026-10-06)
 - **Spec:** ./spec.md   **Date:** 2026-10-06
 
 ## 0. Where we start

@@ -5,9 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — National and UTF-8 character data (PIC N / USAGE NATIONAL, PIC U / USAGE UTF-8)
 
-- **Status:** clarified (operator answered Q1, Q3, Q4, Q7 on 2026-10-06; Q2
-  takes its suggestion; Q5 and Q6 settled from IBM's documentation the same
-  day); implementation authorised by the operator, 2026-10-06
+- **Status:** implemented (1.80.220–1.80.228, 2026-10-06); all 18 acceptance criteria proved. Clarified by the operator 2026-10-06 (Q1, Q3, Q4, Q7; Q2 its suggestion; Q5, Q6 from IBM's documentation).
 - **Folder:** specs/077-national-and-utf8-data/
 - **Author:** Claude (for the operator)   **Date:** 2026-09-28
 
@@ -211,52 +209,65 @@ rules.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1 (R1, R2, R4, R7):** `01 WS-MSG PIC N(30) VALUE N"Configuração
+- [x] **AC1 (R1, R2, R4, R7):** `01 WS-MSG PIC N(30) VALUE N"Configuração
   concluída – ok".`
   - `DISPLAY WS-MSG` shows all 27 characters followed by 3 spaces.
   - `FUNCTION LENGTH(WS-MSG)` is 30, and `FUNCTION BYTE-LENGTH(WS-MSG)` is
     60.
-- [ ] **AC2 (R2, R12):** A group made of `PIC N(3)` and `PIC X(2)` has a byte
+  - *Proof:* `test_national.rs` `ac1_…`; `nat_basics.cbl` C01–C03.
+- [x] **AC2 (R2, R12):** A group made of `PIC N(3)` and `PIC X(2)` has a byte
   length of 8.
   - A `REDEFINES` of it as `PIC X(8)` shows the UTF-16 bytes of the three
     characters.
   - A group move to an identical group restores the same characters.
-- [ ] **AC3 (R3, R16):** `N"Ação"`, `N'Ação'` and `NX"00410063"` compile and
+  - *Proof:* `test_national.rs` `ac2_…` (both directions); `nat_basics.cbl` C04–C06.
+- [x] **AC3 (R3, R16):** `N"Ação"`, `N'Ação'` and `NX"00410063"` compile and
   hold the expected characters. `NX"0041006"` (7 digits) is rejected when
   the program is checked, with its line.
-- [ ] **AC4 (R6):**
+  - *Proof:* lexer `test_national_literals.rs`, parser `test_national.rs` (the 7-digit `NX` reported on its line); `nat_basics.cbl` C07.
+- [x] **AC4 (R6):**
   - `DISPLAY-OF(NATIONAL-OF("Ação"))` returns `Ação`.
   - `NATIONAL-OF(x, "1252")`, where `x` holds Windows-1252 bytes for
     `Ação`, returns `Ação`.
   - An unknown code page is a diagnosed error.
-- [ ] **AC5 (R8):** `MOVE` from a `PIC N(10)` holding `Configuração` to a
+  - *Proof:* `test_national.rs` `ac4_…`; semantic `an_unknown_code_page_is_refused`; `nat_functions.cbl` F01–F04.
+- [x] **AC5 (R8):** `MOVE` from a `PIC N(10)` holding `Configuração` to a
   `PIC X(10)` stores whole characters only (no broken UTF-8), padded with
   spaces. The reverse move gives the characters back.
-- [ ] **AC6 (R9):** `IF WS-N = "Ação"` is true for a `PIC N(10)` holding
+  - *Proof:* `test_national.rs` `ac5_…`; `nat_basics.cbl` C08–C09.
+- [x] **AC6 (R9):** `IF WS-N = "Ação"` is true for a `PIC N(10)` holding
   `Ação`. Ordering follows code points; this AC is reworded if Q4 decides
   otherwise.
-- [ ] **AC7 (R10):**
+  - *Proof:* `test_national.rs` `ac6_…`; `nat_basics.cbl` C10–C11.
+- [x] **AC7 (R10):**
   - `INSPECT` a `PIC N` item, counting `N"ç"`, returns a character count.
   - `STRING` of two national items into a national receiver, and
     `UNSTRING` of a national item by `N","`, give the expected pieces.
-- [ ] **AC8 (R11):** `ACCEPT` into a `PIC N(20)` of the typed text `Olá,
+  - *Proof:* `test_national.rs` `ac7_…` (INSPECT, STRING, UNSTRING); `nat_basics.cbl` C12–C14.
+- [x] **AC8 (R11):** `ACCEPT` into a `PIC N(20)` of the typed text `Olá,
   João` stores those 9 characters (this read "10" until 2026-10-06; the text has nine). `DISPLAY` shows them back.
-- [ ] **AC9 (R14):** An indexed file whose record holds a `PIC N(20)` key
+  - *Proof:* `cobolt-cli/tests/national_accept.rs` (UTF-8 and Windows-1252 typed bytes).
+- [x] **AC9 (R14):** An indexed file whose record holds a `PIC N(20)` key
   and a `PIC N(40)` field is written, read back by key and rewritten. It is
   reopened by a second run, and every character survives. The record's
   byte length is the declared one.
-- [ ] **AC10 (R15):** A form moves a TextBox's `Text` of `Configuração – ok`
+  - *Proof:* `test_national_files.rs` `ac9_…` (two runs); `nat_indexed.cbl` K01–K04, 2,000 records timed.
+- [x] **AC10 (R15):** A form moves a TextBox's `Text` of `Configuração – ok`
   into `PIC N(30)` and back into a Label's `Caption`. The caption shows the
   same text, under Run Form and in a compiled binary.
-- [ ] **AC11 (R16):** `ADD 1 TO WS-N` on a national item is rejected when
+  - *Proof:* `cobolt-cli/tests/national_form.rs`, the real Run Form host off screen. A built *form* application has no scripted headless mode; its half rests on the one form host and runtime it links (spec 042), with no national-specific setup in any host.
+- [x] **AC11 (R16):** `ADD 1 TO WS-N` on a national item is rejected when
   the program is checked.
-- [ ] **AC12 (R17, R19, R20):** `01 WS-U PIC U(5) VALUE U"Ação!".`
+  - *Proof:* semantic `test_national.rs` `arithmetic_on_national_or_utf8_is_refused`.
+- [x] **AC12 (R17, R19, R20):** `01 WS-U PIC U(5) VALUE U"Ação!".`
   - `ULENGTH`, and `LENGTH` on the item, are both 5.
   - `BYTE-LENGTH` is 20, with the value padded to its storage.
   - `MOVE U"Configuração" TO WS-U` keeps `Confi`, whole characters.
-- [ ] **AC13 (R18):** `UX"C3A7"` is `ç`. `UX"C3"`, which is not valid UTF-8,
+  - *Proof:* `test_national.rs` `ac12_…`; `utf8_basics.cbl` U01–U04.
+- [x] **AC13 (R18):** `UX"C3A7"` is `ç`. `UX"C3"`, which is not valid UTF-8,
   is rejected when the program is checked.
-- [ ] **AC14 (R21):** Over the alphanumeric text `"Aç€😀"`, each function
+  - *Proof:* lexer/parser tests (`UX"C3"` reported on its line); `utf8_basics.cbl` U05–U06.
+- [x] **AC14 (R21):** Over the alphanumeric text `"Aç€😀"`, each function
   returns the value IBM documents:
   - `ULENGTH` = 4 and `UPOS(…, 3)` = 4;
   - `USUBSTR(…, 2, 2)` = `ç€` and `UWIDTH(…, 4)` = 4;
@@ -267,22 +278,27 @@ rules.
     byte — a defect older than this spec, flagged as its own fix — so
     `X"41C3"` cannot spell ill-formed UTF-8 yet. The same check runs over
     X'00E9', a `REDEFINES` of `N"é"`, which reports 2.)*
-- [ ] **AC15 (R23):** In the IDE, `PIC N`, `PIC U`, `USAGE NATIONAL`,
+  - *Proof:* `test_national.rs` `ac14_…`, `national.rs` unit tests on IBM's own examples; `utf8_basics.cbl` U07–U13. The `X"41C3"` bullet runs over X'00E9' (a REDEFINES of `N"é"`) until `X"…"` literals carry bytes — a separate fix.
+- [x] **AC15 (R23):** In the IDE, `PIC N`, `PIC U`, `USAGE NATIONAL`,
   `USAGE UTF-8`, `N"…"`, `NX"…"`, `U"…"`, `UX"…"` and the new functions are
   coloured and offered by IntelliSense. The COBOL Structure view shows
   `PIC N(30)` as 30 characters / 60 bytes.
-- [ ] **AC16 (R25):**
+  - *Proof:* IDE `national_editor_tests`, `item_size_tests`, i18n tests.
+- [x] **AC16 (R25):**
   - Every existing test passes unchanged.
   - The eight protected NIST modules (NC, SQ, IF, IX, ST, RL, IC, SM) stay
     at 100 %: 8,362 of 8,362 assertions.
-- [ ] **AC17 (R26):** The test programs of AC1–AC14 give the same results
+  - *Proof (1.80.228):* every crate green — lexer 176, ast 32, parser 190, semantic 104, runtime 1187, dap 37, form-host 187, compiler 157, cli 29, project-tools 62, codegen 76, indexed 22, forms 1365, ide 1341 — apart from the known `every_document_ships_in_every_language` (translations wait for the next minor). NIST: strict unchanged; NC 4614, SQ 624, IF 841, IX 574, ST 735, RL 354, IC 309, SM 311 — 8,362 of 8,362.
+- [x] **AC17 (R26):** The test programs of AC1–AC14 give the same results
   under `rcrun run` and as a compiled binary.
-- [ ] **AC18 (GOLDEN RULE #7):** The test programs in
+  - *Proof:* `cobolt-cli/tests/national_parity.rs` (rcrun run = Run Form) and `cobolt-compiler/tests/test_national_build.rs` (`--ignored`; built binary, same lines).
+- [x] **AC18 (GOLDEN RULE #7):** The test programs in
   `tests/cobol/national/` and `tests/cobol/utf8/` each print one closing
   summary. It lists every case exercised (the pictures, literals, moves and
   functions, by name) and the pass/fail tally, and times any bulk work, such
   as the indexed-file round trip of AC9.
 
+  - *Proof:* `tests/cobol/national/nat_basics.cbl`, `nat_functions.cbl`, `nat_indexed.cbl`, `tests/cobol/utf8/utf8_basics.cbl` — each a named case list, timings and a tally.
 ## 6. Constraints & steering check
 
 - **Classification:** **feature**. Both classes are beyond the COBOL-85 the
