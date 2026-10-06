@@ -636,7 +636,7 @@ impl Interpreter {
         let catalog = self.sql_catalog().ok_or_else(|| {
             format!("there is no SQL connection named '{name}': this program was started without the project's SQL connections")
         })?;
-        let target = catalog.resolve(name, &crate::esql::catalog::process_env).map_err(|e| e.message)?;
+        let target = catalog.resolve(name, &|v| catalog.lookup(v)).map_err(|e| e.message)?;
         self.db.open_target(&target)
     }
 
@@ -669,7 +669,7 @@ impl Interpreter {
                 Some((cat, def_name)) => (
                     def_name.clone(),
                     Box::new(move || {
-                        let t = cat.resolve(&def_name, &crate::esql::catalog::process_env)?;
+                        let t = cat.resolve(&def_name, &|v| cat.lookup(v))?;
                         backend::open_target(&t)
                     }),
                 ),

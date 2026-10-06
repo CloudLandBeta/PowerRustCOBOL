@@ -57,7 +57,23 @@ pub(crate) fn open_postgres_fields(
     if let Some(password) = password {
         config.password(password);
     }
-    config.connect(postgres::NoTls).map_err(|e| e.to_string())
+    config.connect(postgres::NoTls).map_err(|e| with_causes(&e))
+}
+
+/// An error and every cause beneath it — the driver's "error connecting to
+/// server" says nothing until its source adds "Connection refused".
+fn with_causes(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        let text = c.to_string();
+        if !out.contains(&text) {
+            out.push_str(": ");
+            out.push_str(&text);
+        }
+        cause = c.source();
+    }
+    out
 }
 
 /// Open a MySQL connection from its parts, as [`open_postgres_fields`] does.

@@ -86,23 +86,39 @@ fn apply_project_indexed_engine(interp: &mut Interpreter) {
 /// The open project's file and name (spec 087 R33): an interpreter the IDE
 /// runs in-process reads its SQL connections from that file when it starts,
 /// so a run always sees what the project file says at that moment.
-static PROJECT_SQL: std::sync::Mutex<Option<(std::path::PathBuf, String)>> = std::sync::Mutex::new(None);
+/// With them, the SQL connections' credentials from the IDE's vault, as the
+/// `<APP>_SQL_<NAME>_*` values the catalog reads (never the IDE's own
+/// process environment).
+static PROJECT_SQL: std::sync::Mutex<Option<ProjectSql>> = std::sync::Mutex::new(None);
 
-/// Record the open project's file and name. Called when a project loads and
-/// whenever it is saved.
-pub fn set_project_sql(manifest: Option<&std::path::Path>, app: &str) {
+#[derive(Clone)]
+struct ProjectSql {
+    manifest: std::path::PathBuf,
+    app: String,
+    credentials: Vec<(String, String)>,
+}
+
+/// Record the open project's file, name and SQL credentials. Called when a
+/// project loads, whenever it is saved, and when an SQL connection's
+/// credentials change.
+pub fn set_project_sql(manifest: Option<&std::path::Path>, app: &str, credentials: Vec<(String, String)>) {
     if let Ok(mut g) = PROJECT_SQL.lock() {
-        *g = manifest.map(|m| (m.to_path_buf(), app.to_string()));
+        *g = manifest.map(|m| ProjectSql { manifest: m.to_path_buf(), app: app.to_string(), credentials });
     }
 }
 
 /// Hand the project's SQL connections to an interpreter about to run. `Err`
 /// says why the project file's SQL connections cannot be used.
 fn apply_project_sql_catalog(interp: &mut Interpreter) -> Result<(), String> {
-    let Some((manifest, app)) = PROJECT_SQL.lock().ok().and_then(|g| g.clone()) else {
+    let Some(p) = PROJECT_SQL.lock().ok().and_then(|g| g.clone()) else {
         return Ok(());
     };
-    let catalog = cobolt_runtime::esql::catalog::SqlCatalog::from_project(&manifest, &app)?;
+    let mut catalog = cobolt_runtime::esql::catalog::SqlCatalog::from_project(&p.manifest, &p.app)?;
+    catalog.injected_env = p
+        .credentials
+        .into_iter()
+        .map(|(k, v)| (k, cobolt_runtime::esql::catalog::Secret::new(v)))
+        .collect();
     interp.set_sql_catalog(catalog);
     Ok(())
 }

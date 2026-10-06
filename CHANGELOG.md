@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.213] — 2026-10-06
+
+### Added
+- **Spec 087 M9 — embedded SQL in the IDE.** The project tree has an **SQL
+  Connections** item after Indexed Files: one row per SQL connection, the
+  default marked, and a **➕** that adds one. A row opens the SQL connection
+  editor (name, SQLite file or PostgreSQL/MySQL server, default,
+  create-if-missing) with **Test connection** — the database's own answer,
+  on a worker thread — and **Remove** with a confirmation. User names and
+  passwords are kept in the IDE's credential vault, moved on a rename, and
+  handed to Run, Debug and Run Form as `<APP>_SQL_<NAME>_*` variables; none
+  reaches the project. Everything in six languages.
+- The editor highlights `EXEC SQL` blocks as SQL across lines, host variables
+  as COBOL names; **Go to definition** (F12, Cmd/Ctrl-click) reaches a data
+  item's declaration — from a form handler, the form site that declares it.
+- The debugger's dock gains an **SQL** tab (statement with placeholders,
+  bound values, SQLSTATE, SQLCODE, rows, message; passwords as `******`), and
+  a breakpoint inside an `EXEC SQL` block is refused with its reason.
+
 ## [PowerRustCOBOL 1.80.212] — 2026-10-06
 
 ### Added

@@ -46,8 +46,27 @@ enum DockTab {
     Console,
     Events,
     FileIo,
+    /// Spec 087 R48 — each `EXEC SQL` statement: its text, bound values,
+    /// SQLSTATE, SQLCODE, rows and message; a password as `******`.
+    Sql,
     Problems,
     Timeline,
+}
+
+impl DockTab {
+    /// The channel a tab shows; `None` for the Timeline, which is every
+    /// channel in the order it happened.
+    fn channel(self) -> Option<cobolt_runtime::OutputChannel> {
+        use cobolt_runtime::OutputChannel as Ch;
+        match self {
+            DockTab::Console => Some(Ch::Console),
+            DockTab::Events => Some(Ch::Events),
+            DockTab::FileIo => Some(Ch::FileIo),
+            DockTab::Sql => Some(Ch::Sql),
+            DockTab::Problems => Some(Ch::Problems),
+            DockTab::Timeline => None,
+        }
+    }
 }
 
 /// One line in the investigation dock.
@@ -3184,6 +3203,7 @@ impl DebuggerPanel {
                 (DockTab::Console, tr.dbg_console, Ch::Console),
                 (DockTab::Events, tr.dbg_events, Ch::Events),
                 (DockTab::FileIo, tr.dbg_file_io, Ch::FileIo),
+                (DockTab::Sql, tr.dbg_sql, Ch::Sql),
                 (DockTab::Problems, tr.dbg_problems, Ch::Problems),
                 (DockTab::Timeline, tr.dbg_timeline, Ch::Timeline),
             ] {
@@ -3212,15 +3232,9 @@ impl DebuggerPanel {
         ui.separator();
 
         use cobolt_runtime::OutputChannel as Ch;
-        let want = match self.dock_tab {
-            DockTab::Console => Some(Ch::Console),
-            DockTab::Events => Some(Ch::Events),
-            DockTab::FileIo => Some(Ch::FileIo),
-            DockTab::Problems => Some(Ch::Problems),
-            // The Timeline is every channel in the order it happened — that is
-            // what makes it a timeline rather than a sixth console.
-            DockTab::Timeline => None,
-        };
+        // The Timeline is every channel in the order it happened — that is
+        // what makes it a timeline rather than another console.
+        let want = self.dock_tab.channel();
 
         // What the scroll area may take: everything left, LESS the prompt's own
         // row. 26 px was not enough for a `TextEdit` plus its spacing, so the
@@ -4467,6 +4481,47 @@ fn build_cobol_layout_job_inked(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 087 R48 (AC13) — a real run's SQL lines reach the dock's SQL tab:
+    /// the statement with its placeholders, the bound values, SQLSTATE,
+    /// SQLCODE and rows — and a CONNECT password only as `******`.
+    #[test]
+    fn debug_sql_channel_masks_password() {
+        const SECRET: &str = "pw-087-never-shown";
+        let src = format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. DBG-SQL.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 WS-USER PIC X(10) VALUE \"ana\".\n01 WS-PW PIC X(30) VALUE \"{SECRET}\".\n\
+             01 WS-ID PIC 9(3) VALUE 7.\n01 WS-N PIC 9(3).\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                 EXEC SQL CONNECT TO ':memory:' USER :WS-USER USING :WS-PW END-EXEC\n\
+                 EXEC SQL CREATE TABLE T (ID INTEGER) END-EXEC\n\
+                 EXEC SQL INSERT INTO T VALUES (:WS-ID) END-EXEC\n\
+                 EXEC SQL SELECT COUNT(*) INTO :WS-N FROM T WHERE ID = :WS-ID END-EXEC\n    STOP RUN.\n"
+        );
+        let program = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free))
+            .program
+            .expect("parses");
+        let (_event_tx, event_rx) = std::sync::mpsc::channel();
+        let (state_tx, _state_rx) = std::sync::mpsc::channel();
+        let (display_tx, _display_rx) = std::sync::mpsc::channel();
+        let (_cmd_tx, cmd_rx) = std::sync::mpsc::channel();
+        let (ev_tx, ev_rx) = std::sync::mpsc::channel();
+        let mut interp = cobolt_runtime::Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+        interp.attach_debug_channels_running(cmd_rx, ev_tx, cobolt_runtime::new_breakpoints());
+        interp.run().expect("runs");
+
+        let mut panel = DebuggerPanel::new();
+        for ev in ev_rx.try_iter() {
+            panel.apply_event(None, ev);
+        }
+        let want = DockTab::Sql.channel();
+        let sql: Vec<&str> = panel.dock.iter().filter(|l| Some(l.channel) == want).map(|l| l.text.as_str()).collect();
+        println!("SQL tab:\n{}", sql.join("\n"));
+        assert_eq!(sql.len(), 4, "one line per statement");
+        assert!(sql[0].contains("USING ******"), "{}", sql[0]);
+        assert!(sql[2].contains("VALUES (?)") && sql[2].contains("values [7]"), "placeholders and bound values: {}", sql[2]);
+        assert!(sql[3].contains("SQLSTATE 00000 SQLCODE 0 rows 1"), "{}", sql[3]);
+        assert!(panel.dock.iter().all(|l| !l.text.contains(SECRET)), "the password never reaches the dock");
+    }
 
     /// A breakpoint may be set only on a line that starts a COBOL statement.
     #[test]

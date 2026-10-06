@@ -605,6 +605,13 @@ pub fn sql_env_var(app: &str, name: &str, part: &str) -> String {
     format!("{}_SQL_{}_{}", sql_env_name(app), sql_env_name(name), part.to_ascii_uppercase())
 }
 
+/// The IDE credential-vault slot that keeps `part` (`user` or `password`) of
+/// SQL connection `name` of application `app` (spec 087 R33) — never the
+/// project file.
+pub fn sql_credential_slot(app: &str, name: &str, part: &str) -> String {
+    format!("sql::{}::{}::{}", sql_env_name(app), sql_env_name(name), part.to_ascii_lowercase())
+}
+
 /// The SQL connections in a TOML document's `table` array — the project
 /// file's `sql-connections`, or the deployment file's `connection` — and the
 /// names of those that carry a `password` key, which is never honoured (R39):

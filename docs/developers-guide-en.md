@@ -347,8 +347,8 @@ flowchart TB
     MB --> TB --> Body --> OUT
 ```
 
-- **Project Explorer (left).** A tree rooted at your project. Seven fixed
-  categories — **Forms**, **Indexed Files**, **Common Code**, **Generated Code**,
+- **Project Explorer (left).** A tree rooted at your project. Eight fixed
+  categories — **Forms**, **Indexed Files**, **SQL Connections**, **Common Code**, **Generated Code**,
   **Project's Crates (Beta)**, **Assets**, **Knowledge Base** — each with a **➕**
   button, except **Generated Code**, which the Form Designer fills on its own and
   which you never add to by hand. To the left of each
@@ -1621,13 +1621,14 @@ you can **Run** straight away and then grow.
 > `Documentation/` and `docs/` project folders is moved into `Knowledge Base/`
 > without overwriting conflicting files.
 
-### The seven tree categories
+### The eight tree categories
 
 
 | Category           | Holds                                                        | Editable?                       |
 | ------------------ | ------------------------------------------------------------ | ------------------------------- |
 | **Forms**          | `.cfrm` form-designer files                                  | via the Designer                |
 | **Indexed Files**  | `.cidx` indexed-file definitions                             | via the Indexed File Editor     |
+| **SQL Connections** | the databases your `EXEC SQL` and `SqlDatabase` reach by name (see [Embedded SQL](#embedded-sql-exec-sql)) | via the SQL connection editor |
 | **Common Code**    | hand-written COBOL you `CALL` from forms or run directly      | yes                             |
 | **Generated Code** | the `.cbl` PowerRustCOBOL generates from each form or `.cidx` | **read-only** (blue, lock icon) |
 | **Project's Crates (Beta)** | third-party libraries you register for `EXEC RUST` blocks | via the External Crates dialog |
@@ -1673,6 +1674,7 @@ The **➕** on a category **creates a new item**:
 
 - **Forms ➕** → *New Form* dialog.
 - **Indexed Files ➕** → *New Indexed File* wizard (name, assign path, record layout, keys, storage).
+- **SQL Connections ➕** → a new SQL connection, in its editor.
 - **Common Code ➕** → a new `.cbl` from a starter template, opened in the editor.
 - **Knowledge Base ➕** → a new Markdown file.
 - **Assets ➕** → file picker (assets are authored externally, so "create" = import).
@@ -10002,10 +10004,9 @@ certainly do it the classic way: SQL written right in the COBOL source between
 > ⚠️ **Caveat — work in progress.** Today embedded SQL runs **against
 > SQLite**: every statement in this section — static statements, cursors,
 > dynamic SQL and the descriptor area — under Run, Debug, Run Form and
-> `rcrun` and in a built application, with the project's named SQL
-> connections written in the project file by hand. PostgreSQL and MySQL, and
-> the IDE's SQL Connections editor, arrive in the next releases of this
-> feature.
+> `rcrun` and in a built application. PostgreSQL and MySQL — which the
+> SQL connection editor and the `SqlDatabase` control already reach — arrive
+> for `EXEC SQL` in the next release of this feature.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -10093,7 +10094,23 @@ file. `DISCONNECT` rolls back what the connection had not committed.
 
 **The project's SQL connections.** Rather than spell a file or a server in the
 program, name it once in the project and connect by that name. The project
-file lists them as `[[sql-connections]]` entries:
+tree's **SQL Connections** item, right after Indexed Files, lists them — the
+default marked *(default)* — and its **➕** adds one. A row opens the
+connection's editor in the main pane: its name, the database (SQLite, or
+PostgreSQL or MySQL with host, port and database name), the default mark and,
+for SQLite, whether the first run may create the file. **Test connection**
+connects with what the editor shows — saved or not — and reports success or
+the database's own message. **Remove** asks first. The user name and password
+of a server connection are kept in the IDE's credential vault, the store that
+holds your model API keys, never in the project; renaming a connection takes
+them along, and Run, Debug and Run Form receive them as the variables below.
+
+> 📷 **Screenshot needed — `sql-connections-editor.png`.** Open a project,
+> click the **➕** on **SQL Connections**, choose PostgreSQL, fill in a host,
+> and press **Test connection**; capture the project tree with the new row and
+> the editor showing the database's answer.
+
+In the project file each one is a `[[sql-connections]]` entry:
 
 ```toml
 [[sql-connections]]
@@ -10451,6 +10468,23 @@ dialect itself, are the database's to judge when the statement runs.
 The control's properties configure **every request it sends**, so a handler is
 usually a single line — the address and the credentials live in the properties
 pane, not repeated through your COBOL.
+
+**In the editor and the debugger.** The COBOL editor draws an `EXEC SQL`
+block as SQL — keywords, strings and comments in their colours, across as many
+lines as the block takes, with each host variable drawn as the COBOL name it
+is — and goes back to COBOL after `END-EXEC`. **Go to definition** (F12, or a
+click with ⌘ on macOS / Ctrl elsewhere) on a host variable lands on the data
+item's declaration; in a form's event handler it opens the site that declares
+it, the form's WORKING-STORAGE for instance. The debugger steps over a block
+as one statement, so a breakpoint goes on its `EXEC SQL` line — one inside the
+block is refused, with the reason. After each statement the dock's **SQL** tab
+shows what was sent, with `?` where the host variables went, the values bound
+to them, and the SQLSTATE, SQLCODE, rows and message; a `CONNECT` password
+appears only as `******`.
+
+> 📷 **Screenshot needed — `debugger-sql-tab.png`.** Debug a program with an
+> `EXEC SQL INSERT` that uses a host variable, step over it, and capture the
+> dock with the **SQL** tab selected.
 
 #### Local settings, or a project connection
 
@@ -13963,7 +13997,7 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | The event loop hidden by the runtime  | The explicit **`COBOL::"WAIT-EVENT"`** loop in generated code                                               |
 | `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
 | Vendor ISAM                           | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`)                 |
-| Embedded SQL / ODBC                   | `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL)                                            |
+| Embedded SQL / ODBC                   | `EXEC SQL … END-EXEC` with host variables, cursors, SQLCA — [Embedded SQL](#embedded-sql-exec-sql) (SQLite today; PostgreSQL/MySQL next); or `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL) |
 | Building an `.exe` with a runtime DLL  | `rcrun build` → **one self-contained binary**, no runtime to install                                   |
 | Project/workspace file                | `cobolt.toml` + the standard folder layout                                                              |
 

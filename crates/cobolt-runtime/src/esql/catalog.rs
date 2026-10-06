@@ -109,11 +109,24 @@ pub struct SqlCatalog {
     pub password_in_file: Vec<String>,
     /// A built application: its key store may hold the password.
     pub key_store: bool,
+    /// `<APP>_SQL_<NAME>_*` values handed over by a host instead of the
+    /// process environment — the IDE's in-process runner passes the
+    /// credentials it keeps in its vault this way. Consulted before the
+    /// environment; the values are secrets and never printed.
+    pub injected_env: Vec<(String, Secret)>,
 }
 
 impl SqlCatalog {
     pub fn new(app: impl Into<String>, connections: Vec<SqlConnection>, base_dir: PathBuf, source: Source) -> Self {
-        Self { app: app.into(), connections, base_dir, source, password_in_file: Vec::new(), key_store: false }
+        Self {
+            app: app.into(),
+            connections,
+            base_dir,
+            source,
+            password_in_file: Vec::new(),
+            key_store: false,
+            injected_env: Vec::new(),
+        }
     }
 
     /// The project's catalog, from its project file.
@@ -134,6 +147,16 @@ impl SqlCatalog {
             key_store: true,
             ..Self::new(app, connections, base, Source::Deployment(file.to_path_buf()))
         })
+    }
+
+    /// An environment variable as this catalog reads it: a value a host
+    /// handed over first, then the process environment.
+    pub fn lookup(&self, var: &str) -> Option<String> {
+        self.injected_env
+            .iter()
+            .find(|(k, _)| k == var)
+            .map(|(_, v)| v.expose().to_string())
+            .or_else(|| process_env(var))
     }
 
     pub fn find(&self, name: &str) -> Option<&SqlConnection> {
@@ -227,10 +250,19 @@ pub fn process_env(name: &str) -> Option<String> {
 
 /// Try a connection with the values given (the IDE's Test connection button,
 /// R33): `Ok` with what it reached, or the database's own message.
+///
+/// It opens the database through the same drivers as an `SqlDatabase`
+/// control, which already reach PostgreSQL and MySQL field by field.
 pub fn test_connection(target: &Target) -> Result<String, String> {
-    let mut backend = super::backend::open_target(target).map_err(|e| e.message)?;
-    backend.query("SELECT 1", &[]).map_err(|e| e.message)?;
-    Ok(format!("connected to {}", backend.kind().name()))
+    let kind = match target {
+        Target::Sqlite { .. } => BackendKind::Sqlite,
+        Target::ConnString(s) => BackendKind::of(s),
+        Target::Server { kind, .. } => *kind,
+    };
+    let mut registry = crate::db_runtime::DbRegistry::new();
+    let handle = registry.open_target(target)?;
+    registry.exec(handle, "SELECT 1")?;
+    Ok(format!("connected to {}", kind.name()))
 }
 
 #[cfg(test)]

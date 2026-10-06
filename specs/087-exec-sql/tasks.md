@@ -441,7 +441,7 @@ pushed unless the operator asks.
 
 ## M9 — IDE
 
-- [ ] **T32 — SQL Connections in the project tree** (R33)
+- [x] **T32 — SQL Connections in the project tree** (R33)
   - Files: `crates/cobolt-ide/src/project_model.rs` (`Category::SqlConnections`,
     `TOP` of eight, every category match), `crates/cobolt-ide/src/panels/project.rs`,
     `crates/cobolt-ide/src/i18n.rs` (×6).
@@ -451,7 +451,7 @@ pushed unless the operator asks.
     event; `indexed_category_tree_order` and the External Crates tree tests
     updated and green.
 
-- [ ] **T33 — The connection editor, credentials, Test connection** (R33, R49, R52)
+- [x] **T33 — The connection editor, credentials, Test connection** (R33, R49, R52)
   - Files: `crates/cobolt-ide/src/panels/sql_connections.rs` (new),
     `crates/cobolt-ide/src/app.rs` (main-pane branch, events),
     `crates/cobolt-ide/src/llm.rs` (vault slots), `crates/cobolt-ide/src/form_runtime.rs`
@@ -466,14 +466,14 @@ pushed unless the operator asks.
     behind the button), `rename_moves_credentials`, the i18n tests; after a
     save, a search of the project folder finds no password (AC9, AC16).
 
-- [ ] **T34 — Highlighting and go to definition** (R47)
+- [x] **T34 — Highlighting and go to definition** (R47)
   - Files: `crates/cobolt-ide/src/panels/editor.rs`.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide sql_highlight_crosses_lines`
     (keywords, strings, comments and host variables coloured across lines)
     and `host_var_goto_definition` (F12 and Cmd/Ctrl-click reach the data
     item, also from a form handler); `goto_tests` green.
 
-- [ ] **T35 — The SQL debugger tab and breakpoints** (R48)
+- [x] **T35 — The SQL debugger tab and breakpoints** (R48)
   - Files: `crates/cobolt-ide/src/panels/debugger.rs` (`DockTab::Sql`),
     `crates/cobolt-ide/src/exec_rust_run.rs` (block ranges include SQL).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide` —
@@ -481,7 +481,7 @@ pushed unless the operator asks.
     SQLSTATE, SQLCODE, rows; the password as `******`) and
     `breakpoint_refused_inside_sql_block` (AC13).
 
-- [ ] **T36 — M9 wrap-up**
+- [x] **T36 — M9 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (the SQL Connections item, the
     editor, Test connection, highlighting, go to definition, the SQL debugger
     tab, with `📷 Screenshot needed` placeholders; the "seven categories" text
