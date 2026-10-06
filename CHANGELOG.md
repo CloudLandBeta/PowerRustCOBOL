@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.208] — 2026-10-06
+
+### Fixed
+- The IDE's **Stop** on a console **Run** stops the program. It used to take
+  effect only when pressed before the program started: a running program —
+  one in a loop, say — ran on to its end while the IDE showed it stopped.
+  Stop now ends it between two statements, and the Output pane reports
+  "Stopped by user".
+
 ## [PowerRustCOBOL 1.80.207] — 2026-10-06
 
 ### Added

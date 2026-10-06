@@ -389,6 +389,8 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new(program);
         apply_project_indexed_engine(&mut interp);
+        // Stop is a cancel: the program ends between two statements.
+        interp.set_cancel_flag(Arc::clone(&stop));
 
         // Run — the interpreter's DISPLAY calls println!() for now.
         // Future: swap in a channel-backed IoBackend.
@@ -399,15 +401,15 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
     }));
 
     match result {
+        // A cancelled run ends cleanly; Stop is what ended it.
+        Ok(_) if stop_flag.load(Ordering::Relaxed) => {
+            let _ = tx.send(RunMsg::Stopped);
+        }
         Ok(Ok(())) => {
             let _ = tx.send(RunMsg::Finished);
         }
         Ok(Err(e)) if e.is_exit_signal() => {
-            if stop_flag.load(Ordering::Relaxed) {
-                let _ = tx.send(RunMsg::Stopped);
-            } else {
-                let _ = tx.send(RunMsg::Finished);
-            }
+            let _ = tx.send(RunMsg::Finished);
         }
         Ok(Err(e)) => {
             let _ = tx.send(RunMsg::Error(e.to_string()));
@@ -723,4 +725,36 @@ fn run_debug_pipeline(
 
 pub(crate) fn detect_format(source: &str) -> SourceFormat {
     SourceFormat::detect(source)
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+
+    /// Stop ends a console run that loops forever: the program stops between
+    /// two statements and the run reports Stopped, not an error.
+    #[test]
+    fn stop_ends_a_looping_console_run() {
+        let src = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. SPIN.\n       PROCEDURE DIVISION.\n\
+                   \x20      MAIN-PARA.\n           PERFORM UNTIL 1 = 0\n               CONTINUE\n\
+                   \x20          END-PERFORM\n           STOP RUN.\n";
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stop);
+        let run = std::thread::spawn(move || run_pipeline("spin.cbl".into(), src.into(), tx, flag));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let pressed = std::time::Instant::now();
+        stop.store(true, Ordering::Relaxed);
+        let deadline = pressed + std::time::Duration::from_secs(5);
+        let mut ended = None;
+        while ended.is_none() && std::time::Instant::now() < deadline {
+            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(m @ (RunMsg::Stopped | RunMsg::Finished | RunMsg::Error(_))) => ended = Some(m),
+                _ => {}
+            }
+        }
+        assert!(matches!(ended, Some(RunMsg::Stopped)), "Stop ends the run as Stopped: {ended:?}");
+        run.join().unwrap();
+        println!("Stop: a PERFORM UNTIL 1 = 0 loop ended {} ms after Stop, reported Stopped", pressed.elapsed().as_millis());
+    }
 }
