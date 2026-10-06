@@ -51,6 +51,7 @@ See the LICENSE file in the project root for full license information.
     - [Writing a text file without an `FD`](#writing-a-text-file-without-an-fd)
 14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
 15. [SQL databases](#15-sql-databases)
+    - [Embedded SQL: `EXEC SQL`](#embedded-sql-exec-sql)
 16. [HTTP / REST and AI agents](#16-http--rest-and-ai-agents)
     - [Working with a coding agent (Claude Code)](#working-with-a-coding-agent-claude-code)
 17. [The command line (rcrun)](#17-the-command-line-rcrun)
@@ -9990,6 +9991,105 @@ reference: `docs/database-runtime-en.md`.
 > non-visual control (its properties hold the connection string, driver, and the
 > data items its events populate), or drive it entirely from code with the
 > `CALL`s above.
+
+### Embedded SQL: `EXEC SQL`
+
+If your PowerCOBOL or isCOBOL programs talk to a database, they almost
+certainly do it the classic way: SQL written right in the COBOL source between
+`EXEC SQL` and `END-EXEC`, exchanging values with COBOL data items called
+**host variables**. RustCOBOL reads that style directly.
+
+> ⚠️ **Caveat — work in progress.** This release *reads and checks* embedded
+> SQL: a program with `EXEC SQL` blocks compiles, and Check reports its
+> mistakes. The statements do not reach a database yet — a block does nothing
+> when the program runs. Execution against SQLite, PostgreSQL and MySQL arrives
+> in the next releases of this feature, and this section grows with it.
+
+**The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
+over as many lines as you like, with no continuation mark. A period after
+`END-EXEC` ends the sentence exactly as it would after a `MOVE`; without one,
+the block is just another statement, so it can sit inside an `IF` or a
+`PERFORM … END-PERFORM`:
+
+```cobol
+           IF WS-DELETE-REQUESTED
+               EXEC SQL
+                   DELETE FROM ORDERS
+                    WHERE ORDER-NO = :WS-ORDER-NO   -- the one on screen
+               END-EXEC
+               MOVE "Deleted" TO WS-MESSAGE
+           END-IF
+```
+
+Inside a block you may write COBOL comment lines (fixed format), `*>`
+comments, and SQL `--` comments; none of them is sent to the database. An
+`END-EXEC` inside an SQL string (`'…END-EXEC…'`), a quoted name or a comment
+does not end the block.
+
+**Host variables.** A colon in front of a data-item name — `:WS-ORDER-NO` —
+makes it a host variable. Any item your program declares can be one; the
+value travels to the database as a *parameter*, never pasted into the SQL
+text. A hyphen belongs to the name only right after the colon: in
+`SELECT QTY-1 INTO :WS-QTY-LESS-ONE` the first hyphen is SQL subtraction, the
+second part of the COBOL name. When two items share a name, qualify it:
+`:CITY OF CUSTOMER`, or `:CITY.CUSTOMER`. A host variable is never subscripted
+or reference-modified, and COBOL figurative constants (`SPACES`, `ZERO` …)
+have no meaning inside SQL — write an SQL literal instead.
+
+**Indicator variables** follow their host variable, with or without the word
+`INDICATOR` — `:WS-PHONE:WS-PHONE-IND` or `:WS-PHONE INDICATOR :WS-PHONE-IND`.
+An indicator is a `PIC S9(4)` item in `COMP-5`, `COMP`, `BINARY` or `DISPLAY`
+usage; for a group used as a host structure, a table of them.
+
+**In the DATA DIVISION.** WORKING-STORAGE, LOCAL-STORAGE and LINKAGE accept
+`BEGIN DECLARE SECTION` / `END DECLARE SECTION` (optional — every item is
+usable either way), `DECLARE … TABLE` (documentation only), `DECLARE … CURSOR`
+and `INCLUDE`. The items around them stay ordinary data items:
+
+```cobol
+       WORKING-STORAGE SECTION.
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+       01  WS-ORDER-NO          PIC 9(8).
+       01  WS-CUSTOMER          PIC X(40).
+       01  WS-PHONE             PIC X(20).
+       01  WS-PHONE-IND         PIC S9(4) COMP-5.
+           EXEC SQL END DECLARE SECTION END-EXEC.
+           EXEC SQL INCLUDE SQLCA END-EXEC.
+```
+
+**`INCLUDE`.** `EXEC SQL INCLUDE name END-EXEC` brings in a copybook found
+exactly as `COPY name` would find it. Two names are reserved: `SQLCA` (the
+status area — `SQLCODE`, `SQLSTATE`, the message, the rows affected) and
+`SQLDA` (the descriptor for dynamic SQL); both layouts are PowerRustCOBOL's
+own. `COPY` and `REPLACE` never change the text inside an SQL block.
+
+**`WHENEVER`** works the way precompilers have always made it work: it applies
+to the SQL statements written *after* it in the source, until the next
+`WHENEVER` for the same condition — not to whatever happens to run after it.
+
+```cobol
+           EXEC SQL WHENEVER SQLERROR GO TO DB-FAILED END-EXEC
+           EXEC SQL WHENEVER NOT FOUND CONTINUE END-EXEC
+```
+
+**What Check tells you** — before anything runs, and without reaching any
+database. Each message names its line:
+
+| Check reports | Example |
+|---|---|
+| a block with no `END-EXEC` | `unterminated EXEC SQL block (missing END-EXEC)` |
+| a block where SQL cannot go (the FILE SECTION), or an executable statement in the DATA DIVISION | |
+| an undeclared, or ambiguous, host variable or indicator | `host variable :WS-NAM is not declared in the DATA DIVISION` |
+| an indicator that is not `PIC S9(4)` | |
+| a subscripted host variable, or a figurative constant inside SQL | |
+| a cursor used before it is declared, or declared twice | |
+| `EXECUTE` or `DESCRIBE` of a statement not prepared before it | |
+| a `WHENEVER … GO TO` naming no paragraph or section | |
+| an `INCLUDE` whose copybook is not found | |
+| a password written as a literal in `CONNECT … USING` | |
+
+Check validates the COBOL side only: table and column names, and the SQL
+dialect itself, are the database's to judge when the statement runs.
 
 ---
 

@@ -489,14 +489,18 @@ time and throughput per phase.
 - [ ] **AC14 (parity):** The AC2, AC7 and AC9 programs give the same results
   under `rcrun run`, Run Form, an embedded child form and the compiled binary
   (`interpreter-binary-parity`).
-- [ ] **AC15 (migration):** Two of the operator's sample programs, with their
-  `EXEC SQL` blocks live, pass Check: `F-ART-PURGA.cob` (stand-alone status
-  items, `PREPARE` + a cursor over the prepared query, `SELECT … INTO`,
-  `COMMIT`) and `TyC.cob` (`CONNECT TO` / `DISCONNECT` a named SQL
-  connection, resolved through R34). Their SQL paths run against a SQLite copy
-  of the tables they use; a statement SQLite rejects (F-ART-PURGA's `DELETE …
-  LIMIT 1`) sets its syntax-error SQLSTATE and the program continues (R22).
-  The whole of both programs runs in the MySQL-gated suite.
+- [ ] **AC15 (migration, narrowed to the SQL — Q14):** In two of the
+  operator's sample programs — `F-ART-PURGA.cob` (stand-alone status items,
+  `PREPARE` + a cursor over the prepared query, `SELECT … INTO`, `COMMIT`) and
+  `TyC.cob` (`CONNECT TO` / `DISCONNECT` a named SQL connection, resolved
+  through R34) — no Check diagnostic comes from an `EXEC SQL` block. Their SQL
+  statements, run by a test program that declares the host variables they use
+  as the samples declare them, work against a SQLite copy of the tables they
+  use; a statement SQLite rejects (F-ART-PURGA's `DELETE … LIMIT 1`) sets its
+  syntax-error SQLSTATE and the program continues (R22). With a MySQL server
+  configured, the same statements run against MySQL. The programs as a whole
+  (their non-SQL PowerCOBOL constructs) are spec 086's to convert and are not
+  part of this criterion.
 - [ ] **AC16 (R49–R50, R52):** The SQL Connections item, the connection
   editor and its Test connection messages, and the `SqlConnection` property's
   help show in all six languages; the
@@ -623,6 +627,11 @@ time and throughput per phase.
   review):** a DATA DIVISION cursor is known to the programs its program
   contains (R28); SQLDA entries carry pointers to the receiving items, with
   the value inside the entry when the pointer is NULL (R41).
+- **Q14 — AC15 narrowed to the SQL (settled, operator 2026-10-06):** T10
+  found no diagnostic inside the samples' 40 SQL blocks, while the programs
+  still fail Check on non-SQL PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`,
+  `CALL … WITH STDCALL`, `BY VALUE`). AC15 covers the SQL only; converting the
+  rest is spec 086's.
 - **Q13 — Clarifications from the design review (2026-10-05):** the
   name-versus-connection-string rule of `CONNECT` (R34); `ROLLBACK` closes
   `WITH HOLD` cursors too (R30); an IDE Stop ends the run unit with a rollback,

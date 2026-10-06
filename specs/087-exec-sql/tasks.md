@@ -173,9 +173,10 @@ pushed unless the operator asks.
   - Result (2026-10-06): 0 diagnostics inside the 40 SQL blocks
     (F-ART-PURGA 35, TyC 5); the programs still fail Check on non-SQL
     PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`, `CALL … WITH STDCALL`,
-    `BY VALUE`) — reported to the operator; AC15's scope awaits a decision.
+    `BY VALUE`) — reported to the operator, who narrowed AC15 to the SQL
+    (spec §7 Q14, 2026-10-06).
 
-- [ ] **T11 — M3 wrap-up**
+- [x] **T11 — M3 wrap-up**
   - Do: `z` bump, CHANGELOG entry, Guide (the Check section of the new
     chapter) and System KB slice; regenerate `chunked.data`.
   - Verify: `cargo run -p cobolt-ide --example build_chunked_kb`, then
@@ -504,13 +505,14 @@ pushed unless the operator asks.
 
 ## M11 — Migration acceptance
 
-- [ ] **T38 — The operator's samples** (AC15)
+- [ ] **T38 — The operator's samples' SQL** (AC15, narrowed by Q14)
   - Files: `crates/cobolt-runtime/tests/test_esql_live.rs` (gated cases).
-  - Verify: with `PRC_LEGACY_CBL_DIR` set, `F-ART-PURGA.cob` and `TyC.cob`
-    pass Check; their SQL paths run against a SQLite copy of the tables they
-    use, and `DELETE … LIMIT 1` sets its syntax-error SQLSTATE while the
-    program continues; with `PRC_TEST_MYSQL_URL` too, both programs run in
-    full against MySQL. `SKIPPED` without the variables.
+  - Verify: with `PRC_LEGACY_CBL_DIR` set, the samples' `EXEC SQL` blocks,
+    read from the files at test time (never copied into the repository), run
+    in a test program declaring their host variables, against a SQLite copy of
+    the tables they use; `DELETE … LIMIT 1` sets its syntax-error SQLSTATE
+    while the program continues; with `PRC_TEST_MYSQL_URL` too, the same
+    statements run against MySQL. `SKIPPED` without the variables.
 
 ## Finalize
 

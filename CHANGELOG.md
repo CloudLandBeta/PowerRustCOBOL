@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.204] — 2026-10-06
+
+### Added
+- **Spec 087 M3 — embedded SQL is documented.** The Developer's Guide gains
+  "Embedded SQL: `EXEC SQL`" in §15 — the block, host variables and
+  indicators, declare sections, `INCLUDE`, `WHENEVER` in source order, and the
+  table of what Check reports — and says plainly that blocks do not run yet.
+  The System KB's extensions document carries the same, so the coding agents
+  write embedded SQL correctly and know it does not execute in this release.
+  Spec 087's AC15 is narrowed to the SQL of the operator's sample programs
+  (operator, 2026-10-06): their non-SQL PowerCOBOL constructs are spec 086's.
+
 ## [PowerRustCOBOL 1.80.203] — 2026-10-06
 
 ### Fixed
