@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.218] — 2026-10-06
+
+### Added
+- **Spec 087 — acceptance.** The same embedded-SQL programs (AC2's host
+  structure, AC7's 10,000-row cursor, and a new AC9 program that connects to a
+  project SQL connection by name) give identical results under `rcrun run`,
+  Run Form, a form opened by another form, and a compiled binary — three
+  tests, one per pair of hosts. The full sweep is green apart from the one
+  known documentation-translation test; NIST is unchanged (420/420 compile;
+  NC, SQ, IX, RL and IC execute with 0 failures). 17 of the spec's 18
+  acceptance criteria are proved; the MySQL half of AC15 and the live
+  PostgreSQL and MySQL runs wait for a server.
+
 ## [PowerRustCOBOL 1.80.217] — 2026-10-06
 
 ### Fixed

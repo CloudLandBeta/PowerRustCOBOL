@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — Embedded SQL (`EXEC SQL`) in RustCOBOL
 
-- **Status:** draft → awaiting approval (then `/implement`)
+- **Status:** done except T27/T28's live-server runs (2026-10-06) — see T39
 - **Plan:** ./plan.md   **Date:** 2026-10-05
 
 Ordered, small, independently verifiable. Each task names its files, the
@@ -539,7 +539,7 @@ pushed unless the operator asks.
 
 ## Finalize
 
-- [ ] **T39 — Full sweep and acceptance**
+- [x] **T39 — Full sweep and acceptance**
   - Do: `cargo test --no-fail-fast` on `cobolt-lexer`, `cobolt-ast`,
     `cobolt-parser`, `cobolt-semantic`, `cobolt-runtime`, `cobolt-dap`,
     `cobolt-forms --features render`, `cobolt-codegen`, `cobolt-form-host`,
@@ -552,6 +552,17 @@ pushed unless the operator asks.
   - Verify: every `test result:` line read — totals equal T0 plus the new
     tests, with only the known expected failure; NIST equals T0 on every
     module; every AC1–AC18 ticked with the task that proved it.
+  - Result (2026-10-06): every crate green — lexer 172, ast 32, parser 184,
+    semantic 98, runtime 1152 (11 ign), dap 37, form-host 186, compiler 157
+    (1 ign; the three old "environmental" failures fixed at 1.80.210), cli
+    23, project-tools 62 (1 ign), codegen 76, forms (render) 1365 (1 ign),
+    IDE 1338 with the one known failure (`every_document_ships_in_every_language`
+    — translations deleted under GOLDEN RULE #8, regenerated at the next
+    minor). NIST identical to T0: strict 420/420, NC
+    4614, SQ 624, IX 574, RL 354, IC 309 assertions, 0 failures. AC14 proved
+    on all four hosts with the AC2, AC7 and the new AC9 program. 17 of 18 ACs
+    ticked; AC15's MySQL half and T27/T28 wait for a live server. Found and
+    fixed on the way: Run Form lost a program's last DISPLAY lines (1.80.217).
   - Manual (operator, never driven by the agent): open a project, add an SQL
     connection in the tree, Test connection, write a handler with `EXEC SQL`,
     see the highlighting and go to definition, run it, and look at the SQL

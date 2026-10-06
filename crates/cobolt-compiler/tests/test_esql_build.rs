@@ -168,3 +168,71 @@ fn a_built_binary_reads_its_sql_connections_file() {
         t_all.elapsed().as_secs_f32()
     );
 }
+
+/// The verdict and the counts of an AC program's result block — never the
+/// measured times, which differ from run to run by nature.
+fn results(out: &[String]) -> Vec<String> {
+    out.iter()
+        .filter(|l| l.starts_with("PASS ") || l.starts_with("rows:"))
+        .map(|l| {
+            let w: Vec<&str> = l.split_whitespace().collect();
+            let digits = |x: &str| !x.is_empty() && x.trim_start_matches('(').bytes().all(|b| b.is_ascii_digit());
+            let mut kept = Vec::new();
+            let mut i = 0;
+            while i < w.len() {
+                let next = w.get(i + 1).copied().unwrap_or("");
+                if digits(w[i]) && (next.starts_with("ms") || next.starts_with("rows/s")) {
+                    i += 2;
+                    continue;
+                }
+                kept.push(w[i]);
+                i += 1;
+            }
+            kept.join(" ")
+        })
+        .collect()
+}
+
+/// Spec 087 AC14 (parity), the compiled-binary half: the AC2, AC7 and AC9
+/// programs, each built as the application's main program and run, give the
+/// results they give under `rcrun run`, Run Form and an embedded child form
+/// (`cobolt-cli/tests/esql_parity.rs`, `cobolt-form-host`) — the lines below
+/// are what those report.
+#[test]
+#[ignore = "builds real binaries; run with --ignored"]
+fn ac2_ac7_ac9_agree_in_a_built_binary() {
+    let project = std::env::temp_dir().join(format!("prc087-parity-build-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&project);
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    let project = project.canonicalize().unwrap();
+    let esql = workspace_root().join("tests/cobol/esql");
+    let opts = BuildOptions { verbose: false, workspace_root: Some(workspace_root()), ..Default::default() };
+    let expected: [(&str, [&str; 2]); 3] = [
+        ("ac2_host_structure.cbl", ["rows: inserted 3; hostile text matched 00001", "PASS 002 FAIL 000"]),
+        ("ac7_cursors.cbl", ["rows: inserted 10000 in fetched 010000 in updated in place 003333 in", "PASS 004 FAIL 000"]),
+        ("ac9_named_connection.cbl", ["rows: count 00003 sum of ids 0000006", "PASS 003 FAIL 000"]),
+    ];
+    let mut table = Vec::new();
+    for (name, want) in expected {
+        std::fs::copy(esql.join(name), project.join("src").join(name)).unwrap();
+        // One project, its main program swapped: the build folder is reused.
+        std::fs::write(
+            project.join("esqlparity.project.toml"),
+            format!(
+                "[project]\nname = \"Esqlparity\"\nversion = \"1.0.0\"\nmain = \"src/{name}\"\ndebug_compilation = true\n\n\
+                 [[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\ncreate-if-missing = true\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(project.join("data")).unwrap();
+        let t = Instant::now();
+        let built = build_project(&project.join("esqlparity.project.toml"), &opts).unwrap_or_else(|e| panic!("{name}: build failed: {e}"));
+        let build_s = t.elapsed().as_secs_f32();
+        let (out, ok) = run(&built.binary_path, &[]);
+        assert!(ok, "{name}: {out:?}");
+        assert_eq!(results(&out), want, "{name}: the built binary disagrees:\n{}", out.join("\n"));
+        table.push(format!("{name}: {} (build {build_s:.1} s)", want[1]));
+    }
+    let _ = std::fs::remove_dir_all(&project);
+    println!("087 AC14 built binary = rcrun run = Run Form = child form: {}", table.join("; "));
+}

@@ -7506,6 +7506,96 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         );
     }
 
+    /// Spec 087 AC14 (parity), the embedded-child half: the AC2, AC7 and
+    /// AC9 programs, each run as a form opened by the main form — through
+    /// the real spawn path, joined to the application's SQL run unit — give
+    /// the same results as the same program run on its own.
+    #[test]
+    fn ac2_ac7_ac9_agree_as_embedded_child_forms_087() {
+        use cobolt_runtime::esql::catalog::{SqlCatalog, Source};
+        use cobolt_runtime::esql::SqlRunUnit;
+        let esql = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol/esql");
+        let dir = tempfile::tempdir().unwrap();
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.path = "sales.db".into();
+        sales.create_if_missing = true;
+        let catalog = SqlCatalog::new("parity", vec![sales], dir.path().to_path_buf(), Source::Injected);
+        let parse = |src: &str| {
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free)).program.expect("parses")
+        };
+        // The verdict and the counts; never the measured times.
+        let results = |lines: Vec<String>| -> Vec<String> {
+            lines
+                .into_iter()
+                .map(|l| l.trim_end().to_string())
+                .filter(|l| l.starts_with("PASS ") || l.starts_with("rows:"))
+                .map(|l| {
+                    let w: Vec<&str> = l.split_whitespace().collect();
+                    let digits = |x: &str| !x.is_empty() && x.trim_start_matches('(').bytes().all(|b| b.is_ascii_digit());
+                    let mut out = Vec::new();
+                    let mut i = 0;
+                    while i < w.len() {
+                        let next = w.get(i + 1).copied().unwrap_or("");
+                        if digits(w[i]) && (next.starts_with("ms") || next.starts_with("rows/s")) {
+                            i += 2;
+                            continue;
+                        }
+                        out.push(w[i]);
+                        i += 1;
+                    }
+                    out.join(" ")
+                })
+                .collect()
+        };
+        let mut table = Vec::new();
+        for name in ["ac2_host_structure.cbl", "ac7_cursors.cbl", "ac9_named_connection.cbl"] {
+            let src = std::fs::read_to_string(esql.join(name)).unwrap();
+
+            // On its own.
+            let (_ev_tx, ev_rx) = mpsc::channel();
+            let (state_tx, _state_rx) = mpsc::channel();
+            let (display_tx, display_rx) = mpsc::channel();
+            let mut alone = cobolt_runtime::interpreter::Interpreter::new_with_channels(parse(&src), ev_rx, state_tx, display_tx);
+            alone.set_sql_catalog(catalog.clone());
+            alone.run().ok();
+            let expected = results(display_rx.try_iter().collect());
+
+            // As a child form of the main form, joined to the run unit.
+            let program = parse(&src);
+            let (mut host, _closed_rx, _req_tx) = host_with_source(false);
+            host.form_source = Some(Box::new(move |id: &str| Ok((cobolt_forms::Form::new(id, "Child", 240, 160), program.clone()))));
+            let unit = Arc::new(std::sync::Mutex::new(SqlRunUnit::default()));
+            let (joined, cat) = (Arc::clone(&unit), catalog.clone());
+            host.child_interpreter_setup = Some(Arc::new(move |i: &mut cobolt_runtime::interpreter::Interpreter| {
+                i.set_sql_run_unit(Arc::clone(&joined), false);
+                i.set_sql_catalog(cat.clone());
+            }));
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(640.0, 480.0)));
+            host.supervisor_open_for_test("CHILD");
+            let mut f = ctx.run_ui(input.clone(), |ui| host.apply_host_actions(ui.ctx(), vec![spawn_action("W1", "CHILD")]));
+            f.textures_delta.clear();
+            // The child's DISPLAY lines, read here instead of on stdout.
+            let child_display = std::mem::replace(&mut host.children[0].body.display_rx, mpsc::channel().1);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while !host.children.is_empty() && std::time::Instant::now() < deadline {
+                let mut f = ctx.run_ui(input.clone(), |ui| {
+                    let c = ui.ctx().clone();
+                    host.update_children(&c);
+                });
+                f.textures_delta.clear();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(host.children.is_empty(), "{name} ran to its end as a child form");
+            let got = results(child_display.try_iter().collect());
+            assert!(got.iter().any(|l| l.starts_with("PASS ") && l.ends_with("FAIL 000")), "{name} as a child: {got:?}");
+            assert_eq!(got, expected, "{name}: a child form and the program on its own disagree");
+            table.push(format!("{name}: {}", got.last().cloned().unwrap_or_default()));
+        }
+        println!("087 AC14 embedded child = on its own: {}", table.join("; "));
+    }
+
     /// Spec 087 R40 (AC17, Run Form part) — a designed `SqlDatabase` whose
     /// `SqlConnection` names SALES reaches the SALES file through `Open()`
     /// with no argument: the host's seeding carries the property to the
