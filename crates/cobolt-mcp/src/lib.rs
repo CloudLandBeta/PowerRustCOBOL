@@ -47,12 +47,14 @@
 //! request survives a round trip instead of being dropped on the floor — the
 //! same rule `cobolt-dap` follows, for the same reason.
 
+pub mod client;
 pub mod server;
 pub mod transport;
 pub mod types;
 
 pub use server::{dispatch, serve, McpHandler};
+pub use client::{Client, ClientError, Inbound, Mode, Session};
 pub use types::{
-    Content, InitializeResult, Request, Resource, ResourceContents, Response, RpcError, ServerInfo,
-    Tool, ToolResult, PROTOCOL_VERSION,
+    Content, InitializeResult, Message, Request, Resource, ResourceContents, Response, RpcError,
+    ServerInfo, Tool, ToolResult, PROTOCOL_VERSION,
 };

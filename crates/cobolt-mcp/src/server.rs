@@ -241,6 +241,7 @@ mod tests {
                 name: "search_actors".into(),
                 description: Some("Actors, one row per performer".into()),
                 input_schema: json!({"type":"object","properties":{}}),
+                annotations: None,
             }]
         }
         fn call_tool(&mut self, name: &str, arguments: &Value) -> ToolResult {

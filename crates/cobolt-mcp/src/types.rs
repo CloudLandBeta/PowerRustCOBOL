@@ -28,6 +28,25 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 /// Revisions this server is prepared to speak, newest first.
 pub const SUPPORTED_VERSIONS: [&str; 2] = ["2025-06-18", "2024-11-05"];
 
+/// The revision the CLIENT offers when it opens a handshake (spec 078 R3).
+///
+/// Kept apart from [`SUPPORTED_VERSIONS`]: that list drives what this crate's
+/// SERVER echoes, and a server that suddenly answered a newer revision than it
+/// was tested with would change behaviour for every existing client.
+pub const CLIENT_OFFERED_VERSION: &str = "2025-11-25";
+
+/// Revisions the client accepts in a server's `initialize` answer, newest
+/// first — the one it offered, and the older handshake revisions AWS's
+/// servers (the Python MCP SDK) may answer with.
+pub const CLIENT_ACCEPTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
+
+/// The stateless revision: no handshake, every request names its revision in
+/// `_meta` (spec 078 R3, switched on per server by the route table).
+pub const STATELESS_REVISION: &str = "2026-07-28";
+
+/// The `_meta` key a stateless request carries its revision under.
+pub const STATELESS_META_KEY: &str = "io.modelcontextprotocol/protocolVersion";
+
 /// Answer a client's requested protocol revision.
 ///
 /// Echoes the request when it is one we speak — the client then knows its own
@@ -62,6 +81,32 @@ impl Request {
     /// Is this a notification — something expecting no reply?
     pub fn is_notification(&self) -> bool {
         self.id.is_none()
+    }
+}
+
+/// Any one JSON-RPC message, as a peer's reader meets it (spec 078 R1).
+///
+/// A frame that names a `method` is a request (or, without an `id`, a
+/// notification); one that carries a `result` or an `error` is a response.
+/// The client needs this because a server may send requests of its own —
+/// `ping`, `sampling/…` — interleaved with the answers it is waiting for.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Message {
+    Request(Request),
+    Response(Response),
+}
+
+impl Message {
+    /// Classify one raw frame.
+    pub fn parse(raw: &[u8]) -> Result<Message, String> {
+        let v: Value = serde_json::from_slice(raw).map_err(|e| format!("not JSON: {e}"))?;
+        if v.get("method").is_some() {
+            serde_json::from_value(v).map(Message::Request).map_err(|e| format!("not a request: {e}"))
+        } else if v.get("result").is_some() || v.get("error").is_some() {
+            serde_json::from_value(v).map(Message::Response).map_err(|e| format!("not a response: {e}"))
+        } else {
+            Err("neither a request nor a response".into())
+        }
     }
 }
 
@@ -132,6 +177,44 @@ pub struct ServerInfo {
     pub version: String,
 }
 
+/// Who is asking — the client's half of `initialize`.
+pub type ClientInfo = ServerInfo;
+
+/// The client's `initialize` request body.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InitializeParams {
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: String,
+    pub capabilities: Value,
+    #[serde(rename = "clientInfo")]
+    pub client_info: ClientInfo,
+}
+
+/// `tools/list`'s request body: where to continue a paged listing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ListToolsParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// `tools/list`'s answer: one page of tools, and where the next one starts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ListToolsResult {
+    pub tools: Vec<Tool>,
+    #[serde(rename = "nextCursor", default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// `tools/call`'s request body.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CallToolParams {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: Value,
+    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+}
+
 /// The reply to `initialize`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InitializeResult {
@@ -179,21 +262,70 @@ pub struct Tool {
     pub description: Option<String>,
     #[serde(rename = "inputSchema")]
     pub input_schema: Value,
+    /// Hints about the tool's behaviour — `readOnlyHint`, `destructiveHint`.
+    /// A client decides what it may call without asking from these (spec 078
+    /// R26); a server that gives none leaves this `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Value>,
+}
+
+impl Tool {
+    /// Whether the server marked this tool read-only (`readOnlyHint: true`).
+    pub fn is_read_only(&self) -> bool {
+        self.annotations
+            .as_ref()
+            .and_then(|a| a.get("readOnlyHint"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
 }
 
 /// One piece of a tool's answer.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type")]
+///
+/// Written by hand rather than derived: a server we did not write may answer
+/// with content this crate does not model (an audio clip, an embedded
+/// resource, a type a later revision adds), and a client that failed to decode
+/// the whole result over one such block would lose the text beside it. Such a
+/// block is kept, untouched, as [`Content::Other`] (spec 078). This crate's
+/// own server only ever writes text and images.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Content {
-    #[serde(rename = "text")]
     Text { text: String },
     /// A picture, base64-encoded — a rendered form, for instance.
-    #[serde(rename = "image")]
-    Image {
-        data: String,
-        #[serde(rename = "mimeType")]
-        mime_type: String,
-    },
+    Image { data: String, mime_type: String },
+    /// Any other content block, exactly as it arrived.
+    Other(Value),
+}
+
+impl Serialize for Content {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let v = match self {
+            Content::Text { text } => serde_json::json!({ "type": "text", "text": text }),
+            Content::Image { data, mime_type } => {
+                serde_json::json!({ "type": "image", "data": data, "mimeType": mime_type })
+            }
+            Content::Other(v) => v.clone(),
+        };
+        v.serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for Content {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = Value::deserialize(d)?;
+        let field = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_owned);
+        Ok(match v.get("type").and_then(Value::as_str) {
+            Some("text") => match field("text") {
+                Some(text) => Content::Text { text },
+                None => Content::Other(v),
+            },
+            Some("image") => match (field("data"), field("mimeType")) {
+                (Some(data), Some(mime_type)) => Content::Image { data, mime_type },
+                _ => Content::Other(v),
+            },
+            _ => Content::Other(v),
+        })
+    }
 }
 
 impl Content {
@@ -205,7 +337,7 @@ impl Content {
     pub fn as_text(&self) -> Option<&str> {
         match self {
             Content::Text { text } => Some(text),
-            Content::Image { .. } => None,
+            Content::Image { .. } | Content::Other(_) => None,
         }
     }
 
@@ -249,6 +381,9 @@ pub struct ToolResult {
     pub content: Vec<Content>,
     #[serde(rename = "isError", default, skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
+    /// A structured answer, when the tool's schema declares one (MCP 2025-06-18).
+    #[serde(rename = "structuredContent", default, skip_serializing_if = "Option::is_none")]
+    pub structured_content: Option<Value>,
 }
 
 impl ToolResult {
@@ -256,6 +391,7 @@ impl ToolResult {
         Self {
             content,
             is_error: None,
+            structured_content: None,
         }
     }
 
@@ -263,6 +399,7 @@ impl ToolResult {
         Self {
             content: vec![Content::text(message)],
             is_error: Some(true),
+            structured_content: None,
         }
     }
 }
@@ -350,5 +487,46 @@ mod tests {
         let failed = ToolResult::failed("the file could not be opened");
         assert_eq!(empty.is_error, None, "an empty result is not a failure");
         assert_eq!(failed.is_error, Some(true));
+    }
+
+    /// Spec 078: content this crate does not model decodes, and travels back
+    /// out untouched, instead of failing the whole result.
+    #[test]
+    fn an_unknown_content_decodes_as_other_and_round_trips() {
+        let src = r#"[{"type":"text","text":"hi"},{"type":"audio","data":"AAA","mimeType":"audio/mpeg"},{"type":"resource","resource":{"uri":"s3://b/k"}}]"#;
+        let blocks: Vec<Content> = serde_json::from_str(src).unwrap();
+        assert_eq!(blocks[0], Content::text("hi"));
+        assert!(matches!(&blocks[1], Content::Other(v) if v["type"] == "audio"));
+        assert!(matches!(&blocks[2], Content::Other(v) if v["resource"]["uri"] == "s3://b/k"));
+        let back: Value = serde_json::to_value(&blocks).unwrap();
+        assert_eq!(back, serde_json::from_str::<Value>(src).unwrap());
+        // An image still decodes as an image.
+        let img: Content = serde_json::from_str(r#"{"type":"image","data":"QQ==","mimeType":"image/png"}"#).unwrap();
+        assert_eq!(img, Content::Image { data: "QQ==".into(), mime_type: "image/png".into() });
+        println!("content: text, image and 2 unmodelled block types decoded; the unmodelled ones round-tripped byte-equal");
+    }
+
+    #[test]
+    fn message_classifies_request_notification_and_response() {
+        let req = Message::parse(br#"{"jsonrpc":"2.0","id":3,"method":"ping"}"#).unwrap();
+        assert!(matches!(&req, Message::Request(r) if !r.is_notification()));
+        let note = Message::parse(br#"{"jsonrpc":"2.0","method":"notifications/progress","params":{}}"#).unwrap();
+        assert!(matches!(&note, Message::Request(r) if r.is_notification()));
+        let ok = Message::parse(br#"{"jsonrpc":"2.0","id":3,"result":{}}"#).unwrap();
+        assert!(matches!(ok, Message::Response(_)));
+        let err = Message::parse(br#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"no"}}"#).unwrap();
+        assert!(matches!(err, Message::Response(r) if r.error.is_some()));
+        assert!(Message::parse(br#"{"jsonrpc":"2.0","id":3}"#).is_err());
+        assert!(Message::parse(b"not json").is_err());
+    }
+
+    #[test]
+    fn a_tool_reports_its_read_only_hint() {
+        let t: Tool = serde_json::from_str(r#"{"name":"q","inputSchema":{},"annotations":{"readOnlyHint":true}}"#).unwrap();
+        assert!(t.is_read_only());
+        let w: Tool = serde_json::from_str(r#"{"name":"w","inputSchema":{}}"#).unwrap();
+        assert!(!w.is_read_only());
+        let page: ListToolsResult = serde_json::from_str(r#"{"tools":[{"name":"q","inputSchema":{}}],"nextCursor":"p2"}"#).unwrap();
+        assert_eq!(page.next_cursor.as_deref(), Some("p2"));
     }
 }

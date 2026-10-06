@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Tasks — AWS controls through MCP (spec 078)
 
-- **Status:** draft → awaiting approval (then `/implement`)
+- **Status:** approved by the operator 2026-10-06 ("go on on 078"); implementation in progress on `features-spec-078`
 - **Plan:** ./plan.md (approved 2026-09-30)   **Date:** 2026-09-30
 - **Line:** a **feature**. Work goes on the operator's working line (`1.80.x` today, or `features` if the operator says so), never on `main`, and is pushed only when the operator allows.
 
@@ -42,7 +42,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.1 The MCP client (`cobolt-mcp`)
 
-- [ ] **T-A1 — Wire types for the client and a tolerant `Content`** (R1, R6; AC4)
+- [x] **T-A1 — Wire types for the client and a tolerant `Content`** (R1, R6; AC4)
   - Read first: `cobolt-mcp/src/types.rs` (the whole file), `server.rs` `handle_one`/`finish`.
   - Files: `crates/cobolt-mcp/src/types.rs`, `lib.rs`.
   - Do:
@@ -55,7 +55,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `cargo test -p cobolt-mcp` is green.
     - New tests: `an_image_content_decodes_as_other`, `message_classifies_request_notification_and_response`, and `every_client_request_parses_as_a_server_request`, which round-trips each client request through the server's parser (AC4).
 
-- [ ] **T-A2 — `client.rs`: session, id correlation and the pump** (R1, R3, R4, R5)
+- [x] **T-A2 — `client.rs`: session, id correlation and the pump** (R1, R3, R4, R5)
   - Read first: T-A1's types, `transport.rs` `read_message`/`write_message`.
   - Files: `crates/cobolt-mcp/src/client.rs` (new), `lib.rs`.
   - Do:
@@ -78,9 +78,10 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - an unsupported answered version rejected with a clear error.
     `cargo test -p cobolt-mcp` is green (AC1 at the unit level, AC3 notifications, AC4).
 
-- [ ] **T-A3 — Dependency audit** (R2; AC2)
+- [x] **T-A3 — Dependency audit** (R2; AC2)
   - Do: confirm `cobolt-mcp/Cargo.toml` still lists only `serde` and `serde_json`.
   - Verify: `cargo tree -p cobolt-mcp -e normal` shows no `rustls`, `ring`, `aws-lc`, `hyper`, `reqwest` or `ureq`. Record the output in the commit message.
+  - Result (1.80.229): `cobolt-mcp` depends on `serde` and `serde_json` only (with their own `serde_core`, `serde_derive`, `itoa`, `memchr`, `zmij`); none of the banned crates. `cobolt-mcp` 32 tests green. Deviation from T-A1's wording: `SUPPORTED_VERSIONS` stays the server's two revisions, because growing it would change what the server's `negotiate` echoes (the task's own constraint); the client's revisions are separate constants (`CLIENT_OFFERED_VERSION`, `CLIENT_ACCEPTED_VERSIONS`, `STATELESS_REVISION`). `ToolResult` also gained `structuredContent` (2025-06-18), which AWS servers send.
 
 ### A.2 Transport, pool, lifetime (`cobolt-runtime`, feature `aws`)
 

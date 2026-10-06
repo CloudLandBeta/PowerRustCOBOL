@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.229] — 2026-10-06
+
+### Added
+- **Spec 078 A.1 — an MCP client.** `cobolt-mcp` now speaks the client side
+  of the Model Context Protocol as well as the server side: the handshake
+  (offering revision 2025-11-25, accepting 2025-06-18 and 2024-11-05), the
+  stateless 2026-07-28 revision, paged tool listing, tool calls with
+  structured and text results, and the server's own traffic (progress,
+  logging, `ping`, refused sampling) handled without stalling a call. Tool
+  content the crate does not model is kept rather than failing the answer.
+  Still no dependency beyond `serde` and `serde_json`. This is the
+  foundation for the AWS controls.
+
 ## [PowerRustCOBOL 1.80.228] — 2026-10-06
 
 ### Added
