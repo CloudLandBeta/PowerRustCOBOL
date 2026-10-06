@@ -55,6 +55,7 @@ pub mod keywords;
 pub mod lexer;
 pub mod source;
 pub mod span;
+pub mod sql;
 pub mod token;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────

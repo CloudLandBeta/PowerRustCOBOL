@@ -91,6 +91,14 @@ pub struct Parser {
     /// starts the next subscript** rather than as addition. See
     /// [`Parser::starts_signed_subscript`].
     pub(crate) in_subscript: bool,
+    /// Spec 087: the SQL cursors declared so far by the program being parsed.
+    pub(crate) sql_cursors: Vec<cobolt_ast::sql::SqlCursor>,
+    /// Spec 087 R21: the `WHENEVER` declarations in force, in source order.
+    pub(crate) sql_whenever: cobolt_ast::sql::SqlWhenever,
+    /// Spec 087: the PROGRAM-ID of each program being parsed, innermost last.
+    pub(crate) sql_owner: Vec<String>,
+    /// Spec 087: set while an FD's records are read, where SQL is not allowed.
+    pub(crate) sql_in_file_section: bool,
 }
 
 impl Parser {
@@ -125,6 +133,10 @@ impl Parser {
             next_block_id: block_id_base,
             pending: Vec::new(),
             in_subscript: false,
+            sql_cursors: Vec::new(),
+            sql_whenever: Default::default(),
+            sql_owner: Vec::new(),
+            sql_in_file_section: false,
         }
     }
 
@@ -507,6 +519,7 @@ impl Parser {
             program.nested_programs.push(sibling);
         }
 
+        crate::sql::mark_positioned_cursors(&mut program);
         ParseResult {
             program: Some(program),
             diagnostics: self.diagnostics,
@@ -530,6 +543,9 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
 
     // IDENTIFICATION DIVISION (required)
     let identification = parse_identification_division(p);
+    // Spec 087: SQL statements and cursors name the program they are written
+    // in (R28).
+    p.sql_owner.push(identification.program_id.to_ascii_uppercase());
 
     // ENVIRONMENT DIVISION (optional)
     let environment = if p.at(&Token::Environment) {
@@ -629,6 +645,9 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
     let classes = std::mem::take(&mut p.classes);
     let alphabets = std::mem::take(&mut p.alphabets);
     let collating_sequence = p.collating_sequence.take();
+    // This program's SQL cursors (spec 087 R28), claimed before its nested
+    // programs are parsed, for the same reason as the REPOSITORY above.
+    let sql_cursors = std::mem::take(&mut p.sql_cursors);
 
     // Collect nested programs until END PROGRAM or EOF
     let mut nested_programs = Vec::new();
@@ -662,7 +681,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         break;
     }
 
-    Program {
+    let program = Program {
         span: start,
         rust_items,
         identification,
@@ -678,7 +697,10 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         alphabets,
         collating_sequence,
         currency: p.currency,
-    }
+        sql_cursors,
+    };
+    p.sql_owner.pop();
+    program
 }
 
 /// Parse the ENVIRONMENT DIVISION, capturing the INPUT-OUTPUT SECTION's

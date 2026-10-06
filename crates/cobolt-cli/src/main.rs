@@ -99,15 +99,21 @@ fn main() {
 /// file, then from its project's folder (`cobolt_lexer::copybook_bases`).
 /// Returns the program's tokens, each on the line the developer wrote
 /// (`tokenize_expansion`); copybook errors are printed.
-fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> Vec<cobolt_lexer::SpannedToken> {
+/// Expand COPY/REPLACE/`EXEC SQL INCLUDE` and tokenize. Copybook errors are
+/// printed, on their line when they have one; the count is returned so Check
+/// can fail on them.
+fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> (Vec<cobolt_lexer::SpannedToken>, usize) {
     let expansion = cobolt_lexer::expand_copybooks_for(source, path, fmt);
     if std::env::var_os("COBOLT_DUMP_EXPANSION").is_some() {
         eprintln!("=== EXPANSION BEGIN ===\n{}\n=== EXPANSION END ===", expansion.text);
     }
-    for e in &expansion.errors {
-        eprintln!("{}: copybook error: {e}", path.display());
+    for (i, e) in expansion.errors.iter().enumerate() {
+        match expansion.error_lines.get(i).copied().unwrap_or(0) {
+            0 => eprintln!("{}: copybook error: {e}", path.display()),
+            line => eprintln!("{}:{line}:0: error: copybook error: {e}", path.display()),
+        }
     }
-    cobolt_lexer::tokenize_expansion(&expansion)
+    (cobolt_lexer::tokenize_expansion(&expansion), expansion.errors.len())
 }
 
 fn cmd_run(args: &[String]) {
@@ -115,7 +121,7 @@ fn cmd_run(args: &[String]) {
     let source = read_source(&path);
     let fmt = resolve_source_format(args, &source, &path);
     // COPY expansion flattens to free form.
-    let tokens = expand_copy(&path, &source, fmt);
+    let (tokens, _) = expand_copy(&path, &source, fmt);
     let parse_result = parse(tokens);
 
     // Print parser diagnostics.
@@ -304,10 +310,10 @@ fn cmd_check(args: &[String]) {
     let path = require_path(args, "check");
     let source = read_source(&path);
     let fmt = resolve_source_format(args, &source, &path);
-    let tokens = expand_copy(&path, &source, fmt);
+    let (tokens, copy_errors) = expand_copy(&path, &source, fmt);
     let parse_result = parse(tokens);
 
-    let mut has_errors = false;
+    let mut has_errors = copy_errors > 0;
     for d in &parse_result.diagnostics {
         if d.severity == cobolt_parser::Severity::Error {
             has_errors = true;

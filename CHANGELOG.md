@@ -8,6 +8,57 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.202] — 2026-10-06
+
+### Added
+- **Spec 087 M3 (part) — Check understands embedded SQL.** Without contacting
+  any database, Check (`rcrun check`, the IDE's Check and the coding-agent
+  `check` tool) reports, each on its own line: an undeclared or ambiguous host
+  variable or indicator, an indicator that is not a `PIC S9(4)` binary or
+  display item (a table of them for a host structure), a cursor used before it
+  is declared or declared twice, an `EXECUTE` or `DESCRIBE` before its
+  `PREPARE`, and a `WHENEVER … GO TO` naming no paragraph or section. GLOBAL
+  items and DATA DIVISION cursors are seen by the programs inside. An
+  unterminated block now says so (`unterminated EXEC SQL block (missing
+  END-EXEC)`), and `rcrun check` prints a copybook error on its line and fails
+  on it.
+
+## [PowerRustCOBOL 1.80.201] — 2026-10-06
+
+### Added
+- **Spec 087 M2 — the parser reads embedded SQL.** An `EXEC SQL` block is one
+  statement wherever a statement may stand: a period after `END-EXEC` ends the
+  sentence, and a block inside an `IF` without one stays in the `IF`. Every
+  statement form is recognised — `SELECT … INTO` (its `INTO` list found after
+  the select list, after `FROM` or after `WHERE`), `INSERT`, `UPDATE`,
+  `DELETE`, data definition, cursors (`DECLARE`, `OPEN`, `FETCH`, `CLOSE`,
+  `WITH HOLD`, `FOR UPDATE`, `WHERE CURRENT OF`), `COMMIT`, `ROLLBACK`,
+  `CONNECT … AS … USER … USING`, `SET CONNECTION`, `DISCONNECT`, `PREPARE`,
+  `EXECUTE [IMMEDIATE]` and `DESCRIBE [INPUT]`. Host variables become bound
+  parameters, never text. In WORKING-STORAGE, LOCAL-STORAGE and LINKAGE a
+  declare section, `DECLARE … TABLE` or `DECLARE … CURSOR` sits between data
+  entries, and the entries after it are declared — before, they were silently
+  lost. `WHENEVER` applies to the statements after it in the source. A
+  subscripted host variable, a figurative constant inside SQL, a literal
+  password in `CONNECT … USING`, a block in the FILE SECTION and an executable
+  statement in the DATA DIVISION are each an error on their own line. Blocks do
+  nothing at run time yet (M4).
+
+## [PowerRustCOBOL 1.80.200] — 2026-10-06
+
+### Added
+- **Spec 087 M1 — embedded SQL reaches the lexer.** `EXEC SQL … END-EXEC` is
+  now read as one block in fixed and free format, with the source line of each
+  of its lines. Its end is found by an SQL-aware scanner, so an `END-EXEC`
+  inside an SQL string, quoted identifier, comment or `$tag$` quote does not
+  end it, and an apostrophe in an SQL comment no longer disturbs the COBOL
+  after the block. A missing `END-EXEC` is one error on the `EXEC` line.
+  `COPY` and `REPLACE` never touch an SQL body. `EXEC SQL INCLUDE SQLCA` and
+  `INCLUDE SQLDA` insert this project's own layouts, and `EXEC SQL INCLUDE
+  name` brings in a copybook exactly as `COPY name` does. A missing copybook,
+  from `COPY` or `INCLUDE`, is now reported on its own line by Check. The
+  parser does not accept these blocks yet (M2), so a program using them still
+  does not compile.
 ## [PowerRustCOBOL 1.80.199] — 2026-10-05
 
 ### Fixed

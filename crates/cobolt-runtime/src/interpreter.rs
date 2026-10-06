@@ -6001,6 +6001,10 @@ impl Interpreter {
                 })
             }
 
+            // Spec 087: embedded SQL. Executed from M4a (T14); until then a
+            // block parses and does nothing.
+            Stmt::ExecSql(_) => Ok(()),
+
             // ── PowerCOBOL extensions ─────────────────────────────────────────
             Stmt::WindowOp { op, .. } => {
                 tracing::debug!("WindowOp: {:?}", op);

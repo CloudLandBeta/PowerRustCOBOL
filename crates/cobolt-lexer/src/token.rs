@@ -572,6 +572,11 @@ pub enum Token {
     /// name is lower-cased.  `WS-MY-FIELD` → `ws_my_field`.
     ExecRustBlock(String),
 
+    /// `EXEC SQL … END-EXEC` (spec 087): the whole block, captured by the
+    /// lexer with its text verbatim and the source line of each of its lines.
+    /// The text belongs to the database; only its host variables are COBOL.
+    ExecSqlBlock(Box<crate::sql::SqlBlock>),
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // CoBolt exception handling extensions (non-standard COBOL)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -685,6 +690,7 @@ impl Token {
             Token::StringLiteral(_) => "string literal",
             Token::LevelNumber(_) => "level number",
             Token::ExecRustBlock(_) => "EXEC RUST block",
+            Token::ExecSqlBlock(_) => "EXEC SQL block",
             Token::Period => "'.'",
             Token::Comma => "','",
             Token::LParen => "'('",
@@ -732,6 +738,7 @@ impl std::fmt::Display for Token {
             Token::Comment(c) => write!(f, "*> {c}"),
             Token::Error(e) => write!(f, "ERROR({e})"),
             Token::ExecRustBlock(src) => write!(f, "EXEC RUST {} END-EXEC", src),
+            Token::ExecSqlBlock(b) => write!(f, "EXEC SQL {} END-EXEC", b.text),
             Token::Ampersand => write!(f, "&"),
             _ => write!(f, "{}", self.description()),
         }

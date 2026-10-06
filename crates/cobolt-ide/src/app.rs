@@ -4245,8 +4245,11 @@ impl CoboltApp {
         // COPY / REPLACE, as `rcrun check` expands them (operator, 2026-09-27).
         let tokens = match cobolt_lexer::preprocess_program(&source, &path, fmt) {
             Some(exp) => {
-                for e in &exp.errors {
-                    self.output.push_status(format!("copybook error: {e}"));
+                for (i, e) in exp.errors.iter().enumerate() {
+                    match exp.error_lines.get(i).copied().unwrap_or(0) {
+                        0 => self.output.push_status(format!("copybook error: {e}")),
+                        line => self.output.push_status(format!("copybook error (line {line}): {e}")),
+                    }
                 }
                 cobolt_lexer::tokenize_expansion(&exp)
             }

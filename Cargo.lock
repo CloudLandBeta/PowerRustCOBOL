@@ -1405,6 +1405,7 @@ dependencies = [
 name = "cobolt-ast"
 version = "0.2.0"
 dependencies = [
+ "bincode",
  "cobolt-lexer",
  "indexmap",
  "pretty_assertions",

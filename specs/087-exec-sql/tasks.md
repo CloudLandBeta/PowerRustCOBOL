@@ -33,7 +33,7 @@ pushed unless the operator asks.
 
 ## M0 — Baseline
 
-- [ ] **T0 — Record the baseline** (all)
+- [x] **T0 — Record the baseline** (all)
   - Files: none in the repository (results kept in the session scratchpad).
   - Do: build `rcrun` (`cargo build --release -p cobolt-cli`), then record
     `cargo run -p cobolt-semantic --example nist_conformance -- strict` (per
@@ -48,7 +48,7 @@ pushed unless the operator asks.
 
 ## M1 — Scanner, token, preprocessor
 
-- [ ] **T1 — SQL scanner** (R1, R4, R5, R6, R9, R16)
+- [x] **T1 — SQL scanner** (R1, R4, R5, R6, R9, R16)
   - Files: `crates/cobolt-lexer/src/sql.rs` (new), `crates/cobolt-lexer/src/lib.rs`.
   - Do: `scan` (strings with `''`, `"…"`/backtick identifiers, `$tag$…$tag$`,
     `--` and `*>` line comments, `/* */`, `?`, `::`), `block_end`, host
@@ -61,7 +61,7 @@ pushed unless the operator asks.
     while `:WS-QTY-LESS-ONE` is one name; each qualification and indicator
     form; a string and a block comment that span lines keep their state.
 
-- [ ] **T2 — `EXEC SQL` lexer token** (R1, R5)
+- [x] **T2 — `EXEC SQL` lexer token** (R1, R5)
   - Files: `crates/cobolt-lexer/src/token.rs`, `crates/cobolt-lexer/src/lexer.rs`.
   - Do: `Token::ExecSqlBlock(Box<SqlBlock>)` (verbatim text, origin line per
     line, first column, end line); `try_capture_exec_sql` beside
@@ -74,7 +74,7 @@ pushed unless the operator asks.
     that follows; a missing `END-EXEC` gives one error on the `EXEC` line;
     every existing lexer test still passes.
 
-- [ ] **T3 — Preprocessor: SQL bodies protected, `INCLUDE`** (R4, R5, R17, R31, R41)
+- [x] **T3 — Preprocessor: SQL bodies protected, `INCLUDE`** (R4, R5, R17, R31, R41)
   - Files: `crates/cobolt-lexer/src/copybook.rs`; consumers of copy errors in
     `crates/cobolt-project-tools/src/validate_source.rs` and
     `crates/cobolt-ide/src/app.rs` (`do_check`).
@@ -91,7 +91,7 @@ pushed unless the operator asks.
     reports its line; `cargo test -p cobolt-project-tools` and
     `cargo build -p cobolt-ide` green.
 
-- [ ] **T4 — M1 wrap-up**
+- [x] **T4 — M1 wrap-up**
   - Do: `z` bump and CHANGELOG entry; NIST compile census.
   - Verify: `cargo build --release -p cobolt-cli`, then
     `cargo run -p cobolt-semantic --example nist_conformance -- strict` equals
@@ -99,7 +99,7 @@ pushed unless the operator asks.
 
 ## M2 — AST, parser, data division, WHENEVER
 
-- [ ] **T5 — AST types** (R2, R21, R25, R28)
+- [x] **T5 — AST types** (R2, R21, R25, R28)
   - Files: `crates/cobolt-ast/src/sql.rs` (new), `crates/cobolt-ast/src/stmt.rs`
     (`Stmt::ExecSql` appended after `Throw`; `child_stmts`, `span`),
     `crates/cobolt-ast/src/program.rs` (`sql_cursors` appended last); the
@@ -109,7 +109,7 @@ pushed unless the operator asks.
     holding every `SqlKind` and a cursor declaration round-trips through
     bincode unchanged.
 
-- [ ] **T6 — Statement parser** (R3, R6, R7, R9, R14, R16, R23, R25, R26, R29, R32, R34, R36, R42–R44)
+- [x] **T6 — Statement parser** (R3, R6, R7, R9, R14, R16, R23, R25, R26, R29, R32, R34, R36, R42–R44)
   - Files: `crates/cobolt-parser/src/sql.rs` (new), `crates/cobolt-parser/src/stmt.rs`.
   - Do: route `ExecSqlBlock` in `parse_stmt` without eating the period;
     classify every statement form; cut the top-level `INTO :host …` wherever
@@ -123,7 +123,7 @@ pushed unless the operator asks.
     each R14 error is reported once on its line; every existing parser test
     passes.
 
-- [ ] **T7 — Data division, placement, WHENEVER, cursor ownership** (R2, R7, R21, R25, R28, R32)
+- [x] **T7 — Data division, placement, WHENEVER, cursor ownership** (R2, R7, R21, R25, R28, R32)
   - Files: `crates/cobolt-parser/src/data.rs`, `crates/cobolt-parser/src/parser.rs`,
     `crates/cobolt-parser/src/sql.rs`.
   - Do: SQL blocks inline in WORKING-STORAGE, LOCAL-STORAGE and LINKAGE
@@ -139,14 +139,14 @@ pushed unless the operator asks.
     handler resolves the form's cursor; cursors named by `CURRENT OF` are
     marked.
 
-- [ ] **T8 — M2 wrap-up**
+- [x] **T8 — M2 wrap-up**
   - Do: `z` bump and CHANGELOG entry.
   - Verify: NIST compile census equals T0; `cobolt-parser`, `cobolt-semantic`
     and `cobolt-runtime` sweeps equal their T0 totals plus the new tests.
 
 ## M3 — Check
 
-- [ ] **T9 — Semantic pass** (R14, R21, R28, R46)
+- [x] **T9 — Semantic pass** (R14, R21, R28, R46)
   - Files: `crates/cobolt-semantic/src/exec_sql.rs` (new),
     `crates/cobolt-semantic/src/lib.rs`, `crates/cobolt-semantic/src/resolver.rs`.
   - Do: an index of declarations (ancestors, PICTURE digits and sign, usage,
@@ -162,7 +162,7 @@ pushed unless the operator asks.
     reachable (AC12); `rcrun check` on the same file prints the same lines
     (`cargo test -p cobolt-cli`).
 
-- [ ] **T10 — Check on the operator's samples** (R46; AC15 Check part)
+- [x] **T10 — Check on the operator's samples** (R46; AC15 Check part)
   - Files: `crates/cobolt-project-tools/tests/exec_sql_check.rs` (gated case).
   - Do: run Check on `$PRC_LEGACY_CBL_DIR/M-ARTICULOS/Debug/F-ART-PURGA.cob`
     and `$PRC_LEGACY_CBL_DIR/TyC/Debug/TyC.cob`.
@@ -170,6 +170,10 @@ pushed unless the operator asks.
     the variable. **If non-SQL PowerCOBOL constructs in these listings fail
     Check, stop and report**: AC15's "pass Check" would then depend on spec
     086's conversion.
+  - Result (2026-10-06): 0 diagnostics inside the 40 SQL blocks
+    (F-ART-PURGA 35, TyC 5); the programs still fail Check on non-SQL
+    PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`, `CALL … WITH STDCALL`,
+    `BY VALUE`) — reported to the operator; AC15's scope awaits a decision.
 
 - [ ] **T11 — M3 wrap-up**
   - Do: `z` bump, CHANGELOG entry, Guide (the Check section of the new

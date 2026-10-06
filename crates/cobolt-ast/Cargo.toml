@@ -21,3 +21,5 @@ indexmap     = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+# Spec 087 T5: the new SQL nodes survive the binary's serialization.
+bincode = { workspace = true }

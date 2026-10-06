@@ -19,6 +19,7 @@
 //! | `expr`    | `Expr`, `Literal`, `FigurativeConstant`, `Condition`, operators |
 //! | `intrinsics` | the set of intrinsic functions RustCOBOL implements |
 //! | `stmt`    | `Stmt` and all supporting clause types |
+//! | `sql`     | embedded SQL (`EXEC SQL`, spec 087) |
 //!
 //! # Span
 //!
@@ -32,6 +33,7 @@ pub mod methods;
 pub mod expr;
 pub mod program;
 pub mod rust_types;
+pub mod sql;
 pub mod stmt;
 
 // Re-export the span types so downstream crates only need one import.

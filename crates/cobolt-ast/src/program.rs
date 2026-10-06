@@ -419,6 +419,12 @@ pub struct Program {
     ///
     /// 🔴 New fields belong at the END of this struct.
     pub currency: char,
+    /// The SQL cursors this program declares (spec 087 R25, R28), in source
+    /// order. A cursor declared in the DATA DIVISION is also known to the
+    /// programs this one contains.
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    pub sql_cursors: Vec<crate::sql::SqlCursor>,
 }
 
 /// How an `ALPHABET` clause defines a collating sequence.
