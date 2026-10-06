@@ -2300,7 +2300,27 @@ impl FormBody {
         if self.responsive.is_some() {
             self.write_design(&key, &u.prop, &u.value);
         }
-        self.state_entry_mut(&key).set(&u.prop, u.value);
+        // A toggle's state is written under BOTH of its spellings, so the two
+        // can never disagree. A click already writes both (the renderer's
+        // `push_toggle_state`), and so does `clear_radio_siblings`; a write
+        // from code arrives as one spelling only. Stored alone, it sat beside a
+        // stale other spelling a click had left — a radio holding `Selected` 1
+        // and `Checked` 0 — and the paint folds both onto one key in HashMap
+        // order, so the stale 0 usually won: `Rad-Pix::Select()` after the
+        // operator had clicked another payment ran the handler (the label said
+        // PIX) and left every circle empty (operator, 2026-10-06).
+        let toggle_state = self
+            .controls
+            .iter()
+            .find(|c| c.id == key)
+            .is_some_and(|c| cobolt_forms::model::is_toggle_state_property(&c.control_type, &u.prop));
+        if toggle_state {
+            let entry = self.state_entry_mut(&key);
+            entry.set(cobolt_forms::model::SELECTED_PROP, u.value.clone());
+            entry.set(cobolt_forms::model::CHECKED_PROP, u.value);
+        } else {
+            self.state_entry_mut(&key).set(&u.prop, u.value);
+        }
         if is_radio_state && turned_on {
             self.clear_radio_siblings(&key);
         }
@@ -12417,5 +12437,119 @@ mod parity {
             "056 R18 pane {:.0}×{:.0}: field right {:.0} < chip left {:.0}; notes bottom {:.0} < line top {:.0}",
             pane.width(), pane.height(), o["FIELD"].max.x, o["CHIP"].min.x, o["NOTES"].max.y, o["LINE"].min.y
         );
+    }
+}
+
+// ── A toggle written by code after a click (operator, 2026-10-06) ─────────────
+#[cfg(test)]
+mod toggle_write_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    fn radio(id: &str, y: i32) -> cobolt_forms::Control {
+        let mut c = cobolt_forms::Control::new(id, cobolt_forms::ControlType::RadioButton, 10, y);
+        c.set_prop("GroupName", cobolt_forms::PropValue::String("PAYMENT".into()));
+        c.set_prop("Selected", cobolt_forms::PropValue::Bool(false));
+        c
+    }
+
+    fn payment_host() -> FormHost {
+        let mut form = cobolt_forms::Form::new("RADIOS", "Radios", 320, 200);
+        form.controls = vec![radio("Rad-Card", 10), radio("Rad-Pix", 40), radio("Rad-Boleto", 70)];
+        let mut flat = Vec::new();
+        crate::flatten_controls(&form.controls, &mut flat);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            indexed_engine: Default::default(),
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        host
+    }
+
+    /// What the paint shows for `id`: the design merged with the host's state,
+    /// read as a toggle — the renderer's own path.
+    fn painted_on(host: &FormHost, id: &str) -> bool {
+        let base = host.root.controls.iter().find(|c| c.id == id).expect("control");
+        let entry = host.root.state.iter().find(|(k, _)| k.eq_ignore_ascii_case(id)).map(|(_, s)| s);
+        let live = match entry {
+            Some(s) => cobolt_forms::render::merge_props(base, s.props.iter()),
+            None => base.clone(),
+        };
+        cobolt_forms::model::toggle_state_of(&live)
+    }
+
+    fn stored(host: &FormHost, id: &str, prop: &str) -> Option<String> {
+        let (_, s) = host.root.state.iter().find(|(k, _)| k.eq_ignore_ascii_case(id))?;
+        s.props.iter().find(|(k, _)| k.eq_ignore_ascii_case(prop)).map(|(_, v)| v.clone())
+    }
+
+    /// PowerDemo3's RadioButton page: the operator clicks Card, then "Pick
+    /// PIX" runs `Rad-Pix::Select()`. The handler sees PIX selected, so the
+    /// screen must show it too — it showed nothing, because the click had left
+    /// `Checked = 0` beside the program's `Selected = 1`.
+    #[test]
+    fn a_program_select_after_a_click_paints_the_radio_on() {
+        let mut host = payment_host();
+        // What a click on Card leaves behind: Card on, its siblings off, under
+        // every spelling the renderer's click path writes.
+        for (id, v) in [("Rad-Card", "1"), ("Rad-Pix", "0"), ("Rad-Boleto", "0")] {
+            for prop in ["Value", "Selected", "Checked"] {
+                host.root.state_entry_mut(id).set(prop, v.to_owned());
+            }
+        }
+        // `Rad-Pix::Select()`, as the interpreter sends it: one spelling,
+        // canonicalised to `Selected`, under the registry's upper-cased id.
+        host.root.apply_interpreter_update(StateUpdate::new("RAD-PIX", "Selected", "1"), false);
+
+        assert_eq!(stored(&host, "Rad-Pix", "Selected").as_deref(), Some("1"));
+        assert_eq!(stored(&host, "Rad-Pix", "Checked").as_deref(), Some("1"), "both spellings agree");
+        assert!(painted_on(&host, "Rad-Pix"), "PIX paints selected");
+        for other in ["Rad-Card", "Rad-Boleto"] {
+            assert!(!painted_on(&host, other), "{other} is cleared");
+            assert_eq!(stored(&host, other, "Selected").as_deref(), Some("0"));
+            assert_eq!(stored(&host, other, "Checked").as_deref(), Some("0"));
+        }
+        println!("click Card, then Select() on PIX: PIX painted on, Card and Boleto off; Selected/Checked agree on all 3");
+    }
+
+    /// A legacy `Checked` write from code lands the same way.
+    #[test]
+    fn a_legacy_checked_write_from_code_agrees_too() {
+        let mut host = payment_host();
+        for prop in ["Value", "Selected", "Checked"] {
+            host.root.state_entry_mut("Rad-Boleto").set(prop, "0".to_owned());
+        }
+        host.root.apply_interpreter_update(StateUpdate::new("Rad-Boleto", "Checked", "1"), false);
+        assert_eq!(stored(&host, "Rad-Boleto", "Selected").as_deref(), Some("1"));
+        assert!(painted_on(&host, "Rad-Boleto"));
     }
 }
