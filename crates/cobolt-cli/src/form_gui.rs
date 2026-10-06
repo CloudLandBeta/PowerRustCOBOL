@@ -241,6 +241,7 @@ pub fn cmd_run_form(args: &[String]) {
             cobolt_runtime::mcp_tool::publish_file_memory_limit(
                 cobolt_compiler::project_file_memory_limit(m),
             );
+            crate::install_project_sql_catalog(m);
         }
         let anchor = manifest
             .and_then(|m| m.parent().map(|p| p.to_path_buf()))
@@ -514,7 +515,11 @@ pub fn cmd_run_form(args: &[String]) {
     // process-wide bridge every spawned child adopts; the thread exports its
     // Arc right after construction.
     let (bridge_tx, bridge_rx) = mpsc::channel();
+    // Spec 087 R37 — ONE SQL run unit for the application: the main form
+    // owns it (and ends it, R38); every form the host opens joins it.
+    let sql_unit = Arc::new(std::sync::Mutex::new(cobolt_runtime::esql::SqlRunUnit::default()));
     {
+        let sql_unit = Arc::clone(&sql_unit);
         let finished = Arc::clone(&finished);
         let error_slot = Arc::clone(&error_slot);
         let pending = Arc::clone(&pending);
@@ -523,6 +528,7 @@ pub fn cmd_run_form(args: &[String]) {
         let form_object = form_object.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            interp.set_sql_run_unit(sql_unit, true);
             // How the FORM spells its control ids. A COBOL word reaches the
             // interpreter upper-cased, so an event it queues itself would be
             // dispatched as `AGENT-HELPER` while the generated loop compares
@@ -735,7 +741,9 @@ pub fn cmd_run_form(args: &[String]) {
         form_req_tx,
         form_source: Some(form_source),
         child_theme: Some(child_theme),
-        child_interpreter_setup: None,
+        child_interpreter_setup: Some(Arc::new(move |interp: &mut Interpreter| {
+            interp.set_sql_run_unit(Arc::clone(&sql_unit), false);
+        })),
         indexed_engine,
         shared_rust_bridge,
         fx_entrance,

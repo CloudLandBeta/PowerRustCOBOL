@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.209] — 2026-10-06
+
+### Added
+- **Spec 087 M5 — the project's SQL connections, and one run unit for every
+  form.** The project file lists named SQL connections as
+  `[[sql-connections]]` (name, SQLite path relative to the project, `default`,
+  `create-if-missing`); `CONNECT TO 'SALES'` reaches one by name under Run,
+  Debug, Run Form and `rcrun run`/`run-form`, and a program that connects to
+  nothing uses the one marked `default` (none → `08003`). A missing SQLite
+  file is `08001` unless the entry allows creating it.
+  `<APP>_SQL_<NAME>_URL`/`_USER`/`_PASSWORD` override an entry from the
+  environment; a `password` written in the file is refused with `28000` and
+  a message naming the file and the variable to use.
+- Every form of an application shares one set of SQL connections: a form
+  opened later reads through the connection the main form made, uncommitted
+  rows included, in Run Form and in a built application alike. Closing a form
+  releases only its own cursors and prepared statements.
+- **The end of the run settles open work.** The main program's or main form's
+  end commits every connection's open unit of work after `STOP RUN`, `GOBACK`
+  or the main window closing, and rolls it back after a runtime error or an
+  IDE Stop, then closes every connection. A form window that closes waits up
+  to 10 s for its program to finish that before the process exits.
+
 ## [PowerRustCOBOL 1.80.208] — 2026-10-06
 
 ### Fixed

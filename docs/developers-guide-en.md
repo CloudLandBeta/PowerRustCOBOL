@@ -10001,10 +10001,11 @@ certainly do it the classic way: SQL written right in the COBOL source between
 
 > ⚠️ **Caveat — work in progress.** Today embedded SQL runs **against
 > SQLite**: every statement in this section — static statements, cursors,
-> dynamic SQL and the descriptor area — with `CONNECT` by a connection string.
-> The project's named SQL connections, and PostgreSQL and MySQL, arrive in the
-> next releases of this feature; until then `CONNECT TO name` reports
-> `08001` and the program carries on.
+> dynamic SQL and the descriptor area — under Run, Debug, Run Form and
+> `rcrun`, with the project's named SQL connections written in the project
+> file by hand. PostgreSQL and MySQL, a built application's own SQL
+> connections, and the IDE's SQL Connections editor arrive in the next
+> releases of this feature.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -10090,12 +10091,69 @@ other word is taken as the name of one of the project's SQL connections, so a
 mistyped name fails with `08001` instead of quietly creating an empty database
 file. `DISCONNECT` rolls back what the connection had not committed.
 
+**The project's SQL connections.** Rather than spell a file or a server in the
+program, name it once in the project and connect by that name. The project
+file lists them as `[[sql-connections]]` entries:
+
+```toml
+[[sql-connections]]
+name = "SALES"
+path = "data/sales.db"       # relative to the project folder
+default = true               # used when the program connects to nothing
+create-if-missing = false    # true lets the first run create the file
+```
+
+```cobol
+           EXEC SQL CONNECT TO 'SALES' END-EXEC
+           EXEC SQL CONNECT TO SALES AS ARCHIVE END-EXEC
+```
+
+The name is compared without regard to case. A SQLite file is never created
+behind your back: unless the entry says `create-if-missing = true`, a path that
+does not exist fails with `08001` and names the file. The SQL connection marked
+`default = true` is the one a statement uses when the program has made no
+connection at all — a program that runs in one database need not say
+`CONNECT` anywhere. With no default and no connection, a statement fails with
+`08003`.
+
+Each SQL connection can be pointed elsewhere without touching the project, by
+an environment variable named after the application and the connection —
+both upper-cased, every character other than a letter or a digit turned into
+`_`. For a project named `Shop`:
+
+| Variable | Replaces |
+|----------|----------|
+| `SHOP_SQL_SALES_URL` | the whole target — `sqlite:/srv/sales.db` |
+| `SHOP_SQL_SALES_USER` | the user name (a server database) |
+| `SHOP_SQL_SALES_PASSWORD` | the password — the only place one is accepted |
+
+> ⚠️ **Never put a password in the project file.** An entry that carries a
+> `password` key is refused: connecting through it fails with `28000`, and the
+> message names the file and the variable to use instead.
+
 **Units of work.** A unit of work starts with the first statement after a
 connect or after the previous `COMMIT`/`ROLLBACK` — on SQLite only before a
 statement that *changes* data, so a program that only reads never holds the
 database's write lock. `EXEC SQL COMMIT` keeps the changes, `EXEC SQL ROLLBACK`
 discards them. The COBOL verbs `COMMIT` and `ROLLBACK` (without `EXEC SQL`)
 are unrelated: they govern INDEXED files, and the two never affect each other.
+
+**The end of the run.** Work still open when the application ends is settled
+for you, the way a PowerCOBOL or isCOBOL runtime does at the end of the run
+unit: after a normal end — `STOP RUN`, `GOBACK` from the main program, the
+main window closing — every connection **commits**; after a runtime error, or
+when you press **Stop** in the IDE, every connection **rolls back**. Then every
+connection is closed. Ending with an explicit `EXEC SQL COMMIT` is still the
+clearer program.
+
+**Forms share one run unit.** Every form of an application — the main form,
+the windows it opens, the forms loaded into a side menu's pane — uses the same
+SQL connections. A form that connects makes the connection current for all of
+them, a form opened later reads through it (uncommitted rows included), and
+closing a form releases only its own cursors and prepared statements: the
+connection, and the work on it, belong to the application and are settled
+when the **main** form ends. A runtime error in a child form does not roll
+anything back.
 
 **Cursors** read a query's rows one at a time. Declare the cursor — in
 WORKING-STORAGE or in the PROCEDURE DIVISION, before the statements that use

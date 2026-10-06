@@ -305,7 +305,7 @@ pushed unless the operator asks.
 
 ## M5 — Run unit, SQL connections, hosts
 
-- [ ] **T21 — The SQL connection record and the project file** (R33)
+- [x] **T21 — The SQL connection record and the project file** (R33)
   - Files: `crates/cobolt-forms/src/connections.rs`, `crates/cobolt-ide/src/project_model.rs`,
     `crates/cobolt-compiler/src/lib.rs` (its own copy of the project file).
   - Do: the `SqlConnection` record and `sql_env_var`; the
@@ -315,7 +315,7 @@ pushed unless the operator asks.
     cobolt-ide the_headless_new_project_manifest_is_the_ides` (golden
     unchanged).
 
-- [ ] **T22 — The catalog** (R34, R35, R39 runtime part, R52)
+- [x] **T22 — The catalog** (R34, R35, R39 runtime part, R52)
   - Files: `crates/cobolt-runtime/src/esql/catalog.rs`, `crates/cobolt-runtime/src/esql/mod.rs`.
   - Do: published project definitions, the deployment-file finder, an
     injected catalog; precedence of `_URL`, `_USER`, `_PASSWORD`; the
@@ -326,7 +326,7 @@ pushed unless the operator asks.
     `Secret` prints `***` in `Debug` and `Display`; a default is used when no
     connection is current, `08003` without one.
 
-- [ ] **T23 — One run unit for every form; hosts** (R33, R35, R37, R38, R39)
+- [x] **T23 — One run unit for every form; hosts** (R33, R35, R37, R38, R39)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (roles, end reason,
     `set_sql_catalog`), `crates/cobolt-runtime/src/esql/mod.rs`,
     `crates/cobolt-cli/src/form_gui.rs`, `crates/cobolt-cli/src/main.rs`,
@@ -347,7 +347,7 @@ pushed unless the operator asks.
     - `cargo test -p cobolt-cli`: `rcrun run` in a project with an SQL
       connection `SALES` runs `CONNECT TO 'SALES'` (AC9, runtime part).
 
-- [ ] **T24 — M5 wrap-up**
+- [x] **T24 — M5 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (SQL connections, the default
     connection, the run unit and its end) and System KB slice; regenerate
     `chunked.data`; `interpreter-binary-parity` checklist for the three hosts.

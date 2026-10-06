@@ -4395,6 +4395,10 @@ impl CoboltApp {
                         .map(|p| p.ide.indexed_engine.clone())
                         .unwrap_or_default(),
                 );
+                crate::runner::set_project_sql(
+                    Some(&path),
+                    &self.cobolt_project.as_ref().map(|p| p.project.name.clone()).unwrap_or_default(),
+                );
                 self.project_path = Some(path);
                 if let Some(dir) = dir {
                     // Create the standard project sub-folders: one per category
@@ -4546,6 +4550,10 @@ impl CoboltApp {
                         .map(|p| p.ide.indexed_engine.clone())
                         .unwrap_or_default(),
                 );
+                crate::runner::set_project_sql(
+                    Some(&path),
+                    &self.cobolt_project.as_ref().map(|p| p.project.name.clone()).unwrap_or_default(),
+                );
                 self.project_path = Some(path);
                 self.agents_modal = None;
                 self.models_modal = None;
@@ -4683,6 +4691,10 @@ impl CoboltApp {
                 .as_ref()
                 .map(|p| p.ide.indexed_engine.clone())
                 .unwrap_or_default(),
+        );
+        crate::runner::set_project_sql(
+            self.project_path.as_deref(),
+            &self.cobolt_project.as_ref().map(|p| p.project.name.clone()).unwrap_or_default(),
         );
         if self.cobolt_project.is_none() {
             return;

@@ -105,6 +105,25 @@ pub fn preferred_backends() -> eframe::wgpu::Backends {
     preferred.with_env()
 }
 
+/// How long a host waits, once its window has closed, for the main form's
+/// program to end (spec 087 R38): long enough for it to commit its SQL work,
+/// short enough that a program stuck in a loop cannot keep a closed
+/// application alive.
+pub const ROOT_END_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Wait up to `limit` for `finished` — the main form's program has ended.
+/// `true` when it did.
+pub fn wait_for_root(finished: &std::sync::atomic::AtomicBool, limit: std::time::Duration) -> bool {
+    let until = std::time::Instant::now() + limit;
+    while !finished.load(std::sync::atomic::Ordering::Relaxed) {
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    true
+}
+
 /// [`eframe::NativeOptions`] with this crate's backend rule applied.
 ///
 /// Every window this crate opens goes through here, so a host that forgets is

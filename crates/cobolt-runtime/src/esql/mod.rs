@@ -12,6 +12,7 @@
 //! ([`crate::db_connect`]).
 
 pub mod backend;
+pub mod catalog;
 pub mod rewrite;
 pub mod session;
 pub mod sqlda;
@@ -35,6 +36,9 @@ pub struct SqlRunUnit {
     /// Prepared statements, by (interpreter instance, statement name): the
     /// text as it was when PREPAREd (R45), with its `?` markers.
     pub prepared: std::collections::HashMap<(u64, String), String>,
+    /// The SQL connections this run can name, when a host injected them;
+    /// otherwise the process's installed catalog is used.
+    pub catalog: Option<std::sync::Arc<catalog::SqlCatalog>>,
 }
 
 /// Which cursor: the interpreter instance, the program that declared it, its name.

@@ -1529,6 +1529,12 @@ pub struct Interpreter {
     sql_status: Option<exec_sql::StatusKeys>,
     /// Spec 087: this interpreter's identity in the run unit's cursor table.
     sql_instance: u64,
+    /// Spec 087 R38: whether this interpreter started the run unit (and so
+    /// ends it) or joined it (a child form, which releases only its own).
+    sql_root: bool,
+    /// The debugger's Stop ended this run (spec 087 R38: an IDE Stop is a
+    /// cancel, so the run unit's open SQL work is rolled back).
+    stopped_by_host: bool,
     /// Spec 087: the cursors each program of this tree can name, by
     /// (program, cursor) — built on first use.
     sql_cursor_decls: Option<std::collections::HashMap<(String, String), cobolt_ast::sql::SqlCursor>>,
@@ -2069,6 +2075,8 @@ impl Interpreter {
             sql_unit: Default::default(),
             sql_status: None,
             sql_instance: exec_sql::next_instance(),
+            sql_root: true,
+            stopped_by_host: false,
             sql_cursor_decls: None,
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
@@ -3882,7 +3890,10 @@ impl Interpreter {
                 )
                 .map_err(|_| ())
             }
-            Ok(crate::debugger::DebugCmd::Terminate) => Err(()),
+            Ok(crate::debugger::DebugCmd::Terminate) => {
+                self.stopped_by_host = true;
+                Err(())
+            }
             // A step or Continue sent while the form is idle is the answer to
             // no stop; it takes effect at the next statement as before.
             Ok(other) => {
@@ -4377,6 +4388,9 @@ impl Interpreter {
         // ours back so a later activation in the same run unit sees them.
         self.load_external();
         let result = self.run_inner();
+        // Spec 087 R38: the end of the run unit's SQL work.
+        let normal = match &result { Ok(()) => true, Err(e) => e.is_exit_signal() };
+        self.sql_end(normal && !self.is_cancelled() && !self.stopped_by_host);
         // Spec 062 — STOP RUN closes every open file, and closing a report is
         // what shows it. Without this a program that writes a report and ends
         // without CLOSE leaves the document written and never displayed: the
@@ -4777,6 +4791,7 @@ impl Interpreter {
                         reason = Some(StopReason::Pause);
                     }
                     Ok(crate::debugger::DebugCmd::Terminate) => {
+                        self.stopped_by_host = true;
                         return Err(RuntimeError::StopRun);
                     }
                     _ => return Ok(()),
@@ -4877,6 +4892,7 @@ impl Interpreter {
                     break;
                 }
                 Ok(crate::debugger::DebugCmd::Terminate) => {
+                    self.stopped_by_host = true;
                     return Err(RuntimeError::StopRun);
                 }
                 // Answer and STAY STOPPED. Opening a group, then a table,
@@ -4892,6 +4908,7 @@ impl Interpreter {
                 Ok(crate::debugger::DebugCmd::Pause) => {}
                 Err(_) => {
                     // Channel dropped — the IDE closed. Stop the program.
+                    self.stopped_by_host = true;
                     return Err(RuntimeError::StopRun);
                 }
             }

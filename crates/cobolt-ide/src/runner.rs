@@ -83,6 +83,30 @@ fn apply_project_indexed_engine(interp: &mut Interpreter) {
     }
 }
 
+/// The open project's file and name (spec 087 R33): an interpreter the IDE
+/// runs in-process reads its SQL connections from that file when it starts,
+/// so a run always sees what the project file says at that moment.
+static PROJECT_SQL: std::sync::Mutex<Option<(std::path::PathBuf, String)>> = std::sync::Mutex::new(None);
+
+/// Record the open project's file and name. Called when a project loads and
+/// whenever it is saved.
+pub fn set_project_sql(manifest: Option<&std::path::Path>, app: &str) {
+    if let Ok(mut g) = PROJECT_SQL.lock() {
+        *g = manifest.map(|m| (m.to_path_buf(), app.to_string()));
+    }
+}
+
+/// Hand the project's SQL connections to an interpreter about to run. `Err`
+/// says why the project file's SQL connections cannot be used.
+fn apply_project_sql_catalog(interp: &mut Interpreter) -> Result<(), String> {
+    let Some((manifest, app)) = PROJECT_SQL.lock().ok().and_then(|g| g.clone()) else {
+        return Ok(());
+    };
+    let catalog = cobolt_runtime::esql::catalog::SqlCatalog::from_project(&manifest, &app)?;
+    interp.set_sql_catalog(catalog);
+    Ok(())
+}
+
 pub fn dbg_log(msg: &str) {
     use std::io::Write;
     let path = cobolt_runtime::diag_path::diagnostics_file("cobolt-debug.log");
@@ -389,7 +413,11 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new(program);
         apply_project_indexed_engine(&mut interp);
-        // Stop is a cancel: the program ends between two statements.
+        if let Err(e) = apply_project_sql_catalog(&mut interp) {
+            let _ = tx.send(RunMsg::Output(format!("SQL connections: {e}")));
+        }
+        // Stop is a cancel: the program ends between two statements, and its
+        // open SQL work is rolled back (spec 087 R38).
         interp.set_cancel_flag(Arc::clone(&stop));
 
         // Run — the interpreter's DISPLAY calls println!() for now.
@@ -693,6 +721,9 @@ fn run_debug_pipeline(
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new_with_debug_channels(program, cmd_rx, ev_tx, breakpoints);
         apply_project_indexed_engine(&mut interp);
+        if let Err(e) = apply_project_sql_catalog(&mut interp) {
+            let _ = run_tx.send(RunMsg::Output(format!("SQL connections: {e}")));
+        }
         interp.set_debug_user_scope(user_scope);
         dbg_log("pipeline: interpreter created, calling run()");
         let r = interp.run();

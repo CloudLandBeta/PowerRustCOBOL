@@ -130,6 +130,60 @@ fn mask_url(s: &str) -> String {
 }
 
 impl Interpreter {
+    /// This interpreter's run unit — what a host hands to the forms it opens.
+    pub fn sql_run_unit(&self) -> std::sync::Arc<std::sync::Mutex<crate::esql::SqlRunUnit>> {
+        self.sql_unit.clone()
+    }
+
+    /// Share `unit` (R37): every form of the application uses the same SQL
+    /// connections. `root` is the interpreter that ends the run unit — the
+    /// main program or main form; a child form joins with `root` false.
+    pub fn set_sql_run_unit(&mut self, unit: std::sync::Arc<std::sync::Mutex<crate::esql::SqlRunUnit>>, root: bool) {
+        self.sql_unit = unit;
+        self.sql_root = root;
+    }
+
+    /// The end of this interpreter's part of the run unit (R38). The root
+    /// commits every connection's open work after a normal end — `STOP RUN`,
+    /// `GOBACK`, the main window closing — and rolls it back after an error or
+    /// a cancel (an IDE Stop), then closes every connection. A child form
+    /// only releases its own cursors and prepared statements.
+    pub(crate) fn sql_end(&mut self, normal: bool) {
+        let Ok(mut unit) = self.sql_unit.lock() else { return };
+        if !self.sql_root {
+            unit.release_instance(self.sql_instance);
+            return;
+        }
+        if unit.sessions.is_empty() {
+            return;
+        }
+        for s in unit.sessions.iter_mut() {
+            let ended = if normal { s.commit() } else { s.rollback() };
+            if let Err(e) = ended {
+                // A commit that fails leaves nothing half-done: undo it.
+                let _ = s.rollback();
+                if let Some(tx) = &self.debug_event_tx {
+                    let _ = tx.send(crate::debugger::DebugEvent::Output {
+                        text: format!("SQL connection {} could not commit at the end of the run: {}", s.name, e.message),
+                        channel: crate::debugger::OutputChannel::Problems,
+                    });
+                }
+            }
+        }
+        unit.cursors.clear();
+        unit.prepared.clear();
+        unit.sessions.clear();
+        unit.current = None;
+    }
+
+    /// Give this run the SQL connections it can name (the IDE's in-process
+    /// runner; other hosts install the catalog for the whole process).
+    pub fn set_sql_catalog(&mut self, catalog: crate::esql::catalog::SqlCatalog) {
+        if let Ok(mut u) = self.sql_unit.lock() {
+            u.catalog = Some(std::sync::Arc::new(catalog));
+        }
+    }
+
     /// Run one `EXEC SQL` statement.
     pub(crate) fn exec_sql(&mut self, e: &ExecSql) -> Result<(), RuntimeError> {
         if matches!(e.kind, SqlKind::Declarative) {
@@ -164,6 +218,19 @@ impl Interpreter {
     }
 
     fn sql_run(&mut self, kind: &SqlKind, owner: &str, trace: &mut Trace) -> Result<Done, SqlError> {
+        if matches!(
+            kind,
+            SqlKind::Execute(_)
+                | SqlKind::SelectInto { .. }
+                | SqlKind::Open { .. }
+                | SqlKind::Commit
+                | SqlKind::Rollback
+                | SqlKind::ExecutePrepared { .. }
+                | SqlKind::ExecuteImmediate(_)
+                | SqlKind::Describe { .. }
+        ) {
+            self.sql_ensure_current()?;
+        }
         match kind {
             SqlKind::Declarative => Ok(Done::ok(0)),
             SqlKind::Execute(t) => {
@@ -556,23 +623,59 @@ impl Interpreter {
         Ok(self.sql_apply(ready))
     }
 
+    /// The SQL connections this run can name.
+    fn sql_catalog(&self) -> Option<std::sync::Arc<crate::esql::catalog::SqlCatalog>> {
+        self.sql_unit.lock().ok().and_then(|u| u.catalog.clone()).or_else(crate::esql::catalog::current)
+    }
+
+    /// R35: with no current connection, the default SQL connection is
+    /// connected and made current; without one, the statement gets `08003`.
+    fn sql_ensure_current(&mut self) -> Result<(), SqlError> {
+        if self.sql_lock()?.current.is_some() {
+            return Ok(());
+        }
+        let default = self.sql_catalog().and_then(|c| c.default_connection().map(|d| d.name.clone()));
+        match default {
+            Some(name) => self.sql_connect(&name, None).map(|_| ()),
+            None => Err(SqlError::new(
+                code::NO_CONNECTION,
+                "no SQL connection is current, and the project marks none as the default",
+            )),
+        }
+    }
+
     /// `CONNECT TO target [AS alias]` (R34): a project's SQL connection by
     /// name, or a clearly-shaped connection string; anything else is `08001`.
     fn sql_connect(&mut self, target: &str, alias: Option<&str>) -> Result<Done, SqlError> {
-        if !is_connection_string(target) {
-            return Err(SqlError::new(
-                code::CANNOT_CONNECT,
-                format!("there is no SQL connection named '{}' in this project", target.trim()),
-            ));
-        }
-        let name = alias.map(str::to_string).unwrap_or_else(|| target.trim().to_string());
+        let named = self.sql_catalog().and_then(|c| c.find(target).map(|d| (c.clone(), d.name.clone())));
+        let (opened_as, open): (String, Box<dyn FnOnce() -> Result<Box<dyn crate::esql::backend::Backend>, SqlError>>) =
+            match named {
+                Some((cat, def_name)) => (
+                    def_name.clone(),
+                    Box::new(move || {
+                        let t = cat.resolve(&def_name, &crate::esql::catalog::process_env)?;
+                        backend::open_target(&t)
+                    }),
+                ),
+                None if is_connection_string(target) => {
+                    let t = target.to_string();
+                    (target.trim().to_string(), Box::new(move || backend::open(&t)))
+                }
+                None => {
+                    return Err(SqlError::new(
+                        code::CANNOT_CONNECT,
+                        format!("there is no SQL connection named '{}' in this project", target.trim()),
+                    ))
+                }
+            };
+        let name = alias.map(str::to_string).unwrap_or(opened_as);
         {
             let unit = self.sql_lock()?;
             if unit.find(&name).is_some() {
                 return Err(SqlError::new(code::CONNECTION_EXISTS, format!("a connection named {name} is already open")));
             }
         }
-        let b = backend::open(target)?;
+        let b = open()?;
         let mut unit = self.sql_lock()?;
         unit.sessions.push(Session::new(name, b));
         unit.current = Some(unit.sessions.len() - 1);

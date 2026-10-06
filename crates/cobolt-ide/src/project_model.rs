@@ -73,6 +73,12 @@ pub struct CoboltProject {
     /// `[agents]` — run-time settings for the model's tools (spec 075).
     #[serde(default, skip_serializing_if = "AgentsSettings::is_default")]
     pub agents: AgentsSettings,
+    /// `[[sql-connections]]` — the project's named SQL connections (spec 087
+    /// R33): what `EXEC SQL CONNECT TO name` and an `SqlDatabase` control's
+    /// `SqlConnection` reach. The non-secret half only; written only when
+    /// there is one, so a project without them keeps its file unchanged.
+    #[serde(default, rename = "sql-connections", skip_serializing_if = "Vec::is_empty")]
+    pub sql_connections: Vec<cobolt_forms::connections::SqlConnection>,
 }
 
 /// `[agents]` in the project manifest (spec 065 R34 / 075).
@@ -856,6 +862,7 @@ impl CoboltProject {
             integrations: ProjectIntegrationSettings::default(),
             rag: RagSettings::default(),
             agents: AgentsSettings::default(),
+            sql_connections: Vec::new(),
         }
     }
 

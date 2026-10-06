@@ -101,3 +101,26 @@ pub fn open(conn: &str) -> Result<Box<dyn Backend>, SqlError> {
         unlinked::open(conn)
     }
 }
+
+/// Open a resolved target (spec 087 R33–R35): a SQLite file — never created
+/// unless the SQL connection allows it, so a wrong path is an error rather
+/// than a new empty database — a connection string, or a server.
+pub fn open_target(target: &super::catalog::Target) -> Result<Box<dyn Backend>, SqlError> {
+    use super::catalog::Target;
+    match target {
+        Target::Sqlite { path, create } => {
+            if !*create && !path.exists() {
+                return Err(SqlError::new(
+                    super::state::code::CANNOT_CONNECT,
+                    format!("the database file {} does not exist", path.display()),
+                ));
+            }
+            open(&format!("sqlite:{}", path.display()))
+        }
+        Target::ConnString(s) => open(s),
+        Target::Server { kind, .. } => Err(SqlError::new(
+            super::state::code::CANNOT_CONNECT,
+            format!("{} is not available to embedded SQL yet", kind.name()),
+        )),
+    }
+}
