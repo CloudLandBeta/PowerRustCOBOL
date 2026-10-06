@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.205] — 2026-10-06
+
+### Added
+- **Spec 087 M4a — embedded SQL runs on SQLite.** Static statements execute:
+  `SELECT … INTO`, `INSERT`, `UPDATE`, `DELETE`, data definition, `COMMIT`,
+  `ROLLBACK`, `CONNECT TO 'connection-string' [AS name]`, `SET CONNECTION` and
+  `DISCONNECT`. Host variables are bound as parameters, never pasted into the
+  SQL (a value like `x' OR '1'='1` matches only itself). A group is a host
+  structure — its elementary items in order, `FILLER` and `REDEFINES`
+  skipped. Values keep their type and scale through packed, binary, display,
+  alphanumeric and date items; every `INTO` item is set or none is: a number
+  that does not fit gives `22003`, NULL with no indicator `22002`, a cut text
+  the warning `01004` with its original length in the indicator, and a
+  negative indicator sends NULL. After every statement the stand-alone
+  `SQLSTATE`/`SQLCODE`/`SQLMSG` and the SQLCA (`INCLUDE SQLCA`) are set, by
+  one published SQLSTATE → SQLCODE rule; `WHENEVER` acts in source order; an
+  SQL error never stops the program. SQLite's errors map to standard
+  SQLSTATEs (`23505`, `42601`, `42P01`, `42703`, `23502` …). A program that
+  only reads holds no write lock. The debugger gains an SQL output channel
+  (one line per statement, a `CONNECT` password masked). Cursors, dynamic SQL,
+  named SQL connections, PostgreSQL and MySQL report `0A000`/`08001` until
+  their milestones.
+
 ## [PowerRustCOBOL 1.80.204] — 2026-10-06
 
 ### Added

@@ -185,7 +185,7 @@ pushed unless the operator asks.
 
 ## M4a — SQLite: static statements, conversion, status
 
-- [ ] **T12 — Shared connect helpers** (no behaviour change)
+- [x] **T12 — Shared connect helpers** (no behaviour change)
   - Files: `crates/cobolt-runtime/src/db_connect.rs` (new),
     `crates/cobolt-runtime/src/db_runtime.rs`, `crates/cobolt-runtime/Cargo.toml`
     (rusqlite `column_decltype`).
@@ -193,7 +193,7 @@ pushed unless the operator asks.
     `--test test_methods` green — `classify_routes_by_scheme` and
     `sqlite_end_to_end_crud` unchanged.
 
-- [ ] **T13 — Core types and the SQLite backend** (R13, R18, R19, R23, R24, R29, R34, R36)
+- [x] **T13 — Core types and the SQLite backend** (R13, R18, R19, R23, R24, R29, R34, R36)
   - Files: `crates/cobolt-runtime/src/esql/{mod.rs, value.rs, state.rs, session.rs, rewrite.rs}`,
     `crates/cobolt-runtime/src/esql/backend/{mod.rs, sqlite.rs, unlinked.rs}`.
   - Do: `SqlValue`, `SqlError`, the SQLSTATE normalization table and the
@@ -208,7 +208,7 @@ pushed unless the operator asks.
     bind as REAL and longer ones as TEXT; a reading program holds no lock
     (a second connection can write); COMMIT and ROLLBACK.
 
-- [ ] **T14 — Executing static statements from COBOL** (R6–R13, R15, R17–R24, R34–R36, R48 runtime side, R51)
+- [x] **T14 — Executing static statements from COBOL** (R6–R13, R15, R17–R24, R34–R36, R48 runtime side, R51)
   - Files: `crates/cobolt-runtime/src/interpreter/exec_sql.rs` (new),
     `crates/cobolt-runtime/src/interpreter.rs`, `crates/cobolt-runtime/src/environment.rs`
     (`host_structure_leaves`, `is_unsigned_numeric`, `top_level_item`),
@@ -236,7 +236,7 @@ pushed unless the operator asks.
     - AC6: source-order `WHENEVER`; with none in force, an error continues;
     - the SQL debugger line masks a `CONNECT … USING` password.
 
-- [ ] **T15 — M4a wrap-up**
+- [x] **T15 — M4a wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (delimiters, host variables,
     indicators, the type table, status items, SQLSTATE and SQLCODE,
     `WHENEVER`, the SQLCA layout, `CONNECT` by connection string) and System

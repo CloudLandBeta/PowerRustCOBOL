@@ -3263,6 +3263,7 @@ impl DebuggerPanel {
                                     Ch::FileIo => "i/o",
                                     Ch::Problems => "prb",
                                     Ch::Timeline => "tml",
+                                    Ch::Sql => "sql",
                                 })
                                 .font(mono12.clone())
                                 .color(Color32::from_gray(120)),

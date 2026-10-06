@@ -2378,6 +2378,63 @@ impl CobolEnvironment {
     /// it) out of `CORRESPONDING`: `04 DD-LEVEL REDEFINES DD-LEVEL-FALSE. 05
     /// HARRY PIC X(5).` must not receive the sender's `HARRY` (NC209A
     /// MOV-TEST-F2-6).
+    /// Every storage key the item name `leaf` has — one, or several when the
+    /// name is declared more than once (a stand-alone `SQLSTATE` and the
+    /// SQLCA's, say). Empty when it is not declared (spec 087 R17).
+    pub fn keys_of_leaf(&self, leaf: &str) -> Vec<String> {
+        let up = leaf.to_ascii_uppercase();
+        if let Some(c) = self.by_leaf.get(&up) {
+            if !c.is_empty() {
+                return c.clone();
+            }
+        }
+        if self.symbols.contains_key(&up) || self.store.contains_key(&up) {
+            vec![up]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The elementary items a group stands for when used as an SQL host
+    /// structure (spec 087 R8), in order: `FILLER`, `REDEFINES` and 88-level
+    /// items are skipped, nested groups are opened. `Err(name)` names a
+    /// subordinate item with OCCURS, which a host structure cannot hold.
+    pub fn host_structure_leaves(&self, key: &str) -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        self.collect_host_leaves(&key.to_ascii_uppercase(), &mut out)?;
+        Ok(out)
+    }
+
+    fn collect_host_leaves(&self, key: &str, out: &mut Vec<String>) -> Result<(), String> {
+        let Some(sym) = self.symbols.get(base_name(key)) else { return Ok(()) };
+        for child in &sym.child_keys {
+            if self.is_redefinition(child) {
+                continue;
+            }
+            let Some(cs) = self.symbols.get(child) else { continue };
+            if cs.occurs > 0 {
+                return Err(child.clone());
+            }
+            if self.is_group(child) {
+                self.collect_host_leaves(child, out)?;
+            } else {
+                out.push(child.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// `true` for a numeric item whose PICTURE carries no sign — it cannot
+    /// receive a negative value (spec 087 R11).
+    pub fn is_unsigned_numeric(&self, key: &str) -> bool {
+        let Some(sym) = self.symbols.get(base_name(&key.to_ascii_uppercase())) else { return false };
+        let pic = sym.pic.to_ascii_uppercase();
+        if pic.is_empty() || self.is_alphanumeric_field(key) {
+            return false;
+        }
+        !(pic.contains('S') || pic.contains('-') || pic.contains('+') || pic.contains("CR") || pic.contains("DB"))
+    }
+
     pub fn is_redefinition(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
         self.redefinitions.contains(&key) || self.redefinitions.contains(base_name(&key))

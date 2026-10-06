@@ -120,7 +120,7 @@ tracing         = { workspace = true }
 # SQLite is bundled (no system library required). PostgreSQL and MySQL use the
 # pure-Rust synchronous drivers; MySQL is pinned to its rustls feature set so no
 # OpenSSL / system library is needed to build.
-rusqlite        = { workspace = true, optional = true }
+rusqlite        = { workspace = true, optional = true, features = ["column_decltype"] }  # spec 087: declared column types for typed values
 postgres        = { version = "0.19", optional = true }
 mysql           = { version = "28", default-features = false, features = ["minimal-rust"], optional = true }
 # Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).

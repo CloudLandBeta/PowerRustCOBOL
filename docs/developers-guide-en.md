@@ -9999,11 +9999,13 @@ certainly do it the classic way: SQL written right in the COBOL source between
 `EXEC SQL` and `END-EXEC`, exchanging values with COBOL data items called
 **host variables**. RustCOBOL reads that style directly.
 
-> ⚠️ **Caveat — work in progress.** This release *reads and checks* embedded
-> SQL: a program with `EXEC SQL` blocks compiles, and Check reports its
-> mistakes. The statements do not reach a database yet — a block does nothing
-> when the program runs. Execution against SQLite, PostgreSQL and MySQL arrives
-> in the next releases of this feature, and this section grows with it.
+> ⚠️ **Caveat — work in progress.** Today embedded SQL runs **static
+> statements against SQLite**: `SELECT … INTO`, `INSERT`, `UPDATE`, `DELETE`,
+> data definition, `COMMIT`, `ROLLBACK`, and `CONNECT` by a connection string.
+> Cursors, dynamic SQL (`PREPARE`, `EXECUTE`, `DESCRIBE`), the project's named
+> SQL connections, and PostgreSQL and MySQL arrive in the next releases of this
+> feature; until then such a statement reports SQLSTATE `0A000` (or `08001` for
+> a connection name) and the program carries on.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -10070,6 +10072,106 @@ to the SQL statements written *after* it in the source, until the next
 ```cobol
            EXEC SQL WHENEVER SQLERROR GO TO DB-FAILED END-EXEC
            EXEC SQL WHENEVER NOT FOUND CONTINUE END-EXEC
+```
+
+**Connecting.** `CONNECT TO` names the database. A **connection string**
+connects directly — `':memory:'`, `'sqlite:data/sales.db'`, a path such as
+`'data/sales.db'`; `AS name` gives the connection a name to switch to later:
+
+```cobol
+           EXEC SQL CONNECT TO 'sqlite:data/sales.db' AS SALES END-EXEC
+           EXEC SQL CONNECT TO ':memory:' AS SCRATCH END-EXEC
+           EXEC SQL SET CONNECTION SALES END-EXEC
+           EXEC SQL DISCONNECT SCRATCH END-EXEC
+```
+
+Only clearly-shaped strings count as connection strings (a scheme such as
+`sqlite:`, a `/` or `\`, or a `.db`/`.sqlite`/`.sqlite3`/`.db3` ending). Any
+other word is taken as the name of one of the project's SQL connections, so a
+mistyped name fails with `08001` instead of quietly creating an empty database
+file. `DISCONNECT` rolls back what the connection had not committed.
+
+**Units of work.** A unit of work starts with the first statement after a
+connect or after the previous `COMMIT`/`ROLLBACK` — on SQLite only before a
+statement that *changes* data, so a program that only reads never holds the
+database's write lock. `EXEC SQL COMMIT` keeps the changes, `EXEC SQL ROLLBACK`
+discards them. The COBOL verbs `COMMIT` and `ROLLBACK` (without `EXEC SQL`)
+are unrelated: they govern INDEXED files, and the two never affect each other.
+
+**How values travel.** Every host variable reaches the database as a bound
+parameter. The table below is the correspondence used in both directions:
+
+| COBOL item | Sent as | Received from |
+|---|---|---|
+| `PIC 9`/`S9` with `V` — DISPLAY, `COMP-3`/`PACKED-DECIMAL`, `COMP`/`BINARY`/`COMP-5` | an exact decimal (an integer when it has no decimals) | integer, decimal, float or numeric text, cut to the item's decimal places |
+| `COMP-1`, `COMP-2` | a float | any number |
+| `PIC X`, `PIC A` | text, **trailing spaces removed** | any value as text, cut to the item's length |
+| numeric-edited | its edited text | a number, edited by the item's PICTURE |
+| a date, time or timestamp | `PIC X(10)` / `X(8)` / `X(26)` holding ISO text (`2026-10-06`) | ISO text |
+
+Received values are checked before anything is stored, and either every
+`INTO` item is set or none is: a number whose integer part does not fit the
+item — or a negative one for an unsigned item — fails with `22003`;
+non-numeric text for a numeric item with `22018`; NULL for an item with no
+indicator with `22002`. Text longer than its item is cut and reported as the
+warning `01004`, with the original length in the indicator. A `SELECT … INTO`
+that finds no row reports no data (`02000`) and leaves its items alone; one
+that finds several fails with `21000` (use a cursor). An `INSERT`, `UPDATE` or
+`DELETE` that touches no row reports no data too.
+
+> **Note — SQLite and decimals.** SQLite stores a decimal of up to 15
+> significant digits as an exact double; a longer one is sent as text so no
+> digit is lost. Declare money columns `NUMERIC` and keep `PIC S9(13)V99` or
+> smaller if you need SQLite arithmetic on them.
+
+**Knowing how a statement went.** After every statement the program's status
+items are set — whichever of these it declares:
+
+- the stand-alone items `SQLSTATE` (`PIC X(5)`), `SQLCODE` (a signed integer)
+  and `SQLMSG` (alphanumeric, the database's message, cut to the item) — the
+  style migrated PowerCOBOL programs use;
+- the SQLCA, from `EXEC SQL INCLUDE SQLCA END-EXEC`:
+
+| SQLCA field | Holds |
+|---|---|
+| `SQLCA-TAG` `PIC X(8)` | `RCSQLCA1` |
+| `SQLCODE` `PIC S9(9) COMP-5` | see the rule below |
+| `SQLSTATE` `PIC X(5)` | the standard five-character code |
+| `SQLCA-ROWS` `PIC S9(18) COMP-5` | rows affected or read |
+| `SQLCA-MESSAGE-LENGTH`, `SQLCA-MESSAGE` `PIC X(512)` | the database's message |
+| `SQLCA-NATIVE-CODE` | the database's own error number |
+| `SQLCA-WARNING`, `SQLCA-TRUNCATED` `PIC X` | `W` after any warning / after a cut value |
+| `SQLCA-CONNECTION` `PIC X(64)` | the current connection's name |
+
+SQLSTATE follows the standard classes — `00000` success, class `01` a warning,
+`02000` no data, anything else an error — and keeps the database's own message.
+SQLCODE is derived from it by one rule, so the two never disagree:
+
+| SQLSTATE | SQLCODE |
+|---|---|
+| `00000` | 0 |
+| `02000` | +100 |
+| a warning (class `01`) | the five characters as a number when all are digits (`01004` → +1004), otherwise +1000 |
+| an error, all digits | the number, negated (`23505` → −23505) |
+| an error whose subclass has letters | −(class × 1000) (`42P01` → −42000) |
+| any other error | −99000 |
+
+An SQL failure **never stops the program** on its own, exactly like a file
+status: with no `WHENEVER SQLERROR GO TO` in force the next statement runs, and
+it is the program's job to look at the status.
+
+```cobol
+           EXEC SQL
+               SELECT NAME, BALANCE
+                 INTO :CUST-NAME, :CUST-BALANCE:CUST-BALANCE-IND
+                 FROM CUSTOMER
+                WHERE ID = :CUST-ID
+           END-EXEC
+           EVALUATE SQLSTATE
+               WHEN "00000" CONTINUE
+               WHEN "02000" MOVE "No such customer" TO WS-MESSAGE
+               WHEN OTHER   MOVE SQLMSG TO WS-MESSAGE
+           END-EVALUATE
 ```
 
 **What Check tells you** — before anything runs, and without reaching any

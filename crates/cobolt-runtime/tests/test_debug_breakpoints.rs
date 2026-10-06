@@ -298,6 +298,7 @@ fn run_io(
                     OutputChannel::FileIo => "fileio",
                     OutputChannel::Problems => "problems",
                     OutputChannel::Timeline => "timeline",
+                    OutputChannel::Sql => "sql",
                 }
                 .to_owned(),
                 text,

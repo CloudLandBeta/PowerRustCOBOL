@@ -182,35 +182,19 @@ impl DbConn {
         ))
     }
 
-    /// Open a SQLite connection from a file path, `sqlite:<path>`, or `:memory:`.
     #[cfg(feature = "sql")]
     fn open_sqlite(conn_str: &str) -> Result<rusqlite::Connection, String> {
-        let path = conn_str
-            .trim()
-            .strip_prefix("sqlite:")
-            .unwrap_or(conn_str.trim());
-        if path == ":memory:" {
-            rusqlite::Connection::open_in_memory()
-        } else {
-            rusqlite::Connection::open(path)
-        }
-        .map_err(|e| e.to_string())
+        crate::db_connect::open_sqlite(conn_str)
     }
 
-    /// Open a PostgreSQL connection from a `postgres://` / `postgresql://` URL.
-    ///
-    /// Connections are made without TLS (`NoTls`) — suitable for local and
-    /// trusted-network servers. See `docs/database-runtime-en.md` for enabling TLS.
     #[cfg(feature = "sql")]
     fn open_postgres(conn_str: &str) -> Result<postgres::Client, String> {
-        postgres::Client::connect(conn_str.trim(), postgres::NoTls).map_err(|e| e.to_string())
+        crate::db_connect::open_postgres(conn_str)
     }
 
-    /// Open a MySQL connection from a `mysql://` URL.
     #[cfg(feature = "sql")]
     fn open_mysql(conn_str: &str) -> Result<mysql::Conn, String> {
-        let opts = mysql::Opts::from_url(conn_str.trim()).map_err(|e| e.to_string())?;
-        mysql::Conn::new(opts).map_err(|e| e.to_string())
+        crate::db_connect::open_mysql(conn_str)
     }
 
     /// Execute a SQL statement and cache the result set.

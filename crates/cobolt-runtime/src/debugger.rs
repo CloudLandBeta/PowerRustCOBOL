@@ -279,6 +279,10 @@ pub enum OutputChannel {
     Problems,
     /// Ordered record of what happened, including irreversible side effects.
     Timeline,
+    /// Spec 087 R48: each embedded SQL statement — its text with
+    /// placeholders, the bound values (a password masked), SQLSTATE, SQLCODE,
+    /// rows and message.
+    Sql,
 }
 
 // ── Shared breakpoint set ─────────────────────────────────────────────────────

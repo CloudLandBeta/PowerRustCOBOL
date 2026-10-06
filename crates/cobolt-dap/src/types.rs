@@ -692,6 +692,8 @@ pub enum OutputChannel {
     FileIo,
     Problems,
     Timeline,
+    /// Spec 087: embedded SQL statements (mirrors the runtime's channel).
+    Sql,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

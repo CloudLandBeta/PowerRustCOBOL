@@ -28,6 +28,7 @@ use indexmap::IndexMap;
 
 /// Spec 072 — the AgentObject tool loop.
 mod agent_loop;
+mod exec_sql;
 mod kb;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
@@ -1521,6 +1522,11 @@ pub struct Interpreter {
     perform_depth: usize,
     /// Database runtime engine (Phase 8) — manages SQLite connections.
     db: DbRegistry,
+    /// Spec 087: the run unit's embedded-SQL connections (shared by every form
+    /// of the run from M5).
+    sql_unit: std::sync::Arc<std::sync::Mutex<crate::esql::SqlRunUnit>>,
+    /// Spec 087: where this program's SQL status items live, found once.
+    sql_status: Option<exec_sql::StatusKeys>,
     /// HTTP client (Phase 10) — manages persistent headers and sends requests.
     http: crate::http_runtime::HttpClient,
     /// Spec 065 — the indexed files this application lets a model consult.
@@ -2055,6 +2061,8 @@ impl Interpreter {
             program_locals: HashMap::new(),
             perform_depth: 0,
             db: DbRegistry::new(),
+            sql_unit: Default::default(),
+            sql_status: None,
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             free_memory_probe: None,
@@ -6001,9 +6009,8 @@ impl Interpreter {
                 })
             }
 
-            // Spec 087: embedded SQL. Executed from M4a (T14); until then a
-            // block parses and does nothing.
-            Stmt::ExecSql(_) => Ok(()),
+            // Spec 087: embedded SQL.
+            Stmt::ExecSql(e) => self.exec_sql(e),
 
             // ── PowerCOBOL extensions ─────────────────────────────────────────
             Stmt::WindowOp { op, .. } => {
