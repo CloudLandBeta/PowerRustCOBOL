@@ -14,6 +14,7 @@
 pub mod backend;
 pub mod rewrite;
 pub mod session;
+pub mod sqlda;
 pub mod state;
 pub mod value;
 
@@ -31,6 +32,9 @@ pub struct SqlRunUnit {
     /// Open cursors, by (interpreter instance, owning program, name) — two
     /// open copies of one form never share a cursor (R28).
     pub cursors: std::collections::HashMap<CursorKey, OpenCursor>,
+    /// Prepared statements, by (interpreter instance, statement name): the
+    /// text as it was when PREPAREd (R45), with its `?` markers.
+    pub prepared: std::collections::HashMap<(u64, String), String>,
 }
 
 /// Which cursor: the interpreter instance, the program that declared it, its name.
@@ -78,6 +82,7 @@ impl SqlRunUnit {
     /// opened them has ended.
     pub fn release_instance(&mut self, instance: u64) {
         self.cursors.retain(|k, _| k.0 != instance);
+        self.prepared.retain(|k, _| k.0 != instance);
     }
 
     /// Close connection `i`, rolling back its open work (R36).

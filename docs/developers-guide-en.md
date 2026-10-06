@@ -10000,13 +10000,11 @@ certainly do it the classic way: SQL written right in the COBOL source between
 **host variables**. RustCOBOL reads that style directly.
 
 > ⚠️ **Caveat — work in progress.** Today embedded SQL runs **against
-> SQLite**: `SELECT … INTO`, `INSERT`, `UPDATE`, `DELETE`, data definition,
-> cursors (`DECLARE`, `OPEN`, `FETCH`, `CLOSE`, `WHERE CURRENT OF`), `COMMIT`,
-> `ROLLBACK`, and `CONNECT` by a connection string. Dynamic SQL (`PREPARE`,
-> `EXECUTE`, `DESCRIBE`), the project's named SQL connections, and PostgreSQL
-> and MySQL arrive in the next releases of this feature; until then such a
-> statement reports SQLSTATE `0A000` (or `08001` for a connection name) and
-> the program carries on.
+> SQLite**: every statement in this section — static statements, cursors,
+> dynamic SQL and the descriptor area — with `CONNECT` by a connection string.
+> The project's named SQL connections, and PostgreSQL and MySQL, arrive in the
+> next releases of this feature; until then `CONNECT TO name` reports
+> `08001` and the program carries on.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -10145,6 +10143,84 @@ it — then open it, fetch until no data, and close it:
 > the `WHERE` clause rather than in COBOL. `FOR UPDATE` is accepted and
 > ignored there — SQLite locks the whole database for the duration of a
 > write.
+
+**Dynamic SQL** is for statements the program builds while it runs — a
+search screen whose filters the user chooses, a report over a table named at
+run time. Prepare the text once, then run it as often as needed; `?` marks
+each parameter:
+
+```cobol
+           MOVE "UPDATE STOCK SET QTY = QTY - ? WHERE CODE = ?"
+             TO WS-STMT
+           EXEC SQL PREPARE TAKE-STOCK FROM :WS-STMT END-EXEC
+           EXEC SQL EXECUTE TAKE-STOCK USING :WS-TAKEN, :WS-CODE
+           END-EXEC
+           EXEC SQL EXECUTE IMMEDIATE 'DELETE FROM STOCK WHERE QTY = 0'
+           END-EXEC
+```
+
+- `PREPARE` keeps the text as it is at that moment; changing `WS-STMT`
+  afterwards does not change `TAKE-STOCK`.
+- `EXECUTE IMMEDIATE` prepares and runs at once a statement with no
+  parameters that returns no rows.
+- A query is read through a cursor declared over the statement name:
+  `DECLARE C-FIND CURSOR FOR FIND-STMT`, then `OPEN C-FIND USING :WS-LOW,
+  :WS-HIGH`.
+- Executing a statement name that was never prepared fails with `07003`.
+
+> ⚠️ **Caveat — dynamic SQL runs the text you prepare.** Host variables are
+> always bound, never pasted into SQL — but the text of a PREPARE is yours,
+> and RustCOBOL sends it as it stands. Never build it by stringing in what a
+> user typed: put the user's value behind a `?` and pass it with `USING`.
+
+**The descriptor area (SQLDA)** describes columns or parameters the program
+did not know when it was written. `EXEC SQL INCLUDE SQLDA END-EXEC` declares
+one with room for 100 entries:
+
+| Field | Holds |
+|---|---|
+| `SQLDA-TAG` `PIC X(8)` | `RCSQLDA1` |
+| `SQLDA-CAPACITY` | how many entries the program lets it use (100) |
+| `SQLDA-NEEDED` | how many entries the last `DESCRIBE` needed |
+| `SQLDA-COUNT` | how many entries are in use |
+| `SQLDA-ENTRY OCCURS 100` | one per column or parameter: |
+| ·  `SQLDA-NAME` `PIC X(128)` | the column's name (`?1`, `?2` … for parameters) |
+| ·  `SQLDA-TYPE`, `SQLDA-TYPE-NAME` | a type code — 1 integer, 2 decimal, 3 float, 4 character, 5 binary, 6 date, 7 time, 8 timestamp, 9 boolean, 0 unknown — and the database's own type name |
+| ·  `SQLDA-LENGTH`, `SQLDA-PRECISION`, `SQLDA-SCALE`, `SQLDA-NULLABLE` | as declared; −1 when the database does not say |
+| ·  `SQLDA-DATA`, `SQLDA-IND-PTR` `USAGE POINTER` | where the value and its indicator go, when set |
+| ·  `SQLDA-IND`, `SQLDA-VALUE` `PIC X(1024)` | the indicator and the value as text, when `SQLDA-DATA` is NULL |
+
+```cobol
+           EXEC SQL PREPARE ANY-QUERY FROM :WS-STMT END-EXEC
+           EXEC SQL DESCRIBE ANY-QUERY INTO SQLDA END-EXEC
+           IF SQLSTATE = "01005"
+      *>       More columns than SQLDA-CAPACITY: SQLDA-NEEDED says how many.
+               ...
+           END-IF
+           EXEC SQL DECLARE C-ANY CURSOR FOR ANY-QUERY END-EXEC
+           EXEC SQL OPEN C-ANY END-EXEC
+           PERFORM UNTIL SQLSTATE NOT = "00000"
+               EXEC SQL FETCH C-ANY USING DESCRIPTOR SQLDA END-EXEC
+               IF SQLSTATE = "00000"
+                   PERFORM VARYING WS-I FROM 1 BY 1
+                           UNTIL WS-I > SQLDA-COUNT
+                       DISPLAY SQLDA-NAME (WS-I) " = " SQLDA-VALUE (WS-I)
+                   END-PERFORM
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE C-ANY END-EXEC
+```
+
+Each entry can deliver its value two ways. With `SQLDA-DATA (i)` set by
+`SET SQLDA-DATA (i) TO ADDRESS OF item`, the value goes straight into that
+item, converted exactly as `INTO :item` would (and `SQLDA-IND-PTR` likewise
+names its indicator). With `SQLDA-DATA (i)` NULL — its initial state — the
+value arrives as text in `SQLDA-VALUE (i)` and its indicator in `SQLDA-IND (i)`,
+which is what a generic display screen wants. `DESCRIBE INPUT` describes a
+statement's parameters instead; SQLite reports how many there are but not
+their types, so those entries say *unknown*. A program that needs more than
+100 entries declares its own copy of the layout with a larger `OCCURS` and
+`SQLDA-CAPACITY`, and names it in `INTO` / `USING DESCRIPTOR`.
 
 **How values travel.** Every host variable reaches the database as a bound
 parameter. The table below is the correspondence used in both directions:

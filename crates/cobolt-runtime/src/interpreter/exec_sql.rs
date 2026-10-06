@@ -269,9 +269,35 @@ impl Interpreter {
                     None => Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is not open"))),
                 }
             }
-            SqlKind::Prepare { .. } | SqlKind::ExecutePrepared { .. } | SqlKind::ExecuteImmediate(_) | SqlKind::Describe { .. } => {
-                Err(SqlError::new(code::NOT_SUPPORTED, "dynamic SQL is not available in this release of embedded SQL"))
+            SqlKind::Prepare { name, from } => {
+                // R45: the text as it is NOW; later changes to its item do not
+                // change the prepared statement.
+                let text = self.sql_value_text(from)?;
+                let text = cobolt_lexer::sql::strip_line_comments(&text).trim().to_string();
+                trace.text = format!("PREPARE {name} FROM {text}");
+                self.sql_lock()?.prepared.insert((self.sql_instance, name.clone()), text);
+                Ok(Done::ok(0))
             }
+            SqlKind::ExecuteImmediate(v) => {
+                let text = self.sql_value_text(v)?;
+                let text = cobolt_lexer::sql::strip_line_comments(&text).trim().to_string();
+                trace.text = text.clone();
+                let bk = self.sql_current_kind()?;
+                let sql = crate::esql::rewrite::question_marks(&text, bk);
+                let n = self.sql_lock()?.current_mut()?.execute(&sql, &[], true)?;
+                Ok(Done::ok(n as i64))
+            }
+            SqlKind::ExecutePrepared { name, using } => {
+                let text = self.sql_prepared(name)?;
+                let bk = self.sql_current_kind()?;
+                let params = self.sql_using_values(using)?;
+                let sql = crate::esql::rewrite::question_marks(&text, bk);
+                trace.text = format!("EXECUTE {name}: {sql}");
+                trace.values = params.iter().map(|v| v.display()).collect();
+                let n = self.sql_lock()?.current_mut()?.execute(&sql, &params, true)?;
+                Ok(Done::ok(n as i64))
+            }
+            SqlKind::Describe { name, sqlda, input } => self.sql_describe(name, sqlda, *input, trace),
         }
     }
 
@@ -296,17 +322,25 @@ impl Interpreter {
             return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is already open")));
         }
         let decl = self.sql_cursor_decl(owner, cursor)?;
-        let text = match &decl.query {
-            SqlCursorQuery::Static(t) => t.clone(),
-            SqlCursorQuery::Prepared(_) => {
-                return Err(SqlError::new(code::NOT_SUPPORTED, "a cursor over a prepared statement is not available yet"))
+        let bk = self.sql_current_kind()?;
+        let (mut sql, params) = match &decl.query {
+            SqlCursorQuery::Static(t) => {
+                if !matches!(using, SqlUsing::None) {
+                    return Err(SqlError::new(
+                        code::NOT_SUPPORTED,
+                        "OPEN … USING is for a cursor over a prepared statement",
+                    ));
+                }
+                self.sql_bind(t, bk, owner, trace)?
+            }
+            // R43: the prepared statement as it stands when the cursor opens.
+            SqlCursorQuery::Prepared(s) => {
+                let text = self.sql_prepared(s)?;
+                let params = self.sql_using_values(using)?;
+                trace.values = params.iter().map(|v| v.display()).collect();
+                (crate::esql::rewrite::question_marks(&text, bk), params)
             }
         };
-        if !matches!(using, SqlUsing::None) {
-            return Err(SqlError::new(code::NOT_SUPPORTED, "OPEN … USING is for a cursor over a prepared statement"));
-        }
-        let bk = self.sql_current_kind()?;
-        let (mut sql, params) = self.sql_bind(&text, bk, owner, trace)?;
         let keyed = decl.positioned && bk == BackendKind::Sqlite;
         if bk == BackendKind::Sqlite {
             sql = crate::esql::rewrite::strip_for_update(&sql);
@@ -352,14 +386,174 @@ impl Interpreter {
             (row, cur.keyed)
         };
         let values = if keyed { &row[1..] } else { &row[..] };
-        let targets = match into {
-            SqlInto::Hosts(h) => h,
-            SqlInto::Descriptor(_) => {
-                return Err(SqlError::new(code::NOT_SUPPORTED, "FETCH … USING DESCRIPTOR is not available yet"))
-            }
+        let state = match into {
+            SqlInto::Hosts(h) => self.sql_assign(h, values)?,
+            SqlInto::Descriptor(d) => self.sqlda_fetch(d, values)?,
         };
-        let state = self.sql_assign(targets, values)?;
         Ok(Done { state, message: String::new(), rows: 1, native: 0 })
+    }
+
+    /// A prepared statement's text, or `07003`.
+    fn sql_prepared(&self, name: &str) -> Result<String, SqlError> {
+        self.sql_lock()?
+            .prepared
+            .get(&(self.sql_instance, name.to_string()))
+            .cloned()
+            .ok_or_else(|| SqlError::new(code::PREPARED_NOT_FOUND, format!("statement {name} is not prepared")))
+    }
+
+    /// The parameters a `USING` clause supplies (R42, R43).
+    fn sql_using_values(&self, using: &SqlUsing) -> Result<Vec<SqlValue>, SqlError> {
+        match using {
+            SqlUsing::None => Ok(Vec::new()),
+            SqlUsing::Hosts(hs) => {
+                let mut out = Vec::new();
+                for h in hs {
+                    out.extend(self.sql_input_values(h)?);
+                }
+                Ok(out)
+            }
+            SqlUsing::Descriptor(d) => self.sqlda_inputs(d),
+        }
+    }
+
+    // ── The SQL descriptor area (R41, R44) ────────────────────────────────
+
+    /// The storage key of field `field` of descriptor `d`, entry `i` (1-based).
+    fn sqlda_key(&self, d: &SqlHostName, field: &str, i: Option<usize>) -> String {
+        let mut quals = vec![d.name.clone()];
+        quals.extend(d.quals.iter().cloned());
+        let k = self.env.resolve_name(field, &quals);
+        match i {
+            Some(i) => crate::environment::subscript_key(&k, &[i as i64]),
+            None => k,
+        }
+    }
+
+    fn sqlda_int(&self, key: &str) -> i64 {
+        self.env.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
+    }
+
+    fn sqlda_set_int(&mut self, key: &str, v: i64) {
+        self.env.set(key, CobolValue::Numeric(CobolNumeric::integer(v)));
+    }
+
+    /// How many entries descriptor `d` holds: its `SQLDA-CAPACITY`, never more
+    /// than its `OCCURS`.
+    fn sqlda_capacity(&self, d: &SqlHostName) -> Result<usize, SqlError> {
+        let tag = self.sqlda_key(d, "SQLDA-TAG", None);
+        if self.env.symbol(&tag).is_none() {
+            return Err(SqlError::new(code::GENERAL, format!("{} is not an SQL descriptor area", d.name)));
+        }
+        let cap = self.sqlda_int(&self.sqlda_key(d, "SQLDA-CAPACITY", None)).max(0) as usize;
+        let occurs = self
+            .env
+            .symbol(&self.sqlda_key(d, "SQLDA-ENTRY", None))
+            .map(|s| s.occurs)
+            .unwrap_or(0);
+        Ok(cap.min(occurs))
+    }
+
+    /// `DESCRIBE [INPUT] s INTO d` (R44): the result columns, or the
+    /// parameters. Too small a descriptor gets `SQLDA-NEEDED` and `01005`,
+    /// and no entry is touched.
+    fn sql_describe(&mut self, name: &str, d: &SqlHostName, input: bool, trace: &mut Trace) -> Result<Done, SqlError> {
+        let text = self.sql_prepared(name)?;
+        let bk = self.sql_current_kind()?;
+        let sql = crate::esql::rewrite::question_marks(&text, bk);
+        trace.text = format!("DESCRIBE{} {name}: {sql}", if input { " INPUT" } else { "" });
+        let (params, cols) = self.sql_lock()?.current_mut()?.describe(&sql)?;
+        let entries: Vec<crate::esql::sqlda::Described> = if input {
+            // SQLite and MySQL do not report parameter types: unknown, not guessed.
+            (1..=params).map(|i| crate::esql::sqlda::Described::unknown(format!("?{i}"))).collect()
+        } else {
+            cols.iter()
+                .map(|c| crate::esql::sqlda::describe_declared(&c.name, c.decl_type.as_deref(), c.nullable))
+                .collect()
+        };
+        let cap = self.sqlda_capacity(d)?;
+        let needed = entries.len();
+        let k = self.sqlda_key(d, "SQLDA-NEEDED", None);
+        self.sqlda_set_int(&k, needed as i64);
+        if needed > cap {
+            return Ok(Done {
+                state: code::DESCRIPTOR_TOO_SMALL.into(),
+                message: format!("the descriptor holds {cap} entries; {needed} are needed"),
+                rows: 0,
+                native: 0,
+            });
+        }
+        let k = self.sqlda_key(d, "SQLDA-COUNT", None);
+        self.sqlda_set_int(&k, needed as i64);
+        for (i, e) in entries.iter().enumerate() {
+            let n = Some(i + 1);
+            let k = self.sqlda_key(d, "SQLDA-NAME", n);
+            self.env.set_str(&k, &e.name);
+            let k = self.sqlda_key(d, "SQLDA-TYPE-NAME", n);
+            self.env.set_str(&k, &e.type_name);
+            for (field, v) in [
+                ("SQLDA-TYPE", e.code),
+                ("SQLDA-LENGTH", e.length),
+                ("SQLDA-PRECISION", e.precision),
+                ("SQLDA-SCALE", e.scale),
+                ("SQLDA-NULLABLE", e.nullable),
+            ] {
+                let k = self.sqlda_key(d, field, n);
+                self.sqlda_set_int(&k, v);
+            }
+        }
+        Ok(Done::ok(0))
+    }
+
+    /// The parameters descriptor `d` supplies: through each entry's data
+    /// pointer, or the text inside the entry when the pointer is NULL.
+    fn sqlda_inputs(&self, d: &SqlHostName) -> Result<Vec<SqlValue>, SqlError> {
+        let count = self.sqlda_int(&self.sqlda_key(d, "SQLDA-COUNT", None)).max(0) as usize;
+        let cap = self.sqlda_capacity(d)?;
+        if count > cap {
+            return Err(SqlError::new(code::DESCRIPTOR_TOO_SMALL, format!("SQLDA-COUNT {count} exceeds the descriptor's {cap} entries")));
+        }
+        let mut out = Vec::with_capacity(count);
+        for i in 1..=count {
+            let data = self.env.addr_target(self.sqlda_int(&self.sqlda_key(d, "SQLDA-DATA", Some(i))));
+            let ind = match self.env.addr_target(self.sqlda_int(&self.sqlda_key(d, "SQLDA-IND-PTR", Some(i)))) {
+                Some(k) => self.sqlda_int(&k),
+                None => self.sqlda_int(&self.sqlda_key(d, "SQLDA-IND", Some(i))),
+            };
+            out.push(if ind < 0 {
+                SqlValue::Null
+            } else {
+                match data {
+                    Some(k) => self.sql_read_item(&k),
+                    None => self.sql_read_item(&self.sqlda_key(d, "SQLDA-VALUE", Some(i))),
+                }
+            });
+        }
+        Ok(out)
+    }
+
+    /// `FETCH … USING DESCRIPTOR d`: each column into the item its entry
+    /// points at, or as text into the entry — all or none (R11, R41).
+    fn sqlda_fetch(&mut self, d: &SqlHostName, row: &[SqlValue]) -> Result<String, SqlError> {
+        let count = self.sqlda_int(&self.sqlda_key(d, "SQLDA-COUNT", None)).max(0) as usize;
+        if count != row.len() {
+            return Err(SqlError::new(
+                code::WRONG_TARGET_COUNT,
+                format!("the row has {} columns but the descriptor describes {count}", row.len()),
+            ));
+        }
+        let mut ready = Vec::with_capacity(count);
+        for (i, v) in row.iter().enumerate() {
+            let n = Some(i + 1);
+            let data = self.env.addr_target(self.sqlda_int(&self.sqlda_key(d, "SQLDA-DATA", n)));
+            let ind_ptr = self.env.addr_target(self.sqlda_int(&self.sqlda_key(d, "SQLDA-IND-PTR", n)));
+            let slot = match data {
+                Some(key) => Slot { key, indicator: ind_ptr.or_else(|| Some(self.sqlda_key(d, "SQLDA-IND", n))) },
+                None => Slot { key: self.sqlda_key(d, "SQLDA-VALUE", n), indicator: Some(self.sqlda_key(d, "SQLDA-IND", n)) },
+            };
+            ready.push(self.sql_convert(slot, v)?);
+        }
+        Ok(self.sql_apply(ready))
     }
 
     /// `CONNECT TO target [AS alias]` (R34): a project's SQL connection by
@@ -559,6 +753,12 @@ impl Interpreter {
         for (slot, value) in slots.into_iter().zip(row) {
             ready.push(self.sql_convert(slot, value)?);
         }
+        Ok(self.sql_apply(ready))
+    }
+
+    /// Assign values that have all been converted and checked; the SQLSTATE
+    /// is `01004` when any text was cut.
+    fn sql_apply(&mut self, ready: Vec<Ready>) -> String {
         let truncated = ready.iter().any(|r| r.cut);
         for r in ready {
             if let Some(v) = r.value {
@@ -568,7 +768,7 @@ impl Interpreter {
                 self.env.set(&k, CobolValue::Numeric(CobolNumeric::integer(n)));
             }
         }
-        Ok(if truncated { code::TRUNCATED.into() } else { code::SUCCESS.into() })
+        if truncated { code::TRUNCATED.into() } else { code::SUCCESS.into() }
     }
 
     /// One value for one item, checked (R10, R11, R15).

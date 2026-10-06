@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.207] — 2026-10-06
+
+### Added
+- **Spec 087 M4c — dynamic SQL and the descriptor area on SQLite.** `PREPARE
+  s FROM :host` (the text as it is at that moment), `EXECUTE s [USING …]`,
+  `EXECUTE IMMEDIATE`, cursors over a prepared statement (`DECLARE c CURSOR
+  FOR s`, `OPEN c USING …`), `DESCRIBE [INPUT] s INTO SQLDA` and `FETCH …
+  USING DESCRIPTOR`. `EXEC SQL INCLUDE SQLDA` declares a 100-entry
+  descriptor: each entry's name, type code and name, length, precision, scale
+  and nullability, with "unknown" (−1) where the database does not say. A
+  descriptor too small gets `SQLDA-NEEDED`, nothing filled, and `01005`.
+  Values travel through each entry's `SQLDA-DATA` pointer (`SET … TO ADDRESS
+  OF item`) — converted exactly as `INTO :item` — or as text inside the entry
+  when the pointer is NULL. An unprepared statement name is `07003`. The Guide
+  carries a caveat: prepared text is sent as written, so a user's value
+  belongs behind a `?`.
+
 ## [PowerRustCOBOL 1.80.206] — 2026-10-06
 
 ### Added

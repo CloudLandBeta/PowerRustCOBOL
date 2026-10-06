@@ -271,7 +271,7 @@ pushed unless the operator asks.
 
 ## M4c — Dynamic SQL and the SQLDA
 
-- [ ] **T18 — Dynamic SQL and the SQLDA** (R41–R45)
+- [x] **T18 — Dynamic SQL and the SQLDA** (R41–R45)
   - Files: `crates/cobolt-runtime/src/esql/{sqlda.rs, session.rs, backend/sqlite.rs}`,
     `crates/cobolt-runtime/src/interpreter/exec_sql.rs`, `tests/cobol/esql/*.cbl`,
     `crates/cobolt-runtime/tests/test_esql_dynamic.rs` (new).
@@ -287,7 +287,7 @@ pushed unless the operator asks.
     once inline; names, types and values match the table; EXECUTE IMMEDIATE
     creates a table and EXECUTE … USING inserts into it.
 
-- [ ] **T19 — Mixed forms** (R6, R16, R31, R32, R34, R36, R44, R45)
+- [x] **T19 — Mixed forms** (R6, R16, R31, R32, R34, R36, R44, R45)
   - Files: `tests/cobol/esql/*.cbl`, `crates/cobolt-runtime/tests/test_esql_mixed.rs` (new).
   - Verify: `cargo test -p cobolt-runtime --test test_esql_mixed` — AC18 in
     one program: `OF` and period qualification of two same-named items;
@@ -297,7 +297,7 @@ pushed unless the operator asks.
     trace or debug event; `DESCRIBE INPUT` reports the parameter count; a
     statement re-executed after its source item changed runs as prepared.
 
-- [ ] **T20 — M4c wrap-up**
+- [x] **T20 — M4c wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (dynamic SQL, the SQLDA layout and
     its pointer and inline modes, the R51 caveat) and System KB slice;
     regenerate `chunked.data`.
