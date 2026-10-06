@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.200] — 2026-10-06
+
+### Added
+- **Spec 087 M1 — embedded SQL reaches the lexer.** `EXEC SQL … END-EXEC` is
+  now read as one block in fixed and free format, with the source line of each
+  of its lines. Its end is found by an SQL-aware scanner, so an `END-EXEC`
+  inside an SQL string, quoted identifier, comment or `$tag$` quote does not
+  end it, and an apostrophe in an SQL comment no longer disturbs the COBOL
+  after the block. A missing `END-EXEC` is one error on the `EXEC` line.
+  `COPY` and `REPLACE` never touch an SQL body. `EXEC SQL INCLUDE SQLCA` and
+  `INCLUDE SQLDA` insert this project's own layouts, and `EXEC SQL INCLUDE
+  name` brings in a copybook exactly as `COPY name` does. A missing copybook,
+  from `COPY` or `INCLUDE`, is now reported on its own line by Check. The
+  parser does not accept these blocks yet (M2), so a program using them still
+  does not compile.
+
 ## [PowerRustCOBOL 1.80.196] — 2026-10-05
 
 ### Fixed

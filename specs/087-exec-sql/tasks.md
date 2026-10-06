@@ -33,7 +33,7 @@ pushed unless the operator asks.
 
 ## M0 — Baseline
 
-- [ ] **T0 — Record the baseline** (all)
+- [x] **T0 — Record the baseline** (all)
   - Files: none in the repository (results kept in the session scratchpad).
   - Do: build `rcrun` (`cargo build --release -p cobolt-cli`), then record
     `cargo run -p cobolt-semantic --example nist_conformance -- strict` (per
@@ -48,7 +48,7 @@ pushed unless the operator asks.
 
 ## M1 — Scanner, token, preprocessor
 
-- [ ] **T1 — SQL scanner** (R1, R4, R5, R6, R9, R16)
+- [x] **T1 — SQL scanner** (R1, R4, R5, R6, R9, R16)
   - Files: `crates/cobolt-lexer/src/sql.rs` (new), `crates/cobolt-lexer/src/lib.rs`.
   - Do: `scan` (strings with `''`, `"…"`/backtick identifiers, `$tag$…$tag$`,
     `--` and `*>` line comments, `/* */`, `?`, `::`), `block_end`, host
@@ -61,7 +61,7 @@ pushed unless the operator asks.
     while `:WS-QTY-LESS-ONE` is one name; each qualification and indicator
     form; a string and a block comment that span lines keep their state.
 
-- [ ] **T2 — `EXEC SQL` lexer token** (R1, R5)
+- [x] **T2 — `EXEC SQL` lexer token** (R1, R5)
   - Files: `crates/cobolt-lexer/src/token.rs`, `crates/cobolt-lexer/src/lexer.rs`.
   - Do: `Token::ExecSqlBlock(Box<SqlBlock>)` (verbatim text, origin line per
     line, first column, end line); `try_capture_exec_sql` beside
@@ -74,7 +74,7 @@ pushed unless the operator asks.
     that follows; a missing `END-EXEC` gives one error on the `EXEC` line;
     every existing lexer test still passes.
 
-- [ ] **T3 — Preprocessor: SQL bodies protected, `INCLUDE`** (R4, R5, R17, R31, R41)
+- [x] **T3 — Preprocessor: SQL bodies protected, `INCLUDE`** (R4, R5, R17, R31, R41)
   - Files: `crates/cobolt-lexer/src/copybook.rs`; consumers of copy errors in
     `crates/cobolt-project-tools/src/validate_source.rs` and
     `crates/cobolt-ide/src/app.rs` (`do_check`).
@@ -91,7 +91,7 @@ pushed unless the operator asks.
     reports its line; `cargo test -p cobolt-project-tools` and
     `cargo build -p cobolt-ide` green.
 
-- [ ] **T4 — M1 wrap-up**
+- [x] **T4 — M1 wrap-up**
   - Do: `z` bump and CHANGELOG entry; NIST compile census.
   - Verify: `cargo build --release -p cobolt-cli`, then
     `cargo run -p cobolt-semantic --example nist_conformance -- strict` equals

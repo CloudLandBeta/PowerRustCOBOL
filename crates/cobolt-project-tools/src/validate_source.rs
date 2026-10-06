@@ -67,9 +67,9 @@ pub fn validate_text(
     let mut diags = Vec::new();
     let tokens = match cobolt_lexer::preprocess_program(source, program, format) {
         Some(exp) => {
-            for e in &exp.errors {
+            for (i, e) in exp.errors.iter().enumerate() {
                 diags.push(Diag {
-                    line: 0,
+                    line: exp.error_lines.get(i).copied().unwrap_or(0),
                     col: 0,
                     message: format!("copybook error: {e}"),
                     severity: Severity::Error,

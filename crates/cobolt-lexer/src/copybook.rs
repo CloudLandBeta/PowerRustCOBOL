@@ -29,6 +29,10 @@ pub struct CopyExpansion {
     /// `COPY` that brought them in, so every line after it keeps the number
     /// the developer wrote. Empty = identity. Applied by [`tokenize_expansion`].
     pub line_map: Vec<u32>,
+    /// For each entry of `errors`, the line of the ORIGINAL program it is
+    /// about — the `COPY` or `EXEC SQL INCLUDE` that failed, however deep the
+    /// failure was — or 0 when no line applies. Same length as `errors`.
+    pub error_lines: Vec<u32>,
 }
 
 /// Tokenize an expansion, each token's line put back where the developer
@@ -38,9 +42,15 @@ pub struct CopyExpansion {
 pub fn tokenize_expansion(exp: &CopyExpansion) -> Vec<crate::SpannedToken> {
     let mut toks = crate::tokenize(&exp.text, SourceFormat::Free);
     if !exp.line_map.is_empty() {
+        let map = |l: u32| exp.line_map.get(l.saturating_sub(1) as usize).copied().unwrap_or(l);
         for t in &mut toks {
-            if let Some(&l) = exp.line_map.get(t.span.line.saturating_sub(1) as usize) {
-                t.span.line = l;
+            t.span.line = map(t.span.line);
+            // An SQL block carries the line of each of its lines (spec 087).
+            if let crate::Token::ExecSqlBlock(b) = &mut t.token {
+                for l in &mut b.lines {
+                    *l = map(*l);
+                }
+                b.end_line = map(b.end_line);
             }
         }
     }
@@ -96,12 +106,14 @@ pub fn expand_copybooks_in(source: &str, bases: &[PathBuf], format: SourceFormat
     let mut errors = Vec::new();
     let mut stack: Vec<PathBuf> = Vec::new();
     let flat = flatten(source, format);
-    let (text, mut line_map) = expand_text_mapped(&flat, bases, format, &mut errors, &mut stack, 0);
+    let (text, mut line_map, mut error_lines) =
+        expand_text_mapped(&flat, bases, format, &mut errors, &mut stack, 0);
+    error_lines.resize(errors.len(), 0);
     // An expansion that moved nothing needs no map.
     if line_map.iter().enumerate().all(|(i, &l)| l as usize == i + 1) {
         line_map.clear();
     }
-    CopyExpansion { text, errors, line_map }
+    CopyExpansion { text, errors, line_map, error_lines }
 }
 
 /// [`expand_copybooks`] for the program in the file at `program`: copybooks
@@ -119,7 +131,10 @@ pub fn has_directives(source: &str, format: SourceFormat) -> bool {
     toks.iter().enumerate().any(|(i, t)| {
         t.kind == PKind::Word
             && (eqi(&t.text, "REPLACE")
-                || (eqi(&t.text, "COPY") && !(i > 0 && toks[i - 1].kind == PKind::ColonColon)))
+                || (eqi(&t.text, "COPY") && !(i > 0 && toks[i - 1].kind == PKind::ColonColon))
+                || (eqi(&t.text, "EXEC")
+                    && is_exec_sql(&toks, i)
+                    && matches!(toks.get(i + 2), Some(n) if n.kind == PKind::Word && eqi(&n.text, "INCLUDE"))))
     })
 }
 
@@ -321,7 +336,16 @@ fn expand_text(
     expand_text_mapped(text, bases, format, errors, stack, depth).0
 }
 
-/// [`expand_text`], with the origin line of every output line.
+/// Is the `EXEC` at token `i` the start of an `EXEC SQL` block? A `::` before
+/// it makes it a method name.
+fn is_exec_sql(toks: &[PTok], i: usize) -> bool {
+    !(i > 0 && toks[i - 1].kind == PKind::ColonColon)
+        && matches!(toks.get(i + 1), Some(n) if n.kind == PKind::Word && eqi(&n.text, "SQL"))
+}
+
+/// [`expand_text`], with the origin line of every output line, and the line
+/// of each error this call added (an error inside a copybook belongs to the
+/// directive that brought the copybook in).
 #[allow(clippy::too_many_arguments)]
 fn expand_text_mapped(
     text: &str,
@@ -330,7 +354,15 @@ fn expand_text_mapped(
     errors: &mut Vec<String>,
     stack: &mut Vec<PathBuf>,
     depth: usize,
-) -> (String, Vec<u32>) {
+) -> (String, Vec<u32>, Vec<u32>) {
+    let first_error = errors.len();
+    let mut error_lines: Vec<u32> = Vec::new();
+    // Give every error added since the last call the line `line`.
+    let mut tag = |errors: &Vec<String>, line: u32| {
+        while first_error + error_lines.len() < errors.len() {
+            error_lines.push(line);
+        }
+    };
     let toks = scan(text);
     let newlines: Vec<usize> = text.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i).collect();
     // 1-based line of byte offset `b` in `text`.
@@ -355,6 +387,52 @@ fn expand_text_mapped(
         // block itself is emitted byte for byte, so what `try_capture_exec_rust`
         // later slices out of the preprocessed text is exactly what the
         // developer wrote.
+        // An `EXEC SQL … END-EXEC` body is SQL (spec 087 R4, R5). REPLACE and
+        // a `COPY` word inside it never touch it; it is emitted byte for byte,
+        // and its end is found by the SQL scanner, which knows SQL's quoting.
+        // `EXEC SQL INCLUDE name END-EXEC` is the one form that is a directive
+        // (R31): SQLCA and SQLDA insert this project's own layouts, any other
+        // name is a copybook found exactly as `COPY name` finds it.
+        if t.kind == PKind::Word && eqi(&t.text, "EXEC") && is_exec_sql(&toks, i) {
+            let body_start = toks[i + 1].end;
+            let Some((rs, re)) = crate::sql::block_end(&text[body_start..]) else {
+                // Unterminated: the lexer reports it on the EXEC line.
+                i += 1;
+                continue;
+            };
+            let block_end = body_start + re;
+            let body = &text[body_start..body_start + rs];
+            let words: Vec<&str> = body.split_whitespace().collect();
+            out.from_lines(&apply_pairs(&text[prev_end..t.start], &active), line_of(prev_end), line_of(t.start));
+            let mut end = block_end;
+            if words.len() == 2 && eqi(words[0], "INCLUDE") {
+                // The period that ends the INCLUDE goes with it: the inserted
+                // entries end with their own.
+                let rest = &text[end..];
+                let lead = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+                if rest[lead..].starts_with('.') {
+                    end += lead + 1;
+                }
+                let name = words[1].trim_matches(|c| c == '"' || c == '\'' || c == '.');
+                let inserted = if eqi(name, "SQLCA") {
+                    crate::sql::SQLCA_TEXT.to_string()
+                } else if eqi(name, "SQLDA") {
+                    crate::sql::SQLDA_TEXT.to_string()
+                } else {
+                    load_and_expand(name, &[], bases, format, errors, stack, depth)
+                };
+                tag(errors, line_of(t.start));
+                out.at_line(&apply_pairs(&inserted, &active), line_of(t.start));
+                out.at_line("\n", line_of(end));
+            } else {
+                out.from_lines(&text[t.start..end], line_of(t.start), line_of(end));
+            }
+            prev_end = end;
+            while i < toks.len() && toks[i].start < end {
+                i += 1;
+            }
+            continue;
+        }
         if t.kind == PKind::Word && eqi(&t.text, "EXEC") && is_exec_rust(&toks, i) {
             match exec_rust_end(&toks, i) {
                 Some((end_idx, end_byte)) => {
@@ -391,6 +469,7 @@ fn expand_text_mapped(
                         .collect();
                     let copy =
                         load_and_expand(&name, &replacing, &dirs, format, errors, stack, depth);
+                    tag(errors, line_of(t.start));
                     // The whole copybook sits on the COPY's line; what follows
                     // the directive resumes on the line it ends on.
                     out.at_line(&apply_pairs(&copy, &active), line_of(t.start));
@@ -400,6 +479,7 @@ fn expand_text_mapped(
                 }
                 None => {
                     errors.push(format!("malformed COPY directive near byte {}", t.start));
+                    tag(errors, line_of(t.start));
                     i += 1;
                 }
             }
@@ -418,6 +498,7 @@ fn expand_text_mapped(
                 }
                 None => {
                     errors.push(format!("malformed REPLACE directive near byte {}", t.start));
+                    tag(errors, line_of(t.start));
                     i += 1;
                 }
             }
@@ -426,7 +507,8 @@ fn expand_text_mapped(
         }
     }
     out.from_lines(&apply_pairs(&text[prev_end..], &active), line_of(prev_end), line_of(text.len()));
-    (out.text, out.map)
+    tag(errors, 0);
+    (out.text, out.map, error_lines)
 }
 
 /// Is the `EXEC` at token `i` the start of an `EXEC RUST` block?
@@ -1362,5 +1444,79 @@ COPY ALTLB.
             "COPY inside a doubled-quote literal was expanded:\n{}",
             r.text
         );
+    }
+
+    // ── Spec 087 T3: SQL bodies are protected, INCLUDE is a directive ──────
+
+    fn sql_dir(tag: &str) -> PathBuf {
+        let d = tmp().join(format!("esql-{tag}"));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// REPLACE rewrites the COBOL around a block, never the SQL inside it,
+    /// and a COPY word inside SQL is not a directive.
+    #[test]
+    fn replace_and_copy_leave_an_sql_body_alone() {
+        let d = sql_dir("replace");
+        let src = "REPLACE ==NAME== BY ==XNAME==.\nMOVE NAME TO A.\nEXEC SQL SELECT NAME, COPY FROM T END-EXEC.\nMOVE NAME TO B.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.text.contains("MOVE XNAME TO A"), "{}", r.text);
+        assert!(r.text.contains("EXEC SQL SELECT NAME, COPY FROM T END-EXEC"), "{}", r.text);
+        assert!(r.text.contains("MOVE XNAME TO B"), "{}", r.text);
+    }
+
+    /// INCLUDE SQLCA inserts the project's layout, and a token after it keeps
+    /// the line the developer wrote.
+    #[test]
+    fn include_sqlca_expands_and_lines_stay_put() {
+        let d = sql_dir("sqlca");
+        let src = "WORKING-STORAGE SECTION.\nEXEC SQL INCLUDE SQLCA END-EXEC.\n01 A PIC X.\n";
+        assert!(has_directives(src, SourceFormat::Free));
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.text.contains("SQLCA-TAG"), "{}", r.text);
+        let toks = tokenize_expansion(&r);
+        let a = toks.iter().find(|t| t.token == crate::Token::Identifier("A".into())).unwrap();
+        assert_eq!(a.span.line, 3, "the item after the INCLUDE stays on line 3");
+        let code = toks.iter().find(|t| t.token == crate::Token::Identifier("SQLCODE".into())).unwrap();
+        assert_eq!(code.span.line, 2, "the inserted layout sits on the INCLUDE's line");
+        assert!(!r.text.contains("INCLUDE"), "{}", r.text);
+    }
+
+    /// INCLUDE of a project copybook is found as COPY finds it.
+    #[test]
+    fn include_of_a_copybook_expands_it() {
+        let d = sql_dir("cpy");
+        write(&d, "CUSTREC.cpy", "01 CUST-NAME PIC X(10).\n");
+        let src = "WORKING-STORAGE SECTION.\nEXEC SQL INCLUDE CUSTREC END-EXEC.\n01 B PIC X.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.text.contains("01 CUST-NAME PIC X(10)."), "{}", r.text);
+    }
+
+    /// A missing INCLUDE is an error carrying its line, and leaves the lines
+    /// after it where they were.
+    #[test]
+    fn a_missing_include_reports_its_line() {
+        let d = sql_dir("missing");
+        let src = "WORKING-STORAGE SECTION.\n01 X PIC X.\nEXEC SQL INCLUDE NOSUCHBOOK END-EXEC.\n01 C PIC X.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert_eq!(r.errors.len(), 1, "{:?}", r.errors);
+        assert!(r.errors[0].contains("NOSUCHBOOK"), "{:?}", r.errors);
+        assert_eq!(r.error_lines, [3]);
+        let toks = tokenize_expansion(&r);
+        let c = toks.iter().find(|t| t.token == crate::Token::Identifier("C".into())).unwrap();
+        assert_eq!(c.span.line, 4);
+    }
+
+    /// A missing COPY now carries its line too.
+    #[test]
+    fn a_missing_copy_reports_its_line() {
+        let d = sql_dir("copyline");
+        let src = "WORKING-STORAGE SECTION.\n\nCOPY NOSUCHCOPY.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert_eq!((r.errors.len(), r.error_lines.clone()), (1, vec![3]), "{:?}", r.errors);
     }
 }

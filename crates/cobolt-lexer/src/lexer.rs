@@ -304,6 +304,9 @@ impl<'src> Lexer<'src> {
                 if let Some(block) = self.try_capture_exec_rust(span) {
                     return Some(block);
                 }
+                if let Some(block) = self.try_capture_exec_sql(span) {
+                    return Some(block);
+                }
                 // Not followed by RUST — emit standalone Exec token and
                 // let the parser diagnose the error.
             }
@@ -537,6 +540,95 @@ impl<'src> Lexer<'src> {
             Token::Error("unterminated EXEC RUST block".into()),
             exec_span,
         ))
+    }
+
+    /// Attempt to capture an `EXEC SQL … END-EXEC` block (spec 087 R1, R5).
+    ///
+    /// The block's end is found by the SQL scanner ([`crate::sql::block_end`]),
+    /// not by the raw COBOL tokens: an `END-EXEC` inside an SQL string, quoted
+    /// identifier, comment or dollar quote does not end it. The text between
+    /// `SQL` and `END-EXEC` is kept verbatim with the source line of each of
+    /// its lines.
+    ///
+    /// The raw tokens were lexed as COBOL, which does not know SQL's quoting,
+    /// so one of them can straddle the block's end — `/* ' */ END-EXEC.
+    /// MOVE 'Z' …` reads `' */ END-EXEC. MOVE '` as one literal. When that
+    /// happens the rest of the source is lexed again from the block's end.
+    ///
+    /// `obj::Exec` is a method call, never a block.
+    fn try_capture_exec_sql(&mut self, exec_span: Span) -> Option<SpannedToken> {
+        // `self.pos - 1` is EXEC itself; a `::` right before it makes it a member.
+        if self.pos >= 3
+            && matches!(self.raw_tokens[self.pos - 2].0, Ok(RawToken::Colon))
+            && matches!(self.raw_tokens[self.pos - 3].0, Ok(RawToken::Colon))
+        {
+            return None;
+        }
+        let mut look = self.pos;
+        while look < self.raw_tokens.len() && matches!(self.raw_tokens[look].0, Ok(RawToken::Newline)) {
+            look += 1;
+        }
+        let is_sql = matches!(
+            self.raw_tokens.get(look).map(|t| &t.0),
+            Some(Ok(RawToken::Word(w))) if w.eq_ignore_ascii_case("SQL")
+        );
+        if !is_sql {
+            return None;
+        }
+        let text_start = self.raw_tokens[look].1.end;
+        let Some((rel_s, rel_e)) = crate::sql::block_end(&self.preprocessed[text_start..]) else {
+            self.errors.push(LexError::UnexpectedChar {
+                span: exec_span,
+                text: "unterminated EXEC SQL block (missing END-EXEC)".into(),
+            });
+            self.pos = self.raw_tokens.len();
+            return Some(SpannedToken::new(
+                Token::Error("unterminated EXEC SQL block".into()),
+                exec_span,
+            ));
+        };
+        let text_end = text_start + rel_s;
+        let block_end = text_start + rel_e;
+        let text = self.preprocessed[text_start..text_end].to_string();
+        let (first_line, first_col) = self.line_index.line_col(text_start);
+        let n_lines = text.bytes().filter(|b| *b == b'\n').count() as u32;
+        let lines: Vec<u32> = (first_line..=first_line + n_lines).collect();
+        let (end_line, _) = self.line_index.line_col(text_end);
+
+        // Skip every raw token the block swallowed.
+        let mut idx = look + 1;
+        while idx < self.raw_tokens.len() && self.raw_tokens[idx].1.start < block_end {
+            idx += 1;
+        }
+        if idx > 0 && self.raw_tokens[idx - 1].1.end > block_end {
+            self.relex_from(idx - 1, block_end);
+            idx -= 1;
+        }
+        self.pos = idx;
+        self.at_line_start = false;
+
+        let span = Span::new(exec_span.start, block_end, exec_span.line, exec_span.col);
+        Some(SpannedToken::new(
+            Token::ExecSqlBlock(Box::new(crate::sql::SqlBlock { text, lines, first_col, end_line })),
+            span,
+        ))
+    }
+
+    /// Replace the raw tokens from index `idx` on with a fresh lexing of the
+    /// preprocessed source from byte `offset`.
+    fn relex_from(&mut self, idx: usize, offset: usize) {
+        let fresh: Vec<(Result<RawToken, ()>, Range<usize>)> = {
+            let tail = &self.preprocessed[offset..];
+            let mut lex = RawToken::lexer(tail);
+            let mut v = Vec::new();
+            while let Some(res) = lex.next() {
+                let r = lex.span();
+                v.push((res.map_err(|_| ()), r.start + offset..r.end + offset));
+            }
+            v
+        };
+        self.raw_tokens.truncate(idx);
+        self.raw_tokens.extend(fresh);
     }
 
     /// Join `<digits>` `-` `<word>` into one user-defined word when the three
