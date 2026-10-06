@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.214] — 2026-10-06
+
+### Added
+- **Spec 087 M10 — embedded SQL documented end to end.** The syntax
+  reference lists `EXEC SQL` among the extensions; the Guide's Appendix A maps
+  "Embedded SQL / ODBC" to it; `docs/database-runtime-en.md` documents the
+  `sql-connection:<NAME>` connection string and `SqlDatabase.SqlConnection`,
+  points to embedded SQL, and now writes every example with the inline
+  `COBOL::"…"` calls — its CRUD example is run, as written, by the test suite.
+  The coding-agent kit gains a `powerrustcobol-use-sql` skill: connect by the
+  name of a project SQL connection the developer creates in the IDE, bind
+  every value through a host variable, never write a password.
+
+### Removed
+- The five translations of `database-runtime` (GOLDEN RULE #8): their
+  English changed; the next minor release regenerates them.
+
 ## [PowerRustCOBOL 1.80.213] — 2026-10-06
 
 ### Added

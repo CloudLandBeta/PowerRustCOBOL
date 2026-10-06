@@ -407,6 +407,19 @@ file. The damage now stops at the newline.
 ✅ `COMMIT` / `ROLLBACK` (program-controlled INDEXED-file transactions — see
 File verbs) · `CANCEL` (re‑initialises the program's storage) ·
 ✅ `INVOKE` — drives GUI/runtime objects (windows, forms, control methods); a no‑op only for **COBOL** objects, since class/method definitions are out of scope
+✅ **Embedded SQL — `EXEC SQL … END-EXEC`** (the precompiler convention, not
+part of COBOL-85 itself): static statements with `:host` variables and
+indicators (host structures, `FILLER` and `REDEFINES` skipped), `SELECT … INTO`,
+`INSERT`/`UPDATE`/`DELETE`, cursors (`DECLARE … CURSOR [WITH HOLD] FOR`,
+`OPEN`, `FETCH … INTO`, `CLOSE`, `WHERE CURRENT OF`), `COMMIT`/`ROLLBACK`
+(the database's — the COBOL verbs stay INDEXED-file transactions),
+`CONNECT TO` a connection string or a project SQL connection by name,
+`SET CONNECTION`, `DISCONNECT`, `WHENEVER`, `INCLUDE` (SQLCA, SQLDA, copybooks),
+`BEGIN/END DECLARE SECTION`, and dynamic SQL (`PREPARE`, `EXECUTE [USING]`,
+`EXECUTE IMMEDIATE`, `DESCRIBE`, cursors over a prepared statement, the
+SQLDA). Status in a stand-alone `SQLSTATE`/`SQLCODE` or the SQLCA. Runs on
+SQLite today; PostgreSQL and MySQL are next. Details, the value and status
+tables, and what Check reports: the Developer's Guide, *Embedded SQL*.
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 A block may `use` the always-linked crates (std, egui, eframe and the linked
 runtime set) **plus any crate the project registers under Project's Crates**

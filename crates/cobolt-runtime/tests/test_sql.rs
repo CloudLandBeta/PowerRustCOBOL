@@ -82,6 +82,22 @@ const SQL_CRUD: &str = r#"
            STOP RUN.
 "#;
 
+/// `docs/database-runtime-en.md` §3 says its CRUD example — written with the
+/// inline `COBOL::"…"` calls — runs as written. Read it from the document, so
+/// the example and this proof can never drift apart.
+#[test]
+fn the_guides_crud_example_runs_as_written() {
+    let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/database-runtime-en.md")).unwrap();
+    let section = &doc[doc.find("## 3. Example").expect("the example section")..];
+    let start = section.find("```cobol\n").expect("its COBOL block") + "```cobol\n".len();
+    let program = &section[start..start + section[start..].find("```").unwrap()];
+    assert!(program.contains("COBOL::\"OPEN-DB\""), "the example uses the inline form");
+    assert_eq!(
+        run_capture(program),
+        ["INSERTED 000000003", "ROWS 000000003", "NAME ANA", "NAME BRUNO", "NAME CARLOS"]
+    );
+}
+
 #[test]
 fn sqlite_crud_via_cobol_calls() {
     let out = run_capture(SQL_CRUD);

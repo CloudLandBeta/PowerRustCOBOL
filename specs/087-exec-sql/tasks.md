@@ -491,7 +491,7 @@ pushed unless the operator asks.
 
 ## M10 — Documentation and the agent reference
 
-- [ ] **T37 — Final documentation pass** (R50, R51)
+- [x] **T37 — Final documentation pass** (R50, R51)
   - Files: `docs/developers-guide-en.md` (chapter complete; Appendix A
     "Embedded SQL / ODBC" row), `docs/cobol85-supported-syntax-en.md`
     (extensions entry), `docs/database-runtime-en.md` (the `sql-connection:`
