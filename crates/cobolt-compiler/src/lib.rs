@@ -4187,6 +4187,8 @@ fn main() {{
     install_sql_connections();
     let program = load_program();
     {run_call}
+    // Spec 078 R9: no AWS server this application started outlives it.
+    cobolt_runtime::shutdown_child_processes();
 }}
 
 /// The SQL connections this application reaches by name (spec 087 R39): the

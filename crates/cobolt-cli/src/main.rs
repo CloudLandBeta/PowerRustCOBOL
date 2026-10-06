@@ -91,6 +91,10 @@ fn main() {
             process::exit(0);
         }
     }
+    // Spec 078 R9: no child process this run started outlives it. A command
+    // that leaves through `process::exit` skips this; its servers still end,
+    // at stdin EOF and by the operating-system backstop.
+    cobolt_runtime::shutdown_child_processes();
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────

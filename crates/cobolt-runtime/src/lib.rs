@@ -38,6 +38,8 @@ pub mod agent_tools;
 /// The built-in CALLs — the `COBOL` object's methods (`COBOL::"NAME"( … )`).
 pub mod builtins;
 pub mod async_op;
+#[cfg(feature = "aws")]
+pub mod aws;
 pub mod channels;
 pub mod collation;
 pub mod compress;
@@ -132,3 +134,11 @@ pub use interpreter::Interpreter;
 pub use objects::ObjectRegistry;
 pub use rust_bridge::{BridgeError, BridgeValue, RustBridge};
 pub use value::CobolValue;
+
+/// Stop every child process this runtime started — today, the AWS MCP servers
+/// (spec 078 R9). Each host calls it on its way out: `rcrun run` and `run-form`,
+/// and a built application's `main`. A no-op without the `aws` feature.
+pub fn shutdown_child_processes() {
+    #[cfg(feature = "aws")]
+    aws::pool::shutdown();
+}

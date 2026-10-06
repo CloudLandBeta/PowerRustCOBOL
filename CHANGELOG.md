@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.230] — 2026-10-06
+
+### Added
+- **Spec 078 A.2 — starting and talking to AWS's MCP servers.** The runtime
+  (feature `aws`, no new dependency) starts an MCP server as a child process
+  and talks to it over stdio: one shared server per connection, a timeout on
+  every call, a separate budget for the first start (which downloads
+  packages), a crashed server replaced on the next call. The server's
+  environment is built, never inherited: it gets the AWS profile name and
+  region and never an access key, secret or session token, even when the
+  application's own environment holds them. A missing `uvx` is reported in
+  plain words with how to install it. No server outlives its application:
+  stdin end-of-file, an orderly shutdown in `rcrun` and in built
+  applications, and an operating-system backstop on Linux and Windows.
+- Spec 078 amendment A5: the AWS controls' icons will be hand-drawn SVG
+  look-alikes of AWS's service icons.
+
 ## [PowerRustCOBOL 1.80.229] — 2026-10-06
 
 ### Added

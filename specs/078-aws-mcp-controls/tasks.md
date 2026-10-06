@@ -85,7 +85,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.2 Transport, pool, lifetime (`cobolt-runtime`, feature `aws`)
 
-- [ ] **T-A4 — Feature `aws` and the fake MCP server** (R29; test infrastructure for AC1, AC3, AC5, AC12, AC13, AC15)
+- [x] **T-A4 — Feature `aws` and the fake MCP server** (R29; test infrastructure for AC1, AC3, AC5, AC12, AC13, AC15)
   - Read first: `cobolt-runtime/Cargo.toml` `[features]`, `cobolt-form-host/Cargo.toml` `[features]`, and how existing test binaries are declared in the workspace.
   - Files:
     - `crates/cobolt-runtime/Cargo.toml`, `crates/cobolt-form-host/Cargo.toml` (`aws = []`, forwarded, in `default`);
@@ -96,7 +96,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - It appends one JSON line per received request to a call log, and writes its PID and argv marker to a file.
   - Verify: `cargo build -p cobolt-runtime --features aws --bin fake_mcp`; a smoke test runs it over pipes and lists its tools.
 
-- [ ] **T-A5 — `aws/process.rs`: spawn, the built environment, stderr ring** (R7, R10, R11; AC7)
+- [x] **T-A5 — `aws/process.rs`: spawn, the built environment, stderr ring** (R7, R10, R11; AC7)
   - Read first: `cobolt-ide/src/form_runtime.rs` `BuiltAppRun::spawn`/`Drop` (the closest template), `cobolt-form-host/src/os_handoff.rs` (NotFound mapping).
   - Files: `crates/cobolt-runtime/src/aws/process.rs` (new).
   - Do:
@@ -109,7 +109,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `mask_hides_planted_token`.
     - `missing_program_names_uv`.
 
-- [ ] **T-A6 — `aws/pool.rs`: shared servers, timeouts, restart** (R5, R8; AC3, AC5)
+- [x] **T-A6 — `aws/pool.rs`: shared servers, timeouts, restart** (R5, R8; AC3, AC5)
   - Read first: T-A2, T-A5, `interpreter.rs` `async_result_tx` (how workers report).
   - Files: `crates/cobolt-runtime/src/aws/pool.rs` (new).
   - Do:
@@ -123,7 +123,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `progress_and_log_notifications_do_not_stall_a_call` (AC3);
     - `first_start_uses_start_timeout`.
 
-- [ ] **T-A7 — No orphaned servers: EOF, orderly shutdown, OS backstop** (R9; AC6)
+- [x] **T-A7 — No orphaned servers: EOF, orderly shutdown, OS backstop** (R9; AC6)
   - Read first: `cobolt-forms/src/text_scale.rs` (hand-declared Windows FFI pattern), the three hosts' exit paths:
     - `cobolt-cli/src/form_gui.rs`, where the run loop returns;
     - `cobolt-form-host/src/host.rs`, at shell exit;
@@ -138,6 +138,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - (b) is killed with SIGKILL / `TerminateProcess`;
     - then scans for the fake's marker PID. It is run for the Run Form path, a child-form session and a built binary (the last in T-A16).
     The result is reported per platform the test ran on (AC6). The operator runs it on Windows and Linux before release, and the release notes record which platforms were measured.
+  - Result (1.80.230): `aws_no_orphans` on **macOS** — the server is gone 7 ms after a normal exit, 2 ms after `process::exit` with no shutdown, 2 ms after SIGKILL (stdin EOF). The Linux (`PR_SET_PDEATHSIG`, process group) and Windows (kill-on-close Job Object, hand-declared) backstops compile under `cargo check --target x86_64-unknown-linux-gnu` / `x86_64-pc-windows-gnu`; **they still need the operator's run on those platforms.** AC5: one process for two calls; a crash fails that call and the next starts fresh. AC3: a silent server times out at 502 ms for a 500 ms budget; progress, log and ping do not stall a call. AC7: 4 planted secrets, none reaches the server. A3: a 400 ms start passes on the start budget with a 100 ms call budget. The shutdown runs from `rcrun` (run, run-form) and the generated binary's `main` via `cobolt_runtime::shutdown_child_processes()`; child forms share the process-global pool, so the root's exit covers them.
 
 ### A.3 Route table
 
@@ -249,7 +250,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
   - Read first: `panels/toolbox.rs` (`TOOLS`, `CATEGORIES`, `TREE_CATEGORY_ORDER`, `category_of`, `paint_control_icon`, and `the_toolbox_snackbar_is_the_controls_own_glyph`); `cobolt-forms/src/paint.rs` (the non-visual card branch and `nv_icon_*`); `i18n.rs` (`cat_*` and `category_name`).
   - Files: those three, plus `crates/cobolt-ide/src/i18n.rs` (`cat_aws` in 6 languages; the English value is "AWS" in every language).
   - Do:
-    - `nv_icon_aws_lambda` and `nv_icon_aws_mcp` are original line glyphs, drawn by both the toolbox and the card.
+    - `assets/icons/aws/AwsLambda.svg` and `AwsMcp.svg` are hand-drawn SVGs in the style of the AWS service icons (amendment A5): the service's colour tile and a simplified glyph, never traced from AWS's files, no wordmark. Both the toolbox and the card draw them through `resvg`, cached as textures.
     - Add the "AWS" category after NonVisual.
   - Verify: the `toolbox_layout_tests` gain `the_aws_category_lists_its_controls_in_every_language`; the glyph-parity test is extended; Gate G.
 
