@@ -51,10 +51,10 @@ fn every_r46_error_is_one_diagnostic_on_its_line() {
 /// repository, no diagnostic comes from an `EXEC SQL` block.
 ///
 /// The files are PowerCOBOL compiler listings: their `#FILE` / `#LINE`
-/// directive lines are blanked (keeping every line number) before Check, as
-/// spec 086's converter will. Their non-SQL PowerCOBOL constructs (`POW-…`
-/// items, `CALL … WITH STDCALL`, `BY VALUE`) still fail Check — that is spec
-/// 086's to convert, and is why this asserts only on the SQL blocks.
+/// directive lines are blanked (keeping every line number) before Check.
+/// Their non-SQL PowerCOBOL constructs (`POW-…` items, `CALL … WITH
+/// STDCALL`, `BY VALUE`) still fail Check — converting them is out of this
+/// spec's scope, which is why this asserts only on the SQL blocks.
 #[test]
 fn the_operators_samples_have_no_diagnostic_inside_an_sql_block() {
     let Some(dir) = std::env::var_os("PRC_LEGACY_CBL_DIR") else {

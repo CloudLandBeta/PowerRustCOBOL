@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.219] — 2026-10-06
+
+### Removed
+- **Spec 086 (PowerCOBOL converter) withdrawn** (operator, 2026-10-06): no
+  longer needed. `specs/086-powercobol-converter/` is deleted, and spec 087
+  and its tests no longer hand the samples' non-SQL constructs to it — they
+  are out of scope.
+
 ## [PowerRustCOBOL 1.80.218] — 2026-10-06
 
 ### Added

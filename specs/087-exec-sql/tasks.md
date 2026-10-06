@@ -168,8 +168,8 @@ pushed unless the operator asks.
     and `$PRC_LEGACY_CBL_DIR/TyC/Debug/TyC.cob`.
   - Verify: no diagnostic comes from an `EXEC SQL` block; `SKIPPED` without
     the variable. **If non-SQL PowerCOBOL constructs in these listings fail
-    Check, stop and report**: AC15's "pass Check" would then depend on spec
-    086's conversion.
+    Check, stop and report**: AC15's "pass Check" would then depend on
+    converting them.
   - Result (2026-10-06): 0 diagnostics inside the 40 SQL blocks
     (F-ART-PURGA 35, TyC 5); the programs still fail Check on non-SQL
     PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`, `CALL … WITH STDCALL`,

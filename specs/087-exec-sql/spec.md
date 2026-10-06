@@ -17,8 +17,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 COBOL programs that work with relational databases write their SQL inside
 the program, between `EXEC SQL` and `END-EXEC`, and exchange values with
 the database through COBOL data items called *host variables*. That is how
-most business COBOL reaches a database, and it is what the PowerCOBOL
-applications that spec 086 converts are full of: across the 32 compiled
+most business COBOL reaches a database, and it is what PowerCOBOL
+applications are full of: across the 32 compiled
 `.cob` listings of the operator's sample application (a few of them the same
 program in two build folders) there are 99 `SELECT … INTO`, 34 cursors
 (declare, open, fetch, close), 40 `COMMIT`, 28 declare sections, 29
@@ -27,8 +27,7 @@ program in two build folders) there are 99 `SELECT … INTO`, 34 cursors
 RustCOBOL reaches SQL today only through built-in calls
 (`COBOL::"OPEN-DB"`, `"EXEC-SQL"`, `"FETCH-ROW"` …), with every value
 handled as text. A program written with embedded SQL does not compile, so
-spec 086 keeps each `EXEC SQL` block as a marked comment (086 R27, Q1) and
-the database logic of a converted application must be redone by hand.
+the database logic of a migrated application had to be redone by hand.
 
 This feature adds embedded SQL to RustCOBOL: the statement delimiters, host
 and indicator variables, declare sections, the two ways a program learns how
@@ -56,7 +55,7 @@ work that follows is original.
 - A program with embedded SQL compiles, runs and builds in every place a
   RustCOBOL program does: `rcrun run`, Run Form, embedded child forms and the
   compiled binary — the same behaviour in all of them.
-- Programs migrated from PowerCOBOL (spec 086) keep their SQL as live code:
+- Programs migrated from PowerCOBOL keep their SQL as live code:
   the status items they declare, the `SQLSTATE` values they test and the name
   they connect to (an SQL connection of the project) keep working without
   edits.
@@ -84,8 +83,6 @@ work that follows is original.
 - Distributed units of work across two databases in one transaction.
 - National (`PIC N`) host variables. RustCOBOL has no national category
   today; it is its own work before it can reach SQL.
-- Changing spec 086. Once this lands, a follow-up to 086 stops commenting
-  `EXEC SQL` out; that change is 086's, not this spec's.
 - Replacing the `COBOL::"…-DB"` built-ins or the `SqlDatabase` control. They
   keep working unchanged; the control only gains a way to name an SQL
   connection instead of carrying a connection string (R40).
@@ -514,8 +511,8 @@ time and throughput per phase.
   use; a statement SQLite rejects (F-ART-PURGA's `DELETE … LIMIT 1`) sets its
   syntax-error SQLSTATE and the program continues (R22). With a MySQL server
   configured, the same statements run against MySQL. The programs as a whole
-  (their non-SQL PowerCOBOL constructs) are spec 086's to convert and are not
-  part of this criterion.
+  (their non-SQL PowerCOBOL constructs) are not part of this criterion: no
+  PowerCOBOL converter is planned (spec 086 withdrawn, operator 2026-10-06).
   *Status 2026-10-06: the Check half (T10) and the SQLite half (T38: 24 + 3
   statements as written; `DELETE … LIMIT 1` → `42601`, the program goes on)
   are proved; the MySQL half waits for a server (T28). Left unticked.*
@@ -651,8 +648,8 @@ time and throughput per phase.
 - **Q14 — AC15 narrowed to the SQL (settled, operator 2026-10-06):** T10
   found no diagnostic inside the samples' 40 SQL blocks, while the programs
   still fail Check on non-SQL PowerCOBOL constructs (`#FILE`/`#LINE`, `POW-…`,
-  `CALL … WITH STDCALL`, `BY VALUE`). AC15 covers the SQL only; converting the
-  rest is spec 086's.
+  `CALL … WITH STDCALL`, `BY VALUE`). AC15 covers the SQL only; the rest is
+  out of scope (spec 086, the converter, was withdrawn on 2026-10-06).
 - **Q13 — Clarifications from the design review (2026-10-05):** the
   name-versus-connection-string rule of `CONNECT` (R34); `ROLLBACK` closes
   `WITH HOLD` cursors too (R30); an IDE Stop ends the run unit with a rollback,

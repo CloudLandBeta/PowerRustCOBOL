@@ -11,8 +11,8 @@
 //! time and never copied into the repository: their host-variable
 //! declarations and every `EXEC SQL` block are lifted from the files, and a
 //! test program runs each distinct statement against a SQLite copy of the
-//! tables they use. The programs' non-SQL PowerCOBOL constructs are spec
-//! 086's and play no part. Without the variable the test reports `SKIPPED`.
+//! tables they use. The programs' non-SQL PowerCOBOL constructs are out of
+//! scope and play no part. Without the variable the test reports `SKIPPED`.
 //!
 //! **T27/T28 (M7):** the AC2–AC8, AC11 and AC18 programs of `tests/cobol/esql/`
 //! rerun against a live PostgreSQL (`PRC_TEST_PG_URL`) or MySQL
