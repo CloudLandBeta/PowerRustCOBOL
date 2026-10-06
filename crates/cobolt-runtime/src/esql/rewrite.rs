@@ -117,11 +117,11 @@ pub fn strip_for_update(sql: &str) -> String {
     sql.to_string()
 }
 
-/// A cursor's query with SQLite's `rowid` selected first, so `WHERE CURRENT
-/// OF` can name the row it fetched (R26). Only a query over ONE table has a
+/// The one table a positioned cursor's query reads (R26): where its select
+/// list starts, and the table as written. Only a query over ONE table has a
 /// row to name: a join, a list of tables, `DISTINCT` or `GROUP BY` gives
 /// `0A000`.
-pub fn sqlite_keyed_select(sql: &str) -> Result<String, SqlError> {
+pub fn single_table(sql: &str) -> Result<(usize, String), SqlError> {
     let not_supported = |why: &str| {
         Err(SqlError::new(
             super::state::code::NOT_SUPPORTED,
@@ -152,8 +152,22 @@ pub fn sqlite_keyed_select(sql: &str) -> Result<String, SqlError> {
             return not_supported("reads more than one table");
         }
     }
-    let at = w[sel].2;
-    Ok(format!("{} rowid,{}", &sql[..at], &sql[at..]))
+    // The table: what follows FROM, up to white space, a comma or a bracket.
+    let after = sql[w[from].2..].trim_start();
+    let table: String = after.chars().take_while(|c| !c.is_whitespace() && !matches!(c, ',' | '(' | ')' | ';')).collect();
+    Ok((w[sel].2, table))
+}
+
+/// A cursor's query with `keys` selected first, so `WHERE CURRENT OF` can
+/// name the row it fetched.
+pub fn keyed_select(sql: &str, at: usize, keys: &[String]) -> String {
+    format!("{} {},{}", &sql[..at], keys.join(", "), &sql[at..])
+}
+
+/// SQLite's form of [`keyed_select`]: `rowid` first.
+pub fn sqlite_keyed_select(sql: &str) -> Result<String, SqlError> {
+    let (at, _) = single_table(sql)?;
+    Ok(keyed_select(sql, at, &["rowid".to_string()]))
 }
 
 #[cfg(test)]
@@ -189,6 +203,9 @@ mod tests {
             assert_eq!(sqlite_keyed_select(bad).unwrap_err().sqlstate, "0A000", "{bad}");
         }
         assert!(sqlite_keyed_select("SELECT A FROM T WHERE B IN (SELECT C FROM U, V)").is_ok(), "a subquery is not the cursor's table list");
+        assert_eq!(single_table("SELECT A FROM shop.ORDERS WHERE B = 1").unwrap().1, "shop.ORDERS");
+        assert_eq!(single_table("select a from `T`;").unwrap().1, "`T`");
+        assert_eq!(keyed_select("SELECT A FROM T", 6, &["`ID`".into(), "`LINE`".into()]), "SELECT `ID`, `LINE`, A FROM T");
         assert_eq!(strip_for_update("SELECT A FROM T FOR UPDATE OF A"), "SELECT A FROM T");
         assert_eq!(strip_for_update("SELECT 'FOR UPDATE' FROM T"), "SELECT 'FOR UPDATE' FROM T");
     }

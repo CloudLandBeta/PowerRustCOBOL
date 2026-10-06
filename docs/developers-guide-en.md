@@ -10001,12 +10001,13 @@ certainly do it the classic way: SQL written right in the COBOL source between
 `EXEC SQL` and `END-EXEC`, exchanging values with COBOL data items called
 **host variables**. RustCOBOL reads that style directly.
 
-> ⚠️ **Caveat — work in progress.** Today embedded SQL runs **against
-> SQLite**: every statement in this section — static statements, cursors,
-> dynamic SQL and the descriptor area — under Run, Debug, Run Form and
-> `rcrun` and in a built application. PostgreSQL and MySQL — which the
-> SQL connection editor and the `SqlDatabase` control already reach — arrive
-> for `EXEC SQL` in the next release of this feature.
+> ⚠️ **Caveat — PostgreSQL and MySQL are a preview.** Embedded SQL runs
+> against **SQLite, PostgreSQL and MySQL** — every statement in this section,
+> under Run, Debug, Run Form and `rcrun` and in a built application. SQLite is
+> proven end to end; PostgreSQL and MySQL are new in this release and have not
+> yet been run against live servers by this release's own test suite, so try
+> them on a test database first. The differences that matter are under
+> **Per database** below.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -10468,6 +10469,23 @@ dialect itself, are the database's to judge when the statement runs.
 The control's properties configure **every request it sends**, so a handler is
 usually a single line — the address and the credentials live in the properties
 pane, not repeated through your COBOL.
+
+**Per database.** The same statements reach all three; these are the
+differences a program can notice.
+
+| | SQLite | PostgreSQL | MySQL |
+|---|---|---|---|
+| A unit of work begins | before the first statement that changes data | before the first statement | before the first statement |
+| A failing statement inside a unit | the unit carries on | the unit carries on (each statement runs under a savepoint) | the unit carries on |
+| `CREATE`/`ALTER`/`DROP` inside a unit | part of the unit | part of the unit | **commits the unit** (MySQL's rule); the next statement starts a new one |
+| `WHERE CURRENT OF` names the row by | its `rowid` | its physical address — a row the same unit changed since the FETCH is not found (`02000`) | the table's **primary key** — a table without one gives `0A000` |
+| `UPDATE` counts | the rows changed | the rows changed | the rows **matched**, as the other two do |
+| Values a host variable cannot take | — | arrays, ranges, geometry and other special types give `0A000`: cast them in the query (`::text`) | — |
+| `DESCRIBE INPUT` parameter types | unknown | known | unknown |
+
+On all three a cursor reads its rows when it opens, so a query over a very
+large table belongs behind a `WHERE` that narrows it. PostgreSQL and MySQL are
+reached without TLS: use them on a trusted network, or through a tunnel.
 
 **In the editor and the debugger.** The COBOL editor draws an `EXEC SQL`
 block as SQL — keywords, strings and comments in their colours, across as many
@@ -13997,7 +14015,7 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | The event loop hidden by the runtime  | The explicit **`COBOL::"WAIT-EVENT"`** loop in generated code                                               |
 | `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
 | Vendor ISAM                           | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`)                 |
-| Embedded SQL / ODBC                   | `EXEC SQL … END-EXEC` with host variables, cursors, SQLCA — [Embedded SQL](#embedded-sql-exec-sql) (SQLite today; PostgreSQL/MySQL next); or `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL) |
+| Embedded SQL / ODBC                   | `EXEC SQL … END-EXEC` with host variables, cursors, SQLCA — [Embedded SQL](#embedded-sql-exec-sql) (SQLite, PostgreSQL, MySQL); or `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL) |
 | Building an `.exe` with a runtime DLL  | `rcrun build` → **one self-contained binary**, no runtime to install                                   |
 | Project/workspace file                | `cobolt.toml` + the standard folder layout                                                              |
 

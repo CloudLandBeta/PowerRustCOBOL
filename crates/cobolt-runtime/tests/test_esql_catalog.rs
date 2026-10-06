@@ -96,3 +96,38 @@ fn the_default_sql_connection_or_08003() {
     let out = run(NO_CONNECT, Some(sales(dir2.path(), false)));
     assert!(out.contains(&"DEFAULT 08003 00000".to_string()), "{out:?}");
 }
+
+/// M7 — a named SQL connection to a PostgreSQL or MySQL server is reached
+/// through its driver, field by field: on a port nothing listens on, CONNECT
+/// reports 08001 with the driver's own reason, and the password never shows.
+#[test]
+fn a_server_connection_on_a_closed_port_is_08001_with_the_drivers_reason() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    for backend in ["postgresql", "mysql"] {
+        let mut s = SqlConnection::new("WAREHOUSE");
+        s.backend = backend.into();
+        s.host = "127.0.0.1".into();
+        s.port = Some(port);
+        s.database = "stock".into();
+        let catalog = SqlCatalog::new("shop", vec![s], PathBuf::from("."), Source::Injected);
+        std::env::set_var("SHOP_SQL_WAREHOUSE_PASSWORD", "never-shown-087");
+        let out = run(
+            "IDENTIFICATION DIVISION.
+PROGRAM-ID. SRV.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 SQLSTATE PIC X(5).
+01 SQLMSG PIC X(300).
+PROCEDURE DIVISION.
+MAIN-PARA.
+    EXEC SQL CONNECT TO 'WAREHOUSE' END-EXEC
+    DISPLAY SQLSTATE \" \" SQLMSG
+    STOP RUN.
+",
+            Some(catalog),
+        );
+        assert!(out[0].starts_with("08001 "), "{backend}: {}", out[0]);
+        assert!(out[0].to_lowercase().contains("refused"), "{backend}: the driver's reason: {}", out[0]);
+        assert!(!out[0].contains("never-shown-087"), "{backend}: the password leaked");
+    }
+}

@@ -13,13 +13,19 @@
 //! test program runs each distinct statement against a SQLite copy of the
 //! tables they use. The programs' non-SQL PowerCOBOL constructs are spec
 //! 086's and play no part. Without the variable the test reports `SKIPPED`.
+//!
+//! **T27/T28 (M7):** the AC2–AC8, AC11 and AC18 programs of `tests/cobol/esql/`
+//! rerun against a live PostgreSQL (`PRC_TEST_PG_URL`) or MySQL
+//! (`PRC_TEST_MYSQL_URL`) server: every `CONNECT TO` the program makes is
+//! pointed at the server, the tables it creates are dropped first, and each
+//! program must report `FAIL 000`. `SKIPPED` without the variable.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 use cobolt_forms::connections::SqlConnection;
-use cobolt_lexer::{tokenize, SourceFormat};
+use cobolt_lexer::{expand_copybooks, tokenize, tokenize_expansion, SourceFormat};
 use cobolt_parser::{parse, Severity};
 use cobolt_runtime::esql::catalog::{SqlCatalog, Source};
 use cobolt_runtime::Interpreter;
@@ -286,4 +292,110 @@ fn tyc_sql_runs_on_sqlite() {
     assert_eq!(out, ["CONNECT 00000", "SELECT 00000 OCHO", "DISCONNECT 00000"]);
     let _ = std::fs::remove_dir_all(&db_dir);
     println!("AC15 TyC: {} distinct statements, all run; CONNECT TO 'JOSBER' reached the named SQL connection; SELECT … INTO … LIMIT 1 → OCHO", b.distinct());
+}
+
+/// The AC programs that run on any database.
+const AC_PROGRAMS: [&str; 10] = [
+    "ac2_host_structure.cbl",
+    "ac3_null_truncation.cbl",
+    "ac4_round_trips.cbl",
+    "ac5_status_standalone.cbl",
+    "ac5_status_sqlca.cbl",
+    "ac6_whenever.cbl",
+    "ac7_cursors.cbl",
+    "ac8_units_of_work.cbl",
+    "ac11_dynamic.cbl",
+    "ac18_mixed.cbl",
+];
+
+/// Rerun every AC program against the server at `url`.
+fn rerun_on_server(var: &str) {
+    let Some(url) = std::env::var(var).ok().filter(|u| !u.trim().is_empty()) else {
+        println!("SKIPPED: {var} is not set");
+        return;
+    };
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol/esql");
+    let connect = regex_free_connects();
+    let mut summary = Vec::new();
+    for name in AC_PROGRAMS {
+        let original = std::fs::read_to_string(dir.join(name)).unwrap();
+        let mut src = original.clone();
+        for target in &connect {
+            src = src.replace(target, &format!("CONNECT TO '{url}'"));
+        }
+        // A server keeps its tables between programs: drop what this one creates.
+        let mut backend = cobolt_runtime::esql::backend::open(&url).unwrap_or_else(|e| panic!("{var}: {}", e.message));
+        for table in created_tables(&original) {
+            let _ = backend.execute(&format!("DROP TABLE IF EXISTS {table}"), &[]);
+        }
+        drop(backend);
+        let exp = expand_copybooks(&src, &dir, SourceFormat::Free);
+        assert!(exp.errors.is_empty(), "{name}: {:?}", exp.errors);
+        let result = parse(tokenize_expansion(&exp));
+        let program = result.program.unwrap_or_else(|| panic!("{name} parses"));
+        let (_event_tx, event_rx) = mpsc::channel();
+        let (state_tx, _state_rx) = mpsc::channel();
+        let (display_tx, display_rx) = mpsc::channel();
+        let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+        interp.run().unwrap_or_else(|e| panic!("{name}: {e}"));
+        let out: Vec<String> = display_rx.try_iter().map(|l| l.trim_end().to_string()).collect();
+        let verdict = out.iter().rev().find(|l| l.starts_with("PASS ")).cloned().unwrap_or_default();
+        println!("--- {name} ---\n{}", out.join("\n"));
+        summary.push(format!("{name}: {verdict}"));
+        assert!(verdict.ends_with("FAIL 000"), "{name} on {var}:\n{}", out.join("\n"));
+    }
+    println!("{var}: {}", summary.join("; "));
+}
+
+/// The connection targets the AC programs name, as they are written.
+fn regex_free_connects() -> Vec<String> {
+    vec![
+        "CONNECT TO ':memory:'".into(),
+        "CONNECT TO 'sqlite:@DIR@/first.db'".into(),
+        "CONNECT TO 'sqlite:@DIR@/second.db'".into(),
+    ]
+}
+
+/// The tables a program creates (`CREATE TABLE name`).
+fn created_tables(src: &str) -> Vec<String> {
+    let upper = src.to_ascii_uppercase();
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(k) = upper[from..].find("CREATE TABLE ") {
+        let s = from + k + "CREATE TABLE ".len();
+        let name: String = upper[s..].trim_start().chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        if !name.is_empty() && name != "IF" && !out.contains(&name) {
+            out.push(name);
+        }
+        from = s;
+    }
+    out
+}
+
+/// T27 — the AC programs on PostgreSQL.
+#[test]
+#[ignore = "needs a PostgreSQL server: PRC_TEST_PG_URL"]
+fn pg_runs_the_ac_programs() {
+    rerun_on_server("PRC_TEST_PG_URL");
+}
+
+/// T28 — the AC programs on MySQL.
+#[test]
+#[ignore = "needs a MySQL server: PRC_TEST_MYSQL_URL"]
+fn mysql_runs_the_ac_programs() {
+    rerun_on_server("PRC_TEST_MYSQL_URL");
+}
+
+/// The harness's own pieces, which need no server.
+#[test]
+fn the_live_harness_finds_what_each_program_creates() {
+    assert_eq!(
+        created_tables("EXEC SQL CREATE TABLE ORDERS (ID INTEGER) END-EXEC\n EXEC SQL create table if not exists X (A INT) END-EXEC"),
+        ["ORDERS"]
+    );
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol/esql");
+    for name in AC_PROGRAMS {
+        let src = std::fs::read_to_string(dir.join(name)).unwrap();
+        assert!(regex_free_connects().iter().any(|c| src.contains(c.as_str())), "{name} connects in a form the harness redirects");
+    }
 }

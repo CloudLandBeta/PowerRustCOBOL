@@ -54,11 +54,13 @@ pub struct OpenCursor {
     /// The next row FETCH returns.
     pub next: usize,
     pub with_hold: bool,
-    /// The first column of each row is the row's key (SQLite's `rowid`),
-    /// added so `WHERE CURRENT OF` can name the row; it is never fetched.
-    pub keyed: bool,
-    /// The key of the row last fetched (R26).
-    pub current: Option<value::SqlValue>,
+    /// What `WHERE CURRENT OF` compares, one expression per key column —
+    /// SQLite's `rowid`, PostgreSQL's `ctid`, MySQL's primary key; empty for a
+    /// cursor that is not positioned. Each row starts with these columns,
+    /// added so the row can be named; they are never fetched (R26).
+    pub key: Vec<String>,
+    /// The key of the row last fetched.
+    pub current: Option<Vec<value::SqlValue>>,
 }
 
 impl SqlRunUnit {

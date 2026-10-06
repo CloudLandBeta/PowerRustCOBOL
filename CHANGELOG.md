@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.216] — 2026-10-06
+
+### Added
+- **Spec 087 M7 — embedded SQL on PostgreSQL and MySQL (preview).** `EXEC
+  SQL` reaches PostgreSQL and MySQL — by a `postgres://` or `mysql://`
+  connection string, or by a project SQL connection whose server is reached
+  field by field, the password never in a URL. PostgreSQL: parameters in text
+  form, results decoded exactly (NUMERIC, dates, times, timestamps, UUID …),
+  a savepoint around each statement so one failure does not spoil the unit of
+  work, the server's own SQLSTATE. MySQL: exact decimals, matched-row counts,
+  standard SQLSTATEs refined from MySQL's error numbers, the unit of work
+  reopened after a data-definition statement. `WHERE CURRENT OF` names the
+  row by `rowid` (SQLite), physical address (PostgreSQL) or primary key
+  (MySQL). A gated suite reruns every AC program against a live server
+  (`PRC_TEST_PG_URL`, `PRC_TEST_MYSQL_URL`); it has not been run yet, so the
+  Guide calls both databases a preview and lists the differences per
+  database.
+
 ## [PowerRustCOBOL 1.80.215] — 2026-10-06
 
 ### Added

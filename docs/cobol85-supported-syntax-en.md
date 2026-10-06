@@ -418,7 +418,7 @@ indicators (host structures, `FILLER` and `REDEFINES` skipped), `SELECT … INTO
 `BEGIN/END DECLARE SECTION`, and dynamic SQL (`PREPARE`, `EXECUTE [USING]`,
 `EXECUTE IMMEDIATE`, `DESCRIBE`, cursors over a prepared statement, the
 SQLDA). Status in a stand-alone `SQLSTATE`/`SQLCODE` or the SQLCA. Runs on
-SQLite today; PostgreSQL and MySQL are next. Details, the value and status
+SQLite, PostgreSQL and MySQL (the last two a preview). Details, the value and status
 tables, and what Check reports: the Developer's Guide, *Embedded SQL*.
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 A block may `use` the always-linked crates (std, egui, eframe and the linked

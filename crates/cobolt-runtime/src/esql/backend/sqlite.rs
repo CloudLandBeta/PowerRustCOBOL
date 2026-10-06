@@ -185,13 +185,17 @@ impl Backend for SqliteBackend {
         !self.conn.is_autocommit()
     }
 
-    fn describe(&mut self, sql: &str) -> Result<(usize, Vec<Column>), SqlError> {
+    fn describe(&mut self, sql: &str) -> Result<(Vec<Column>, Vec<Column>), SqlError> {
         let stmt = self.conn.prepare_cached(sql).map_err(map_error)?;
         let cols = stmt
             .columns()
             .iter()
             .map(|c| Column { name: c.name().to_string(), decl_type: c.decl_type().map(str::to_string), nullable: None })
             .collect();
-        Ok((stmt.parameter_count(), cols))
+        Ok((super::untyped_params(stmt.parameter_count()), cols))
+    }
+
+    fn row_key(&mut self, _table: &str) -> Result<Vec<(String, String)>, SqlError> {
+        Ok(vec![("rowid".into(), "rowid".into())])
     }
 }

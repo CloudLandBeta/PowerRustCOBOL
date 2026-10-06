@@ -87,7 +87,10 @@ const SQL_CRUD: &str = r#"
 /// the example and this proof can never drift apart.
 #[test]
 fn the_guides_crud_example_runs_as_written() {
-    let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/database-runtime-en.md")).unwrap();
+    // Read at run time, like the AC programs (not an `include_str!`: the
+    // document is not part of what a built application compiles).
+    let doc_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/database-runtime-en.md");
+    let doc = std::fs::read_to_string(doc_path).unwrap();
     let section = &doc[doc.find("## 3. Example").expect("the example section")..];
     let start = section.find("```cobol\n").expect("its COBOL block") + "```cobol\n".len();
     let program = &section[start..start + section[start..].find("```").unwrap()];

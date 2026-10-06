@@ -59,7 +59,12 @@ impl Session {
         self.backend.query(sql, params)
     }
 
-    pub fn describe(&mut self, sql: &str) -> Result<(usize, Vec<super::backend::Column>), SqlError> {
+    /// How a row of `table` is named for `WHERE CURRENT OF` (R26).
+    pub fn row_key(&mut self, table: &str) -> Result<Vec<(String, String)>, SqlError> {
+        self.backend.row_key(table)
+    }
+
+    pub fn describe(&mut self, sql: &str) -> Result<(Vec<super::backend::Column>, Vec<super::backend::Column>), SqlError> {
         self.backend.describe(sql)
     }
 

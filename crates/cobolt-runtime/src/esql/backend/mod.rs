@@ -12,6 +12,10 @@ use super::state::SqlError;
 use super::value::SqlValue;
 
 #[cfg(feature = "sql")]
+pub mod mysql;
+#[cfg(feature = "sql")]
+pub mod postgres;
+#[cfg(feature = "sql")]
 pub mod sqlite;
 pub mod unlinked;
 
@@ -46,7 +50,7 @@ impl BackendKind {
     }
 }
 
-/// A result column.
+/// A result column, or a parameter (named `?1`, `?2` …).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Column {
     pub name: String,
@@ -77,8 +81,14 @@ pub trait Backend: Send {
     /// Whether a transaction is open now — asked of the database, because it
     /// may end one on its own (SQLite after some errors, MySQL after DDL).
     fn in_transaction(&mut self) -> bool;
-    /// How many parameters a statement takes, and its result columns.
-    fn describe(&mut self, sql: &str) -> Result<(usize, Vec<Column>), SqlError>;
+    /// A statement's parameters — with their types where the database
+    /// reports them (PostgreSQL does; SQLite and MySQL do not) — and its
+    /// result columns.
+    fn describe(&mut self, sql: &str) -> Result<(Vec<Column>, Vec<Column>), SqlError>;
+    /// How a row of `table` is named for `WHERE CURRENT OF` (R26): pairs of
+    /// (what the cursor's query selects, what the condition compares) — one
+    /// pair per key column.
+    fn row_key(&mut self, table: &str) -> Result<Vec<(String, String)>, SqlError>;
 }
 
 /// Open a connection from a connection string (R34: the caller has already
@@ -88,12 +98,8 @@ pub fn open(conn: &str) -> Result<Box<dyn Backend>, SqlError> {
     {
         match BackendKind::of(conn) {
             BackendKind::Sqlite => return Ok(Box::new(sqlite::SqliteBackend::open(conn)?)),
-            other => {
-                return Err(SqlError::new(
-                    super::state::code::CANNOT_CONNECT,
-                    format!("{} is not available to embedded SQL yet", other.name()),
-                ))
-            }
+            BackendKind::Postgres => return Ok(Box::new(postgres::PostgresBackend::open_url(conn)?)),
+            BackendKind::MySql => return Ok(Box::new(mysql::MySqlBackend::open_url(conn)?)),
         }
     }
     #[cfg(not(feature = "sql"))]
@@ -118,9 +124,20 @@ pub fn open_target(target: &super::catalog::Target) -> Result<Box<dyn Backend>, 
             open(&format!("sqlite:{}", path.display()))
         }
         Target::ConnString(s) => open(s),
-        Target::Server { kind, .. } => Err(SqlError::new(
-            super::state::code::CANNOT_CONNECT,
-            format!("{} is not available to embedded SQL yet", kind.name()),
-        )),
+        #[cfg(feature = "sql")]
+        Target::Server { kind, host, port, database, user, password } => {
+            let (user, password) = (user.as_deref(), password.as_ref().map(|p| p.expose()));
+            match kind {
+                BackendKind::MySql => Ok(Box::new(mysql::MySqlBackend::open_fields(host, *port, database, user, password)?)),
+                _ => Ok(Box::new(postgres::PostgresBackend::open_fields(host, *port, database, user, password)?)),
+            }
+        }
+        #[cfg(not(feature = "sql"))]
+        Target::Server { kind, .. } => unlinked::open(&format!("{}://", kind.name().to_ascii_lowercase())),
     }
+}
+
+/// `n` parameters whose types the database does not report.
+pub fn untyped_params(n: usize) -> Vec<Column> {
+    (1..=n).map(|i| Column { name: format!("?{i}"), decl_type: None, nullable: None }).collect()
 }

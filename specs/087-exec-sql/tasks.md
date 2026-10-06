@@ -394,6 +394,19 @@ pushed unless the operator asks.
     reruns the AC2–AC8, AC11 and AC18 programs. **First check `$n` inside
     `DECLARE … CURSOR`; if PostgreSQL refuses it, switch to reading rows at
     OPEN and report it.**
+  - Status (2026-10-06): **code complete, live run pending.** No server is
+    on this machine and installing one needs the operator's permission.
+    Done: `backend/postgres.rs` (text parameters with a redacted `Debug`,
+    binary decoders, savepoint per statement, native SQLSTATE, field-by-field
+    `Config`, `ctid` row key); unit tests `numeric_decoding`,
+    `date_and_time_decoding`, `redacted_parameter_debug`; CONNECT to a closed
+    port → `08001` with the driver's reason. **Deviation, reported:** rows are
+    read at OPEN on PostgreSQL too, not through a native cursor — the
+    `$n`-in-`DECLARE` question cannot be settled without a server, and reading
+    at OPEN is the same path SQLite and MySQL take. Native cursors with batch
+    fetch remain to do for very large results. To finish: set
+    `PRC_TEST_PG_URL` and run `cargo test -p cobolt-runtime --test
+    test_esql_live -- --ignored pg`.
 
 - [ ] **T28 — MySQL backend** (R13, R15, R18, R25–R30, R44)
   - Files: `crates/cobolt-runtime/src/esql/backend/mysql.rs` (new),
@@ -406,8 +419,15 @@ pushed unless the operator asks.
     (`mysql_error_refinement`); `PRC_TEST_MYSQL_URL=… cargo test
     -p cobolt-runtime --test test_esql_live -- --ignored mysql` reruns the same
     programs.
+  - Status (2026-10-06): **code complete, live run pending** (as T27).
+    Done: `backend/mysql.rs` (positional parameters, value mapping by column
+    type and charset, `CLIENT_FOUND_ROWS`, the error refinement table, the
+    unit reopened after DDL, primary-key `CURRENT OF` through
+    `information_schema`, `OptsBuilder` field by field); unit tests
+    `mysql_error_refinement`, `mysql_values`. To finish: set
+    `PRC_TEST_MYSQL_URL` and run the `mysql` case.
 
-- [ ] **T29 — M7 wrap-up**
+- [x] **T29 — M7 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (per-database notes and limits) and
     System KB slice; regenerate `chunked.data`.
   - Verify: KB freshness test green.

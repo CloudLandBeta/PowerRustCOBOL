@@ -408,16 +408,22 @@ impl Interpreter {
                 (crate::esql::rewrite::question_marks(&text, bk), params)
             }
         };
-        let keyed = decl.positioned && bk == BackendKind::Sqlite;
         if bk == BackendKind::Sqlite {
+            // SQLite neither takes nor needs it: a write locks the database.
             sql = crate::esql::rewrite::strip_for_update(&sql);
-            if keyed {
-                sql = crate::esql::rewrite::sqlite_keyed_select(&sql)?;
-            }
         }
-        trace.text = format!("OPEN {cursor}: {sql}");
         let mut unit = self.sql_lock()?;
         let session = unit.current_mut()?;
+        // R26: a positioned cursor selects its rows' keys too.
+        let mut row_key = Vec::new();
+        if decl.positioned {
+            let (at, table) = crate::esql::rewrite::single_table(&sql)?;
+            let pairs = session.row_key(&table)?;
+            let selected: Vec<String> = pairs.iter().map(|(s, _)| s.clone()).collect();
+            sql = crate::esql::rewrite::keyed_select(&sql, at, &selected);
+            row_key = pairs.into_iter().map(|(_, c)| c).collect();
+        }
+        trace.text = format!("OPEN {cursor}: {sql}");
         let name = session.name.clone();
         let rows = session.query(&sql, &params)?;
         unit.cursors.insert(
@@ -427,7 +433,7 @@ impl Interpreter {
                 rows: rows.rows,
                 next: 0,
                 with_hold: decl.with_hold,
-                keyed,
+                key: row_key,
                 current: None,
             },
         );
@@ -449,10 +455,11 @@ impl Interpreter {
             }
             let row = cur.rows[cur.next].clone();
             cur.next += 1;
-            cur.current = if cur.keyed { row.first().cloned() } else { Some(SqlValue::Null) };
-            (row, cur.keyed)
+            let k = cur.key.len();
+            cur.current = Some(row[..k].to_vec());
+            (row, k)
         };
-        let values = if keyed { &row[1..] } else { &row[..] };
+        let values = &row[keyed..];
         let state = match into {
             SqlInto::Hosts(h) => self.sql_assign(h, values)?,
             SqlInto::Descriptor(d) => self.sqlda_fetch(d, values)?,
@@ -530,14 +537,13 @@ impl Interpreter {
         let sql = crate::esql::rewrite::question_marks(&text, bk);
         trace.text = format!("DESCRIBE{} {name}: {sql}", if input { " INPUT" } else { "" });
         let (params, cols) = self.sql_lock()?.current_mut()?.describe(&sql)?;
-        let entries: Vec<crate::esql::sqlda::Described> = if input {
-            // SQLite and MySQL do not report parameter types: unknown, not guessed.
-            (1..=params).map(|i| crate::esql::sqlda::Described::unknown(format!("?{i}"))).collect()
-        } else {
-            cols.iter()
-                .map(|c| crate::esql::sqlda::describe_declared(&c.name, c.decl_type.as_deref(), c.nullable))
-                .collect()
-        };
+        // A parameter whose type the database does not report (SQLite, MySQL)
+        // is described as unknown, never guessed (R44).
+        let described = if input { &params } else { &cols };
+        let entries: Vec<crate::esql::sqlda::Described> = described
+            .iter()
+            .map(|c| crate::esql::sqlda::describe_declared(&c.name, c.decl_type.as_deref(), c.nullable))
+            .collect();
         let cap = self.sqlda_capacity(d)?;
         let needed = entries.len();
         let k = self.sqlda_key(d, "SQLDA-NEEDED", None);
@@ -828,15 +834,20 @@ impl Interpreter {
                     let Some(row) = cur.current.clone() else {
                         return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {c} is not on a row")));
                     };
-                    if !cur.keyed || kind != BackendKind::Sqlite {
+                    if cur.key.is_empty() {
                         return Err(SqlError::new(
                             code::NOT_SUPPORTED,
                             format!("WHERE CURRENT OF {c} is not available for this cursor"),
                         ));
                     }
-                    sql.push_str("rowid = ");
-                    sql.push_str(&crate::esql::rewrite::placeholder(kind, params.len()));
-                    params.push(row);
+                    let conds: Vec<String> = cur
+                        .key
+                        .iter()
+                        .enumerate()
+                        .map(|(i, k)| format!("{k} = {}", crate::esql::rewrite::placeholder(kind, params.len() + i)))
+                        .collect();
+                    sql.push_str(&conds.join(" AND "));
+                    params.extend(row);
                 }
             }
         }
