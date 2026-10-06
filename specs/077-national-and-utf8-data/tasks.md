@@ -109,10 +109,18 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
 
 ## M6 — Forms and hosts
 
-- [ ] **T21 — Form properties** (R15) and parity (R26). *Verify:* AC10 in
+- [x] **T21 — Form properties** (R15) and parity (R26). *Verify:* AC10 in
   Run Form and a compiled binary; AC17 for the AC1–AC14 programs under
   `rcrun run` and a compiled binary.
-- [ ] **T22 — M6 wrap-up.**
+- [x] **T22 — M6 wrap-up.**
+  - Result (1.80.226): AC10 passes under the real Run Form host off screen
+    (TextBox → `PIC N(30)` → Label, the same characters). A built *form*
+    application has no scripted headless mode, so AC10's binary half rests on
+    the one form host (spec 042) and runtime the binary links; no host needs
+    national-specific setup. AC17: the four test programs give identical
+    verdicts and counts under `rcrun run`, Run Form and a compiled binary
+    (`national_parity.rs`, `test_national_build.rs` — the latter `--ignored`,
+    31 s).
 
 ## M7 — IDE
 
@@ -123,8 +131,12 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
 
 ## M8 — Documentation and acceptance
 
-- [ ] **T26 — Test programs** `tests/cobol/national/`, `tests/cobol/utf8/`
+- [x] **T26 — Test programs** `tests/cobol/national/`, `tests/cobol/utf8/`
   with GOLDEN RULE #7 result blocks (AC18).
+  - Result: `nat_basics` 18/18 (C01–C18, bulk MOVE + INSPECT ×100,000),
+    `nat_functions` 7/7 (F01–F07, 1252 round trips ×50,000), `nat_indexed`
+    4/4 (2,000 records: write, read by key, rewrite, key-order scan, each
+    timed), `utf8_basics` 14/14 (U01–U14, bulk ×100,000).
 - [ ] **T27 — Guide, syntax reference, System KB** (R24); regenerate
   `chunked.data`.
 - [ ] **T28 — Full sweep and NIST** (AC16); tick the ACs; final `z` bump.

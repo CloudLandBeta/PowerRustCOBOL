@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.226] — 2026-10-06
+
+### Added
+- **Spec 077 M6 — national data in forms, and the same results on every
+  host.** A form moves a TextBox's text into a `PIC N(30)` item and back
+  into a Label with every character intact. Four new test programs —
+  `tests/cobol/national/nat_basics.cbl`, `nat_functions.cbl`,
+  `nat_indexed.cbl` and `tests/cobol/utf8/utf8_basics.cbl` — each list the
+  cases they exercise and time their bulk work, and give identical results
+  under `rcrun run`, Run Form and a compiled binary.
+
 ## [PowerRustCOBOL 1.80.225] — 2026-10-06
 
 ### Added
