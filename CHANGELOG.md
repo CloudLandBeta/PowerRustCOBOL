@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.227] — 2026-10-06
+
+### Added
+- **Spec 077 M7 — the IDE knows national and UTF-8 data.** The editor draws
+  `N"…"`, `NX"…"`, `U"…"` and `UX"…"` literals whole in the string colour, and
+  a function name after `FUNCTION` in the keyword colour. IntelliSense offers
+  every intrinsic function, the new ones included, and the `UTF-8` and
+  `BYTE-LENGTH` clauses. In the COBOL Structure editor, a national or UTF-8
+  declaration under the caret shows its size in characters and bytes —
+  "WS-MSG — 30 characters, 60 bytes" — in all six IDE languages.
+
 ## [PowerRustCOBOL 1.80.226] — 2026-10-06
 
 ### Added

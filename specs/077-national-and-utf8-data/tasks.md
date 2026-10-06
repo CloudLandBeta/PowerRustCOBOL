@@ -124,10 +124,18 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
 
 ## M7 — IDE
 
-- [ ] **T23 — Colours and IntelliSense** (R23). *Verify:* editor tests.
-- [ ] **T24 — Structure view sizes and debugger** (R23, `Tr` ×6). *Verify:*
+- [x] **T23 — Colours and IntelliSense** (R23). *Verify:* editor tests.
+- [x] **T24 — Structure view sizes and debugger** (R23, `Tr` ×6). *Verify:*
   AC15 test; i18n tests.
-- [ ] **T25 — M7 wrap-up.**
+- [x] **T25 — M7 wrap-up.**
+  - Result (1.80.227): `N"…"`, `NX"…"`, `U"…"`, `UX"…"` draw whole in the
+    string colour; a name after `FUNCTION` that is an intrinsic draws as a
+    keyword (only there, so a paragraph called `SUM` keeps its colour);
+    IntelliSense now offers every intrinsic from the shared list (it offered
+    none before) plus `UTF-8` and `BYTE-LENGTH`; the COBOL Structure editor
+    shows "WS-MSG — 30 characters, 60 bytes" for the item under the caret
+    (`Tr` ×6). The debugger rows were T11. IDE suite 1341 passed, the known
+    docs test aside.
 
 ## M8 — Documentation and acceptance
 

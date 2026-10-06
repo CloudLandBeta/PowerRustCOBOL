@@ -11961,6 +11961,26 @@ impl DesignerPanel {
                 ui.add_space(4.0);
 
                 self.cs_editor.status_row(ui);
+                // Spec 077 R23: a national or UTF-8 item's characters and bytes
+                // differ, so the declaration under the caret says both.
+                if let Some(size) = self
+                    .cs_editor
+                    .active_text()
+                    .and_then(|text| cs::item_size(text, self.cs_editor.caret_line()))
+                {
+                    let line = match size.chars {
+                        Some(chars) => tr
+                            .cs_item_size
+                            .replace("{name}", &size.name)
+                            .replace("{chars}", &chars.to_string())
+                            .replace("{bytes}", &size.bytes.to_string()),
+                        None => tr
+                            .cs_item_size_bytes
+                            .replace("{name}", &size.name)
+                            .replace("{bytes}", &size.bytes.to_string()),
+                    };
+                    ui.label(egui::RichText::new(line).monospace().size(12.0));
+                }
                 ui.add_space(4.0);
 
                 // ── Hosted COBOL editor — a BOUNDED, user-resizable box. ─────

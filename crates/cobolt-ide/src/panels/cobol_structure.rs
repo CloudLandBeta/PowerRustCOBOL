@@ -298,6 +298,101 @@ pub fn set_block_text(form: &mut Form, t: CsTarget, text: String) -> bool {
     }
 }
 
+/// The size of a national or UTF-8 item (spec 077, R23): what the COBOL
+/// Structure editor shows for the declaration under the caret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemSize {
+    pub name: String,
+    /// Character positions; `None` for `PIC U BYTE-LENGTH n`, whose count of
+    /// characters depends on what it holds.
+    pub chars: Option<usize>,
+    /// Bytes of storage: 2 per `N`, 4 per `U`, or the `BYTE-LENGTH`.
+    pub bytes: usize,
+}
+
+/// The size of the item declared on 1-based `line` of `block`, when that line
+/// declares a national (`PIC N`) or UTF-8 (`PIC U`) item. `None` for any other
+/// line — an alphanumeric item's characters are its bytes, so there is nothing
+/// to tell apart.
+pub fn item_size(block: &str, line: usize) -> Option<ItemSize> {
+    let text = block.lines().nth(line.checked_sub(1)?)?;
+    // A comment line declares nothing.
+    if text.trim_start().starts_with("*>") || text.chars().nth(6).is_some_and(|c| c == '*' || c == '/') {
+        return None;
+    }
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| w.trim_end_matches('.').to_ascii_uppercase())
+        .collect();
+    let level = words.first()?;
+    if !level.chars().all(|c| c.is_ascii_digit()) || level.parse::<u32>().ok()? >= 50 {
+        return None;
+    }
+    let name = text.split_whitespace().nth(1)?.trim_end_matches('.').to_owned();
+    let at = words.iter().position(|w| w == "PIC" || w == "PICTURE")?;
+    let mut pic_at = at + 1;
+    if words.get(pic_at).is_some_and(|w| w == "IS") {
+        pic_at += 1;
+    }
+    let picture = words.get(pic_at)?;
+    let (mut n, mut u) = (0usize, 0usize);
+    let chars: Vec<char> = picture.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        i += 1;
+        let mut count = 1usize;
+        if chars.get(i) == Some(&'(') {
+            let close = chars[i..].iter().position(|&x| x == ')')? + i;
+            count = chars[i + 1..close].iter().collect::<String>().trim().parse().ok()?;
+            i = close + 1;
+        }
+        match c {
+            'N' => n += count,
+            'U' => u += count,
+            _ => return None,
+        }
+    }
+    let byte_length = words
+        .iter()
+        .position(|w| w == "BYTE-LENGTH")
+        .and_then(|k| words.get(k + 1).filter(|w| *w == "IS").map(|_| k + 2).or(Some(k + 1)))
+        .and_then(|k| words.get(k))
+        .and_then(|w| w.parse::<usize>().ok());
+    match (n, u, byte_length) {
+        (n, 0, None) if n > 0 => Some(ItemSize { name, chars: Some(n), bytes: 2 * n }),
+        (0, u, None) if u > 0 => Some(ItemSize { name, chars: Some(u), bytes: 4 * u }),
+        (0, 1, Some(b)) => Some(ItemSize { name, chars: None, bytes: b }),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod item_size_tests {
+    use super::*;
+
+    /// AC15: `PIC N(30)` is 30 characters and 60 bytes.
+    #[test]
+    fn national_and_utf8_sizes() {
+        let block = "\
+       01  WS-MSG     PIC N(30) VALUE N\"Olá\".
+       01  WS-U       PICTURE IS U(5).
+       01  WS-B       PIC U BYTE-LENGTH 8.
+       01  WS-X       PIC X(10).
+      *> 01 WS-C PIC N(3).
+       01  WS-NN      PIC NNN USAGE NATIONAL.";
+        let at = |l| item_size(block, l);
+        assert_eq!(at(1), Some(ItemSize { name: "WS-MSG".into(), chars: Some(30), bytes: 60 }));
+        assert_eq!(at(2), Some(ItemSize { name: "WS-U".into(), chars: Some(5), bytes: 20 }));
+        assert_eq!(at(3), Some(ItemSize { name: "WS-B".into(), chars: None, bytes: 8 }));
+        assert_eq!(at(4), None, "an alphanumeric item has nothing to tell apart");
+        assert_eq!(at(5), None, "a comment declares nothing");
+        assert_eq!(at(6), Some(ItemSize { name: "WS-NN".into(), chars: Some(3), bytes: 6 }));
+        assert_eq!(at(0), None);
+        assert_eq!(at(99), None);
+    }
+}
+
 #[cfg(test)]
 mod global_01_tests {
     use super::*;

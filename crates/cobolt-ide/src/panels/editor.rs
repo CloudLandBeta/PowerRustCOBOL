@@ -197,6 +197,9 @@ pub(crate) const DATA_KEYWORDS: &[&str] = &[
     "QUOTES",
     "NULL",
     "NULLS",
+    // Spec 077: UTF-8 data (`NATIONAL` is a COBOL-2002 word, listed below).
+    "UTF-8",
+    "BYTE-LENGTH",
 ];
 
 /// COBOL-2002 reserved words (object orientation, the new data types, dynamic
@@ -3121,6 +3124,16 @@ impl EditorPanel {
         ctx.fonts_mut(|f| f.row_height(&FontId::monospace(self.font_size)))
     }
 
+    /// The text of the active tab, if there is one.
+    pub(crate) fn active_text(&self) -> Option<&str> {
+        self.tabs.get(self.active).map(|t| t.content.as_str())
+    }
+
+    /// The caret's line, 1-based, as the status row shows it.
+    pub(crate) fn caret_line(&self) -> usize {
+        self.cur_line
+    }
+
     pub(crate) fn status_row(&mut self, ui: &mut egui::Ui) {
         let active_tab = self.tabs.get(self.active);
         let read_only = active_tab.map(|tab| tab.read_only).unwrap_or(false);
@@ -4955,6 +4968,16 @@ fn build_completions(
         }
     }
 
+    // ── 2. Intrinsic functions — the list the runtime and Check share, so a
+    // function is offered exactly when it exists (spec 077 added eight).
+    if !context_only {
+        for &f in cobolt_ast::intrinsics::INTRINSIC_FUNCTIONS {
+            if f.starts_with(&up) && seen.insert(f.into()) {
+                items.push(AcItem::kw(f));
+            }
+        }
+    }
+
     // ── 3. Paragraph names ────────────────────────────────────────────────
     if !context_only {
         for p in extract_paragraphs(source) {
@@ -5469,6 +5492,10 @@ fn cobol_highlight_line(
     let mut seg = 0usize;
     let mut in_str: Option<u8> = None;
     let mut tok_num = 0usize;
+    // The previous word, upper-cased: a name after `FUNCTION` that is an
+    // intrinsic is drawn as a keyword (spec 077 R23), and only there, so a
+    // paragraph or data item that happens to be called `SUM` keeps its colour.
+    let mut prev_up = String::new();
 
     while i < n {
         if let Some(q) = in_str {
@@ -5508,6 +5535,13 @@ fn cobol_highlight_line(
         }
 
         if bytes[i] == b'"' || bytes[i] == b'\'' {
+            // A literal's prefix is part of the literal: `N"…"`, `NX"…"`,
+            // `U"…"`, `UX"…"` and `X"…"` are drawn whole in the string colour.
+            if is_literal_prefix(&line[seg..i]) {
+                in_str = Some(bytes[i]);
+                i += 1;
+                continue;
+            }
             if i > seg {
                 emit_word(
                     job,
@@ -5536,19 +5570,24 @@ fn cobol_highlight_line(
             if i > seg {
                 let word = &line[seg..i];
                 if word.chars().any(|c| c.is_alphanumeric()) {
-                    emit_word(
-                        job,
-                        word,
-                        tok_num,
-                        next_is_data,
-                        first_is_para,
-                        kw_set,
-                        fmt,
-                        c_plain,
-                        c_kw,
-                        c_data,
-                        c_para,
-                    );
+                    if prev_up == "FUNCTION" && cobolt_ast::intrinsics::is_intrinsic(word) {
+                        job.append(word, 0.0, fmt(c_kw));
+                    } else {
+                        emit_word(
+                            job,
+                            word,
+                            tok_num,
+                            next_is_data,
+                            first_is_para,
+                            kw_set,
+                            fmt,
+                            c_plain,
+                            c_kw,
+                            c_data,
+                            c_para,
+                        );
+                    }
+                    prev_up = word.to_ascii_uppercase();
                     tok_num += 1;
                 } else {
                     job.append(word, 0.0, fmt(c_plain));
@@ -5567,24 +5606,34 @@ fn cobol_highlight_line(
         } else {
             let word = &line[seg..];
             if word.chars().any(|c| c.is_alphanumeric()) {
-                emit_word(
-                    job,
-                    word,
-                    tok_num,
-                    next_is_data,
-                    first_is_para,
-                    kw_set,
-                    fmt,
-                    c_plain,
-                    c_kw,
-                    c_data,
-                    c_para,
-                );
+                if prev_up == "FUNCTION" && cobolt_ast::intrinsics::is_intrinsic(word.trim_end_matches('.')) {
+                    job.append(word, 0.0, fmt(c_kw));
+                } else {
+                    emit_word(
+                        job,
+                        word,
+                        tok_num,
+                        next_is_data,
+                        first_is_para,
+                        kw_set,
+                        fmt,
+                        c_plain,
+                        c_kw,
+                        c_data,
+                        c_para,
+                    );
+                }
             } else {
                 job.append(word, 0.0, fmt(c_plain));
             }
         }
     }
+}
+
+/// Whether `word` is a literal prefix glued to the quote that follows it:
+/// `X`, `N`, `NX`, `U` or `UX` (spec 077 added the last four).
+fn is_literal_prefix(word: &str) -> bool {
+    ["X", "N", "NX", "U", "UX"].iter().any(|p| word.eq_ignore_ascii_case(p))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6976,5 +7025,55 @@ mod encoding_tests {
         assert!(String::from_utf8(saved).unwrap().contains("Ação\n      *> 日本"), "UTF-8 rather than lose 日本");
         assert!(!ed.tabs[0].windows_1252);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod national_editor_tests {
+    use super::*;
+
+    /// The colour the highlighter gives the text starting at `needle`.
+    fn colour_at(job: &egui::text::LayoutJob, text: &str, needle: &str) -> Color32 {
+        let at = text.find(needle).expect("needle");
+        job.sections
+            .iter()
+            .find(|s| s.byte_range.start.0 <= at && at < s.byte_range.end.0)
+            .map(|s| s.format.color)
+            .expect("a section covers it")
+    }
+
+    /// Spec 077 AC15: a literal's prefix is drawn with the literal, and a
+    /// function name after FUNCTION as a keyword — the new ones included.
+    #[test]
+    fn national_literals_and_functions_are_coloured() {
+        let th = crate::theme::active();
+        let text = "           MOVE N\"Ação\" TO WS-N NX\"0041\" U\"ç\" UX\"C3A7\"\n           COMPUTE WS-I = FUNCTION ULENGTH(WS-U)\n";
+        let job = highlight_cobol(text);
+        for lit in ["N\"Ação\"", "NX\"0041\"", "U\"ç\"", "UX\"C3A7\""] {
+            assert_eq!(colour_at(&job, text, lit), th.ed_string, "{lit} starts in the string colour");
+        }
+        assert_eq!(colour_at(&job, text, "ULENGTH"), th.ed_keyword);
+        // A word that is NOT after FUNCTION keeps its own colour.
+        let plain = "       SUM.\n";
+        assert_ne!(colour_at(&highlight_cobol(plain), plain, "SUM"), th.ed_keyword);
+    }
+
+    /// AC15: IntelliSense offers the clauses and the new functions.
+    #[test]
+    fn intellisense_offers_the_national_words() {
+        let labels = |pfx: &str| -> Vec<String> {
+            build_completions(pfx, "", &[], &[], false).into_iter().map(|i| i.label).collect()
+        };
+        for (pfx, want) in [
+            ("ULEN", "ULENGTH"),
+            ("USUB", "USUBSTR"),
+            ("NATIONAL-", "NATIONAL-OF"),
+            ("DISPLAY-", "DISPLAY-OF"),
+            ("UTF", "UTF-8"),
+            ("BYTE-", "BYTE-LENGTH"),
+            ("NATIONAL", "NATIONAL"),
+        ] {
+            assert!(labels(pfx).iter().any(|l| l == want), "{pfx} offers {want}: {:?}", labels(pfx));
+        }
     }
 }
