@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.224] — 2026-10-06
+
+### Fixed
+- **A radio selected by code after the operator had clicked one stayed
+  blank.** On PowerDemo3's RadioButton page, clicking Card and then "Pick
+  PIX" (`Rad-Pix::Select()`) ran PIX's handler — the label read PIX — but no
+  circle showed as selected. A click stores a radio's state under both of its
+  spellings, `Selected` and `Checked`; a write from code stored only one, so
+  the radio held `Selected` 1 beside a stale `Checked` 0 and the screen
+  usually showed the 0. A write from code now stores both, in Run Form, in a
+  form opened by another form and in a built application alike.
+
 ## [PowerRustCOBOL 1.80.203] — 2026-10-06
 
 ### Fixed
