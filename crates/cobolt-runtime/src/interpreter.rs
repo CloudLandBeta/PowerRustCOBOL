@@ -9760,6 +9760,9 @@ impl Interpreter {
             .file_specs
             .get(&fkey)
             .is_some_and(|s| s.is_varying());
+        // Spec 077, D10: a LINE SEQUENTIAL line carries national and UTF-8
+        // fields as text; the record holds their images.
+        let line_layout = self.file_specs.get(&fkey).map(|s| s.layout.clone());
         let mut out = Vec::new();
         loop {
             let rec = match self.open_files.get_mut(&fkey) {
@@ -9772,7 +9775,10 @@ impl Interpreter {
                                 while line.ends_with('\n') || line.ends_with('\r') {
                                     line.pop();
                                 }
-                                Some(line.into_bytes())
+                                Some(match &line_layout {
+                                    Some(l) => l.line_to_image(line.as_bytes()),
+                                    None => line.into_bytes(),
+                                })
                             }
                             Err(_) => None,
                         }
@@ -9907,6 +9913,13 @@ impl Interpreter {
                 .into_bytes(),
         };
 
+        // Spec 077, D10: a LINE SEQUENTIAL file holds national and UTF-8
+        // fields as readable text, not as their images.
+        let line_buf: Option<Vec<u8>> = self
+            .file_specs
+            .get(&file)
+            .filter(|s| s.organization == FileOrganization::LineSequential)
+            .map(|s| s.layout_for(&rec_name).image_to_line(&buf));
         // A length outside the FD's declared `FROM … TO` range is a boundary
         // violation: the record does not fit the file as described, so nothing
         // is written.
@@ -10013,7 +10026,7 @@ impl Interpreter {
             Some(OpenFile::Writer { w, org }) => {
                 let r = match org {
                     FileOrganization::LineSequential => {
-                        let s = String::from_utf8_lossy(&buf);
+                        let s = String::from_utf8_lossy(line_buf.as_deref().unwrap_or(&buf));
                         writeln!(w, "{}", s.trim_end())
                     }
                     // A variable-length record carries its own length, so the
@@ -10518,7 +10531,9 @@ impl Interpreter {
                             while line.ends_with('\n') || line.ends_with('\r') {
                                 line.pop();
                             }
-                            (Some(line.into_bytes()), status::OK)
+                            // A national or UTF-8 field is text in the line and
+                            // an image in the record (spec 077, D10).
+                            (Some(spec.layout.line_to_image(line.as_bytes())), status::OK)
                         }
                         Err(e) => {
                             tracing::warn!("READ failed: {e}");

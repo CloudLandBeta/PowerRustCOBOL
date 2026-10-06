@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.225] — 2026-10-06
+
+### Added
+- **Spec 077 M5 — national and UTF-8 data in files.** A national field is
+  its UTF-16 bytes in a record and a UTF-8 field its padded bytes, so record
+  lengths, keys and `RECORD KEY` order follow (an INDEXED file keyed on a
+  `PIC N(20)` item writes, reads by key, rewrites and scans in key order). A
+  LINE SEQUENTIAL file carries national and UTF-8 fields as readable UTF-8
+  text and reads them back by character. The IDE's indexed-file definitions
+  accept `PIC N(n)` and `PIC U(n)`, with their storage widths, and the grid
+  shows and accepts characters in them.
+
 ## [PowerRustCOBOL 1.80.223] — 2026-10-06
 
 ### Added

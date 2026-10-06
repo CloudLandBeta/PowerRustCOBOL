@@ -96,11 +96,16 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
 
 ## M5 — Files
 
-- [ ] **T18 — Record layout and I/O** (D10): widths, images, keys; LINE
+- [x] **T18 — Record layout and I/O** (D10): widths, images, keys; LINE
   SEQUENTIAL as text. *Verify:* AC9 (indexed, reopened by a second run),
   a sequential and a line-sequential round trip.
-- [ ] **T19 — `.cidx`** PICTURE N and U. *Verify:* cobolt-indexed tests.
-- [ ] **T20 — M5 wrap-up.**
+- [x] **T19 — `.cidx`** PICTURE N and U. *Verify:* cobolt-indexed tests.
+- [x] **T20 — M5 wrap-up.**
+  - Result (1.80.225): AC9 passes — a `PIC N(20)` key and a `PIC N(40)`
+    field written, read by key, rewritten, and reopened by a second run in
+    key order with every character intact; the record is 120 bytes. Record
+    SEQUENTIAL and LINE SEQUENTIAL round trips pass, the latter as readable
+    UTF-8 text. Sweep green (known docs test aside); NIST 8,362 of 8,362.
 
 ## M6 — Forms and hosts
 

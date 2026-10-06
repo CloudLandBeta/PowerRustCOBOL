@@ -160,6 +160,38 @@ pub fn from_utf16be(bytes: &[u8]) -> String {
     char::decode_utf16(units).map(|r| r.unwrap_or('\u{FFFD}')).collect()
 }
 
+/// Read one item's characters from the front of UTF-8 `bytes` — as many as
+/// `class` holds — and how many bytes they took. A LINE SEQUENTIAL record
+/// carries a national or UTF-8 field as text (spec 077, D10), so its extent
+/// in the line is known only by reading it. A byte that is not UTF-8 reads as
+/// U+FFFD and takes one byte.
+pub fn take_text(class: CharClass, bytes: &[u8]) -> (String, usize) {
+    let cap = capacity(class);
+    let (mut used, mut i) = (0usize, 0usize);
+    let mut out = String::new();
+    while i < bytes.len() {
+        let width = match bytes[i] {
+            0x00..=0x7F => 1,
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            _ => 1,
+        };
+        let (c, n) = match bytes.get(i..i + width).and_then(|b| std::str::from_utf8(b).ok()) {
+            Some(s) => (s.chars().next().unwrap_or('\u{FFFD}'), width),
+            None => ('\u{FFFD}', 1),
+        };
+        let w = cost(class, c);
+        if used + w > cap {
+            break;
+        }
+        used += w;
+        out.push(c);
+        i += n;
+    }
+    (out, i)
+}
+
 /// How many positions `text` takes in `class` — characters for UTF-8,
 /// UTF-16 units for national, bytes for a `BYTE-LENGTH` item.
 pub fn positions_of(class: CharClass, text: &str) -> usize {

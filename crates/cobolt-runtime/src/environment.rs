@@ -4033,7 +4033,7 @@ fn default_value(decl: &DataDecl) -> CobolValue {
 
 /// Apply a `VALUE` clause literal on top of a default value.
 /// The national / UTF-8 class a declaration gives its item (spec 077).
-fn decl_class(decl: &DataDecl) -> Option<CharClass> {
+pub(crate) fn decl_class(decl: &DataDecl) -> Option<CharClass> {
     let pic = decl.picture.as_ref()?;
     let n = (pic.digits as usize).max(1);
     match pic.kind {
