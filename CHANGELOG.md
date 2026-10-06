@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.201] — 2026-10-06
+
+### Added
+- **Spec 087 M2 — the parser reads embedded SQL.** An `EXEC SQL` block is one
+  statement wherever a statement may stand: a period after `END-EXEC` ends the
+  sentence, and a block inside an `IF` without one stays in the `IF`. Every
+  statement form is recognised — `SELECT … INTO` (its `INTO` list found after
+  the select list, after `FROM` or after `WHERE`), `INSERT`, `UPDATE`,
+  `DELETE`, data definition, cursors (`DECLARE`, `OPEN`, `FETCH`, `CLOSE`,
+  `WITH HOLD`, `FOR UPDATE`, `WHERE CURRENT OF`), `COMMIT`, `ROLLBACK`,
+  `CONNECT … AS … USER … USING`, `SET CONNECTION`, `DISCONNECT`, `PREPARE`,
+  `EXECUTE [IMMEDIATE]` and `DESCRIBE [INPUT]`. Host variables become bound
+  parameters, never text. In WORKING-STORAGE, LOCAL-STORAGE and LINKAGE a
+  declare section, `DECLARE … TABLE` or `DECLARE … CURSOR` sits between data
+  entries, and the entries after it are declared — before, they were silently
+  lost. `WHENEVER` applies to the statements after it in the source. A
+  subscripted host variable, a figurative constant inside SQL, a literal
+  password in `CONNECT … USING`, a block in the FILE SECTION and an executable
+  statement in the DATA DIVISION are each an error on their own line. Blocks do
+  nothing at run time yet (M4).
+
 ## [PowerRustCOBOL 1.80.200] — 2026-10-06
 
 ### Added

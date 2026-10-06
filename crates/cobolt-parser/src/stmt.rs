@@ -66,6 +66,7 @@ pub(crate) fn is_stmt_start(tok: &Token) -> bool {
             | Token::Play
             | Token::StopAnim
             | Token::ExecRustBlock(_)
+            | Token::ExecSqlBlock(_)
             | Token::Try
             | Token::Throw
     )
@@ -335,6 +336,9 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
             None
         }
         Token::ExecRustBlock(_) => Some(parse_exec_rust(p)),
+        // Spec 087: one statement; the period after END-EXEC is left for the
+        // statement list, so it ends the sentence like any other (R3).
+        Token::ExecSqlBlock(_) => Some(crate::sql::parse_exec_sql_stmt(p)),
         Token::Try => Some(parse_try_catch(p)),
         Token::Throw => Some(parse_throw(p)),
         _ => None,

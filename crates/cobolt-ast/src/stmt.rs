@@ -942,6 +942,12 @@ pub enum Stmt {
         message: crate::expr::Expr,
         span: Span,
     },
+
+    /// `EXEC SQL … END-EXEC` (spec 087) — one statement wherever a statement
+    /// may stand (R3).
+    ///
+    /// ⚠️ Appended last: `Stmt` is bincode-serialized by variant ordinal.
+    ExecSql(Box<crate::sql::ExecSql>),
 }
 
 impl Stmt {
@@ -1145,7 +1151,8 @@ impl Stmt {
             | Stmt::WindowOp { .. }
             | Stmt::ControlSet { .. }
             | Stmt::ExecRust { .. }
-            | Stmt::Throw { .. } => {}
+            | Stmt::Throw { .. }
+            | Stmt::ExecSql(_) => {}
         }
         out
     }
@@ -1214,6 +1221,7 @@ impl Stmt {
             Stmt::ExecRust { span, .. } => *span,
             Stmt::TryCatch { span, .. } => *span,
             Stmt::Throw { span, .. } => *span,
+            Stmt::ExecSql(e) => e.span,
         }
     }
 }

@@ -25,6 +25,7 @@ mod expr;
 mod identification;
 mod parser;
 mod procedure;
+mod sql;
 mod stmt;
 
 pub use error::{Diagnostic, ParseResult, Severity};

@@ -80,6 +80,10 @@ pub(crate) fn parse_data_division(p: &mut Parser) -> Option<DataDivision> {
             }
             // Next division header or EOF — stop.
             Token::Procedure | Token::Environment | Token::Identification | Token::Eof => break,
+            // Spec 087 R2: an SQL block that reached the division level is
+            // outside WORKING-STORAGE, LOCAL-STORAGE and LINKAGE (which read
+            // their own) — in the FILE SECTION or before any section.
+            Token::ExecSqlBlock(_) => crate::sql::reject_exec_sql(p, "the FILE SECTION"),
             // Spec 041 R21 — placement. An `EXEC RUST` block is either an
             // item-level one (CONFIGURATION SECTION, after REPOSITORY) or a
             // statement-level one (PROCEDURE DIVISION). The DATA DIVISION is
@@ -149,7 +153,10 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         }
         p.expect_period();
         // Parse record descriptions
+        // Spec 087 R2: an SQL block among an FD's records is misplaced.
+        p.sql_in_file_section = true;
         let records = parse_data_declarations(p);
+        p.sql_in_file_section = false;
         fds.push(FileDescription {
             name,
             is_global,
@@ -410,6 +417,13 @@ fn parse_data_declarations(p: &mut Parser) -> Vec<DataDecl> {
                 let item = parse_data_item(p, level, span);
                 items.push(item);
             }
+            // Spec 087 R2/R7: an SQL block between entries — a declare
+            // section, DECLARE CURSOR/TABLE, WHENEVER. The entries after it are
+            // ordinary data items and are read on.
+            Token::ExecSqlBlock(_) if p.sql_in_file_section => {
+                crate::sql::reject_exec_sql(p, "the FILE SECTION")
+            }
+            Token::ExecSqlBlock(_) => crate::sql::parse_exec_sql_data(p),
             // Stop at section/division headers, END PROGRAM, or EOF
             Token::WorkingStorage
             | Token::LocalStorage

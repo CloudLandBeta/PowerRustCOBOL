@@ -99,7 +99,7 @@ pushed unless the operator asks.
 
 ## M2 — AST, parser, data division, WHENEVER
 
-- [ ] **T5 — AST types** (R2, R21, R25, R28)
+- [x] **T5 — AST types** (R2, R21, R25, R28)
   - Files: `crates/cobolt-ast/src/sql.rs` (new), `crates/cobolt-ast/src/stmt.rs`
     (`Stmt::ExecSql` appended after `Throw`; `child_stmts`, `span`),
     `crates/cobolt-ast/src/program.rs` (`sql_cursors` appended last); the
@@ -109,7 +109,7 @@ pushed unless the operator asks.
     holding every `SqlKind` and a cursor declaration round-trips through
     bincode unchanged.
 
-- [ ] **T6 — Statement parser** (R3, R6, R7, R9, R14, R16, R23, R25, R26, R29, R32, R34, R36, R42–R44)
+- [x] **T6 — Statement parser** (R3, R6, R7, R9, R14, R16, R23, R25, R26, R29, R32, R34, R36, R42–R44)
   - Files: `crates/cobolt-parser/src/sql.rs` (new), `crates/cobolt-parser/src/stmt.rs`.
   - Do: route `ExecSqlBlock` in `parse_stmt` without eating the period;
     classify every statement form; cut the top-level `INTO :host …` wherever
@@ -123,7 +123,7 @@ pushed unless the operator asks.
     each R14 error is reported once on its line; every existing parser test
     passes.
 
-- [ ] **T7 — Data division, placement, WHENEVER, cursor ownership** (R2, R7, R21, R25, R28, R32)
+- [x] **T7 — Data division, placement, WHENEVER, cursor ownership** (R2, R7, R21, R25, R28, R32)
   - Files: `crates/cobolt-parser/src/data.rs`, `crates/cobolt-parser/src/parser.rs`,
     `crates/cobolt-parser/src/sql.rs`.
   - Do: SQL blocks inline in WORKING-STORAGE, LOCAL-STORAGE and LINKAGE
@@ -139,7 +139,7 @@ pushed unless the operator asks.
     handler resolves the form's cursor; cursors named by `CURRENT OF` are
     marked.
 
-- [ ] **T8 — M2 wrap-up**
+- [x] **T8 — M2 wrap-up**
   - Do: `z` bump and CHANGELOG entry.
   - Verify: NIST compile census equals T0; `cobolt-parser`, `cobolt-semantic`
     and `cobolt-runtime` sweeps equal their T0 totals plus the new tests.
