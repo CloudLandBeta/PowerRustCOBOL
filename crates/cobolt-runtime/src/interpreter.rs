@@ -11206,7 +11206,7 @@ impl Interpreter {
                 let conn_str = conn_str.trim().to_owned();
                 let handle_name = self.expr_to_name(call_arg_expr(&using[1]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[2]));
-                match self.db.open(&conn_str) {
+                match self.db_open(&conn_str) {
                     Ok(h) => {
                         self.env.set(&handle_name, CobolValue::from_i64(h as i64));
                         self.env.set_str(&status_name, "");
@@ -16815,9 +16815,18 @@ impl Interpreter {
             // With no argument, the control's own `ConnectionString` — the
             // property the designer sets, which only the generated CONNECT
             // paragraph ever read (property audit, 2026-09-26).
-            "OPEN" => match self.db.open(&{
+            // An `SqlConnection` names one of the project's SQL connections
+            // and wins over `ConnectionString` (spec 087 R40).
+            "OPEN" => match self.db_open(&{
                 let given = arg(0);
-                if given.trim().is_empty() { self.obj_get(obj, "ConnectionString").trim().to_owned() } else { given }
+                let named = self.obj_get(obj, "SqlConnection");
+                if !given.trim().is_empty() {
+                    given
+                } else if !named.trim().is_empty() {
+                    format!("{}{}", crate::esql::catalog::SQL_CONNECTION_PREFIX, named.trim())
+                } else {
+                    self.obj_get(obj, "ConnectionString").trim().to_owned()
+                }
             }) {
                 Ok(h) => {
                     self.obj_set(obj, "_Handle", h.to_string());
@@ -21451,6 +21460,69 @@ MAIN.
         assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some("row-one"));
         interp.exec_method("DB-1", "Fetch", &[]);
         assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some(""), "spaces once the rows run out");
+    }
+
+    /// Spec 087 R40 (AC17, runtime part) — an `SqlDatabase` whose
+    /// `SqlConnection` names a project SQL connection opens THAT database
+    /// through `Open()` with no argument, winning over `ConnectionString`;
+    /// `COBOL::"OPEN-DB"` resolves `sql-connection:<NAME>` the same way; and
+    /// the control's connection is its own, apart from `EXEC SQL`'s.
+    #[test]
+    fn sqlconnection_wins_over_the_connection_string() {
+        use crate::esql::catalog::{SqlCatalog, Source};
+        let dir = std::env::temp_dir().join(format!("prc087-sqlconn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        rusqlite::Connection::open(dir.join("sales.db"))
+            .unwrap()
+            .execute_batch("CREATE TABLE ORDERS (NAME TEXT); INSERT INTO ORDERS VALUES ('from-sales');")
+            .unwrap();
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.path = "sales.db".into();
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-CONN PIC X(40) VALUE 'sql-connection:sales'.
+01 WS-H    PIC 9(9).
+01 WS-ERR  PIC X(200).
+01 WS-ROW  PIC X(40).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.set_sql_catalog(SqlCatalog::new("shop", vec![sales], dir.clone(), Source::Injected));
+        interp.seed_objects([(
+            "DB-1".to_owned(),
+            "SqlDatabase".to_owned(),
+            vec![
+                ("ConnectionString".to_owned(), ":memory:".to_owned()),
+                ("SqlConnection".to_owned(), "SALES".to_owned()),
+                ("ResultSetDataItem".to_owned(), "WS-ROW".to_owned()),
+            ],
+        )]);
+        interp.run().expect("runs");
+        let s = |x: &str| CobolValue::from_str(x, x.len());
+        let h = interp.exec_method("DB-1", "Open", &[]).as_display_string();
+        assert_ne!(h.trim(), "0", "Open() reaches SALES: {}", interp.obj_get("DB-1", "LastError"));
+        interp.exec_method("DB-1", "Query", &[s("SELECT NAME FROM ORDERS")]);
+        interp.exec_method("DB-1", "Fetch", &[]);
+        assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some("from-sales"));
+        assert!(interp.sql_run_unit().lock().unwrap().sessions.is_empty(), "EXEC SQL's connections are untouched");
+
+        // The built-in, by the same name (case-insensitive).
+        assert_eq!(interp.db_open("sql-connection:sales").map(|h| h > 0), Ok(true));
+        // A name that is not one of them, and a missing file, are errors.
+        let unknown = interp.db_open("sql-connection:NOPE").unwrap_err();
+        assert!(unknown.contains("NOPE"), "{unknown}");
+        std::fs::remove_file(dir.join("sales.db")).unwrap();
+        let gone = interp.db_open("sql-connection:SALES").unwrap_err();
+        assert!(gone.contains("does not exist"), "no empty database is created: {gone}");
+        assert!(!dir.join("sales.db").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `SetRowHeight(row, pixels)` gives one row its own height; the height

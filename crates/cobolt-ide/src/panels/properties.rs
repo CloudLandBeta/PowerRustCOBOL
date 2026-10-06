@@ -3594,6 +3594,8 @@ pub struct PropertiesPanel {
     rest_connections: Vec<cobolt_forms::connections::RestConnection>,
     /// The project's named web-search connections, likewise.
     search_connections: Vec<cobolt_forms::connections::SearchConnection>,
+    /// The project's SQL connection names (spec 087 R40), for SqlDatabase.
+    sql_connections: Vec<String>,
     /// The machine's configured model providers, for AgentObject bindings.
     agent_connections: Vec<cobolt_forms::connections::AgentConnection>,
     /// Control ids whose credential is on file in the machine-local store.
@@ -3672,6 +3674,7 @@ impl PropertiesPanel {
             icon_picker: Default::default(),
             rest_connections: Vec::new(),
             search_connections: Vec::new(),
+            sql_connections: Vec::new(),
             agent_connections: Vec::new(),
             stored_credentials: Default::default(),
             procedure_filter: String::new(),
@@ -3690,6 +3693,14 @@ impl PropertiesPanel {
     ) {
         if self.rest_connections != connections {
             self.rest_connections = connections.to_vec();
+        }
+    }
+
+    /// Tell the pane which SQL connections the project defines, by name.
+    /// Called every frame, like [`Self::set_rest_connections`].
+    pub fn set_sql_connections(&mut self, names: &[String]) {
+        if self.sql_connections != names {
+            self.sql_connections = names.to_vec();
         }
     }
 
@@ -9619,6 +9630,57 @@ impl PropertiesPanel {
                         "sqlite::memory:",
                         action,
                     );
+                }
+                // ── Spec 087 R40: one of the project's SQL connections ───────
+                // Stored by NAME (the project's key for it); set, it wins over
+                // the connection string. A name the project no longer defines
+                // is shown as missing — Check reports it too — rather than
+                // quietly falling back to the connection string.
+                {
+                    let names = self.sql_connections.clone();
+                    let cur = ctrl
+                        .get_prop("SqlConnection")
+                        .map(|v| v.as_str().trim().to_owned())
+                        .unwrap_or_default();
+                    let known = names.iter().any(|n| n.eq_ignore_ascii_case(&cur));
+                    let missing = !cur.is_empty() && !known;
+                    let selected_text = if cur.is_empty() {
+                        tr.sql_connection_none.to_owned()
+                    } else if missing {
+                        format!("⚠ {cur}")
+                    } else {
+                        cur.clone()
+                    };
+                    property_row(ui, tr.prop_sql_connection, |ui| {
+                        egui::ComboBox::from_id_salt(format!("cb_{id}_SqlConnection"))
+                            .selected_text(selected_text)
+                            .width(ui.available_width().min(200.0))
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_label(cur.is_empty(), tr.sql_connection_none).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        "SqlConnection".into(),
+                                        PropValue::String(String::new()),
+                                    ));
+                                }
+                                for n in &names {
+                                    if ui.selectable_label(n.eq_ignore_ascii_case(&cur), n).clicked() {
+                                        action.set_props.push((
+                                            id.to_owned(),
+                                            "SqlConnection".into(),
+                                            PropValue::String(n.clone()),
+                                        ));
+                                    }
+                                }
+                            });
+                    });
+                    if missing {
+                        ui.label(
+                            RichText::new(tr.sql_connection_missing)
+                                .small()
+                                .color(Color32::from_rgb(220, 120, 90)),
+                        );
+                    }
                 }
                 bool_row_inline(ui, id, "AutoConnect", "Auto-connect:", ctrl, action);
 

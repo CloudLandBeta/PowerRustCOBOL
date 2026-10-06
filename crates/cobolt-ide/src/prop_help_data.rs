@@ -5681,6 +5681,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "连接字符串：由生成的 <id>-CONNECT 以及不带参数的 Open() 使用。postgres:// 和 mysql:// 选择对应引擎，其余为 SQLite。",
         "Chaîne de connexion : utilisée par le <id>-CONNECT généré et par Open() sans argument. postgres:// et mysql:// choisissent ces moteurs ; le reste est SQLite.",
     ] },
+    PropHelp { ty: "SqlDatabase", prop: "SqlConnection", text: [
+        "One of the project's SQL connections, by name. When set it wins over ConnectionString: <id>-CONNECT and Open() with no argument connect through it. The form keeps only the name — never the database's location, a user or a password.",
+        "Una de las conexiones SQL del proyecto, por su nombre. Si se indica, prevalece sobre ConnectionString: <id>-CONNECT y Open() sin argumento se conectan a través de ella. El formulario guarda solo el nombre, nunca la ubicación de la base de datos, un usuario ni una contraseña.",
+        "Uma das conexões SQL do projeto, pelo nome. Quando preenchida, prevalece sobre ConnectionString: <id>-CONNECT e Open() sem argumento se conectam por ela. O formulário guarda só o nome — nunca a localização do banco de dados, um usuário ou uma senha.",
+        "プロジェクトの SQL 接続のひとつを名前で指定します。設定すると ConnectionString より優先され、<id>-CONNECT と引数なしの Open() はこの接続を使います。フォームには名前だけが保存され、データベースの場所、ユーザー名、パスワードは保存されません。",
+        "按名称指定项目中的一个 SQL 连接。设置后优先于 ConnectionString：<id>-CONNECT 和不带参数的 Open() 都通过它连接。窗体只保存名称，绝不保存数据库位置、用户名或密码。",
+        "L'une des connexions SQL du projet, par son nom. Renseignée, elle l'emporte sur ConnectionString : <id>-CONNECT et Open() sans argument se connectent par elle. Le formulaire ne garde que le nom — jamais l'emplacement de la base, un utilisateur ou un mot de passe.",
+    ] },
     PropHelp { ty: "SqlDatabase", prop: "Driver", text: [
         "Informational only: it labels the comments in the generated code. The engine is chosen by the ConnectionString scheme (SQLite, PostgreSQL or MySQL); mssql is not supported.",
         "Solo informativo: etiqueta los comentarios del código generado. El motor lo elige el esquema de ConnectionString (SQLite, PostgreSQL o MySQL); mssql no está soportado.",

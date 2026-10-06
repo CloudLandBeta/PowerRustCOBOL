@@ -5931,6 +5931,10 @@ impl Control {
                     "ConnectionString".into(),
                     PropValue::String("sqlite::memory:".into()),
                 );
+                // Spec 087 R40: one of the project's SQL connections, by name.
+                // Set, it wins over `ConnectionString`; the form holds the name
+                // only — never a target, a user name or a password.
+                props.insert("SqlConnection".into(), PropValue::String("".into()));
                 props.insert("AutoConnect".into(), PropValue::Bool(false));
                 // `MaximumConnections` is retired: there is no connection pool.
                 // COBOL object data items generated in WORKING-STORAGE

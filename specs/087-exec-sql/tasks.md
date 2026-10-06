@@ -414,7 +414,7 @@ pushed unless the operator asks.
 
 ## M8 — `SqlDatabase.SqlConnection`
 
-- [ ] **T30 — The property end to end** (R40, R49)
+- [x] **T30 — The property end to end** (R40, R49)
   - Files: `crates/cobolt-forms/src/model.rs`, `crates/cobolt-codegen/src/lib.rs`,
     `crates/cobolt-runtime/src/interpreter.rs` (`OPEN`, `COBOL-OPEN-DB`),
     `crates/cobolt-runtime/src/db_runtime.rs` (`open_resolved`),
@@ -434,7 +434,7 @@ pushed unless the operator asks.
     `cargo test -p cobolt-ide --bin cobolt-ide every_control_property_is_explained_in_six_languages`
     (AC17).
 
-- [ ] **T31 — M8 wrap-up**
+- [x] **T31 — M8 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (`SqlConnection`) and System KB
     slice; regenerate `chunked.data`.
   - Verify: KB freshness test green.

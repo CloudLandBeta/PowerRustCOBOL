@@ -624,6 +624,22 @@ impl Interpreter {
     }
 
     /// The SQL connections this run can name.
+    /// Open a connection for the `COBOL::"OPEN-DB"` built-in or an
+    /// `SqlDatabase` control: a connection string, or `sql-connection:NAME`
+    /// for one of the project's SQL connections (R40), resolved exactly as
+    /// `CONNECT TO 'NAME'` resolves it. The connection is the registry's own,
+    /// never one of `EXEC SQL`'s.
+    pub(crate) fn db_open(&mut self, conn: &str) -> Result<u32, String> {
+        let Some(name) = crate::esql::catalog::named_connection(conn) else {
+            return self.db.open(conn);
+        };
+        let catalog = self.sql_catalog().ok_or_else(|| {
+            format!("there is no SQL connection named '{name}': this program was started without the project's SQL connections")
+        })?;
+        let target = catalog.resolve(name, &crate::esql::catalog::process_env).map_err(|e| e.message)?;
+        self.db.open_target(&target)
+    }
+
     fn sql_catalog(&self) -> Option<std::sync::Arc<crate::esql::catalog::SqlCatalog>> {
         self.sql_unit.lock().ok().and_then(|u| u.catalog.clone()).or_else(crate::esql::catalog::current)
     }

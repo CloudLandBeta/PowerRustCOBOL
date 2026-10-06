@@ -2638,6 +2638,24 @@ Actor Caption:string</Property>
         assert!(matches!(loaded.controls[0].animations[0].repeat, crate::model::AnimRepeat::Count(3)));
     }
 
+    /// Spec 087 R40 (AC17) — an `SqlDatabase` that names a project SQL
+    /// connection saves the NAME and nothing of where it points: no target,
+    /// no user name, no password.
+    #[test]
+    fn cfrm_holds_name_only() {
+        let mut form = Form::new("MAIN-FORM", "Main", 400, 300);
+        let mut db = Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+        db.set_prop("SqlConnection", PropValue::String("SALES".into()));
+        form.controls.push(db);
+        let xml = form_to_string(&form).unwrap();
+        assert!(xml.contains("SALES"), "the name is saved");
+        for leak in ["sales.db", "sql-connection:", "postgres://", "mysql://", "password", "Password"] {
+            assert!(!xml.contains(leak), "the form holds no '{leak}':\n{xml}");
+        }
+        let back = load_form_from_str(&xml).unwrap();
+        assert_eq!(back.controls[0].get_prop("SqlConnection").map(|v| v.as_str().to_string()).as_deref(), Some("SALES"));
+    }
+
     #[test]
     fn form_to_string_and_load_form_from_str_round_trip() {
         let form = sample_form();

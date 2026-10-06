@@ -32,3 +32,47 @@ pub(crate) fn open_mysql(conn_str: &str) -> Result<mysql::Conn, String> {
     let opts = mysql::Opts::from_url(conn_str.trim()).map_err(|e| e.to_string())?;
     mysql::Conn::new(opts).map_err(|e| e.to_string())
 }
+
+/// Open a PostgreSQL connection from its parts (spec 087 R40): the
+/// credentials are handed to the driver field by field and never written
+/// into a URL.
+pub(crate) fn open_postgres_fields(
+    host: &str,
+    port: Option<u16>,
+    database: &str,
+    user: Option<&str>,
+    password: Option<&str>,
+) -> Result<postgres::Client, String> {
+    let mut config = postgres::Config::new();
+    config.host(host);
+    if let Some(port) = port {
+        config.port(port);
+    }
+    if !database.is_empty() {
+        config.dbname(database);
+    }
+    if let Some(user) = user {
+        config.user(user);
+    }
+    if let Some(password) = password {
+        config.password(password);
+    }
+    config.connect(postgres::NoTls).map_err(|e| e.to_string())
+}
+
+/// Open a MySQL connection from its parts, as [`open_postgres_fields`] does.
+pub(crate) fn open_mysql_fields(
+    host: &str,
+    port: Option<u16>,
+    database: &str,
+    user: Option<&str>,
+    password: Option<&str>,
+) -> Result<mysql::Conn, String> {
+    let opts = mysql::OptsBuilder::new()
+        .ip_or_hostname(Some(host))
+        .tcp_port(port.unwrap_or(3306))
+        .db_name((!database.is_empty()).then_some(database))
+        .user(user)
+        .pass(password);
+    mysql::Conn::new(opts).map_err(|e| e.to_string())
+}

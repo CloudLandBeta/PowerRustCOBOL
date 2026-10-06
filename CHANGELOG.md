@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.212] — 2026-10-06
+
+### Added
+- **Spec 087 M8 — `SqlDatabase.SqlConnection`.** A `SqlDatabase` control can
+  name one of the project's SQL connections instead of carrying a connection
+  string: set, it wins over `ConnectionString`, and the generated
+  `<id>-CONNECT` and `Open()` with no argument connect through it — from the
+  project under Run Form and `rcrun`, from `sql-connections.toml` in a built
+  application. The form keeps the name only. The Properties panel offers the
+  project's names in a drop-down (in all six languages) and marks a name the
+  project no longer defines; Check reports it as an error.
+  `COBOL::"OPEN-DB" ( "sql-connection:SALES" … )` reaches a SQL connection by
+  name too, and a server connection is opened field by field, never through a
+  URL holding the password.
+
 ## [PowerRustCOBOL 1.80.211] — 2026-10-06
 
 ### Added

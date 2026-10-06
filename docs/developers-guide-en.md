@@ -10692,7 +10692,17 @@ the same rule as every other `…DataItem`.
 
 A `SqlDatabase` with **`AutoConnect`** connects as the form starts — before any
 handler runs — and closes as it ends, and `Open()` called with no argument
-opens the control's own `ConnectionString`. An `IndexedFile`'s
+opens the control's own `ConnectionString` — or, when its **`SqlConnection`**
+names one of the project's SQL connections (see [Embedded SQL](#embedded-sql-exec-sql)),
+that SQL connection, which then wins over `ConnectionString`. Pick the name
+from the drop-down in the Properties panel; the form keeps the name only,
+never where the database is or who logs on, so the same form reaches a test
+database under the IDE and the production one in the built application
+(through its `sql-connections.toml`). A name the project does not define is a
+Check error, and the drop-down marks it ⚠. The control's connection is its
+own — separate from the connections `EXEC SQL` uses, even when both name the
+same SQL connection. `COBOL::"OPEN-DB" ( "sql-connection:SALES" WS-H WS-ERR )`
+reaches a SQL connection by name the same way. An `IndexedFile`'s
 **`OperatorName`** (recorded by `OPEN … REGISTERED USER`) is sent as a literal,
 unless it names an item your form declares.
 

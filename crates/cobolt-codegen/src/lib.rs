@@ -679,10 +679,15 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         .filter(|c| c.control_type == ControlType::SqlDatabase)
     {
         let pfx = format!("WS-{}", cobol_word(&ctrl.id));
-        let cs = ctrl
-            .get_prop("ConnectionString")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| ":memory:".into());
+        // A named SQL connection (spec 087 R40) wins over the connection
+        // string; the runtime resolves the reserved prefix at CONNECT time.
+        let cs = match prop_string(ctrl, "SqlConnection").filter(|s| !s.trim().is_empty()) {
+            Some(name) => format!("sql-connection:{}", name.trim()),
+            None => ctrl
+                .get_prop("ConnectionString")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| ":memory:".into()),
+        };
         let drv = ctrl
             .get_prop("Driver")
             .map(|v| v.as_str().to_owned())
@@ -3347,6 +3352,25 @@ mod tests {
         form2.user_ws_source = "       01 WS-USER PIC X(20).".into();
         form2.controls[0].set_prop("OperatorName", PropValue::String("WS-USER".into()));
         assert!(generate(&form2).contains("REGISTERED USER WS-USER"));
+    }
+
+    /// Spec 087 R40 — `SqlConnection` names one of the project's SQL
+    /// connections and wins over `ConnectionString`: the generated CONNECT
+    /// opens `sql-connection:<NAME>`, and nothing of the target is written.
+    #[test]
+    fn a_named_sql_connection_wins_over_the_connection_string() {
+        let mut form = Form::new("DB-FORM", "Db", 800, 600);
+        let mut db = Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+        db.set_prop("ConnectionString", PropValue::String("sqlite:old.db".into()));
+        db.set_prop("SqlConnection", PropValue::String("SALES".into()));
+        form.controls.push(db.clone());
+        let src = generate(&form);
+        assert!(src.contains("VALUE 'sql-connection:SALES'."), "the named connection is opened");
+        assert!(!src.contains("old.db"), "the connection string is not used");
+
+        db.set_prop("SqlConnection", PropValue::String("".into()));
+        form.controls[0] = db;
+        assert!(generate(&form).contains("VALUE 'sqlite:old.db'."), "empty, the connection string is used");
     }
 
     /// AutoConnect connects as the form starts and closes as it ends;

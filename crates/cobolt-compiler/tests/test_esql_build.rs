@@ -7,7 +7,8 @@
 //! Spec 087 T25 (AC10, AC14 binary part) — a built application takes its SQL
 //! connections from the `sql-connections.toml` Build wrote beside it, the
 //! environment overrides it, a password in it is refused, and the end of the
-//! run commits or rolls back.
+//! run commits or rolls back. The `COBOL::"OPEN-DB"` built-in reaches the
+//! same SQL connection by name (R40, AC17 binary part).
 //!
 //! Gated: it builds a real binary. Run it with
 //! `cargo test -p cobolt-compiler --test test_esql_build -- --ignored`.
@@ -43,10 +44,21 @@ WORKING-STORAGE SECTION.
 01 SQLMSG PIC X(300).
 01 WS-N PIC 9(3).
 01 WS-MODE PIC X(10).
+01 WS-H PIC 9(9).
+01 WS-ERR PIC X(200).
 PROCEDURE DIVISION.
 MAIN-PARA.
     DISPLAY \"SALES_MODE\" UPON ENVIRONMENT-NAME
     ACCEPT WS-MODE FROM ENVIRONMENT-VALUE
+    IF WS-MODE = \"OPENDB\"
+        COBOL::\"OPEN-DB\" ( \"sql-connection:SALES\" WS-H WS-ERR )
+        IF WS-H > 0
+            DISPLAY \"OPEN-DB OK\"
+        ELSE
+            DISPLAY \"OPEN-DB \" WS-ERR
+        END-IF
+        STOP RUN
+    END-IF
     EXEC SQL CONNECT TO 'SALES' END-EXEC
     DISPLAY \"CONNECT \" SQLSTATE
     IF SQLSTATE NOT = \"00000\"
@@ -126,6 +138,8 @@ fn a_built_binary_reads_its_sql_connections_file() {
 
     assert_eq!(run(&bin, &[]).0, ["CONNECT 00000", "ROWS 001"]);
     assert_eq!(run(&bin, &[]).0, ["CONNECT 00000", "ROWS 002"], "the first run's row was committed at STOP RUN");
+    // R40, binary part: the built-in reaches the same SQL connection by name.
+    assert_eq!(run(&bin, &[("SALES_MODE", "OPENDB")]).0, ["OPEN-DB OK"]);
 
     // ── A runtime error rolls the open work back ─────────────────────────────
     let (out, ok) = run(&bin, &[("SALES_MODE", "FAIL")]);
@@ -149,7 +163,7 @@ fn a_built_binary_reads_its_sql_connections_file() {
     let _ = std::fs::remove_dir_all(&project);
     println!(
         "087 AC10: build {build_s:.1} s, rebuild {rebuild_s:.1} s; starting file absolute and credential-free; \
-         missing file 08001; edited file kept; rows 1, 2 committed; FAIL run's row rolled back (3 stays 3); \
+         missing file 08001; edited file kept; rows 1, 2 committed; OPEN-DB 'sql-connection:SALES' resolved; FAIL run's row rolled back (3 stays 3); \
          CRM_SQL_SALES_URL → third.db; password in file → 28000; total {:.1} s",
         t_all.elapsed().as_secs_f32()
     );

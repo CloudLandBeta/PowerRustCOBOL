@@ -101,6 +101,9 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
             vec![
                 ("Driver", Generated),
                 ("ConnectionString", Generated),
+                // Spec 087 R40 — read by ::Open() with no argument (and by
+                // the generated CONNECT, which opens `sql-connection:<NAME>`).
+                ("SqlConnection", Runtime),
                 // Read by the generated main paragraph (connect on start).
                 ("AutoConnect", Generated),
                 // Receives the handle: the generated CONNECT and ::Open().

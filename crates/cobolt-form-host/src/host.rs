@@ -7507,6 +7507,59 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         );
     }
 
+    /// Spec 087 R40 (AC17, Run Form part) — a designed `SqlDatabase` whose
+    /// `SqlConnection` names SALES reaches the SALES file through `Open()`
+    /// with no argument: the host's seeding carries the property to the
+    /// running form, and it wins over the designed `ConnectionString`.
+    #[test]
+    fn a_designed_sqldatabase_opens_its_named_sql_connection_087() {
+        use cobolt_runtime::esql::catalog::{SqlCatalog, Source};
+        let dir = tempfile::tempdir().unwrap();
+        let mut sales = cobolt_forms::connections::SqlConnection::new("SALES");
+        sales.path = "sales.db".into();
+        sales.create_if_missing = true;
+        let catalog = || SqlCatalog::new("shop", vec![sales.clone()], dir.path().to_path_buf(), Source::Injected);
+        let run = |src: &str, seed: Vec<(String, String, Vec<(String, String)>)>| -> Vec<String> {
+            let program = cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses");
+            let (_ev_tx, ev_rx) = mpsc::channel();
+            let (state_tx, _state_rx) = mpsc::channel();
+            let (display_tx, display_rx) = mpsc::channel();
+            let mut i = cobolt_runtime::interpreter::Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            i.set_sql_catalog(catalog());
+            i.seed_objects(seed);
+            i.run().ok();
+            display_rx.try_iter().map(|l| l.trim_end().to_string()).collect()
+        };
+        run(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. SEED.\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                 EXEC SQL CONNECT TO 'SALES' END-EXEC\n\
+                 EXEC SQL CREATE TABLE ORDERS (NAME TEXT) END-EXEC\n\
+                 EXEC SQL INSERT INTO ORDERS VALUES ('in-sales') END-EXEC\n    STOP RUN.\n",
+            Vec::new(),
+        );
+
+        let mut f = cobolt_forms::Form::new("DB-FORM", "Db", 400, 300);
+        let mut db = cobolt_forms::Control::new("DB-1", cobolt_forms::ControlType::SqlDatabase, 0, 0);
+        db.set_prop("ConnectionString", cobolt_forms::PropValue::String("sqlite::memory:".into()));
+        db.set_prop("SqlConnection", cobolt_forms::PropValue::String("SALES".into()));
+        db.set_prop("ResultSetDataItem", cobolt_forms::PropValue::String("WS-ROW".into()));
+        f.controls.push(db);
+        let seed = crate::seeding::build_object_seed(&f, &f.controls, None, None);
+        let out = run(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. DB-FORM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 WS-H PIC 9(9).\n01 WS-ROW PIC X(40).\nPROCEDURE DIVISION.\nMAIN-PARA.\n\
+                 MOVE DB-1::Open() TO WS-H\n\
+                 DB-1::Query(\"SELECT NAME FROM ORDERS\").\n\
+                 DB-1::Fetch().\n\
+                 DISPLAY \"ROW \" WS-ROW\n    STOP RUN.\n",
+            seed,
+        );
+        assert_eq!(out, ["ROW in-sales"], "the SALES file, not the in-memory connection string");
+        println!("087 R40: a designed SqlDatabase (SqlConnection = SALES, ConnectionString = sqlite::memory:) read 'in-sales' from SALES");
+    }
+
     /// Spec 087 R37 — ONE SQL run unit for the application: a form the host
     /// opens joins the main form's run unit through `child_interpreter_setup`
     /// (as both glues wire it), reads through the connection the main form

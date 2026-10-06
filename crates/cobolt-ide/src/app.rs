@@ -7455,6 +7455,11 @@ impl CoboltApp {
                     .unwrap_or_default();
                 // Hoisted off `self` beside `indexed_files`, for the same reason:
                 // the inspector borrows the designer mutably just below.
+                let sql_connection_names: Vec<String> = self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|project| project.sql_connections.iter().map(|c| c.name.clone()).collect())
+                    .unwrap_or_default();
                 let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
                     .cobolt_project
                     .as_ref()
@@ -7485,6 +7490,7 @@ impl CoboltApp {
                     let form = &d.form as *const cobolt_forms::Form;
                     let props = &mut d.properties;
                     props.set_rest_connections(&rest_connections);
+                props.set_sql_connections(&sql_connection_names);
                 props.set_search_connections(&search_connections);
                 props.set_agent_connections(&agent_connections);
                     props.set_search_connections(&search_connections);
@@ -19123,7 +19129,12 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.files.indexed.clone())
             .unwrap_or_default();
-        let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
+        let sql_connection_names: Vec<String> = self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|project| project.sql_connections.iter().map(|c| c.name.clone()).collect())
+                    .unwrap_or_default();
+                let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
             .cobolt_project
             .as_ref()
             .map(|project| project.integrations.rest_connections.clone())
@@ -19194,6 +19205,7 @@ impl CoboltApp {
                 let form = &d.form as *const cobolt_forms::Form;
                 let props = &mut d.properties;
                 props.set_rest_connections(&rest_connections);
+                props.set_sql_connections(&sql_connection_names);
                 props.set_search_connections(&search_connections);
                 props.set_agent_connections(&agent_connections);
                 props.set_stored_credentials(&stored_creds);

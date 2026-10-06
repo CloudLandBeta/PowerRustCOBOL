@@ -30,6 +30,20 @@ use cobolt_forms::connections::{sql_env_var, SqlConnection};
 use super::backend::BackendKind;
 use super::state::{code, SqlError};
 
+/// The reserved connection-string prefix that names a project SQL connection
+/// (spec 087 R40): `'sql-connection:SALES'` is what the generated
+/// `<id>-CONNECT` of an `SqlDatabase` with `SqlConnection = SALES` opens.
+pub const SQL_CONNECTION_PREFIX: &str = "sql-connection:";
+
+/// The SQL connection `conn` names through [`SQL_CONNECTION_PREFIX`], if it
+/// does (the prefix compared without regard to case).
+pub fn named_connection(conn: &str) -> Option<&str> {
+    let t = conn.trim();
+    let n = SQL_CONNECTION_PREFIX.len();
+    let head = t.get(..n)?;
+    head.eq_ignore_ascii_case(SQL_CONNECTION_PREFIX).then(|| t[n..].trim())
+}
+
 /// A password. It cannot be printed: `Debug` and `Display` show `***`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Secret(String);
