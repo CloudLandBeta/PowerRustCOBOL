@@ -168,7 +168,7 @@ fn check_arithmetic(p: &Program, classes: &HashMap<String, Vec<Class>>, diags: &
         ProcedureBody::Sections(ss) => ss.iter().flat_map(|s| s.paragraphs.iter()).collect(),
         ProcedureBody::Paragraphs(ps) => ps.iter().collect(),
     };
-    let mut check = |e: &Expr, verb: &str, diags: &mut Vec<SemanticDiagnostic>| {
+    let check = |e: &Expr, verb: &str, diags: &mut Vec<SemanticDiagnostic>| {
         let mut found = Vec::new();
         arithmetic_names(e, &mut found);
         for (name, span) in found {

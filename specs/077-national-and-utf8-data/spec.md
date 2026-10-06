@@ -240,7 +240,7 @@ rules.
   - `STRING` of two national items into a national receiver, and
     `UNSTRING` of a national item by `N","`, give the expected pieces.
 - [ ] **AC8 (R11):** `ACCEPT` into a `PIC N(20)` of the typed text `Olá,
-  João` stores those 10 characters. `DISPLAY` shows them back.
+  João` stores those 9 characters (this read "10" until 2026-10-06; the text has nine). `DISPLAY` shows them back.
 - [ ] **AC9 (R14):** An indexed file whose record holds a `PIC N(20)` key
   and a `PIC N(40)` field is written, read back by key and rewritten. It is
   reopened by a second run, and every character survives. The record's

@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.221] — 2026-10-06
+
+### Added
+- **Spec 077 M2 — national and UTF-8 items at run time.** A `PIC N(n)` item
+  holds n characters (UTF-16 code units), a `PIC U(n)` item n characters and
+  a `PIC U BYTE-LENGTH n` item the whole characters that fit n bytes —
+  truncated on a whole character and padded with spaces, `JUSTIFIED RIGHT`
+  honoured. Their storage is UTF-16 big-endian (2n bytes) and padded UTF-8
+  (4n or n bytes): that is what a group, a `REDEFINES` and `BYTE-LENGTH`
+  see, and a group move restores the characters. `FUNCTION LENGTH` counts
+  characters. Moving one into a `PIC X` item keeps whole characters only.
+  Figurative constants take the class's own characters (HIGH-VALUE is
+  U+FFFF / U+10FFFF). Comparisons are by code point. `INITIALIZE …
+  REPLACING NATIONAL / UTF-8` reaches them. `ACCEPT` into one reads UTF-8,
+  or Windows-1252 when the typed bytes are not UTF-8. The debugger shows
+  them as `national` / `utf-8` with their storage length. Nested programs
+  (and so form event handlers) keep the class. Programs without national
+  or UTF-8 data are unchanged: NIST is 8,362 of 8,362 assertions.
+
 ## [PowerRustCOBOL 1.80.220] — 2026-10-06
 
 ### Added

@@ -56,7 +56,11 @@ struct Session {
 
 impl Session {
     fn start() -> Self {
-        let result = parse(tokenize(SRC, SourceFormat::Free));
+        Self::start_with(SRC)
+    }
+
+    fn start_with(src: &str) -> Self {
+        let result = parse(tokenize(src, SourceFormat::Free));
         assert!(
             result
                 .diagnostics
@@ -379,4 +383,29 @@ fn a_handle_from_an_earlier_stop_is_refused() {
         DebugAnswer::Variables(_) => panic!("a stale handle must not resolve"),
         other => panic!("unexpected {other:?}"),
     }
+}
+
+/// Spec 077 T11: a national or UTF-8 item shows its characters, under its own
+/// category, with its storage length in bytes.
+#[test]
+fn national_and_utf8_rows_show_characters_and_storage_length() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. DBGNAT.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-MSG  PIC N(10) VALUE N\"Ação\".
+01 WS-U    PIC U(4)  VALUE U\"Olá\".
+PROCEDURE DIVISION.
+MAIN.
+    DISPLAY WS-MSG
+    STOP RUN.
+";
+    let mut s = Session::start_with(src);
+    let ws = s.working_storage();
+    let rows = s.rows(ws);
+    let msg = Session::row(&rows, "WS-MSG");
+    assert_eq!((msg.category.as_str(), msg.value.as_str(), msg.length), ("national", "Ação      ", Some(20)));
+    let u = Session::row(&rows, "WS-U");
+    assert_eq!((u.category.as_str(), u.value.as_str(), u.length), ("utf-8", "Olá ", Some(16)));
 }

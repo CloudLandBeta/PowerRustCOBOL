@@ -5142,6 +5142,13 @@ impl Interpreter {
                     crate::value::CobolValue::String { .. } => "alphanumeric",
                     crate::value::CobolValue::Unset => "unset",
                 };
+                // A national or UTF-8 item shows its characters under its own
+                // category; its length below is its storage in bytes.
+                let cat = match self.env.char_class(key) {
+                    Some(c) if c.is_national() => "national",
+                    Some(_) => "utf-8",
+                    None => cat,
+                };
                 (text, cat.to_owned(), None)
             }
         };
@@ -6157,9 +6164,25 @@ impl Interpreter {
         let src_bytes = match from {
             Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
                 let key = self.resolve_lvalue(from);
-                self.env.display_bytes(&key)
+                // A national or UTF-8 sender gives a group its storage image,
+                // unconverted, as IBM documents for a group receiver.
+                match self.env.char_class(&key) {
+                    Some(_) => Some(self.env.storage_image(&key)),
+                    None => self.env.display_bytes(&key),
+                }
             }
             _ => None,
+        };
+        // A national or UTF-8 sender — a classed item, or an `N"…"` / `U"…"`
+        // literal. An alphanumeric receiver takes its characters cut on a
+        // whole character, never a broken UTF-8 sequence (spec 077, R8).
+        let src_classed = match from {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.char_class(&key).is_some()
+            }
+            Expr::Literal(Literal::National(_) | Literal::Utf8(_), _) => true,
+            _ => false,
         };
         // A **group** sending item makes the whole move alphanumeric-to-
         // alphanumeric (COBOL-85 6.18.4): the receiver's PICTURE contributes
@@ -6204,6 +6227,27 @@ impl Interpreter {
                 continue;
             }
             let name = self.resolve_lvalue(target);
+            // A figurative constant into a national or UTF-8 receiver is that
+            // class's own character: HIGH-VALUE is U+FFFF or U+10FFFF, not the
+            // byte X'FF' (spec 077, D6).
+            if let (Some(class), Expr::Literal(Literal::Figurative(fc), _)) = (self.env.char_class(&name), from) {
+                let text = crate::environment::figurative_text(class, fc);
+                self.env.set_str_left(&name, &text);
+                continue;
+            }
+            if src_classed && self.env.char_class(&name).is_none() && !self.env.is_group(&name) {
+                if let Some(cap) = self.env.alphanumeric_capacity(&name) {
+                    let justified = self.env.is_justified(&name);
+                    let text = val.as_display_string();
+                    let cut = crate::national::fit_class(
+                        crate::national::CharClass::Utf8Bytes { bytes: cap },
+                        &text,
+                        justified,
+                    );
+                    self.env.set_verbatim_bytes(&name, cut.as_bytes());
+                    continue;
+                }
+            }
             // `ALL literal` fills this receiver to its declared width, so the
             // value depends on the target and is built per target rather than
             // once above. An empty literal has no fill character and is left
@@ -7865,12 +7909,21 @@ impl Interpreter {
                 // Read one line from stdin.
                 use std::io::BufRead;
                 let stdin = std::io::stdin();
-                let mut line = String::new();
-                let _ = stdin.lock().read_line(&mut line);
-                let s = line
-                    .trim_end_matches('\n')
-                    .trim_end_matches('\r')
-                    .to_owned();
+                let s = if self.env.char_class(&name).is_some() {
+                    // A national or UTF-8 receiver takes the typed characters:
+                    // UTF-8, or Windows-1252 when the bytes are not UTF-8
+                    // (spec 077, Q7).
+                    let mut raw = Vec::new();
+                    let _ = stdin.lock().read_until(b'\n', &mut raw);
+                    while matches!(raw.last(), Some(b'\n' | b'\r')) {
+                        raw.pop();
+                    }
+                    crate::national::typed_text(&raw)
+                } else {
+                    let mut line = String::new();
+                    let _ = stdin.lock().read_line(&mut line);
+                    line.trim_end_matches('\n').trim_end_matches('\r').to_owned()
+                };
                 // The receiver may be a group — `NC109M` accepts into
                 // `ACCEPT-D1` (two subordinate items) and into
                 // `X80-CHARACTER-FIELD` (one `FILLER`) — so the line has to be
@@ -17604,6 +17657,17 @@ impl Interpreter {
                 Ok(CobolValue::from_i64(yyyy))
             }
             "BYTE-LENGTH" | "LENGTH-AN" => {
+                // A national or UTF-8 item, or a group holding one, is
+                // measured by its storage, not by its text (spec 077).
+                if matches!(&args[0], Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }) {
+                    let key = self.expr_to_name(&args[0]);
+                    if let Some(class) = self.env.char_class(&key) {
+                        return Ok(CobolValue::from_i64(class.width() as i64));
+                    }
+                    if self.env.has_char_classes() && self.env.is_group(&key) {
+                        return Ok(CobolValue::from_i64(self.env.stored_width(&key) as i64));
+                    }
+                }
                 let v = self.eval_expr(&args[0], span)?;
                 let len = match &v {
                     CobolValue::String { bytes, .. } => bytes.len(),
@@ -18481,6 +18545,13 @@ impl Interpreter {
     /// Both fall through to the value path, which is what they did before, so
     /// neither can regress here.
     fn declared_length(&self, expr: &Expr) -> Option<usize> {
+        // A national or UTF-8 item's LENGTH is its character positions, not
+        // its bytes (spec 077: `PIC N(30)` is 30, `PIC U(5)` is 5).
+        if matches!(expr, Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }) {
+            if let Some(class) = self.env.char_class(&self.expr_to_name(expr)) {
+                return Some(class.positions());
+            }
+        }
         match expr {
             Expr::Identifier(..) | Expr::Qualified { .. } => {
                 let key = self.expr_to_name(expr);

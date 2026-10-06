@@ -108,8 +108,8 @@ pub struct VarInfo {
     /// The item's own name, unqualified — the tree supplies the path.
     pub name: String,
     pub value: String,
-    /// COBOL category: `group`, `alphanumeric`, `numeric`, `float`,
-    /// `condition`, `index`.
+    /// COBOL category: `group`, `alphanumeric`, `national`, `utf-8`,
+    /// `numeric`, `float`, `condition`, `index`.
     pub category: String,
     /// Non-zero when the row expands. Pass back as [`DebugQuery::Variables`].
     pub reference: i64,

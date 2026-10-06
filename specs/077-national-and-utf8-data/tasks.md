@@ -43,24 +43,31 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
 
 ## M2 — The runtime classes
 
-- [ ] **T6 — `national.rs`** (D1, D2): `CharClass`, `fit_class`,
+- [x] **T6 — `national.rs`** (D1, D2): `CharClass`, `fit_class`,
   `class_image`, `class_text`, `class_width`, UTF-16BE codec. *Verify:* unit
   tests (whole-character truncation, padding, JUSTIFIED, round trips,
   surrogate pairs).
-- [ ] **T7 — Environment** (D2): register classes from declarations
+- [x] **T7 — Environment** (D2): register classes from declarations
   (OCCURS included); VALUE through `fit_class`; every write to a classed key
   through `fit_class`; `display_bytes` / `item_width` / `pic_storage_len` /
   `declared_width` / `set_group_bytes` through the image functions; REDEFINES
   both ways. *Verify:* AC1, AC2, AC12 as runtime tests.
-- [ ] **T8 — Moves and figuratives** (D6): classed receiver, classed
+- [x] **T8 — Moves and figuratives** (D6): classed receiver, classed
   sender into alphanumeric (character boundary), group moves, figuratives,
   JUSTIFIED. *Verify:* AC5 and a figurative table test.
-- [ ] **T9 — Comparisons** (D7). *Verify:* AC6, plus padding and ordering
+- [x] **T9 — Comparisons** (D7). *Verify:* AC6, plus padding and ordering
   cases.
-- [ ] **T10 — LENGTH / BYTE-LENGTH, DISPLAY, ACCEPT (Q7), INITIALIZE**
+- [x] **T10 — LENGTH / BYTE-LENGTH, DISPLAY, ACCEPT (Q7), INITIALIZE**
   (D8, D11). *Verify:* AC1, AC8, AC12; INITIALIZE and REPLACING NATIONAL.
-- [ ] **T11 — Debugger rows** (D12). *Verify:* runtime test on `debug_row`.
-- [ ] **T12 — M2 wrap-up:** sweep + NIST, `z` bump, CHANGELOG, commit.
+- [x] **T11 — Debugger rows** (D12). *Verify:* runtime test on `debug_row`.
+- [x] **T12 — M2 wrap-up:** sweep + NIST, `z` bump, CHANGELOG, commit.
+  - Result (1.80.221): every crate green except the known
+    `every_document_ships_in_every_language`; NIST strict unchanged, and NC,
+    SQ, IF, IX, ST, RL, IC and SM all 100 % — 8,362 of 8,362 assertions.
+  - Found on the way, outside this spec: `X"…"` literals hold one
+    *character* per hex pair, not one byte, so `X"41C3"` cannot spell
+    ill-formed UTF-8. Flagged as its own fix; AC14's `UVALID` half is tested
+    through a REDEFINES over national data until then.
 
 ## M3 — Functions
 
