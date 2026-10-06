@@ -1951,9 +1951,11 @@ fn binding_data_type_from_pic(kind: PicKind, template: &str) -> BindingDataType 
                 BindingDataType::Integer
             }
         }
-        PicKind::Alphabetic | PicKind::Alphanumeric | PicKind::AlphanumericEdited => {
-            BindingDataType::Text
-        }
+        PicKind::Alphabetic
+        | PicKind::Alphanumeric
+        | PicKind::AlphanumericEdited
+        | PicKind::National
+        | PicKind::Utf8 => BindingDataType::Text,
     }
 }
 

@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.220] — 2026-10-06
+
+### Added
+- **Spec 077 M1 — national and UTF-8 syntax, and Check.** `PIC N(n)`,
+  `PIC U(n)`, `PIC U BYTE-LENGTH n`, `USAGE NATIONAL` and `USAGE UTF-8` are
+  now recognised (they used to read as alphanumeric pictures, or as an
+  unknown USAGE), together with the literals `N"…"`, `NX"…"`, `U"…"` (with
+  `\uhhhh`, `\U00hhhhhh`, `\\` escapes) and `UX"…"`, and
+  `INITIALIZE … REPLACING NATIONAL / UTF-8`. A malformed `NX` or `UX`
+  literal is reported on its line. Check refuses a national or UTF-8 item in
+  arithmetic; national numeric and national-edited items, which are not
+  supported yet; USAGE and PICTURE that disagree; `BYTE-LENGTH` on anything
+  but a single `U`; a VALUE longer than its item; and a literal code page
+  that `NATIONAL-OF` / `DISPLAY-OF` cannot convert. The runtime support
+  (milestones M2–M8) is still to come: for now these items hold their
+  characters as alphanumeric text.
+
 ## [PowerRustCOBOL 1.80.219] — 2026-10-06
 
 ### Removed

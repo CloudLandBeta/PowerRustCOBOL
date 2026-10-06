@@ -3856,6 +3856,9 @@ fn default_value(decl: &DataDecl) -> CobolValue {
             let cap = pic.digits as usize + pic.decimals as usize;
             CobolValue::spaces(cap.max(1))
         }
+        // Spec 077 D1: a national or UTF-8 item's slot holds its characters
+        // — n spaces to start with; its byte image is produced on demand.
+        PicKind::National | PicKind::Utf8 => CobolValue::spaces((pic.digits as usize).max(1)),
     }
 }
 
@@ -3894,7 +3897,9 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
                 _ => src,
             }
         }
-        Literal::String(s) => match default {
+        // Spec 077: a national or UTF-8 literal is text like any other; a
+        // classed receiver fits it by characters when the class applies.
+        Literal::String(s) | Literal::National(s) | Literal::Utf8(s) => match default {
             CobolValue::String { capacity, .. } => CobolValue::from_str(s, *capacity),
             // A numeric item keeps its **category** whatever the literal's is:
             // `PICTURE IS 9 VALUE IS "5"` holds the number five, not the

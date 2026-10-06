@@ -836,6 +836,28 @@ impl<'a> ResolveCtx<'a> {
                     };
                     self.error(msg, *span);
                 }
+                // Spec 077 (AC4): a code page written as a literal is checked
+                // here, not left to fail when the program runs.
+                if matches!(name.to_ascii_uppercase().as_str(), "NATIONAL-OF" | "DISPLAY-OF") {
+                    if let Some(Expr::Literal(lit, lspan)) = args.get(1) {
+                        let named = match lit {
+                            cobolt_ast::expr::Literal::String(s) => Some(s.clone()),
+                            cobolt_ast::expr::Literal::Integer(n) | cobolt_ast::expr::Literal::IntegerDigits(n, _) => Some(n.to_string()),
+                            _ => None,
+                        };
+                        if let Some(cp) = named {
+                            if cobolt_ast::intrinsics::CodePage::parse(&cp).is_none() {
+                                self.error(
+                                    format!(
+                                        "FUNCTION {name}: '{cp}' is not a code page RustCOBOL converts; use {}",
+                                        cobolt_ast::intrinsics::CodePage::ACCEPTED
+                                    ),
+                                    *lspan,
+                                );
+                            }
+                        }
+                    }
+                }
                 for a in args {
                     self.resolve_expr(a);
                 }

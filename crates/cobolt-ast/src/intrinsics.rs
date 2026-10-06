@@ -89,6 +89,34 @@ pub const INTRINSIC_FUNCTIONS: &[&str] = &[
 ];
 
 /// True when `name` is an intrinsic function RustCOBOL implements.
+/// A code page `NATIONAL-OF` and `DISPLAY-OF` convert from or to (spec 077,
+/// Q2) — named, or by its IBM CCSID. One list for Check and the runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodePage {
+    /// UTF-8, CCSID 1208 — the runtime's own text.
+    Utf8,
+    /// Windows-1252, CCSID 1252.
+    Windows1252,
+    /// ISO-8859-1 (Latin-1), CCSID 819.
+    Iso8859_1,
+}
+
+impl CodePage {
+    /// The code page a program names: `"UTF-8"`, `"1208"`, `"WINDOWS-1252"`,
+    /// `"1252"`, `"CP1252"`, `"ISO-8859-1"`, `"819"`, `"LATIN-1"` (any case).
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_uppercase().as_str() {
+            "UTF-8" | "UTF8" | "1208" => Some(CodePage::Utf8),
+            "WINDOWS-1252" | "WINDOWS1252" | "CP1252" | "1252" => Some(CodePage::Windows1252),
+            "ISO-8859-1" | "ISO8859-1" | "LATIN-1" | "LATIN1" | "819" => Some(CodePage::Iso8859_1),
+            _ => None,
+        }
+    }
+
+    /// What a diagnostic lists as the accepted names.
+    pub const ACCEPTED: &'static str = "UTF-8 (1208), WINDOWS-1252 (1252), ISO-8859-1 (819)";
+}
+
 pub fn is_intrinsic(name: &str) -> bool {
     INTRINSIC_FUNCTIONS
         .iter()

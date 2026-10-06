@@ -608,6 +608,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
                     span: Span::dummy(),
                     justified: false,
                     sign: None,
+                    byte_length: None,
                 }
             })
             .collect();
@@ -726,6 +727,7 @@ fn switch_status_decl(name: String, digit: &str) -> DataDecl {
         span: Span::dummy(),
         justified: false,
         sign: None,
+        byte_length: None,
     }
 }
 

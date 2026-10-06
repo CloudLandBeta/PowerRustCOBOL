@@ -36,6 +36,11 @@ pub enum Literal {
     ///
     /// New variants go at the END — the AST is bincode-serialized by ordinal.
     IntegerDigits(i64, u8),
+    /// A national literal (spec 077): `N"…"`, `N'…'` or `NX"…"` — its text,
+    /// as characters (`NX` already decoded from UTF-16 code units).
+    National(String),
+    /// A UTF-8 literal (spec 077): `U"…"`, `U'…'` or `UX"…"` — its text.
+    Utf8(String),
 }
 
 impl Literal {

@@ -21,6 +21,13 @@ pub enum PicKind {
     Alphanumeric,       // PIC X(n)
     NumericEdited,      // PIC Z,9 / $,Z.99 / etc.
     AlphanumericEdited, // PIC X(n)B / etc.
+    /// `PIC N(n)` / `USAGE NATIONAL` (spec 077): n characters, stored as
+    /// UTF-16 (2 bytes each). `digits` holds n. Appended — bincode ordinals.
+    National,
+    /// `PIC U(n)` / `USAGE UTF-8` (spec 077, IBM extension): n characters
+    /// stored as UTF-8 in 4·n bytes, or `BYTE-LENGTH n` bytes when
+    /// [`DataDecl::byte_length`] is set. `digits` holds n.
+    Utf8,
 }
 
 /// A parsed PICTURE clause.
@@ -74,6 +81,10 @@ pub enum Usage {
     /// the Rust-FFI bridge (spec 005); the referenced class name is captured in
     /// Phase 2. Layout is a handle, like `Pointer`.
     ObjectReference,
+    /// `USAGE NATIONAL` (spec 077). Appended — bincode ordinals.
+    National,
+    /// `USAGE UTF-8` (spec 077, IBM extension).
+    Utf8,
 }
 
 // ── OCCURS clause ─────────────────────────────────────────────────────────────
@@ -158,6 +169,11 @@ pub struct DataDecl {
     ///
     /// 🔴 New fields belong at the END of this struct.
     pub sign: Option<SignClause>,
+    /// `PIC U BYTE-LENGTH n` (spec 077): a UTF-8 item of exactly n bytes,
+    /// holding the whole characters that fit. `None` for every other item.
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    pub byte_length: Option<u32>,
 }
 
 /// A `SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]` clause.

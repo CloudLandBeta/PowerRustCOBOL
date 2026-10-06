@@ -159,6 +159,28 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
             p.advance();
             Some((Literal::String(s), span))
         }
+        // Spec 077 — national and UTF-8 literals.
+        Token::NationalLiteral(s) => {
+            p.advance();
+            Some((Literal::National(s), span))
+        }
+        Token::Utf8Literal(s) => {
+            p.advance();
+            Some((Literal::Utf8(s), span))
+        }
+        // A malformed one: the lexer named the fault. Report it on its line
+        // and stand in a literal of its class, so one bad literal is one
+        // diagnostic, not a cascade.
+        Token::Error(e) if e.starts_with("invalid national literal") => {
+            p.emit_error(e);
+            p.advance();
+            Some((Literal::National(String::new()), span))
+        }
+        Token::Error(e) if e.starts_with("invalid UTF-8 literal") => {
+            p.emit_error(e);
+            p.advance();
+            Some((Literal::Utf8(String::new()), span))
+        }
         Token::IntegerLiteral(n, digits) => {
             // Under DECIMAL-POINT IS COMMA, `123,45` is one decimal literal:
             // an integer, an *adjacent* comma, and an *adjacent* integer (no

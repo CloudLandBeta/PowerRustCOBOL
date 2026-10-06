@@ -6828,6 +6828,8 @@ impl Interpreter {
             Some(PicKind::Numeric) => InitCategory::Numeric,
             Some(PicKind::AlphanumericEdited) => InitCategory::AlphanumericEdited,
             Some(PicKind::NumericEdited) => InitCategory::NumericEdited,
+            Some(PicKind::National) => InitCategory::National,
+            Some(PicKind::Utf8) => InitCategory::Utf8,
             None => return,
         };
         if let Some((_, val)) = repl.iter().find(|(c, _)| *c == cat) {
@@ -18935,7 +18937,7 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
         Literal::Integer(n) | Literal::IntegerDigits(n, _) => CobolValue::from_i64(*n),
         Literal::Float(f) => CobolValue::from_f64(*f),
         Literal::Decimal(m, s) => CobolValue::Numeric(CobolNumeric::new(*m, *s)),
-        Literal::String(s) => CobolValue::from_str(s, s.len()),
+        Literal::String(s) | Literal::National(s) | Literal::Utf8(s) => CobolValue::from_str(s, s.len()),
         Literal::Figurative(fig) => match fig {
             FigurativeConstant::Zero => CobolValue::from_i64(0),
             FigurativeConstant::Space => CobolValue::spaces(1),

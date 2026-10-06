@@ -5,7 +5,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — National and UTF-8 character data (PIC N / USAGE NATIONAL, PIC U / USAGE UTF-8)
 
-- **Status:** draft
+- **Status:** clarified (operator answered Q1, Q3, Q4, Q7 on 2026-10-06; Q2
+  takes its suggestion; Q5 and Q6 settled from IBM's documentation the same
+  day); implementation authorised by the operator, 2026-10-06
 - **Folder:** specs/077-national-and-utf8-data/
 - **Author:** Claude (for the operator)   **Date:** 2026-09-28
 
@@ -258,7 +260,8 @@ rules.
   returns the value IBM documents:
   - `ULENGTH` = 4 and `UPOS(…, 3)` = 4;
   - `USUBSTR(…, 2, 2)` = `ç€` and `UWIDTH(…, 4)` = 4;
-  - `USUPPLEMENTARY` = 4 and `UVALID` = 0;
+  - `USUPPLEMENTARY` = 7 (the byte where `😀` begins — IBM returns a byte
+    position; this read 4 before Q6 was settled) and `UVALID` = 0;
   - over `X"41C3"`, `UVALID` returns the position of the bad byte.
 - [ ] **AC15 (R23):** In the IDE, `PIC N`, `PIC U`, `USAGE NATIONAL`,
   `USAGE UTF-8`, `N"…"`, `NX"…"`, `U"…"`, `UX"…"` and the new functions are
@@ -303,30 +306,51 @@ rules.
 
 ## 7. Open questions
 
-- **Q1 — UTF-16 byte order.** Big-endian, as IBM Enterprise COBOL on z/OS
+- **Q1 — UTF-16 byte order.** **Settled (operator, 2026-10-06): big-endian.**
+  Big-endian, as IBM Enterprise COBOL on z/OS
   stores it, or little-endian, as Micro Focus does on x86? This decides
   whether data files move byte-for-byte between us and the one or the other.
   *Suggested:* big-endian, as a default a program cannot see, since it only
   shows in raw bytes (`REDEFINES`, group moves, files).
-- **Q2 — Code-page names.** Which spellings `NATIONAL-OF` / `DISPLAY-OF`
+- **Q2 — Code-page names.** **Settled (2026-10-06): the suggestion stands** —
+  names and CCSIDs for UTF-8, Windows-1252 and ISO-8859-1. Which spellings `NATIONAL-OF` / `DISPLAY-OF`
   accept, and whether a numeric CCSID (IBM's `1208` for UTF-8, `1252`,
   `819`) counts as a code page. *Suggested:* accept both the names and the
   CCSIDs for UTF-8, Windows-1252 and ISO-8859-1.
-- **Q3 — National numeric and national-edited.** Out of scope here. Should
-  they follow as a later spec, or not at all?
-- **Q4 — Collation.** Code-point order, the standard default with no
+- **Q3 — National numeric and national-edited.** **Settled (operator,
+  2026-10-06): a later spec**, once `PIC N` and `PIC U` have shipped; until
+  then Check reports them as not supported yet. Out of scope here.
+- **Q4 — Collation.** **Settled (operator, 2026-10-06): code-point order**;
+  accent-aware collation belongs to a future `LOCALE` spec. Code-point order, the standard default with no
   `COLLATING SEQUENCE`, or something aware of accented letters (Portuguese
   `á` beside `a`)? *Suggested:* code points now, and accent-aware collation
   with the `LOCALE` spec, if it comes.
-- **Q5 — `PIC U` storage and padding.** Confirm IBM's layout for a fixed
+- **Q5 — `PIC U` storage and padding.** **Settled (2026-10-06, from IBM
+  Enterprise COBOL 6.4, Language Reference and Programming Guide):** a fixed
+  character-length `PIC U(n)` reserves 4 × n bytes; every unused byte is a
+  UTF-8 space (X'20'); a move truncates at a character boundary, keeping at
+  most n characters. `PIC U BYTE-LENGTH n` reserves exactly n bytes, holds the
+  whole characters that fit, and is padded with X'20' to n bytes. `LENGTH` of
+  `PIC U(n)` is n; `BYTE-LENGTH` is the storage in bytes (4 × n). Confirm IBM's layout for a fixed
   character-length item: the 4 × n bytes, and how the unused bytes are
   filled. Confirm how a `BYTE-LENGTH` item is padded.
-- **Q6 — The U-functions' edge cases.** Confirm against IBM's behaviour, in
+- **Q6 — The U-functions' edge cases.** **Settled (2026-10-06, same
+  sources):** none takes a byte/character selector. `UPOS` returns the BYTE
+  position where the n-th character starts and `UWIDTH` its width in bytes;
+  both return 0 for n ≤ 0 or n > `ULENGTH`. `USUBSTR` counts characters.
+  `UVALID` returns 0, or the byte position of the first byte of the first
+  ill-formed sequence (a sequence cut off at the end is reported at its lead
+  byte); for a national argument, the position in UTF-16 units.
+  `USUPPLEMENTARY` returns the BYTE position of the first character above
+  U+FFFF (UTF-16 units for national), or 0 — so AC14's expected value is 7,
+  not 4 (corrected below). IBM leaves `USUBSTR` out of range undefined; here
+  it returns the characters that exist and never stops the program. Confirm against IBM's behaviour, in
   our own tests and wording:
   - positions that are 1-based and count bytes (`UPOS`, `UWIDTH`) versus
     characters (`USUBSTR`);
   - the results for an out-of-range argument;
   - what `UVALID` reports for a truncated sequence at the end.
-- **Q7 — `ACCEPT` from a terminal whose input is not UTF-8.** Treat it as
+- **Q7 — `ACCEPT` from a terminal whose input is not UTF-8.** **Settled
+  (operator, 2026-10-06): UTF-8, with Windows-1252 as the fallback.** Treat it as
   UTF-8, or decode Windows-1252 as the source reader does?
   *Suggested:* UTF-8, with Windows-1252 as the fallback, as for sources.

@@ -368,6 +368,14 @@ impl<'src> Lexer<'src> {
 
             RawToken::StringDouble(s) | RawToken::StringSingle(s) => Token::StringLiteral(s),
 
+            // Spec 077 — a bad national or UTF-8 literal keeps its reason, and
+            // the parser reports it on the literal's line.
+            RawToken::NationalString(s) | RawToken::NationalHex(Ok(s)) => Token::NationalLiteral(s),
+            RawToken::Utf8String(Ok(s)) | RawToken::Utf8Hex(Ok(s)) => Token::Utf8Literal(s),
+            RawToken::NationalHex(Err(e)) | RawToken::Utf8String(Err(e)) | RawToken::Utf8Hex(Err(e)) => {
+                Token::Error(e)
+            }
+
             RawToken::Float(Some(text)) => {
                 // Parse the raw digits into an exact (mantissa, scale) fixed-point
                 // decimal. The regex guarantees `digits.digits`, so this only

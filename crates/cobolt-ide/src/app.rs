@@ -20541,7 +20541,7 @@ fn collect_decl_values(decl: &DataDecl, values: &mut Vec<(String, String)>) {
 
 fn literal_preview_value(value: &Literal) -> String {
     match value {
-        Literal::String(value) => value.clone(),
+        Literal::String(value) | Literal::National(value) | Literal::Utf8(value) => value.clone(),
         Literal::Integer(value) => value.to_string(),
         // A preview shows the source, so a literal written with leading zeros
         // previews with them: `VALUE 0012` reads `0012`, not `12`.

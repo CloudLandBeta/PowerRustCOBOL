@@ -41,6 +41,101 @@ fn hex_literal_chars(slice: &str) -> String {
         .collect()
 }
 
+/// The body of a quoted literal whose slice starts with a `prefix_len`-letter
+/// prefix (`N"…"`, `U'…'`): the text between the quotes, with the doubled
+/// delimiter collapsed to one.
+fn prefixed_body(slice: &str, prefix_len: usize) -> String {
+    let quote = &slice[prefix_len..prefix_len + 1];
+    slice[prefix_len + 1..slice.len() - 1].replace(&quote.repeat(2), quote)
+}
+
+/// `NX"…"` (spec 077): hex digits, four per UTF-16 code unit. A count that is
+/// not a multiple of four, a digit that is not hex, or a code-unit sequence
+/// that is not text (an unpaired surrogate) is an error with its reason.
+fn national_hex(slice: &str) -> Result<String, String> {
+    let digits = &slice[3..slice.len() - 1];
+    if digits.is_empty() || digits.len() % 4 != 0 {
+        return Err(format!(
+            "invalid national literal NX\"{digits}\": it needs four hex digits per character, and has {}",
+            digits.len()
+        ));
+    }
+    let mut units = Vec::with_capacity(digits.len() / 4);
+    for chunk in digits.as_bytes().chunks(4) {
+        let text = std::str::from_utf8(chunk).unwrap_or("");
+        let unit = u16::from_str_radix(text, 16)
+            .map_err(|_| format!("invalid national literal NX\"{digits}\": `{text}` is not hexadecimal"))?;
+        units.push(unit);
+    }
+    String::from_utf16(&units).map_err(|_| {
+        format!("invalid national literal NX\"{digits}\": it holds an unpaired surrogate, which is not a character")
+    })
+}
+
+/// `UX"…"` (spec 077): hex digits, two per byte, forming well-formed UTF-8 —
+/// no overlong form, surrogate or code point above U+10FFFF, as IBM requires.
+fn utf8_hex(slice: &str) -> Result<String, String> {
+    let digits = &slice[3..slice.len() - 1];
+    if digits.is_empty() || digits.len() % 2 != 0 {
+        return Err(format!(
+            "invalid UTF-8 literal UX\"{digits}\": it needs two hex digits per byte, and has {}",
+            digits.len()
+        ));
+    }
+    let mut bytes = Vec::with_capacity(digits.len() / 2);
+    for chunk in digits.as_bytes().chunks(2) {
+        let text = std::str::from_utf8(chunk).unwrap_or("");
+        bytes.push(
+            u8::from_str_radix(text, 16)
+                .map_err(|_| format!("invalid UTF-8 literal UX\"{digits}\": `{text}` is not hexadecimal"))?,
+        );
+    }
+    String::from_utf8(bytes).map_err(|e| {
+        format!(
+            "invalid UTF-8 literal UX\"{digits}\": the bytes are not valid UTF-8 (byte {} starts an ill-formed sequence)",
+            e.utf8_error().valid_up_to() + 1
+        )
+    })
+}
+
+/// `U"…"` (spec 077): the text, with IBM's escapes — `\uhhhh` (a BMP code
+/// point), `\U00hhhhhh` (up to U+10FFFF) and `\\` (a backslash). A
+/// surrogate or an incomplete escape is an error.
+fn utf8_text(slice: &str) -> Result<String, String> {
+    let body = prefixed_body(slice, 1);
+    let mut out = String::with_capacity(body.len());
+    let mut chars = body.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let digits = match chars.peek() {
+            Some('\\') => {
+                chars.next();
+                out.push('\\');
+                continue;
+            }
+            Some('u') => 4,
+            Some('U') => 8,
+            // A backslash before anything else is an ordinary character.
+            _ => {
+                out.push('\\');
+                continue;
+            }
+        };
+        chars.next();
+        let hex: String = chars.by_ref().take(digits).collect();
+        let bad = || format!("invalid UTF-8 literal U\"{body}\": `\\{}{hex}` is not a valid escape", if digits == 4 { 'u' } else { 'U' });
+        if hex.len() != digits {
+            return Err(bad());
+        }
+        let code = u32::from_str_radix(&hex, 16).map_err(|_| bad())?;
+        out.push(char::from_u32(code).ok_or_else(bad)?);
+    }
+    Ok(out)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Raw token (logos layer)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +164,24 @@ pub enum RawToken {
     #[regex(r#"[Xx]"([0-9A-Fa-f]{2})*""#, |lex| hex_literal_chars(lex.slice()))]
     #[regex(r#"[Xx]'([0-9A-Fa-f]{2})*'"#, |lex| hex_literal_chars(lex.slice()))]
     HexString(String),
+
+    // ── National and UTF-8 literals (spec 077) ─────────────────────────────
+    // A prefix glued to its quote, like `X"…"`: `N"Ação"`, `NX"00410063"`,
+    // `U"Ação"`, `UX"C3A7"`. The hex forms accept any digits here and are
+    // validated in their callbacks, so a bad one is reported with its reason
+    // instead of lexing as a word and a string.
+    #[regex(r#"[Nn]"([^"\n]|"")*""#, |lex| prefixed_body(lex.slice(), 1))]
+    #[regex(r"[Nn]'([^'\n]|'')*'", |lex| prefixed_body(lex.slice(), 1))]
+    NationalString(String),
+    #[regex(r#"[Nn][Xx]"[^"\n]*""#, |lex| national_hex(lex.slice()))]
+    #[regex(r"[Nn][Xx]'[^'\n]*'", |lex| national_hex(lex.slice()))]
+    NationalHex(Result<String, String>),
+    #[regex(r#"[Uu]"([^"\n]|"")*""#, |lex| utf8_text(lex.slice()))]
+    #[regex(r"[Uu]'([^'\n]|'')*'", |lex| utf8_text(lex.slice()))]
+    Utf8String(Result<String, String>),
+    #[regex(r#"[Uu][Xx]"[^"\n]*""#, |lex| utf8_hex(lex.slice()))]
+    #[regex(r"[Uu][Xx]'[^'\n]*'", |lex| utf8_hex(lex.slice()))]
+    Utf8Hex(Result<String, String>),
 
     // ── Free-format block-literal fence (PowerRustCOBOL extension) ─────────
     //
@@ -621,6 +734,10 @@ pub enum Token {
 
     /// String literal (contents without the surrounding quotes), e.g. `Hello`.
     StringLiteral(String),
+    /// A national literal (spec 077): `N"…"`, `N'…'`, `NX"…"` — its text.
+    NationalLiteral(String),
+    /// A UTF-8 literal (spec 077): `U"…"`, `U'…'`, `UX"…"` — its text.
+    Utf8Literal(String),
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Level numbers (01–49, 66, 77, 78, 88)

@@ -505,6 +505,7 @@ mod tests {
             span: Span::dummy(),
             justified: false,
             sign: None,
+            byte_length: None,
         }
     }
     fn group(name: &str, children: Vec<DataDecl>) -> DataDecl {
@@ -526,6 +527,7 @@ mod tests {
             span: Span::dummy(),
             justified: false,
             sign: None,
+            byte_length: None,
         }
     }
 
