@@ -84,9 +84,15 @@ Each milestone ends with a `z` bump, a CHANGELOG entry and a commit on
 
 ## M4 — String verbs
 
-- [ ] **T16 — STRING, UNSTRING, INSPECT on characters** (D9). *Verify:*
+- [x] **T16 — STRING, UNSTRING, INSPECT on characters** (D9). *Verify:*
   AC7, POINTER / COUNT IN / TALLYING in characters; byte paths unchanged.
-- [ ] **T17 — M4 wrap-up.**
+- [x] **T17 — M4 wrap-up.**
+  - Result (1.80.223): INSPECT and UNSTRING run one scan over code units —
+    bytes as before, characters for national / UTF-8 data — so byte
+    positions are unchanged: sweep green (known docs test aside), NIST
+    8,362 of 8,362. Found on the way: an `N"…"` / `U"…"` literal could not
+    open an operand (DISPLAY list, STRING sender, abbreviated condition);
+    fixed in the parser with a test.
 
 ## M5 — Files
 

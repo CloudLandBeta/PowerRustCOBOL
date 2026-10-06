@@ -3814,6 +3814,8 @@ pub(crate) fn is_expr_start(p: &Parser) -> bool {
             | Token::LevelNumber(_)
             | Token::DecimalLiteral { .. }
             | Token::StringLiteral(_)
+            | Token::NationalLiteral(_)
+            | Token::Utf8Literal(_)
             | Token::Spaces
             | Token::Zeros
             | Token::HighValues

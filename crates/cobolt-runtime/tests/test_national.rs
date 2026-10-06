@@ -229,3 +229,25 @@ fn upper_case_of_national_data_is_unicode() {
     );
     assert_eq!(out, vec!["[AÇÃO ]"]);
 }
+
+/// AC7: INSPECT on a national item counts and replaces characters.
+#[test]
+fn ac7_inspect_counts_characters() {
+    let out = lines(
+        "01 WS-N PIC N(12) VALUE N\"ação, coração\".\n01 WS-C PIC 9(3) VALUE 0.\n01 WS-D PIC 9(3) VALUE 0.\n01 WS-E PIC 9(3) VALUE 0.",
+        "    INSPECT WS-N TALLYING WS-C FOR ALL N\"ç\"\n    INSPECT WS-N TALLYING WS-D FOR CHARACTERS BEFORE INITIAL N\",\"\n    INSPECT WS-N TALLYING WS-E FOR CHARACTERS\n    DISPLAY WS-C \" \" WS-D \" \" WS-E\n    INSPECT WS-N REPLACING CHARACTERS BY N\"*\" AFTER INITIAL N\", \"\n    DISPLAY \"[\" WS-N \"]\"",
+    );
+    // "ação" is four characters before the comma; the item is twelve.
+    assert_eq!(out, vec!["002 004 012", "[ação, ******]"]);
+}
+
+/// AC7: STRING two national items into a national receiver, POINTER in
+/// characters; UNSTRING a national item by N",", COUNT IN in characters.
+#[test]
+fn ac7_string_and_unstring_by_character() {
+    let out = lines(
+        "01 WS-A PIC N(4) VALUE N\"Ação\".\n01 WS-B PIC N(4) VALUE N\"Pão\".\n01 WS-R PIC N(10).\n01 WS-P PIC 9(3) VALUE 1.\n01 WS-S PIC N(13) VALUE N\"maçã,pêra,uva\".\n01 WS-1 PIC N(5).\n01 WS-2 PIC N(5).\n01 WS-3 PIC N(5).\n01 WS-C1 PIC 9(3).\n01 WS-C2 PIC 9(3).",
+        "    STRING WS-A DELIMITED BY SIZE N\"-\" DELIMITED BY SIZE WS-B DELIMITED BY SPACE INTO WS-R WITH POINTER WS-P\n    DISPLAY \"[\" WS-R \"] \" WS-P\n    UNSTRING WS-S DELIMITED BY N\",\" INTO WS-1 COUNT IN WS-C1 WS-2 COUNT IN WS-C2 WS-3\n    DISPLAY \"[\" WS-1 \"][\" WS-2 \"][\" WS-3 \"] \" WS-C1 \" \" WS-C2",
+    );
+    assert_eq!(out, vec!["[Ação-Pão  ] 009", "[maçã ][pêra ][uva  ] 004 004"]);
+}

@@ -8123,6 +8123,42 @@ impl Interpreter {
             }
         }
         let name = self.resolve_lvalue(into);
+        // A national or UTF-8 receiver is filled by CHARACTER: its size, the
+        // POINTER and the overflow test count characters (spec 077, D9). The
+        // senders have already given their characters' text above.
+        if let Some(class) = self.env.char_class(&name) {
+            let text: Vec<char> = String::from_utf8_lossy(&result).chars().collect();
+            let capacity = class.positions();
+            let overflowed = match pointer {
+                Some(ptr_e) => {
+                    let ptr_name = self.resolve_lvalue(ptr_e);
+                    let start = self.env.get_i64(&ptr_name).unwrap_or(1).max(1) as usize;
+                    let mut dest: Vec<char> = self.env.display_string(&name).unwrap_or_default().chars().collect();
+                    dest.resize(capacity, ' ');
+                    let mut idx = start - 1;
+                    let mut placed = 0usize;
+                    let mut overflow = start - 1 >= capacity && !text.is_empty();
+                    for c in text {
+                        if idx >= capacity {
+                            overflow = true;
+                            break;
+                        }
+                        dest[idx] = c;
+                        idx += 1;
+                        placed += 1;
+                    }
+                    self.env.set_str(&name, &dest.into_iter().collect::<String>());
+                    self.env.set_i64(&ptr_name, (start + placed) as i64);
+                    overflow
+                }
+                None => {
+                    let overflow = text.len() > capacity;
+                    self.env.set_str(&name, &text.into_iter().collect::<String>());
+                    overflow
+                }
+            };
+            return self.run_overflow(overflowed, on_overflow, not_on_overflow);
+        }
         let capacity = self
             .env
             .display_bytes(&name)
@@ -8198,17 +8234,26 @@ impl Interpreter {
         not_on_overflow: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let src: Vec<u8> = self
-            .eval_expr(from, span)?
-            .as_display_string()
-            .into_bytes();
-        let delims: Vec<Vec<u8>> = delimited_by
+        // A national or UTF-8 source is split by CHARACTER: POINTER, COUNT IN
+        // and every position count characters (spec 077, D9). Any other
+        // source keeps its byte positions — the same scan, over bytes.
+        let chars = match from {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.char_class(&key).is_some()
+            }
+            Expr::Literal(Literal::National(_) | Literal::Utf8(_), _) => true,
+            _ => false,
+        };
+        let src: Vec<u32> = inspect_units(&self.eval_expr(from, span)?.as_display_string(), chars);
+        let delims: Vec<Vec<u32>> = delimited_by
             .iter()
             .map(|d| {
-                self.eval_expr(d, span)
+                let text = self
+                    .eval_expr(d, span)
                     .unwrap_or_else(|_| CobolValue::from_str(" ", 1))
-                    .as_display_string()
-                    .into_bytes()
+                    .as_display_string();
+                inspect_units(&text, chars)
             })
             .filter(|d| !d.is_empty())
             .collect();
@@ -8243,7 +8288,11 @@ impl Interpreter {
                 // sizes, each taking exactly its own width (COBOL-85 6.28.4
                 // GR5). Treating the whole remainder as one field gave the
                 // first receiver everything and left the rest untouched.
-                let width = self.env.stored_width(&name).max(1);
+                let width = match self.env.char_class(&name) {
+                    Some(class) if chars => class.positions(),
+                    _ => self.env.stored_width(&name),
+                }
+                .max(1);
                 ((pos + width).min(src.len()), 0, 0)
             } else {
                 match Self::find_delimiter(&src, pos, &delims, all) {
@@ -8251,7 +8300,7 @@ impl Interpreter {
                     None => (src.len(), 0, 0),
                 }
             };
-            let field = String::from_utf8_lossy(&src[pos..field_end]).into_owned();
+            let field = units_text(&src[pos..field_end], chars);
             // The receiver takes the field under ordinary MOVE rules: a numeric
             // one converts, an alphanumeric one is padded or truncated.
             if self.env.is_group(&name) {
@@ -8273,7 +8322,7 @@ impl Interpreter {
                 // **single** occurrence is delivered here (COBOL-85 6.28.4
                 // GR8): `DELIMITED BY ALL ZERO` on "1200000" hands a receiver
                 // "0", not "00000".
-                let text = String::from_utf8_lossy(&src[field_end..field_end + unit_len]);
+                let text = units_text(&src[field_end..field_end + unit_len], chars);
                 self.env.set_str(&dname, &text);
             }
             if let Some(c) = &target.count {
@@ -8307,9 +8356,9 @@ impl Interpreter {
     /// of blanks into one separator — so the run length (what the scan skips)
     /// and one occurrence (what `DELIMITER IN` receives) differ there.
     fn find_delimiter(
-        src: &[u8],
+        src: &[u32],
         from: usize,
-        delims: &[Vec<u8>],
+        delims: &[Vec<u32>],
         all: bool,
     ) -> Option<(usize, usize, usize)> {
         let mut best: Option<(usize, usize, usize)> = None;
@@ -8355,16 +8404,20 @@ impl Interpreter {
     /// Resolve a `BEFORE/AFTER INITIAL` region to a `[lo, hi)` byte window of
     /// `s`. `AFTER INITIAL d` starts just past the first `d`; `BEFORE INITIAL d`
     /// ends just before the first `d` (searched from `lo`). Whole field by default.
+    ///
+    /// Works on INSPECT's code units — bytes, or characters for national and
+    /// UTF-8 data (spec 077); see [`inspect_units`].
     fn inspect_window(
         &mut self,
-        s: &str,
+        s: &[u32],
+        chars: bool,
         region: &InspectRegion,
         span: Span,
     ) -> Result<(usize, usize), RuntimeError> {
         let lo = match &region.after {
             Some(e) => {
-                let d = self.eval_expr(e, span)?.as_display_string();
-                match (d.is_empty(), s.find(&d)) {
+                let d = inspect_units(&self.eval_expr(e, span)?.as_display_string(), chars);
+                match (d.is_empty(), find_units(s, &d)) {
                     (false, Some(p)) => p + d.len(),
                     _ => s.len(),
                 }
@@ -8373,8 +8426,8 @@ impl Interpreter {
         };
         let hi = match &region.before {
             Some(e) => {
-                let d = self.eval_expr(e, span)?.as_display_string();
-                match (d.is_empty(), s[lo..].find(&d)) {
+                let d = inspect_units(&self.eval_expr(e, span)?.as_display_string(), chars);
+                match (d.is_empty(), find_units(&s[lo.min(s.len())..], &d)) {
                     (false, Some(p)) => lo + p,
                     _ => s.len(),
                 }
@@ -8473,6 +8526,10 @@ impl Interpreter {
         if overpunched {
             s.remove(0);
         }
+        // A national or UTF-8 item is inspected by CHARACTER: positions,
+        // CHARACTERS and BEFORE/AFTER count characters, not bytes (spec 077,
+        // D9). Everything else keeps its byte positions.
+        let chars = self.env.char_class(&name).is_some();
         // Only the selected positions are inspected; the characters before and
         // after them are kept aside and put back unchanged.
         let mut outside: Option<(String, String)> = None;
@@ -8483,14 +8540,21 @@ impl Interpreter {
         // taken with that count lost its last bytes (operator, 2026-09-28:
         // PowerChat showed "/html>" after a page).
         if let Some((start, length, rspan)) = refmod {
+            let units = inspect_units(&s, chars);
             let first = self.eval_expr(start, rspan)?.as_i64().unwrap_or(1).max(1) as usize;
-            let begin = (first - 1).min(s.len());
+            let begin = (first - 1).min(units.len());
             let len = match length {
                 Some(l) => self.eval_expr(l, rspan)?.as_i64().unwrap_or(0).max(0) as usize,
-                None => s.len() - begin,
+                None => units.len() - begin,
             };
-            let end = (begin + len).min(s.len());
-            let (before, inner, after) = if s.is_char_boundary(begin) && s.is_char_boundary(end) {
+            let end = (begin + len).min(units.len());
+            let (before, inner, after) = if chars {
+                (
+                    units_text(&units[..begin], true),
+                    units_text(&units[begin..end], true),
+                    units_text(&units[end..], true),
+                )
+            } else if s.is_char_boundary(begin) && s.is_char_boundary(end) {
                 (s[..begin].to_owned(), s[begin..end].to_owned(), s[end..].to_owned())
             } else {
                 let b = s.as_bytes();
@@ -8524,6 +8588,7 @@ impl Interpreter {
                 //
                 // Each operand keeps its own BEFORE/AFTER window, computed once
                 // on the item as it stands, and is eligible only inside it.
+                let units = inspect_units(&s, chars);
                 let mut counters: Vec<(String, i64)> = Vec::with_capacity(tallies.len());
                 let mut ops: Vec<TallyOp> = Vec::new();
                 for tally in tallies {
@@ -8533,11 +8598,11 @@ impl Interpreter {
                     let ti = counters.len();
                     counters.push((ctr_name, start));
                     for (kind, region) in &tally.for_ {
-                        let (lo, hi) = self.inspect_window(&s, region, span)?;
+                        let (lo, hi) = self.inspect_window(&units, chars, region, span)?;
                         let pat = match kind {
-                            TallyFor::Characters => String::new(),
+                            TallyFor::Characters => Vec::new(),
                             TallyFor::All(e) | TallyFor::Leading(e) | TallyFor::Trailing(e) => {
-                                self.eval_expr(e, span)?.as_display_string()
+                                inspect_units(&self.eval_expr(e, span)?.as_display_string(), chars)
                             }
                         };
                         // A TRAILING operand's run is fixed by the item as it
@@ -8545,7 +8610,7 @@ impl Interpreter {
                         // positions are known before the scan starts.
                         let trail_start = match kind {
                             TallyFor::Trailing(_) if !pat.is_empty() => {
-                                hi - count_run(&s[lo..hi], &pat, false) * pat.len()
+                                hi - count_run(&units[lo..hi], &pat, false) * pat.len()
                             }
                             _ => hi,
                         };
@@ -8561,7 +8626,7 @@ impl Interpreter {
                         });
                     }
                 }
-                let bytes = s.as_bytes();
+                let bytes = &units[..];
                 let mut p = 0usize;
                 while p < bytes.len() {
                     let mut taken = 0usize;
@@ -8569,7 +8634,7 @@ impl Interpreter {
                         if p < op.lo || p >= op.hi {
                             continue;
                         }
-                        let pat = op.pat.as_bytes();
+                        let pat = &op.pat[..];
                         let fits = !pat.is_empty()
                             && p + pat.len() <= op.hi
                             && &bytes[p..p + pat.len()] == pat;
@@ -8627,10 +8692,11 @@ impl Interpreter {
                 //
                 // Each operand keeps its own BEFORE/AFTER window, computed once
                 // on the item as it stands before any replacement.
+                let units = inspect_units(&s, chars);
                 let mut ops: Vec<ReplOp> = Vec::with_capacity(replaces.len());
                 for rep in replaces {
-                    let by = self.eval_expr(&rep.by, span)?.as_display_string();
-                    let (lo, hi) = self.inspect_window(&s, &rep.region, span)?;
+                    let by = inspect_units(&self.eval_expr(&rep.by, span)?.as_display_string(), chars);
+                    let (lo, hi) = self.inspect_window(&units, chars, &rep.region, span)?;
                     let (kind, pat) = match &rep.what {
                         ReplaceWhat::Characters => (ReplKind::Characters, String::new()),
                         ReplaceWhat::All(e) => {
@@ -8648,11 +8714,12 @@ impl Interpreter {
                             self.eval_expr(e, span)?.as_display_string(),
                         ),
                     };
+                    let pat = inspect_units(&pat, chars);
                     // A TRAILING run is the tail of the window, so where it
                     // starts is known before the scan does.
                     let trail_start = match kind {
                         ReplKind::Trailing if !pat.is_empty() => {
-                            hi - count_run(&s[lo..hi], &pat, false) * pat.len()
+                            hi - count_run(&units[lo..hi], &pat, false) * pat.len()
                         }
                         _ => hi,
                     };
@@ -8668,8 +8735,8 @@ impl Interpreter {
                         spent: false,
                     });
                 }
-                let bytes = s.as_bytes().to_vec();
-                let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+                let bytes = units;
+                let mut out: Vec<u32> = Vec::with_capacity(bytes.len());
                 let mut p = 0usize;
                 while p < bytes.len() {
                     let mut taken = 0usize;
@@ -8677,7 +8744,7 @@ impl Interpreter {
                         if p < op.lo || p >= op.hi || op.spent {
                             continue;
                         }
-                        let pat = op.pat.as_bytes();
+                        let pat = &op.pat[..];
                         let fits = !pat.is_empty()
                             && p + pat.len() <= op.hi
                             && &bytes[p..p + pat.len()] == pat;
@@ -8708,9 +8775,9 @@ impl Interpreter {
                                 // `BY` for CHARACTERS is a single character,
                                 // written over each position in turn.
                                 ReplKind::Characters => {
-                                    out.push(op.by.as_bytes().first().copied().unwrap_or(b' '))
+                                    out.push(op.by.first().copied().unwrap_or(u32::from(b' ')))
                                 }
-                                _ => out.extend_from_slice(op.by.as_bytes()),
+                                _ => out.extend_from_slice(&op.by),
                             }
                             break;
                         }
@@ -8727,7 +8794,7 @@ impl Interpreter {
                         }
                     }
                 }
-                s = String::from_utf8_lossy(&out).into_owned();
+                s = units_text(&out, chars);
                 self.store_inspect_text(&name, &whole(&s), overpunched);
             }
             InspectSpec::Converting { from, to } => {
@@ -8741,14 +8808,15 @@ impl Interpreter {
             InspectSpec::ConvertingIn { from, to, region } => {
                 // The same character-for-character conversion, applied only
                 // inside the BEFORE/AFTER window.
-                let (lo, hi) = self.inspect_window(&s, region, span)?;
+                let units = inspect_units(&s, chars);
+                let (lo, hi) = self.inspect_window(&units, chars, region, span)?;
                 let from_s = self.eval_expr(from, span)?.as_display_string();
                 let to_s = self.eval_expr(to, span)?.as_display_string();
-                let mut window = s[lo..hi].to_string();
+                let mut window = units_text(&units[lo..hi], chars);
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     window = window.replace(fc, &tc.to_string());
                 }
-                s.replace_range(lo..hi, &window);
+                s = format!("{}{window}{}", units_text(&units[..lo], chars), units_text(&units[hi..], chars));
                 self.store_inspect_text(&name, &whole(&s), overpunched);
             }
             InspectSpec::TallyingReplacing(tallies, replaces) => {
@@ -19043,9 +19111,9 @@ struct TallyOp {
     /// one (`TALLYING X FOR ALL "A" ALL "B"`).
     ti: usize,
     kind: TallyKind,
-    /// The evaluated pattern; empty for `CHARACTERS`.
-    pat: String,
-    /// The operand's `BEFORE`/`AFTER` window, as byte offsets: `[lo, hi)`.
+    /// The evaluated pattern, in INSPECT's code units; empty for `CHARACTERS`.
+    pat: Vec<u32>,
+    /// The operand's `BEFORE`/`AFTER` window, as code-unit offsets: `[lo, hi)`.
     lo: usize,
     hi: usize,
     /// Where this operand's `LEADING` run must match next; starts at `lo`.
@@ -19072,11 +19140,11 @@ enum ReplKind {
 /// `Replacing` arm of [`Interpreter::exec_inspect`].
 struct ReplOp {
     kind: ReplKind,
-    /// The evaluated pattern; empty for `CHARACTERS`.
-    pat: String,
-    /// The evaluated `BY` operand.
-    by: String,
-    /// The operand's `BEFORE`/`AFTER` window, as byte offsets: `[lo, hi)`.
+    /// The evaluated pattern, in INSPECT's code units; empty for `CHARACTERS`.
+    pat: Vec<u32>,
+    /// The evaluated `BY` operand, in code units.
+    by: Vec<u32>,
+    /// The operand's `BEFORE`/`AFTER` window, as code-unit offsets: `[lo, hi)`.
     lo: usize,
     hi: usize,
     /// Where this operand's `LEADING` run must match next; starts at `lo`.
@@ -19090,11 +19158,11 @@ struct ReplOp {
     spent: bool,
 }
 
-fn count_run(hay: &str, pat: &str, from_start: bool) -> usize {
+fn count_run(hay: &[u32], pat: &[u32], from_start: bool) -> usize {
     if pat.is_empty() || pat.len() > hay.len() {
         return 0;
     }
-    let (h, p) = (hay.as_bytes(), pat.as_bytes());
+    let (h, p) = (hay, pat);
     let mut n = 0usize;
     let mut i = 0usize;
     while i + p.len() <= h.len() {
@@ -19110,6 +19178,34 @@ fn count_run(hay: &str, pat: &str, from_start: bool) -> usize {
         i += p.len();
     }
     n
+}
+
+/// INSPECT's code units: the bytes of alphanumeric data, the characters of
+/// national or UTF-8 data (spec 077, D9). One scan serves both, so byte
+/// positions stay exactly what they always were.
+fn inspect_units(s: &str, chars: bool) -> Vec<u32> {
+    if chars {
+        s.chars().map(u32::from).collect()
+    } else {
+        s.bytes().map(u32::from).collect()
+    }
+}
+
+/// The text of INSPECT's code units — the inverse of [`inspect_units`].
+fn units_text(units: &[u32], chars: bool) -> String {
+    if chars {
+        units.iter().filter_map(|&c| char::from_u32(c)).collect()
+    } else {
+        String::from_utf8_lossy(&units.iter().map(|&b| b as u8).collect::<Vec<u8>>()).into_owned()
+    }
+}
+
+/// Where `needle` first occurs in `hay`, in code units.
+fn find_units(hay: &[u32], needle: &[u32]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return None;
+    }
+    hay.windows(needle.len()).position(|w| w == needle)
 }
 
 fn append_collection_line(existing: &str, line: &str) -> String {

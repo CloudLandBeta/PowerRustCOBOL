@@ -116,3 +116,26 @@ fn a_malformed_literal_is_one_error_on_its_line() {
     assert_eq!(errors[1].0, 10);
     assert!(errors[1].1.contains("not valid UTF-8"), "{errors:?}");
 }
+
+/// An `N"…"` or `U"…"` literal opens an operand like any other literal: in a
+/// DISPLAY list, among STRING senders, and as the object of an abbreviated
+/// condition.
+#[test]
+fn national_and_utf8_literals_are_operands() {
+    let src = "IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-N PIC N(10).
+01 WS-R PIC N(20).
+PROCEDURE DIVISION.
+MAIN-PARA.
+    DISPLAY N\"a\" U\"b\" WS-N
+    STRING WS-N DELIMITED BY SIZE N\"-\" DELIMITED BY SIZE U\"x\" DELIMITED BY SIZE INTO WS-R
+    IF WS-N = N\"a\" OR N\"b\" DISPLAY \"Y\" END-IF
+    STOP RUN.
+";
+    let r = parse(tokenize(src, SourceFormat::Free));
+    let errors: Vec<_> = r.diagnostics.iter().filter(|d| d.severity == Severity::Error).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+}

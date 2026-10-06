@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.223] — 2026-10-06
+
+### Added
+- **Spec 077 M4 — STRING, UNSTRING and INSPECT on characters.** With a
+  national or UTF-8 receiver, STRING fills, points and overflows by
+  character; UNSTRING of a national or UTF-8 source splits, counts (COUNT IN)
+  and points by character; INSPECT of one tallies CHARACTERS, honours
+  BEFORE/AFTER and replaces by character. Alphanumeric data keeps its byte
+  positions exactly. `N"…"` and `U"…"` literals are accepted wherever a
+  literal operand is (a DISPLAY list, STRING senders, abbreviated
+  conditions).
+
 ## [PowerRustCOBOL 1.80.222] — 2026-10-06
 
 ### Added

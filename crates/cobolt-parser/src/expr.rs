@@ -1335,6 +1335,8 @@ fn at_literal_object(p: &Parser) -> bool {
         Token::IntegerLiteral(..)
             | Token::DecimalLiteral { .. }
             | Token::StringLiteral(_)
+            | Token::NationalLiteral(_)
+            | Token::Utf8Literal(_)
             | Token::Spaces
             | Token::Zeros
             | Token::HighValues
