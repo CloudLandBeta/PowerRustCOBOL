@@ -10002,10 +10002,10 @@ certainly do it the classic way: SQL written right in the COBOL source between
 > ⚠️ **Caveat — work in progress.** Today embedded SQL runs **against
 > SQLite**: every statement in this section — static statements, cursors,
 > dynamic SQL and the descriptor area — under Run, Debug, Run Form and
-> `rcrun`, with the project's named SQL connections written in the project
-> file by hand. PostgreSQL and MySQL, a built application's own SQL
-> connections, and the IDE's SQL Connections editor arrive in the next
-> releases of this feature.
+> `rcrun` and in a built application, with the project's named SQL
+> connections written in the project file by hand. PostgreSQL and MySQL, and
+> the IDE's SQL Connections editor, arrive in the next releases of this
+> feature.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -10130,6 +10130,41 @@ both upper-cased, every character other than a letter or a digit turned into
 > ⚠️ **Never put a password in the project file.** An entry that carries a
 > `password` key is refused: connecting through it fails with `28000`, and the
 > message names the file and the variable to use instead.
+
+**A built application's SQL connections.** The databases you test against are
+rarely the ones the application will use, so a built application does not
+carry its connections inside the binary. **Build** writes a starting
+`sql-connections.toml` beside the program — in `bin/` and in the destination
+folder — listing the project's SQL connections as `[[connection]]` entries,
+each SQLite path made absolute, and with no user name and no password. Whoever
+installs the application edits that file to point each name at the real
+database; Build never overwrites it once it exists, so a rebuild keeps the
+edit:
+
+```toml
+[[connection]]
+name = "SALES"
+path = "/srv/shop/sales.db"
+default = true
+```
+
+The application reads the file when it starts, and the same environment
+variables override it — `SHOP_SQL_SALES_URL`, `SHOP_SQL_SALES_USER`,
+`SHOP_SQL_SALES_PASSWORD`. A deployed file may carry a `user`, never a
+`password`. Besides its variable, a built application also takes the password
+from its own encrypted key store, under the entry `SQL:SALES` (the
+connection's name in capitals), which your application fills itself — from a
+settings form, say — and can never read back:
+
+```cobol
+           COBOL::"KEY-SET" ( "SQL:SALES" WS-PASSWORD WS-STATUS )
+```
+
+Without the file, the program can still connect by a connection string.
+
+> ⚠️ **A packaged project is not a built one.** **Package** hands over the
+> project for `rcrun` to run, and `rcrun` reads the SQL connections from the
+> project file, as the IDE does; only Build writes `sql-connections.toml`.
 
 **Units of work.** A unit of work starts with the first statement after a
 connect or after the previous `COMMIT`/`ROLLBACK` — on SQLite only before a

@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.211] — 2026-10-06
+
+### Added
+- **Spec 087 M6 — a built application's SQL connections.** Build links the
+  SQL drivers into any program that uses `EXEC SQL` (or declares a cursor),
+  and writes a starting `sql-connections.toml` beside the binary — in `bin/`
+  and in the destination folder — listing the project's SQL connections with
+  absolute SQLite paths and no user name or password, under a header naming
+  the `<APP>_SQL_<NAME>_URL`/`_USER`/`_PASSWORD` variables and the key-store
+  entry `SQL:<NAME>`. A rebuild never overwrites the file, so the operator's
+  edits stay. The built application reads it at start; the environment
+  overrides it, a `password` key in it is refused with `28000`, and the
+  application's key store (`COBOL::"KEY-SET" ( "SQL:SALES" … )`) can supply
+  the password.
+
 ## [PowerRustCOBOL 1.80.210] — 2026-10-06
 
 ### Fixed

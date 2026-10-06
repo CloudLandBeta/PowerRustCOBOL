@@ -356,7 +356,7 @@ pushed unless the operator asks.
 
 ## M6 — Build
 
-- [ ] **T25 — Build links SQL and writes the deployment file** (R39)
+- [x] **T25 — Build links SQL and writes the deployment file** (R39)
   - Files: `crates/cobolt-compiler/src/runtime_features.rs`,
     `crates/cobolt-compiler/src/lib.rs`.
   - Do: the feature scan sees `ExecSql` and `sql_cursors`; Build writes
@@ -371,7 +371,7 @@ pushed unless the operator asks.
     documented message; uncommitted work is committed at a normal end and
     rolled back after an error.
 
-- [ ] **T26 — M6 wrap-up**
+- [x] **T26 — M6 wrap-up**
   - Do: `z` bump, CHANGELOG entry; Guide (the deployment file, the variables,
     the key-store entry and its limits) and System KB slice; regenerate
     `chunked.data`.
