@@ -505,7 +505,7 @@ pushed unless the operator asks.
 
 ## M11 — Migration acceptance
 
-- [ ] **T38 — The operator's samples' SQL** (AC15, narrowed by Q14)
+- [x] **T38 — The operator's samples' SQL** (AC15, narrowed by Q14)
   - Files: `crates/cobolt-runtime/tests/test_esql_live.rs` (gated cases).
   - Verify: with `PRC_LEGACY_CBL_DIR` set, the samples' `EXEC SQL` blocks,
     read from the files at test time (never copied into the repository), run
@@ -513,6 +513,9 @@ pushed unless the operator asks.
     the tables they use; `DELETE … LIMIT 1` sets its syntax-error SQLSTATE
     while the program continues; with `PRC_TEST_MYSQL_URL` too, the same
     statements run against MySQL. `SKIPPED` without the variables.
+  - Result (2026-10-06): F-ART-PURGA's 24 distinct statements and TyC's 3
+    run as written against SQLite; `DELETE … LIMIT 1` → `42601`, the program
+    continues, nothing deleted. The MySQL half waits on M7 and a server.
 
 ## Finalize
 

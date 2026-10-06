@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.215] — 2026-10-06
+
+### Added
+- **Spec 087 M11 — the operator's samples' SQL, as written.** A gated test
+  (`PRC_LEGACY_CBL_DIR`) reads `F-ART-PURGA.cob` and `TyC.cob` at test time,
+  lifts their host-variable declarations and every `EXEC SQL` block, and runs
+  each distinct statement — 24 and 3 — against SQLite copies of the tables
+  they use: cursors over queries and over a prepared statement, counts,
+  deletes, `COMMIT`, `CONNECT TO 'JOSBER'` through a named SQL connection and
+  `SELECT … INTO … LIMIT 1`. `DELETE … LIMIT 1`, which SQLite rejects, sets
+  `42601` and the program carries on. Nothing of the samples is copied into
+  the repository.
+
 ## [PowerRustCOBOL 1.80.214] — 2026-10-06
 
 ### Added
