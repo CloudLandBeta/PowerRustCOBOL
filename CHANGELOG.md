@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.234] — 2026-10-06
+
+### Added
+- **Welcome screen — John 14:6.** The rotating welcome quote now includes
+  *"Jesus answered, 'I am the way and the truth and the life. No one comes to
+  the Father except through Me.'"*, in all six IDE languages with the
+  reference localised (Juan, João, ヨハネ, 约翰福音, Jean).
+
 ## [PowerRustCOBOL 1.80.233] — 2026-10-06
 
 ### Added

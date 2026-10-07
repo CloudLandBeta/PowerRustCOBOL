@@ -89,6 +89,7 @@ const EN: &[Quote] = &[
     ("Proverbs 11:8", "The righteous person is rescued from trouble, and it falls on the wicked instead."),
     ("Proverbs 29:11", "A fool gives full vent to his anger, but a wise man keeps himself under control."),
     ("Mark 9:23", "Jesus said to him, ‘If you can believe, all things are possible to him who believes.’"),
+    ("John 14:6", "Jesus answered, “I am the way and the truth and the life. No one comes to the Father except through Me.”"),
 ];
 
 const ES: &[Quote] = &[
@@ -111,6 +112,7 @@ const ES: &[Quote] = &[
     ("Proverbios 27:17", "El hierro se afila con el hierro, y el hombre con su prójimo."),
     ("Proverbios 13:4", "El perezoso desea y nada alcanza, pero el diligente prospera."),
     ("Marcos 9:23", "Jesús le dijo: Si puedes creer, al que cree todo le es posible."),
+    ("Juan 14:6", "Jesús le dijo: Yo soy el camino, y la verdad, y la vida; nadie viene al Padre sino por mí."),
 ];
 
 const PT: &[Quote] = &[
@@ -133,6 +135,7 @@ const PT: &[Quote] = &[
     ("Provérbios 27:17", "Como o ferro afia o ferro, assim o homem afia o seu companheiro."),
     ("Provérbios 13:4", "O preguiçoso deseja e nada consegue, mas o diligente prospera."),
     ("Marcos 9:23", "E Jesus disse-lhe: Se tu podes crer, tudo é possível ao que crê."),
+    ("João 14:6", "Respondeu Jesus: Eu sou o caminho, a verdade e a vida. Ninguém vem ao Pai a não ser por mim."),
 ];
 
 const JA: &[Quote] = &[
@@ -155,6 +158,7 @@ const JA: &[Quote] = &[
     ("箴言 27:17", "鉄は鉄をとぐ。人はその友によって磨かれる。"),
     ("箴言 13:4", "怠け者は欲しても得られず、勤勉な者は豊かになる。"),
     ("マルコ 9:23", "イエスは言われた。できれば、と言うのか。信じる者には、どんなことでもできる。"),
+    ("ヨハネ 14:6", "イエスは言われた。わたしは道であり、真理であり、命である。わたしを通らなければ、だれも父のもとに行くことができない。"),
 ];
 
 const ZH: &[Quote] = &[
@@ -192,6 +196,7 @@ const ZH: &[Quote] = &[
     ("箴言 27:17", "铁磨铁，磨出刃来；朋友相感，也是如此。"),
     ("箴言 13:4", "懒惰人羡慕，却无所得；殷勤人必得丰裕。"),
     ("马可福音 9:23", "耶稣对他说：你若能信，在信的人，凡事都能。"),
+    ("约翰福音 14:6", "耶稣说：我就是道路、真理、生命；若不藉着我，没有人能到父那里去。"),
 ];
 
 const FR: &[Quote] = &[
@@ -214,6 +219,7 @@ const FR: &[Quote] = &[
     ("Proverbes 27:17", "Comme le fer aiguise le fer, ainsi un homme aiguise un autre homme."),
     ("Proverbes 13:4", "Le paresseux désire et n’obtient rien, mais le diligent prospère."),
     ("Marc 9:23", "Jésus lui dit : Si tu peux croire, tout est possible à celui qui croit."),
+    ("Jean 14:6", "Jésus lui dit : Je suis le chemin, la vérité et la vie. Nul ne vient au Père que par moi."),
 ];
 
 #[cfg(test)]
