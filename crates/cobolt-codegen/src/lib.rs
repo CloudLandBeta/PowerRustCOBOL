@@ -3904,6 +3904,27 @@ mod tests {
         form
     }
 
+    /// Spec 052 R1/R6: a chart bound to several value fields loads every one
+    /// as a series, in mapping order, and names them; one series is seeded
+    /// exactly as before.
+    #[test]
+    fn a_chart_bound_to_several_fields_seeds_every_series() {
+        let mut form = data_binding_fixture_form();
+        let chart = form.data_bindings.iter_mut().find(|b| b.id == "BIND-TABLE-CHART").unwrap();
+        for f in ["TAX", "TOTAL"] {
+            chart.mappings.push(FieldMapping::new(
+                f,
+                BindingTargetPath::ChartValueSeries { control_id: "CHART-1".into(), series_id: f.into() },
+            ));
+        }
+        let src = generate(&form);
+        assert!(src.contains("INVOKE CHART-1 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"NAME,AMOUNT,TAX,TOTAL\""), "{src}");
+        assert!(src.contains("INVOKE CHART-1 'SetProperty' USING BY CONTENT \"_BindingSeriesNames\" BY CONTENT \"AMOUNT,TAX,TOTAL\""));
+        let one = generate(&data_binding_fixture_form());
+        assert!(!one.contains("_BindingSeriesNames"), "one series: seeded as before");
+        println!("052 R1: a chart bound to 3 value fields seeds 3 series (AMOUNT, TAX, TOTAL); one field seeds as before");
+    }
+
     #[test]
     fn data_binding_codegen_emits_deterministic_runtime_sections() {
         let src = generate(&data_binding_fixture_form());

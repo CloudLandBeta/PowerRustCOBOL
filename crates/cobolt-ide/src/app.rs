@@ -19924,6 +19924,28 @@ fn apply_data_binding_target_properties(form: &mut Form, binding: &DataBindingDe
             }
         }
     }
+    // A bound chart (spec 052 R2): the binding names its label field and its
+    // series, so the chart's own properties say the same, and the designer's
+    // preview draws one sample series per value field, named after it.
+    if let BindingTargetDescriptor::Chart { control_id, .. } = &binding.target {
+        let label = binding
+            .mappings
+            .iter()
+            .find(|m| matches!(m.target, BindingTargetPath::ChartCategory { .. }))
+            .map(|m| m.source_field.clone());
+        let values: Vec<String> = binding
+            .sorted_mapping_refs()
+            .into_iter()
+            .filter(|m| matches!(m.target, BindingTargetPath::ChartValueSeries { .. }))
+            .map(|m| m.source_field.clone())
+            .collect();
+        let data_source = binding_source_basic_label(&binding.source);
+        if let (Some(label), false, Some(control)) = (label, values.is_empty(), form.find_control_mut(control_id)) {
+            control.set_prop("LabelField", PropValue::String(label));
+            control.set_prop("ValueFields", PropValue::String(values.join(",")));
+            control.set_prop("DataSource", PropValue::String(data_source));
+        }
+    }
     if let BindingTargetDescriptor::ControlArray { array_id, .. } = &binding.target {
         let data_source = binding_source_basic_label(&binding.source);
         let fields = binding.source.fields();
@@ -22999,4 +23021,45 @@ fn preview_esc_notice(ctx: &egui::Context, text: &str) {
                     );
                 });
         });
+}
+
+/// Spec 052 R2 (T13): binding a chart writes what it binds into the chart's
+/// own properties, so the designer's preview draws those series by name.
+#[cfg(test)]
+mod chart_databinding_tests {
+    use super::*;
+    use cobolt_forms::{BindingChartKind, BindingDataType, BindingField, FieldMapping};
+
+    #[test]
+    fn a_bound_chart_names_its_fields_and_an_unbound_one_is_left_alone() {
+        let mut form = Form::new("F", "F", 640, 480);
+        form.controls.push(cobolt_forms::Control::new("CHART-1", ControlType::BarChart, 0, 0));
+        form.controls.push(cobolt_forms::Control::new("CHART-2", ControlType::BarChart, 0, 300));
+        let field = |n: &str, t: BindingDataType| BindingField::new(n, t);
+        let binding = DataBindingDef::new(
+            "BIND-SALES",
+            "Sales",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "SALES-TABLE".into(),
+                occurs_item: "SALES-ROW".into(),
+                fields: vec![field("S-MONTH", BindingDataType::Text), field("S-AMOUNT", BindingDataType::Integer), field("S-COST", BindingDataType::Integer)],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::Chart { control_id: "CHART-1".into(), chart_kind: BindingChartKind::Bar },
+        )
+        .with_mappings(vec![
+            FieldMapping::new("S-MONTH", BindingTargetPath::ChartCategory { control_id: "CHART-1".into() }),
+            FieldMapping::new("S-AMOUNT", BindingTargetPath::ChartValueSeries { control_id: "CHART-1".into(), series_id: "S-AMOUNT".into() }),
+            FieldMapping::new("S-COST", BindingTargetPath::ChartValueSeries { control_id: "CHART-1".into(), series_id: "S-COST".into() }),
+        ]);
+        apply_data_binding_to_form(&mut form, binding);
+        let prop = |id: &str, k: &str| form.find_control(id).and_then(|c| c.get_prop(k)).map(|v| v.as_str().to_owned()).unwrap_or_default();
+        assert_eq!((prop("CHART-1", "LabelField"), prop("CHART-1", "ValueFields")), ("S-MONTH".into(), "S-AMOUNT,S-COST".into()));
+        assert!(!prop("CHART-1", "DataSource").is_empty());
+        assert_eq!(prop("CHART-2", "ValueFields"), "", "an unbound chart is not touched");
+        let names = cobolt_forms::paint::chart_series_names(form.find_control("CHART-1").unwrap(), 2);
+        assert_eq!(names, ["S-AMOUNT", "S-COST"], "the preview's legend names the bound fields");
+        println!("052 T13: bound chart -> LabelField S-MONTH, ValueFields S-AMOUNT,S-COST, legend {names:?}");
+    }
 }

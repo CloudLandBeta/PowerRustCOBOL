@@ -1,6 +1,6 @@
 # Tasks — Chart multi-series data and interaction
 
-- **Status:** draft → in progress → done
+- **Status:** done (1.80.243, 2026-10-07) — reconciled against what 1.70.235 / 1.70.246 had already delivered; see "Outcome" at the end
 - **Plan:** ./plan.md   **Date:** 2026-08-18
 
 Ordered so the tree stays green after every task. T1–T4 are pure plumbing and
@@ -206,3 +206,29 @@ CLAUDE.md still apply.
 | AC8 | T9 | AC18 | T7 |
 | AC9 | T5 | AC19 | T6 |
 | AC10 | T11 | | |
+
+## Outcome (2026-10-07, 1.80.243, branch `fixes-chart-multi-series`)
+
+By 2026-10-07 most of this spec had shipped in another form: the property
+audit of 1.70.235 and the multi-series charts of 1.70.246. A survey matched
+each task against the code, and this change closed only what was still
+missing. The design was adapted to what exists rather than building a
+second copy of it.
+
+| Task | Outcome |
+|---|---|
+| T1 resolver / value range | **Adapted.** `chart::value_range` (signed, `lo <= 0 <= hi`); `paint::chart_geometry` is the one place marks are computed. There is no `__ChartSeries`: multi-series data already travels as the tab-extended `__ChartData` (1.70.246), and a second format would split it. Names travel as `__ChartNames`. |
+| T2 precedence | **Adapted.** Names: `SeriesLabels`, then the binding's `__ChartNames`, then `ValueFields`, then `Series n` (`chart_series_names`). Data: a binding replaces the chart's data at POPULATE and ignores `ValueFields`, as before. |
+| T3 runtime store | Already done (1.70.246); one series still sends the old bytes. |
+| T4 binding | **Done.** Codegen seeds every `ChartValueSeries` (`_BindingFields "cat,v1,v2…"`, plus `_BindingSeriesNames` when there are several); `refresh_chart_binding` reads them all into `chart_more` and sends `__ChartNames`. `COBOL-CHART-SET-SERIES` was **not added**: `SET-TABLE` with `ValueFields` and `AddPoint(label, v1, v2, …)` already carry several series. |
+| T5 painter reads one source | **Done** through `chart_geometry`, shared by the painter and the hit-test. |
+| T6 zero baseline | **Done.** Bars, lines, areas, scatter, the X axis, the area and line fills, and the load growth all work from zero. AC19 guard: `an_all_positive_chart_keeps_its_geometry_bit_for_bit` (176 rects, bit for bit). `elegance_baseline` did not move. |
+| T7 / T8 signed stacks | **Done.** Two running totals per label. `a_stack_with_both_signs_splits_at_zero`. |
+| T9 bubbles | Already done (1.70.235). The binding path still carries no sizes; bubbles come from `BubbleField` with `SET-TABLE`, or from `AddPoint`'s third argument. |
+| T10 baseline | Nothing to re-bless: the baseline is unchanged. |
+| T11 tooltips | **Adapted.** The tooltip finds the mark actually drawn, in any series, below zero too, and names the series (`a_chart_tooltip_names_the_series_of_the_mark_under_the_pointer`). It stays egui's tooltip on the interactive path, not a shape the chart paints and not on the designer canvas: the canvas is for designing, and it shows the sample, not data. |
+| T12 animation on new data | **Not done, by design.** 1.70.246 gave changed data its own animation, `AnimateValues`, which tweens from the old values to the new. Re-growing every mark from zero on each `AddPoint` would make a live chart flash. `AnimateOnLoad` still grows the first data, now from zero. |
+| T13 IDE preview | **Adapted.** Binding fills in `LabelField` / `ValueFields` / `DataSource`, and the designer's sample draws one series per value field, named after them. `a_bound_chart_names_its_fields_and_an_unbound_one_is_left_alone`. No live data is written into the `.cfrm`. |
+| T14 KB | **Done.** `ShowTooltips`, `ValueFields`, `SeriesLabels` and `Stacked` describe the delivered behaviour; `chunked.data` regenerated. |
+| T15 Guide | **Done.** Charts section: binding several series, no cap, negative values and the zero axis, signed stacking, the tooltip. No IDE string was added, so i18n is unaffected. |
+| T16 finalize | 1.80.243, CHANGELOG. **Operator's manual check still open:** bind a two-field table, tick `Stacked`, feed a negative value, hover a bar under Run Form. |

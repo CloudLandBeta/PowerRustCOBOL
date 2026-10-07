@@ -60,6 +60,27 @@ pub fn parse_chart_rows(raw: &str) -> Vec<Row> {
         .collect()
 }
 
+/// The range a chart's values are scaled into: `(lo, hi)` with
+/// `lo <= 0 <= hi`, so zero always has a place on the plot (spec 052 R21).
+/// Side by side, the smallest and largest value of any series; stacked, the
+/// largest total of the negative values of a row and of its positive ones.
+/// With no negative value it is `(0, max)` — the range charts always had.
+pub fn value_range(rows: &[Row], stacked: bool) -> (f32, f32) {
+    let (mut lo, mut hi) = (0.0_f32, 0.0_f32);
+    for (_, vs) in rows {
+        if stacked {
+            hi = hi.max(vs.iter().map(|v| v.max(0.0)).sum::<f32>());
+            lo = lo.min(vs.iter().map(|v| v.min(0.0)).sum::<f32>());
+        } else {
+            for &v in vs {
+                hi = hi.max(v);
+                lo = lo.min(v);
+            }
+        }
+    }
+    (lo, hi)
+}
+
 /// Render rows back to the `__ChartData` wire format.
 pub fn format_chart_rows(rows: &[Row]) -> String {
     rows.iter()

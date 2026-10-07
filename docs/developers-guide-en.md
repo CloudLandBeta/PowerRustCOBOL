@@ -2690,18 +2690,37 @@ per field, coloured from `SeriesColors` and named in the legend by
 ```
 
 A point given fewer values than the others is 0 in the series it leaves out.
+There is no limit on the number of series: past the last `SeriesColors` entry
+the colours start again.
+
+**Binding a chart to a table** maps one field to the category and any number
+of numeric fields to series — the Data Binding dialog maps every numeric field
+it finds. Each mapped field is one series, named after the field unless
+`SeriesLabels` names it, and the chart's `LabelField` and `ValueFields` are
+filled in to match, so the designer's preview already shows that many series
+under those names. A binding outranks what `ValueFields` said before it.
+
 **`Stacked`** (bar and area charts) piles the series up instead of standing
 them side by side: each label becomes one bar made of coloured segments — or
 one band per series on an area chart — so it reads as the label's total, and
 the plot scales to the largest total.
+
+**Negative values** are drawn below the X axis, which sits on **zero**: a bar
+of -5 hangs down from the axis, half as long as a bar of 10 rises. When every
+value is positive the axis is the bottom of the plot, exactly as before; when
+every value is negative it is the top. Stacked, positive values pile **up**
+from zero and negative ones **down** from it, so a month with income and
+costs shows both. Lines, areas and scatter points use the same axis; a pie or
+donut leaves a negative value out.
 
 On a **scatter chart** there is one series, and the third `AddPoint` argument
 is the bubble's size instead; `BubbleField` = `SALES-VOLUME` sizes every bubble
 from the table (the largest is `BubbleScale` across its radius). A pie or donut
 draws the first series.
 
-> ⚠️ **Caveat.** A tooltip (`ShowTooltips`) reports the **first** series' value
-> for the label under the pointer, also on a stacked bar.
+> **Note.** A tooltip (`ShowTooltips`) reports the mark under the pointer —
+> the bar or segment, or the nearest point of any line — with its series'
+> name when the chart has several: `Q1 · Sales: 120`.
 >
 > A pie or donut no longer carries `ShowXAxis` / `ShowYAxis` — it has no axes.
 > `BarCornerRadius` rounds **every** corner of a bar — on a stacked bar, only

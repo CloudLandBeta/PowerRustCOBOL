@@ -13346,7 +13346,7 @@ fn render_interactive(
             // "label: value". Only the control's own Tooltip ever showed.
             if prop_bool(ctrl, "ShowTooltips", true) {
                 if let Some(pos) = ui.ctx().pointer_hover_pos().filter(|p| screen.contains(*p) && clip.contains(*p)) {
-                    if let Some((label, value)) = paint::chart_point_at(ctrl, screen, pos) {
+                    if let Some(hit) = paint::chart_hit_at(chart_ctrl, screen, pos) {
                         egui::containers::Tooltip::always_open(
                             ui.ctx().clone(),
                             ui.layer_id(),
@@ -13354,7 +13354,7 @@ fn render_interactive(
                             egui::PopupAnchor::Pointer,
                         )
                         .show(|ui| {
-                            ui.label(format!("{label}: {}", paint::format_chart_number(value)));
+                            ui.label(paint::chart_tip_text(&hit, chart_ctrl));
                         });
                     }
                 }
@@ -23615,6 +23615,100 @@ mod tests {
         assert!((g[0].min.x - r[0].min.x).abs() < 0.5 && (g[0].max.x - r[0].max.x).abs() < 0.5, "one column");
         assert!((g[0].min.y - r[1].min.y).abs() < 0.5, "A's stack is as tall as B's bar: {g:?} {r:?}");
         println!("\n  BarChart Stacked -- two series side by side on the axis; stacked, A's second sits on its first and 10+10 reaches B's 20\n");
+    }
+
+    /// Spec 052 AC17: a negative value is a bar BELOW the axis, which sits at
+    /// zero — not a bar clamped away to nothing.
+    #[test]
+    fn a_negative_bar_hangs_below_the_axis_at_zero() {
+        let red = Color32::from_rgb(255, 0, 0);
+        let chart = ctrlp(
+            "CH",
+            ControlType::BarChart,
+            20,
+            20,
+            300,
+            200,
+            &[("__ChartData", "A\t10\nB\t-5"), ("SeriesColors", "#FF0000"), ("AnimateOnLoad", "false")],
+        );
+        let painted = drive_painted(&[chart], vec![(0.0, vec![]), (0.05, vec![])]);
+        let mut bars: Vec<Rect> = painted.fills.iter().filter(|(r, f)| *f == red && r.width() > 10.0).map(|(r, _)| *r).collect();
+        bars.sort_by(|a, b| a.min.x.total_cmp(&b.min.x));
+        bars.dedup();
+        assert_eq!(bars.len(), 2, "A and B: {bars:?}");
+        let (a, b) = (bars[0], bars[1]);
+        assert!((a.max.y - b.min.y).abs() < 0.5, "both start on the zero line: A ends at {}, B starts at {}", a.max.y, b.min.y);
+        assert!(b.max.y > b.min.y + 1.0, "B runs DOWN from zero: {b:?}");
+        let ratio = a.height() / b.height();
+        assert!((ratio - 2.0).abs() < 0.05, "10 against -5 is twice the length: {ratio}");
+        println!("\n  052 AC17 -- A=10 rises {:.1} pt above zero (y={:.1}), B=-5 hangs {:.1} pt below it\n", a.height(), a.max.y, b.height());
+    }
+
+    /// Spec 052 AC18: stacked, a label holding both signs piles its positive
+    /// values upward from zero and its negative ones downward.
+    #[test]
+    fn a_stack_with_both_signs_splits_at_zero() {
+        let red = Color32::from_rgb(255, 0, 0);
+        let green = Color32::from_rgb(0, 255, 0);
+        let chart = ctrlp(
+            "CH",
+            ControlType::BarChart,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("__ChartData", "A\t10\t-4\nB\t6\t3"),
+                ("SeriesColors", "#FF0000,#00FF00"),
+                ("Stacked", "true"),
+                ("AnimateOnLoad", "false"),
+            ],
+        );
+        let painted = drive_painted(&[chart], vec![(0.0, vec![]), (0.05, vec![])]);
+        let of = |c: Color32| -> Vec<Rect> {
+            let mut v: Vec<Rect> = painted.fills.iter().filter(|(r, f)| *f == c && r.width() > 10.0).map(|(r, _)| *r).collect();
+            v.sort_by(|a, b| a.min.x.total_cmp(&b.min.x));
+            v.dedup();
+            v
+        };
+        let (r, g) = (of(red), of(green));
+        assert_eq!((r.len(), g.len()), (2, 2), "{r:?} {g:?}");
+        // A: red 10 above zero, green -4 below it, meeting at zero.
+        assert!((r[0].max.y - g[0].min.y).abs() < 0.5, "A's -4 hangs from the zero line under its 10: {r:?} {g:?}");
+        assert!((r[0].height() / g[0].height() - 2.5).abs() < 0.05, "10 against 4");
+        // B: green 3 sits on red 6, both above zero.
+        assert!((g[1].max.y - r[1].min.y).abs() < 0.5, "B's 3 sits on its 6");
+        assert!((r[1].max.y - r[0].max.y).abs() < 0.5, "B stands on the same zero line");
+        println!("\n  052 AC18 -- stacked A=(10,-4): {:.1} pt up and {:.1} pt down from zero; B=(6,3) piles {:.1}+{:.1} pt upward\n", r[0].height(), g[0].height(), r[1].height(), g[1].height());
+    }
+
+    /// Spec 052 AC10: the tooltip finds the bar under the pointer — below
+    /// zero too — and names its series when the chart has several.
+    #[test]
+    fn a_chart_tooltip_names_the_series_of_the_mark_under_the_pointer() {
+        let rect = Rect::from_min_size(egui::pos2(0.0, 0.0), Vec2::new(300.0, 200.0));
+        let mut chart = Control::new("CH", ControlType::BarChart, 0, 0);
+        chart.set_prop("__ChartData", PropValue::String("Q1\t120\t-30\nQ2\t80\t40".into()));
+        chart.set_prop("SeriesLabels", PropValue::String("Sales,Returns".into()));
+        let geo = crate::paint::chart_geometry(&chart);
+        let plot = crate::paint::chart_frame(&chart, rect).plot;
+        let k = geo.plotted.len();
+        let mut seen = Vec::new();
+        for si in 0..k {
+            for i in 0..geo.n {
+                let br = crate::paint::chart_bar_rect(plot, false, false, k, geo.n, geo.bases[si][i], geo.tops[si][i], si, i);
+                let hit = crate::paint::chart_hit_at(&chart, rect, br.center()).expect("a bar is under its own centre");
+                seen.push(crate::paint::chart_tip_text(&hit, &chart));
+            }
+        }
+        assert_eq!(seen, ["Q1 · Sales: 120", "Q2 · Sales: 80", "Q1 · Returns: -30", "Q2 · Returns: 40"]);
+        // One unnamed series keeps the plain form.
+        let mut one = Control::new("CH", ControlType::BarChart, 0, 0);
+        one.set_prop("__ChartData", PropValue::String("Q1\t120".into()));
+        let geo = crate::paint::chart_geometry(&one);
+        let br = crate::paint::chart_bar_rect(plot, false, false, 1, geo.n, geo.bases[0][0], geo.tops[0][0], 0, 0);
+        assert_eq!(crate::paint::chart_tip_text(&crate::paint::chart_hit_at(&one, rect, br.center()).unwrap(), &one), "Q1: 120");
+        println!("\n  052 AC10 -- tooltips: {seen:?}\n");
     }
 
     /// A control's drop shadow falls into its container's padding. A DataGrid
