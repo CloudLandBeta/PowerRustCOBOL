@@ -8,6 +8,7 @@
 
 pub mod agents_modal;
 pub mod beautify;
+pub mod magnifier;
 pub mod claude_code_settings;
 pub mod cobol_structure;
 pub mod code_search;

@@ -2605,6 +2605,14 @@ pub struct DesignerPanel {
     /// the click test use the very rect that was drawn.
     pub(crate) crumb_toggle_rect: Option<egui::Rect>,
 
+    // ── Magnifier (spec 089) — view state only, never in the form ────────────
+    /// The toolbar's Magnifier toggle. Every form opens with it off.
+    pub(crate) magnifier_on: bool,
+    /// What the canvas painted near the pointer, for the toolbox's Zoom
+    /// section — kept when the pointer leaves the form, so the view stops
+    /// updating there. `None` until the pointer has been over the form.
+    pub(crate) magnifier_feed: Option<super::magnifier::MagnifierFeed>,
+
     // ── Animation preview ─────────────────────────────────────────────────────
     /// ctrl_id → AnimState (for designer-time preview of animations)
     anim_states: HashMap<String, AnimState>,
@@ -2903,6 +2911,8 @@ impl DesignerPanel {
             rail_view_collapsed: None,
             rail_designed_collapsed: None,
             crumb_toggle_rect: None,
+            magnifier_on: false,
+            magnifier_feed: None,
             anim_states: HashMap::new(),
             last_frame_time: None,
             format_painter: FormatPainter::Idle,
@@ -8164,6 +8174,11 @@ impl DesignerPanel {
                 let (resp, painter) =
                     ui.allocate_painter(Vec2::new(canvas_w, canvas_h), Sense::click_and_drag());
                 let origin = resp.rect.min;
+                // 089 — the magnifier copies what this pass paints; note where
+                // it starts. Nothing is copied while the magnifier is off.
+                let magnifier_start = self
+                    .magnifier_on
+                    .then(|| super::magnifier::pass_start(ui.ctx(), painter.layer_id()));
 
                 // ── Form canvas background ─────────────────────────────────────
                 // BackColor (RRGGBBAA hex) controls fill + alpha.
@@ -9426,6 +9441,29 @@ impl DesignerPanel {
                                 }
                             }
                         }
+                    }
+                }
+
+                // 089 — hand the toolbox's magnifier what was painted around
+                // the pointer, while the pointer is over the form (R3). Once
+                // it leaves the form the magnifier stops updating and keeps
+                // its last picture (R4, operator 2026-10-06).
+                if let Some(start) = magnifier_start {
+                    let form_rect = egui::Rect::from_min_size(origin, Vec2::new(canvas_w, canvas_h));
+                    let pointer = ui
+                        .ctx()
+                        .pointer_hover_pos()
+                        .filter(|p| form_rect.contains(*p) && ui.clip_rect().contains(*p));
+                    if let Some(p) = pointer {
+                        // The toolbox is drawn before the canvas: one more
+                        // frame lets it show where the pointer stopped.
+                        if self.magnifier_feed.as_ref().map(|f| f.pointer) != Some(p) {
+                            ui.ctx().request_repaint();
+                        }
+                        // The view is as wide as the toolbox: copy what it can show.
+                        let half = super::magnifier::capture_half(self.toolbox_width);
+                        self.magnifier_feed =
+                            Some(super::magnifier::capture(ui.ctx(), painter.layer_id(), start, p, form_rect, half));
                     }
                 }
             });
@@ -15229,6 +15267,8 @@ pub(crate) enum DesignerToolbarAction {
     ToggleAnimPreview,
     ToggleGrid,
     ToggleGlass,
+    /// Spec 089 — the toolbox's magnifier.
+    ToggleMagnifier,
     // Run
     RunForm,
     StopForm,
@@ -15304,6 +15344,9 @@ pub(crate) fn draw_icon_toolbar(
     // When true, the Save button paints a checkmark (a transient "saved" cue)
     // instead of its normal icon.
     saved_flash: bool,
+    // 089 — the Magnifier toggle and its tip (`tr.tb_magnifier`).
+    magnifier_on: bool,
+    magnifier_tip: &str,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -15510,6 +15553,9 @@ pub(crate) fn draw_icon_toolbar(
         }
         if icon_btn(ui, true, glass_on, "Toggle Glass Theme", &icon_glass) {
             action = DesignerToolbarAction::ToggleGlass;
+        }
+        if icon_btn(ui, true, magnifier_on, magnifier_tip, &icon_magnifier) {
+            action = DesignerToolbarAction::ToggleMagnifier;
         }
 
         group_separator(ui, group_gap);
@@ -15914,6 +15960,18 @@ fn icon_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         }
     }
     out.push(Shape::rect_stroke(sr, 1.0, s, egui::StrokeKind::Middle));
+}
+
+/// A magnifying glass: the lens and its handle.
+fn icon_magnifier(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let lens_r = r.width() * 0.30;
+    let centre = r.center() - Vec2::splat(r.width() * 0.08);
+    out.push(Shape::circle_stroke(centre, lens_r, Stroke::new(1.6, c)));
+    let d = lens_r * std::f32::consts::FRAC_1_SQRT_2;
+    out.push(Shape::line_segment(
+        [centre + Vec2::splat(d), centre + Vec2::splat(d + r.width() * 0.26)],
+        Stroke::new(2.4, c),
+    ));
 }
 
 fn icon_glass(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -23607,5 +23665,88 @@ mod modern_forms_tests_079 {
             report.push(format!("{t:?} worst {worst_seen:.1}"));
         }
         println!("079 contrast across 5 style switches: {}", report.join(", "));
+    }
+}
+
+/// Spec 089 — the magnifier, driven through the real canvas
+/// (`DesignerPanel::show`) with pointer events.
+#[cfg(test)]
+mod magnifier_tests_089 {
+    use super::*;
+    use crate::llm::LlmConfig;
+    use egui::Event;
+
+    fn frame(ctx: &egui::Context, d: &mut DesignerPanel, llm: &LlmConfig, events: Vec<Event>) {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(1400.0, 1000.0)));
+        input.max_texture_side = Some(8192);
+        input.events = events;
+        let mut out = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().show_inside(root, |ui| {
+                let _ = d.show(ui, &mut None, &[], llm, None, None);
+            });
+        });
+        out.textures_delta.clear();
+    }
+
+    fn panel() -> DesignerPanel {
+        let mut form = Form::new("F", "F", 500, 300);
+        let mut l = Control::new("LBL-1", ControlType::Label, 100, 100);
+        l.set_prop("Caption".to_string(), PropValue::String("Tiny".into()));
+        l.set_prop("FontSize".to_string(), PropValue::Int(9));
+        form.controls.push(l);
+        DesignerPanel::new(form)
+    }
+
+    /// AC1/R8 — a form opens with the magnifier off, and off it copies nothing.
+    #[test]
+    fn the_magnifier_starts_off_and_copies_nothing_while_off() {
+        let ctx = egui::Context::default();
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut d = panel();
+        assert!(!d.magnifier_on);
+        frame(&ctx, &mut d, &llm, vec![]);
+        let p = d.form.find_control("LBL-1").map(|_| Pos2::new(110.0, 105.0)).unwrap();
+        frame(&ctx, &mut d, &llm, vec![Event::PointerMoved(p + Vec2::splat(20.0))]);
+        assert!(d.magnifier_feed.is_none());
+    }
+
+    /// R3, R4, AC4, AC5 — over the form it captures around the pointer; off
+    /// the form it stops updating and keeps the last picture; none of it is
+    /// an edit.
+    #[test]
+    fn the_magnifier_follows_the_pointer_over_the_form_and_freezes_off_it() {
+        let ctx = egui::Context::default();
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut d = panel();
+        d.magnifier_on = true;
+        frame(&ctx, &mut d, &llm, vec![]);
+        let before = cobolt_forms::xml::form_to_string(&d.form).unwrap();
+        // Find the canvas: the label's caption is painted on it.
+        let feed_at = |d: &mut DesignerPanel, p: Pos2| {
+            frame(&ctx, d, &llm, vec![Event::PointerMoved(p)]);
+            frame(&ctx, d, &llm, vec![]);
+            d.magnifier_feed.as_ref().map(|f| (f.pointer, f.form_rect, f.shapes.len()))
+        };
+        let probe = feed_at(&mut d, Pos2::new(400.0, 300.0)).expect("pointer over the form is captured");
+        let form_rect = probe.1;
+        let over_label = form_rect.min + Vec2::new(110.0, 106.0);
+        let (pointer, _, n) = feed_at(&mut d, over_label).expect("captured");
+        assert_eq!(pointer, over_label);
+        assert!(n > 0, "shapes near the label were copied");
+        let has_label = d.magnifier_feed.as_ref().unwrap().shapes.iter().any(|c| match &c.shape {
+            egui::Shape::Text(t) => t.galley.text() == "Tiny",
+            _ => false,
+        });
+        assert!(has_label, "the label's caption is in the feed");
+
+        let outside = form_rect.max + Vec2::new(40.0, 40.0);
+        let (frozen, _, _) = feed_at(&mut d, outside).expect("kept");
+        println!("  089: over the form the feed follows the pointer ({n} shapes near the label); off the form it stays at {frozen:?}");
+        assert_eq!(frozen, over_label, "off the form the magnifier stops updating");
+
+        let after = cobolt_forms::xml::form_to_string(&d.form).unwrap();
+        assert!(!d.dirty && d.undo_stack.is_empty(), "the magnifier is not an edit");
+        assert_eq!(before, after, "the saved form is byte-identical");
     }
 }

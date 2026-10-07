@@ -8,6 +8,38 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.235] — 2026-10-06
+
+### Changed
+- **Welcome screen — every quote in every language.** The rotating quote
+  pool had all 63 quotes in English but a curated 20 in the other five
+  languages, so most quotes could only ever appear in English. Spanish,
+  Portuguese, French, Japanese and Chinese now carry the full pool, in the
+  same order as English, with scripture references localised. A test keeps
+  the six pools the same length, in the same order, and translated.
+
+## [PowerRustCOBOL 1.80.234] — 2026-10-06
+
+### Added
+- **Welcome screen — John 14:6.** The rotating welcome quote now includes
+  *"Jesus answered, 'I am the way and the truth and the life. No one comes to
+  the Father except through Me.'"*, in all six IDE languages with the
+  reference localised (Juan, João, ヨハネ, 约翰福音, Jean).
+
+## [PowerRustCOBOL 1.80.233] — 2026-10-06
+
+### Added
+- **Spec 089 — the Form Designer magnifier.** A magnifying-glass toggle in
+  the designer toolbar adds a **Zoom** section at the top of the toolbox,
+  above Common: a square as wide as the toolbox showing the form under the
+  pointer four times larger, with a crosshair. It is the canvas's own
+  picture — controls, handles and grid — with text drawn at the larger size,
+  so small captions stay sharp; only the form is shown. When the pointer
+  leaves the form the view stops updating and keeps its last picture. It is
+  view-only: it never marks the form modified or adds an undo step. Each
+  designer window has its own, and forms open with it off. The first draft of
+  this spec (a zoomable canvas) was withdrawn in favour of the magnifier.
+
 ## [PowerRustCOBOL 1.80.232] — 2026-10-06
 
 ### Added
