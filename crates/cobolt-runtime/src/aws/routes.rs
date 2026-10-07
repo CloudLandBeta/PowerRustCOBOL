@@ -89,6 +89,35 @@ pub struct OpDef {
     /// When an answer the server did not flag as an error is one anyway.
     #[serde(default)]
     pub fail: Option<FailDef>,
+    /// A file the answer is written to.
+    #[serde(default)]
+    pub save: Option<SaveDef>,
+    /// A pointer to an object of the answer whose members are SECRETS: kept
+    /// in the runtime's memory for this control (`{secret:Name}`), and cut
+    /// out of the answer before anything else reads it.
+    #[serde(default)]
+    pub secrets: Option<String>,
+    /// Forget this control's secrets — whatever the answer.
+    #[serde(default)]
+    pub forget_secrets: bool,
+    /// The request carries a password or a secret: `Verbose` never prints it.
+    #[serde(default)]
+    pub sensitive: bool,
+}
+
+/// An answer written to a local file.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SaveDef {
+    /// The file, a template; an empty one saves nothing.
+    pub path: String,
+    /// An extractor giving the content.
+    pub from: String,
+    /// `base64`: the content is base64, written as the bytes it encodes.
+    #[serde(default)]
+    pub decode: Option<String>,
+    /// A property that receives the path written.
+    #[serde(default)]
+    pub property: Option<String>,
 }
 
 /// How an answer becomes rows.
@@ -129,6 +158,9 @@ pub struct Routes {
     pub servers: BTreeMap<String, ServerDef>,
     #[serde(default)]
     pub ops: BTreeMap<String, OpDef>,
+    /// Product-shipped text pasted into templates by `{snippet:name}`.
+    #[serde(default)]
+    pub snippets: BTreeMap<String, String>,
 }
 
 impl Routes {
@@ -152,11 +184,49 @@ impl Routes {
         let mut merged = self.clone();
         merged.servers.extend(o.servers);
         merged.ops.extend(o.ops);
+        merged.snippets.extend(o.snippets);
         Ok(merged)
     }
 
     pub fn op(&self, control_type: &str, method: &str) -> Option<&OpDef> {
         self.ops.get(&format!("{control_type}.{method}"))
+    }
+
+    /// Paste the shipped snippets (`{snippet:name}`) and this control's
+    /// secrets (`{secret:Name}`, as a quoted literal) into an input template,
+    /// BEFORE its placeholders are expanded — so neither can come from, or be
+    /// reshaped by, a COBOL value. A secret the control does not hold fails:
+    /// the operation needs a sign-in first.
+    pub fn paste(&self, template: &toml::Value, secret: &dyn Fn(&str) -> Option<String>) -> Result<toml::Value, String> {
+        Ok(match template {
+            toml::Value::String(s) => {
+                let mut out = s.clone();
+                while let Some(at) = out.find("{snippet:") {
+                    let end = out[at..].find('}').map(|e| at + e).ok_or("an unclosed {snippet:")?;
+                    let name = &out[at + 9..end];
+                    let text = self.snippets.get(name).ok_or_else(|| format!("the AWS route table has no snippet \"{name}\""))?;
+                    out.replace_range(at..=end, text);
+                }
+                while let Some(at) = out.find("{secret:") {
+                    let end = out[at..].find('}').map(|e| at + e).ok_or("an unclosed {secret:")?;
+                    let name = out[at + 8..end].to_owned();
+                    let value = secret(&name)
+                        .filter(|v| !v.is_empty())
+                        .ok_or_else(|| "this control is not signed in: call SignIn first".to_string())?;
+                    out.replace_range(at..=end, &Value::String(value).to_string());
+                }
+                toml::Value::String(out)
+            }
+            toml::Value::Table(t) => {
+                let mut m = toml::map::Map::new();
+                for (k, v) in t {
+                    m.insert(k.clone(), self.paste(v, secret)?);
+                }
+                toml::Value::Table(m)
+            }
+            toml::Value::Array(a) => toml::Value::Array(a.iter().map(|v| self.paste(v, secret)).collect::<Result<_, _>>()?),
+            other => other.clone(),
+        })
     }
 }
 
@@ -317,6 +387,26 @@ fn placeholder(body: &str, ctx: &Context) -> Result<Piece, ExpandError> {
             Piece::Json(Value::Object(map))
         } else if filter == "text" {
             Piece::Text(piece.into_text())
+        } else if filter == "filebase64" || filter == "source" {
+            // A local file's bytes, base64-encoded. `source` is for an image
+            // or document that may instead name an S3 object: `s3://…` stays
+            // as it is, and a file becomes `b64:<its bytes>`.
+            let text = piece.into_text();
+            let path = text.trim();
+            if path.is_empty() && filter == "filebase64" {
+                Piece::Text(String::new())
+            } else if path.is_empty() {
+                return Err(ExpandError::BadValue(format!("no file or s3:// object was named ({source})")));
+            } else if filter == "source" && path.starts_with("s3://") {
+                if !path[5..].contains('/') {
+                    return Err(ExpandError::BadValue(format!("\"{path}\" names a bucket but no object: s3://bucket/key")));
+                }
+                Piece::Text(path.to_owned())
+            } else {
+                let bytes = std::fs::read(path).map_err(|e| ExpandError::BadValue(format!("cannot read \"{path}\": {e}")))?;
+                let b64 = super::b64::encode(&bytes);
+                Piece::Text(if filter == "source" { format!("b64:{b64}") } else { b64 })
+            }
         } else if filter == "ident" {
             Piece::Text(ident(&piece.into_text()))
         } else if let Some(prefix) = filter.strip_prefix("strip:") {
@@ -440,9 +530,36 @@ fn answer_json(r: &ToolResult) -> Option<Value> {
     r.content.iter().rev().filter_map(Content::as_text).find_map(|t| serde_json::from_str::<Value>(t.trim()).ok())
 }
 
-/// The first of `a|b|…` present (and not `null`) under `v`.
-fn first_pointer<'v>(v: &'v Value, alternatives: &str) -> Option<&'v Value> {
-    alternatives.split('|').find_map(|p| v.pointer(p.trim()).filter(|x| !x.is_null()))
+/// The first of `a|b|…` present (and not `null`) under `v`. A pointer that
+/// meets a string holding JSON reads on inside it — a server that answers
+/// with a JSON value written as text.
+fn first_pointer(v: &Value, alternatives: &str) -> Option<Value> {
+    alternatives.split('|').find_map(|p| pointer_into(v, p.trim()).filter(|x| !x.is_null()))
+}
+
+fn pointer_into(v: &Value, ptr: &str) -> Option<Value> {
+    if ptr.is_empty() {
+        return Some(v.clone());
+    }
+    let mut cur = v.clone();
+    for raw in ptr.strip_prefix('/')?.split('/') {
+        let key = raw.replace("~1", "/").replace("~0", "~");
+        if let Value::String(s) = &cur {
+            match serde_json::from_str::<Value>(s) {
+                Ok(inner @ (Value::Object(_) | Value::Array(_))) => cur = inner,
+                _ => return None,
+            }
+        }
+        cur = match cur {
+            Value::Object(mut o) => o.remove(&key)?,
+            Value::Array(mut a) => {
+                let i: usize = key.parse().ok()?;
+                (i < a.len()).then(|| a.swap_remove(i))?
+            }
+            _ => return None,
+        };
+    }
+    Some(cur)
 }
 
 /// An extractor's JSON: `$json:/ptr` (alternatives allowed), or `$jsonseq:`
@@ -450,7 +567,7 @@ fn first_pointer<'v>(v: &'v Value, alternatives: &str) -> Option<&'v Value> {
 pub fn extract_value(r: &ToolResult, expr: &str) -> Option<Value> {
     if let Some(ptr) = expr.strip_prefix("$json:") {
         let whole = answer_json(r)?;
-        return if ptr.is_empty() { Some(whole) } else { first_pointer(&whole, ptr).cloned() };
+        return if ptr.is_empty() { Some(whole) } else { first_pointer(&whole, ptr) };
     }
     if expr == "$jsonseq:" {
         let text = result_text(r);
@@ -473,6 +590,7 @@ pub fn shape_rows(r: &ToolResult, def: &RowsDef, filter: &BTreeMap<String, Strin
         let names: Vec<String> = answer_json(r)
             .as_ref()
             .and_then(|w| first_pointer(w, cols))
+            .as_ref()
             .and_then(Value::as_array)
             .map(|a| a.iter().map(|c| value_text(Some(c))).collect())
             .unwrap_or_default();
@@ -483,7 +601,7 @@ pub fn shape_rows(r: &ToolResult, def: &RowsDef, filter: &BTreeMap<String, Strin
             }
         }
     }
-    items.retain(|(_, v)| filter.iter().all(|(ptr, want)| want.is_empty() || value_text(v.pointer(ptr)) == *want));
+    items.retain(|(_, v)| filter.iter().all(|(ptr, want)| want.is_empty() || value_text(pointer_into(v, ptr).as_ref()) == *want));
     if def.fields.is_empty() {
         return items.into_iter().map(|(_, v)| v).collect();
     }
@@ -497,7 +615,7 @@ pub fn shape_rows(r: &ToolResult, def: &RowsDef, filter: &BTreeMap<String, Strin
                     let value = if spec.trim() == "$key" {
                         key.clone().map(Value::String)
                     } else {
-                        first_pointer(&v, spec).cloned()
+                        first_pointer(&v, spec)
                     };
                     (name.clone(), value.unwrap_or(Value::String(String::new())))
                 })
@@ -505,6 +623,39 @@ pub fn shape_rows(r: &ToolResult, def: &RowsDef, filter: &BTreeMap<String, Strin
             Value::Object(row)
         })
         .collect()
+}
+
+/// Cut the secrets object at `ptr` out of an answer: its string members, and
+/// the answer without them — rebuilt as one text block, so nothing that reads
+/// the answer afterwards can see a secret.
+pub fn take_secrets(r: &ToolResult, ptr: &str) -> (Vec<(String, String)>, ToolResult) {
+    let Some(mut whole) = answer_json(r) else { return (Vec::new(), r.clone()) };
+    let mut found = Vec::new();
+    let (parent, key) = ptr.rsplit_once('/').unwrap_or(("", ptr));
+    // A node on the way that is JSON written as text is read as JSON first,
+    // so the secrets cannot hide inside a string.
+    let mut walked = String::new();
+    for seg in parent.split('/').skip(1) {
+        walked.push('/');
+        walked.push_str(seg);
+        if let Some(node) = whole.pointer_mut(&walked) {
+            if let Some(inner) = node.as_str().and_then(|s| serde_json::from_str::<Value>(s).ok()) {
+                *node = inner;
+            }
+        }
+    }
+    if let Some(Value::Object(o)) = whole.pointer_mut(parent) {
+        if let Some(Value::Object(secrets)) = o.remove(key) {
+            for (k, v) in secrets {
+                if let Value::String(s) = v {
+                    found.push((k, s));
+                }
+            }
+        }
+    }
+    let mut cleaned = ToolResult::ok(vec![Content::text(whole.to_string())]);
+    cleaned.is_error = r.is_error;
+    (found, cleaned)
 }
 
 /// Apply one result extractor.

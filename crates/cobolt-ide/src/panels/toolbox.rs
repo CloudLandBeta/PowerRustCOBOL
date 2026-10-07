@@ -266,6 +266,51 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::AwsGlue,
         category: "AWS",
     },
+    ToolEntry {
+        label: "AwsDynamoDB",
+        ct: ControlType::AwsDynamoDB,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsS3",
+        ct: ControlType::AwsS3,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsS3Vectors",
+        ct: ControlType::AwsS3Vectors,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsRekognition",
+        ct: ControlType::AwsRekognition,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsPolly",
+        ct: ControlType::AwsPolly,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsComprehend",
+        ct: ControlType::AwsComprehend,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsTextract",
+        ct: ControlType::AwsTextract,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsEC2",
+        ct: ControlType::AwsEC2,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsCognito",
+        ct: ControlType::AwsCognito,
+        category: "AWS",
+    },
     // ── Charts ─────────────────────────────────────────────────────────────────
     ToolEntry {
         label: "BarChart",
@@ -2019,7 +2064,7 @@ mod toolbox_layout_tests {
             assert_eq!(headers.len(), 1, "{lang:?}: one AWS header: {texts:?}");
         }
         let aws: Vec<&str> = TOOLS.iter().filter(|t| t.category == "AWS").map(|t| t.label).collect();
-        assert_eq!(aws, ["AwsLambda", "AwsMcp", "AwsKnowledgeBase", "AwsAgentCore", "AwsAgentMemory", "AwsS3Tables", "AwsGlue"]);
+        assert_eq!(aws, ["AwsLambda", "AwsMcp", "AwsKnowledgeBase", "AwsAgentCore", "AwsAgentMemory", "AwsS3Tables", "AwsGlue", "AwsDynamoDB", "AwsS3", "AwsS3Vectors", "AwsRekognition", "AwsPolly", "AwsComprehend", "AwsTextract", "AwsEC2", "AwsCognito"]);
     }
 }
 

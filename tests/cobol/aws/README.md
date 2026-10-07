@@ -14,10 +14,21 @@ in order, and the `PASS n FAIL m` tally.
 | `aws-agent-memory-demo.cfrm` | `AwsAgentMemory` (Delivery B) | 7 |
 | `aws-s3-tables-demo.cfrm` | `AwsS3Tables` (Delivery B) | 10 |
 | `aws-glue-demo.cfrm` | `AwsGlue` (Delivery B) | 9 |
+| `aws-dynamodb-demo.cfrm` | `AwsDynamoDB` (Delivery C) | 9 |
+| `aws-s3-demo.cfrm` | `AwsS3` (Delivery C) | 7 |
+| `aws-s3-vectors-demo.cfrm` | `AwsS3Vectors` (Delivery C) | 6 |
+| `aws-rekognition-demo.cfrm` | `AwsRekognition` (Delivery C) | 7 |
+| `aws-polly-demo.cfrm` | `AwsPolly` (Delivery C) | 6 |
+| `aws-comprehend-demo.cfrm` | `AwsComprehend` (Delivery C) | 7 |
+| `aws-textract-demo.cfrm` | `AwsTextract` (Delivery C) | 7 |
+| `aws-ec2-demo.cfrm` | `AwsEC2` (Delivery C) | 6 |
+| `aws-cognito-demo.cfrm` | `AwsCognito` (Delivery C) | 9 |
 
 `forms/aws-shell.cfrm` is a main form with a SideMenu that loads any demo
 into its ContentPane. The fake answers each Delivery B tool with the shape
-that server's source produces (see the fixtures' provenance in
+that server's source produces, and the hosted server's `aws___run_script` —
+which every Delivery C operation calls — with the envelope AWS's own code
+reads, chosen by the AWS operation the script names (`answers_when`) (see the fixtures' provenance in
 `crates/cobolt-runtime/tests/fixtures/aws-mcp/`).
 
 `crates/cobolt-cli/tests/aws_hosts.rs` runs them under `rcrun run-form`, as

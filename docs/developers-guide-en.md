@@ -12496,6 +12496,15 @@ Services from COBOL:
 | `AwsAgentMemory` | records a conversation in an AgentCore Memory and searches what it has learned |
 | `AwsS3Tables` | lists Amazon S3 Tables, reads them with SQL, appends rows |
 | `AwsGlue` | starts Glue jobs and crawlers, follows a run, reads a table's columns |
+| `AwsDynamoDB` | reads and writes DynamoDB items as plain JSON |
+| `AwsS3` | lists, reads, writes and deletes the objects of a bucket |
+| `AwsS3Vectors` | finds the vectors nearest to one, and stores vectors |
+| `AwsRekognition` | finds labels, text and faces in an image |
+| `AwsPolly` | speaks a text into an audio file |
+| `AwsComprehend` | the sentiment, entities, key phrases and language of a text |
+| `AwsTextract` | reads a document's lines, form fields and tables |
+| `AwsEC2` | describes, starts and stops instances |
+| `AwsCognito` | signs your application's own users up, in and out |
 | `AwsMcp` | the general door: any tool of an AWS server, by name |
 
 None asks you to write an HTTP request, sign it or handle a credential — you
@@ -12521,6 +12530,9 @@ flowchart LR
   or `winget install astral-sh.uv`. uv brings the Python the servers run on
   (3.10 or later; 3.11 or later for `AwsS3Tables`, which uv fetches by
   itself).
+- For the general-purpose controls, a profile whose IAM policy allows the
+  AWS MCP Server itself (AWS's setup page for it lists the permissions) and
+  the services you call.
 - **The AWS CLI** (2.32 or later) and a profile that is signed in:
   `aws login --profile sales` once on that machine.
 
@@ -12894,12 +12906,164 @@ no arguments follows exactly that run:
   privacy the server leaves a run's arguments and error message out of what
   it returns; the state is always there.
 
+#### The general-purpose controls: one AWS server for many services
+
+`AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`,
+`AwsComprehend`, `AwsTextract`, `AwsEC2` and `AwsCognito` all go through
+**the AWS MCP Server** — the one AWS runs itself, reached through AWS's own
+proxy and signed by the connection's profile. You notice nothing of this: you
+call `GetItem` the way you call `Query` on the others. Two things are worth
+knowing:
+
+- Every request is a small Python script **shipped with PowerRustCOBOL**, run
+  by AWS in a sandbox. The values your program passes go into it as data
+  only — a text, a number, a file's bytes — never as code, so nothing a user
+  types can change what runs.
+- These calls take longer than the dedicated servers' — a few seconds each,
+  because AWS starts the sandbox every time. Keep `Mode = Async` for them,
+  and do not put one in a loop over thousands of rows.
+
+#### Example: DynamoDB items as plain JSON
+
+DynamoDB's own API writes every value with its type (`{"N": "42"}`).
+`AwsDynamoDB` does not: keys, items and values are the JSON your program
+would write anyway, and items come back as rows whose fields are the
+attributes.
+
+```cobol
+       PROGRAM-ID. BTN-FIND--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-KEY        PIC X(100).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           STRING '{"id": ' FUNCTION TRIM(TXT-ID::Text) '}'
+               DELIMITED BY SIZE INTO WS-KEY
+           INVOKE ORDERS-1 "GetItem" USING WS-KEY RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. ORDERS-1--ONITEM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ROW        PIC 9 VALUE 1.
+       01 WS-FIELD      PIC X(20) VALUE "customer".
+       01 WS-CUSTOMER   PIC X(80).
+       PROCEDURE DIVISION.
+           IF ORDERS-1::Found = "1"
+               INVOKE ORDERS-1 "GetField" USING WS-ROW WS-FIELD
+                   RETURNING WS-CUSTOMER
+               MOVE WS-CUSTOMER TO LBL-STATE::Caption
+           ELSE
+               MOVE "No such order" TO LBL-STATE::Caption
+           END-IF
+           .
+```
+
+- `Query(keyCondition, values, index)` reads the items matching a key
+  condition — `customer = :c` with `{":c": "C-7"}` — up to `Limit`, from
+  `IndexName` when no index is given. `Scan(limit)` reads the table.
+- `PutItem(item)`, `UpdateItem(key, expression, values)` and
+  `DeleteItem(key)` need `AllowWrite`. `UpdateItem` returns the item's new
+  state as row 1.
+
+#### Example: an image, a document, a voice
+
+`AwsRekognition` and `AwsTextract` take an image or a document either as a
+**local file** or as an object in S3 (`s3://bucket/key`). `AwsPolly` writes
+the speech into a local file.
+
+```cobol
+       PROGRAM-ID. BTN-PHOTO--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-IMAGE      PIC X(200) VALUE "photos/dog.jpg".
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE VISION-1 "DetectLabels" USING WS-IMAGE
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. VISION-1--ONLABELS.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ROW        PIC 9 VALUE 1.
+       01 WS-FIELD      PIC X(20) VALUE "Name".
+       01 WS-LABEL      PIC X(80).
+       PROCEDURE DIVISION.
+           INVOKE VISION-1 "GetField" USING WS-ROW WS-FIELD
+               RETURNING WS-LABEL
+           MOVE WS-LABEL TO LBL-STATE::Caption
+           .
+```
+
+| Control | Methods | Rows / results |
+|---|---|---|
+| `AwsRekognition` | `DetectLabels`, `DetectText`, `DetectFaces` (image) | `Name`, `Confidence` · `Text`, `Type` · `AgeLow`, `AgeHigh`, `Smile`, `Emotion` |
+| `AwsTextract` | `DetectText`, `AnalyzeDocument` (document) | lines `Text`, `Page` · fields and cells: `Kind` (FIELD or CELL), `Key`, `Value`, `Table`, `Row`, `Column` |
+| `AwsPolly` | `Synthesize(text, voice, format, toFile)` | `SavedFile`, `Characters` (what Polly bills) |
+| `AwsComprehend` | `DetectSentiment`, `DetectEntities`, `DetectKeyPhrases`, `DetectLanguage` | `Sentiment` · `Text`, `Type`, `Score` · `Language` |
+| `AwsS3` | `List(prefix)`, `GetObject(key, toFile)`, `PutObject(key, text, fromFile)`, `DeleteObject(key)` | `Key`, `Size`, `LastModified` · the object as text in `ResponseBody` |
+| `AwsS3Vectors` | `QueryVectors(index, vector, topK)`, `PutVectors(index, vectors)` | `Key`, `Distance`, `Metadata` |
+| `AwsEC2` | `Describe(ids)`, `Start(ids)`, `Stop(ids)` | `InstanceId`, `Name`, `State`, `Type`, `PublicIp`, `PrivateIp` |
+
+⚠️ Images, documents and objects travel inside the request and the answer,
+so these suit files of a few megabytes — a photo, a scanned form, a report —
+not a video.
+
+#### Example: signing your users in with Cognito
+
+`AwsCognito` signs the **users of your application** in to a Cognito user
+pool: `SignUp`, `Confirm` (with the code Cognito e-mails), `SignIn`,
+`GetAttribute`, `SignOut`. Set `ClientId` to an app client that has **no
+client secret**.
+
+```cobol
+       PROGRAM-ID. BTN-LOGIN--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-USER       PIC X(80).
+       01 WS-PASSWORD   PIC X(80).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE TXT-USER::Text TO WS-USER
+           MOVE TXT-PASSWORD::Text TO WS-PASSWORD
+           INVOKE USERS-1 "SignIn" USING WS-USER WS-PASSWORD
+               RETURNING WS-STARTED
+           MOVE SPACES TO WS-PASSWORD
+           .
+
+       PROGRAM-ID. USERS-1--ONSIGNEDIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NAME       PIC X(80).
+       PROCEDURE DIVISION.
+           IF USERS-1::SignedIn = "1"
+               MOVE USERS-1::UserName TO WS-NAME
+               MOVE WS-NAME TO LBL-STATE::Caption
+           ELSE
+               MOVE USERS-1::Challenge TO LBL-STATE::Caption
+           END-IF
+           .
+```
+
+- The tokens a sign-in returns **never reach your program**: the runtime
+  keeps them in memory, uses them for `GetAttribute` and `SignOut`, and
+  forgets them when the user signs out or the application ends. Your COBOL
+  sees `SignedIn` and `UserName` — nothing that could be leaked.
+- `Verbose` never prints a request that carries a password or a token.
+- `Challenge` names what Cognito asks for instead of signing in (a new
+  password, a second factor); those flows are not offered yet.
+- ⚠️ The password travels to AWS inside the request — encrypted, signed by
+  the connection's profile, and never written anywhere by PowerRustCOBOL.
+  Clear the field that held it, as the example does.
+
 > **Note — the events are the asynchronous controls' own.** Each AWS control
 > raises its own completion event (`onInvoked`, `onFunctionsListed`,
 > `onToolResult`, `onToolsListed`, `onQueried`, `onKnowledgeBasesListed`,
 > `onEventRecorded`, `onRetrieved`, `onTablesListed`, `onRowsAppended`,
-> `onJobStarted`, `onJobRun`, `onCrawlerStarted`, `onTableSchema`), then
-> `onComplete`; or `onError`,
+> `onJobStarted`, `onJobRun`, `onCrawlerStarted`, `onTableSchema`, and
+> the general-purpose controls' `onItem`, `onLabels`, `onSignedIn` … listed
+> in each control's help), then `onComplete`; or `onError`,
 > `onTimeout` (after `TimeoutMs`, the first start having its own
 > `StartTimeoutMs`) or `onCancelled` (after `Cancel()`). One operation at a
 > time per control; `IsBusy()` says whether one is running.

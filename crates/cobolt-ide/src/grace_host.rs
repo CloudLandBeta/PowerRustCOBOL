@@ -3297,6 +3297,15 @@ fn type_aliases(ty: &str) -> &'static [&'static str] {
         "AwsAgentMemory" => &["agentcore memory", "agent memory", "memória do agente", "memoria del agente"],
         "AwsS3Tables" => &["s3 tables", "s3 table", "iceberg", "tabelas s3", "tablas s3"],
         "AwsGlue" => &["aws glue", "glue job", "glue crawler", "trabalho glue", "trabajo glue"],
+        "AwsDynamoDB" => &["dynamodb", "dynamo db", "tabela dynamodb", "tabla dynamodb"],
+        "AwsS3" => &["s3 bucket", "amazon s3", "bucket s3", "objeto s3"],
+        "AwsS3Vectors" => &["s3 vectors", "vector index", "índice vetorial", "índice vectorial"],
+        "AwsRekognition" => &["rekognition", "image labels", "reconhecimento de imagem", "reconocimiento de imágenes"],
+        "AwsPolly" => &["polly", "text to speech", "texto para fala", "texto a voz"],
+        "AwsComprehend" => &["comprehend", "sentiment analysis", "análise de sentimento", "análisis de sentimiento"],
+        "AwsTextract" => &["textract", "extract text from document", "extrair texto", "extraer texto"],
+        "AwsEC2" => &["ec2", "ec2 instance", "instância ec2", "instancia ec2"],
+        "AwsCognito" => &["cognito", "user pool", "sign in users", "login de usuários", "inicio de sesión de usuarios"],
         _ => &[],
     }
 }

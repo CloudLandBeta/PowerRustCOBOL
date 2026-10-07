@@ -55,6 +55,7 @@ fn a_readonly_connection_starts_the_server_readonly_and_restarts_with_write_args
             control_type: "AwsMcp",
             method: "ListTools",
             args: &[],
+            control: "MCP-1",
             prop: &prop,
             allow_write: false,
             connection_allows_write,

@@ -6704,7 +6704,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "TopK" => (
             "integer (default 10)",
-            "AwsAgentMemory: how many records `Retrieve` returns at most.",
+            "AwsAgentMemory: how many records `Retrieve` returns at most. AwsS3Vectors: how many nearest vectors `QueryVectors` returns (default 5).",
         ),
         "TableBucketArn" => (
             "the ARN of an S3 table bucket",
@@ -6712,7 +6712,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "TableName" => (
             "a table name",
-            "AwsS3Tables: the table `AppendRows` appends to when it is given none. AwsGlue: the Data Catalog table `GetTableSchema` describes when it is given none.",
+            "AwsS3Tables: the table `AppendRows` appends to when it is given none. AwsGlue: the Data Catalog table `GetTableSchema` describes when it is given none. AwsDynamoDB: the table every operation works on.",
         ),
         "JobName" => (
             "a Glue job name",
@@ -6729,6 +6729,98 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "DatabaseName" => (
             "a Data Catalog database name",
             "AwsGlue: the database `GetTableSchema` reads from when it is given none.",
+        ),
+        "IndexName" => (
+            "an index name, or empty",
+            "AwsDynamoDB: the secondary index `Query` reads when it is given none; empty reads the table itself. AwsS3Vectors: the vector index `QueryVectors` and `PutVectors` use when they are given none.",
+        ),
+        "Limit" => (
+            "integer (default 100)",
+            "AwsDynamoDB: how many items `Query` and `Scan` return at most.",
+        ),
+        "Bucket" => (
+            "an S3 bucket name",
+            "AwsS3: the bucket every operation works on.",
+        ),
+        "MaxKeys" => (
+            "integer (default 1000)",
+            "AwsS3: how many objects `List` returns at most.",
+        ),
+        "VectorBucketName" => (
+            "an S3 vector bucket name",
+            "AwsS3Vectors: the vector bucket that holds the index.",
+        ),
+        "MinConfidence" => (
+            "percent, 0-100 (default 70)",
+            "AwsRekognition: the lowest confidence a label must have for `DetectLabels` to return it.",
+        ),
+        "VoiceId" => (
+            "a Polly voice, e.g. `Joanna`, `Camila`, `Lea`",
+            "AwsPolly: the voice `Synthesize` speaks with when it is given none.",
+        ),
+        "OutputFormat" => (
+            "one of: `mp3` | `ogg_vorbis` | `pcm` (default mp3)",
+            "AwsPolly: the audio format `Synthesize` writes.",
+        ),
+        "Engine" => (
+            "one of: `neural` | `standard` | `long-form` | `generative` (default neural)",
+            "AwsPolly: the speech engine. Not every voice has every engine; a voice without the one chosen fails with `onError`.",
+        ),
+        "OutputFile" => (
+            "a local file path",
+            "AwsPolly: the file `Synthesize` writes the audio to when it is given none.",
+        ),
+        "LanguageCode" => (
+            "a language code, e.g. `en`, `es`, `pt`, `fr` (default en)",
+            "AwsComprehend: the language of the texts `DetectSentiment`, `DetectEntities` and `DetectKeyPhrases` analyse. `DetectLanguage` does not need it.",
+        ),
+        "InstanceIds" => (
+            "comma-separated EC2 instance ids, or empty",
+            "AwsEC2: the instances `Describe`, `Start` and `Stop` act on when they are given none. Empty: `Describe` lists every instance in the region.",
+        ),
+        "ClientId" => (
+            "a Cognito user pool app client id",
+            "AwsCognito: the app client users sign up and in through. It must have NO client secret — a client with one is refused by Cognito.",
+        ),
+        "Found" => (
+            "`1` | `0` (runtime-only, read-only)",
+            "AwsDynamoDB: in `onItem`, whether `GetItem` found the item.",
+        ),
+        "ContentType" => (
+            "text (runtime-only, read-only)",
+            "AwsS3: in `onObject`, the object's content type. AwsPolly: in `onSynthesized`, the audio's.",
+        ),
+        "Characters" => (
+            "integer (runtime-only, read-only)",
+            "AwsPolly: in `onSynthesized`, how many characters were spoken — what Polly bills.",
+        ),
+        "SavedFile" => (
+            "a file path (runtime-only, read-only)",
+            "AwsPolly: in `onSynthesized`, the file the audio was written to.",
+        ),
+        "Sentiment" => (
+            "one of: `POSITIVE` | `NEGATIVE` | `NEUTRAL` | `MIXED` (runtime-only, read-only)",
+            "AwsComprehend: in `onSentiment`, the text's overall sentiment; the row holds each score.",
+        ),
+        "Language" => (
+            "a language code (runtime-only, read-only)",
+            "AwsComprehend: in `onLanguage`, the text's dominant language.",
+        ),
+        "SignedIn" => (
+            "`1` | `0` (runtime-only, read-only)",
+            "AwsCognito: whether this control holds a signed-in user. The user's tokens are kept by the runtime and are never readable from COBOL.",
+        ),
+        "UserName" => (
+            "text (runtime-only, read-only)",
+            "AwsCognito: the signed-in user's name; empty when nobody is signed in.",
+        ),
+        "Confirmed" => (
+            "`1` | `0` (runtime-only, read-only)",
+            "AwsCognito: after `SignUp`, whether the user is already confirmed; after `Confirm`, 1.",
+        ),
+        "Challenge" => (
+            "text (runtime-only, read-only)",
+            "AwsCognito: after `SignIn`, the challenge Cognito asks for instead of signing in (for example `NEW_PASSWORD_REQUIRED`); empty when the sign-in succeeded.",
         ),
         "EventId" => (
             "text (runtime-only, read-only)",
@@ -6912,7 +7004,35 @@ fn event_reference(name: &str) -> &'static str {
         "onMarkerClick" => "a marker was clicked (`SelectedMarkerId` holds its id)",
         "onBoundsChanged" => "the map was panned or zoomed (`CenterLat`/`CenterLng`/`Zoom` updated)",
         "onInvoked" => "AwsLambda: the function ran — `ResponseBody` holds what it returned, `FunctionError` what it reported as an error (empty when clean), `RowCount` the rows of an array answer. AwsAgentCore: the agent replied — `ResponseBody` holds the reply and `SessionId` the conversation. The primary event of both; `onComplete` follows",
-        "onQueried" => "AwsKnowledgeBase: `Query` answered — `RowCount` passages, each read with `GetField(n, \"Text\")`, `\"Source\"` (where it came from) and `\"Score\"`. AwsS3Tables: `Query` answered — one row per result row, each field named after its column. The primary event of both; `onComplete` follows",
+        "onQueried" => "AwsKnowledgeBase: `Query` answered — `RowCount` passages, each read with `GetField(n, \"Text\")`, `\"Source\"` (where it came from) and `\"Score\"`. AwsS3Tables: `Query` answered — one row per result row, each field named after its column. AwsDynamoDB: `Query` answered — one row per item, fields named after the attributes. The primary event of both; `onComplete` follows",
+        "onItem" => "AwsDynamoDB: `GetItem` answered — `Found` says whether the item exists; the item is row 1 (fields named after its attributes) and `ResponseBody` as JSON; `onComplete` follows",
+        "onScanned" => "AwsDynamoDB: `Scan` answered — one row per item, fields named after the attributes; `onComplete` follows",
+        "onItemPut" => "AwsDynamoDB: `PutItem` stored the item; `onComplete` follows",
+        "onItemUpdated" => "AwsDynamoDB: `UpdateItem` changed the item — its new state is row 1 and `ResponseBody`; `onComplete` follows",
+        "onItemDeleted" => "AwsDynamoDB: `DeleteItem` removed the item; `onComplete` follows",
+        "onListed" => "AwsS3: `List` answered — one row per object: `Key`, `Size`, `LastModified`; `onComplete` follows",
+        "onObject" => "AwsS3: `GetObject` answered — `ResponseBody` holds the object as text, and the file named, if any, holds its bytes; `onComplete` follows",
+        "onObjectPut" => "AwsS3: `PutObject` stored the object; `onComplete` follows",
+        "onObjectDeleted" => "AwsS3: `DeleteObject` removed the object; `onComplete` follows",
+        "onVectorsQueried" => "AwsS3Vectors: `QueryVectors` answered — one row per nearest vector: `Key`, `Distance`, `Metadata`; `onComplete` follows",
+        "onVectorsPut" => "AwsS3Vectors: `PutVectors` stored the vectors; `onComplete` follows",
+        "onLabels" => "AwsRekognition: `DetectLabels` answered — one row per label: `Name`, `Confidence`, `Parents`; `onComplete` follows",
+        "onTextDetected" => "AwsRekognition: `DetectText` answered — rows `Text`, `Type` (LINE or WORD), `Confidence`. AwsTextract: `DetectText` answered — one row per line: `Text`, `Confidence`, `Page`; `onComplete` follows",
+        "onFaces" => "AwsRekognition: `DetectFaces` answered — one row per face: `Confidence`, `AgeLow`, `AgeHigh`, `Smile`, `Emotion`; `onComplete` follows",
+        "onSynthesized" => "AwsPolly: `Synthesize` wrote the audio — `SavedFile`, `ContentType`, `Characters`; `onComplete` follows",
+        "onSentiment" => "AwsComprehend: `DetectSentiment` answered — `Sentiment`, and row 1 holds `Positive`, `Negative`, `Neutral`, `Mixed`; `onComplete` follows",
+        "onEntities" => "AwsComprehend: `DetectEntities` answered — rows `Text`, `Type`, `Score`; `onComplete` follows",
+        "onKeyPhrases" => "AwsComprehend: `DetectKeyPhrases` answered — rows `Text`, `Score`; `onComplete` follows",
+        "onLanguage" => "AwsComprehend: `DetectLanguage` answered — `Language`, and rows `Language`, `Score`; `onComplete` follows",
+        "onDocumentAnalyzed" => "AwsTextract: `AnalyzeDocument` answered — one row per form field (`Kind` FIELD, `Key`, `Value`) and per table cell (`Kind` CELL, `Table`, `Row`, `Column`, `Value`), each with `Confidence`; `onComplete` follows",
+        "onDescribed" => "AwsEC2: `Describe` answered — one row per instance: `InstanceId`, `Name`, `State`, `Type`, `PublicIp`, `PrivateIp`; `onComplete` follows",
+        "onInstancesStarted" => "AwsEC2: `Start` answered — rows `InstanceId`, `State`, `Previous`; `onComplete` follows",
+        "onInstancesStopped" => "AwsEC2: `Stop` answered — rows `InstanceId`, `State`, `Previous`; `onComplete` follows",
+        "onSignedUp" => "AwsCognito: `SignUp` created the user — `Confirmed` says whether a confirmation code is still needed; `onComplete` follows",
+        "onConfirmed" => "AwsCognito: `Confirm` accepted the code; `onComplete` follows",
+        "onSignedIn" => "AwsCognito: `SignIn` answered — `SignedIn` is 1 and `UserName` set, or `Challenge` names what Cognito asks for instead; `onComplete` follows",
+        "onAttribute" => "AwsCognito: `GetAttribute` answered — `ResponseBody` holds the attribute's value; `onComplete` follows",
+        "onSignedOut" => "AwsCognito: `SignOut` ended the session — `SignedIn` is 0; `onComplete` follows",
         "onKnowledgeBasesListed" => "AwsKnowledgeBase: `ListKnowledgeBases` finished — `RowCount` knowledge bases, each read with `GetField(n, \"Id\")`, `\"Name\"`, `\"Description\"` and `\"Type\"`; `onComplete` follows",
         "onEventRecorded" => "AwsAgentMemory: `RecordEvent` stored the event — `EventId` holds its id. Its primary event; `onComplete` follows",
         "onRetrieved" => "AwsAgentMemory: `Retrieve` answered — `RowCount` records, each read with `GetField(n, \"Text\")`, `\"Score\"`, `\"Id\"` and `\"CreatedAt\"`; `onComplete` follows",
@@ -7002,6 +7122,15 @@ fn control_purpose(name: &str) -> &'static str {
         "AwsAgentCore" => "Non-visual: sends a prompt to an agent hosted in Amazon Bedrock AgentCore Runtime and reads its reply, keeping the conversation in `SessionId`. Refused unless `AllowWrite` is on, since an agent can act and is billed per call.",
         "AwsAgentMemory" => "Non-visual: records conversation turns in an AgentCore Memory and searches what it has learned (`Retrieve` returns records as rows). Recording needs `AllowWrite`.",
         "AwsS3Tables" => "Non-visual: lists the tables of Amazon S3 Tables (Apache Iceberg), runs read-only SQL on them with rows named after the columns, and appends rows. Appending needs `AllowWrite`.",
+        "AwsDynamoDB" => "Non-visual: reads and writes DynamoDB items as PLAIN JSON (`{\"id\": 42}`, never the typed `{\"N\": \"42\"}` form) — GetItem, Query, Scan, PutItem, UpdateItem, DeleteItem. Writes need `AllowWrite`.",
+        "AwsS3" => "Non-visual: lists, reads, writes and deletes the objects of an S3 bucket. Writes need `AllowWrite`. Objects travel inside the answer, so it suits objects up to a few MB.",
+        "AwsS3Vectors" => "Non-visual: similarity search in an S3 vector index (`QueryVectors`), and writing vectors (`PutVectors`, which needs `AllowWrite`).",
+        "AwsRekognition" => "Non-visual: finds labels, text and faces in an image — a local file or an `s3://bucket/key` object — and returns them as rows. Read-only.",
+        "AwsPolly" => "Non-visual: speaks a text with an Amazon Polly voice and writes the audio to a local file. Read-only in AWS.",
+        "AwsComprehend" => "Non-visual: the sentiment, entities, key phrases and dominant language of a text. Read-only.",
+        "AwsTextract" => "Non-visual: reads a document — a local file or an `s3://bucket/key` object: its lines (`DetectText`), its form fields and its table cells (`AnalyzeDocument`), as rows. Read-only.",
+        "AwsEC2" => "Non-visual: describes, starts and stops EC2 instances. Starting and stopping need `AllowWrite`.",
+        "AwsCognito" => "Non-visual: signs an application's own users up, in and out of a Cognito user pool. The tokens stay inside the runtime: COBOL sees `SignedIn` and `UserName`, never a token. Signing up and confirming need `AllowWrite`.",
         "AwsGlue" => "Non-visual: starts AWS Glue jobs and crawlers, follows a job run's state, and reads a Data Catalog table's columns as rows. Starting anything needs `AllowWrite`.",
         _ => "",
     }
@@ -7407,6 +7536,90 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
             ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
         ],
+        "AwsDynamoDB" => vec![
+            ("GetItem(keyJson: String) → 1/0", "Read the item whose key is the JSON object given, e.g. `{\"id\": 42}`; `onItem`, `Found`, the item as row 1."),
+            ("Query(keyCondition: String, valuesJson: String, index: String?) → 1/0", "Items matching a key condition such as `customer = :c`, the values as JSON (`{\":c\": \"C-7\"}`); `IndexName` when no index is given; up to `Limit`; `onQueried`."),
+            ("Scan(limit: Integer?) → 1/0", "Up to `limit` (or `Limit`) items of the table; `onScanned`."),
+            ("PutItem(itemJson: String) → 1/0", "Store an item, replacing one with the same key; `onItemPut`. Needs `AllowWrite`."),
+            ("UpdateItem(keyJson: String, updateExpression: String, valuesJson: String) → 1/0", "Change an item, e.g. `SET stock = stock - :n` with `{\":n\": 1}`; its new state is row 1; `onItemUpdated`. Needs `AllowWrite`."),
+            ("DeleteItem(keyJson: String) → 1/0", "Remove an item; `onItemDeleted`. Needs `AllowWrite`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsS3" => vec![
+            ("List(prefix: String?) → 1/0", "The bucket's objects under `prefix` as rows (`Key`, `Size`, `LastModified`); `onListed`."),
+            ("GetObject(key: String, toFile: String?) → 1/0", "Read an object: as text in `ResponseBody`, and as bytes into `toFile` when one is named; `onObject`."),
+            ("PutObject(key: String, text: String, fromFile: String?) → 1/0", "Store `text` — or the bytes of `fromFile` when one is named — as the object `key`; `onObjectPut`. Needs `AllowWrite`."),
+            ("DeleteObject(key: String) → 1/0", "Remove an object; `onObjectDeleted`. Needs `AllowWrite`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsS3Vectors" => vec![
+            ("QueryVectors(index: String?, vectorJson: String, topK: Integer?) → 1/0", "The `topK` (or `TopK`) vectors nearest to a JSON array of numbers, as rows (`Key`, `Distance`, `Metadata`); `onVectorsQueried`."),
+            ("PutVectors(index: String?, vectorsJson: String) → 1/0", "Store vectors given as `[{\"key\": \"…\", \"data\": {\"float32\": [...]}, \"metadata\": {...}}]`; `onVectorsPut`. Needs `AllowWrite`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsRekognition" => vec![
+            ("DetectLabels(image: String) → 1/0", "Labels in an image — a local file or `s3://bucket/key` — at or above `MinConfidence`; `onLabels`."),
+            ("DetectText(image: String) → 1/0", "Text in an image, as lines and words; `onTextDetected`."),
+            ("DetectFaces(image: String) → 1/0", "Faces in an image with age range, smile and main emotion; `onFaces`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsPolly" => vec![
+            ("Synthesize(text: String, voice: String?, format: String?, toFile: String?) → 1/0", "Speak `text` and write the audio to `toFile` (or `OutputFile`); voice and format default to `VoiceId` and `OutputFormat`; `onSynthesized` gives `SavedFile`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsComprehend" => vec![
+            ("DetectSentiment(text: String) → 1/0", "`Sentiment` and its scores; `onSentiment`."),
+            ("DetectEntities(text: String) → 1/0", "People, places, dates, organisations … as rows; `onEntities`."),
+            ("DetectKeyPhrases(text: String) → 1/0", "The key phrases as rows; `onKeyPhrases`."),
+            ("DetectLanguage(text: String) → 1/0", "The dominant language in `Language`, with alternatives as rows; `onLanguage`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsTextract" => vec![
+            ("DetectText(document: String) → 1/0", "The lines of a document — a local file or `s3://bucket/key` — as rows; `onTextDetected`."),
+            ("AnalyzeDocument(document: String) → 1/0", "Its form fields and table cells as rows; `onDocumentAnalyzed`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsEC2" => vec![
+            ("Describe(ids: String?) → 1/0", "The instances named (comma-separated), or `InstanceIds`, or every instance in the region, as rows; `onDescribed`."),
+            ("Start(ids: String?) → 1/0", "Start the instances; `onInstancesStarted`. Needs `AllowWrite`."),
+            ("Stop(ids: String?) → 1/0", "Stop the instances; `onInstancesStopped`. Needs `AllowWrite`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsCognito" => vec![
+            ("SignUp(user: String, password: String, email: String?) → 1/0", "Create a user in the pool; `onSignedUp`; Cognito sends the confirmation code. Needs `AllowWrite`."),
+            ("Confirm(user: String, code: String) → 1/0", "Confirm a new user with the code; `onConfirmed`. Needs `AllowWrite`."),
+            ("SignIn(user: String, password: String) → 1/0", "Sign the user in: `SignedIn` 1 and `UserName`, or `Challenge`; `onSignedIn`. The tokens stay inside the runtime."),
+            ("GetAttribute(name: String) → value", "One attribute of the signed-in user (`email`, `name` …) in `ResponseBody`; `onAttribute`."),
+            ("SignOut() → 1/0", "End the session — here at once, and in Cognito; `onSignedOut`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
         // 051 — the SideMenu's programmatic door to standalone child windows,
         // and (066) the rows a program adds at run time.
         "SideMenu" => vec![
@@ -7581,7 +7794,9 @@ The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) 
 Every colour the map paints is a property, in the inspector's **Basic properties** section and writable from COBOL: `MarkerColor`, `MarkerBorderColor`, `RouteColor`, `RouteCasingColor`, `RegionFillColor`, `RegionBorderColor`, `TileBackgroundColor`, `TileLoadingColor`. Each starts EMPTY, meaning the built-in the map has always painted, so a form that sets none of them is unchanged.\n\
 \n\
 Colour carried by the DATA still wins: `AddRoute` USING id colour width geometry keeps that route's own colour, and `AddRegion`'s fill and stroke keep theirs — `RouteColor`, `RegionFillColor` and `RegionBorderColor` are what a line naming none falls back to. Two exceptions, because their data carries no colour at all: `MarkerColor`/`MarkerBorderColor` (an `AddMarker` has no colour argument) and `RouteCasingColor` (the halo under EVERY route, whatever colour the route itself names). Never tell a developer a map colour cannot be changed, and never suggest editing the `.cfrm` by hand to change one.\n",
-        "AwsLambda" | "AwsMcp" | "AwsKnowledgeBase" | "AwsAgentCore" | "AwsAgentMemory" | "AwsS3Tables" | "AwsGlue" => "\
+        "AwsLambda" | "AwsMcp" | "AwsKnowledgeBase" | "AwsAgentCore" | "AwsAgentMemory" | "AwsS3Tables" | "AwsGlue"
+        | "AwsDynamoDB" | "AwsS3" | "AwsS3Vectors" | "AwsRekognition" | "AwsPolly" | "AwsComprehend" | "AwsTextract"
+        | "AwsEC2" | "AwsCognito" => "\
 ### Usage — AWS controls\n\
 An AWS control works through one of the project's AWS connections (Settings → Integrations → AWS), which names an AWS profile and a region. The application signs in with that profile on the machine it runs on — run `aws login --profile <name>` once there — and no key is ever kept in a form, a project or a built application. The first call on a machine starts the connection's AWS server with `uvx`, which must be installed (`LastError` says so, with the fix, when it is not); every AWS control on the connection then shares that one server, and it ends with the application.\n\
 \n\
@@ -8530,6 +8745,15 @@ fn methods_reference_doc() -> String {
                 ("AwsAgentMemory: RecordEvent(memoryId?, actorId?, sessionId?, text, role?) / Retrieve(memoryId?, namespace?, query)", "Store a turn / search what the memory learned."),
                 ("AwsS3Tables: ListTables(namespace?) / Query(sql) / AppendRows(table?, rowsJson)", "List, read with SQL, append."),
                 ("AwsGlue: StartJobRun(job?, argsJson?) / GetJobRun(job?, runId?) / StartCrawler(name?) / GetTableSchema(db?, table?)", "Run and follow jobs and crawlers; read a table's columns."),
+                ("AwsDynamoDB: GetItem / Query / Scan / PutItem / UpdateItem / DeleteItem", "Items as plain JSON."),
+                ("AwsS3: List / GetObject / PutObject / DeleteObject", "A bucket's objects."),
+                ("AwsS3Vectors: QueryVectors / PutVectors", "Nearest-vector search and writes."),
+                ("AwsRekognition: DetectLabels / DetectText / DetectFaces", "An image, from a file or s3://."),
+                ("AwsPolly: Synthesize(text, voice?, format?, toFile?)", "Speech into an audio file."),
+                ("AwsComprehend: DetectSentiment / DetectEntities / DetectKeyPhrases / DetectLanguage", "Text analysis."),
+                ("AwsTextract: DetectText / AnalyzeDocument", "A document's lines, fields and tables."),
+                ("AwsEC2: Describe / Start / Stop", "Instances."),
+                ("AwsCognito: SignUp / Confirm / SignIn / GetAttribute / SignOut", "An application's users; tokens never reach COBOL."),
                 ("GetRow(n) / GetField(n, name) → String", "Read the last answer's rows, 1-based."),
                 ("Cancel() / IsBusy() → Boolean", "Async control."),
             ],
@@ -11819,6 +12043,15 @@ generated = ["generated/inner-form1.cbl"]
             cobolt_forms::ControlType::AwsAgentMemory,
             cobolt_forms::ControlType::AwsS3Tables,
             cobolt_forms::ControlType::AwsGlue,
+            cobolt_forms::ControlType::AwsDynamoDB,
+            cobolt_forms::ControlType::AwsS3,
+            cobolt_forms::ControlType::AwsS3Vectors,
+            cobolt_forms::ControlType::AwsRekognition,
+            cobolt_forms::ControlType::AwsPolly,
+            cobolt_forms::ControlType::AwsComprehend,
+            cobolt_forms::ControlType::AwsTextract,
+            cobolt_forms::ControlType::AwsEC2,
+            cobolt_forms::ControlType::AwsCognito,
         ];
         for ct in all {
             let type_name = ct.as_str().to_owned();

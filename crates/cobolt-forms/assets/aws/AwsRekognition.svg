@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Hand-drawn for PowerRustCOBOL in the style of the AWS service icons
+       (spec 078, amendment A5): the machine-learning tile, with an eye inside a viewfinder. Not an AWS file and not traced from one. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#055F4E"/>
+      <stop offset="1" stop-color="#56C0A7"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="6" fill="url(#tile)"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 22 V14 H20 M44 14 H52 V22 M52 42 V50 H44 M20 50 H12 V42"/>
+    <path d="M16 32 Q32 18 48 32 Q32 46 16 32 Z"/>
+    <circle cx="32" cy="32" r="5"/>
+  </g>
+</svg>

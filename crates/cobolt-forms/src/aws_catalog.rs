@@ -152,6 +152,104 @@ pub const CONTROLS: &[AwsControl] = &[
         caption: ("JobName", "Glue"),
         icon_svg: include_str!("../assets/aws/AwsGlue.svg"),
     },
+    AwsControl {
+        name: "AwsDynamoDB",
+        events: &["onItem", "onQueried", "onScanned", "onItemPut", "onItemUpdated", "onItemDeleted", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("TableName", Seed::Str("")),
+            ("IndexName", Seed::Str("")),
+            ("Limit", Seed::Int(100)),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "Found"],
+        caption: ("TableName", "DynamoDB"),
+        icon_svg: include_str!("../assets/aws/AwsDynamoDB.svg"),
+    },
+    AwsControl {
+        name: "AwsS3",
+        events: &["onListed", "onObject", "onObjectPut", "onObjectDeleted", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("Bucket", Seed::Str("")),
+            ("MaxKeys", Seed::Int(1000)),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "ContentType"],
+        caption: ("Bucket", "S3"),
+        icon_svg: include_str!("../assets/aws/AwsS3.svg"),
+    },
+    AwsControl {
+        name: "AwsS3Vectors",
+        events: &["onVectorsQueried", "onVectorsPut", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("VectorBucketName", Seed::Str("")),
+            ("IndexName", Seed::Str("")),
+            ("TopK", Seed::Int(5)),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError"],
+        caption: ("IndexName", "S3 Vectors"),
+        icon_svg: include_str!("../assets/aws/AwsS3Vectors.svg"),
+    },
+    AwsControl {
+        name: "AwsRekognition",
+        events: &["onLabels", "onTextDetected", "onFaces", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("MinConfidence", Seed::Int(70)),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError"],
+        caption: ("", "Rekognition"),
+        icon_svg: include_str!("../assets/aws/AwsRekognition.svg"),
+    },
+    AwsControl {
+        name: "AwsPolly",
+        events: &["onSynthesized", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("VoiceId", Seed::Str("Joanna")),
+            ("OutputFormat", Seed::Str("mp3")),
+            ("Engine", Seed::Str("neural")),
+            ("OutputFile", Seed::Str("")),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "ContentType", "Characters", "SavedFile"],
+        caption: ("VoiceId", "Polly"),
+        icon_svg: include_str!("../assets/aws/AwsPolly.svg"),
+    },
+    AwsControl {
+        name: "AwsComprehend",
+        events: &["onSentiment", "onEntities", "onKeyPhrases", "onLanguage", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("LanguageCode", Seed::Str("en")),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "Sentiment", "Language"],
+        caption: ("", "Comprehend"),
+        icon_svg: include_str!("../assets/aws/AwsComprehend.svg"),
+    },
+    AwsControl {
+        name: "AwsTextract",
+        events: &["onTextDetected", "onDocumentAnalyzed", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError"],
+        caption: ("", "Textract"),
+        icon_svg: include_str!("../assets/aws/AwsTextract.svg"),
+    },
+    AwsControl {
+        name: "AwsEC2",
+        events: &["onDescribed", "onInstancesStarted", "onInstancesStopped", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("InstanceIds", Seed::Str("")),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError"],
+        caption: ("InstanceIds", "EC2"),
+        icon_svg: include_str!("../assets/aws/AwsEC2.svg"),
+    },
+    AwsControl {
+        name: "AwsCognito",
+        events: &["onSignedUp", "onConfirmed", "onSignedIn", "onAttribute", "onSignedOut", "onComplete", "onError", "onTimeout", "onCancelled"],
+        seeds: &[
+            ("ClientId", Seed::Str("")),
+        ],
+        runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "SignedIn", "UserName", "Confirmed", "Challenge"],
+        caption: ("ClientId", "Cognito"),
+        icon_svg: include_str!("../assets/aws/AwsCognito.svg"),
+    },
 ];
 
 /// The AWS control of this type, if it is one.

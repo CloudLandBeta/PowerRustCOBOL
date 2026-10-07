@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="AWS-REKOGNITION-DEMO" title="AwsRekognition demo" width="480" height="240" form-format="Both" index-base="1">
+  <working-storage><![CDATA[       01 WS-PASS     PIC 999 VALUE 0 GLOBAL.
+       01 WS-FAIL     PIC 999 VALUE 0 GLOBAL.
+       01 WS-CALLS    PIC 999 VALUE 0 GLOBAL.
+       01 WS-A        PIC X(200) GLOBAL.
+       01 WS-B        PIC X(200) GLOBAL.
+       01 WS-C        PIC X(200) GLOBAL.
+       01 WS-D        PIC X(200) GLOBAL.
+       01 WS-OUT      PIC X(2000) GLOBAL.
+       01 WS-RC       PIC X(10) GLOBAL.
+       01 WS-I        PIC 9 GLOBAL.
+       01 WS-F        PIC X(20) GLOBAL.
+       01 WS-FIELD    PIC X(200) GLOBAL.
+       01 WS-ERR      PIC X(300) GLOBAL.
+       01 WS-K        PIC 99 GLOBAL.
+       01 WS-ORDER    PIC X(100) VALUE SPACES GLOBAL.
+       01 WS-OP       PIC 999 VALUE 1 GLOBAL.
+       01 WS-T0       PIC X(21) GLOBAL.
+       01 WS-T1       PIC X(21) GLOBAL.
+       01 WS-MS       PIC 9(9) GLOBAL.
+       01 WS-RESULT   PIC X(40) GLOBAL.
+]]></working-storage>
+  <Control id="AWS-REK" type="AwsRekognition" x="16" y="16" w="56" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="MinConfidence">80</Property>
+    <Property name="Mode">Sync</Property>
+    <Event name="onFaces" paragraph="AWS-REK--ONFACES"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           STRING "onFaces " DELIMITED BY SIZE INTO WS-ORDER WITH POINTER WS-OP
+           MOVE AWS-REK::RowCount TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "1"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL async DetectFaces RowCount: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+           .
+]]></Event>
+    <Event name="onComplete" paragraph="AWS-REK--ONCOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           STRING "onComplete " DELIMITED BY SIZE INTO WS-ORDER WITH POINTER WS-OP
+           .
+]]></Event>
+  </Control>
+  <Control id="BTN-RUN" type="Button" x="16" y="96" w="120" h="28" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Run</Property>
+    <Event name="onClick" paragraph="BTN-RUN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CURRENT-DATE TO WS-T0
+      *> 1. Labels in an S3 image.
+           MOVE 's3://photos/dog.jpg' TO WS-A
+           INVOKE AWS-REK "DetectLabels" USING WS-A RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE AWS-REK::RowCount TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "2"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL DetectLabels RowCount: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+           MOVE 1 TO WS-I
+           MOVE "Name" TO WS-F
+           INVOKE AWS-REK "GetField" USING WS-I WS-F RETURNING WS-OUT
+           MOVE WS-OUT TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "Dog"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetField(1, Name): " FUNCTION TRIM(WS-FIELD)
+           END-IF
+      *> 2. Text in the image.
+           MOVE 's3://photos/dog.jpg' TO WS-A
+           INVOKE AWS-REK "DetectText" USING WS-A RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE 1 TO WS-I
+           MOVE "Text" TO WS-F
+           INVOKE AWS-REK "GetField" USING WS-I WS-F RETURNING WS-OUT
+           MOVE WS-OUT TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "GOOD BOY"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetField(1, Text): " FUNCTION TRIM(WS-FIELD)
+           END-IF
+      *> 3. An image that is neither a file nor s3://bucket/key.
+           MOVE 's3://photos' TO WS-A
+           INVOKE AWS-REK "DetectLabels" USING WS-A RETURNING WS-OUT
+           MOVE AWS-REK::LastError TO WS-ERR
+           MOVE 0 TO WS-K
+           INSPECT WS-ERR TALLYING WS-K FOR ALL "no object"
+           IF WS-K > 0
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL bad source refusal: " FUNCTION TRIM(WS-ERR)
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-T1
+           COMPUTE WS-MS =
+               ((FUNCTION NUMVAL(WS-T1(9:2)) * 3600
+                 + FUNCTION NUMVAL(WS-T1(11:2)) * 60
+                 + FUNCTION NUMVAL(WS-T1(13:2))) * 100
+                 + FUNCTION NUMVAL(WS-T1(15:2))) * 10
+             - ((FUNCTION NUMVAL(WS-T0(9:2)) * 3600
+                 + FUNCTION NUMVAL(WS-T0(11:2)) * 60
+                 + FUNCTION NUMVAL(WS-T0(13:2))) * 100
+                 + FUNCTION NUMVAL(WS-T0(15:2))) * 10
+      *> The asynchronous call: its own event, then onComplete.
+           MOVE "Async" TO AWS-REK::Mode
+           MOVE 's3://photos/dog.jpg' TO WS-A
+           INVOKE AWS-REK "DetectFaces" USING WS-A RETURNING WS-RC
+           ADD 1 TO WS-CALLS
+           MOVE WS-RC TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "1"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL async start: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+           .
+]]></Event>
+  </Control>
+  <Control id="BTN-SUMMARY" type="Button" x="152" y="96" w="120" h="28" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Summary</Property>
+    <Event name="onClick" paragraph="BTN-SUMMARY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           IF WS-ORDER(1:19) = "onFaces onComplete "
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL event order: " FUNCTION TRIM(WS-ORDER)
+           END-IF
+           DISPLAY "==== AwsRekognition demo (spec 078) ===="
+           DISPLAY "Operations: DetectLabels, DetectText, DetectFaces (Async), GetField"
+           DISPLAY "Refusals:   an image naming no object (nothing sent)"
+           DISPLAY "Calls made: " WS-CALLS
+           DISPLAY "Sync part:  " WS-MS " ms"
+           DISPLAY "Events:     " FUNCTION TRIM(WS-ORDER)
+           MOVE SPACES TO WS-RESULT
+           STRING "PASS " WS-PASS " FAIL " WS-FAIL
+               DELIMITED BY SIZE INTO WS-RESULT
+           DISPLAY FUNCTION TRIM(WS-RESULT)
+           MOVE WS-RESULT TO LBL-RESULT::Caption
+           .
+]]></Event>
+  </Control>
+  <Control id="LBL-RESULT" type="Label" x="16" y="140" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+  </Control>
+</Form>

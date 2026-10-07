@@ -260,6 +260,572 @@ mutating = false
 result   = { ResponseBody = "$text", ResultJson = "$json:" }
 rows     = { from = "$json:/storage_descriptor/Columns|/table_definition/StorageDescriptor/Columns", fields = { Name = "/Name", Type = "/Type", Comment = "/Comment" } }
 
+# ── The hosted AWS MCP Server — mcp-proxy-for-aws 1.7.0 ─────────────────────
+# (Python ≥ 3.10.) AWS's own MCP service, reached through AWS's proxy, which
+# signs every request with the connection's profile. Its one general tool is
+# `aws___run_script`: a Python script run in AWS's sandbox, which reaches AWS
+# with `await call_boto3(service_name, operation_name, params, region_name)`
+# and answers the envelope {status, stdout, stderr, return_value} as text.
+# (`aws___call_aws` was removed on 2026-08-31.)
+#
+# Every script below is shipped with the product. A COBOL value enters one
+# ONLY as a quoted literal (`|quote`), a number (`|int`) or a file's bytes as
+# base64 (`|filebase64`, `|source`) — never as script text; a test checks
+# every placeholder of every template (R25, plan §4).
+#
+# Not `--read-only`: the proxy's read-only mode drops every tool not marked
+# read-only, `aws___run_script` among them. Writes are refused here, by each
+# operation's `mutating`, and by the profile's own IAM policy.
+#
+# The service is hosted in eight regions; the endpoint is us-east-1's, and
+# the connection's region goes in as the default and on every call.
+[servers.hosted]
+command  = "uvx"
+args     = ["mcp-proxy-for-aws@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp", "--metadata", "AWS_REGION={Connection.Region|or:us-east-1}"]
+protocol = "handshake"
+
+# Product-shipped Python, pasted into a template by `{snippet:name}`. A
+# snippet holds no brace: it is pasted before placeholders are expanded.
+[snippets]
+prelude = '''
+import json, base64
+def _j(o):
+    return json.loads(json.dumps(o, default=str))
+def _bytes(x):
+    if hasattr(x, 'read'):
+        x = x.read()
+    if isinstance(x, str):
+        return base64.b64decode(x)
+    return bytes(x)
+def _source(s):
+    if s.startswith('b64:'):
+        return dict(Bytes=base64.b64decode(s[4:]))
+    b, k = s[5:].split('/', 1)
+    return dict(S3Object=dict(Bucket=b, Name=k))
+'''
+dynamodb = '''
+def _plain(v):
+    if isinstance(v, dict) and len(v) == 1:
+        k, x = list(v.items())[0]
+        if k in ('S', 'B', 'BOOL'):
+            return x
+        if k == 'N':
+            return float(x) if ('.' in x or 'e' in x or 'E' in x) else int(x)
+        if k == 'NULL':
+            return None
+        if k == 'L':
+            return [_plain(i) for i in x]
+        if k == 'M':
+            return dict((a, _plain(b)) for a, b in x.items())
+        if k in ('SS', 'NS', 'BS'):
+            return [_plain(dict(S=i)) if k != 'NS' else _plain(dict(N=i)) for i in x]
+    return v
+def _typed(v):
+    if v is None:
+        return dict(NULL=True)
+    if isinstance(v, bool):
+        return dict(BOOL=v)
+    if isinstance(v, (int, float)):
+        return dict(N=str(v))
+    if isinstance(v, str):
+        return dict(S=v)
+    if isinstance(v, list):
+        return dict(L=[_typed(i) for i in v])
+    if isinstance(v, dict):
+        return dict(M=dict((a, _typed(b)) for a, b in v.items()))
+    return dict(S=str(v))
+def _item(o):
+    return dict((a, _typed(b)) for a, b in o.items())
+def _row(o):
+    return dict((a, _plain(b)) for a, b in o.items())
+'''
+
+# ── AwsDynamoDB ── items in and out as PLAIN JSON: {"id": 42, "name": "Ana"},
+# never DynamoDB's typed {"N": "42"} form — the template converts both ways.
+[ops."AwsDynamoDB.GetItem"]
+event    = "onItem"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResponseBody = "$json:/return_value/Items/0", Found = "$json:/return_value/Found", ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Items" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsDynamoDB.GetItem".input]
+code = '''{snippet:prelude}{snippet:dynamodb}
+r = await call_boto3(service_name='dynamodb', operation_name='GetItem', params=dict(TableName={prop:TableName|quote}, Key=_item(json.loads({arg:1|json|text|quote}))), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Items=([_row(r['Item'])] if 'Item' in r else []), Found=('1' if 'Item' in r else '0')))
+result'''
+
+[ops."AwsDynamoDB.Query"]
+event    = "onQueried"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Items" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsDynamoDB.Query".input]
+code = '''{snippet:prelude}{snippet:dynamodb}
+p = dict(TableName={prop:TableName|quote}, KeyConditionExpression={arg:1|quote}, ExpressionAttributeValues=_item(json.loads({arg:2|json|text|quote})), Limit={prop:Limit|or:100|int})
+if {arg:3|or:{prop:IndexName}|quote}:
+    p['IndexName'] = {arg:3|or:{prop:IndexName}|quote}
+r = await call_boto3(service_name='dynamodb', operation_name='Query', params=p, region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Items=[_row(i) for i in r.get('Items', [])], Count=r.get('Count', 0)))
+result'''
+
+[ops."AwsDynamoDB.Scan"]
+event    = "onScanned"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Items" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsDynamoDB.Scan".input]
+code = '''{snippet:prelude}{snippet:dynamodb}
+r = await call_boto3(service_name='dynamodb', operation_name='Scan', params=dict(TableName={prop:TableName|quote}, Limit={arg:1|or:{prop:Limit}|or:100|int}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Items=[_row(i) for i in r.get('Items', [])], Count=r.get('Count', 0)))
+result'''
+
+[ops."AwsDynamoDB.PutItem"]
+event    = "onItemPut"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsDynamoDB.PutItem".input]
+code = '''{snippet:prelude}{snippet:dynamodb}
+r = await call_boto3(service_name='dynamodb', operation_name='PutItem', params=dict(TableName={prop:TableName|quote}, Item=_item(json.loads({arg:1|json|text|quote}))), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Done='1'))
+result'''
+
+[ops."AwsDynamoDB.UpdateItem"]
+event    = "onItemUpdated"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResponseBody = "$json:/return_value/Items/0", ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Items" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsDynamoDB.UpdateItem".input]
+code = '''{snippet:prelude}{snippet:dynamodb}
+r = await call_boto3(service_name='dynamodb', operation_name='UpdateItem', params=dict(TableName={prop:TableName|quote}, Key=_item(json.loads({arg:1|json|text|quote})), UpdateExpression={arg:2|quote}, ExpressionAttributeValues=_item(json.loads({arg:3|json|text|quote})), ReturnValues='ALL_NEW'), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Items=[_row(r.get('Attributes', dict()))]))
+result'''
+
+[ops."AwsDynamoDB.DeleteItem"]
+event    = "onItemDeleted"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsDynamoDB.DeleteItem".input]
+code = '''{snippet:prelude}{snippet:dynamodb}
+r = await call_boto3(service_name='dynamodb', operation_name='DeleteItem', params=dict(TableName={prop:TableName|quote}, Key=_item(json.loads({arg:1|json|text|quote}))), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Done='1'))
+result'''
+
+# ── AwsS3 ── objects of the `Bucket`. GetObject suits objects up to a few MB:
+# the body comes back inside the answer, base64-encoded.
+[ops."AwsS3.List"]
+event    = "onListed"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Contents", fields = { Key = "/Key", Size = "/Size", LastModified = "/LastModified" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3.List".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='s3', operation_name='ListObjectsV2', params=dict(Bucket={prop:Bucket|quote}, Prefix={arg:1|quote}, MaxKeys={prop:MaxKeys|or:1000|int}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Contents=r.get('Contents', [])))
+result'''
+
+[ops."AwsS3.GetObject"]
+event    = "onObject"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResponseBody = "$json:/return_value/Text", ContentType = "$json:/return_value/ContentType" }
+save     = { path = "{arg:2}", from = "$json:/return_value/Base64", decode = "base64" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3.GetObject".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='s3', operation_name='GetObject', params=dict(Bucket={prop:Bucket|quote}, Key={arg:1|quote}), region_name={Connection.Region|or:us-east-1|quote})
+b = _bytes(r.get('Body', b''))
+result = _j(dict(Base64=base64.b64encode(b).decode(), Text=b.decode('utf-8', 'replace'), ContentType=r.get('ContentType', '')))
+result'''
+
+[ops."AwsS3.PutObject"]
+event    = "onObjectPut"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3.PutObject".input]
+code = '''{snippet:prelude}
+f = {arg:3|filebase64|quote}
+body = base64.b64decode(f) if f else {arg:2|quote}.encode('utf-8')
+r = await call_boto3(service_name='s3', operation_name='PutObject', params=dict(Bucket={prop:Bucket|quote}, Key={arg:1|quote}, Body=body), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(ETag=r.get('ETag', '')))
+result'''
+
+[ops."AwsS3.DeleteObject"]
+event    = "onObjectDeleted"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3.DeleteObject".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='s3', operation_name='DeleteObject', params=dict(Bucket={prop:Bucket|quote}, Key={arg:1|quote}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Done='1'))
+result'''
+
+# ── AwsS3Vectors ── a vector bucket's indexes: similarity search and writes.
+[ops."AwsS3Vectors.QueryVectors"]
+event    = "onVectorsQueried"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/vectors", fields = { Key = "/key", Distance = "/distance", Metadata = "/metadata" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3Vectors.QueryVectors".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='s3vectors', operation_name='QueryVectors', params=dict(vectorBucketName={prop:VectorBucketName|quote}, indexName={arg:1|or:{prop:IndexName}|quote}, queryVector=dict(float32=json.loads({arg:2|json|text|quote})), topK={arg:3|or:{prop:TopK}|or:5|int}, returnMetadata=True, returnDistance=True), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(vectors=r.get('vectors', [])))
+result'''
+
+[ops."AwsS3Vectors.PutVectors"]
+event    = "onVectorsPut"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3Vectors.PutVectors".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='s3vectors', operation_name='PutVectors', params=dict(vectorBucketName={prop:VectorBucketName|quote}, indexName={arg:1|or:{prop:IndexName}|quote}, vectors=json.loads({arg:2|json|text|quote})), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Done='1'))
+result'''
+
+# ── AwsRekognition ── an image from a local file or `s3://bucket/key`.
+[ops."AwsRekognition.DetectLabels"]
+event    = "onLabels"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Labels", fields = { Name = "/Name", Confidence = "/Confidence", Parents = "/Parents" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsRekognition.DetectLabels".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='rekognition', operation_name='DetectLabels', params=dict(Image=_source({arg:1|source|quote}), MinConfidence={prop:MinConfidence|or:70|int}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Labels=r.get('Labels', [])))
+result'''
+
+[ops."AwsRekognition.DetectText"]
+event    = "onTextDetected"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/TextDetections", fields = { Text = "/DetectedText", Type = "/Type", Confidence = "/Confidence" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsRekognition.DetectText".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='rekognition', operation_name='DetectText', params=dict(Image=_source({arg:1|source|quote})), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(TextDetections=r.get('TextDetections', [])))
+result'''
+
+[ops."AwsRekognition.DetectFaces"]
+event    = "onFaces"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/FaceDetails", fields = { Confidence = "/Confidence", AgeLow = "/AgeRange/Low", AgeHigh = "/AgeRange/High", Smile = "/Smile/Value", Emotion = "/Emotions/0/Type" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsRekognition.DetectFaces".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='rekognition', operation_name='DetectFaces', params=dict(Image=_source({arg:1|source|quote}), Attributes=['ALL']), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(FaceDetails=r.get('FaceDetails', [])))
+result'''
+
+# ── AwsPolly ── speech into a local audio file. Read-only in AWS.
+[ops."AwsPolly.Synthesize"]
+event    = "onSynthesized"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ContentType = "$json:/return_value/ContentType", Characters = "$json:/return_value/Characters" }
+save     = { path = "{arg:4|or:{prop:OutputFile}}", from = "$json:/return_value/Base64", decode = "base64", property = "SavedFile" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsPolly.Synthesize".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='polly', operation_name='SynthesizeSpeech', params=dict(Text={arg:1|quote}, VoiceId={arg:2|or:{prop:VoiceId}|or:Joanna|quote}, OutputFormat={arg:3|or:{prop:OutputFormat}|or:mp3|quote}, Engine={prop:Engine|or:neural|quote}), region_name={Connection.Region|or:us-east-1|quote})
+a = _bytes(r.get('AudioStream', b''))
+result = _j(dict(Base64=base64.b64encode(a).decode(), ContentType=r.get('ContentType', ''), Characters=r.get('RequestCharacters', 0)))
+result'''
+
+# ── AwsComprehend ── text analysis in the control's LanguageCode.
+[ops."AwsComprehend.DetectSentiment"]
+event    = "onSentiment"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { Sentiment = "$json:/return_value/Sentiment", ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Scores" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsComprehend.DetectSentiment".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='comprehend', operation_name='DetectSentiment', params=dict(Text={arg:1|quote}, LanguageCode={prop:LanguageCode|or:en|quote}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Sentiment=r.get('Sentiment', ''), Scores=[r.get('SentimentScore', dict())]))
+result'''
+
+[ops."AwsComprehend.DetectEntities"]
+event    = "onEntities"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Entities", fields = { Text = "/Text", Type = "/Type", Score = "/Score" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsComprehend.DetectEntities".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='comprehend', operation_name='DetectEntities', params=dict(Text={arg:1|quote}, LanguageCode={prop:LanguageCode|or:en|quote}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Entities=r.get('Entities', [])))
+result'''
+
+[ops."AwsComprehend.DetectKeyPhrases"]
+event    = "onKeyPhrases"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/KeyPhrases", fields = { Text = "/Text", Score = "/Score" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsComprehend.DetectKeyPhrases".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='comprehend', operation_name='DetectKeyPhrases', params=dict(Text={arg:1|quote}, LanguageCode={prop:LanguageCode|or:en|quote}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(KeyPhrases=r.get('KeyPhrases', [])))
+result'''
+
+[ops."AwsComprehend.DetectLanguage"]
+event    = "onLanguage"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { Language = "$json:/return_value/Languages/0/LanguageCode", ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Languages", fields = { Language = "/LanguageCode", Score = "/Score" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsComprehend.DetectLanguage".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='comprehend', operation_name='DetectDominantLanguage', params=dict(Text={arg:1|quote}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Languages=r.get('Languages', [])))
+result'''
+
+# ── AwsTextract ── a document from a local file or `s3://bucket/key`.
+[ops."AwsTextract.DetectText"]
+event    = "onTextDetected"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Lines", fields = { Text = "/Text", Confidence = "/Confidence", Page = "/Page" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsTextract.DetectText".input]
+code = '''{snippet:prelude}
+s = _source({arg:1|source|quote})
+d = dict(Bytes=s['Bytes']) if 'Bytes' in s else dict(S3Object=s['S3Object'])
+r = await call_boto3(service_name='textract', operation_name='DetectDocumentText', params=dict(Document=d), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Lines=[dict(Text=b.get('Text', ''), Confidence=b.get('Confidence', 0), Page=b.get('Page', 1)) for b in r.get('Blocks', []) if b.get('BlockType') == 'LINE']))
+result'''
+
+# AnalyzeDocument: the form fields (key/value pairs) and the table cells, one
+# row each, `Kind` telling them apart.
+[ops."AwsTextract.AnalyzeDocument"]
+event    = "onDocumentAnalyzed"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Rows", fields = { Kind = "/Kind", Key = "/Key", Value = "/Value", Table = "/Table", Row = "/Row", Column = "/Column", Confidence = "/Confidence" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsTextract.AnalyzeDocument".input]
+code = '''{snippet:prelude}
+s = _source({arg:1|source|quote})
+d = dict(Bytes=s['Bytes']) if 'Bytes' in s else dict(S3Object=s['S3Object'])
+r = await call_boto3(service_name='textract', operation_name='AnalyzeDocument', params=dict(Document=d, FeatureTypes=['FORMS', 'TABLES']), region_name={Connection.Region|or:us-east-1|quote})
+blocks = r.get('Blocks', [])
+by_id = dict((b['Id'], b) for b in blocks)
+def kids(b, kind):
+    out = []
+    for rel in b.get('Relationships', []):
+        if rel.get('Type') == kind:
+            out.extend(by_id[i] for i in rel.get('Ids', []) if i in by_id)
+    return out
+def text(b):
+    words = []
+    for c in kids(b, 'CHILD'):
+        if c.get('BlockType') == 'WORD':
+            words.append(c.get('Text', ''))
+        elif c.get('BlockType') == 'SELECTION_ELEMENT':
+            words.append('[X]' if c.get('SelectionStatus') == 'SELECTED' else '[ ]')
+    return ' '.join(words)
+rows = []
+for b in blocks:
+    if b.get('BlockType') == 'KEY_VALUE_SET' and 'KEY' in b.get('EntityTypes', []):
+        v = kids(b, 'VALUE')
+        rows.append(dict(Kind='FIELD', Key=text(b), Value=(text(v[0]) if v else ''), Table=0, Row=0, Column=0, Confidence=b.get('Confidence', 0)))
+t = 0
+for b in blocks:
+    if b.get('BlockType') == 'TABLE':
+        t += 1
+        for c in kids(b, 'CHILD'):
+            if c.get('BlockType') == 'CELL':
+                rows.append(dict(Kind='CELL', Key='', Value=text(c), Table=t, Row=c.get('RowIndex', 0), Column=c.get('ColumnIndex', 0), Confidence=c.get('Confidence', 0)))
+result = _j(dict(Rows=rows))
+result'''
+
+# ── AwsEC2 ── instances by id (a comma-separated list; empty = all).
+[ops."AwsEC2.Describe"]
+event    = "onDescribed"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Instances" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsEC2.Describe".input]
+code = '''{snippet:prelude}
+ids = [i.strip() for i in {arg:1|or:{prop:InstanceIds}|quote}.split(',') if i.strip()]
+r = await call_boto3(service_name='ec2', operation_name='DescribeInstances', params=(dict(InstanceIds=ids) if ids else dict()), region_name={Connection.Region|or:us-east-1|quote})
+out = []
+for res in r.get('Reservations', []):
+    for i in res.get('Instances', []):
+        name = ''.join(t.get('Value', '') for t in i.get('Tags', []) if t.get('Key') == 'Name')
+        out.append(dict(InstanceId=i.get('InstanceId', ''), Name=name, State=i.get('State', dict()).get('Name', ''), Type=i.get('InstanceType', ''), PublicIp=i.get('PublicIpAddress', ''), PrivateIp=i.get('PrivateIpAddress', '')))
+result = _j(dict(Instances=out))
+result'''
+
+[ops."AwsEC2.Start"]
+event    = "onInstancesStarted"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Instances" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsEC2.Start".input]
+code = '''{snippet:prelude}
+ids = [i.strip() for i in {arg:1|or:{prop:InstanceIds}|quote}.split(',') if i.strip()]
+r = await call_boto3(service_name='ec2', operation_name='StartInstances', params=dict(InstanceIds=ids), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Instances=[dict(InstanceId=c.get('InstanceId', ''), State=c.get('CurrentState', dict()).get('Name', ''), Previous=c.get('PreviousState', dict()).get('Name', '')) for c in r.get('StartingInstances', [])]))
+result'''
+
+[ops."AwsEC2.Stop"]
+event    = "onInstancesStopped"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Instances" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsEC2.Stop".input]
+code = '''{snippet:prelude}
+ids = [i.strip() for i in {arg:1|or:{prop:InstanceIds}|quote}.split(',') if i.strip()]
+r = await call_boto3(service_name='ec2', operation_name='StopInstances', params=dict(InstanceIds=ids), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Instances=[dict(InstanceId=c.get('InstanceId', ''), State=c.get('CurrentState', dict()).get('Name', ''), Previous=c.get('PreviousState', dict()).get('Name', '')) for c in r.get('StoppingInstances', [])]))
+result'''
+
+# ── AwsCognito ── an application's own users, in a user pool whose app
+# client (`ClientId`) has NO client secret. The tokens a sign-in returns are
+# kept in the runtime's memory (`secrets`) and removed from the answer before
+# anything else reads it: no property, row, ResultJson, Verbose line or file
+# ever holds one (R? Q6). A password is `sensitive`: Verbose never prints the
+# request that carries it.
+[ops."AwsCognito.SignUp"]
+event     = "onSignedUp"
+server    = "hosted"
+tool      = "aws___run_script"
+mutating  = true
+sensitive = true
+result    = { Confirmed = "$json:/return_value/Confirmed" }
+fail      = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsCognito.SignUp".input]
+code = '''{snippet:prelude}
+a = [dict(Name='email', Value={arg:3|quote})] if {arg:3|quote} else []
+r = await call_boto3(service_name='cognito-idp', operation_name='SignUp', params=dict(ClientId={prop:ClientId|quote}, Username={arg:1|quote}, Password={arg:2|quote}, UserAttributes=a), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Confirmed=('1' if r.get('UserConfirmed') else '0')))
+result'''
+
+[ops."AwsCognito.Confirm"]
+event     = "onConfirmed"
+server    = "hosted"
+tool      = "aws___run_script"
+mutating  = true
+result    = { Confirmed = "$json:/return_value/Confirmed" }
+fail      = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsCognito.Confirm".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='cognito-idp', operation_name='ConfirmSignUp', params=dict(ClientId={prop:ClientId|quote}, Username={arg:1|quote}, ConfirmationCode={arg:2|quote}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Confirmed='1'))
+result'''
+
+[ops."AwsCognito.SignIn"]
+event     = "onSignedIn"
+server    = "hosted"
+tool      = "aws___run_script"
+mutating  = false
+sensitive = true
+secrets   = "/return_value/Secret"
+result    = { SignedIn = "$json:/return_value/SignedIn", UserName = "$json:/return_value/UserName", Challenge = "$json:/return_value/Challenge" }
+fail      = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsCognito.SignIn".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='cognito-idp', operation_name='InitiateAuth', params=dict(ClientId={prop:ClientId|quote}, AuthFlow='USER_PASSWORD_AUTH', AuthParameters=dict(USERNAME={arg:1|quote}, PASSWORD={arg:2|quote})), region_name={Connection.Region|or:us-east-1|quote})
+t = r.get('AuthenticationResult', dict())
+result = _j(dict(SignedIn=('1' if t.get('AccessToken') else '0'), UserName=({arg:1|quote} if t.get('AccessToken') else ''), Challenge=r.get('ChallengeName', ''), Secret=dict(AccessToken=t.get('AccessToken', ''), IdToken=t.get('IdToken', ''), RefreshToken=t.get('RefreshToken', ''))))
+result'''
+
+[ops."AwsCognito.GetAttribute"]
+event     = "onAttribute"
+server    = "hosted"
+tool      = "aws___run_script"
+mutating  = false
+sensitive = true
+result    = { ResponseBody = "$json:/return_value/Value" }
+fail      = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsCognito.GetAttribute".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='cognito-idp', operation_name='GetUser', params=dict(AccessToken={secret:AccessToken}), region_name={Connection.Region|or:us-east-1|quote})
+v = [a.get('Value', '') for a in r.get('UserAttributes', []) if a.get('Name') == {arg:1|quote}]
+result = _j(dict(Value=(v[0] if v else '')))
+result'''
+
+# Signing out ends this control's session HERE whatever AWS answers: the
+# tokens are forgotten first.
+[ops."AwsCognito.SignOut"]
+event          = "onSignedOut"
+server         = "hosted"
+tool           = "aws___run_script"
+mutating       = false
+sensitive      = true
+forget_secrets = true
+result         = { SignedIn = "$json:/return_value/SignedIn", UserName = "$json:/return_value/UserName" }
+fail           = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsCognito.SignOut".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='cognito-idp', operation_name='GlobalSignOut', params=dict(AccessToken={secret:AccessToken}), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(SignedIn='0', UserName=''))
+result'''
+
 # ── The escape hatch: any tool of any routed server ─────────────────────────
 [ops."AwsMcp.Call"]
 event    = "onToolResult"

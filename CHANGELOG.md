@@ -8,6 +8,51 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.242] — 2026-10-07
+
+### Added
+- **Spec 078 Delivery C: nine AWS controls through the hosted AWS MCP
+  Server.** Each one is reached through AWS's own proxy
+  (`mcp-proxy-for-aws` 1.7.0) and signed by the connection's profile:
+  - `AwsDynamoDB` — GetItem, Query, Scan, PutItem, UpdateItem, DeleteItem,
+    with items as plain JSON;
+  - `AwsS3` — List, GetObject (to text or a file), PutObject (text or a
+    file), DeleteObject;
+  - `AwsS3Vectors` — QueryVectors, PutVectors;
+  - `AwsRekognition` — DetectLabels, DetectText, DetectFaces, from a file or
+    `s3://`;
+  - `AwsPolly` — Synthesize, into an audio file;
+  - `AwsComprehend` — sentiment, entities, key phrases, language;
+  - `AwsTextract` — lines, form fields and table cells;
+  - `AwsEC2` — Describe, Start, Stop;
+  - `AwsCognito` — SignUp, Confirm, SignIn, GetAttribute, SignOut.
+- **How the requests are built.** Each operation is a Python script shipped
+  in the route table and run by AWS through `aws___run_script`; AWS removed
+  `call_aws` on 2026-08-31. A COBOL value enters a script only as a quoted
+  literal, a number or a file's base64. A test checks all 99 placeholders.
+- **Cognito tokens never reach COBOL.** They are kept in the runtime's
+  memory, cut out of every answer, used inside later scripts, and
+  forgotten on SignOut. `Verbose` never prints a request that carries a
+  password or a token. A test scans every property, every row, the
+  `Verbose` output and the disk.
+- **Coverage.** Each control has a hand-drawn tile, help in six languages,
+  System KB entries (2782 records), and a demo on all three hosts:
+  16 demos, 16 servers, none left running.
+- **Live smoke test.** `aws_live.rs` (`#[ignore]`, `COBOLT_AWS_LIVE=1`)
+  makes one read-only call per service and saves each server's real
+  `tools/list` for re-recording the fixtures.
+
+### Changed
+- The route table gained:
+  - `[snippets]` (shipped Python, pasted by `{snippet:name}`);
+  - `{secret:Name}`, plus the op fields `secrets`, `forget_secrets` and
+    `sensitive`;
+  - `save` (write an answer to a file);
+  - the filters `|filebase64` and `|source`;
+  - JSON Pointers that read on inside a string holding JSON.
+- The fake MCP server can answer by what a call's arguments contain
+  (`answers_when`).
+
 ## [PowerRustCOBOL 1.80.241] — 2026-10-07
 
 ### Added

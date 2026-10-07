@@ -2538,6 +2538,15 @@ macro_rules! aws_pattern {
             | $crate::model::ControlType::AwsAgentMemory
             | $crate::model::ControlType::AwsS3Tables
             | $crate::model::ControlType::AwsGlue
+            | $crate::model::ControlType::AwsDynamoDB
+            | $crate::model::ControlType::AwsS3
+            | $crate::model::ControlType::AwsS3Vectors
+            | $crate::model::ControlType::AwsRekognition
+            | $crate::model::ControlType::AwsPolly
+            | $crate::model::ControlType::AwsComprehend
+            | $crate::model::ControlType::AwsTextract
+            | $crate::model::ControlType::AwsEC2
+            | $crate::model::ControlType::AwsCognito
     };
 }
 
@@ -2627,6 +2636,24 @@ pub enum ControlType {
     AwsS3Tables,
     /// Start and follow AWS Glue jobs and crawlers; read a table's schema.
     AwsGlue,
+    /// Read and write DynamoDB items as plain JSON.
+    AwsDynamoDB,
+    /// List, read, write and delete the objects of an S3 bucket.
+    AwsS3,
+    /// Similarity search and writes in an S3 vector index.
+    AwsS3Vectors,
+    /// Find labels, text and faces in an image.
+    AwsRekognition,
+    /// Turn text into speech, saved as an audio file.
+    AwsPolly,
+    /// Sentiment, entities, key phrases and language of a text.
+    AwsComprehend,
+    /// Read the text, form fields and tables of a document.
+    AwsTextract,
+    /// Describe, start and stop EC2 instances.
+    AwsEC2,
+    /// Sign an application's users up, in and out of a Cognito user pool.
+    AwsCognito,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -2756,6 +2783,15 @@ impl ControlType {
         ControlType::AwsAgentMemory,
         ControlType::AwsS3Tables,
         ControlType::AwsGlue,
+        ControlType::AwsDynamoDB,
+        ControlType::AwsS3,
+        ControlType::AwsS3Vectors,
+        ControlType::AwsRekognition,
+        ControlType::AwsPolly,
+        ControlType::AwsComprehend,
+        ControlType::AwsTextract,
+        ControlType::AwsEC2,
+        ControlType::AwsCognito,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -2812,6 +2848,15 @@ impl ControlType {
             ControlType::AwsAgentMemory => "AwsAgentMemory",
             ControlType::AwsS3Tables => "AwsS3Tables",
             ControlType::AwsGlue => "AwsGlue",
+            ControlType::AwsDynamoDB => "AwsDynamoDB",
+            ControlType::AwsS3 => "AwsS3",
+            ControlType::AwsS3Vectors => "AwsS3Vectors",
+            ControlType::AwsRekognition => "AwsRekognition",
+            ControlType::AwsPolly => "AwsPolly",
+            ControlType::AwsComprehend => "AwsComprehend",
+            ControlType::AwsTextract => "AwsTextract",
+            ControlType::AwsEC2 => "AwsEC2",
+            ControlType::AwsCognito => "AwsCognito",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -2873,6 +2918,15 @@ impl ControlType {
             "AwsAgentMemory" => ControlType::AwsAgentMemory,
             "AwsS3Tables" => ControlType::AwsS3Tables,
             "AwsGlue" => ControlType::AwsGlue,
+            "AwsDynamoDB" => ControlType::AwsDynamoDB,
+            "AwsS3" => ControlType::AwsS3,
+            "AwsS3Vectors" => ControlType::AwsS3Vectors,
+            "AwsRekognition" => ControlType::AwsRekognition,
+            "AwsPolly" => ControlType::AwsPolly,
+            "AwsComprehend" => ControlType::AwsComprehend,
+            "AwsTextract" => ControlType::AwsTextract,
+            "AwsEC2" => ControlType::AwsEC2,
+            "AwsCognito" => ControlType::AwsCognito,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {

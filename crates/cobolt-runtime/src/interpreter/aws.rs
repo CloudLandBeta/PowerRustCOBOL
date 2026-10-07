@@ -228,6 +228,7 @@ impl Interpreter {
                 method: &method,
                 args: &texts,
                 prop: &prop,
+                control: obj,
                 allow_write,
                 connection_allows_write,
             };
@@ -239,6 +240,8 @@ impl Interpreter {
         };
         if self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true") {
             let what = match &prepared.action {
+                // A password or a token travels in this request.
+                ops::Action::Call { tool, .. } if prepared.sensitive => format!("{tool} (arguments not shown: they carry a password or a token)"),
                 ops::Action::Call { tool, input } => format!("{tool} {input}"),
                 ops::Action::ListTools => "tools/list".into(),
             };

@@ -93,9 +93,11 @@ fn project(tag: &str) -> Project {
             {"name": "append_rows_to_table", "inputSchema": {"type": "object"}},
             {"name": "manage_aws_glue_jobs", "inputSchema": {"type": "object"}},
             {"name": "manage_aws_glue_crawlers", "inputSchema": {"type": "object"}},
-            {"name": "manage_aws_glue_tables", "inputSchema": {"type": "object"}}
+            {"name": "manage_aws_glue_tables", "inputSchema": {"type": "object"}},
+            {"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}
         ],
         "answers": delivery_b_answers(),
+        "answers_when": hosted_answers(),
         "pid_file": root.join("pids.txt").to_string_lossy(),
     });
     std::fs::write(root.join("fake-b.json"), script_b.to_string()).unwrap();
@@ -104,7 +106,7 @@ fn project(tag: &str) -> Project {
         let script = if matches!(id, "lambda" | "fake") { "fake.json" } else { "fake-b.json" };
         format!("[servers.{id}]\ncommand = '{}'\nargs = ['{}']\n", fake.display(), root.join(script).display())
     };
-    let routes: String = ["lambda", "fake", "bedrock-kb", "agentcore", "s3tables", "dataprocessing"].map(server).concat();
+    let routes: String = ["lambda", "fake", "bedrock-kb", "agentcore", "s3tables", "dataprocessing", "hosted"].map(server).concat();
     let listed = |dir: &str, ext: &str| forms.iter().map(|f| format!("\"{dir}/{f}.{ext}\"")).collect::<Vec<_>>().join(", ");
     let manifest = format!(
         "[project]\nname = \"AwsHosts\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\ndebug_compilation = true\n\n\
@@ -145,6 +147,49 @@ fn delivery_b_answers() -> Value {
         "manage_aws_glue_crawlers": two("Successfully started crawler raw-crawler", r#"{"crawler_name": "raw-crawler", "operation": "start"}"#),
         "manage_aws_glue_tables": two("Successfully retrieved table", r#"{"database_name": "sales", "table_name": "orders", "storage_descriptor": {"Columns": [{"Name": "order_id", "Type": "bigint"}, {"Name": "total", "Type": "double"}]}}"#),
     })
+}
+
+/// What the hosted server's `aws___run_script` answers, by the AWS operation
+/// its script calls: the envelope AWS's own code reads, as text.
+fn hosted_answers() -> Value {
+    let env = |v: Value| {
+        let text = json!({"status": "success", "stdout": "", "stderr": "", "return_value": v}).to_string();
+        json!({"content": [{"type": "text", "text": text}], "isError": false})
+    };
+    let rules = [
+        ("GetItem", json!({"Items": [{"id": 42, "customer": "Ana"}], "Found": "1"})),
+        ("Scan", json!({"Items": [{"id": 1}, {"id": 2}], "Count": 2})),
+        ("'Query'", json!({"Items": [{"id": 1}, {"id": 2}], "Count": 2})),
+        ("PutItem", json!({"Done": "1"})),
+        ("ListObjectsV2", json!({"Contents": [{"Key": "a.txt", "Size": 5, "LastModified": "2026-10-07 10:00:00+00:00"}]})),
+        ("GetObject", json!({"Base64": "aGVsbG8=", "Text": "hello", "ContentType": "text/plain"})),
+        ("QueryVectors", json!({"vectors": [{"key": "doc-7", "distance": 0.12, "metadata": {}}]})),
+        ("DetectLabels", json!({"Labels": [{"Name": "Dog", "Confidence": 98.1}, {"Name": "Pet", "Confidence": 97.0}]})),
+        ("operation_name='DetectText'", json!({"TextDetections": [{"DetectedText": "GOOD BOY", "Type": "LINE", "Confidence": 99}]})),
+        ("DetectFaces", json!({"FaceDetails": [{"Confidence": 99.9, "AgeRange": {"Low": 2, "High": 6}}]})),
+        ("SynthesizeSpeech", json!({"Base64": "SUQzBAA=", "ContentType": "audio/mpeg", "Characters": 5})),
+        ("DetectSentiment", json!({"Sentiment": "POSITIVE", "Scores": [{"Positive": 0.97}]})),
+        ("DetectEntities", json!({"Entities": [{"Text": "Ana", "Type": "PERSON", "Score": 0.99}, {"Text": "Porto", "Type": "LOCATION", "Score": 0.98}]})),
+        ("DetectDominantLanguage", json!({"Languages": [{"LanguageCode": "pt", "Score": 0.98}]})),
+        ("DetectKeyPhrases", json!({"KeyPhrases": [{"Text": "the new ticket form", "Score": 0.99}]})),
+        ("DetectDocumentText", json!({"Lines": [{"Text": "Name: Ana", "Confidence": 99, "Page": 1}, {"Text": "Total: 42", "Confidence": 98, "Page": 1}]})),
+        ("AnalyzeDocument", json!({"Rows": [{"Kind": "FIELD", "Key": "Name:", "Value": "Ana"}, {"Kind": "CELL", "Value": "42", "Table": 1, "Row": 1, "Column": 1}]})),
+        ("DescribeInstances", json!({"Instances": [{"InstanceId": "i-1", "Name": "web", "State": "running"}]})),
+        ("StartInstances", json!({"Instances": [{"InstanceId": "i-1", "State": "pending", "Previous": "stopped"}]})),
+        ("InitiateAuth", json!({"SignedIn": "1", "UserName": "ana", "Challenge": "", "Secret": {"AccessToken": "demo-access-token", "IdToken": "demo-id-token"}})),
+        ("GetUser", json!({"Value": "ana@example.com"})),
+        ("GlobalSignOut", json!({"SignedIn": "0", "UserName": ""})),
+    ];
+    Value::Array(
+        rules
+            .into_iter()
+            .map(|(op, v)| {
+                let contains = if op.starts_with('\'') || op.starts_with("operation_name") { op.to_owned() } else { format!("'{op}'") };
+                let contains = if contains.starts_with("operation_name") { contains } else { format!("operation_name={contains}") };
+                json!({"tool": "aws___run_script", "contains": contains, "answer": env(v)})
+            })
+            .collect(),
+    )
 }
 
 /// The steps that run one demo; `open` loads it into the shell's pane first.
@@ -202,7 +247,7 @@ fn run_form(p: &Project, form: &str, program: &str, script: &Value) -> String {
     stdout
 }
 
-const DEMOS: [(&str, &str); 7] = [
+const DEMOS: [(&str, &str); 16] = [
     ("aws-lambda-demo", "PASS 009 FAIL 000"),
     ("aws-mcp-demo", "PASS 009 FAIL 000"),
     ("aws-knowledge-base-demo", "PASS 008 FAIL 000"),
@@ -210,6 +255,15 @@ const DEMOS: [(&str, &str); 7] = [
     ("aws-agent-memory-demo", "PASS 007 FAIL 000"),
     ("aws-s3-tables-demo", "PASS 010 FAIL 000"),
     ("aws-glue-demo", "PASS 009 FAIL 000"),
+    ("aws-dynamodb-demo", "PASS 009 FAIL 000"),
+    ("aws-s3-demo", "PASS 007 FAIL 000"),
+    ("aws-s3-vectors-demo", "PASS 006 FAIL 000"),
+    ("aws-rekognition-demo", "PASS 007 FAIL 000"),
+    ("aws-polly-demo", "PASS 006 FAIL 000"),
+    ("aws-comprehend-demo", "PASS 007 FAIL 000"),
+    ("aws-textract-demo", "PASS 007 FAIL 000"),
+    ("aws-ec2-demo", "PASS 006 FAIL 000"),
+    ("aws-cognito-demo", "PASS 009 FAIL 000"),
 ];
 
 #[test]
@@ -297,6 +351,15 @@ fn the_guides_aws_examples_compile() {
         ("BTN-SALES", cobolt_forms::ControlType::Button),
         ("BTN-ETL", cobolt_forms::ControlType::Button),
         ("BTN-CHECK", cobolt_forms::ControlType::Button),
+        ("ORDERS-1", cobolt_forms::ControlType::AwsDynamoDB),
+        ("VISION-1", cobolt_forms::ControlType::AwsRekognition),
+        ("USERS-1", cobolt_forms::ControlType::AwsCognito),
+        ("TXT-ID", cobolt_forms::ControlType::TextBox),
+        ("TXT-USER", cobolt_forms::ControlType::TextBox),
+        ("TXT-PASSWORD", cobolt_forms::ControlType::TextBox),
+        ("BTN-FIND", cobolt_forms::ControlType::Button),
+        ("BTN-PHOTO", cobolt_forms::ControlType::Button),
+        ("BTN-LOGIN", cobolt_forms::ControlType::Button),
     ] {
         form.controls.push(cobolt_forms::Control::new(id, ct, 0, 0));
     }
@@ -313,6 +376,9 @@ fn the_guides_aws_examples_compile() {
                 "ONQUERIED" => "onQueried",
                 "ONJOBSTARTED" => "onJobStarted",
                 "ONJOBRUN" => "onJobRun",
+                "ONITEM" => "onItem",
+                "ONLABELS" => "onLabels",
+                "ONSIGNEDIN" => "onSignedIn",
                 other => panic!("an example handler for an unexpected event: {other}"),
             };
             let c = form.controls.iter_mut().find(|c| c.id == ctrl).unwrap_or_else(|| panic!("no control {ctrl}"));
@@ -324,7 +390,7 @@ fn the_guides_aws_examples_compile() {
             handlers.push(name.to_owned());
         }
     }
-    assert_eq!(handlers.len(), 14, "{handlers:?}");
+    assert_eq!(handlers.len(), 20, "{handlers:?}");
     let src = cobolt_codegen::generate(&form);
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
     let errors: Vec<String> = parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("line {}: {}", d.span.line, d.message)).collect();
