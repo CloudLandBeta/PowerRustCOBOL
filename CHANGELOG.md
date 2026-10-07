@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.237] — 2026-10-06
+
+### Fixed
+- **PowerChat's end-to-end test runs again** (`powerchat_settings_topics_documents_and_chat`).
+  Three things in the test, none in PowerChat:
+  - one connection pick still used the old numbering after 1.80.148 made
+    every index count from 1, so the planner's model was saved on the wrong
+    connection and the chat elected no orchestrator;
+  - the test never told the chat where the shipped samples are, so the main
+    prompt (every agent's role and the TASK and COMPOSE texts) was empty and
+    the worker was sent an empty question — the step passed only when another
+    test happened to set the variable first; a start-up that reads those
+    samples is then waited for by what it shows, not by a fixed half second;
+  - the agent mesh was still expected to send both tasks in one request; since
+    1.80.28 each task goes to the worker on its own, in order, so the step now
+    checks the six requests that make: the plan, each task's search round and
+    answer, and the composition.
+
 ## [PowerRustCOBOL 1.80.236] — 2026-10-06
 
 ### Fixed
