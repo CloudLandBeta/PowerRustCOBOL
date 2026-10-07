@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.238] — 2026-10-06
+
+### Added
+- **Spec 078 — AWS connections, end to end.** A project now defines its AWS
+  connections in **Settings → Integrations → AWS**: an AWS profile, a region,
+  the Lambda functions offered (a name prefix or a list) and an optional
+  route override, saved as `[[integrations.aws_connections]]` in the project
+  file. Nothing secret is stored — the AWS CLI's profile signs every call.
+  **Test connection** starts the connection's AWS server, lists what it
+  offers and reports, in the IDE's language, one of: the program it needs
+  (`uvx`) is not installed, the profile is not signed in (with the
+  `aws login --profile …` to run), the server does not match the route table,
+  or connected — with the Lambda functions found.
+- In the designer, an AWS control's inspector has a **Connection** list of the
+  project's AWS connections, plus Mode, FunctionName or ServerId/ToolName,
+  TimeoutMs, StartTimeoutMs, AllowWrite and Verbose. A control dropped in a
+  project with exactly one AWS connection takes it, in the same undo step.
+- All three hosts publish the project's AWS connections — `rcrun run-form`,
+  the forms it opens, and a built application, which bakes them in.
+- A server with a read-only mode starts in it until a control on its
+  connection allows writes, and is then restarted with its write flags.
+- A server that fails to start because its AWS profile is not signed in now
+  says so, with the profile and the `aws login` command, instead of "the AWS
+  service stopped unexpectedly"; the server's own text is never shown.
+- A built application links the AWS client only when one of its forms has an
+  AWS control; the build log says "no AWS control" otherwise.
+- A built form application can be run without a window, driven by a script
+  (`PRC_HEADLESS_SCRIPT`), exactly as `rcrun run-form --headless` runs Run
+  Form — what lets a test hold a compiled binary to Run Form's results.
+
 ## [PowerRustCOBOL 1.80.237] — 2026-10-06
 
 ### Fixed

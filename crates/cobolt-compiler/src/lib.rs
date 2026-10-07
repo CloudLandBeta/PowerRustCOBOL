@@ -878,6 +878,10 @@ struct ProjectIntegrations {
     /// `[[integrations.search_connections]]` — the same, for `WebSearch`.
     #[serde(default)]
     search_connections: Vec<cobolt_forms::connections::SearchConnection>,
+    /// `[[integrations.aws_connections]]` — the AWS controls' connections
+    /// (spec 078 R12). No credential exists to carry.
+    #[serde(default)]
+    aws_connections: Vec<cobolt_forms::connections::AwsConnection>,
 }
 
 #[derive(Deserialize)]
@@ -1175,8 +1179,7 @@ pub fn project_connections(manifest_path: &Path) -> cobolt_forms::connections::C
             // a form through the environment instead — see
             // `cobolt_forms::connections::AGENT_PROVIDERS_ENV`.
             agent: Vec::new(),
-            // Spec 078: the manifest does not list AWS connections yet.
-            aws: Vec::new(),
+            aws: p.integrations.aws_connections,
         })
         .unwrap_or_default()
 }
@@ -2439,6 +2442,9 @@ fn build_core(
     if !features.maps {
         log("   no Maps control — building without the Google Maps client");
     }
+    if !features.aws {
+        log("   no AWS control — building without the AWS client");
+    }
     // Spec 068 — the built-in semantic model only on request, and only for an
     // application that has a Knowledge Base to use it.
     let features = runtime_features::RuntimeFeatures {
@@ -2526,8 +2532,9 @@ fn build_core(
             // application would be wrong. The operator sets
             // COBOLT_AGENT_PROVIDERS on the machine that runs it.
             agent: Vec::new(),
-            // Spec 078: the manifest does not list AWS connections yet.
-            aws: Vec::new(),
+            // Spec 078 — baked like the others: a connection is a profile
+            // name and a region, never a credential.
+            aws: proj.integrations.aws_connections.clone(),
         }
         .to_json(),
         proj.agents.file_memory_limit_mb(),
@@ -3858,6 +3865,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         cobolt_forms::connections::Catalogue::from_json(PROJECT_CONNECTIONS);
     cobolt_form_host::seeding::publish_connections(project_connections.rest.clone());
     cobolt_form_host::seeding::publish_search_connections(project_connections.search.clone());
+    cobolt_form_host::seeding::publish_aws_connections(project_connections.aws.clone());
     cobolt_runtime::mcp_tool::publish_file_memory_limit(PROJECT_FILE_MEMORY_LIMIT_MB * 1024 * 1024);
     let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
     let seed = cobolt_form_host::seeding::build_object_seed(
@@ -4113,6 +4121,20 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         surface: cobolt_form_host::Surface::Window,
         hooks: Box::new(BlockWindows),
     };
+    // Spec 078 T-A16 — a scripted run of THIS application with no window:
+    // the same host the window runs, driven as `rcrun run-form --headless`
+    // drives Run Form, so a test can hold a built binary to Run Form's
+    // results. Only when `PRC_HEADLESS_SCRIPT` names a script.
+    if let Ok(script) = std::env::var("PRC_HEADLESS_SCRIPT") {
+        let limit = std::env::var("PRC_HEADLESS_LIMIT").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(60);
+        cobolt_form_host::headless::run_script_file(
+            host_config,
+            shell_mode.then_some(root_menu),
+            std::path::Path::new(&script),
+            limit,
+        );
+        std::process::exit(0);
+    }
     if shell_mode {
         cobolt_form_host::shell::run_shell(host_config, root_menu);
     } else {
@@ -9041,8 +9063,13 @@ mod resolve_main_tests {
             // Model providers are never baked — they are the machine's, and
             // reach a running application through the environment instead.
             agent: Vec::new(),
-            // Spec 078: the manifest does not list AWS connections yet.
-            aws: Vec::new(),
+            aws: vec![cobolt_forms::connections::AwsConnection {
+                id: "ghi-789".into(),
+                name: "Sales".into(),
+                profile: "sales-prod".into(),
+                region: "eu-west-1".into(),
+                ..Default::default()
+            }],
         }
         .to_json();
 
@@ -9071,12 +9098,49 @@ mod resolve_main_tests {
             src.contains("cobolt_form_host::seeding::publish_search_connections"),
             "both kinds, or WebSearch silently keeps its local settings"
         );
+        // Spec 078 T-A14 — the AWS connections too: an AWS control in a built
+        // application resolves its Connection exactly as under Run Form.
+        assert!(src.contains("sales-prod"), "the AWS connection is baked");
+        assert!(
+            src.contains("cobolt_form_host::seeding::publish_aws_connections"),
+            "and published before the first form is seeded"
+        );
         // A project with none still compiles to a valid, empty catalogue.
         let empty = generate_main_rs(
             "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
             "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "{}", 64,
         );
         assert!(empty.contains(r#"const PROJECT_CONNECTIONS: &str = "{}";"#));
+    }
+
+    /// Spec 078 T-A14 — the compiler's reading of `cobolt.toml` finds the
+    /// AWS connections the IDE writes, so `rcrun build` bakes them.
+    #[test]
+    fn aws_connections_are_read_from_the_manifest() {
+        let dir = std::env::temp_dir().join(format!("prc-078-manifest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("cobolt.toml");
+        std::fs::write(
+            &manifest,
+            r#"[project]
+name = "Demo"
+version = "1.0.0"
+main = "MAIN"
+
+[[integrations.aws_connections]]
+id = "aws-1"
+name = "Sales"
+profile = "sales-prod"
+region = "eu-west-1"
+function_prefix = "sales-"
+"#,
+        )
+        .unwrap();
+        let catalogue = project_connections(&manifest);
+        assert_eq!(catalogue.aws.len(), 1, "{:?}", catalogue.aws);
+        assert_eq!(catalogue.aws[0].profile, "sales-prod");
+        assert_eq!(catalogue.aws[0].function_prefix, "sales-");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Spec 080 T0.3 — the read-only manifest view: name, structure, every

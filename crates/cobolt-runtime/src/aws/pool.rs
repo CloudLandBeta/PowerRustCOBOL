@@ -136,18 +136,27 @@ impl Handle {
             .map_err(|e| CallError::Start(format!("the AWS service could not be started: {e}")))?;
 
         if mode == Mode::Handshake {
+            // A server that fails to start usually says why on stderr — an
+            // AWS profile that is not signed in, above all — and that text is
+            // what turns "it stopped" into "sign in to this profile" (R23).
+            // It travels after the first line, which is the plain message;
+            // `ops::plain_error` reads the rest and never shows it raw.
+            let with_stderr = |message: String| {
+                let said = settled_stderr(&handle.stderr);
+                CallError::Start(if said.trim().is_empty() { message } else { format!("{message}\n{said}") })
+            };
             let (id, bytes) = lock(&handle.session).initialize_request();
             let answer = handle.round_trip(id, &bytes, start_timeout).map_err(|e| match e {
-                CallError::Timeout => CallError::Start(format!(
+                CallError::Timeout => with_stderr(format!(
                     "the AWS service did not start within {} s (its first start downloads packages; \
                      raise StartTimeoutMs if this machine is slow)",
                     start_timeout.as_secs()
                 )),
-                CallError::Failed(e) | CallError::Start(e) => CallError::Start(e),
+                CallError::Failed(e) | CallError::Start(e) => with_stderr(e),
             })?;
             lock(&handle.session)
                 .accept_initialize(&answer)
-                .map_err(|e| CallError::Start(e.to_string()))?;
+                .map_err(|e| with_stderr(e.to_string()))?;
             handle.send(&Session::initialized_notification())?;
         }
         Ok(handle)
@@ -199,6 +208,19 @@ impl Handle {
         }
         let _ = child.kill();
         let _ = child.wait();
+    }
+}
+
+/// What a server that just failed wrote on stderr. Its drain thread may not
+/// have read the last of it yet, so wait a moment for it to appear.
+fn settled_stderr(ring: &StderrRing) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_millis(300);
+    loop {
+        let text = ring.text();
+        if !text.trim().is_empty() || std::time::Instant::now() >= deadline {
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 

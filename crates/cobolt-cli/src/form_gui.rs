@@ -236,6 +236,7 @@ pub fn cmd_run_form(args: &[String]) {
             let catalogue = cobolt_compiler::project_connections(m);
             cobolt_form_host::seeding::publish_connections(catalogue.rest);
             cobolt_form_host::seeding::publish_search_connections(catalogue.search);
+            cobolt_form_host::seeding::publish_aws_connections(catalogue.aws);
             // `[agents] file_memory_limit_mb` (spec 075), for every
             // interpreter this process builds, child forms' included.
             cobolt_runtime::mcp_tool::publish_file_memory_limit(
@@ -784,6 +785,9 @@ pub fn cmd_run_form(args: &[String]) {
         println!("{}{}", cobolt_form_host::headless::RESULT_MARKER, report);
         use std::io::Write as _;
         let _ = std::io::stdout().flush();
+        // Spec 078 — an AWS control's server is stopped in order rather than
+        // left to notice its input closing.
+        cobolt_runtime::shutdown_child_processes();
         // The interpreter thread may still be waiting for an event: this
         // process is done.
         process::exit(0);

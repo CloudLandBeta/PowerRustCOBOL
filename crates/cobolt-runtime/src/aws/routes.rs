@@ -396,6 +396,14 @@ pub fn check_route(op_name: &str, op: &OpDef, tools: &[cobolt_mcp::Tool]) -> Res
         Some(toml::Value::String(_)) => return Ok(()),
         _ => Vec::new(),
     };
+    // Every input the route fills must be one the tool takes: a server that
+    // renamed `parameters` to `payload` would otherwise pass this check and
+    // fail every call.
+    if let Some(props) = schema.get("properties").and_then(Value::as_object) {
+        if let Some(unknown) = filled.iter().find(|f| !props.contains_key(f.as_str())) {
+            return Err(format!("{op_name}: the route fills \"{unknown}\", which the server's tool does not take"));
+        }
+    }
     let missing: Vec<&str> = required.into_iter().filter(|r| !filled.iter().any(|f| f == r)).collect();
     if missing.is_empty() {
         Ok(())

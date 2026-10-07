@@ -201,11 +201,11 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `sync_mode_returns_the_body`.
     Then `cargo test -p cobolt-runtime --features aws` is green, and the `is_known_method` guard test is green.
 
-- [ ] **T-A12 — Read-only servers start read-only** (R25 as amended A4; AC15)
+- [x] **T-A12 — Read-only servers start read-only** (R25 as amended A4; AC15)
   - Do: when spawning, append `readonly_args` unless some control on that connection has `AllowWrite`. In that case append `write_args`, and restart the server if it is running read-only.
   - Verify: `a_readonly_connection_starts_the_server_readonly` (the fake records its argv) and `enabling_allowwrite_restarts_with_write_args`.
 
-- [ ] **T-A13 — Prerequisite and profile diagnostics** (R22, R23; AC13)
+- [x] **T-A13 — Prerequisite and profile diagnostics** (R22, R23; AC13)
   - Files: `aws/diagnose.rs` (new), `aws/process.rs`.
   - Do:
     - Program missing gives the message from T-A5.
@@ -215,7 +215,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 ### A.5 Connections and hosts
 
-- [ ] **T-A14 — `AwsConnection`, the manifests and catalogue publishing in three hosts** (R12, R13, R28; AC8)
+- [x] **T-A14 — `AwsConnection`, the manifests and catalogue publishing in three hosts** (R12, R13, R28; AC8)
   - Read first: `cobolt-forms/src/connections.rs` (`SearchConnection`, `apply_search`, `Catalogue`, `resolve_search_all`); both manifest copies (`cobolt-ide/src/project_model.rs` `ProjectIntegrationSettings`, `cobolt-compiler/src/lib.rs` `ProjectIntegrations` and `project_connections`); `cobolt-form-host/src/seeding.rs` (`publish_search_connections`, `resolve_connections`, the per-type seeds); `cobolt-cli/src/form_gui.rs` (catalogue publishing); the compiler's baked `PROJECT_CONNECTIONS` and its read-back.
   - Files: all of the above.
   - Do:
@@ -229,7 +229,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - the compiler's `PROJECT_CONNECTIONS` tests extended with `aws`.
     - Gate P names the three hosts.
 
-- [ ] **T-A15 — Build feature detection** (R29; AC17)
+- [x] **T-A15 — Build feature detection** (R29; AC17)
   - Read first: `cobolt-compiler/src/runtime_features.rs` (the struct, `all`, `union`, `as_toml_features`, `scan_forms`, `scan_rust`, and its tests), and `base_dependency_block`.
   - Files: `runtime_features.rs`, `lib.rs` (the "no X reached" log line).
   - Do: add `aws` to the struct and every helper. `scan_forms` sets it for any `Aws*` type; `scan_rust` sets it for `cobolt_runtime::aws`.
@@ -255,7 +255,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - Add the "AWS" category after NonVisual.
   - Verify: the `toolbox_layout_tests` gain `the_aws_category_lists_its_controls_in_every_language`; the glyph-parity test is extended; Gate G.
 
-- [ ] **T-A18 — Inspector rows and automatic connection** (R13, R30)
+- [x] **T-A18 — Inspector rows and automatic connection** (R13, R30)
   - Read first: `panels/properties.rs` (the non-visual early return, and the WebSearch arm's Configuration combo and `set_search_connections`), `app.rs`'s per-frame connection plumbing, and `designer.rs`'s drop path.
   - Files: `properties.rs`, `app.rs`, `designer.rs`.
   - Do:
@@ -263,7 +263,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - A dropped AWS control in a one-connection project gets that connection, in the same undo step.
   - Verify: `a_dropped_aws_control_takes_the_only_connection`; the Props-tab label-help test (`label_help_tests`) is green for the new types.
 
-- [ ] **T-A19 — Settings → Integrations: AWS connections and Test connection** (R12, R24; AC14)
+- [x] **T-A19 — Settings → Integrations: AWS connections and Test connection** (R12, R24; AC14)
   - Read first: `panels/settings_form.rs` (the Search connections list: draft, load, save and UI), and `panels/models_modal.rs` `do_test` and its result drain (the threaded test pattern).
   - Files: `settings_form.rs`, `i18n.rs` (the section title, field labels, Test button, and the four outcomes, each ×6).
   - Do:

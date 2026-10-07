@@ -3596,6 +3596,9 @@ pub struct PropertiesPanel {
     rest_connections: Vec<cobolt_forms::connections::RestConnection>,
     /// The project's named web-search connections, likewise.
     search_connections: Vec<cobolt_forms::connections::SearchConnection>,
+    /// Spec 078 — the project's AWS connections, for an AWS control's
+    /// Connection row.
+    aws_connections: Vec<cobolt_forms::connections::AwsConnection>,
     /// The project's SQL connection names (spec 087 R40), for SqlDatabase.
     sql_connections: Vec<String>,
     /// The machine's configured model providers, for AgentObject bindings.
@@ -3676,6 +3679,7 @@ impl PropertiesPanel {
             icon_picker: Default::default(),
             rest_connections: Vec::new(),
             search_connections: Vec::new(),
+            aws_connections: Vec::new(),
             sql_connections: Vec::new(),
             agent_connections: Vec::new(),
             stored_credentials: Default::default(),
@@ -3713,6 +3717,13 @@ impl PropertiesPanel {
     ) {
         if self.search_connections != connections {
             self.search_connections = connections.to_vec();
+        }
+    }
+
+    /// Tell the pane which AWS connections the project defines (spec 078).
+    pub fn set_aws_connections(&mut self, connections: &[cobolt_forms::connections::AwsConnection]) {
+        if self.aws_connections != connections {
+            self.aws_connections = connections.to_vec();
         }
     }
 
@@ -8961,6 +8972,71 @@ impl PropertiesPanel {
 
             // ── Agent Object ──────────────────────────────────────────────────
             // Spec 068 — the application Knowledge Base.
+            // ── AWS controls (spec 078) ─────────────────────────────────────
+            //
+            // `Connection` holds the connection's NAME — what the property's
+            // documentation promises and what a program writes with a MOVE —
+            // and an empty one means the project's only connection.
+            ControlType::AwsLambda | ControlType::AwsMcp if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_basic);
+                let conns = self.aws_connections.clone();
+                let cur = ctrl
+                    .get_prop("Connection")
+                    .map(|v| v.as_str().trim().to_owned())
+                    .unwrap_or_default();
+                let bound = conns
+                    .iter()
+                    .find(|c| c.name.eq_ignore_ascii_case(&cur) || (!cur.is_empty() && c.id == cur));
+                let selected_text = match (cur.is_empty(), bound, conns.len()) {
+                    (true, _, 1) => format!("{} ({})", conns[0].name, tr.aws_conn_only),
+                    (true, _, _) => "—".to_owned(),
+                    (false, Some(c), _) => c.name.clone(),
+                    (false, None, _) => format!("⚠ {cur}"),
+                };
+                property_row_keyed(ui, "Connection:", Some("Connection"), |ui| {
+                    egui::ComboBox::from_id_salt(format!("cb_{id}_AwsConnection"))
+                        .selected_text(selected_text)
+                        .width(ui.available_width().min(200.0))
+                        .show_ui(ui, |ui| {
+                            for c in &conns {
+                                let on = bound.is_some_and(|b| b.id == c.id);
+                                if ui.selectable_label(on, &c.name).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        "Connection".into(),
+                                        PropValue::String(c.name.clone()),
+                                    ));
+                                }
+                            }
+                        });
+                });
+                let note = if !cur.is_empty() && bound.is_none() {
+                    Some(tr.aws_conn_missing)
+                } else if cur.is_empty() && conns.len() != 1 {
+                    Some(tr.aws_conn_none)
+                } else {
+                    None
+                };
+                // The note belongs to the Connection row: a search that hides
+                // the row hides it too.
+                if let Some(note) = note.filter(|_| !search_hides_extras()) {
+                    ui.label(RichText::new(note).small().color(Color32::from_rgb(220, 120, 90)));
+                }
+                combo_prop_row(ui, id, "Mode", "Mode", ctrl, action, &["Async", "Sync"], "Async");
+                if ctrl.control_type == ControlType::AwsLambda {
+                    text_prop_row(ui, id, "FunctionName", "FunctionName", ctrl, action, &mut self.text_bufs);
+                } else {
+                    text_prop_row(ui, id, "ServerId", "ServerId", ctrl, action, &mut self.text_bufs);
+                    text_prop_row(ui, id, "ToolName", "ToolName", ctrl, action, &mut self.text_bufs);
+                }
+                int_prop_row(ui, id, "TimeoutMs", "TimeoutMs", ctrl, action, 1..=3_600_000, Some(" ms"), 30_000);
+                int_prop_row(
+                    ui, id, "StartTimeoutMs", "StartTimeoutMs", ctrl, action,
+                    1..=3_600_000, Some(" ms"), 120_000,
+                );
+                bool_prop_row(ui, id, "AllowWrite", "AllowWrite", ctrl, action);
+                bool_prop_row(ui, id, "Verbose", "Verbose", ctrl, action);
+            }
             ControlType::KnowledgeBase if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 text_prop_row(ui, id, "Location", "Location", ctrl, action, &mut self.text_bufs);
