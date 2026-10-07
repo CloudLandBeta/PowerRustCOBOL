@@ -1835,7 +1835,8 @@ flowchart LR
   so.
 
 Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
-(a non-interactive render), **Run Form** (live, interactive), grid toggle, **Theme**
+(a non-interactive render), **Run Form** (live, interactive), grid toggle,
+**Magnifier** (see *The magnifier* below), **Theme**
 ( procedural style: Classic / Enhanced / Neumorphic Light / Neumorphic Dark ), alignment tools, undo/redo.
 
 > **WYSIWYG — one renderer for every surface.** The Form Designer canvas, the
@@ -1944,6 +1945,34 @@ is scaled and placed.
 The runtime surfaces only add live behaviour (press feedback, focus, text input,
 slider drag), and the designer adds its editor overlay (selection handles,
 badges, drop hints) on top.
+
+#### The magnifier
+
+The canvas always shows a form at its real size, which is what you want when
+you judge a layout — and not what you want when a card packs 9-point labels a
+few pixels apart and you cannot tell which one, or which handle, the pointer
+is on. Click the **magnifying glass** in the designer toolbar (beside the grid
+and theme toggles) and the toolbox gains a **Zoom** section at its top, above
+**Common**: a square, as wide as the toolbox, that shows the part of the form
+under the pointer **four times larger**, with a small crosshair where the
+pointer is.
+
+- It follows the pointer while the pointer is over the form. Move off the form
+  and it **stops updating**, keeping the last picture so you can study it; until
+  you first point at the form it shows *Point at the form*.
+- It is the canvas itself, magnified — controls, selection handles, grid dots
+  and all — and the text is drawn at the larger size, not blown up, so 9-point
+  captions stay crisp. Only the form is shown, never the IDE around it.
+- It is a way of **looking**, nothing more: it never changes the form, marks it
+  as modified or adds anything to undo, and you keep working on the canvas as
+  usual. Drag the toolbox wider and the square grows with it.
+- Each designer window has its own magnifier, and a form always opens with it
+  off. Click the glass again to hide the section.
+
+> 📷 **Screenshot needed — `designer-magnifier.png`.** Open PowerSpatial's
+> `main-form`, turn the magnifier on, and point at one of the small labels on a
+> card. Capture the designer window showing the toolbox's **Zoom** section with
+> the magnified label and crosshair, and the pointer on the canvas.
 
 #### Selecting more than one control
 

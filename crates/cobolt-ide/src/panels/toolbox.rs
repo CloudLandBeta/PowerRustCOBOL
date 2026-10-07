@@ -370,6 +370,10 @@ impl ToolboxPanel {
         user_controls: &[UserControlDef],
         collapsed: bool,
         max_height: f32,
+        // Spec 089 — `None` while the magnifier is off; `Some(feed)` while it
+        // is on, the feed being `None` until the pointer has been over the
+        // form (the view shows a hint until then).
+        magnifier: Option<Option<&super::magnifier::MagnifierFeed>>,
     ) -> ToolboxAction {
         let mut action = ToolboxAction {
             dragged_type: None,
@@ -403,9 +407,19 @@ impl ToolboxPanel {
         ui.vertical(|ui| {
             let filter_lo = String::new();
 
+            // 089 — the Zoom section, first, above Common. Its height comes
+            // out of the categories' scroll budget, so the toolbox section as
+            // a whole stays exactly `max_height` tall (R9).
+            let mut budget = max_height;
+            if let Some(feed) = magnifier {
+                let top = ui.cursor().top();
+                zoom_section(ui, tr, heading_color, max_height, feed);
+                budget = (max_height - (ui.cursor().top() - top)).max(0.0);
+            }
+
             egui::ScrollArea::vertical()
                 .id_salt("toolbox_scroll")
-                .max_height(max_height)
+                .max_height(budget)
                 .show(ui, |ui| {
                     if filter_lo.is_empty() {
                         for &(cat_id, _) in CATEGORIES {
@@ -495,6 +509,58 @@ impl ToolboxPanel {
                 render_icon_grid(ui, &all, action);
             });
     }
+}
+
+/// Spec 089 — the Zoom section: its header and a square view, as wide as the
+/// toolbox, showing the form under the pointer at 4× — the last place it
+/// was over the form once it leaves — or a hint before it has been there. The square never grows past what the toolbox
+/// section can hold.
+fn zoom_section(
+    ui: &mut Ui,
+    tr: &Tr,
+    heading_color: Color32,
+    max_height: f32,
+    feed: Option<&super::magnifier::MagnifierFeed>,
+) {
+    let top = ui.cursor().top();
+    ui.add(
+        egui::Label::new(RichText::new(format!("▾ {}", tr.cat_zoom)).font(section_font(ui)).color(heading_color))
+            .selectable(false),
+    );
+    ui.add_space(1.0);
+    let sep_rect = ui.available_rect_before_wrap();
+    ui.painter().line_segment(
+        [sep_rect.left_top(), Pos2::new(sep_rect.right(), sep_rect.top())],
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 120, 180, 60)),
+    );
+    ui.add_space(4.0);
+    let header_h = ui.cursor().top() - top;
+    let side = ui.available_width().min(max_height - header_h - 4.0).max(0.0).floor();
+    let (view, _) = ui.allocate_exact_size(Vec2::splat(side), egui::Sense::hover());
+    let painter = ui.painter();
+    let theme = crate::theme::active();
+    painter.rect_filled(view, 4.0, theme.bg_control);
+    match feed {
+        Some(feed) => {
+            super::magnifier::paint(ui.ctx(), painter.layer_id(), view, painter.clip_rect(), feed);
+            // A small crosshair: where the pointer is.
+            let c = view.center();
+            let ink = Stroke::new(1.0, theme.accent);
+            painter.line_segment([c - Vec2::new(6.0, 0.0), c + Vec2::new(6.0, 0.0)], ink);
+            painter.line_segment([c - Vec2::new(0.0, 6.0), c + Vec2::new(0.0, 6.0)], ink);
+        }
+        None => {
+            painter.text(
+                view.center(),
+                egui::Align2::CENTER_CENTER,
+                tr.magnifier_hint,
+                egui::FontId::proportional(12.0),
+                theme.text_dim,
+            );
+        }
+    }
+    painter.rect_stroke(view, 4.0, Stroke::new(1.0, theme.line()), egui::StrokeKind::Inside);
+    ui.add_space(4.0);
 }
 
 /// The toolbox's section names: 2 px above the IDE's small text, in a real
@@ -1867,7 +1933,7 @@ mod toolbox_layout_tests {
                 },
                 |ui| {
                     egui::CentralPanel::default().show_inside(ui, |ui| {
-                        let _ = tb.show(ui, tr, &[], false, 2800.0);
+                        let _ = tb.show(ui, tr, &[], false, 2800.0, None);
                     });
                 },
             );
@@ -1907,7 +1973,7 @@ mod toolbox_layout_tests {
                     },
                     |ui| {
                         egui::CentralPanel::default().show_inside(ui, |ui| {
-                            let _ = tb.show(ui, tr, &[], false, 3800.0);
+                            let _ = tb.show(ui, tr, &[], false, 3800.0, None);
                         });
                     },
                 );
@@ -1949,5 +2015,91 @@ mod section_font_tests {
         out.textures_delta.clear();
         assert_eq!(sizes.1, sizes.0 + 2.0, "small {} -> section {}", sizes.0, sizes.1);
         println!("toolbox section font: {} px (small text {} px + 2)", sizes.1, sizes.0);
+    }
+}
+
+/// Spec 089 — the Zoom section.
+#[cfg(test)]
+mod zoom_section_tests_089 {
+    use super::*;
+
+    /// Texts drawn and the height the toolbox used, after a few frames.
+    fn render(magnifier: Option<Option<&super::super::magnifier::MagnifierFeed>>, width: f32, max_h: f32) -> (Vec<String>, f32, Vec<f32>) {
+        let tr = &crate::i18n::Language::English.tr();
+        let ctx = egui::Context::default();
+        let mut tb = ToolboxPanel::new();
+        let (mut texts, mut used, mut sizes) = (Vec::new(), 0.0, Vec::new());
+        for _ in 0..3 {
+            texts.clear();
+            sizes.clear();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 2000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let top = ui.cursor().top();
+                        let _ = tb.show(ui, tr, &[], false, max_h, magnifier);
+                        used = ui.cursor().top() - top;
+                    });
+                },
+            );
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<String>, sizes: &mut Vec<f32>) {
+                match s {
+                    egui::Shape::Text(t) => {
+                        out.push(t.galley.text().to_owned());
+                        sizes.push(t.galley.job.sections.first().map_or(0.0, |s| s.format.font_id.size));
+                    }
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out, sizes)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut texts, &mut sizes);
+            }
+        }
+        (texts, used, sizes)
+    }
+
+    /// AC2/R9 — on: Zoom is the first section, above Common, showing the hint
+    /// until the pointer has reached the form; off: no Zoom section. The
+    /// toolbox uses the same height either way.
+    #[test]
+    fn zoom_is_the_first_section_and_costs_no_height() {
+        let tr = &crate::i18n::Language::English.tr();
+        let (on, used_on, _) = render(Some(None), 260.0, 900.0);
+        let (off, used_off, _) = render(None, 260.0, 900.0);
+        let zoom = on.iter().position(|t| t.ends_with(tr.cat_zoom));
+        let common = on.iter().position(|t| t.ends_with(tr.cat_common));
+        println!("  089 AC2: on -> headers {:?}…; toolbox height on {used_on:.0}, off {used_off:.0}", &on[..on.len().min(4)]);
+        assert!(zoom.is_some() && zoom < common, "Zoom above Common: {on:?}");
+        assert!(on.iter().any(|t| t == tr.magnifier_hint), "the hint before the pointer reaches the form");
+        assert!(!off.iter().any(|t| t.ends_with(tr.cat_zoom)), "no Zoom section while off: {off:?}");
+        assert!((used_on - used_off).abs() <= 1.0, "the sidebar keeps its height: {used_on} vs {used_off}");
+    }
+
+    /// AC3 — a feed holding a 9 px caption is drawn at 36 px in the view.
+    #[test]
+    fn the_view_draws_the_feed_four_times_larger() {
+        use super::super::magnifier::MagnifierFeed;
+        let ctx = egui::Context::default();
+        // Fonts exist from a context's first frame.
+        let mut warm = ctx.run_ui(egui::RawInput::default(), |_| {});
+        warm.textures_delta.clear();
+        let galley = ctx.fonts_mut(|f| f.layout_no_wrap("Tiny".into(), egui::FontId::proportional(9.0), Color32::WHITE));
+        let feed = MagnifierFeed {
+            shapes: vec![egui::epaint::ClippedShape {
+                clip_rect: egui::Rect::EVERYTHING,
+                shape: egui::Shape::galley(egui::pos2(500.0, 500.0), galley, Color32::WHITE),
+            }],
+            pointer: egui::pos2(505.0, 504.0),
+            form_rect: egui::Rect::from_min_size(egui::pos2(400.0, 400.0), egui::vec2(300.0, 300.0)),
+        };
+        let (texts, _, sizes) = render(Some(Some(&feed)), 260.0, 900.0);
+        let i = texts.iter().position(|t| t == "Tiny").expect("the caption is in the view");
+        println!("  089 AC3: the caption in the view at {} px", sizes[i]);
+        assert_eq!(sizes[i], 36.0);
     }
 }

@@ -18947,6 +18947,8 @@ impl CoboltApp {
                         self.show_inspector,
                         self.debug_active,
                         saved_flash,
+                        self.designers[idx].1.magnifier_on,
+                        tr.tb_magnifier,
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -18995,6 +18997,11 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::ToggleGlass => {
                         self.designers[idx].1.glass_mode = !self.designers[idx].1.glass_mode;
+                    }
+                    DesignerToolbarAction::ToggleMagnifier => {
+                        let d = &mut self.designers[idx].1;
+                        d.magnifier_on = !d.magnifier_on;
+                        d.magnifier_feed = None;
                     }
                     DesignerToolbarAction::RunForm => {
                         self.do_run_form(idx);
@@ -19157,7 +19164,7 @@ impl CoboltApp {
                     let tb = self.designers[idx]
                         .1
                         .toolbox
-                        .show(ui, tr, &user_controls, true, 0.0);
+                        .show(ui, tr, &user_controls, true, 0.0, None);
                     return (None, tb, None);
                 }
 
@@ -19184,10 +19191,9 @@ impl CoboltApp {
                         .clicked();
                 });
                 let mut tb = sidebar_body(ui, h.toolbox, |ui| {
-                    self.designers[idx]
-                        .1
-                        .toolbox
-                        .show(ui, tr, &user_controls, false, h.toolbox)
+                    let d = &mut self.designers[idx].1;
+                    let magnifier = d.magnifier_on.then_some(d.magnifier_feed.as_ref());
+                    d.toolbox.show(ui, tr, &user_controls, false, h.toolbox, magnifier)
                 });
                 tb.toggle_collapse |= collapse_clicked;
                 sidebar_grip(ui, h.body, &mut split, 0);

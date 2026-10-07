@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.233] — 2026-10-06
+
+### Added
+- **Spec 089 — the Form Designer magnifier.** A magnifying-glass toggle in
+  the designer toolbar adds a **Zoom** section at the top of the toolbox,
+  above Common: a square as wide as the toolbox showing the form under the
+  pointer four times larger, with a crosshair. It is the canvas's own
+  picture — controls, handles and grid — with text drawn at the larger size,
+  so small captions stay sharp; only the form is shown. When the pointer
+  leaves the form the view stops updating and keeps its last picture. It is
+  view-only: it never marks the form modified or adds an undo step. Each
+  designer window has its own, and forms open with it off. The first draft of
+  this spec (a zoomable canvas) was withdrawn in favour of the magnifier.
+
 ## [PowerRustCOBOL 1.80.232] — 2026-10-06
 
 ### Added
