@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="AWS-LAMBDA-DEMO" title="AwsLambda demo" width="480" height="240" form-format="Both" index-base="1">
+  <working-storage><![CDATA[       01 WS-PASS     PIC 999 VALUE 0 GLOBAL.
+       01 WS-FAIL     PIC 999 VALUE 0 GLOBAL.
+       01 WS-CALLS    PIC 999 VALUE 0 GLOBAL.
+       01 WS-NAME     PIC X(40) GLOBAL.
+       01 WS-PAY      PIC X(200) GLOBAL.
+       01 WS-OUT      PIC X(2000) GLOBAL.
+       01 WS-RC       PIC X(10) GLOBAL.
+       01 WS-N        PIC X(10) GLOBAL.
+       01 WS-I        PIC 9 GLOBAL.
+       01 WS-F        PIC X(10) GLOBAL.
+       01 WS-FIELD    PIC X(80) GLOBAL.
+       01 WS-ERR      PIC X(300) GLOBAL.
+       01 WS-K        PIC 99 GLOBAL.
+       01 WS-ORDER    PIC X(100) VALUE SPACES GLOBAL.
+       01 WS-OP       PIC 999 VALUE 1 GLOBAL.
+       01 WS-T0       PIC X(21) GLOBAL.
+       01 WS-T1       PIC X(21) GLOBAL.
+       01 WS-MS       PIC 9(9) GLOBAL.
+       01 WS-RESULT   PIC X(40) GLOBAL.
+]]></working-storage>
+  <Control id="AWS-FN" type="AwsLambda" x="16" y="16" w="56" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="FunctionName">app-f</Property>
+    <Property name="AllowWrite">true</Property>
+    <Property name="Mode">Sync</Property>
+    <Event name="onInvoked" paragraph="AWS-FN--ONINVOKED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           STRING "onInvoked " DELIMITED BY SIZE INTO WS-ORDER WITH POINTER WS-OP
+           MOVE AWS-FN::ResponseBody TO WS-OUT
+           IF WS-OUT(1:8) = '[{"id":1'
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL async Invoke body: " FUNCTION TRIM(WS-OUT)
+           END-IF
+           .
+]]></Event>
+    <Event name="onComplete" paragraph="AWS-FN--ONCOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           STRING "onComplete " DELIMITED BY SIZE INTO WS-ORDER WITH POINTER WS-OP
+           .
+]]></Event>
+  </Control>
+  <Control id="AWS-RO" type="AwsLambda" x="88" y="16" w="56" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="FunctionName">app-f</Property>
+    <Property name="AllowWrite">false</Property>
+    <Property name="Mode">Sync</Property>
+  </Control>
+  <Control id="BTN-RUN" type="Button" x="16" y="96" w="120" h="28" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Run</Property>
+    <Event name="onClick" paragraph="BTN-RUN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CURRENT-DATE TO WS-T0
+      *>   1. Invoke, synchronous: the function's answer, read as rows.
+           MOVE "app-f" TO WS-NAME
+           MOVE '{"id": 7}' TO WS-PAY
+           INVOKE AWS-FN "Invoke" USING WS-NAME WS-PAY RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           IF WS-OUT(1:8) = '[{"id":1'
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL sync Invoke: " FUNCTION TRIM(WS-OUT)
+           END-IF
+           MOVE AWS-FN::RowCount TO WS-N
+           IF FUNCTION TRIM(WS-N) = "2"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL RowCount: " WS-N
+           END-IF
+           MOVE 2 TO WS-I
+           MOVE "name" TO WS-F
+           INVOKE AWS-FN "GetField" USING WS-I WS-F RETURNING WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "Bo"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetField(2, name): " WS-FIELD
+           END-IF
+      *>   2. AllowWrite off: refused before anything is sent.
+           INVOKE AWS-RO "Invoke" USING WS-NAME WS-PAY RETURNING WS-OUT
+           MOVE AWS-RO::LastError TO WS-ERR
+           MOVE 0 TO WS-K
+           INSPECT WS-ERR TALLYING WS-K FOR ALL "AllowWrite is off"
+           IF WS-K > 0
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL AllowWrite refusal: " FUNCTION TRIM(WS-ERR)
+           END-IF
+      *>   3. A payload that is not JSON: refused, naming the argument.
+           MOVE "{nope" TO WS-PAY
+           INVOKE AWS-FN "Invoke" USING WS-NAME WS-PAY RETURNING WS-OUT
+           MOVE AWS-FN::LastError TO WS-ERR
+           MOVE 0 TO WS-K
+           INSPECT WS-ERR TALLYING WS-K FOR ALL "argument 2"
+           IF WS-K > 0
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL invalid JSON refusal: " FUNCTION TRIM(WS-ERR)
+           END-IF
+      *>   4. The functions the connection offers.
+           INVOKE AWS-FN "ListFunctions" RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE AWS-FN::RowCount TO WS-N
+           IF FUNCTION TRIM(WS-N) = "3"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL ListFunctions rows: " WS-N
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-T1
+           COMPUTE WS-MS =
+               ((FUNCTION NUMVAL(WS-T1(9:2)) * 3600
+                 + FUNCTION NUMVAL(WS-T1(11:2)) * 60
+                 + FUNCTION NUMVAL(WS-T1(13:2))) * 100
+                 + FUNCTION NUMVAL(WS-T1(15:2))) * 10
+             - ((FUNCTION NUMVAL(WS-T0(9:2)) * 3600
+                 + FUNCTION NUMVAL(WS-T0(11:2)) * 60
+                 + FUNCTION NUMVAL(WS-T0(13:2))) * 100
+                 + FUNCTION NUMVAL(WS-T0(15:2))) * 10
+      *>   5. Invoke, asynchronous: it answers with onInvoked, then onComplete.
+           MOVE "Async" TO AWS-FN::Mode
+           MOVE '{"id": 7}' TO WS-PAY
+           INVOKE AWS-FN "Invoke" USING WS-NAME WS-PAY RETURNING WS-RC
+           ADD 1 TO WS-CALLS
+           IF FUNCTION TRIM(WS-RC) = "1"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL async Invoke start: " WS-RC
+           END-IF
+           .
+]]></Event>
+  </Control>
+  <Control id="BTN-SUMMARY" type="Button" x="152" y="96" w="120" h="28" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Summary</Property>
+    <Event name="onClick" paragraph="BTN-SUMMARY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           IF WS-ORDER(1:21) = "onInvoked onComplete "
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL event order: " FUNCTION TRIM(WS-ORDER)
+           END-IF
+           DISPLAY "==== AwsLambda demo (spec 078) ===="
+           DISPLAY "Operations: Invoke (Sync), Invoke (Async), ListFunctions, GetField"
+           DISPLAY "Refusals:   AllowWrite off, payload not JSON (nothing sent)"
+           DISPLAY "Calls made: " WS-CALLS
+           DISPLAY "Sync part:  " WS-MS " ms"
+           DISPLAY "Events:     " FUNCTION TRIM(WS-ORDER)
+           MOVE SPACES TO WS-RESULT
+           STRING "PASS " WS-PASS " FAIL " WS-FAIL
+               DELIMITED BY SIZE INTO WS-RESULT
+           DISPLAY FUNCTION TRIM(WS-RESULT)
+           MOVE WS-RESULT TO LBL-RESULT::Caption
+           .
+]]></Event>
+  </Control>
+  <Control id="LBL-RESULT" type="Label" x="16" y="140" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+  </Control>
+</Form>

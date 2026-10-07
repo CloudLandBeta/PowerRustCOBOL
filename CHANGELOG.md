@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.239] — 2026-10-06
+
+### Added
+- **Spec 078 Delivery A, finished.** The AWS controls run the same COBOL on
+  the three hosts: two demo forms (`tests/cobol/aws/`) drive every operation
+  of `AwsLambda` and `AwsMcp` — synchronous and asynchronous calls, rows and
+  fields, the `AllowWrite` and invalid-JSON refusals, the event order — and
+  each reports `PASS 009 FAIL 000` under `rcrun run-form`, as an embedded
+  child form in an application shell, and in a built binary, which also
+  leaves no AWS server running behind it.
+- The Developer's Guide has a new section, **Calling AWS: the `AwsLambda` and
+  `AwsMcp` controls**: what a machine needs (uv and the AWS CLI), AWS
+  connections and Test connection, the `AllowWrite` rule, worked examples of
+  both controls, the events, and the caveats. Its examples compile through
+  the designer's own path (a test lifts them into a form).
+- The support matrix lists the AWS integration and the catalogue's 47
+  widgets.
+
 ## [PowerRustCOBOL 1.80.238] — 2026-10-06
 
 ### Added

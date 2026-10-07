@@ -235,7 +235,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
   - Do: add `aws` to the struct and every helper. `scan_forms` sets it for any `Aws*` type; `scan_rust` sets it for `cobolt_runtime::aws`.
   - Verify: `a_form_without_aws_controls_builds_without_aws` and `an_aws_control_turns_the_feature_on` (AC17), plus `cargo test -p cobolt-compiler`.
 
-- [ ] **T-A16 — The same COBOL programs on three hosts** (R28; AC6 for the binary, AC11, AC16)
+- [x] **T-A16 — The same COBOL programs on three hosts** (R28; AC6 for the binary, AC11, AC16)
   - Files: `tests/cobol/aws/aws-lambda-demo.{cfrm,cbl}` and `aws-mcp-demo.*` (new), `crates/cobolt-runtime/tests/aws_hosts.rs` (new), wired into existing harnesses as the `props_demo_runs.rs` pattern shows.
   - Do: each form drives every Delivery A operation against the fake (through a connection whose route override points at `fake_mcp`) and prints the GOLDEN RULE #7 block. The block gives:
     - the operations exercised, by name;
@@ -288,7 +288,7 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - Grace's `names_type("add a lambda control", "AwsLambda")`.
     These cover AC18 for Delivery A.
 
-- [ ] **T-A21 — Developer's Guide: "Calling AWS", part 1** (R32; AC19)
+- [x] **T-A21 — Developer's Guide: "Calling AWS", part 1** (R32; AC19)
   - Files: `docs/developers-guide-en.md`, `docs/cobol-support-matrix-en.md`. Delete the five translations of each (GOLDEN RULE #8).
   - Do: write for a PowerCOBOL or isCOBOL developer, in COBOL only. Cover:
     - prerequisites (`uv`, Python ≥ 3.10, AWS CLI ≥ 2.32 and `aws login`);
@@ -301,9 +301,9 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
     - `📷 Screenshot needed` placeholders for the connections section and a card.
   - Verify: the Guide's COBOL examples pass `rcrun check` (AC19); `docs_embed` shows only the expected reds.
 
-- [ ] **T-A22 — Delivery A finalize**
+- [x] **T-A22 — Delivery A finalize**
   - Run Gate F; `cargo tree` for `cobolt-runtime --features aws` (AC2, no `rustls`, `aws-lc` or `ring`); a CHANGELOG entry per commit.
-  - The operator's manual check: drop both controls, set a connection, run Test connection. The agent does not drive the IDE.
+  - The operator's manual check: drop both controls, set a connection, run Test connection. The agent does not drive the IDE. *(Open — the operator's, 2026-10-06; everything else in this task is done.)*
   - Delivery A can ship here.
 
 ---

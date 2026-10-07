@@ -1430,6 +1430,7 @@ version = "0.2.0"
 dependencies = [
  "bincode",
  "cobolt-ast",
+ "cobolt-codegen",
  "cobolt-compiler",
  "cobolt-form-host",
  "cobolt-forms",

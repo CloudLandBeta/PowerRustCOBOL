@@ -60,3 +60,8 @@ image        = { version = "0.25", default-features = false, features = ["png", 
 # currently being handled".
 rfd      = "0.14"
 pollster = "0.3"
+
+[dev-dependencies]
+# Spec 078 T-A16 — the AWS demo forms' programs are generated in the test, as
+# the designer would generate them, rather than committed.
+cobolt-codegen = { path = "../cobolt-codegen" }

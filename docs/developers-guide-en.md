@@ -12483,6 +12483,182 @@ from another.
 > - An application installed in a read-only folder cannot keep its
 >   Knowledge Base under `assets/KB`; set `Location` to a writable folder.
 
+### Calling AWS: the `AwsLambda` and `AwsMcp` controls
+
+Two non-visual controls in the toolbox's **AWS** section reach Amazon Web
+Services from COBOL. `AwsLambda` runs one of your Lambda functions with a
+JSON payload and hands you its answer. `AwsMcp` is the general door: it calls
+any tool of an AWS server by name. Neither asks you to write an HTTP request,
+sign it or handle a credential — you drop the control, name a function, and
+call a method, the way a PowerCOBOL or isCOBOL developer calls a control's
+method.
+
+Behind them, the application talks to **AWS's own MCP servers** (small
+programs AWS publishes), which do the AWS work with the AWS CLI's credentials:
+
+```mermaid
+flowchart LR
+    H["Your COBOL handler<br/>INVOKE LAMBDA-1 &quot;Invoke&quot;"] --> C["AwsLambda control"]
+    C --> R["Route table<br/>(which server, which tool)"]
+    R --> S["AWS MCP server<br/>(started once per connection)"]
+    S --> A["AWS<br/>signed with the profile"]
+    A --> S --> C
+    C --> E["onInvoked, then onComplete<br/>(ResponseBody, RowCount, …)"]
+```
+
+#### What a machine needs
+
+- **uv** (`uvx` starts AWS's servers) — `brew install uv`, `pip install uv`
+  or `winget install astral-sh.uv`. uv brings the Python the servers run on
+  (3.10 or later).
+- **The AWS CLI** (2.32 or later) and a profile that is signed in:
+  `aws login --profile sales` once on that machine.
+
+That is the whole list, on your machine **and on your users'**: a built
+application carries no AWS key and no AWS library. The first call on a
+machine downloads the server it needs, which can take a minute; every call
+after that starts in about a second, and one server serves every AWS control
+on its connection until the application ends.
+
+#### AWS connections
+
+**Settings → Integrations → AWS** holds the project's AWS connections: a name,
+an **AWS profile**, a **region**, which Lambda functions the application may
+reach (a **function prefix** such as `sales-`, or a comma-separated **function
+list**), and an optional route override for advanced cases. Nothing secret is
+stored — the profile signs every call on the machine that runs it.
+
+**Test connection** starts the connection's server and tells you, in your
+language, one of four things: the program it needs is not installed (and how
+to install it), the profile is not signed in (and the `aws login` command to
+run), the server does not answer as expected, or **connected** — with the
+Lambda functions it found.
+
+> 📷 **Screenshot needed — `aws-connections.png`.** Open Settings →
+> Integrations, add an AWS connection with a profile and region, press **Test
+> connection**, and capture the AWS section showing the connection and the
+> green "Connected. Lambda functions offered: …" line.
+
+Each AWS control's **Connection** property names the connection by name. A
+control dropped in a project with exactly one AWS connection takes it, and
+an empty Connection means that only one.
+
+> 📷 **Screenshot needed — `aws-card.png`.** Drop an `AwsLambda` control on a
+> form and capture its tile on the canvas beside the inspector showing
+> Connection, Mode, FunctionName and AllowWrite.
+
+#### Nothing changes AWS until you say so: `AllowWrite`
+
+`AllowWrite` is **off** on every new AWS control. While it is off:
+
+- `Invoke` on an `AwsLambda` is refused — running a function can change
+  anything, so it counts as a write;
+- `Call` on an `AwsMcp` is refused for any tool its server does not declare
+  read-only;
+- a server that has a read-only mode starts in it.
+
+A refused call sends nothing and raises `onError` with `LastError` saying
+why. Turn `AllowWrite` on for exactly the controls that need it.
+
+#### Example: run a Lambda function
+
+The designer seeds `Mode = Async`: `Invoke` returns `1` at once and the
+answer arrives as `onInvoked`, then `onComplete`.
+
+```cobol
+       PROGRAM-ID. BTN-QUOTE--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FUNCTION   PIC X(40) VALUE "sales-quote".
+       01 WS-PAYLOAD    PIC X(200).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE '{"customer": 1042, "items": 3}' TO WS-PAYLOAD
+           INVOKE LAMBDA-1 "Invoke" USING WS-FUNCTION WS-PAYLOAD
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. LAMBDA-1--ONINVOKED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ANSWER     PIC X(2000).
+       01 WS-FAILED     PIC X(200).
+       PROCEDURE DIVISION.
+           MOVE LAMBDA-1::FunctionError TO WS-FAILED
+           IF WS-FAILED = SPACES
+               MOVE LAMBDA-1::ResponseBody TO WS-ANSWER
+               MOVE WS-ANSWER TO LBL-QUOTE::Caption
+           ELSE
+               MOVE WS-FAILED TO LBL-QUOTE::Caption
+           END-IF
+           .
+```
+
+- The payload must be JSON. One that is not is refused before anything is
+  sent, and `LastError` names the argument.
+- `FunctionError` is what the **function** reported (for example
+  `Unhandled`): the call itself worked, so `onInvoked` still fires.
+  `onError` is kept for calls that never reached the function.
+- An answer that is a JSON array is also a row set: `RowCount` rows, each
+  read with `GetRow(n)` (the row as JSON) or `GetField(n, "name")`.
+- `ListFunctions` lists the functions the connection offers
+  (`onFunctionsListed`; `GetField(n, "Name")`).
+
+With `Mode = Sync` the same `Invoke` waits and returns the answer itself:
+
+```cobol
+           MOVE "Sync" TO LAMBDA-1::Mode
+           INVOKE LAMBDA-1 "Invoke" USING WS-FUNCTION WS-PAYLOAD
+               RETURNING WS-ANSWER
+```
+
+#### Example: call any AWS tool with `AwsMcp`
+
+`ServerId` names one of the connection's AWS servers and `Call` runs one of
+its tools with a JSON object of arguments. `ListTools` lists them — `Name`,
+`Description` and `ReadOnly` (`1` when the server marks the tool read-only).
+
+```cobol
+       PROGRAM-ID. BTN-TOOLS--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TOOL       PIC X(60) VALUE "list_functions".
+       01 WS-ARGS       PIC X(200) VALUE "{}".
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE MCP-1 "Call" USING WS-TOOL WS-ARGS RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. MCP-1--ONTOOLRESULT.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TEXT       PIC X(4000).
+       PROCEDURE DIVISION.
+           MOVE MCP-1::ResponseBody TO WS-TEXT
+           MOVE WS-TEXT TO TXT-OUT::Text
+           .
+```
+
+`ResponseBody` is the tool's answer as text and `ResultJson` the same answer
+as JSON, for the developer who wants all of it.
+
+> **Note — the events are the asynchronous controls' own.** Each AWS control
+> raises its own completion event (`onInvoked`, `onFunctionsListed`,
+> `onToolResult`, `onToolsListed`), then `onComplete`; or `onError`,
+> `onTimeout` (after `TimeoutMs`, the first start having its own
+> `StartTimeoutMs`) or `onCancelled` (after `Cancel()`). One operation at a
+> time per control; `IsBusy()` says whether one is running.
+
+> ⚠️ **Caveats.**
+> - A profile that is not signed in fails with `onError` and a `LastError`
+>   that names the profile and the `aws login` command; the server's own text
+>   is never shown to your users.
+> - `Verbose = true` narrates each call into the program's output, with
+>   anything that looks like an AWS key, session token or signed URL masked.
+> - Run Form, the forms your application opens and the built binary all run
+>   the AWS controls the same way — and a built application with no AWS
+>   control links none of this.
+
 ---
 
 ## 17. The command line (rcrun)
