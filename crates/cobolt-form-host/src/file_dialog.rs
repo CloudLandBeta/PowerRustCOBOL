@@ -92,11 +92,28 @@ pub fn is_open(key: &str) -> bool {
 /// calls `request_repaint` so the polling UI actually runs a frame and collects
 /// the result, even on an idle window.
 pub fn begin(ctx: &egui::Context, key: &str, spec: DialogSpec) {
+    let trace = crate::diagnostics::frame_diagnostics_enabled();
     if is_open(key) {
+        // Silent on purpose — a second press while the panel is up must not
+        // stack a second panel — but never silent in the trace: this early
+        // return is exactly what "the button does nothing" looks like from
+        // outside (operator, 2026-10-06: Viewer Save As opened no dialog).
+        if trace {
+            eprintln!("[prc] file dialog {key}: NOT opened — one under this key is still open (unanswered)");
+        }
         return;
+    }
+    if trace {
+        eprintln!(
+            "[prc] file dialog {key}: opening {} panel (name {:?}, folder {:?})",
+            if spec.save { "Save" } else { "Open" },
+            spec.file_name,
+            spec.directory
+        );
     }
     let (tx, rx) = std::sync::mpsc::channel();
     let ctx = ctx.clone();
+    let traced_key = key.to_owned();
     std::thread::spawn(move || {
         let mut dlg = rfd::AsyncFileDialog::new();
         for (name, exts) in &spec.filters {
@@ -114,10 +131,40 @@ pub fn begin(ctx: &egui::Context, key: &str, spec: DialogSpec) {
         } else {
             pollster::block_on(dlg.pick_file())
         };
-        let _ = tx.send(handle.map(|h| h.path().to_path_buf()));
+        let answer = handle.map(|h| h.path().to_path_buf());
+        if trace {
+            match &answer {
+                Some(p) => eprintln!("[prc] file dialog {traced_key}: answered {}", p.display()),
+                None => eprintln!("[prc] file dialog {traced_key}: dismissed"),
+            }
+        }
+        let _ = tx.send(answer);
         ctx.request_repaint();
     });
     pending().lock().unwrap().insert(key.to_owned(), rx);
+}
+
+/// Stop waiting for the dialog under `key`, answered or not.
+///
+/// For a form that goes away while its panel is up: nothing will ever
+/// [`take`] that answer, so without this the key stays "open" for the rest
+/// of the run and every later [`begin`] under it — the next Save As on a
+/// Viewer of the same id — returns without opening anything. The panel
+/// itself, if still on screen, answers into a receiver that is gone, which
+/// is harmless.
+pub fn forget(key: &str) {
+    if pending().lock().unwrap().remove(key).is_some() && crate::diagnostics::frame_diagnostics_enabled() {
+        eprintln!("[prc] file dialog {key}: forgotten — the form that opened it is gone");
+    }
+}
+
+/// Test hook: a dialog under `key` that is up and not yet answered. Keep the
+/// returned sender alive for as long as the dialog should stay open.
+#[cfg(test)]
+pub fn open_for_test(key: &str) -> std::sync::mpsc::Sender<Option<PathBuf>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    pending().lock().unwrap().insert(key.to_owned(), rx);
+    tx
 }
 
 /// Test hook: behave as if a dialog under `key` had just closed with `answer`,

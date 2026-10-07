@@ -548,6 +548,7 @@ impl FormHost {
                 parked_timer_clocks: HashMap::new(),
                 toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             pending_save_as: Vec::new(),
+            dialogs_begun: std::collections::HashSet::new(),
             pending_os_handoff: Vec::new(),
             os_handoff: OsHandoffChannel::default(),
                 action_notice: None,
@@ -840,6 +841,12 @@ pub(crate) struct FormBody {
     /// Save As dialogs asked for while draining the state channel, which has no
     /// `egui::Context` — opened by `start_pending_save_as` on the same frame.
     pub(crate) pending_save_as: Vec<(String, crate::file_dialog::DialogSpec)>,
+    /// The native dialogs THIS form opened and has not collected yet, by
+    /// `file_dialog` key. When the form goes away they are forgotten (see
+    /// the `Drop` impl): nothing else would ever collect them, and an
+    /// uncollected key blocks every later dialog under it for the rest of
+    /// the run.
+    pub(crate) dialogs_begun: std::collections::HashSet<String>,
     /// R19/R20 handoffs asked for during the same drain, started on the same
     /// frame by `drive_viewer_os_handoffs`.
     pub(crate) pending_os_handoff: Vec<(String, crate::os_handoff::Handoff, PathBuf)>,
@@ -893,6 +900,22 @@ pub(crate) struct FormBody {
 /// lookup for that surface; they must not drift apart.
 pub(crate) fn footer_id_scope() -> egui::Id {
     egui::Id::new("cobolt-sidemenu-footer")
+}
+
+/// A form that goes away forgets the dialogs it opened and never collected.
+///
+/// The keys are per control id and shared by the whole process, so an
+/// uncollected one outlives its form: a shell page retired from the
+/// navigation chain while its Save As panel was up left the key "open", and
+/// every later Save As on a Viewer of that id did nothing at all. Only this
+/// form's own dialogs are forgotten — another live form whose control shares
+/// the id keeps its own.
+impl Drop for FormBody {
+    fn drop(&mut self) {
+        for key in self.dialogs_begun.drain() {
+            crate::file_dialog::forget(&key);
+        }
+    }
 }
 
 impl FormBody {
@@ -1221,7 +1244,9 @@ impl FormBody {
     /// Open whatever Save As dialogs the state drain queued this frame.
     pub(crate) fn start_pending_save_as(&mut self, ctx: &egui::Context) {
         for (id, spec) in std::mem::take(&mut self.pending_save_as) {
-            crate::file_dialog::begin(ctx, &Self::viewer_save_as_key(&id), spec);
+            let key = Self::viewer_save_as_key(&id);
+            crate::file_dialog::begin(ctx, &key, spec);
+            self.dialogs_begun.insert(key);
         }
     }
 
@@ -1303,9 +1328,11 @@ impl FormBody {
             .map(|c| c.id.clone())
             .collect();
         for id in viewers {
-            let Some(answer) = crate::file_dialog::take(&Self::viewer_save_as_key(&id)) else {
+            let key = Self::viewer_save_as_key(&id);
+            let Some(answer) = crate::file_dialog::take(&key) else {
                 continue;
             };
+            self.dialogs_begun.remove(&key);
             // A dismissed dialog answers with the EMPTY string rather than not
             // answering at all: the runtime has to hear about it, or the
             // control waits for a save that is never coming and no
@@ -1826,6 +1853,7 @@ impl FormBody {
         for id in file_pickers {
             let key = format!("filedropzone:{id}");
             crate::file_dialog::begin(ctx, &key, crate::file_dialog::DialogSpec::open());
+            self.dialogs_begun.insert(key);
         }
 
         // The DataGrid CSV button asking where to write. Same division of labour
@@ -1857,6 +1885,7 @@ impl FormBody {
                 spec = spec.directory(dir);
             }
             crate::file_dialog::begin(ctx, &key, spec);
+            self.dialogs_begun.insert(key);
             acted = true;
         }
         let grid_ids: Vec<String> = self
@@ -1870,6 +1899,7 @@ impl FormBody {
             let Some(answer) = crate::file_dialog::take(&key) else {
                 continue;
             };
+            self.dialogs_begun.remove(&key);
             acted = true;
             // Cancelled: nothing is written and no export is raised. A save
             // panel the operator dismissed must not still produce a file.
@@ -1896,7 +1926,11 @@ impl FormBody {
             .collect();
         for id in file_drop_zone_ids {
             let key = format!("filedropzone:{id}");
-            if let Some(Some(path)) = crate::file_dialog::take(&key) {
+            let taken = crate::file_dialog::take(&key);
+            if taken.is_some() {
+                self.dialogs_begun.remove(&key);
+            }
+            if let Some(Some(path)) = taken {
                 // Browsing goes through the SAME intake as a drop — the zone's
                 // extensions, size limit and destination folder — so a file is
                 // judged by one set of rules however it arrived.
@@ -5114,6 +5148,7 @@ impl FormHost {
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             pending_save_as: Vec::new(),
+            dialogs_begun: std::collections::HashSet::new(),
             pending_os_handoff: Vec::new(),
             os_handoff: OsHandoffChannel::default(),
             action_notice: None,
@@ -9177,6 +9212,63 @@ mod parity {
         assert!(woken, "the program is woken to read the answer");
     }
 
+    /// **A form that goes away releases the Save panel it left open.** The
+    /// dialog keys are per control id and shared by the process; a shell page
+    /// retired while its Save As panel was up left `viewersaveas:<id>` marked
+    /// open, so every later Save As on a Viewer of that id opened nothing —
+    /// `file_dialog::begin` returns early for a key it thinks is still up
+    /// (operator, 2026-10-06: PowerDemo3's Viewer, "no dialog opens"). Only the
+    /// form's OWN dialogs are released: another form's open panel stays open.
+    #[test]
+    fn a_dropped_form_releases_the_dialogs_it_left_open() {
+        let mut form = cobolt_forms::Form::new("PAGE", "Page", 400, 300);
+        let mut v = cobolt_forms::Control::new("VWR-DROP", cobolt_forms::ControlType::Viewer, 10, 10);
+        v.rect = cobolt_forms::model::Rect::new(10, 10, 300, 200);
+        form.add_control(v);
+        let mut flat = Vec::new();
+        crate::flatten_controls(&form.controls, &mut flat);
+        let state: HashMap<String, CtrlState> =
+            flat.iter().map(|c| (c.id.clone(), CtrlState::from_control(c))).collect();
+        let (ev_tx, _ev_rx) = mpsc::channel::<FormEvent>();
+        let (input_tx, _input_rx) = mpsc::channel::<StateUpdate>();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut app, _f) = FormHost::new(FormHostConfig {
+            form, flat, state, ev_tx, input_tx, state_rx, display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx, closed_tx, form_req_tx,
+            form_source: None, child_theme: None, child_interpreter_setup: None, indexed_engine: Default::default(),
+            shared_rust_bridge: None,
+            fx_entrance: FxSpec::default(), fx_exit: FxSpec::default(), fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None, title_fallback: String::new(), hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        // This form's Save panel is up and unanswered…
+        let own = FormBody::viewer_save_as_key("VWR-DROP");
+        let _own_panel = crate::file_dialog::open_for_test(&own);
+        app.root.dialogs_begun.insert(own.clone());
+        // …and so is another form's, which this one never opened.
+        let other = FormBody::viewer_save_as_key("VWR-SOMEONE-ELSE");
+        let _other_panel = crate::file_dialog::open_for_test(&other);
+        assert!(crate::file_dialog::is_open(&own));
+
+        drop(app);
+
+        println!(
+            "dropped form: own panel key open = {}, another form's = {}",
+            crate::file_dialog::is_open(&own),
+            crate::file_dialog::is_open(&other)
+        );
+        assert!(!crate::file_dialog::is_open(&own), "the next Save As on this id can open a panel again");
+        assert!(crate::file_dialog::is_open(&other), "another form's open panel is left alone");
+        crate::file_dialog::forget(&other);
+    }
+
     fn host_with_surface(
         entrance: &str,
         exit: &str,
@@ -10688,6 +10780,7 @@ mod parity {
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             pending_save_as: Vec::new(),
+            dialogs_begun: std::collections::HashSet::new(),
             pending_os_handoff: Vec::new(),
             os_handoff: OsHandoffChannel::default(),
             action_notice: None,

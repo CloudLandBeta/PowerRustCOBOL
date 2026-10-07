@@ -5668,6 +5668,10 @@ statement, at no extra cost.
 > **Note — the plain names belong to the first view.** `Zoom` means
 > `View1Zoom`, `SearchText` means `View1SearchText`, and so on. A program
 > written before you split the control goes on meaning exactly what it did.
+> The two spellings are one property: whichever you write — with a `MOVE` or
+> through a method — the other reads the same value. So a document loaded
+> with `MOVE path TO VWR-1::View1Source` is the one `SaveAs()` proposes by
+> name and saves.
 
 #### Saving and printing
 

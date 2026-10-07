@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.236] — 2026-10-06
+
+### Fixed
+- **A Viewer's Save As saves the document the form gave it.** A handler's
+  `MOVE … TO VWR-1::View1Source` — the way every form, and PowerDemo3's
+  Viewer demo, loads a document — reached the window but never set the
+  runtime's `Source`, which the built-in methods read. So after a file was
+  dropped on the demo's drop zone, `SaveAs()` proposed `VWR-1.txt` instead of
+  the file's own name, and an answered Save panel had "no document loaded" to
+  write. A COBOL write now keeps `View1Source` and `Source` (and the other
+  `View1*` pairs) in step exactly as a method's write does — in the runtime
+  every host shares: `rcrun run-form`, embedded child forms and built
+  applications. (Found by the separate Save-as session, carried here.)
+- **A form that goes away releases the native dialogs it left open.** Save
+  As, a DataGrid's CSV export and a FileDropZone's browse each wait under a
+  key shared by the whole run (`viewersaveas:<id>`, …). A form retired from
+  a shell's navigation while its panel was up left that key marked open for
+  good, and every later Save As — or export, or browse — on a control of the
+  same id did nothing at all. A form now forgets the dialogs it opened when
+  it goes away; another form's open dialog is left alone. In the form host,
+  shared by all three hosts.
+- **The dialog path says what it did.** With frame diagnostics on (Help →
+  Debug Settings), each native dialog logs `[prc] file dialog …` lines: opened
+  (with the proposed name), NOT opened because one under its key is still up,
+  answered, dismissed, or forgotten. The operator's "no dialog opens" on
+  macOS could not be reproduced headlessly; one run with diagnostics on now
+  shows which of these happened.
+
 ## [PowerRustCOBOL 1.80.235] — 2026-10-06
 
 ### Changed
