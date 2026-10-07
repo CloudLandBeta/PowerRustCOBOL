@@ -231,6 +231,21 @@ impl Session {
         out
     }
 
+    /// [`Self::settle`], until `done` accepts what has arrived or 20 s pass.
+    /// For a start-up with a quiet stretch longer than `settle`'s half
+    /// second: reading the shipped main prompt and report templates is one.
+    fn settle_until(
+        &mut self,
+        done: impl Fn(&std::collections::HashMap<(String, String), String>) -> bool,
+    ) -> std::collections::HashMap<(String, String), String> {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut all = self.settle();
+        while !done(&all) && Instant::now() < deadline {
+            all.extend(self.settle());
+        }
+        all
+    }
+
     fn quit(mut self) {
         let _ = self.events.send(FormEvent::quit());
         if let Some(h) = self.handle.take() {
@@ -345,6 +360,13 @@ fn powerchat_settings_topics_documents_and_chat() {
     std::fs::create_dir_all(&kb).unwrap();
     plant_model(&root, false);
     std::env::set_var("POWERCHAT_DATA", &data);
+    // The main prompt — every agent's SYSTEM, ASSISTANT, PLAN, TASK and
+    // COMPOSE text — ships in samples/. Without this the chat looked for
+    // `samples/` beside the test's working directory, found nothing, and the
+    // mesh's worker was sent an empty question with no role prompt; the step
+    // passed only when another test of this file happened to have set the
+    // variable first.
+    std::env::set_var("POWERCHAT_SAMPLES", project().join("samples"));
     cobolt_runtime::key_store::set_key_store(Arc::new(cobolt_runtime::key_store::MemoryKeyStore::default()));
     // Spec 085 — the models are the application's, kept by the runtime: a
     // test keeps them in memory, and each starts with none.
@@ -462,7 +484,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     // ── Configured: the chat opens its menu and puts the welcome away ──
     let t = Instant::now();
     let mut s = Session::start("chat-form.cfrm");
-    let v = s.settle();
+    let v = s.settle_until(|v| v.contains_key(&("SIDEMENU-1".to_string(), "RUNTIMEROWS".to_string())));
     s.quit();
     let state = menu_state(&v);
     for id in ["tpcs", "docs", "fils", "prmt"] {
@@ -629,7 +651,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.quit();
     let mut s = Session::start("model-form.cfrm");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("models available"));
-    s.choose("Cmb-Conn", 1); // planner, after local-model
+    s.choose("Cmb-Conn", 2); // planner, after local-model (rows count from 1)
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("models available"));
     s.input.send(StateUpdate::new("Cmb-Model", "Value", "planner-model")).unwrap();
     s.input.send(StateUpdate::new("Chk-Tools", "Checked", "0")).unwrap();
@@ -653,15 +675,22 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.quit();
     let sent = requests.lock().unwrap()[before..].to_vec();
     let body = |i: usize| -> serde_json::Value { serde_json::from_str(&sent[i]).unwrap() };
-    assert_eq!(sent.len(), 4, "plan, the worker's tool round and answer, compose: {sent:#?}");
+    // The plan, then each task on its own — the worker's tool round and its
+    // answer, in the plan's order (1.80.28: every part of a long question is
+    // answered, one task per request) — then the composition.
+    assert_eq!(sent.len(), 6, "plan, each task's tool round and answer, compose: {sent:#?}");
     assert_eq!(body(0)["model"], "planner-model");
     assert!(sent[0].contains("company's HR policies"), "the orchestrator has the topic's prompt (R63)");
     assert!(body(0)["tools"].is_null(), "the planner calls no tools");
-    assert_eq!(body(1)["model"], "llama-test");
-    assert!(sent[1].contains("careful research assistant"), "the worker keeps its role prompt (R64)");
-    assert!(!sent[1].contains("company's HR policies"));
-    assert!(sent[1].contains("annual leave days") && sent[1].contains("part-time staff"), "both tasks");
-    assert!(sent[3].contains("Your assistants reported") && sent[3].contains("twenty working days"), "R60");
+    for (i, task) in [(1, "annual leave days"), (3, "part-time staff")] {
+        assert_eq!(body(i)["model"], "llama-test", "request {i} is the worker's");
+        assert!(sent[i].contains("careful research assistant"), "the worker keeps its role prompt (R64)");
+        assert!(!sent[i].contains("company's HR policies"), "and not the topic's");
+        assert!(sent[i].contains(&format!("Task: {task}")), "request {i} carries its own task: {task}");
+        assert!(!body(i)["tools"].is_null(), "the worker searches with the KB tool");
+    }
+    assert_eq!(body(5)["model"], "planner-model", "the orchestrator composes");
+    assert!(sent[5].contains("Your assistants reported") && sent[5].contains("twenty working days"), "R60");
     let turns = String::from_utf8_lossy(&std::fs::read(data.join("turns.idx")).unwrap()).into_owned();
     assert!(turns.contains("Composed: twenty working days"), "the composed answer is the turn kept (R61)");
     report.push(format!(
