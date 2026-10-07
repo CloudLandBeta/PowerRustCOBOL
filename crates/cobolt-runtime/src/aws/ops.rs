@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 use super::connections::AwsConnection;
 use super::pool::{self, Budget, CallError, ServerKey};
 use super::process::{mask, Launch};
-use super::routes::{self, Context, ExpandError, Mutating, Protocol, Routes};
+use super::routes::{self, Context, ExpandError, FailDef, Mutating, Protocol, Routes, RowsDef};
 
 /// What a prepared operation does.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +45,9 @@ pub struct Prepared {
     /// `AwsMcp.Call`: the tool's own read-only hint decides (R26).
     pub check_tool_hint: bool,
     pub allow_write: bool,
+    /// How the answer becomes rows, with its `where` templates expanded.
+    pub rows: Option<(RowsDef, BTreeMap<String, String>)>,
+    pub fail: Option<FailDef>,
 }
 
 /// The outcome of [`execute`].
@@ -87,7 +90,7 @@ pub fn prepare(view: &ControlView, conn: &AwsConnection) -> Result<Prepared, Str
         ExpandError::InvalidJson { arg, message } => {
             format!("argument {arg} of {} is not valid JSON ({message}): nothing was sent", view.method)
         }
-        other => other.to_string(),
+        other => format!("{}: {other}", view.method),
     };
     let server_id = routes::expand(&op.server, &ctx).map_err(expand_err)?;
     let server = table
@@ -109,7 +112,19 @@ pub fn prepare(view: &ControlView, conn: &AwsConnection) -> Result<Prepared, Str
         };
         Action::Call { tool, input }
     };
+    let rows = match &op.rows {
+        Some(def) => {
+            let mut filter = BTreeMap::new();
+            for (ptr, t) in &def.filter {
+                filter.insert(ptr.clone(), routes::expand(t, &ctx).map_err(expand_err)?);
+            }
+            Some((def.clone(), filter))
+        }
+        None => None,
+    };
     Ok(Prepared {
+        rows,
+        fail: op.fail.clone(),
         key: ServerKey { connection: conn.id.clone(), server: server_id },
         launch,
         mode: if server.protocol == Protocol::Stateless { Mode::Stateless } else { Mode::Handshake },
@@ -146,6 +161,15 @@ fn rows_of(v: &Value) -> Vec<Value> {
     match v {
         Value::Array(a) => a.clone(),
         _ => Vec::new(),
+    }
+}
+
+/// Whether an answer the server did not flag reports a failure in its data.
+fn answered_failure(r: &cobolt_mcp::ToolResult, f: &FailDef) -> bool {
+    let w = routes::extract(r, &f.when);
+    match &f.equals {
+        Some(e) => w.trim() == e,
+        None => !w.trim().is_empty(),
     }
 }
 
@@ -203,6 +227,12 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
                     let text = routes::result_text(&r);
                     Outcome::Error(plain_error(&text, &profile))
                 }
+                Ok(r) if p.fail.as_ref().is_some_and(|f| answered_failure(&r, f)) => {
+                    let f = p.fail.as_ref().expect("checked");
+                    let text = routes::extract(&r, &f.text);
+                    let text = if text.trim().is_empty() { routes::result_text(&r) } else { text };
+                    Outcome::Error(plain_error(&text, &profile))
+                }
                 Ok(r) => {
                     let mut props: Vec<(String, String)> =
                         p.result.iter().map(|(k, expr)| (k.clone(), routes::extract(&r, expr))).collect();
@@ -214,7 +244,10 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
                         .map(|(_, v)| v.clone())
                         .or_else(|| body.clone().filter(|b| serde_json::from_str::<Value>(b.trim()).is_ok()))
                         .unwrap_or_default();
-                    let rows = serde_json::from_str::<Value>(json_text.trim()).map(|v| rows_of(&v)).unwrap_or_default();
+                    let rows = match &p.rows {
+                        Some((def, filter)) => routes::shape_rows(&r, def, filter),
+                        None => serde_json::from_str::<Value>(json_text.trim()).map(|v| rows_of(&v)).unwrap_or_default(),
+                    };
                     props.retain(|(k, _)| k != "ResultJson");
                     props.push(("ResultJson".into(), json_text));
                     props.push(("RowCount".into(), rows.len().to_string()));

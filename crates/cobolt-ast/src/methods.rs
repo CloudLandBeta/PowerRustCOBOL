@@ -129,6 +129,8 @@ pub fn is_known_method(name: &str) -> bool {
         // AWS controls (078) — the route table's operations plus the row-set
         // accessors. `Call` is listed above.
             | "INVOKE" | "LISTFUNCTIONS" | "LISTTOOLS" | "GETROW" | "GETFIELD"
+            | "LISTKNOWLEDGEBASES" | "RECORDEVENT" | "RETRIEVE" | "LISTTABLES"
+            | "APPENDROWS" | "STARTJOBRUN" | "GETJOBRUN" | "STARTCRAWLER" | "GETTABLESCHEMA"
         // Collection verbs + scalar transforms (exec_member_method)
             | "COUNT" | "SIZE" | "REMOVE" | "ADD" | "APPEND"
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"

@@ -14562,6 +14562,11 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::Snackbar => "Snackbar",
         CT::Viewer => "Viewer",
         CT::AwsMcp => "AwsMcp",
+        CT::AwsKnowledgeBase => "AwsKnowledgeBase",
+        CT::AwsAgentCore => "AwsAgentCore",
+        CT::AwsAgentMemory => "AwsAgentMemory",
+        CT::AwsS3Tables => "AwsS3Tables",
+        CT::AwsGlue => "AwsGlue",
         CT::AwsLambda => "AwsLambda",
         CT::Custom { .. } => "Control",
     }

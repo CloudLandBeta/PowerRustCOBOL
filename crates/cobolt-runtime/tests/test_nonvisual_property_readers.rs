@@ -192,6 +192,11 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
         ),
         (ControlType::AwsLambda, aws_readers(&[("FunctionName", Runtime)])),
         (ControlType::AwsMcp, aws_readers(&[("ServerId", Runtime), ("ToolName", Runtime)])),
+        (ControlType::AwsKnowledgeBase, aws_readers(&[("KnowledgeBaseId", Runtime), ("MaxResults", Runtime)])),
+        (ControlType::AwsAgentCore, aws_readers(&[("RuntimeArn", Runtime), ("SessionId", Runtime)])),
+        (ControlType::AwsAgentMemory, aws_readers(&[("MemoryId", Runtime), ("ActorId", Runtime), ("SessionId", Runtime), ("Namespace", Runtime), ("TopK", Runtime)])),
+        (ControlType::AwsS3Tables, aws_readers(&[("TableBucketArn", Runtime), ("Namespace", Runtime), ("TableName", Runtime)])),
+        (ControlType::AwsGlue, aws_readers(&[("JobName", Runtime), ("JobRunId", Runtime), ("CrawlerName", Runtime), ("DatabaseName", Runtime), ("TableName", Runtime)])),
     ]
 }
 
@@ -273,8 +278,10 @@ fn every_property_declared_runtime_read_is_actually_read_by_the_runtime() {
                 continue;
             }
             let quoted = format!("\"{name}\"");
+            // A route-table placeholder, bare or followed by its filters.
             let placeholder = format!("{{prop:{name}}}");
-            if !RUNTIME_SOURCES.iter().any(|s| s.contains(&quoted) || s.contains(&placeholder)) {
+            let filtered = format!("{{prop:{name}|");
+            if !RUNTIME_SOURCES.iter().any(|s| s.contains(&quoted) || s.contains(&placeholder) || s.contains(&filtered)) {
                 orphans.push(format!(
                     "{ct:?}::{name} is declared Runtime-read, but no runtime source \
                      mentions {quoted}. Either the read was refactored away — which \

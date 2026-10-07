@@ -312,24 +312,44 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 Each task below repeats the A10 → A11 → A17 → A18 → A20 path for its controls. That means: the model, dispatch and ops, the route entries with a recorded fixture, glyphs, inspector rows, help in 6 languages, the KB, and a COBOL demo on three hosts. Gates K, P and G apply to each.
 
-- [ ] **T-B1 — Routes and fixtures for the four servers** (R14, R17; AC9)
+- [x] **T-B1 — Routes and fixtures for the four servers** (R14, R17; AC9)
   - Servers, each with its version pinned:
     - `bedrock-kb-retrieval-mcp-server@1.1.2` (`QueryKnowledgeBases`, `ListKnowledgeBases`);
     - `amazon-bedrock-agentcore-mcp-server@0.2.1`, started with `AGENTCORE_ENABLE_TOOLS` limited to `invoke_agent_runtime`, `memory_create_event` and `memory_retrieve_records`;
     - `s3-tables-mcp-server@0.1.1` (`query_database`, `list_tables`, `append_rows_to_table`, `--allow-write` as `write_args`; the route records Python ≥ 3.11);
     - `aws-dataprocessing-mcp-server@0.2.2` (`manage_aws_glue_jobs`, `manage_aws_glue_crawlers`, `manage_aws_glue_tables`, `--allow-write` as `write_args`).
   - Verify: the drift test passes against four recorded fixtures, each with its provenance in the header.
-- [ ] **T-B2 — `AwsKnowledgeBase`**: `Query(kbId, text)` gives passages as rows (`Text`, `Source`, `Score`); `ListKnowledgeBases()` (R18, R20).
-- [ ] **T-B3 — `AwsAgentCore`**: `Invoke(runtimeArn, prompt, sessionId)` puts the reply in `ResponseBody`. Mutating, so `AllowWrite` applies (R18, R25).
-- [ ] **T-B4 — `AwsAgentMemory`**: `RecordEvent(memoryId, actorId, sessionId, text)` is mutating; `Retrieve(memoryId, namespace, query)` gives rows (R18).
-- [ ] **T-B5 — `AwsS3Tables`**: `ListTables(bucketArn, namespace)` and `Query(sql)` give rows; `AppendRows(table, rowsJson)` is mutating (R18).
-- [ ] **T-B6 — `AwsGlue`**: `StartJobRun(job, argsJson)` and `StartCrawler(name)` are mutating; `GetJobRun(job, runId)` gives `State`; `GetTableSchema(db, table)` gives rows (R18).
+  - **Done 2026-10-07 (1.80.241).** `aws_routes::every_route_names_a_real_tool_with_its_required_inputs` — "AC9: 14 routed operations checked against their recorded servers"; `test result: ok. 3 passed`.
+  - **Decision — fixtures from source, not live.** No AWS account was available. Each fixture was derived from that exact version's PyPI sdist, and from how mcp 2.0.0 renders a signature. Its `_provenance` says so and asks for a live re-record (T-C12). The agentcore, s3tables and dataprocessing fixtures are PARTIAL: they list only the tools the routes use.
+  - **Deviation — AgentCore enables tools by service, not by tool.** `AGENTCORE_ENABLE_TOOLS` takes service names. `runtime,memory` is the narrowest set holding the three tools, and it also registers their lifecycle tools. Those are reachable only through `AwsMcp` with `AllowWrite` on, since none is marked read-only.
+  - **Grammar added to the route table**, all of it data (the R15 guard still passes):
+    - filters `|or:`, `|opt`, `|int`, `|quote`, `|obj:`, `|text`, `|json:<default>`;
+    - extractor `$jsonseq:`;
+    - `$json:` with `/a|/b` alternatives, and falling back to the last JSON text block;
+    - op fields `rows` (`from`/`columns`/`fields`/`where`) and `fail` (`when`/`equals`/`text`).
+  - **Argument defaults moved out of code.** The interpreter used to fill argument 1 from a catalogue `default_arg`, and argument 2 with `{}`, for every control. Each route now says it with `{arg:N|or:{prop:X}}` / `|json:{}`, because Glue's four methods each default to a different property.
+- [x] **T-B2 — `AwsKnowledgeBase`**: `Query(kbId, text)` gives passages as rows (`Text`, `Source`, `Score`); `ListKnowledgeBases()` (R18, R20).
+- [x] **T-B3 — `AwsAgentCore`**: `Invoke(runtimeArn, prompt, sessionId)` puts the reply in `ResponseBody`. Mutating, so `AllowWrite` applies (R18, R25).
+- [x] **T-B4 — `AwsAgentMemory`**: `RecordEvent(memoryId, actorId, sessionId, text)` is mutating; `Retrieve(memoryId, namespace, query)` gives rows (R18).
+- [x] **T-B5 — `AwsS3Tables`**: `ListTables(bucketArn, namespace)` and `Query(sql)` give rows; `AppendRows(table, rowsJson)` is mutating (R18).
+- [x] **T-B6 — `AwsGlue`**: `StartJobRun(job, argsJson)` and `StartCrawler(name)` are mutating; `GetJobRun(job, runId)` gives `State`; `GetTableSchema(db, table)` gives rows (R18).
+- **Deviations in T-B2…T-B6 (2026-10-07):**
+  - `AwsS3Tables.ListTables(namespace)` filters by namespace only. The server's `list_tables` takes a region, and its rows carry a bucket *id*, not the bucket ARN, so a bucket filter could not be honest.
+  - `AwsAgentMemory.RecordEvent` takes an optional fifth argument, `role` (`USER` by default), so the agent's side of a conversation can be recorded too.
+  - `AwsAgentCore.Invoke` sends the prompt as `{"prompt": …}` inside the string payload, the starter-toolkit shape, and writes the returned session into `SessionId`.
+  - `AwsGlue.StartJobRun` writes `JobRunId`, so `GetJobRun()` with no arguments follows that run.
+- **Evidence (2026-10-07):**
+  - `aws_delivery_b` — 18 cases on the fake, `test result: ok. 6 passed`: every operation, the exact arguments sent, the event order, and a refusal for each mutating operation with the server not started.
+  - `aws_hosts::the_demos_pass_under_run_form_and_as_embedded_child_forms` — 7 demos, Run Form and embedded, `ok`.
+  - `aws_hosts::the_demos_pass_in_a_built_binary_and_leave_no_server_behind` — the same 7 tallies; "servers started 7, still running 0".
+  - Toolbox `the_aws_category_lists_its_controls_in_every_language` / `the_toolbox_aws_icons_are_the_controls_own_tiles`; the prop-help ×6 guard; `every_routed_method_can_be_called_inline`; and the KB freshness test after `build_chunked_kb` (2433 records).
 - Each of T-B2 to T-B6 is verified by the same set:
   - runtime tests against the fake: the operation, the event order, and a mutating refusal where it applies (AC11, AC15);
   - a `tests/cobol/aws/<control>-demo` program on three hosts (AC16);
   - the toolbox, inspector and help tests;
   - Gate K.
-- [ ] **T-B7 — Guide part 2**: one worked example per Delivery B control; the translations are deleted again.
+- [x] **T-B7 — Guide part 2**: one worked example per Delivery B control; the translations are deleted again.
+  - *2026-10-07:* `the_guides_aws_examples_compile` compiles all 14 handlers. There was nothing to delete: 1.80.239 had already removed the translations.
 - [ ] **T-B8 — Delivery B finalize**: Gate F, `cargo tree`, the operator's manual check. Delivery B can ship here.
 
 ---

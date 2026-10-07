@@ -79,15 +79,32 @@ fn project(tag: &str) -> Project {
         "pid_file": root.join("pids.txt").to_string_lossy(),
     });
     std::fs::write(root.join("fake.json"), script.to_string()).unwrap();
+    // The Delivery B servers answer from a script of their own, so the
+    // Lambda server still lists exactly its three tools.
+    let script_b = json!({
+        "tools": [
+            {"name": "QueryKnowledgeBases", "inputSchema": {"type": "object"}},
+            {"name": "ListKnowledgeBases", "inputSchema": {"type": "object"}},
+            {"name": "invoke_agent_runtime", "inputSchema": {"type": "object"}},
+            {"name": "memory_create_event", "inputSchema": {"type": "object"}},
+            {"name": "memory_retrieve_records", "inputSchema": {"type": "object"}},
+            {"name": "list_tables", "inputSchema": {"type": "object"}},
+            {"name": "query_database", "inputSchema": {"type": "object"}},
+            {"name": "append_rows_to_table", "inputSchema": {"type": "object"}},
+            {"name": "manage_aws_glue_jobs", "inputSchema": {"type": "object"}},
+            {"name": "manage_aws_glue_crawlers", "inputSchema": {"type": "object"}},
+            {"name": "manage_aws_glue_tables", "inputSchema": {"type": "object"}}
+        ],
+        "answers": delivery_b_answers(),
+        "pid_file": root.join("pids.txt").to_string_lossy(),
+    });
+    std::fs::write(root.join("fake-b.json"), script_b.to_string()).unwrap();
     let fake = fake_mcp();
     let server = |id: &str| {
-        format!(
-            "[servers.{id}]\ncommand = '{}'\nargs = ['{}']\n",
-            fake.display(),
-            root.join("fake.json").display()
-        )
+        let script = if matches!(id, "lambda" | "fake") { "fake.json" } else { "fake-b.json" };
+        format!("[servers.{id}]\ncommand = '{}'\nargs = ['{}']\n", fake.display(), root.join(script).display())
     };
-    let routes = format!("{}{}", server("lambda"), server("fake"));
+    let routes: String = ["lambda", "fake", "bedrock-kb", "agentcore", "s3tables", "dataprocessing"].map(server).concat();
     let listed = |dir: &str, ext: &str| forms.iter().map(|f| format!("\"{dir}/{f}.{ext}\"")).collect::<Vec<_>>().join(", ");
     let manifest = format!(
         "[project]\nname = \"AwsHosts\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\ndebug_compilation = true\n\n\
@@ -104,6 +121,30 @@ fn project(tag: &str) -> Project {
     )
     .unwrap();
     Project { root }
+}
+
+/// What the fake answers each tool with: the shapes each real server's
+/// source produces (see the route fixtures' provenance).
+fn delivery_b_answers() -> Value {
+    let text = |t: &str| json!({"content": [{"type": "text", "text": t}], "isError": false});
+    let two = |m: &str, d: &str| json!({"content": [{"type": "text", "text": m}, {"type": "text", "text": d}], "isError": false});
+    json!({
+        "QueryKnowledgeBases": text(concat!(
+            r#"{"content": {"type": "TEXT", "text": "Refunds take 14 days."}, "location": {"type": "S3", "s3Location": {"uri": "s3://docs/refunds.pdf"}}, "score": 0.82}"#,
+            "\n\n",
+            r#"{"content": {"type": "TEXT", "text": "Keep the receipt."}, "location": {"type": "WEB", "webLocation": {"url": "https://example.com/faq"}}, "score": 0.41}"#
+        )),
+        "ListKnowledgeBases": text(r#"{"KB12345678": {"name": "Support docs", "description": "FAQ", "type": "VECTOR", "data_sources": []}}"#),
+        "invoke_agent_runtime": text(r#"{"status": "success", "runtime_session_id": "sess-0123456789abcdef0123456789abcdef", "response_body": "Hi! How can I help?", "message": "ok"}"#),
+        "memory_create_event": text(r#"{"status": "success", "message": "Event created", "event": {"eventId": "ev-77"}}"#),
+        "memory_retrieve_records": text(r#"{"status": "success", "message": "2 records", "memory_records": [{"memoryRecordId": "r1", "content": {"text": "Likes tea"}, "score": 0.91}, {"memoryRecordId": "r2", "content": {"text": "Lives in Porto"}, "score": 0.33}]}"#),
+        "list_tables": text(r#"{"tables": [{"namespace": ["sales"], "name": "orders", "table_arn": "arn:t/1"}, {"namespace": ["ops"], "name": "events", "table_arn": "arn:t/2"}, {"namespace": ["sales"], "name": "refunds", "table_arn": "arn:t/3"}], "total_count": 3}"#),
+        "query_database": text(r#"{"columns": ["order_id", "total"], "rows": [[1, 19.9], [2, 5.0]]}"#),
+        "append_rows_to_table": text(r#"{"status": "success", "rows_appended": 2}"#),
+        "manage_aws_glue_jobs": two("Successfully processed the job run", r#"{"job_name": "nightly-etl", "job_run_id": "jr_abc", "job_run_details": {"Id": "jr_abc", "JobRunState": "SUCCEEDED"}}"#),
+        "manage_aws_glue_crawlers": two("Successfully started crawler raw-crawler", r#"{"crawler_name": "raw-crawler", "operation": "start"}"#),
+        "manage_aws_glue_tables": two("Successfully retrieved table", r#"{"database_name": "sales", "table_name": "orders", "storage_descriptor": {"Columns": [{"Name": "order_id", "Type": "bigint"}, {"Name": "total", "Type": "double"}]}}"#),
+    })
 }
 
 /// The steps that run one demo; `open` loads it into the shell's pane first.
@@ -161,7 +202,15 @@ fn run_form(p: &Project, form: &str, program: &str, script: &Value) -> String {
     stdout
 }
 
-const DEMOS: [(&str, &str); 2] = [("aws-lambda-demo", "PASS 009 FAIL 000"), ("aws-mcp-demo", "PASS 009 FAIL 000")];
+const DEMOS: [(&str, &str); 7] = [
+    ("aws-lambda-demo", "PASS 009 FAIL 000"),
+    ("aws-mcp-demo", "PASS 009 FAIL 000"),
+    ("aws-knowledge-base-demo", "PASS 008 FAIL 000"),
+    ("aws-agent-core-demo", "PASS 006 FAIL 000"),
+    ("aws-agent-memory-demo", "PASS 007 FAIL 000"),
+    ("aws-s3-tables-demo", "PASS 010 FAIL 000"),
+    ("aws-glue-demo", "PASS 009 FAIL 000"),
+];
 
 #[test]
 fn the_demos_pass_under_run_form_and_as_embedded_child_forms() {
@@ -236,6 +285,18 @@ fn the_guides_aws_examples_compile() {
         ("TXT-OUT", cobolt_forms::ControlType::TextBox),
         ("BTN-QUOTE", cobolt_forms::ControlType::Button),
         ("BTN-TOOLS", cobolt_forms::ControlType::Button),
+        ("KB-1", cobolt_forms::ControlType::AwsKnowledgeBase),
+        ("AGENT-1", cobolt_forms::ControlType::AwsAgentCore),
+        ("MEMORY-1", cobolt_forms::ControlType::AwsAgentMemory),
+        ("TABLES-1", cobolt_forms::ControlType::AwsS3Tables),
+        ("GLUE-1", cobolt_forms::ControlType::AwsGlue),
+        ("TXT-QUESTION", cobolt_forms::ControlType::TextBox),
+        ("LBL-STATE", cobolt_forms::ControlType::Label),
+        ("BTN-ASK", cobolt_forms::ControlType::Button),
+        ("BTN-CHAT", cobolt_forms::ControlType::Button),
+        ("BTN-SALES", cobolt_forms::ControlType::Button),
+        ("BTN-ETL", cobolt_forms::ControlType::Button),
+        ("BTN-CHECK", cobolt_forms::ControlType::Button),
     ] {
         form.controls.push(cobolt_forms::Control::new(id, ct, 0, 0));
     }
@@ -249,6 +310,9 @@ fn the_guides_aws_examples_compile() {
                 "ONCLICK" => "onClick",
                 "ONINVOKED" => "onInvoked",
                 "ONTOOLRESULT" => "onToolResult",
+                "ONQUERIED" => "onQueried",
+                "ONJOBSTARTED" => "onJobStarted",
+                "ONJOBRUN" => "onJobRun",
                 other => panic!("an example handler for an unexpected event: {other}"),
             };
             let c = form.controls.iter_mut().find(|c| c.id == ctrl).unwrap_or_else(|| panic!("no control {ctrl}"));
@@ -260,7 +324,7 @@ fn the_guides_aws_examples_compile() {
             handlers.push(name.to_owned());
         }
     }
-    assert_eq!(handlers.len(), 4, "{handlers:?}");
+    assert_eq!(handlers.len(), 14, "{handlers:?}");
     let src = cobolt_codegen::generate(&form);
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
     let errors: Vec<String> = parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("line {}: {}", d.span.line, d.message)).collect();

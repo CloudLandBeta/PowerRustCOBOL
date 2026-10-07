@@ -1,0 +1,53 @@
+{
+  "_provenance": "awslabs.s3-tables-mcp-server@0.1.1 (PyPI, uploaded 2026-09-08; requires_python >=3.11). NOT a live recording: no AWS account was available when this was written (2026-10-07). Derived from that exact version's published sdist (server.py) and from how mcp 2.0.0's func_metadata renders a signature; pydantic `title` keys are left out, and append_rows_to_table's table_name pattern (constants.TABLE_NAME_PATTERN) was not copied. `query` carries default null and is therefore not required in the schema, although the tool fails without it. PARTIAL: the server registers more tools (table buckets, namespaces, imports …); only the three the routes use are listed here. Re-record with a live `tools/list` when an operator profile is available.",
+  "tools": [
+    {
+      "name": "list_tables",
+      "description": "List all S3 tables across all table buckets and namespaces.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "region_name": { "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 64 }, { "type": "null" }], "default": null }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "query_database",
+      "description": "Execute SQL queries against S3 Tables using PyIceberg/Daft.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "warehouse": { "type": "string" },
+          "region": { "type": "string" },
+          "namespace": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[a-zA-Z0-9_-]+$" },
+          "query": { "type": "string", "minLength": 1, "maxLength": 10000, "default": null },
+          "uri": { "type": "string" },
+          "catalog_name": { "type": "string", "default": "s3tablescatalog" },
+          "rest_signing_name": { "type": "string", "default": "s3tables" },
+          "rest_sigv4_enabled": { "type": "string", "default": "true" }
+        },
+        "required": ["warehouse", "region", "namespace", "uri"]
+      }
+    },
+    {
+      "name": "append_rows_to_table",
+      "description": "Append rows to an Iceberg table using PyIceberg/Daft.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "warehouse": { "type": "string" },
+          "region": { "type": "string" },
+          "namespace": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[a-zA-Z0-9_-]+$" },
+          "table_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "rows": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "uri": { "type": "string" },
+          "catalog_name": { "type": "string", "default": "s3tablescatalog" },
+          "rest_signing_name": { "type": "string", "default": "s3tables" },
+          "rest_sigv4_enabled": { "type": "string", "default": "true" }
+        },
+        "required": ["warehouse", "region", "namespace", "table_name", "rows", "uri"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="AWS-GLUE-DEMO" title="AwsGlue demo" width="480" height="240" form-format="Both" index-base="1">
+  <working-storage><![CDATA[       01 WS-PASS     PIC 999 VALUE 0 GLOBAL.
+       01 WS-FAIL     PIC 999 VALUE 0 GLOBAL.
+       01 WS-CALLS    PIC 999 VALUE 0 GLOBAL.
+       01 WS-A        PIC X(200) GLOBAL.
+       01 WS-B        PIC X(200) GLOBAL.
+       01 WS-C        PIC X(200) GLOBAL.
+       01 WS-D        PIC X(200) GLOBAL.
+       01 WS-OUT      PIC X(2000) GLOBAL.
+       01 WS-RC       PIC X(10) GLOBAL.
+       01 WS-I        PIC 9 GLOBAL.
+       01 WS-F        PIC X(20) GLOBAL.
+       01 WS-FIELD    PIC X(200) GLOBAL.
+       01 WS-ERR      PIC X(300) GLOBAL.
+       01 WS-K        PIC 99 GLOBAL.
+       01 WS-ORDER    PIC X(100) VALUE SPACES GLOBAL.
+       01 WS-OP       PIC 999 VALUE 1 GLOBAL.
+       01 WS-T0       PIC X(21) GLOBAL.
+       01 WS-T1       PIC X(21) GLOBAL.
+       01 WS-MS       PIC 9(9) GLOBAL.
+       01 WS-RESULT   PIC X(40) GLOBAL.
+]]></working-storage>
+  <Control id="AWS-GLUE" type="AwsGlue" x="16" y="16" w="56" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="JobName">nightly-etl</Property>
+    <Property name="CrawlerName">raw-crawler</Property>
+    <Property name="DatabaseName">sales</Property>
+    <Property name="TableName">orders</Property>
+    <Property name="AllowWrite">true</Property>
+    <Property name="Mode">Sync</Property>
+    <Event name="onJobRun" paragraph="AWS-GLUE--ONJOBRUN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           STRING "onJobRun " DELIMITED BY SIZE INTO WS-ORDER WITH POINTER WS-OP
+           MOVE AWS-GLUE::State TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "SUCCEEDED"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL async State: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+           .
+]]></Event>
+    <Event name="onComplete" paragraph="AWS-GLUE--ONCOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           STRING "onComplete " DELIMITED BY SIZE INTO WS-ORDER WITH POINTER WS-OP
+           .
+]]></Event>
+  </Control>
+  <Control id="AWS-RO" type="AwsGlue" x="88" y="16" w="56" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="JobName">nightly-etl</Property>
+    <Property name="CrawlerName">raw-crawler</Property>
+    <Property name="DatabaseName">sales</Property>
+    <Property name="TableName">orders</Property>
+    <Property name="Mode">Sync</Property>
+    <Property name="AllowWrite">false</Property>
+  </Control>
+  <Control id="BTN-RUN" type="Button" x="16" y="96" w="120" h="28" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Run</Property>
+    <Event name="onClick" paragraph="BTN-RUN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CURRENT-DATE TO WS-T0
+      *> 1. Start the designer's job: the run's id lands in JobRunId.
+           MOVE '' TO WS-A
+           MOVE '{"--day": "2026-10-07"}' TO WS-B
+           INVOKE AWS-GLUE "StartJobRun" USING WS-A WS-B RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE AWS-GLUE::JobRunId TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "jr_abc"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL JobRunId: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+      *> 2. Follow that run with no arguments at all.
+           INVOKE AWS-GLUE "GetJobRun" RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE AWS-GLUE::State TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "SUCCEEDED"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL State: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+      *> 3. A Data Catalog table's columns, as rows.
+           INVOKE AWS-GLUE "GetTableSchema" RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE AWS-GLUE::RowCount TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "2"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetTableSchema RowCount: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+           MOVE 2 TO WS-I
+           MOVE "Name" TO WS-F
+           INVOKE AWS-GLUE "GetField" USING WS-I WS-F RETURNING WS-OUT
+           MOVE WS-OUT TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "total"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetField(2, Name): " FUNCTION TRIM(WS-FIELD)
+           END-IF
+      *> 4. AllowWrite off: refused before anything is sent.
+           INVOKE AWS-RO "StartCrawler" RETURNING WS-OUT
+           MOVE AWS-RO::LastError TO WS-ERR
+           MOVE 0 TO WS-K
+           INSPECT WS-ERR TALLYING WS-K FOR ALL "AllowWrite is off"
+           IF WS-K > 0
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL AllowWrite refusal: " FUNCTION TRIM(WS-ERR)
+           END-IF
+      *> 5. Start the designer's crawler.
+           INVOKE AWS-GLUE "StartCrawler" RETURNING WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE AWS-GLUE::LastError TO WS-FIELD
+           IF WS-FIELD = SPACES
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL StartCrawler LastError: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-T1
+           COMPUTE WS-MS =
+               ((FUNCTION NUMVAL(WS-T1(9:2)) * 3600
+                 + FUNCTION NUMVAL(WS-T1(11:2)) * 60
+                 + FUNCTION NUMVAL(WS-T1(13:2))) * 100
+                 + FUNCTION NUMVAL(WS-T1(15:2))) * 10
+             - ((FUNCTION NUMVAL(WS-T0(9:2)) * 3600
+                 + FUNCTION NUMVAL(WS-T0(11:2)) * 60
+                 + FUNCTION NUMVAL(WS-T0(13:2))) * 100
+                 + FUNCTION NUMVAL(WS-T0(15:2))) * 10
+      *> The asynchronous call: its own event, then onComplete.
+           MOVE "Async" TO AWS-GLUE::Mode
+           INVOKE AWS-GLUE "GetJobRun" RETURNING WS-RC
+           ADD 1 TO WS-CALLS
+           MOVE WS-RC TO WS-FIELD
+           IF FUNCTION TRIM(WS-FIELD) = "1"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL async start: " FUNCTION TRIM(WS-FIELD)
+           END-IF
+           .
+]]></Event>
+  </Control>
+  <Control id="BTN-SUMMARY" type="Button" x="152" y="96" w="120" h="28" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Summary</Property>
+    <Event name="onClick" paragraph="BTN-SUMMARY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           IF WS-ORDER(1:20) = "onJobRun onComplete "
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL event order: " FUNCTION TRIM(WS-ORDER)
+           END-IF
+           DISPLAY "==== AwsGlue demo (spec 078) ===="
+           DISPLAY "Operations: StartJobRun, GetJobRun (Sync), GetJobRun (Async), GetTableSchema, StartCrawler"
+           DISPLAY "Refusals:   AllowWrite off (nothing sent)"
+           DISPLAY "Calls made: " WS-CALLS
+           DISPLAY "Sync part:  " WS-MS " ms"
+           DISPLAY "Events:     " FUNCTION TRIM(WS-ORDER)
+           MOVE SPACES TO WS-RESULT
+           STRING "PASS " WS-PASS " FAIL " WS-FAIL
+               DELIMITED BY SIZE INTO WS-RESULT
+           DISPLAY FUNCTION TRIM(WS-RESULT)
+           MOVE WS-RESULT TO LBL-RESULT::Caption
+           .
+]]></Event>
+  </Control>
+  <Control id="LBL-RESULT" type="Label" x="16" y="140" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+  </Control>
+</Form>

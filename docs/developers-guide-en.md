@@ -12483,15 +12483,24 @@ from another.
 > - An application installed in a read-only folder cannot keep its
 >   Knowledge Base under `assets/KB`; set `Location` to a writable folder.
 
-### Calling AWS: the `AwsLambda` and `AwsMcp` controls
+### Calling AWS: the AWS controls
 
-Two non-visual controls in the toolbox's **AWS** section reach Amazon Web
-Services from COBOL. `AwsLambda` runs one of your Lambda functions with a
-JSON payload and hands you its answer. `AwsMcp` is the general door: it calls
-any tool of an AWS server by name. Neither asks you to write an HTTP request,
-sign it or handle a credential — you drop the control, name a function, and
-call a method, the way a PowerCOBOL or isCOBOL developer calls a control's
-method.
+The non-visual controls in the toolbox's **AWS** section reach Amazon Web
+Services from COBOL:
+
+| Control | What it does |
+|---|---|
+| `AwsLambda` | runs one of your Lambda functions with a JSON payload |
+| `AwsKnowledgeBase` | asks an Amazon Bedrock knowledge base a question and returns the matching passages |
+| `AwsAgentCore` | talks to an agent hosted in Amazon Bedrock AgentCore, one conversation at a time |
+| `AwsAgentMemory` | records a conversation in an AgentCore Memory and searches what it has learned |
+| `AwsS3Tables` | lists Amazon S3 Tables, reads them with SQL, appends rows |
+| `AwsGlue` | starts Glue jobs and crawlers, follows a run, reads a table's columns |
+| `AwsMcp` | the general door: any tool of an AWS server, by name |
+
+None asks you to write an HTTP request, sign it or handle a credential — you
+drop the control, fill in its properties, and call a method, the way a
+PowerCOBOL or isCOBOL developer calls a control's method.
 
 Behind them, the application talks to **AWS's own MCP servers** (small
 programs AWS publishes), which do the AWS work with the AWS CLI's credentials:
@@ -12510,7 +12519,8 @@ flowchart LR
 
 - **uv** (`uvx` starts AWS's servers) — `brew install uv`, `pip install uv`
   or `winget install astral-sh.uv`. uv brings the Python the servers run on
-  (3.10 or later).
+  (3.10 or later; 3.11 or later for `AwsS3Tables`, which uv fetches by
+  itself).
 - **The AWS CLI** (2.32 or later) and a profile that is signed in:
   `aws login --profile sales` once on that machine.
 
@@ -12555,6 +12565,10 @@ an empty Connection means that only one.
   anything, so it counts as a write;
 - `Call` on an `AwsMcp` is refused for any tool its server does not declare
   read-only;
+- so are `AwsAgentCore`'s `Invoke`, `AwsAgentMemory`'s `RecordEvent`,
+  `AwsS3Tables`'s `AppendRows`, and `AwsGlue`'s `StartJobRun` and
+  `StartCrawler` — every operation that changes something, starts something
+  or is billed for acting;
 - a server that has a read-only mode starts in it.
 
 A refused call sends nothing and raises `onError` with `LastError` saying
@@ -12642,9 +12656,250 @@ its tools with a JSON object of arguments. `ListTools` lists them — `Name`,
 `ResponseBody` is the tool's answer as text and `ResultJson` the same answer
 as JSON, for the developer who wants all of it.
 
+#### Every argument has a default: the control's own properties
+
+Each AWS method takes its arguments in a fixed order, and **any of them may be
+left empty** (`SPACES`): the control's own property stands in for it. An
+`AwsKnowledgeBase` whose `KnowledgeBaseId` you set in the designer is asked a
+question with `Query` and nothing else to name; a `GetJobRun` with no
+arguments at all follows the run the last `StartJobRun` started. The
+properties are in the inspector, so most programs pass only the one thing
+that changes — the question, the prompt, the SQL.
+
+Answers that are lists — passages, records, tables, columns — arrive as
+**rows**: `RowCount` says how many, and `GetField(n, "name")` reads one field
+of row `n` (1-based). Each example below names the fields its rows carry.
+
+#### Example: ask a Bedrock knowledge base
+
+A knowledge base is your own documents, indexed by Amazon Bedrock. Set
+`KnowledgeBaseId` (and `MaxResults`, 10 by default); `Query` returns the
+passages that answer the question, best first, with where each came from and
+how well it matched.
+
+```cobol
+       PROGRAM-ID. BTN-ASK--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-KB         PIC X(20) VALUE SPACES.
+       01 WS-QUESTION   PIC X(500).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE TXT-QUESTION::Text TO WS-QUESTION
+           INVOKE KB-1 "Query" USING WS-KB WS-QUESTION
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. KB-1--ONQUERIED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N          PIC 9(4).
+       01 WS-I          PIC 9(4).
+       01 WS-FIELD      PIC X(20).
+       01 WS-TEXT       PIC X(1000).
+       01 WS-SOURCE     PIC X(300).
+       01 WS-ALL        PIC X(8000).
+       01 WS-PTR        PIC 9(4).
+       PROCEDURE DIVISION.
+           MOVE SPACES TO WS-ALL
+           MOVE 1 TO WS-PTR
+           MOVE KB-1::RowCount TO WS-N
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+               MOVE "Text" TO WS-FIELD
+               INVOKE KB-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-TEXT
+               MOVE "Source" TO WS-FIELD
+               INVOKE KB-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-SOURCE
+               STRING FUNCTION TRIM(WS-TEXT) " [" FUNCTION TRIM(WS-SOURCE)
+                   "] " DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
+           END-PERFORM
+           MOVE WS-ALL TO TXT-OUT::Text
+           .
+```
+
+- Each row has `Text`, `Source` (the document's S3 address, web page or other
+  location) and `Score`. Image passages are left out.
+- `ListKnowledgeBases` lists the knowledge bases you can reach — `Id`, `Name`,
+  `Description`, `Type` — in `onKnowledgeBasesListed`.
+- ⚠️ Only knowledge bases **tagged `mcp-multirag-kb` = `true`** in AWS can be
+  reached. An untagged one is simply not there: tag it in the Bedrock console
+  first.
+- Every `AwsKnowledgeBase` operation only reads, so it never needs
+  `AllowWrite`.
+
+#### Example: a conversation with an AgentCore agent, remembered
+
+`AwsAgentCore` sends a prompt to an agent you deployed in Amazon Bedrock
+AgentCore Runtime (`RuntimeArn`) and puts the reply in `ResponseBody`. The
+first `Invoke` starts a conversation and writes its id into `SessionId`, so
+the next `Invoke` continues it; move spaces to `SessionId` to start over.
+`AwsAgentMemory` records each turn in an AgentCore Memory, so a later session
+can recall what the user said.
+
+```cobol
+       PROGRAM-ID. BTN-CHAT--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ARN        PIC X(10) VALUE SPACES.
+       01 WS-PROMPT     PIC X(1000).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE TXT-QUESTION::Text TO WS-PROMPT
+           INVOKE AGENT-1 "Invoke" USING WS-ARN WS-PROMPT
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. AGENT-1--ONINVOKED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-REPLY      PIC X(4000).
+       01 WS-NONE       PIC X VALUE SPACE.
+       01 WS-ROLE       PIC X(10) VALUE "ASSISTANT".
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE AGENT-1::ResponseBody TO WS-REPLY
+           MOVE WS-REPLY TO TXT-OUT::Text
+           MOVE AGENT-1::SessionId TO MEMORY-1::SessionId
+           INVOKE MEMORY-1 "RecordEvent"
+               USING WS-NONE WS-NONE WS-NONE WS-REPLY WS-ROLE
+               RETURNING WS-STARTED
+           .
+```
+
+- `Invoke` sends the prompt as `{"prompt": "…"}`, the shape an agent built
+  with AWS's starter toolkit reads. A reply the agent sends as JSON arrives
+  as that JSON text.
+- `RecordEvent(memoryId, actorId, sessionId, text, role)` — the three ids
+  default to `MemoryId`, `ActorId` and `SessionId`, and `role` to `USER`
+  (`ASSISTANT` for the agent's side). `onEventRecorded` gives `EventId`.
+- `Retrieve(memoryId, namespace, query)` searches what the memory has learned
+  (its long-term records, up to `TopK`) and returns rows with `Text`, `Score`,
+  `Id` and `CreatedAt`, in `onRetrieved`.
+- ⚠️ `Invoke` and `RecordEvent` need `AllowWrite`: an agent can act, and each
+  call is billed.
+- ⚠️ A failure AgentCore reports inside its answer — an unknown agent, a
+  missing memory — raises `onError` with AgentCore's own message in
+  `LastError`.
+
+#### Example: read S3 Tables with SQL
+
+`AwsS3Tables` works on one table bucket (`TableBucketArn`) and one namespace
+(`Namespace`). `Query` runs one read-only SQL statement, and each result row
+becomes a row whose fields are named after the columns:
+
+```cobol
+       PROGRAM-ID. BTN-SALES--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-SQL        PIC X(200) VALUE
+           "SELECT region, SUM(total) AS total FROM orders GROUP BY region".
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE TABLES-1 "Query" USING WS-SQL RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. TABLES-1--ONQUERIED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N          PIC 9(4).
+       01 WS-I          PIC 9(4).
+       01 WS-FIELD      PIC X(20).
+       01 WS-REGION     PIC X(40).
+       01 WS-TOTAL      PIC X(20).
+       01 WS-ALL        PIC X(4000).
+       01 WS-PTR        PIC 9(4).
+       PROCEDURE DIVISION.
+           MOVE SPACES TO WS-ALL
+           MOVE 1 TO WS-PTR
+           MOVE TABLES-1::RowCount TO WS-N
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+               MOVE "region" TO WS-FIELD
+               INVOKE TABLES-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-REGION
+               MOVE "total" TO WS-FIELD
+               INVOKE TABLES-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-TOTAL
+               STRING FUNCTION TRIM(WS-REGION) ": " FUNCTION TRIM(WS-TOTAL)
+                   "  " DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
+           END-PERFORM
+           MOVE WS-ALL TO TXT-OUT::Text
+           .
+```
+
+- `ListTables(namespace)` lists the region's tables as rows — `Namespace`,
+  `Name`, `TableArn`, `Type`, `ModifiedAt`. With `Namespace` set (or a
+  namespace passed), only that namespace's tables are kept.
+- `AppendRows(table, rows)` appends a JSON array of objects, one per row, to
+  `table` (`TableName` when empty); `onRowsAppended` gives `RowsAppended`. It
+  needs `AllowWrite`, and rows that are not valid JSON are refused before
+  anything is sent.
+- ⚠️ `Query` only reads: a statement that writes (`INSERT`, `UPDATE`,
+  `DELETE`, `CREATE` …) is refused by AWS's server and arrives as `onError`.
+  Use `AppendRows` to add data.
+
+#### Example: run a Glue job and follow it
+
+`AwsGlue` starts a job (`JobName`) and tells you how its run is going.
+`StartJobRun` writes the new run's id into `JobRunId`, so a `GetJobRun` with
+no arguments follows exactly that run:
+
+```cobol
+       PROGRAM-ID. BTN-ETL--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-JOB        PIC X VALUE SPACE.
+       01 WS-ARGS       PIC X(100) VALUE '{"--day": "2026-10-07"}'.
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE GLUE-1 "StartJobRun" USING WS-JOB WS-ARGS
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. GLUE-1--ONJOBSTARTED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-RUN        PIC X(80).
+       PROCEDURE DIVISION.
+           MOVE GLUE-1::JobRunId TO WS-RUN
+           MOVE WS-RUN TO LBL-STATE::Caption
+           .
+
+       PROGRAM-ID. BTN-CHECK--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE GLUE-1 "GetJobRun" RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. GLUE-1--ONJOBRUN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-STATE      PIC X(20).
+       PROCEDURE DIVISION.
+           MOVE GLUE-1::State TO WS-STATE
+           MOVE WS-STATE TO LBL-STATE::Caption
+           .
+```
+
+- `State` is Glue's own word for the run: `STARTING`, `RUNNING`, `SUCCEEDED`,
+  `FAILED`, `TIMEOUT`, `STOPPED` …. A Timer that calls `GetJobRun` every few
+  seconds until it is no longer `RUNNING` is the usual way to wait.
+- `StartCrawler(name)` starts a crawler (`CrawlerName` when empty), in
+  `onCrawlerStarted`.
+- `GetTableSchema(database, table)` returns a Data Catalog table's columns as
+  rows — `Name`, `Type`, `Comment` — in `onTableSchema`.
+- ⚠️ `StartJobRun` and `StartCrawler` need `AllowWrite`. For your users'
+  privacy the server leaves a run's arguments and error message out of what
+  it returns; the state is always there.
+
 > **Note — the events are the asynchronous controls' own.** Each AWS control
 > raises its own completion event (`onInvoked`, `onFunctionsListed`,
-> `onToolResult`, `onToolsListed`), then `onComplete`; or `onError`,
+> `onToolResult`, `onToolsListed`, `onQueried`, `onKnowledgeBasesListed`,
+> `onEventRecorded`, `onRetrieved`, `onTablesListed`, `onRowsAppended`,
+> `onJobStarted`, `onJobRun`, `onCrawlerStarted`, `onTableSchema`), then
+> `onComplete`; or `onError`,
 > `onTimeout` (after `TimeoutMs`, the first start having its own
 > `StartTimeoutMs`) or `onCancelled` (after `Cancel()`). One operation at a
 > time per control; `IsBusy()` says whether one is running.

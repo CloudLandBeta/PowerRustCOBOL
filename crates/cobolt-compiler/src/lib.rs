@@ -5752,15 +5752,15 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
             "a tool name of the control's server",
             "The tool `Call` runs when it is given no name. `ListTools` lists the names the server offers.",
         )),
-        ("AwsLambda", "TimeoutMs") | ("AwsMcp", "TimeoutMs") => Some((
+        (t, "TimeoutMs") if t.starts_with("Aws") => Some((
             "milliseconds (default 30000)",
             "How long the server may take to answer one call, once it has started (starting has its own `StartTimeoutMs`). Past it the call is abandoned and `onTimeout` fires with `LastError` saying so.",
         )),
-        ("AwsLambda", "Mode") | ("AwsMcp", "Mode") => Some((
+        (t, "Mode") if t.starts_with("Aws") => Some((
             "one of: `Async` | `Sync` (default Async)",
             "`Async`: the method returns 1 at once (0 when it was refused) and the answer arrives with the control's own event — `onInvoked`, `onToolResult`, … — followed by `onComplete`; or `onError`, `onTimeout`, `onCancelled`. `Sync`: the method waits and returns `ResponseBody`, raises no event, and leaves `LastError` set when it failed.",
         )),
-        ("AwsLambda", "Verbose") | ("AwsMcp", "Verbose") => Some((
+        (t, "Verbose") if t.starts_with("Aws") => Some((
             BOOL_DOMAIN,
             "Narrate each call into the program's output: the tool and the arguments sent, then the answer or the error. Anything that looks like an AWS access key, session token or pre-signed URL signature is masked.",
         )),
@@ -5771,6 +5771,14 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
         ("AwsMcp", "ResponseBody") => Some((
             "runtime-only, read-only",
             "In `onToolResult`, the tool's answer as text; after `ListTools`, one tool name per line.",
+        )),
+        ("AwsAgentCore", "ResponseBody") => Some((
+            "runtime-only, read-only",
+            "In `onInvoked`, the agent's reply — the body its runtime returned, as text.",
+        )),
+        (t, "ResponseBody") if t.starts_with("Aws") => Some((
+            "runtime-only, read-only",
+            "The last answer as the server sent it, as text. Most programs read the rows (`RowCount`, `GetField`) or the named properties instead.",
         )),
         ("Viewer", "Format") => Some((
             "one of: `Text` | `Markdown` | `Image` | `Pdf` | `HtmlSubset` (runtime-set)",
@@ -6666,6 +6674,74 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "a server id from the AWS route table, e.g. `lambda`",
             "AwsMcp: which of the connection's AWS servers this control talks to.",
         ),
+        "KnowledgeBaseId" => (
+            "an Amazon Bedrock knowledge base id, e.g. `KB12345678`",
+            "AwsKnowledgeBase: the knowledge base `Query` asks when it is given no id. Only knowledge bases tagged `mcp-multirag-kb = true` in AWS can be reached — `ListKnowledgeBases` lists exactly those.",
+        ),
+        "MaxResults" => (
+            "integer (default 10)",
+            "AwsKnowledgeBase: how many passages `Query` returns at most.",
+        ),
+        "RuntimeArn" => (
+            "the ARN of an AgentCore Runtime agent",
+            "AwsAgentCore: the agent `Invoke` calls when it is given none.",
+        ),
+        "SessionId" => (
+            "text, 33 to 256 characters, or empty",
+            "AwsAgentCore: the conversation `Invoke` continues. Empty: the first `Invoke` starts one and writes its id here, so the next `Invoke` continues it; MOVE SPACES to it to start over. AwsAgentMemory: the conversation `RecordEvent` files the event under when it is given none; empty sends none.",
+        ),
+        "MemoryId" => (
+            "an AgentCore Memory id",
+            "AwsAgentMemory: the memory `RecordEvent` and `Retrieve` use when they are given none.",
+        ),
+        "ActorId" => (
+            "text — usually the signed-in user's id",
+            "AwsAgentMemory: whom the events `RecordEvent` records belong to, when it is given none.",
+        ),
+        "Namespace" => (
+            "text",
+            "AwsAgentMemory: where `Retrieve` searches the long-term records (for example `/facts/user-42`) when it is given none. AwsS3Tables: the namespace `Query` and `AppendRows` work in; when set, `ListTables` keeps only its tables.",
+        ),
+        "TopK" => (
+            "integer (default 10)",
+            "AwsAgentMemory: how many records `Retrieve` returns at most.",
+        ),
+        "TableBucketArn" => (
+            "the ARN of an S3 table bucket",
+            "AwsS3Tables: the table bucket — the Iceberg warehouse — `Query` and `AppendRows` work in. The connection's region decides the endpoint.",
+        ),
+        "TableName" => (
+            "a table name",
+            "AwsS3Tables: the table `AppendRows` appends to when it is given none. AwsGlue: the Data Catalog table `GetTableSchema` describes when it is given none.",
+        ),
+        "JobName" => (
+            "a Glue job name",
+            "AwsGlue: the job `StartJobRun` and `GetJobRun` use when they are given none.",
+        ),
+        "JobRunId" => (
+            "a Glue job run id, e.g. `jr_…`",
+            "AwsGlue: the run `GetJobRun` reads when it is given none. `StartJobRun` writes the run it started here, so a later `GetJobRun` with no arguments follows it.",
+        ),
+        "CrawlerName" => (
+            "a Glue crawler name",
+            "AwsGlue: the crawler `StartCrawler` starts when it is given none.",
+        ),
+        "DatabaseName" => (
+            "a Data Catalog database name",
+            "AwsGlue: the database `GetTableSchema` reads from when it is given none.",
+        ),
+        "EventId" => (
+            "text (runtime-only, read-only)",
+            "AwsAgentMemory: in `onEventRecorded`, the id AgentCore gave the event just recorded.",
+        ),
+        "RowsAppended" => (
+            "integer (runtime-only, read-only)",
+            "AwsS3Tables: in `onRowsAppended`, how many rows `AppendRows` added.",
+        ),
+        "State" => (
+            "text (runtime-only, read-only)",
+            "AwsGlue: in `onJobRun`, the run's state as Glue reports it — `STARTING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `TIMEOUT`, `STOPPED` …",
+        ),
 
         // ── WebSearch (spec 039) ──
         "Provider" => (
@@ -6835,7 +6911,17 @@ fn event_reference(name: &str) -> &'static str {
         "onMapClick" => "the map background was clicked (not a marker) — the primary event",
         "onMarkerClick" => "a marker was clicked (`SelectedMarkerId` holds its id)",
         "onBoundsChanged" => "the map was panned or zoomed (`CenterLat`/`CenterLng`/`Zoom` updated)",
-        "onInvoked" => "AwsLambda: the function ran — `ResponseBody` holds what it returned, `FunctionError` what it reported as an error (empty when clean), `RowCount` the rows of an array answer. Its primary event; `onComplete` follows",
+        "onInvoked" => "AwsLambda: the function ran — `ResponseBody` holds what it returned, `FunctionError` what it reported as an error (empty when clean), `RowCount` the rows of an array answer. AwsAgentCore: the agent replied — `ResponseBody` holds the reply and `SessionId` the conversation. The primary event of both; `onComplete` follows",
+        "onQueried" => "AwsKnowledgeBase: `Query` answered — `RowCount` passages, each read with `GetField(n, \"Text\")`, `\"Source\"` (where it came from) and `\"Score\"`. AwsS3Tables: `Query` answered — one row per result row, each field named after its column. The primary event of both; `onComplete` follows",
+        "onKnowledgeBasesListed" => "AwsKnowledgeBase: `ListKnowledgeBases` finished — `RowCount` knowledge bases, each read with `GetField(n, \"Id\")`, `\"Name\"`, `\"Description\"` and `\"Type\"`; `onComplete` follows",
+        "onEventRecorded" => "AwsAgentMemory: `RecordEvent` stored the event — `EventId` holds its id. Its primary event; `onComplete` follows",
+        "onRetrieved" => "AwsAgentMemory: `Retrieve` answered — `RowCount` records, each read with `GetField(n, \"Text\")`, `\"Score\"`, `\"Id\"` and `\"CreatedAt\"`; `onComplete` follows",
+        "onTablesListed" => "AwsS3Tables: `ListTables` finished — `RowCount` tables, each read with `GetField(n, \"Name\")`, `\"Namespace\"`, `\"TableArn\"`, `\"Type\"` and `\"ModifiedAt\"`; `onComplete` follows",
+        "onRowsAppended" => "AwsS3Tables: `AppendRows` finished — `RowsAppended` says how many rows were added; `onComplete` follows",
+        "onJobStarted" => "AwsGlue: `StartJobRun` started the job — `JobRunId` holds the run's id. Its primary event; `onComplete` follows",
+        "onJobRun" => "AwsGlue: `GetJobRun` answered — `State` holds the run's state; `onComplete` follows",
+        "onCrawlerStarted" => "AwsGlue: `StartCrawler` started the crawler; `onComplete` follows",
+        "onTableSchema" => "AwsGlue: `GetTableSchema` answered — one row per column, read with `GetField(n, \"Name\")`, `\"Type\"` and `\"Comment\"`; `onComplete` follows",
         "onFunctionsListed" => "AwsLambda: `ListFunctions` finished — `RowCount` functions, each read with `GetField(n, \"Name\")` / `GetField(n, \"Description\")`; `onComplete` follows",
         "onToolResult" => "AwsMcp: a tool answered — `ResponseBody` holds its text, `ResultJson` its JSON, `RowCount` the rows of an array answer. Its primary event; `onComplete` follows",
         "onToolsListed" => "AwsMcp: `ListTools` finished — `RowCount` tools, each read with `GetField(n, \"Name\")`, `\"Description\"` and `\"ReadOnly\"` (1 when the server marks it read-only); `onComplete` follows",
@@ -6912,6 +6998,11 @@ fn control_purpose(name: &str) -> &'static str {
         "WebSearch" => "Non-visual Google Custom Search JSON API client (async by default, same lifecycle as RestClient).",
         "AwsLambda" => "Non-visual: invokes AWS Lambda functions with a JSON payload and reads their answer, through the control's AWS connection. Async by default; refused unless `AllowWrite` is on, since running a function can change anything.",
         "AwsMcp" => "Non-visual escape hatch to AWS: calls any tool of one of the connection's AWS servers by name with a JSON argument, and lists the tools it offers. A tool the server does not mark read-only is refused unless `AllowWrite` is on.",
+        "AwsKnowledgeBase" => "Non-visual: asks an Amazon Bedrock knowledge base a question in plain language and returns the matching passages as rows (text, source, score) — retrieval for a chatbot or a search screen. Read-only.",
+        "AwsAgentCore" => "Non-visual: sends a prompt to an agent hosted in Amazon Bedrock AgentCore Runtime and reads its reply, keeping the conversation in `SessionId`. Refused unless `AllowWrite` is on, since an agent can act and is billed per call.",
+        "AwsAgentMemory" => "Non-visual: records conversation turns in an AgentCore Memory and searches what it has learned (`Retrieve` returns records as rows). Recording needs `AllowWrite`.",
+        "AwsS3Tables" => "Non-visual: lists the tables of Amazon S3 Tables (Apache Iceberg), runs read-only SQL on them with rows named after the columns, and appends rows. Appending needs `AllowWrite`.",
+        "AwsGlue" => "Non-visual: starts AWS Glue jobs and crawlers, follows a job run's state, and reads a Data Catalog table's columns as rows. Starting anything needs `AllowWrite`.",
         _ => "",
     }
 }
@@ -7274,6 +7365,48 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
             ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
         ],
+        "AwsKnowledgeBase" => vec![
+            ("Query(knowledgeBaseId: String?, question: String) → 1/0", "Ask the knowledge base — `KnowledgeBaseId` when the first argument is empty — and return up to `MaxResults` passages as rows (`Text`, `Source`, `Score`). Async: `onQueried`, then `onComplete`."),
+            ("ListKnowledgeBases() → 1/0", "List the reachable knowledge bases as rows (`Id`, `Name`, `Description`, `Type`); `onKnowledgeBasesListed`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsAgentCore" => vec![
+            ("Invoke(runtimeArn: String?, prompt: String, sessionId: String?) → 1/0", "Send `prompt` to the agent — `RuntimeArn` and `SessionId` when those arguments are empty — as `{\"prompt\": …}`. The reply arrives in `ResponseBody`, the conversation in `SessionId`. Async: `onInvoked`, then `onComplete`. Refused with `onError`, nothing sent, while `AllowWrite` is off."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsAgentMemory" => vec![
+            ("RecordEvent(memoryId: String?, actorId: String?, sessionId: String?, text: String, role: String?) → 1/0", "Store one conversation turn — `role` is `USER` (the default) or `ASSISTANT`; empty ids fall back to `MemoryId`, `ActorId`, `SessionId`. `onEventRecorded` gives `EventId`. Needs `AllowWrite`."),
+            ("Retrieve(memoryId: String?, namespace: String?, query: String) → 1/0", "Search the memory's long-term records — up to `TopK` — as rows (`Id`, `Text`, `Score`, `CreatedAt`); `onRetrieved`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsS3Tables" => vec![
+            ("ListTables(namespace: String?) → 1/0", "List the region's tables as rows (`Namespace`, `Name`, `TableArn`, `Type`, `ModifiedAt`) — only the named namespace's, or `Namespace`'s, when one is given; `onTablesListed`."),
+            ("Query(sql: String) → 1/0", "Run one read-only SQL statement against `TableBucketArn` / `Namespace`; each result row becomes a row whose fields are named after the columns; `onQueried`. A statement that writes is refused by the server."),
+            ("AppendRows(table: String?, rows: String) → 1/0", "Append a JSON array of objects to `table` — `TableName` when empty; `onRowsAppended` gives `RowsAppended`. Needs `AllowWrite`; invalid JSON is refused before anything is sent."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
+        "AwsGlue" => vec![
+            ("StartJobRun(job: String?, arguments: String?) → 1/0", "Start a run of `job` — `JobName` when empty — with an optional JSON object of job arguments; `onJobStarted` gives `JobRunId`. Needs `AllowWrite`."),
+            ("GetJobRun(job: String?, runId: String?) → 1/0", "Read a run's state — `JobName` and `JobRunId` when empty; `onJobRun` gives `State`."),
+            ("StartCrawler(name: String?) → 1/0", "Start a crawler — `CrawlerName` when empty; `onCrawlerStarted`. Needs `AllowWrite`."),
+            ("GetTableSchema(database: String?, table: String?) → 1/0", "Read a Data Catalog table's columns as rows (`Name`, `Type`, `Comment`) — `DatabaseName` and `TableName` when empty; `onTableSchema`."),
+            ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
+            ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
+            ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
+            ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
+        ],
         // 051 — the SideMenu's programmatic door to standalone child windows,
         // and (066) the rows a program adds at run time.
         "SideMenu" => vec![
@@ -7448,7 +7581,7 @@ The OpenStreetMap basemap (pan/zoom, `CenterLat`/`CenterLng`/`Zoom`, `Markers`) 
 Every colour the map paints is a property, in the inspector's **Basic properties** section and writable from COBOL: `MarkerColor`, `MarkerBorderColor`, `RouteColor`, `RouteCasingColor`, `RegionFillColor`, `RegionBorderColor`, `TileBackgroundColor`, `TileLoadingColor`. Each starts EMPTY, meaning the built-in the map has always painted, so a form that sets none of them is unchanged.\n\
 \n\
 Colour carried by the DATA still wins: `AddRoute` USING id colour width geometry keeps that route's own colour, and `AddRegion`'s fill and stroke keep theirs — `RouteColor`, `RegionFillColor` and `RegionBorderColor` are what a line naming none falls back to. Two exceptions, because their data carries no colour at all: `MarkerColor`/`MarkerBorderColor` (an `AddMarker` has no colour argument) and `RouteCasingColor` (the halo under EVERY route, whatever colour the route itself names). Never tell a developer a map colour cannot be changed, and never suggest editing the `.cfrm` by hand to change one.\n",
-        "AwsLambda" | "AwsMcp" => "\
+        "AwsLambda" | "AwsMcp" | "AwsKnowledgeBase" | "AwsAgentCore" | "AwsAgentMemory" | "AwsS3Tables" | "AwsGlue" => "\
 ### Usage — AWS controls\n\
 An AWS control works through one of the project's AWS connections (Settings → Integrations → AWS), which names an AWS profile and a region. The application signs in with that profile on the machine it runs on — run `aws login --profile <name>` once there — and no key is ever kept in a form, a project or a built application. The first call on a machine starts the connection's AWS server with `uvx`, which must be installed (`LastError` says so, with the fix, when it is not); every AWS control on the connection then shares that one server, and it ends with the application.\n\
 \n\
@@ -7460,7 +7593,9 @@ An AWS control works through one of the project's AWS connections (Settings → 
            MOVE LAMBDA-1::FunctionError TO WS-FAILED\n\
 ```\n\
 \n\
-`AllowWrite` is off by default and every Lambda invocation needs it. A payload or argument that is not valid JSON is refused before anything is sent, with `LastError` naming the argument. A profile that is not signed in fails with `onError` and a `LastError` that names the profile and the `aws login` command.\n",
+`AllowWrite` is off by default and every Lambda invocation needs it. A payload or argument that is not valid JSON is refused before anything is sent, with `LastError` naming the argument. A profile that is not signed in fails with `onError` and a `LastError` that names the profile and the `aws login` command.\n\
+\n\
+Every argument may be left empty: the control's own property stands in for it (`KnowledgeBaseId`, `RuntimeArn`, `JobName` …), so a form that sets them in the designer calls `Query` with only the question. Answers that list things — passages, records, tables, columns — are rows: `RowCount`, then `GetField(n, name)` with the field names each method documents. A failure the service reports inside its answer (an AgentCore `status: error`, an S3 Tables listing error) raises `onError` with the service's own message, exactly like a refused call.\n",
         "WebSearch" => "\
 ### Usage — the generated paragraph vs. `INVOKE 'Search'`\n\
 Every `WebSearch` control also gets a generated `<id>-SEARCH` paragraph (`PERFORM SEARCH-1-SEARCH`) that builds a Custom Search URL and calls `COBOL-HTTP-GET` directly — but it does PLAIN, UNENCODED string concatenation: a multi-word `Query` truncates at its first space, and it never includes the API key (so it 401s against the real API on its own). **Use `INVOKE <id> 'Search'` instead** — it percent-encodes the query and resolves the credential-store key automatically; the paragraph exists only as a low-level fallback. Same \"not configured\" contract as Maps: no `google-custom-search` key configured (Settings → Integrations) fails immediately with `onError`, no request sent (R33).\n",
@@ -8385,11 +8520,16 @@ fn methods_reference_doc() -> String {
             ],
         ),
         (
-            "AwsLambda / AwsMcp (spec 078)",
-            "Reach AWS through an AWS connection (profile + region, no key in the project). `AwsLambda` invokes Lambda functions; `AwsMcp` calls any tool of the connection's AWS server. Async by default — the control's own event (`onInvoked` / `onToolResult`), then `onComplete`; or `onError`, `onTimeout`, `onCancelled`. `AllowWrite` (off by default) guards everything that changes AWS. Answers that are JSON arrays are read as rows.",
+            "AWS controls (spec 078)",
+            "Reach AWS through an AWS connection (profile + region, no key in the project). `AwsLambda` invokes Lambda functions; `AwsMcp` calls any tool of the connection's AWS server; `AwsKnowledgeBase`, `AwsAgentCore`, `AwsAgentMemory`, `AwsS3Tables` and `AwsGlue` reach those services. Async by default — the control's own event (`onInvoked`, `onToolResult`, `onQueried` …), then `onComplete`; or `onError`, `onTimeout`, `onCancelled`. `AllowWrite` (off by default) guards everything that changes AWS. Lists come back as rows.",
             &[
                 ("AwsLambda: Invoke(function?, payload?) / ListFunctions()", "Run a function with a JSON payload / list the connection's functions."),
                 ("AwsMcp: Call(tool?, arguments?) / ListTools()", "Run a tool with a JSON object / list the server's tools."),
+                ("AwsKnowledgeBase: Query(kbId?, question) / ListKnowledgeBases()", "Retrieve passages / list the reachable knowledge bases."),
+                ("AwsAgentCore: Invoke(runtimeArn?, prompt, sessionId?)", "Ask an AgentCore agent; the reply in `ResponseBody`."),
+                ("AwsAgentMemory: RecordEvent(memoryId?, actorId?, sessionId?, text, role?) / Retrieve(memoryId?, namespace?, query)", "Store a turn / search what the memory learned."),
+                ("AwsS3Tables: ListTables(namespace?) / Query(sql) / AppendRows(table?, rowsJson)", "List, read with SQL, append."),
+                ("AwsGlue: StartJobRun(job?, argsJson?) / GetJobRun(job?, runId?) / StartCrawler(name?) / GetTableSchema(db?, table?)", "Run and follow jobs and crawlers; read a table's columns."),
                 ("GetRow(n) / GetField(n, name) → String", "Read the last answer's rows, 1-based."),
                 ("Cancel() / IsBusy() → Boolean", "Async control."),
             ],
@@ -11674,6 +11814,11 @@ generated = ["generated/inner-form1.cbl"]
             cobolt_forms::ControlType::WebSearch,
             cobolt_forms::ControlType::AwsLambda,
             cobolt_forms::ControlType::AwsMcp,
+            cobolt_forms::ControlType::AwsKnowledgeBase,
+            cobolt_forms::ControlType::AwsAgentCore,
+            cobolt_forms::ControlType::AwsAgentMemory,
+            cobolt_forms::ControlType::AwsS3Tables,
+            cobolt_forms::ControlType::AwsGlue,
         ];
         for ct in all {
             let type_name = ct.as_str().to_owned();

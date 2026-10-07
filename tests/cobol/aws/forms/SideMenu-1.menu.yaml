@@ -11,3 +11,33 @@ menu:
   icon: home
   action: open-form:aws-mcp-demo
   enabled: true
+- id: knowle
+  label: AwsKnowledgeBase demo
+  type: action
+  icon: home
+  action: open-form:aws-knowledge-base-demo
+  enabled: true
+- id: agentc
+  label: AwsAgentCore demo
+  type: action
+  icon: home
+  action: open-form:aws-agent-core-demo
+  enabled: true
+- id: agentm
+  label: AwsAgentMemory demo
+  type: action
+  icon: home
+  action: open-form:aws-agent-memory-demo
+  enabled: true
+- id: s3tabl
+  label: AwsS3Tables demo
+  type: action
+  icon: home
+  action: open-form:aws-s3-tables-demo
+  enabled: true
+- id: glue
+  label: AwsGlue demo
+  type: action
+  icon: home
+  action: open-form:aws-glue-demo
+  enabled: true

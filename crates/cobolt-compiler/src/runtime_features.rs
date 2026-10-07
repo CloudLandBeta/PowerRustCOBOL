@@ -572,7 +572,7 @@ mod tests {
     /// …and either AWS control, top level or inside a container, turns it on.
     #[test]
     fn an_aws_control_turns_the_feature_on() {
-        for kind in [cobolt_forms::ControlType::AwsLambda, cobolt_forms::ControlType::AwsMcp] {
+        for kind in cobolt_forms::ControlType::ALL.iter().filter(|t| t.is_aws()) {
             assert!(scan_forms([&form_with(kind.clone())]).aws, "{kind:?}");
             let mut panel = control("PANEL-1", cobolt_forms::ControlType::Panel);
             panel.children.push(control("AWS-1", kind.clone()));

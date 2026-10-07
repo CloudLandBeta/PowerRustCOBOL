@@ -1022,6 +1022,11 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-viewer",
             "control-aws-mcp",
             "control-aws-lambda",
+            "control-aws-knowledge-base",
+            "control-aws-agent-core",
+            "control-aws-agent-memory",
+            "control-aws-s3-tables",
+            "control-aws-glue",
             "control-custom",
         ],
     ),
@@ -7345,6 +7350,47 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             c(16.4, 16.4, 2.2),
             p(&[(9.6, 11.0), (14.4, 8.6)]),
             p(&[(9.6, 13.0), (14.4, 15.4)]),
+        ],
+        // AwsKnowledgeBase: an open book under a search lens.
+        "control-aws-knowledge-base" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            p(&[(5.6, 7.0), (12.0, 8.4), (18.4, 7.0)]),
+            p(&[(12.0, 8.4), (12.0, 13.4)]),
+            p(&[(5.6, 7.0), (5.6, 12.0)]),
+            c(14.6, 14.8, 2.6),
+            p(&[(16.5, 16.7), (18.8, 19.0)]),
+        ],
+        // AwsAgentCore: an agent's head with its signal.
+        "control-aws-agent-core" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            rr(7.0, 8.4, 10.0, 8.6, 2.2),
+            d(10.2, 12.6, 1.0),
+            d(13.8, 12.6, 1.0),
+            p(&[(12.0, 8.4), (12.0, 5.6)]),
+            d(12.0, 5.2, 0.9),
+        ],
+        // AwsAgentMemory: a speech balloon over a stack of records.
+        "control-aws-agent-memory" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            rr(6.0, 5.6, 12.0, 6.4, 2.0),
+            p(&[(9.0, 12.0), (8.2, 14.0), (11.0, 12.0)]),
+            p(&[(6.4, 15.6), (17.6, 15.6)]),
+            p(&[(6.4, 18.4), (17.6, 18.4)]),
+        ],
+        // AwsS3Tables: a bucket holding a table grid.
+        "control-aws-s3-tables" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            p(&[(6.0, 7.0), (7.6, 18.0), (16.4, 18.0), (18.0, 7.0), (6.0, 7.0)]),
+            p(&[(6.8, 11.0), (17.2, 11.0)]),
+            p(&[(7.3, 14.4), (16.7, 14.4)]),
+            p(&[(12.0, 7.0), (12.0, 18.0)]),
+        ],
+        // AwsGlue: two flows joined into one.
+        "control-aws-glue" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            p(&[(6.0, 7.6), (10.4, 7.6), (13.4, 12.0), (18.0, 12.0)]),
+            p(&[(6.0, 16.4), (10.4, 16.4), (13.4, 12.0)]),
+            p(&[(15.8, 9.8), (18.0, 12.0), (15.8, 14.2)]),
         ],
         "control-web-search" => vec![
             rr(2.5, 4.5, 19.0, 15.0, 1.5),

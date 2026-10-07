@@ -60,3 +60,16 @@ fn a_drifted_fixture_fails_the_route_check() {
     assert!(e.contains("no tool named order_sync"), "{e}");
     println!("AC9 drift: a renamed input and a renamed tool both fail the check");
 }
+
+/// Every routed method is in the inline-call vocabulary: otherwise
+/// `AWS-1::Query(…)` parses its parentheses as a subscript and calls nothing.
+#[test]
+fn every_routed_method_can_be_called_inline() {
+    let missing: Vec<&String> = Routes::shipped()
+        .ops
+        .keys()
+        .filter(|k| !k.split('.').nth(1).is_some_and(cobolt_ast::methods::is_known_method))
+        .collect();
+    assert!(missing.is_empty(), "not in is_known_method: {missing:?}");
+    println!("{} routed methods, every one callable inline", Routes::shipped().ops.len());
+}

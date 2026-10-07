@@ -8,6 +8,49 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.241] — 2026-10-07
+
+### Added
+- **Spec 078 Delivery B: five more AWS controls**, in the toolbox's AWS section:
+  - `AwsKnowledgeBase` asks an Amazon Bedrock knowledge base a question and
+    returns the passages as rows (`Text`, `Source`, `Score`);
+    `ListKnowledgeBases` lists the ones you can reach.
+  - `AwsAgentCore` talks to an agent in AgentCore Runtime. The reply arrives
+    in `ResponseBody`, and the conversation is kept in `SessionId`.
+  - `AwsAgentMemory` records conversation turns (`RecordEvent`) and searches
+    what the memory learned (`Retrieve`).
+  - `AwsS3Tables` lists tables, runs read-only SQL with rows named after
+    the columns, and appends rows (`AppendRows`).
+  - `AwsGlue` starts jobs and crawlers, follows a run (`GetJobRun` → `State`),
+    and reads a table's columns (`GetTableSchema`).
+  - Each runs through AWS's own MCP server for that service, pinned
+    (`bedrock-kb-retrieval` 1.1.2, `amazon-bedrock-agentcore` 0.2.1,
+    `s3-tables` 0.1.1, `aws-dataprocessing` 0.2.2).
+  - Every write is refused while `AllowWrite` is off, before anything is sent.
+  - Every argument may be left empty, and the control's own property
+    stands in for it.
+- Each control has a hand-drawn tile, inspector rows, help in six languages
+  and System KB entries. Each has a demo form that reports a tally on all
+  three hosts: Run Form, embedded child form and built binary, with no
+  server left running.
+- The Developer's Guide's **Calling AWS** section has a worked example for
+  each new control. The support matrix counts 52 widgets.
+
+### Changed
+- What stands in for an argument that was not passed is now written in the
+  AWS route table (`{arg:1|or:{prop:FunctionName}}`, `{arg:2|json:{}}`). It
+  used to be one rule in code shared by every AWS control. `AwsLambda` and
+  `AwsMcp` behave exactly as before.
+- The route table gained:
+  - row shaping (`rows`);
+  - failures reported inside an answer (`fail`);
+  - filters for optional keys, defaults, numbers and JSON-in-a-string;
+  - JSON values one after another (`$jsonseq:`).
+  These are documented at the top of `routes.toml`.
+- Per-control facts — events, seeds, run-time properties, tile, caption —
+  now live in one table, `cobolt-forms/src/aws_catalog.rs`. The model, the
+  painter, the inspector and the runtime all read it.
+
 ## [PowerRustCOBOL 1.80.239] — 2026-10-06
 
 ### Added

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Hand-drawn for PowerRustCOBOL in the style of the AWS service icons
+       (spec 078, amendment A5): the analytics tile, with two flows joined into one. Not an AWS file and not traced from one. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4D27A8"/>
+      <stop offset="1" stop-color="#A166FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="6" fill="url(#tile)"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 18 H24 Q30 18 34 32 H52 M12 46 H24 Q30 46 34 32"/>
+    <path d="M45 25 L52 32 L45 39"/>
+  </g>
+</svg>

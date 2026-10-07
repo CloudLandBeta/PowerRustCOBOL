@@ -1395,10 +1395,6 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // RestClient and WebSearch but not for Maps, and listing it twice is
     // harmless — the callers union the two lists.
     const ASYNC: &[&str] = &["ResponseBody", "StatusCode", "Busy", "LastError"];
-    // Spec 078: an AWS operation's answer — its text, the whole JSON, the row
-    // set's size — and the failure text. Lambda adds the function's own error.
-    const AWS_ASYNC: &[&str] = &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError"];
-    const AWS_LAMBDA: &[&str] = &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "FunctionError"];
     const MAPS: &[&str] = &[
         "ResponseBody",
         "StatusCode",
@@ -1517,8 +1513,8 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::TreeView => TREE_VIEW,
         ControlType::KnowledgeBase => KNOWLEDGE_BASE,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
-        ControlType::AwsMcp => AWS_ASYNC,
-        ControlType::AwsLambda => AWS_LAMBDA,
+        // Spec 078: each AWS control's answers, from the catalogue.
+        t @ crate::aws_pattern!() => crate::aws_catalog::get(&t).map_or(&[], |c| c.runtime),
         ControlType::Snackbar => SNACKBAR,
         ControlType::ToolBar => TOOLBAR,
         ControlType::FileDropZone => FILE_DROP_ZONE,
@@ -2530,6 +2526,21 @@ pub fn serialize_map_markers(markers: &[MapMarkerRecord]) -> String {
 
 // ── ControlType ───────────────────────────────────────────────────────────────
 
+/// Spec 078 — every AWS control variant, as one pattern, so a match over
+/// `ControlType` names them in one place (`aws_catalog` holds what differs).
+#[macro_export]
+macro_rules! aws_pattern {
+    () => {
+        $crate::model::ControlType::AwsMcp
+            | $crate::model::ControlType::AwsLambda
+            | $crate::model::ControlType::AwsKnowledgeBase
+            | $crate::model::ControlType::AwsAgentCore
+            | $crate::model::ControlType::AwsAgentMemory
+            | $crate::model::ControlType::AwsS3Tables
+            | $crate::model::ControlType::AwsGlue
+    };
+}
+
 /// The type of a visual (or non-visual) control.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ControlType {
@@ -2606,6 +2617,16 @@ pub enum ControlType {
     AwsMcp,
     /// Invoke an AWS Lambda function with a JSON payload.
     AwsLambda,
+    /// Ask an Amazon Bedrock knowledge base; its passages come back as rows.
+    AwsKnowledgeBase,
+    /// Invoke an agent hosted in Amazon Bedrock AgentCore Runtime.
+    AwsAgentCore,
+    /// Record and recall conversation in an AgentCore Memory.
+    AwsAgentMemory,
+    /// List, query and append to Amazon S3 Tables (Iceberg).
+    AwsS3Tables,
+    /// Start and follow AWS Glue jobs and crawlers; read a table's schema.
+    AwsGlue,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -2730,6 +2751,11 @@ impl ControlType {
         ControlType::Viewer,
         ControlType::AwsMcp,
         ControlType::AwsLambda,
+        ControlType::AwsKnowledgeBase,
+        ControlType::AwsAgentCore,
+        ControlType::AwsAgentMemory,
+        ControlType::AwsS3Tables,
+        ControlType::AwsGlue,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -2781,6 +2807,11 @@ impl ControlType {
             ControlType::Viewer => "Viewer",
             ControlType::AwsMcp => "AwsMcp",
             ControlType::AwsLambda => "AwsLambda",
+            ControlType::AwsKnowledgeBase => "AwsKnowledgeBase",
+            ControlType::AwsAgentCore => "AwsAgentCore",
+            ControlType::AwsAgentMemory => "AwsAgentMemory",
+            ControlType::AwsS3Tables => "AwsS3Tables",
+            ControlType::AwsGlue => "AwsGlue",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -2837,6 +2868,11 @@ impl ControlType {
             "Viewer" => ControlType::Viewer,
             "AwsMcp" => ControlType::AwsMcp,
             "AwsLambda" => ControlType::AwsLambda,
+            "AwsKnowledgeBase" => ControlType::AwsKnowledgeBase,
+            "AwsAgentCore" => ControlType::AwsAgentCore,
+            "AwsAgentMemory" => ControlType::AwsAgentMemory,
+            "AwsS3Tables" => ControlType::AwsS3Tables,
+            "AwsGlue" => ControlType::AwsGlue,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {
@@ -2913,7 +2949,7 @@ impl ControlType {
             ControlType::Snackbar => (56, 56),
             ControlType::Viewer => (400, 320),
             // Spec 078: non-visual, the tray card's footprint.
-            ControlType::AwsMcp | ControlType::AwsLambda => (56, 56),
+            crate::aws_pattern!() => (56, 56),
             ControlType::Custom { .. } => (100, 30),
         }
     }
@@ -2948,8 +2984,7 @@ impl ControlType {
             ControlType::Maps => "onMapClick",
             ControlType::WebSearch => "onResultsReceived",
             ControlType::Snackbar => "onButtonClick",
-            ControlType::AwsMcp => "onToolResult",
-            ControlType::AwsLambda => "onInvoked",
+            t @ crate::aws_pattern!() => crate::aws_catalog::get(t).map_or("onComplete", |c| c.events[0]),
             // Gauge is read-only (no interactive primary event, R10); the
             // catch-all below applies but is functionally inert since
             // Gauge's supported_events() never lists onClick.
@@ -3292,22 +3327,7 @@ impl ControlType {
             // Spec 078 R19: the operation's own completion event, then
             // onComplete; onError, onTimeout and onCancelled as for every
             // asynchronous non-visual control.
-            ControlType::AwsMcp => &[
-                "onToolResult",
-                "onToolsListed",
-                "onComplete",
-                "onError",
-                "onTimeout",
-                "onCancelled",
-            ],
-            ControlType::AwsLambda => &[
-                "onInvoked",
-                "onFunctionsListed",
-                "onComplete",
-                "onError",
-                "onTimeout",
-                "onCancelled",
-            ],
+            t @ crate::aws_pattern!() => crate::aws_catalog::get(t).map_or(&[], |c| c.events),
             ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch => &[
                 "onClick",
                 "onDblClick",
@@ -3882,9 +3902,12 @@ impl ControlType {
                 | ControlType::IndexedFile
                 | ControlType::WebSearch
                 | ControlType::Snackbar
-                | ControlType::AwsMcp
-                | ControlType::AwsLambda
-        )
+        ) || self.is_aws()
+    }
+
+    /// Spec 078 — one of the AWS controls (`crate::aws_catalog`).
+    pub fn is_aws(&self) -> bool {
+        matches!(self, crate::aws_pattern!())
     }
 }
 
@@ -5971,29 +5994,16 @@ impl Control {
             // Spec 078: the AWS controls share one design-time set; what an
             // operation returns (ResponseBody, ResultJson, RowCount, LastError,
             // FunctionError) is runtime-only — see `runtime_property_names_for`.
-            ControlType::AwsMcp | ControlType::AwsLambda => {
-                // The project's AWS connection, by name: a profile NAME and a
-                // region — never a key (R11, R12).
-                props.insert("Connection".into(), PropValue::String("".into()));
-                // Async I/O (spec 032), as RestClient and WebSearch.
-                props.insert("Mode".into(), PropValue::String("Async".into())); // Async | Sync
-                props.insert("Busy".into(), PropValue::Bool(false));
-                props.insert("TimeoutMs".into(), PropValue::Int(30000));
-                // A server's first start downloads packages (amendment A3).
-                props.insert("StartTimeoutMs".into(), PropValue::Int(120000));
-                // Read-only unless the developer opts in (R25).
-                props.insert("AllowWrite".into(), PropValue::Bool(false));
-                // Narrates each call into the output, credentials masked (R27).
-                props.insert("Verbose".into(), PropValue::Bool(false));
-                match control_type {
-                    ControlType::AwsLambda => {
-                        props.insert("FunctionName".into(), PropValue::String("".into()));
-                    }
-                    _ => {
-                        // The route-table server whose tools `Call` reaches.
-                        props.insert("ServerId".into(), PropValue::String("".into()));
-                        props.insert("ToolName".into(), PropValue::String("".into()));
-                    }
+            t if t.is_aws() => {
+                use crate::aws_catalog::{Seed, SHARED_SEEDS};
+                let own = crate::aws_catalog::get(t).map_or(&[][..], |c| c.seeds);
+                for (key, seed) in SHARED_SEEDS.iter().chain(own) {
+                    let v = match seed {
+                        Seed::Str(v) => PropValue::String((*v).into()),
+                        Seed::Int(v) => PropValue::Int(*v),
+                        Seed::Bool(v) => PropValue::Bool(*v),
+                    };
+                    props.insert((*key).into(), v);
                 }
             }
             ControlType::SqlDatabase => {

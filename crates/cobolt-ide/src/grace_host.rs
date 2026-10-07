@@ -3287,6 +3287,16 @@ fn type_aliases(ty: &str) -> &'static [&'static str] {
             "funcion lambda",
         ],
         "AwsMcp" => &["aws mcp", "servidor mcp", "mcp server", "ferramenta aws", "herramienta aws"],
+        "AwsKnowledgeBase" => &[
+            "bedrock knowledge base",
+            "aws knowledge base",
+            "base de conhecimento bedrock",
+            "base de conocimiento bedrock",
+        ],
+        "AwsAgentCore" => &["agentcore", "agent core", "bedrock agent", "agente bedrock"],
+        "AwsAgentMemory" => &["agentcore memory", "agent memory", "memória do agente", "memoria del agente"],
+        "AwsS3Tables" => &["s3 tables", "s3 table", "iceberg", "tabelas s3", "tablas s3"],
+        "AwsGlue" => &["aws glue", "glue job", "glue crawler", "trabalho glue", "trabajo glue"],
         _ => &[],
     }
 }

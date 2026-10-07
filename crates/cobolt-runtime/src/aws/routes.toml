@@ -30,6 +30,21 @@
 #   mutating        true: refused while `AllowWrite` is off (R25).
 #                   "by-tool": decided by the tool's `readOnlyHint` (R26).
 #   result          property = extractor.
+#   rows            how the answer becomes the control's rows (GetRow,
+#                   GetField, RowCount); without it, rows are ResultJson when
+#                   that is a JSON array:
+#                     from     an extractor giving an array (a row per item),
+#                              an object (a row per entry) or, with columns,
+#                              an array of arrays
+#                     columns  a pointer to the column names, for array rows
+#                     fields   Field = pointer into the row; `/a|/b` takes the
+#                              first present; `$key` is an object entry's key
+#                     where    pointer = template: keep the rows whose value
+#                              there equals it (an empty template keeps all)
+#   fail            an answer that reports failure in its own data:
+#                     when     an extractor; failed when it gives `equals`,
+#                              or (without `equals`) anything at all
+#                     text     an extractor giving the failure's text
 #   event           the control's own completion event, raised before
 #                   onComplete (R19).
 #
@@ -38,14 +53,27 @@
 #                {Connection.Field}  a field of the control's AWS connection
 #   followed by filters, applied left to right:
 #                |json   parse as JSON (an invalid one is an error naming the
-#                        argument, R21)
+#                        argument, R21); `|json:<literal>` parses <literal>
+#                        when the value is empty
+#                |or:<template>  the template, when the value is empty — an
+#                        argument not passed is the property the designer set
+#                |opt    an empty value leaves its input key out altogether
+#                |int    a whole number
+#                |quote  a JSON string literal, quotes included
+#                |obj:<key>  the JSON object {"<key>": value}
+#                |text   a JSON value as its text (a tool that takes JSON
+#                        inside a string)
 #                |strip:<text>  remove a leading <text> when present
 #                |ident  [^A-Za-z0-9_] -> `_`, and a leading `_` before a digit
 #
 # Extractors:    $text        every text block, joined
 #                $isError     "1" when the tool reported an error, else "0"
 #                $json:/ptr   a JSON Pointer into the structured result (or
-#                             the text, read as JSON); `$json:` is the whole
+#                             the text read as JSON — the whole text, else its
+#                             last block that is JSON); `$json:` is the whole;
+#                             `/a|/b` takes the first present
+#                $jsonseq:    a text of JSON values one after another, as an
+#                             array
 #                $after:m1|m2 the text after the first marker found; "" if none
 
 # ── Lambda — awslabs.lambda-tool-mcp-server 2.1.1 (Python ≥ 3.10) ───────────
@@ -64,8 +92,8 @@ protocol      = "handshake"
 [ops."AwsLambda.Invoke"]
 event    = "onInvoked"
 server   = "lambda"
-tool     = "{arg:1|strip:{Connection.FunctionPrefix}|ident}"
-input    = { parameters = "{arg:2|json}" }
+tool     = "{arg:1|or:{prop:FunctionName}|strip:{Connection.FunctionPrefix}|ident}"
+input    = { parameters = "{arg:2|json:{}}" }
 mutating = true
 result   = { ResponseBody = "$after:returned: |returned payload: ", FunctionError = "$after:returned with error: " }
 
@@ -75,12 +103,169 @@ server   = "lambda"
 tool     = "$list"
 mutating = false
 
+# ── Bedrock Knowledge Bases — awslabs.bedrock-kb-retrieval-mcp-server 1.1.2 ─
+# (Python ≥ 3.10.) Lists only the knowledge bases tagged
+# `mcp-multirag-kb = true` (the server's KB_INCLUSION_TAG_KEY default). A
+# query answers one JSON object per passage, one after another — not an
+# array — and leaves image passages out.
+[servers.bedrock-kb]
+command  = "uvx"
+args     = ["awslabs.bedrock-kb-retrieval-mcp-server@1.1.2"]
+protocol = "handshake"
+
+[ops."AwsKnowledgeBase.Query"]
+event    = "onQueried"
+server   = "bedrock-kb"
+tool     = "QueryKnowledgeBases"
+input    = { knowledge_base_id = "{arg:1|or:{prop:KnowledgeBaseId}}", query = "{arg:2}", number_of_results = "{prop:MaxResults|opt|int}" }
+mutating = false
+result   = { ResponseBody = "$text" }
+rows     = { from = "$jsonseq:", fields = { Text = "/content/text", Source = "/location/s3Location/uri|/location/webLocation/url|/location/confluenceLocation/url|/location/salesforceLocation/url|/location/sharePointLocation/url|/location/customDocumentLocation/id|/location/type", Score = "/score" } }
+
+[ops."AwsKnowledgeBase.ListKnowledgeBases"]
+event    = "onKnowledgeBasesListed"
+server   = "bedrock-kb"
+tool     = "ListKnowledgeBases"
+input    = {}
+mutating = false
+result   = { ResultJson = "$json:" }
+rows     = { from = "$json:", fields = { Id = "$key", Name = "/name", Description = "/description", Type = "/type" } }
+
+# ── Bedrock AgentCore — awslabs.amazon-bedrock-agentcore-mcp-server 0.2.1 ───
+# (Python ≥ 3.10.) The server has no write switch, and enables its tools by
+# SERVICE, not one by one: `runtime,memory` is the narrowest set holding the
+# three tools routed here, and it also registers their lifecycle tools
+# (create, delete …). AwsMcp reaches those only with AllowWrite on, since
+# none is marked read-only. Failures come back as data: {"status": "error"}.
+[servers.agentcore]
+command  = "uvx"
+args     = ["awslabs.amazon-bedrock-agentcore-mcp-server@0.2.1"]
+env      = { AGENTCORE_ENABLE_TOOLS = "runtime,memory" }
+protocol = "handshake"
+
+# The payload is JSON inside a string: {"prompt": "<text>"}, the shape an
+# AgentCore agent built from the starter toolkit reads. A session id, when
+# given, is 33–256 characters; without one the runtime starts a session and
+# SessionId receives it, so the next Invoke continues it.
+[ops."AwsAgentCore.Invoke"]
+event    = "onInvoked"
+server   = "agentcore"
+tool     = "invoke_agent_runtime"
+input    = { agent_runtime_arn = "{arg:1|or:{prop:RuntimeArn}}", payload = "{arg:2|obj:prompt|text}", runtime_session_id = "{arg:3|or:{prop:SessionId}|opt}" }
+mutating = true
+result   = { ResponseBody = "$json:/response_body", SessionId = "$json:/runtime_session_id", ResultJson = "$json:" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/message" }
+
+[ops."AwsAgentMemory.RecordEvent"]
+event    = "onEventRecorded"
+server   = "agentcore"
+tool     = "memory_create_event"
+input    = { memory_id = "{arg:1|or:{prop:MemoryId}}", actor_id = "{arg:2|or:{prop:ActorId}}", session_id = "{arg:3|or:{prop:SessionId}|opt}", payload = [{ conversational = { content = { text = "{arg:4}" }, role = "{arg:5|or:USER}" } }] }
+mutating = true
+result   = { EventId = "$json:/event/eventId", ResultJson = "$json:" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/message" }
+
+[ops."AwsAgentMemory.Retrieve"]
+event    = "onRetrieved"
+server   = "agentcore"
+tool     = "memory_retrieve_records"
+input    = { memory_id = "{arg:1|or:{prop:MemoryId}}", namespace = "{arg:2|or:{prop:Namespace}}", search_query = "{arg:3}", top_k = "{prop:TopK|opt|int}" }
+mutating = false
+result   = { ResultJson = "$json:" }
+rows     = { from = "$json:/memory_records", fields = { Id = "/memoryRecordId", Text = "/content/text", Score = "/score", CreatedAt = "/createdAt" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/message" }
+
+# ── S3 Tables — awslabs.s3-tables-mcp-server 0.1.1 ──────────────────────────
+# Needs Python ≥ 3.11 (its pyproject says so; its README's 3.10 is wrong), so
+# uvx is told. Write tools stay LISTED in read-only mode and refuse when
+# called. `query_database` itself refuses any statement that writes. The
+# Iceberg REST endpoint is the region's.
+[servers.s3tables]
+command       = "uvx"
+args          = ["--python", ">=3.11", "awslabs.s3-tables-mcp-server@0.1.1"]
+readonly_args = []
+write_args    = ["--allow-write"]
+protocol      = "handshake"
+
+# Every table in the region; `where` keeps one namespace when one is named.
+[ops."AwsS3Tables.ListTables"]
+event    = "onTablesListed"
+server   = "s3tables"
+tool     = "list_tables"
+input    = { region_name = "{Connection.Region|opt}" }
+mutating = false
+result   = { ResultJson = "$json:" }
+rows     = { from = "$json:/tables", fields = { Namespace = "/namespace/0", Name = "/name", TableArn = "/table_arn", Type = "/type", ModifiedAt = "/modified_at" }, where = { "/namespace/0" = "{arg:1|or:{prop:Namespace}}" } }
+fail     = { when = "$json:/error", text = "$json:/error" }
+
+[ops."AwsS3Tables.Query"]
+event    = "onQueried"
+server   = "s3tables"
+tool     = "query_database"
+input    = { warehouse = "{prop:TableBucketArn}", region = "{Connection.Region}", namespace = "{prop:Namespace}", uri = "https://s3tables.{Connection.Region}.amazonaws.com/iceberg", query = "{arg:1}" }
+mutating = false
+result   = { ResultJson = "$json:" }
+rows     = { from = "$json:/rows", columns = "/columns" }
+
+[ops."AwsS3Tables.AppendRows"]
+event    = "onRowsAppended"
+server   = "s3tables"
+tool     = "append_rows_to_table"
+input    = { warehouse = "{prop:TableBucketArn}", region = "{Connection.Region}", namespace = "{prop:Namespace}", uri = "https://s3tables.{Connection.Region}.amazonaws.com/iceberg", table_name = "{arg:1|or:{prop:TableName}}", rows = "{arg:2|json}" }
+mutating = true
+result   = { RowsAppended = "$json:/rows_appended", ResultJson = "$json:" }
+
+# ── Glue — awslabs.aws-dataprocessing-mcp-server 0.2.2 ──────────────────────
+# (Python ≥ 3.10.) One tool per resource, the operation an argument. Each
+# answer is two text blocks — a message, then the data as JSON. Without
+# --allow-sensitive-data-access the server leaves a run's Arguments,
+# ErrorMessage and StateDetail out; its state is always there.
+[servers.dataprocessing]
+command       = "uvx"
+args          = ["awslabs.aws-dataprocessing-mcp-server@0.2.2"]
+readonly_args = []
+write_args    = ["--allow-write"]
+protocol      = "handshake"
+
+[ops."AwsGlue.StartJobRun"]
+event    = "onJobStarted"
+server   = "dataprocessing"
+tool     = "manage_aws_glue_jobs"
+input    = { operation = "start-job-run", job_name = "{arg:1|or:{prop:JobName}}", job_arguments = "{arg:2|opt|json}" }
+mutating = true
+result   = { JobRunId = "$json:/job_run_id", ResponseBody = "$text", ResultJson = "$json:" }
+
+[ops."AwsGlue.GetJobRun"]
+event    = "onJobRun"
+server   = "dataprocessing"
+tool     = "manage_aws_glue_jobs"
+input    = { operation = "get-job-run", job_name = "{arg:1|or:{prop:JobName}}", job_run_id = "{arg:2|or:{prop:JobRunId}}" }
+mutating = false
+result   = { State = "$json:/job_run_details/JobRunState", ResponseBody = "$text", ResultJson = "$json:" }
+
+[ops."AwsGlue.StartCrawler"]
+event    = "onCrawlerStarted"
+server   = "dataprocessing"
+tool     = "manage_aws_glue_crawlers"
+input    = { operation = "start-crawler", crawler_name = "{arg:1|or:{prop:CrawlerName}}" }
+mutating = true
+result   = { ResponseBody = "$text", ResultJson = "$json:" }
+
+[ops."AwsGlue.GetTableSchema"]
+event    = "onTableSchema"
+server   = "dataprocessing"
+tool     = "manage_aws_glue_tables"
+input    = { operation = "get-table", database_name = "{arg:1|or:{prop:DatabaseName}}", table_name = "{arg:2|or:{prop:TableName}}" }
+mutating = false
+result   = { ResponseBody = "$text", ResultJson = "$json:" }
+rows     = { from = "$json:/storage_descriptor/Columns|/table_definition/StorageDescriptor/Columns", fields = { Name = "/Name", Type = "/Type", Comment = "/Comment" } }
+
 # ── The escape hatch: any tool of any routed server ─────────────────────────
 [ops."AwsMcp.Call"]
 event    = "onToolResult"
 server   = "{prop:ServerId}"
-tool     = "{arg:1}"
-input    = "{arg:2|json}"
+tool     = "{arg:1|or:{prop:ToolName}}"
+input    = "{arg:2|json:{}}"
 mutating = "by-tool"
 result   = { ResponseBody = "$text", ResultJson = "$json:" }
 
