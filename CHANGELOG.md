@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.240] — 2026-10-07
+
+### Changed
+- **Spec 088 amended (A1): selecting a control shows its grid.** On a
+  responsive form a control in a grid has no size of its own to drag — its
+  cell's tracks set it. Selecting such a control, with Show Grid off, now
+  shows the grid it sits in (its cell highlighted), and that grid's lines
+  can be dragged to resize the tracks around it (R27–R31, AC15–AC16). Spec
+  only; nothing is implemented yet.
+
 ## [PowerRustCOBOL 1.80.239] — 2026-10-06
 
 ### Added

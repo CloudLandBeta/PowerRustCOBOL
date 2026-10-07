@@ -2,7 +2,7 @@
 
 - **Status:** draft
 - **Folder:** specs/088-grid-editing/
-- **Author:** operator request, written by Claude   **Date:** 2026-10-05
+- **Author:** operator request, written by Claude   **Date:** 2026-10-05, amended 2026-10-07
 
 ## 1. Overview
 A Grid container (`LayoutMode = Grid`, spec 056 R55–R56) is designed today
@@ -19,7 +19,10 @@ This feature makes the grid directly editable on the canvas:
 - a floating, icon-only **grid toolbar** beside the selected grid, for adding,
   removing, restoring, merging and splitting;
 - track lines that can be dragged;
-- control resizing that, inside a grid, resizes the control's cell.
+- control resizing that, inside a grid, resizes the control's cell;
+- selecting a control that sits in a grid shows **that grid**, with track
+  lines the developer drags to size it, even while the grid is hidden
+  (amendment A1).
 
 ## 2. Goals / Non-goals
 - **Goals**
@@ -28,6 +31,9 @@ This feature makes the grid directly editable on the canvas:
   - Two clear modes, chosen by one toolbar toggle: **grid visible** = editing
     the grid; **grid hidden** = editing the controls, where a control's size
     in a grid is its cell's size.
+  - In either mode, the grid a selected control sits in is shown and can be
+    resized by dragging, because on a responsive form that grid is how a
+    control's size is set (A1).
   - Every edit is an ordinary property change: undoable, saved in the
     `.cfrm`, and identical at run time.
 - **Non-goals**
@@ -51,6 +57,9 @@ This feature makes the grid directly editable on the canvas:
   them, as in a spreadsheet.
 - As a form designer, I want to turn the grid off and simply resize a control,
   knowing that what I am really resizing is its cell.
+- As a form designer on a responsive form, I want selecting a control to show
+  me the grid it sits in and let me drag that grid's lines, because the
+  control's own size is not mine to set — the grid's is.
 
 ## 4. Requirements (EARS)
 
@@ -153,6 +162,33 @@ This feature makes the grid directly editable on the canvas:
   x/y/width/height of its own by a canvas gesture. Its size is always its
   cell's.
 
+### 4.5a Selecting a control shows its grid (amendment A1)
+
+> *Operator, 2026-10-07:* "When the layout is responsive and the controls are
+> placed in a grid, since I cannot change directly the size of the controls,
+> selecting a control should actually make the grid visible where it sits and
+> the grid should be resizable by the user using drag and drop."
+
+- **R27 (event):** When the developer selects a control that is placed in a
+  Grid container — on a form that lays out (spec 056), with Show Grid **off**
+  — the canvas shall draw that container's track lines (and only that
+  container's, among the grids not otherwise shown), with the selected
+  control's cell highlighted, for as long as the control stays selected.
+- **R28 (state):** While R27 shows a grid, that grid's **inner** track lines
+  shall be draggable with a resize cursor on hover, exactly as R18–R21 define
+  (opposite-direction resize, units kept, `MinMax`/`Repeat` tracks fixed,
+  8 px minimum, one undoable edit per release), and the control stays
+  selected throughout.
+- **R29 (constraint):** The grid lines R27 shows take the press over the
+  control beneath them only within the lines' own grab band; elsewhere the
+  selected control keeps its ordinary gestures (it can be moved to another
+  cell, and its edges still resize its cell's tracks per R23).
+- **R30 (event):** When the selection moves to a control in another grid, or to
+  a control not in a grid, or is cleared, the grid R27 showed shall be hidden
+  again — unless Show Grid is on, in which case R3 already shows every grid.
+- **R31 (ubiquitous):** For a control in a grid nested in another grid, R27
+  shows the **innermost** grid — the one whose cell holds the control.
+
 ### 4.6 General
 - **R25 (ubiquitous):** Every edit this spec defines shall be an ordinary
   property change through the designer's command system: one undo step per
@@ -196,6 +232,14 @@ This feature makes the grid directly editable on the canvas:
 - [ ] **AC14 (R26)** — For each AC above, the canvas layout and `rcrun
   run-form`'s layout of the saved form produce the same control rects (the
   existing static-vs-run parity harness).
+- [ ] **AC15 (R27, R30, R31)** — On PowerSpatial's `main-form`, with Show Grid
+  off, selecting `Lbl-AC-Sub` draws the track lines of `Crd-AC` (the grid that
+  holds it) and no other grid, with its cell highlighted; selecting a control
+  outside any grid hides them.
+- [ ] **AC16 (R28, R29)** — In that state, dragging the line between two of
+  `Crd-AC`'s columns resizes those columns (units kept, per AC10) as one undo
+  step, the label stays selected, and the label's own `w` in the `.cfrm` is
+  unchanged; a press on the label away from the line still selects/moves it.
 
 ## 6. Constraints & steering check
 - **i18n:** the Show Grid tooltip, every grid-toolbar tooltip, the disabled
@@ -223,6 +267,10 @@ This feature makes the grid directly editable on the canvas:
   asked.*
 - **Q2:** Restore history (R13) lives for the designer session. Should it
   survive closing and reopening the form? *Proposed: no.*
+- **Q4 (A1):** Should the grid R27 shows also offer the floating grid toolbar
+  (add/remove/merge), or only the draggable lines? *Proposed: only the lines —
+  the toolbar belongs to grid-editing mode (Show Grid on), where controls
+  cannot be selected by mistake.*
 - **Q3:** Should a range selection containing no control offer Merge as
   "reserve an empty spanned area"? The model has no span without a control,
   so *proposed: no (R16)*.
