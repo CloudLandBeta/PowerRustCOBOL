@@ -1,0 +1,13 @@
+menu:
+- id: lmbd
+  label: AwsLambda demo
+  type: action
+  icon: home
+  action: open-form:aws-lambda-demo
+  enabled: true
+- id: mcpd
+  label: AwsMcp demo
+  type: action
+  icon: home
+  action: open-form:aws-mcp-demo
+  enabled: true

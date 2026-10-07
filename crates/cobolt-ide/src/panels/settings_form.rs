@@ -103,6 +103,9 @@ pub struct SettingsDraft {
     pub rest_connections: Vec<cobolt_forms::connections::RestConnection>,
     /// The project's named web-search connections — same discipline.
     pub search_connections: Vec<cobolt_forms::connections::SearchConnection>,
+    /// Spec 078 — the project's AWS connections. Nothing secret: the AWS
+    /// CLI's profile signs the calls on the machine that runs them.
+    pub aws_connections: Vec<cobolt_forms::connections::AwsConnection>,
     /// Each connection's credential, **both kinds**, keyed by connection id —
     /// ids are unique across the catalogue. Never written to the project:
     /// saved into the machine-local store under `connection::<id>`, like every
@@ -200,6 +203,7 @@ impl SettingsDraft {
             custom_search_engine_id: p.integrations.google_search_engine_id.clone(),
             rest_connections: p.integrations.rest_connections.clone(),
             search_connections: p.integrations.search_connections.clone(),
+            aws_connections: p.integrations.aws_connections.clone(),
             connection_keys: p
                 .integrations
                 .rest_connections
@@ -341,6 +345,7 @@ impl SettingsDraft {
         // The connections themselves go to the project; their keys do not.
         p.integrations.rest_connections = self.rest_connections.clone();
         p.integrations.search_connections = self.search_connections.clone();
+        p.integrations.aws_connections = self.aws_connections.clone();
         let ids = self
             .rest_connections
             .iter()
@@ -461,6 +466,42 @@ pub struct SettingsForm {
     /// 038 R6 — when Some, the effect preview is playing; the value is the
     /// `ctx.input(|i| i.time)` second it started (entrance → hold → exit).
     fx_preview_started: Option<f64>,
+    /// Spec 078 — Test connection runs on a thread per AWS connection (id);
+    /// its outcome is kept to show under the connection.
+    aws_tests: std::collections::HashMap<String, std::sync::mpsc::Receiver<cobolt_runtime::aws::diagnose::Report>>,
+    aws_results: std::collections::HashMap<String, cobolt_runtime::aws::diagnose::Report>,
+}
+
+/// What Test connection found, in the IDE's language (spec 078 R24).
+pub(crate) fn aws_report_text(tr: &Tr, report: &cobolt_runtime::aws::diagnose::Report) -> String {
+    use cobolt_runtime::aws::diagnose::Report;
+    match report {
+        Report::ProgramMissing { program, .. } => tr.aws_test_program_missing.replace("{0}", program),
+        Report::ProfileNotSignedIn { profile, .. } => tr.aws_test_profile.replace("{0}", profile),
+        Report::RouteMismatch { detail } => tr.aws_test_route.replace("{0}", detail),
+        Report::AllGood { functions } if functions.is_empty() => tr.aws_test_ok_none.to_owned(),
+        Report::AllGood { functions } => tr.aws_test_ok.replace("{0}", &functions.join(", ")),
+    }
+}
+
+/// Run Test connection on a thread; the receiver gets the report.
+fn spawn_aws_test(
+    conn: cobolt_forms::connections::AwsConnection,
+    ctx: egui::Context,
+) -> std::sync::mpsc::Receiver<cobolt_runtime::aws::diagnose::Report> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // A first start may download the server: give it two minutes, then
+        // half a minute to list the functions.
+        let report = cobolt_runtime::aws::diagnose::diagnose(
+            &conn,
+            std::time::Duration::from_secs(120),
+            std::time::Duration::from_secs(30),
+        );
+        let _ = tx.send(report);
+        ctx.request_repaint();
+    });
+    rx
 }
 
 impl SettingsForm {
@@ -480,6 +521,8 @@ impl SettingsForm {
             available_models: Vec::new(),
             available_reviewer_models: Vec::new(),
             fx_preview_started: None,
+            aws_tests: std::collections::HashMap::new(),
+            aws_results: std::collections::HashMap::new(),
         }
     }
 
@@ -556,6 +599,16 @@ impl SettingsForm {
     ) -> SettingsFormAction {
         let mut action = SettingsFormAction::default();
         self.cobol_proficiency_prompt_editor.known_controls = known_controls.to_vec();
+        // Spec 078 — collect finished Test connection runs.
+        let finished: Vec<(String, cobolt_runtime::aws::diagnose::Report)> = self
+            .aws_tests
+            .iter()
+            .filter_map(|(id, rx)| rx.try_recv().ok().map(|r| (id.clone(), r)))
+            .collect();
+        for (id, report) in finished {
+            self.aws_tests.remove(&id);
+            self.aws_results.insert(id, report);
+        }
         let theme = crate::theme::active();
 
         // With the settings glass card now using the exact same
@@ -2277,9 +2330,12 @@ impl SettingsForm {
                                 let SettingsDraft {
                                     rest_connections,
                                     search_connections,
+                                    aws_connections,
                                     connection_keys,
                                     ..
                                 } = &mut self.draft;
+                                let aws_tests = &mut self.aws_tests;
+                                let aws_results = &mut self.aws_results;
 
                                 let mut remove: Option<usize> = None;
                                 for (i, c) in rest_connections.iter_mut().enumerate() {
@@ -2511,6 +2567,94 @@ impl SettingsForm {
                                             format!("Search {n}"),
                                         ),
                                     );
+                                }
+
+                                // ── Spec 078 — AWS connections ──────────────────
+                                //
+                                // A profile and a region, which Lambda functions
+                                // the application may reach, and an optional
+                                // route override. No key row: the AWS CLI's own
+                                // profile signs every call.
+                                ui.add_space(10.0);
+                                ui.label(RichText::new(tr.settings_aws_connections).strong());
+                                ui.label(
+                                    RichText::new(tr.settings_aws_connections_hint)
+                                        .small()
+                                        .color(Color32::GRAY),
+                                );
+                                ui.add_space(4.0);
+                                let mut remove_aws: Option<usize> = None;
+                                for (i, c) in aws_connections.iter_mut().enumerate() {
+                                    ui.push_id(("aws-conn", i), |ui| {
+                                        egui::Frame::group(ui.style()).show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_name);
+                                                ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(200.0));
+                                                if ui.button(tr.settings_conn_remove).clicked() {
+                                                    remove_aws = Some(i);
+                                                }
+                                            });
+                                            for (label, value, hint) in [
+                                                (tr.settings_aws_profile, &mut c.profile, "default"),
+                                                (tr.settings_aws_region, &mut c.region, "us-east-1"),
+                                                (tr.settings_aws_function_prefix, &mut c.function_prefix, "sales-"),
+                                                (tr.settings_aws_function_list, &mut c.function_list, "orders,invoices"),
+                                            ] {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(label);
+                                                    ui.add(
+                                                        egui::TextEdit::singleline(value)
+                                                            .hint_text(hint)
+                                                            .desired_width(240.0),
+                                                    );
+                                                });
+                                            }
+                                            ui.label(tr.settings_aws_routes_override);
+                                            ui.add(
+                                                egui::TextEdit::multiline(&mut c.routes_override)
+                                                    .code_editor()
+                                                    .desired_rows(2)
+                                                    .desired_width(f32::INFINITY),
+                                            );
+                                            ui.horizontal(|ui| {
+                                                let running = aws_tests.contains_key(&c.id);
+                                                if ui
+                                                    .add_enabled(!running, egui::Button::new(tr.settings_aws_test))
+                                                    .clicked()
+                                                {
+                                                    aws_results.remove(&c.id);
+                                                    aws_tests.insert(c.id.clone(), spawn_aws_test(c.clone(), ui.ctx().clone()));
+                                                }
+                                                if running {
+                                                    ui.spinner();
+                                                    ui.label(RichText::new(tr.settings_aws_testing).small());
+                                                }
+                                            });
+                                            if let Some(report) = aws_results.get(&c.id) {
+                                                let good = matches!(report, cobolt_runtime::aws::diagnose::Report::AllGood { .. });
+                                                ui.label(
+                                                    RichText::new(aws_report_text(tr, report)).small().color(if good {
+                                                        Color32::from_rgb(90, 180, 110)
+                                                    } else {
+                                                        Color32::from_rgb(220, 120, 90)
+                                                    }),
+                                                );
+                                            }
+                                        });
+                                    });
+                                }
+                                if let Some(i) = remove_aws {
+                                    let gone = aws_connections.remove(i);
+                                    aws_tests.remove(&gone.id);
+                                    aws_results.remove(&gone.id);
+                                }
+                                if ui.button(tr.settings_conn_add).clicked() {
+                                    let n = aws_connections.len() + 1;
+                                    aws_connections.push(cobolt_forms::connections::AwsConnection {
+                                        id: crate::agents_db::new_uuid(),
+                                        name: format!("AWS {n}"),
+                                        ..Default::default()
+                                    });
                                 }
                             });
                         });

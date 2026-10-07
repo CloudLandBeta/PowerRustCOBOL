@@ -2604,6 +2604,9 @@ pub struct DesignerPanel {
     /// Where the breadcrumb's toggle landed last frame, so the hover wash and
     /// the click test use the very rect that was drawn.
     pub(crate) crumb_toggle_rect: Option<egui::Rect>,
+    /// Spec 078 — the project's AWS connection names, refreshed each frame,
+    /// so a dropped AWS control can take the only one.
+    pub(crate) project_aws_connections: Vec<String>,
 
     // ── Magnifier (spec 089) — view state only, never in the form ────────────
     /// The toolbar's Magnifier toggle. Every form opens with it off.
@@ -2911,6 +2914,7 @@ impl DesignerPanel {
             rail_view_collapsed: None,
             rail_designed_collapsed: None,
             crumb_toggle_rect: None,
+            project_aws_connections: Vec::new(),
             magnifier_on: false,
             magnifier_feed: None,
             anim_states: HashMap::new(),
@@ -4564,6 +4568,13 @@ impl DesignerPanel {
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
+        // Spec 078 — an AWS control dropped in a project with exactly one AWS
+        // connection takes it, in the same undo step as the drop.
+        if ct.as_str().starts_with("Aws") {
+            if let [only] = self.project_aws_connections.as_slice() {
+                ctrl.set_prop("Connection".to_string(), PropValue::String(only.clone()));
+            }
+        }
         if self.wears_spatial() {
             ctrl.apply_spatial_defaults();
         } else if let Some(style) = self.neumorphic_seed() {
@@ -7079,6 +7090,10 @@ impl DesignerPanel {
     ) -> DesignerShowResult {
         let mut result = DesignerShowResult::default();
         let mut selection_changed = false;
+        // Spec 078 — what a dropped AWS control may take as its connection.
+        self.project_aws_connections = project
+            .map(|p| p.integrations.aws_connections.iter().map(|c| c.name.clone()).collect())
+            .unwrap_or_default();
 
         // 049 — re-pin every FullHeight SideMenu to the form's height before
         // anything reads a rect this frame. Idempotent, and one call here is
@@ -23748,5 +23763,36 @@ mod magnifier_tests_089 {
         let after = cobolt_forms::xml::form_to_string(&d.form).unwrap();
         assert!(!d.dirty && d.undo_stack.is_empty(), "the magnifier is not an edit");
         assert_eq!(before, after, "the saved form is byte-identical");
+    }
+}
+
+/// Spec 078 T-A18 — a dropped AWS control takes the project's only AWS
+/// connection, in the drop's own undo step.
+#[cfg(test)]
+mod aws_drop_tests_078 {
+    use super::*;
+
+    #[test]
+    fn a_dropped_aws_control_takes_the_only_connection() {
+        let mut d = DesignerPanel::new(Form::new("F", "F", 600, 400));
+        d.project_aws_connections = vec!["Sales".into()];
+        d.add_control(ControlType::AwsLambda, 40, 40);
+        let c = d.form.controls.last().unwrap();
+        assert_eq!(c.get_prop("Connection").map(|v| v.as_str().to_owned()).as_deref(), Some("Sales"));
+        assert_eq!(d.undo_stack.len(), 1, "one undo step for the drop and its connection");
+        d.undo();
+        assert!(d.form.controls.is_empty(), "undoing the drop removes both");
+
+        // Two connections: the developer chooses; nothing is guessed.
+        let mut d = DesignerPanel::new(Form::new("F", "F", 600, 400));
+        d.project_aws_connections = vec!["Sales".into(), "Billing".into()];
+        d.add_control(ControlType::AwsMcp, 40, 40);
+        let c = d.form.controls.last().unwrap();
+        assert_eq!(c.get_prop("Connection").map(|v| v.as_str().trim().to_owned()).unwrap_or_default(), "");
+        // A non-AWS control is never given one.
+        let mut d = DesignerPanel::new(Form::new("F", "F", 600, 400));
+        d.project_aws_connections = vec!["Sales".into()];
+        d.add_control(ControlType::Button, 40, 40);
+        assert!(d.form.controls.last().unwrap().get_prop("Connection").is_none());
     }
 }

@@ -70,6 +70,31 @@ impl Driven {
 /// from the program's own DISPLAY lines, which the host prints as they come.
 pub const RESULT_MARKER: &str = "@RUN-FORM-RESULT ";
 
+/// The headless run of a **built application** (spec 078 T-A16): the script
+/// at `script_path` drives the application's own host for at most
+/// `limit_secs`, exactly as `rcrun run-form --headless` drives Run Form, and
+/// the result line is printed with [`RESULT_MARKER`]. This is what lets a test
+/// prove a compiled binary behaves as Run Form does without opening a window.
+///
+/// Child processes the run started (an AWS control's server) are stopped
+/// before returning; the caller ends the process.
+pub fn run_script_file(
+    config: FormHostConfig,
+    shell: Option<Option<(String, cobolt_forms::menu::MenuDefinition)>>,
+    script_path: &Path,
+    limit_secs: u64,
+) {
+    let script: Vec<Value> = std::fs::read_to_string(script_path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let report = run_headless(config, shell, &script, Duration::from_secs(limit_secs.clamp(1, 600)), None);
+    println!("{RESULT_MARKER}{report}");
+    use std::io::Write as _;
+    let _ = std::io::stdout().flush();
+    cobolt_runtime::shutdown_child_processes();
+}
+
 /// Spec 084 R31: run the form described by `config` through `script`, for at
 /// most `limit`, and say what happened. The picture of the last frame goes to
 /// `png_out` when given. `shell` runs it as `rcrun run-form` runs a main form

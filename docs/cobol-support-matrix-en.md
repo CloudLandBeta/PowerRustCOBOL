@@ -273,6 +273,7 @@ COBOL; it is what makes the language usable for modern applications.
 | **SQL** — SQLite, PostgreSQL, MySQL | — | — | ● | ✅ | One identical CALL surface for all three; the backend is chosen from the connection string. **No system libraries** — nothing is linked from the host — but "pure Rust" is only true of two of the three: `postgres` and `mysql` are, while `rusqlite` is pinned `features = ["bundled"]` and compiles the **SQLite C amalgamation** through `libsqlite3-sys`. (That C build is also why `test_external_crates_e2e` intermittently fails inside a nested `cargo build`.) See [`database-runtime-en.md`](database-runtime-en.md) |
 | **SQL result sets** — `Fetch()`, `ColumnNames()`, `ColumnCount()`, `ColumnName(n)` | — | — | ● | ✅ | `Fetch()` returns the next row TAB-separated and empty when spent, so it terminates its own loop; `ColumnNames()` names the result set in SELECT order, even when it matched no rows. The `CALL` surface reads the current row one column at a time by index instead — the two traversals must not be mixed on one handle |
 | **HTTP / REST** — GET / POST / PUT / DELETE | — | — | ● | ✅ | Custom headers |
+| **AWS** — `AwsLambda` (invoke a Lambda function), `AwsMcp` (any tool of an AWS MCP server) | — | — | ● | 🚧 | Delivery A of spec 078: through AWS's own MCP servers, started with `uvx` and signed by an AWS CLI profile — no key in the project or the binary. `AllowWrite` off by default; Test connection in Settings → Integrations. The remaining AWS service controls (DynamoDB, S3, Bedrock Knowledge Bases, …) are later deliveries. See the Developer's Guide, *Calling AWS* |
 | **GUI** — `COBOL-WAIT-EVENT`, `COBOL-SET-PROPERTY`, `COBOL-GET-PROPERTY`, `COBOL-INIT-FORM` | — | — | ● | ✅ | |
 | **Charts** — bar / line / pie / area / scatter / donut | — | — | ● | ✅ | Bound to COBOL tables |
 | **Text files** — `COBOL-APPEND-FILE`, `COBOL-WRITE-FILE` | — | — | ● | ✅ | |
@@ -305,7 +306,7 @@ walkthrough in the [developer's guide](developers-guide-en.md).
 |---|:--:|---|
 | Visual form designer | ✅ | Design canvas with multiple themes (**Liquid Glass**, **Cobalt Steel**), grid snapping, drag-resize of controls and canvas, multi-select alignment, z-ordering |
 | Unified rendering engine | ✅ | Pixel-parity between designer, previewer, running application and compiled binary |
-| Control catalogue | ✅ | **43 widgets** across Common, Container, Data, Graphics, Menu, Non-visual and Charts, plus a plugin-provided `Custom` type |
+| Control catalogue | ✅ | **47 widgets** across Common, Container, Data, Graphics, Menu, Non-visual, AWS and Charts, plus a plugin-provided `Custom` type |
 | Universal corner radius and rounded clipping | ✅ | Nested children clip to a parent's rounded border via corner-notch masking |
 | Per-control `Transparency` | ✅ | 0 = opaque … 100 = see-through; fades face, frame and shadow while text, glyphs and border stay legible. Captions below WCAG AA against what is behind them flip to the pole that reads |
 | Animator widget | ✅ | Natively renders **GIF / WebP / APNG** |

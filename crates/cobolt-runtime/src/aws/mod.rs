@@ -19,6 +19,7 @@
 //! - [`routes`] — which server and tool serve each operation, as data.
 
 pub mod connections;
+pub mod diagnose;
 pub mod lifetime;
 pub mod ops;
 pub mod pool;

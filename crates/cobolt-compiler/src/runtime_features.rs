@@ -98,6 +98,10 @@ pub struct RuntimeFeatures {
     /// The Viewer opening Word, PowerPoint, Excel and OpenDocument files as
     /// their text (`cobolt-docs`). Pure Rust; on for any form with a Viewer.
     pub office: bool,
+    /// Spec 078 — the AWS controls' client and server pool. Pure Rust and no
+    /// new crate; on for any form with an `Aws*` control (R29: an application
+    /// without one links none of it).
+    pub aws: bool,
 }
 
 impl RuntimeFeatures {
@@ -112,6 +116,7 @@ impl RuntimeFeatures {
             smb: true,
             pdf: true,
             office: true,
+            aws: true,
         }
     }
 
@@ -126,6 +131,7 @@ impl RuntimeFeatures {
             smb: self.smb || other.smb,
             pdf: self.pdf || other.pdf,
             office: self.office || other.office,
+            aws: self.aws || other.aws,
         }
     }
 
@@ -158,6 +164,9 @@ impl RuntimeFeatures {
         }
         if self.office {
             names.push("\"office\"");
+        }
+        if self.aws {
+            names.push("\"aws\"");
         }
         names.join(", ")
     }
@@ -198,6 +207,9 @@ pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -
             if ctrl.control_type == cobolt_forms::ControlType::Viewer {
                 found.pdf = true;
                 found.office = true;
+            }
+            if ctrl.control_type.as_str().starts_with("Aws") {
+                found.aws = true;
             }
         }
     }
@@ -273,6 +285,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         smb: source.contains("smb_source") || source.contains("registered_file"),
         pdf: source.contains("viewer_pdf"),
         office: source.contains("cobolt_docs"),
+        aws: source.contains("cobolt_runtime::aws"),
     }
 }
 
@@ -466,7 +479,10 @@ mod tests {
         let all = RuntimeFeatures::all();
         assert!(all.sql && all.http && all.maps && all.kb);
         assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
-        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\"");
+        assert_eq!(
+            all.as_toml_features(),
+            "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\""
+        );
     }
 
     /// A Maps control is reached by method call on a control id, which the AST
@@ -544,6 +560,30 @@ mod tests {
         );
     }
 
+    /// Spec 078 T-A15 / AC17 — a form without an AWS control builds without
+    /// AWS support (R29)…
+    #[test]
+    fn a_form_without_aws_controls_builds_without_aws() {
+        let f = scan_forms([&form_with(cobolt_forms::ControlType::Button)]);
+        assert!(!f.aws, "{f:?}");
+        assert!(!f.as_toml_features().contains("\"aws\""));
+    }
+
+    /// …and either AWS control, top level or inside a container, turns it on.
+    #[test]
+    fn an_aws_control_turns_the_feature_on() {
+        for kind in [cobolt_forms::ControlType::AwsLambda, cobolt_forms::ControlType::AwsMcp] {
+            assert!(scan_forms([&form_with(kind.clone())]).aws, "{kind:?}");
+            let mut panel = control("PANEL-1", cobolt_forms::ControlType::Panel);
+            panel.children.push(control("AWS-1", kind.clone()));
+            let mut form = cobolt_forms::Form::new("F", "F", 800, 600);
+            form.controls = vec![panel];
+            let f = scan_forms([&form]);
+            assert!(f.aws && f.as_toml_features().contains("\"aws\""), "{kind:?} in a container");
+        }
+        assert!(scan_rust("let c = cobolt_runtime::aws::connections::find(\"x\");").aws);
+    }
+
     fn control(id: &str, kind: cobolt_forms::ControlType) -> cobolt_forms::Control {
         cobolt_forms::Control::new(id, kind, 0, 0)
     }
@@ -576,7 +616,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 

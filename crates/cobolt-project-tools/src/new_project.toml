@@ -642,3 +642,4 @@ For the FINAL assessment, END with exactly one fenced JSON block:
 google_search_engine_id = ""
 rest_connections = []
 search_connections = []
+aws_connections = []

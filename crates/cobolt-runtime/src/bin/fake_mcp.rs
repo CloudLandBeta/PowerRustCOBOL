@@ -27,7 +27,10 @@
 //!   "call_log": "/path/log.jsonl",     // one line per request received
 //!   "pid_file": "/path/pids.txt",      // one line per start: the PID
 //!   "env_dump": "/path/env.txt",       // the environment it was given
-//!   "argv_dump": "/path/argv.txt"      // the arguments it was given
+//!   "argv_dump": "/path/argv.txt",     // the arguments it was given
+//!   "exit_on_start": "text"            // write this to stderr and exit at once,
+//!                                      // as a server whose AWS profile is not
+//!                                      // signed in does
 //! }
 //! ```
 //!
@@ -64,6 +67,10 @@ fn main() {
     }
     if let Some(p) = s("argv_dump") {
         let _ = std::fs::write(p, args.join("\n"));
+    }
+    if let Some(text) = s("exit_on_start") {
+        eprintln!("{text}");
+        std::process::exit(1);
     }
 
     let tools: Vec<Value> = script.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();

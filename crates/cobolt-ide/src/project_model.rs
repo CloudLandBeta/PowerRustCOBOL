@@ -138,6 +138,13 @@ pub struct ProjectIntegrationSettings {
     /// discipline as the REST list: the key is never here.
     #[serde(default)]
     pub search_connections: Vec<cobolt_forms::connections::SearchConnection>,
+    /// Named AWS connections (`[[integrations.aws_connections]]`, spec 078
+    /// R12) — an AWS profile, a region, the Lambda functions offered and an
+    /// optional route override. There is no secret to keep out: the
+    /// credentials are the AWS CLI's own, on the machine that runs the
+    /// application.
+    #[serde(default)]
+    pub aws_connections: Vec<cobolt_forms::connections::AwsConnection>,
 }
 
 /// AI configuration that belongs to one project and is persisted in
@@ -2092,6 +2099,32 @@ timeout_secs = 120
                 .get(crate::llm::GOOGLE_CUSTOM_SEARCH_API_KEY_SLOT),
             Some(&"never-write-this-search-secret".to_owned())
         );
+    }
+
+    /// Spec 078 T-A14 / AC8 — an AWS connection round-trips through
+    /// `cobolt.toml`, and nothing in it is, or is named like, a credential.
+    #[test]
+    fn aws_connection_round_trips_through_cobolt_toml() {
+        let mut p = proj();
+        p.integrations.aws_connections.push(cobolt_forms::connections::AwsConnection {
+            id: "aws-1".into(),
+            name: "Sales".into(),
+            profile: "sales-prod".into(),
+            region: "eu-west-1".into(),
+            function_prefix: "sales-".into(),
+            function_list: String::new(),
+            routes_override: String::new(),
+        });
+        let text = toml::to_string_pretty(&p).unwrap();
+        assert!(text.contains("[[integrations.aws_connections]]"), "{text}");
+        assert!(text.contains("sales-prod") && text.contains("eu-west-1"));
+        let section = &text[text.find("[[integrations.aws_connections]]").unwrap()..];
+        for word in ["key", "secret", "token", "password"] {
+            assert!(!section.to_ascii_lowercase().contains(word), "{word} in {section}");
+        }
+        let loaded: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(loaded.integrations.aws_connections, p.integrations.aws_connections);
+        println!("aws connection: [[integrations.aws_connections]] round-trips, no credential field");
     }
 
     #[test]

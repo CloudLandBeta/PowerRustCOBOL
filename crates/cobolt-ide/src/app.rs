@@ -2794,6 +2794,8 @@ impl CoboltApp {
                 .map(|p| p.integrations.search_connections.clone())
                 .unwrap_or_default(),
             agent: Vec::new(),
+            // Spec 078 — an AWS connection has no credential to hand over:
+            // the AWS CLI's own profile signs the calls.
             aws: Vec::new(),
         };
 
@@ -7493,6 +7495,11 @@ impl CoboltApp {
                     .as_ref()
                     .map(|project| project.integrations.search_connections.clone())
                     .unwrap_or_default();
+                let aws_connections: Vec<cobolt_forms::connections::AwsConnection> = self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|project| project.integrations.aws_connections.clone())
+                    .unwrap_or_default();
                 // The machine's model providers, not the project's — hoisted off
                 // `self` for the same borrow reason as the two above.
                 let agent_connections = crate::form_runtime::agent_connections(&self.llm);
@@ -7515,8 +7522,10 @@ impl CoboltApp {
                     props.set_rest_connections(&rest_connections);
                 props.set_sql_connections(&sql_connection_names);
                 props.set_search_connections(&search_connections);
+                props.set_aws_connections(&aws_connections);
                 props.set_agent_connections(&agent_connections);
                     props.set_search_connections(&search_connections);
+                props.set_aws_connections(&aws_connections);
                 props.set_agent_connections(&agent_connections);
                     props.set_agent_connections(&agent_connections);
                     props.set_stored_credentials(&stored_creds);
@@ -19278,6 +19287,11 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.integrations.search_connections.clone())
             .unwrap_or_default();
+        let aws_connections: Vec<cobolt_forms::connections::AwsConnection> = self
+            .cobolt_project
+            .as_ref()
+            .map(|project| project.integrations.aws_connections.clone())
+            .unwrap_or_default();
         // The machine's model providers, not the project's — hoisted off
         // `self` for the same borrow reason as the two above.
         let agent_connections = crate::form_runtime::agent_connections(&self.llm);
@@ -19341,6 +19355,7 @@ impl CoboltApp {
                 props.set_rest_connections(&rest_connections);
                 props.set_sql_connections(&sql_connection_names);
                 props.set_search_connections(&search_connections);
+                props.set_aws_connections(&aws_connections);
                 props.set_agent_connections(&agent_connections);
                 props.set_stored_credentials(&stored_creds);
                 // SAFETY: we only read *form; no aliased write exists.

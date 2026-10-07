@@ -70,6 +70,20 @@ pub fn search_connections() -> &'static [cobolt_forms::connections::SearchConnec
     SEARCH_CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
 }
 
+/// Publish the project's AWS connections (spec 078 R12, R28).
+///
+/// The AWS controls resolve their `Connection` when they are called, in the
+/// runtime, from its own process-wide registry — so this forwards there, and
+/// every form the process hosts sees them: the root, child windows and the
+/// ContentPane occupants loaded later. A host built without AWS support has
+/// no AWS control to serve, and this does nothing.
+pub fn publish_aws_connections(connections: Vec<cobolt_forms::connections::AwsConnection>) {
+    #[cfg(feature = "aws")]
+    cobolt_runtime::aws::connections::publish(connections);
+    #[cfg(not(feature = "aws"))]
+    let _ = connections;
+}
+
 /// The model providers an `AgentObject` may be bound to. Assembled from the
 /// machine's own configuration rather than the project — see
 /// `cobolt_forms::connections::AgentConnection`.

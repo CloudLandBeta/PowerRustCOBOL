@@ -157,7 +157,9 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
             "No answer within {} ms: the AWS call was abandoned.",
             budget.call.as_millis()
         )),
-        CallError::Start(m) => Outcome::Error(m),
+        // A start failure's first line is for the user; what the server said
+        // after it decides whether this is really a profile to sign in to.
+        CallError::Start(m) => Outcome::Error(plain_error(&m, &profile).lines().next().unwrap_or_default().to_owned()),
         CallError::Failed(m) => {
             let stderr = pool::stderr_of(&p.key).unwrap_or_default();
             Outcome::Error(plain_error(&format!("{m}\n{stderr}"), &profile).lines().next().unwrap_or_default().to_owned())

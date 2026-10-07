@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="AWS-SHELL" title="AWS demos" width="900" height="600" main-form="true" index-base="1">
+  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="220" h="600" tab-order="0" z-order="0" visible="true" enabled="true">
+  </Control>
+</Form>
