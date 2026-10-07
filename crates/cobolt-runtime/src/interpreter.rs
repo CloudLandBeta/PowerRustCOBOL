@@ -14389,6 +14389,12 @@ impl Interpreter {
     /// the same, or R31's "no Find capability reachable only by mouse"
     /// becomes "reachable, but only if you guessed the right of two names".
     fn viewer_mirror_alias(&mut self, obj: &str, prop: &str, val: &str) {
+        // A compiled `MOVE … TO VWR-1::View1Source` arrives as `VIEW1SOURCE`:
+        // the prefix is matched as a word, not as one spelling of it.
+        let prop = &match prop.get(..5) {
+            Some(p) if p.eq_ignore_ascii_case("View1") => format!("View1{}", &prop[5..]),
+            _ => prop.to_string(),
+        };
         const ALIASED: &[&str] = &[
             "Source",
             "Page",
@@ -15400,6 +15406,18 @@ impl Interpreter {
         if let Some(key) = single_prop_key(path) {
             self.sync_list_selection(root, &key, &val);
             self.sync_datagrid_override(root, &key, &val);
+            // A handler's `MOVE … TO VWR-1::View1Source` keeps both spellings
+            // of a Viewer's properties in step, as `obj_set` does. Without it
+            // `Source` stayed empty, so `SaveAs()` proposed `VWR-1.txt` for a
+            // dropped `report.md` and then had no document to write
+            // (operator, 2026-10-06). Mirrored only: the host draws the
+            // document, and the guard keeps the mirror's own `obj_set` from
+            // re-opening it here.
+            if self.is_viewer(root) && !self.viewer_loading {
+                self.viewer_loading = true;
+                self.viewer_mirror_alias(root, &key, &val);
+                self.viewer_loading = false;
+            }
         }
         // 049 — own-form property writes (me::X / <FORM-NAME>::X) are
         // mirrored to the supervisor for other forms' `super::X` reads.
@@ -20118,6 +20136,56 @@ MAIN.
             vec!["onSaveComplete".to_string()],
             "a successful write reports onSaveComplete and nothing else"
         );
+    }
+
+    /// **A COBOL `MOVE … TO VWR-1::View1Source` is the document Save As
+    /// saves** — the way every form writes it, and a write that used to
+    /// reach only the host.
+    ///
+    /// `obj_set` mirrors `View1Source` onto `Source`; a handler's `MOVE` goes
+    /// through `set_member_indexed`, which did not. So the host drew the
+    /// dropped file while the runtime's `Source` stayed empty: `SaveAs()`
+    /// proposed `VWR-1.txt`, and the answered dialog had "no document loaded"
+    /// to write (operator, 2026-10-06, PowerDemo3's Viewer demo).
+    #[test]
+    fn a_cobol_move_to_view1source_is_what_save_as_saves() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("dropped-report.md");
+        let original = b"# Dropped\n\nA document dropped on the zone.\n".to_vec();
+        std::fs::write(&doc, &original).unwrap();
+        let source = format!(
+            "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. VIEWER-MOVE.
+PROCEDURE DIVISION.
+MAIN.
+    MOVE \"{}\" TO VWR-1::View1Source.
+    VWR-1::SaveAs().
+    STOP RUN.
+",
+            doc.display()
+        );
+        let parsed = parse(tokenize(&source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("program should parse"));
+        interp.seed_objects([("VWR-1".to_owned(), "Viewer".to_owned(), Vec::<(String, String)>::new())]);
+        let _ = interp.run();
+
+        let mirrored = interp.obj_get("VWR-1", "Source");
+        let asked = interp.obj_get("VWR-1", "_SaveAsRequest");
+        println!("  MOVE … TO VWR-1::View1Source → Source = {mirrored:?}, _SaveAsRequest = {asked:?}");
+        assert_eq!(mirrored, doc.display().to_string(), "View1Source mirrors onto Source");
+        assert_eq!(asked, "dropped-report.md", "Save As proposes the document's own name");
+
+        // The operator picks a destination in the panel: the dropped file is
+        // what gets written, byte for byte.
+        let dest = dir.path().join("saved-copy.md");
+        interp.run_viewer_save_as_answer("VWR-1", dest.to_str().unwrap());
+        let events = queued_for(&interp, "VWR-1");
+        let written = std::fs::read(&dest).unwrap_or_default();
+        println!("  answered with {} → {} of {} bytes written, events {events:?}", dest.display(), written.len(), original.len());
+        assert_eq!(written, original, "the saved copy is the dropped document");
+        assert!(events.iter().any(|e| e == "onSaveComplete"), "{events:?}");
+        assert!(!events.iter().any(|e| e == "onError"), "{events:?}");
     }
 
     /// **`SaveAs()` with no path asks for a dialog** — it does not refuse.
