@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.235] — 2026-10-06
+
+### Changed
+- **Welcome screen — every quote in every language.** The rotating quote
+  pool had all 63 quotes in English but a curated 20 in the other five
+  languages, so most quotes could only ever appear in English. Spanish,
+  Portuguese, French, Japanese and Chinese now carry the full pool, in the
+  same order as English, with scripture references localised. A test keeps
+  the six pools the same length, in the same order, and translated.
+
 ## [PowerRustCOBOL 1.80.234] — 2026-10-06
 
 ### Added
