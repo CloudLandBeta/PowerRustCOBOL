@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.4] — 2026-10-08
+
+### Fixed
+- **Grace's reply was cut off mid-sentence.** When Grace answered the developer
+  herself — a question about an unclear request, an inventory, or a plain
+  answer with no plan — the chat showed only the first 50 words followed by an
+  ellipsis. A clarification such as "Which panel or control do you want the
+  shadow on? … can only be applied to…" lost the sentence that listed the
+  options, and with it the question's own balloon. The chat now shows her reply
+  whole: fenced code and JSON blocks are still left out, a change-set is still
+  summarised in plain language, and a reply over 5,000 words is still capped
+  with every question line kept. The 50-word lead remains for the output of
+  specialist agents, and verbose mode was never affected.
+
 ## [PowerRustCOBOL 1.90.3] — 2026-10-08
 
 ### Added

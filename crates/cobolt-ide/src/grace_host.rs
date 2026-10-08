@@ -3557,7 +3557,7 @@ pub fn workflow_chat_reply(
         return with_token_footer(preferred.join("\n\n"), record, tr);
     }
     if approved.len() == 1 && approved[0].0.eq_ignore_ascii_case(GRACE) {
-        return with_token_footer(readable_submission(approved[0].1), record, tr);
+        return with_token_footer(direct_grace_reply(approved[0].1), record, tr);
     }
     if !approved.is_empty() {
         return with_token_footer(
@@ -3738,6 +3738,26 @@ fn full_prose_submission(sub: &str) -> String {
         }
     }
     kept.join("\n").trim().to_string()
+}
+
+/// Grace's own reply to the developer — a clarity check, an inventory, a plan-less
+/// answer or a question — relayed whole. Unlike a specialist's submission, which
+/// [`readable_submission`] boils down to a 50-word lead, the reply IS the
+/// deliverable: cutting it at word 50 ended "Which panel or control do you want
+/// the shadow on? … can only be applied to…" mid-sentence, with the options the
+/// developer was meant to choose from lost. Fenced blocks are still stripped and
+/// the [`CLARIFICATION_RELAY_MAX_WORDS`] cap still applies (questions survive it);
+/// a reply that carries a change-set is summarised as before.
+fn direct_grace_reply(sub: &str) -> String {
+    if !extract_operations(sub).is_empty() {
+        return readable_submission(sub);
+    }
+    let prose = full_prose_submission(sub);
+    if prose.is_empty() {
+        "(completed)".to_string()
+    } else {
+        prose
+    }
 }
 
 /// Render one agent submission for the chatbot: a plain-language change-set
@@ -5354,6 +5374,45 @@ mod tests {
         );
         assert_eq!(record.tasks[0].spec.agent, GRACE);
         assert_eq!(record.status, "completed");
+    }
+
+    /// Observed live: Grace's clarification ("Which panel or control do you want
+    /// the shadow on? …") reached the chat cut at word 50 with an ellipsis, in
+    /// the middle of the sentence that listed the options. A direct Grace reply
+    /// is the deliverable, so concise mode relays it whole — the 50-word lead is
+    /// for specialist submissions only.
+    #[test]
+    fn long_direct_grace_replies_are_not_truncated_in_concise_mode() {
+        let tr = crate::i18n::Language::English.tr();
+        let tail = "The shadow can only be applied to a Panel, GroupBox or Button, not to a Label.";
+        let reply = format!(
+            "{} Which panel or control do you want the shadow on?\n\n{tail}",
+            "I read your request as a visual change to the main form. ".repeat(8)
+        );
+        assert!(reply.split_whitespace().count() > 50, "fixture must exceed the old cap");
+
+        let record = direct_grace_record(
+            reply.clone(),
+            "Confirm Grace's interpretation of an unclear request before any retrieval or planning",
+        );
+        let relayed = workflow_chat_reply(&record, None, false, &tr);
+        assert!(relayed.contains(tail), "the end of the reply must survive: {relayed}");
+        assert!(!relayed.contains('\u{2026}'), "no ellipsis cut: {relayed}");
+        assert!(
+            relayed.contains("Which panel or control do you want the shadow on?"),
+            "{relayed}"
+        );
+        // The chat then splits the question into its own balloon.
+        let (_context, questions) = split_developer_questions(&relayed);
+        assert_eq!(questions.len(), 1, "{questions:?}");
+
+        // A fenced block inside the reply is still kept out of the chat.
+        let fenced = direct_grace_record(
+            "Here is what I will do.\n```json\n{\"operations\": []}\n```\nWhich form?".into(),
+            "Answer or ask the developer directly (no workflow required)",
+        );
+        let relayed = workflow_chat_reply(&fenced, None, false, &tr);
+        assert!(relayed.contains("Which form?") && !relayed.contains("operations"), "{relayed}");
     }
 
     #[test]
