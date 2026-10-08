@@ -13604,46 +13604,308 @@ pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
     ChartFrame { plot, cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, margin_r, title_font }
 }
 
-/// The data point under `pos` on a chart drawn in `rect`, as `(label,
-/// value)` — what `ShowTooltips` shows. Live data only: the sample a chart
-/// shows before it has any is not data. Reads the same layout the painter
-/// draws with ([`chart_frame`]), so the hit is where the mark is.
-pub fn chart_point_at(ctrl: &Control, rect: egui::Rect, pos: Pos2) -> Option<(String, f32)> {
+/// What a chart's data becomes on its plot — shared by the painter and the
+/// hit-test, so a tooltip finds the mark that was drawn (spec 052).
+///
+/// Every mark is a span in the plot's 0..1 band. The band holds ZERO
+/// (`zero`): a bar runs from `bases` to `tops`, which for a negative value
+/// is downward from the zero line, and stacked series keep two running
+/// totals — positives upward, negatives downward. When no value is negative,
+/// `zero` is 0.0 and every number below is computed exactly as it was before
+/// signed values existed, so an all-positive chart does not move by a pixel.
+pub(crate) struct ChartGeometry {
+    /// Each label with its FIRST series' value — what a pie, a donut, a
+    /// scatter and the legend's labels read.
+    pub live: Vec<(String, f32)>,
+    /// Each plotted series' marks (bar, line and area charts; the sample
+    /// when there is no data), where each value's mark sits.
+    pub plotted: Vec<Vec<f32>>,
+    pub bases: Vec<Vec<f32>>,
+    pub tops: Vec<Vec<f32>>,
+    /// Where zero falls in the band, for bar, line and area charts.
+    pub zero: f32,
+    /// The scatter's own zero (it plots the first series only).
+    pub scatter_zero: f32,
+    /// The first series in the band, for the scatter.
+    pub live_norm: Vec<f32>,
+    pub stacked: bool,
+    pub series_count: usize,
+    pub n: usize,
+    /// `__ChartGrow`: the fraction of a load animation reached (1 at rest).
+    pub grow: f32,
+}
+
+/// How many series a chart without data shows: one per `ValueFields` entry
+/// when it names any (a bound chart's fields), else two.
+fn sample_series_count(ctrl: &Control) -> usize {
+    let fields = ctrl.get_prop("ValueFields").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    match fields.split(',').filter(|f| !f.trim().is_empty()).count() {
+        0 => 2,
+        k => k,
+    }
+}
+
+/// The name of each of `count` series: `SeriesLabels` (comma-separated, in
+/// order) where it names one; else the name the data arrived with
+/// (`__ChartNames`, one per line — a binding's value fields); else the
+/// field `ValueFields` reads it from; else "Series n".
+pub fn chart_series_names(ctrl: &Control, count: usize) -> Vec<String> {
+    let prop = |k: &str| ctrl.get_prop(k).map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let (labels, wire, fields) = (prop("SeriesLabels"), prop("__ChartNames"), prop("ValueFields"));
+    let labels: Vec<&str> = labels.split(',').map(str::trim).collect();
+    let wire: Vec<&str> = wire.lines().map(str::trim).collect();
+    let fields: Vec<&str> = fields.split(',').map(str::trim).filter(|f| !f.is_empty()).collect();
+    (0..count)
+        .map(|i| {
+            [labels.get(i), wire.get(i), fields.get(i)]
+                .into_iter()
+                .flatten()
+                .find(|n| !n.is_empty())
+                .map(|n| (*n).to_owned())
+                .unwrap_or_else(|| format!("Series {}", i + 1))
+        })
+        .collect()
+}
+
+pub(crate) fn chart_geometry(ctrl: &Control) -> ChartGeometry {
     use crate::model::ControlType as CT;
-    let live = ctrl
+    // Live data pushed from COBOL via the `COBOL-CHART-*` runtime calls arrives
+    // as the control's `__ChartData` property: one `label<TAB>value…` per
+    // line. When present it is auto-scaled to the plot; otherwise a
+    // representative sample is shown, so the designer canvas and an
+    // unpopulated chart still look meaningful.
+    let live_rows: Vec<crate::chart::Row> = ctrl
         .get_prop("__ChartData")
-        .map(|v| crate::chart::parse_chart_data(v.as_str()))
+        .map(|v| v.as_str().to_owned())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| crate::chart::parse_chart_rows(&s))
         .unwrap_or_default();
-    if live.is_empty() || !rect.contains(pos) {
+    let live: Vec<(String, f32)> = live_rows.iter().map(|(l, v)| (l.clone(), v[0])).collect();
+    let category_chart = matches!(ctrl.control_type, CT::BarChart | CT::LineChart | CT::AreaChart);
+    let series_count = if category_chart {
+        live_rows.iter().map(|(_, v)| v.len()).max().unwrap_or(0)
+    } else {
+        live_rows.len().min(1)
+    };
+    // `Stacked` (bar and area charts): each series sits on the ones before it,
+    // so a label's marks add up to its total. With one series there is
+    // nothing to stack and the chart draws as it always has.
+    let stacked = matches!(ctrl.control_type, CT::BarChart | CT::AreaChart)
+        && ctrl.get_prop("Stacked").map(|v| v.as_bool()).unwrap_or(false);
+    // `AnimateOnLoad`: the running form sets `__ChartGrow` from 0 to 1 over
+    // the chart's `AnimationDuration` the first time it has data, and every
+    // mark is drawn at that fraction of its distance from zero (a pie at that
+    // fraction of its sweep). Absent (the designer, or once it has landed)
+    // is 1.
+    let grow = ctrl
+        .get_prop("__ChartGrow")
+        .and_then(|v| v.as_str().trim().parse::<f32>().ok())
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+
+    // The scatter and the pie read the first series. The scatter scales it
+    // into the band around ITS zero; a pie's slices read `live` itself.
+    let first: Vec<crate::chart::Row> = live.iter().map(|(l, v)| (l.clone(), vec![*v])).collect();
+    let (s_lo, s_hi) = crate::chart::value_range(&first, false);
+    let s_span = (s_hi - s_lo).max(f32::EPSILON);
+    let scatter_zero = (0.0 - s_lo) / s_span;
+    let live_norm: Vec<f32> = live
+        .iter()
+        .map(|(_, v)| scatter_zero + (((v - s_lo) / s_span).clamp(0.0, 1.0) - scatter_zero) * grow)
+        .collect();
+
+    // Bar, line and area charts: every series against one range — the
+    // largest and smallest value of ANY series, or, stacked, the largest
+    // total on each side of zero — so the tallest stack reaches the edge.
+    let (lo, hi) = if category_chart && !live.is_empty() {
+        crate::chart::value_range(&live_rows, stacked)
+    } else {
+        (0.0, 0.0)
+    };
+    let span = (hi - lo).max(f32::EPSILON);
+    let zero = if category_chart && !live.is_empty() { (0.0 - lo) / span } else { 0.0 };
+    let plotted: Vec<Vec<f32>> = if live.is_empty() {
+        // Sample fallback (normalised Y for 5 points), one per series shown.
+        let sample1: &[f32] = &[0.40, 0.70, 0.55, 0.85, 0.60];
+        let sample2: &[f32] = &[0.25, 0.45, 0.70, 0.50, 0.80];
+        (0..sample_series_count(ctrl))
+            .map(|j| match j {
+                0 => sample1.to_vec(),
+                1 => sample2.to_vec(),
+                j => (0..5).map(|i| sample1[(i + j) % 5] * 0.9).collect(),
+            })
+            .collect()
+    } else if category_chart {
+        let value = |r: &crate::chart::Row, s: usize| r.1.get(s).copied().unwrap_or(0.0);
+        (0..series_count)
+            .map(|s| {
+                live_rows
+                    .iter()
+                    .map(|r| zero + (((value(r, s) - lo) / span).clamp(0.0, 1.0) - zero) * grow)
+                    .collect()
+            })
+            .collect()
+    } else {
+        vec![live_norm.clone()]
+    };
+    // Each mark's span. Side by side, from the zero line to the value.
+    // Stacked, from the running total on the value's own side of zero — so a
+    // label holding both signs shows both, above and below the axis.
+    let (bases, tops): (Vec<Vec<f32>>, Vec<Vec<f32>>) = {
+        let len = plotted.first().map(Vec::len).unwrap_or(0);
+        let (mut up, mut down) = (vec![zero; len], vec![zero; len]);
+        let mut bases = Vec::new();
+        let mut tops = Vec::new();
+        for series in &plotted {
+            let mut base = Vec::with_capacity(series.len());
+            let mut top = Vec::with_capacity(series.len());
+            for (i, &v) in series.iter().enumerate() {
+                if !stacked {
+                    base.push(zero);
+                    top.push((v + 0.0).min(1.0));
+                } else if v >= zero {
+                    let b = up[i];
+                    let t = ((v - zero) + b).min(1.0);
+                    up[i] = t;
+                    base.push(b);
+                    top.push(t);
+                } else {
+                    let b = down[i];
+                    let t = ((v - zero) + b).max(0.0);
+                    down[i] = t;
+                    base.push(b);
+                    top.push(t);
+                }
+            }
+            bases.push(base);
+            tops.push(top);
+        }
+        (bases, tops)
+    };
+    let n = plotted.first().map(Vec::len).unwrap_or(0).max(1);
+    ChartGeometry { live, plotted, bases, tops, zero, scatter_zero, live_norm, stacked, series_count, n, grow }
+}
+
+/// Where bar `i` of series `si` (of `k`) is drawn: from `base` to `top` in
+/// the band — upward, or downward for a value below zero.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn chart_bar_rect(
+    plot: egui::Rect,
+    horizontal: bool,
+    stacked: bool,
+    k: usize,
+    n: usize,
+    base: f32,
+    top: f32,
+    si: usize,
+    i: usize,
+) -> egui::Rect {
+    let (lo, hi) = (base.min(top), base.max(top));
+    let bar_total = plot.width() / n as f32;
+    // Side by side, more than two series share the slot; one or two keep
+    // the historical geometry exactly.
+    let (bar_w, gap) = if k > 2 && !stacked {
+        (bar_total * 0.76 / k as f32, bar_total * 0.10 / k as f32)
+    } else {
+        (bar_total * 0.38, bar_total * 0.05)
+    };
+    let slot_h = plot.height() / n as f32;
+    if stacked {
+        // One bar per label, its series piled up in order.
+        if horizontal {
+            let th = slot_h * 0.6;
+            let y = plot.min.y + i as f32 * slot_h + (slot_h - th) * 0.5;
+            egui::Rect::from_min_max(
+                Pos2::new(plot.min.x + lo * plot.width(), y),
+                Pos2::new(plot.min.x + hi * plot.width(), y + th),
+            )
+        } else {
+            let w = bar_total * 0.6;
+            let x = plot.min.x + i as f32 * bar_total + (bar_total - w) * 0.5;
+            egui::Rect::from_min_max(
+                Pos2::new(x, plot.max.y - hi * plot.height()),
+                Pos2::new(x + w, plot.max.y - lo * plot.height()),
+            )
+        }
+    } else if horizontal && k > 2 {
+        let th = slot_h * 0.76 / k as f32;
+        let g = slot_h * 0.10 / k as f32;
+        let y = plot.min.y + i as f32 * slot_h + g + si as f32 * (th + g);
+        egui::Rect::from_min_size(Pos2::new(plot.min.x + lo * plot.width(), y), Vec2::new((hi - lo) * plot.width(), th))
+    } else if horizontal {
+        let y = plot.min.y + (i as f32 + 0.5 + si as f32 * (0.5 + gap)) / n as f32 * plot.height() - bar_w * 0.5;
+        egui::Rect::from_min_size(Pos2::new(plot.min.x + lo * plot.width(), y), Vec2::new((hi - lo) * plot.width(), bar_w))
+    } else {
+        let x = plot.min.x + (i as f32 * bar_total) + si as f32 * (bar_w + gap) + gap;
+        egui::Rect::from_min_size(Pos2::new(x, plot.max.y - hi * plot.height()), Vec2::new(bar_w, (hi - lo) * plot.height()))
+    }
+}
+
+/// What the pointer is over on a chart: its label, the series it belongs to
+/// (named as the legend names it), and its value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChartHit {
+    pub label: String,
+    pub series: String,
+    pub value: f32,
+}
+
+/// The mark under `pos` on a chart drawn in `rect` — a bar or a segment of
+/// a stack, the nearest point of any series, a bubble, a slice. Live data
+/// only. Reads the geometry the painter draws with, so the hit is where the
+/// mark is, below zero included.
+pub fn chart_hit_at(ctrl: &Control, rect: egui::Rect, pos: Pos2) -> Option<ChartHit> {
+    use crate::model::ControlType as CT;
+    let geo = chart_geometry(ctrl);
+    if geo.live.is_empty() || !rect.contains(pos) {
         return None;
     }
+    let rows = ctrl.get_prop("__ChartData").map(|v| crate::chart::parse_chart_rows(v.as_str())).unwrap_or_default();
+    let names = chart_series_names(ctrl, geo.series_count.max(1));
+    let hit = |si: usize, i: usize| {
+        rows.get(i).map(|(l, v)| ChartHit {
+            label: l.clone(),
+            series: names.get(si).cloned().unwrap_or_default(),
+            value: v.get(si).copied().unwrap_or(0.0),
+        })
+    };
     let plot = chart_frame(ctrl, rect).plot;
-    let n = live.len();
-    let maxv = live.iter().map(|(_, v)| *v).fold(0.0_f32, f32::max).max(f32::EPSILON);
-    let norm = |v: f32| (v / maxv).clamp(0.0, 1.0);
-    let hit = |i: usize| live.get(i).cloned();
+    let n = geo.n;
     match ctrl.control_type {
         CT::BarChart => {
             let horizontal = ctrl.get_prop("Horizontal").map(|v| v.as_bool()).unwrap_or(false);
             if !plot.contains(pos) {
                 return None;
             }
+            let k = geo.plotted.len();
+            for si in (0..k).rev() {
+                for i in 0..geo.plotted[si].len() {
+                    let r = chart_bar_rect(plot, horizontal, geo.stacked, k, n, geo.bases[si][i], geo.tops[si][i], si, i);
+                    if r.expand(1.0).contains(pos) {
+                        return hit(si, i);
+                    }
+                }
+            }
+            // Between the bars of a label: that label's first series, as before.
             let along = if horizontal { (pos.y - plot.min.y) / plot.height() } else { (pos.x - plot.min.x) / plot.width() };
             let i = (along * n as f32).floor();
-            (0.0..n as f32).contains(&i).then(|| hit(i as usize)).flatten()
+            (0.0..n as f32).contains(&i).then(|| hit(0, i as usize)).flatten()
         }
         CT::LineChart | CT::AreaChart | CT::ScatterChart => {
-            let best = (0..n)
-                .map(|i| {
-                    let p = Pos2::new(
-                        plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width(),
-                        plot.max.y - norm(live[i].1) * plot.height(),
-                    );
-                    (i, p.distance(pos))
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1))?;
+            let px = |i: usize| plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width();
+            let py = |v: f32| plot.max.y - v * plot.height();
+            let marks: Vec<(usize, usize, Pos2)> = if ctrl.control_type == CT::ScatterChart {
+                geo.live_norm.iter().enumerate().map(|(i, &v)| (0, i, Pos2::new(px(i), py(v)))).collect()
+            } else {
+                let at = if ctrl.control_type == CT::AreaChart { &geo.tops } else { &geo.plotted };
+                at.iter()
+                    .enumerate()
+                    .flat_map(|(si, s)| s.iter().enumerate().map(move |(i, &v)| (si, i, Pos2::new(px(i), py(v)))))
+                    .collect()
+            };
+            let best = marks.into_iter().map(|(si, i, p)| (si, i, p.distance(pos))).min_by(|a, b| a.2.total_cmp(&b.2))?;
             let reach = ctrl.get_prop("BubbleScale").filter(|_| ctrl.control_type == CT::ScatterChart).map(|v| v.as_i64() as f32).unwrap_or(0.0).max(10.0);
-            (best.1 <= reach).then(|| hit(best.0)).flatten()
+            (best.2 <= reach).then(|| hit(best.0, best.1)).flatten()
         }
         CT::PieChart | CT::DonutChart => {
             let center = plot.center();
@@ -13660,18 +13922,45 @@ pub fn chart_point_at(ctrl: &Control, rect: egui::Rect, pos: Pos2) -> Option<(St
             }
             let turn = (d.y.atan2(d.x) + std::f32::consts::FRAC_PI_2).rem_euclid(std::f32::consts::TAU)
                 / std::f32::consts::TAU;
-            let sum: f32 = live.iter().map(|(_, v)| v.max(0.0)).sum::<f32>().max(f32::EPSILON);
+            let sum: f32 = geo.live.iter().map(|(_, v)| v.max(0.0)).sum::<f32>().max(f32::EPSILON);
             let mut acc = 0.0;
-            for (i, (_, v)) in live.iter().enumerate() {
+            for (i, (_, v)) in geo.live.iter().enumerate() {
                 acc += v.max(0.0) / sum;
                 if turn <= acc {
-                    return hit(i);
+                    // A slice is a label, not a series: no series name.
+                    return hit(0, i).map(|h| ChartHit { series: String::new(), ..h });
                 }
             }
             None
         }
         _ => None,
     }
+}
+
+/// The data point under `pos` on a chart drawn in `rect`, as `(label,
+/// value)` — what `ShowTooltips` shows. Live data only: the sample a chart
+/// shows before it has any is not data. Reads the same layout the painter
+/// draws with ([`chart_frame`]), so the hit is where the mark is.
+/// A tooltip's text: "label: value", and the series' name when the chart
+/// has more than one series or names the one it has — "Q1 · Sales: 120".
+pub fn chart_tip_text(hit: &ChartHit, ctrl: &Control) -> String {
+    let value = format_chart_number(hit.value);
+    let named = ["SeriesLabels", "__ChartNames"]
+        .iter()
+        .any(|k| ctrl.get_prop(k).is_some_and(|v| !v.as_str().trim().is_empty()));
+    let several = ctrl
+        .get_prop("__ChartData")
+        .map(|v| crate::chart::parse_chart_rows(v.as_str()).iter().any(|(_, vs)| vs.len() > 1))
+        .unwrap_or(false);
+    if hit.series.is_empty() || !(named || several) {
+        format!("{}: {value}", hit.label)
+    } else {
+        format!("{} · {}: {value}", hit.label, hit.series)
+    }
+}
+
+pub fn chart_point_at(ctrl: &Control, rect: egui::Rect, pos: Pos2) -> Option<(String, f32)> {
+    chart_hit_at(ctrl, rect, pos).map(|h| (h.label, h.value))
 }
 
 pub fn draw_chart_preview(
@@ -14042,6 +14331,10 @@ pub fn draw_chart_preview(
     } else {
         Color32::from_rgb(84, 104, 190)
     };
+    // The data's geometry, before the axes: the X axis is drawn where zero
+    // falls, which is the plot's floor unless a value is negative.
+    let geo = chart_geometry(ctrl);
+    let axis_zero = if ctrl.control_type == CT::ScatterChart { geo.scatter_zero } else { geo.zero };
     if !matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
         // X/Y axis-line visibility is independently toggleable (default on).
         let show_x = ctrl
@@ -14053,8 +14346,9 @@ pub fn draw_chart_preview(
             .map(|v| v.as_bool())
             .unwrap_or(true);
         if show_x {
+            let y = plot.max.y - axis_zero * plot.height();
             painter.line_segment(
-                [plot.left_bottom(), plot.right_bottom()],
+                [Pos2::new(plot.min.x, y), Pos2::new(plot.max.x, y)],
                 Stroke::new(1.45, ax_c),
             );
         }
@@ -14067,102 +14361,15 @@ pub fn draw_chart_preview(
     }
 
     // ── Data ──────────────────────────────────────────────────────────────────
-    // Live data pushed from COBOL via the `COBOL-CHART-*` runtime calls arrives as
-    // the control's `__ChartData` property: one `label<TAB>value` per line. When
-    // present it is auto-scaled to the plot and drawn; otherwise a representative
-    // sample is shown, so the designer canvas and an unpopulated chart still look
-    // meaningful.
-    // Every series a label carries (`label<TAB>v1<TAB>v2…`); `live` is the
-    // first, which is all a pie, a donut, a scatter and the tooltip read.
-    let live_rows: Vec<crate::chart::Row> = ctrl
-        .get_prop("__ChartData")
-        .map(|v| v.as_str().to_owned())
-        .filter(|s| !s.trim().is_empty())
-        .map(|s| crate::chart::parse_chart_rows(&s))
-        .unwrap_or_default();
-    let live: Vec<(String, f32)> = live_rows.iter().map(|(l, v)| (l.clone(), v[0])).collect();
-    let category_chart = matches!(ctrl.control_type, CT::BarChart | CT::LineChart | CT::AreaChart);
-    let series_count = if category_chart {
-        live_rows.iter().map(|(_, v)| v.len()).max().unwrap_or(0)
-    } else {
-        live_rows.len().min(1)
-    };
-    // `Stacked` (bar and area charts): each series sits on the ones before it,
-    // so a label's marks add up to its total. With one series there is
-    // nothing to stack and the chart draws as it always has.
-    let stacked = matches!(ctrl.control_type, CT::BarChart | CT::AreaChart)
-        && ctrl.get_prop("Stacked").map(|v| v.as_bool()).unwrap_or(false);
-
-    // Sample fallback (normalised Y for 5 points, 2 series).
-    let sample1: &[f32] = &[0.40, 0.70, 0.55, 0.85, 0.60];
-    let sample2: &[f32] = &[0.25, 0.45, 0.70, 0.50, 0.80];
-
-    // Auto-scale live values into the plot's 0..1 band (max → top).
-    let live_norm: Vec<f32> = if live.is_empty() {
-        Vec::new()
-    } else {
-        let maxv = live
-            .iter()
-            .map(|(_, v)| *v)
-            .fold(0.0_f32, f32::max)
-            .max(f32::EPSILON);
-        live.iter()
-            .map(|(_, v)| (v / maxv).clamp(0.0, 1.0))
-            .collect()
-    };
-    // `AnimateOnLoad`: the running form sets `__ChartGrow` from 0 to 1 over
-    // the chart's `AnimationDuration` the first time it has data, and every
-    // mark is drawn at that fraction of its height (a pie at that fraction of
-    // its sweep). Applied AFTER the auto-scale — growing the values instead
-    // is invisible, because the scale grows with them. Absent (the designer,
-    // or once it has landed) is 1.
-    let grow = ctrl
-        .get_prop("__ChartGrow")
-        .and_then(|v| v.as_str().trim().parse::<f32>().ok())
-        .unwrap_or(1.0)
-        .clamp(0.0, 1.0);
-    let live_norm: Vec<f32> = live_norm.iter().map(|v| v * grow).collect();
-    // The series a bar, line or area chart plots, each auto-scaled into the
-    // plot: against the largest value of ANY series — or, stacked, against
-    // the largest total, so the tallest stack reaches the top. One series
-    // scales exactly as before.
-    let plotted: Vec<Vec<f32>> = if live.is_empty() {
-        vec![sample1.to_vec(), sample2.to_vec()]
-    } else if category_chart {
-        let value = |r: &crate::chart::Row, s: usize| r.1.get(s).copied().unwrap_or(0.0);
-        let maxv = if stacked {
-            live_rows.iter().map(|r| r.1.iter().map(|v| v.max(0.0)).sum::<f32>()).fold(0.0_f32, f32::max)
-        } else {
-            live_rows.iter().flat_map(|r| r.1.iter().copied()).fold(0.0_f32, f32::max)
-        }
-        .max(f32::EPSILON);
-        (0..series_count)
-            .map(|s| live_rows.iter().map(|r| (value(r, s).max(0.0) / maxv).clamp(0.0, 1.0) * grow).collect())
-            .collect()
-    } else {
-        vec![live_norm.clone()]
-    };
-    // Stacked, each series' marks run from the sum of the series before it
-    // (`bases`) to that sum plus its own (`tops`).
-    let (bases, tops): (Vec<Vec<f32>>, Vec<Vec<f32>>) = {
-        let mut bases = Vec::new();
-        let mut tops = Vec::new();
-        let mut acc = vec![0.0_f32; plotted.first().map(Vec::len).unwrap_or(0)];
-        for series in &plotted {
-            let base = if stacked { acc.clone() } else { vec![0.0; series.len()] };
-            let top: Vec<f32> = series.iter().zip(&base).map(|(v, b)| (v + b).min(1.0)).collect();
-            if stacked {
-                acc = top.clone();
-            }
-            bases.push(base);
-            tops.push(top);
-        }
-        (bases, tops)
-    };
-    let n = plotted.first().map(Vec::len).unwrap_or(0).max(1);
+    // Computed with the axes above (`chart_geometry`): every mark's span, in
+    // the plot's 0..1 band around the zero line.
+    let ChartGeometry { live, plotted, bases, tops, zero, live_norm, stacked, series_count, n, grow, .. } = geo;
 
     let px_x = |i: usize| plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width();
     let px_y = |v: f32| plot.max.y - v * plot.height();
+    // Where a line's gradient and an area's fill end: the zero line, which is
+    // the plot's floor whenever no value is negative.
+    let zero_y = plot.max.y - zero * plot.height();
 
     // Line/area curve smoothing (spec 013): the `Smooth` property now actually
     // bends the polyline into a Catmull-Rom spline. `ShowPoints` gates markers.
@@ -14196,44 +14403,11 @@ pub fn draw_chart_preview(
             } else {
                 (bar_w, gap)
             };
-            let slot_h = plot.height() / n as f32;
+            let _ = (bar_w, gap);
+            let k = plotted.len();
             for (si, series) in plotted.iter().enumerate() {
-                for (i, &v) in series.iter().enumerate() {
-                    let br = if stacked {
-                        // One bar per label, its series piled up in order.
-                        let (lo, hi) = (bases[si][i], tops[si][i]);
-                        if horizontal {
-                            let th = slot_h * 0.6;
-                            let y = plot.min.y + i as f32 * slot_h + (slot_h - th) * 0.5;
-                            egui::Rect::from_min_max(
-                                Pos2::new(plot.min.x + lo * plot.width(), y),
-                                Pos2::new(plot.min.x + hi * plot.width(), y + th),
-                            )
-                        } else {
-                            let w = bar_total * 0.6;
-                            let x = plot.min.x + i as f32 * bar_total + (bar_total - w) * 0.5;
-                            egui::Rect::from_min_max(
-                                Pos2::new(x, plot.max.y - hi * plot.height()),
-                                Pos2::new(x + w, plot.max.y - lo * plot.height()),
-                            )
-                        }
-                    } else if horizontal && k > 2 {
-                        let th = slot_h * 0.76 / k as f32;
-                        let g = slot_h * 0.10 / k as f32;
-                        let y = plot.min.y + i as f32 * slot_h + g + si as f32 * (th + g);
-                        egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(v * plot.width(), th))
-                    } else if horizontal {
-                        let y = plot.min.y
-                            + (i as f32 + 0.5 + si as f32 * (0.5 + gap)) / n as f32 * plot.height()
-                            - bar_w * 0.5;
-                        let w = v * plot.width();
-                        egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(w, bar_w))
-                    } else {
-                        let x =
-                            plot.min.x + (i as f32 * bar_total) + si as f32 * (bar_w + gap) + gap;
-                        let h = v * plot.height();
-                        egui::Rect::from_min_size(Pos2::new(x, plot.max.y - h), Vec2::new(bar_w, h))
-                    };
+                for i in 0..series.len() {
+                    let br = chart_bar_rect(plot, horizontal, stacked, k, n, bases[si][i], tops[si][i], si, i);
                     if br.width() <= 0.0 || br.height() <= 0.0 {
                         continue;
                     }
@@ -14279,7 +14453,7 @@ pub fn draw_chart_preview(
                     let top_c = shade(mono_base, 0.12);
                     let bot_c = Color32::from_rgba_unmultiplied(top_c.r(), top_c.g(), top_c.b(), 0);
                     painter.add(egui::Shape::mesh(grad_area_mesh(
-                        &line, plot.max.y, top_c, bot_c,
+                        &line, zero_y, top_c, bot_c,
                     )));
                 }
                 let line_c = if gradient { shade(mono_base, 0.10) } else { c };
@@ -14333,7 +14507,7 @@ pub fn draw_chart_preview(
                 match &floor {
                     Some(floor) => painter.add(egui::Shape::mesh(band_mesh(&top, floor, top_c))),
                     None => painter.add(egui::Shape::mesh(grad_area_mesh(
-                        &top, plot.max.y, top_c, bot_c,
+                        &top, zero_y, top_c, bot_c,
                     ))),
                 };
                 for w in top.windows(2) {
@@ -14620,18 +14794,11 @@ pub fn draw_chart_preview(
         } else {
             // `SeriesLabels` names them — comma-separated, in order; a series
             // it does not name keeps "Series n". It was never read.
-            let names = chart_str("SeriesLabels");
-            let names: Vec<&str> = names.split(',').map(str::trim).collect();
-            let count = if live.is_empty() { 2 } else { series_count.max(1) };
-            (0..count)
-                .map(|i| {
-                    let name = names
-                        .get(i)
-                        .filter(|n| !n.is_empty())
-                        .map(|n| (*n).to_owned())
-                        .unwrap_or_else(|| format!("Series {}", i + 1));
-                    (name, pal[i % pal.len()])
-                })
+            let count = if live.is_empty() { sample_series_count(ctrl) } else { series_count.max(1) };
+            chart_series_names(ctrl, count)
+                .into_iter()
+                .enumerate()
+                .map(|(i, name)| (name, pal[i % pal.len()]))
                 .collect()
         };
         let swatch = 7.0_f32;
@@ -28362,5 +28529,143 @@ mod spatial_shadow_tests {
             assert_eq!(off, 0, "{ct:?}: ShadowEnabled false casts none");
             assert!(on > 0, "{ct:?}: ShadowEnabled true must still cast a shadow under Spatial");
         }
+    }
+}
+
+/// Spec 052 AC19: the zero line changes nothing for a chart without a
+/// negative value. The legacy arithmetic is copied here verbatim and every
+/// mark compared BIT FOR BIT — a sub-pixel shift would pass a shape count.
+#[cfg(test)]
+mod signed_chart_tests {
+    use super::*;
+    use crate::model::{ControlType, PropValue};
+
+    /// The geometry exactly as `draw_chart_preview` computed it before
+    /// signed values (1.80.239): `(plotted, bases, tops)`.
+    fn legacy(rows: &[crate::chart::Row], stacked: bool, grow: f32) -> (Vec<Vec<f32>>, Vec<Vec<f32>>, Vec<Vec<f32>>) {
+        let series_count = rows.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
+        let value = |r: &crate::chart::Row, s: usize| r.1.get(s).copied().unwrap_or(0.0);
+        let maxv = if stacked {
+            rows.iter().map(|r| r.1.iter().map(|v| v.max(0.0)).sum::<f32>()).fold(0.0_f32, f32::max)
+        } else {
+            rows.iter().flat_map(|r| r.1.iter().copied()).fold(0.0_f32, f32::max)
+        }
+        .max(f32::EPSILON);
+        let plotted: Vec<Vec<f32>> = (0..series_count)
+            .map(|s| rows.iter().map(|r| (value(r, s).max(0.0) / maxv).clamp(0.0, 1.0) * grow).collect())
+            .collect();
+        let mut bases = Vec::new();
+        let mut tops = Vec::new();
+        let mut acc = vec![0.0_f32; plotted.first().map(Vec::len).unwrap_or(0)];
+        for series in &plotted {
+            let base = if stacked { acc.clone() } else { vec![0.0; series.len()] };
+            let top: Vec<f32> = series.iter().zip(&base).map(|(v, b)| (v + b).min(1.0)).collect();
+            if stacked {
+                acc = top.clone();
+            }
+            bases.push(base);
+            tops.push(top);
+        }
+        (plotted, bases, tops)
+    }
+
+    /// A bar's rect exactly as the legacy painter built it.
+    #[allow(clippy::too_many_arguments)]
+    fn legacy_bar(plot: egui::Rect, horizontal: bool, stacked: bool, k: usize, n: usize, v: f32, lo: f32, hi: f32, si: usize, i: usize) -> egui::Rect {
+        let bar_total = plot.width() / n as f32;
+        let (bar_w, gap) = if k > 2 && !stacked { (bar_total * 0.76 / k as f32, bar_total * 0.10 / k as f32) } else { (bar_total * 0.38, bar_total * 0.05) };
+        let slot_h = plot.height() / n as f32;
+        if stacked {
+            if horizontal {
+                let th = slot_h * 0.6;
+                let y = plot.min.y + i as f32 * slot_h + (slot_h - th) * 0.5;
+                egui::Rect::from_min_max(Pos2::new(plot.min.x + lo * plot.width(), y), Pos2::new(plot.min.x + hi * plot.width(), y + th))
+            } else {
+                let w = bar_total * 0.6;
+                let x = plot.min.x + i as f32 * bar_total + (bar_total - w) * 0.5;
+                egui::Rect::from_min_max(Pos2::new(x, plot.max.y - hi * plot.height()), Pos2::new(x + w, plot.max.y - lo * plot.height()))
+            }
+        } else if horizontal && k > 2 {
+            let th = slot_h * 0.76 / k as f32;
+            let g = slot_h * 0.10 / k as f32;
+            let y = plot.min.y + i as f32 * slot_h + g + si as f32 * (th + g);
+            egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(v * plot.width(), th))
+        } else if horizontal {
+            let y = plot.min.y + (i as f32 + 0.5 + si as f32 * (0.5 + gap)) / n as f32 * plot.height() - bar_w * 0.5;
+            egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(v * plot.width(), bar_w))
+        } else {
+            let x = plot.min.x + (i as f32 * bar_total) + si as f32 * (bar_w + gap) + gap;
+            let h = v * plot.height();
+            egui::Rect::from_min_size(Pos2::new(x, plot.max.y - h), Vec2::new(bar_w, h))
+        }
+    }
+
+    #[test]
+    fn an_all_positive_chart_keeps_its_geometry_bit_for_bit() {
+        let datasets = [
+            "A\t10\nB\t20\nC\t5",
+            "A\t10\t3\nB\t20\t7\nC\t0.5\t9",
+            "Jan\t1.25\t3.5\t7\nFeb\t2\t0\t4.75\nMar\t9.125\t1\t2\nApr\t0\t0\t0",
+            "only\t42",
+        ];
+        let plot = egui::Rect::from_min_max(Pos2::new(37.25, 21.5), Pos2::new(311.75, 188.0));
+        let mut marks = 0;
+        for data in datasets {
+            for stacked in [false, true] {
+                for grow in [1.0_f32, 0.37] {
+                    let mut c = Control::new("CH", ControlType::BarChart, 0, 0);
+                    c.set_prop("__ChartData", PropValue::String(data.into()));
+                    c.set_prop("Stacked", PropValue::Bool(stacked));
+                    c.set_prop("__ChartGrow", PropValue::String(grow.to_string()));
+                    let geo = chart_geometry(&c);
+                    let rows = crate::chart::parse_chart_rows(data);
+                    let (plotted, bases, tops) = legacy(&rows, stacked, grow);
+                    assert_eq!(geo.zero.to_bits(), 0.0_f32.to_bits(), "zero is the floor");
+                    let bits = |v: &Vec<Vec<f32>>| v.iter().map(|s| s.iter().map(|x| x.to_bits()).collect::<Vec<_>>()).collect::<Vec<_>>();
+                    assert_eq!(bits(&geo.plotted), bits(&plotted), "{data} stacked={stacked} grow={grow}: plotted");
+                    assert_eq!(bits(&geo.bases), bits(&bases), "{data} stacked={stacked}: bases");
+                    assert_eq!(bits(&geo.tops), bits(&tops), "{data} stacked={stacked}: tops");
+                    let k = plotted.len();
+                    for horizontal in [false, true] {
+                        for si in 0..k {
+                            for i in 0..geo.n {
+                                let new = chart_bar_rect(plot, horizontal, stacked, k, geo.n, geo.bases[si][i], geo.tops[si][i], si, i);
+                                let old = legacy_bar(plot, horizontal, stacked, k, geo.n, plotted[si][i], bases[si][i], tops[si][i], si, i);
+                                let b = |r: egui::Rect| [r.min.x.to_bits(), r.min.y.to_bits(), r.max.x.to_bits(), r.max.y.to_bits()];
+                                assert_eq!(b(new), b(old), "{data} stacked={stacked} horizontal={horizontal} series {si} label {i}: {new:?} vs {old:?}");
+                                marks += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        println!("\n  052 AC19 -- {marks} bar rects across 4 data sets x stacked/side-by-side x grow 1.0/0.37 x vertical/horizontal: identical to the legacy geometry, bit for bit\n");
+    }
+
+    /// The zero line's place for an all-positive, a mixed and an all-negative
+    /// chart (plan §5: an all-negative chart puts the axis at the top).
+    #[test]
+    fn zero_sits_where_the_values_put_it() {
+        let zero = |data: &str, stacked: bool| {
+            let mut c = Control::new("CH", ControlType::BarChart, 0, 0);
+            c.set_prop("__ChartData", PropValue::String(data.into()));
+            c.set_prop("Stacked", PropValue::Bool(stacked));
+            chart_geometry(&c).zero
+        };
+        assert_eq!(zero("A\t10\nB\t30", false), 0.0);
+        assert!((zero("A\t30\nB\t-10", false) - 0.25).abs() < 1e-6, "10 of 40 below zero");
+        assert_eq!(zero("A\t-5\nB\t-20", false), 1.0, "all negative: the axis is at the top");
+        assert!((zero("A\t10\t-4\nB\t6\t3", true) - 4.0 / 14.0).abs() < 1e-6, "stacked: -4 below, 10 above");
+        // A line, area or scatter plots on the same mapping.
+        let mut line = Control::new("CH", ControlType::LineChart, 0, 0);
+        line.set_prop("__ChartData", PropValue::String("A\t-10\nB\t10".into()));
+        let g = chart_geometry(&line);
+        assert_eq!((g.zero, g.plotted[0][0], g.plotted[0][1]), (0.5, 0.0, 1.0));
+        let mut sc = Control::new("CH", ControlType::ScatterChart, 0, 0);
+        sc.set_prop("__ChartData", PropValue::String("A\t-10\nB\t30".into()));
+        let g = chart_geometry(&sc);
+        assert_eq!((g.scatter_zero, g.live_norm[0], g.live_norm[1]), (0.25, 0.0, 1.0));
+        println!("\n  052 -- zero at 0.0 (all positive), 0.25 (30/-10), 1.0 (all negative), 0.286 (stacked 10/-4); line and scatter on the same mapping\n");
     }
 }

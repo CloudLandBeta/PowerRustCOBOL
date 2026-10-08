@@ -13158,9 +13158,11 @@ impl Interpreter {
     }
 
     /// `CobolTable` source -> chart target: `_BindingFields` names the
-    /// category field, then the value field. Each occurrence with a category
-    /// becomes one point, replacing the chart's series — the same series
-    /// `AddPoint` / `Clear` work on, so they go on from the loaded data.
+    /// category field, then one value field per series (spec 052 R1 — every
+    /// one, no cap). Each occurrence with a category becomes one label,
+    /// replacing the chart's data — the same data `AddPoint` / `Clear` work
+    /// on, so they go on from the loaded rows. `_BindingSeriesNames` names
+    /// the series for the legend and the tooltip (`__ChartNames`).
     fn refresh_chart_binding(&mut self, control_id: &str) -> usize {
         let fields: Vec<String> = self
             .obj_get(control_id, "_BindingFields")
@@ -13172,33 +13174,44 @@ impl Interpreter {
         let (Some(cat), Some(val)) = (fields.first().cloned(), fields.get(1).cloned()) else {
             return 0;
         };
-        let count = [&cat, &val]
+        let others: Vec<String> = fields.iter().skip(2).cloned().collect();
+        let count = fields
             .iter()
             .filter_map(|f| self.env.symbol(f))
             .filter_map(|s| s.dims.last().copied())
             .max()
             .unwrap_or(0);
         let mut points = Vec::new();
+        let mut more = Vec::new();
         for i in 1..=count {
-            let ck = crate::environment::subscript_key(&cat, &[i as i64]);
-            let vk = crate::environment::subscript_key(&val, &[i as i64]);
+            let at = |f: &str| crate::environment::subscript_key(f, &[i as i64]);
             let label = self
                 .env
-                .get(&ck)
+                .get(&at(&cat))
                 .map(|v| v.as_display_string().trim().to_owned())
                 .unwrap_or_default();
             if label.is_empty() {
                 continue;
             }
-            let value = self.env.get(&vk).map(|v| v.as_f64()).unwrap_or(0.0);
+            let value = self.env.get(&at(&val)).map(|v| v.as_f64()).unwrap_or(0.0);
             points.push((label, value));
+            more.push(others.iter().map(|f| self.env.get(&at(f)).map(|v| v.as_f64()).unwrap_or(0.0)).collect::<Vec<f64>>());
         }
         let n = points.len();
         // Keyed as COBOL-CHART-* and AddPoint key it.
         let key = control_id.to_ascii_uppercase();
         self.chart_data.insert(key.clone(), points);
         self.chart_sizes.remove(&key);
-        self.chart_more.remove(&key);
+        if others.is_empty() {
+            self.chart_more.remove(&key);
+        } else {
+            self.chart_more.insert(key.clone(), more);
+        }
+        let names = self.obj_get(control_id, "_BindingSeriesNames");
+        if !names.trim().is_empty() {
+            let names: Vec<&str> = names.split(',').map(str::trim).collect();
+            self.obj_set(control_id, "__ChartNames", names.join("\n"));
+        }
         self.push_chart_data(&key);
         n
     }
@@ -21796,6 +21809,52 @@ MAIN.
             vec![("AA".to_owned(), 1.0), ("BB".to_owned(), 2.0), ("CC".to_owned(), 3.0)],
             "a chart: category and value per occurrence"
         );
+    }
+
+    /// Spec 052 AC1: a chart bound to a table with two value fields draws two
+    /// series, named after the fields — not the first one alone.
+    #[test]
+    fn a_bound_chart_carries_every_series_and_names_them() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 SALES-TABLE.
+   05 SALES-ROW OCCURS 3 TIMES.
+      10 S-MONTH  PIC X(3).
+      10 S-AMOUNT PIC S9(5).
+      10 S-COST   PIC S9(5).
+01 WS-N PIC 9(4).
+PROCEDURE DIVISION.
+MAIN.
+    MOVE 'JAN' TO S-MONTH(1)  MOVE 120 TO S-AMOUNT(1)  MOVE 80 TO S-COST(1)
+    MOVE 'FEB' TO S-MONTH(2)  MOVE 90 TO S-AMOUNT(2)   MOVE -15 TO S-COST(2)
+    MOVE 'MAR' TO S-MONTH(3)  MOVE 150 TO S-AMOUNT(3)  MOVE 60 TO S-COST(3)
+    INVOKE CHART-1 'RefreshBinding' RETURNING WS-N
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([(
+            "CHART-1".to_owned(),
+            "BarChart".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                ("_BindingFields".to_owned(), "S-MONTH,S-AMOUNT,S-COST".to_owned()),
+                ("_BindingChart".to_owned(), "1".to_owned()),
+                ("_BindingSeriesNames".to_owned(), "S-AMOUNT,S-COST".to_owned()),
+            ],
+        )]);
+        interp.run().expect("runs");
+        assert_eq!(
+            interp.chart_data.get("CHART-1").cloned().unwrap_or_default(),
+            vec![("JAN".to_owned(), 120.0), ("FEB".to_owned(), 90.0), ("MAR".to_owned(), 150.0)]
+        );
+        assert_eq!(interp.chart_more.get("CHART-1").cloned().unwrap_or_default(), vec![vec![80.0], vec![-15.0], vec![60.0]], "the second series, its negative value kept");
+        assert_eq!(interp.obj_get("CHART-1", "__ChartNames"), "S-AMOUNT\nS-COST");
+        assert_eq!(interp.env.get("WS-N").and_then(|v| v.as_i64()), Some(3));
+        println!("052 AC1: 3 labels x 2 series bound from one table, named S-AMOUNT and S-COST");
     }
 
     /// Property audit, 2026-09-26 (group 7): the non-visual data items.

@@ -177,7 +177,8 @@ pub fn default_mappings_for_target(
                     )
                 })
                 .collect();
-            for field in value_fields.into_iter().take(2) {
+            // Every numeric field is a series (spec 052 R6: no cap).
+            for field in value_fields {
                 mappings.push(FieldMapping::new(
                     field.name.clone(),
                     BindingTargetPath::ChartValueSeries {

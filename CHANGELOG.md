@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.243] — 2026-10-07
+
+### Fixed
+- **Charts draw negative values** (spec 052). A bar, line, area or scatter
+  point below zero used to be clamped to the floor and vanished. Now:
+  - the X axis sits on zero, and a negative bar hangs below it in
+    proportion;
+  - stacked bars and areas pile positive values up from zero and negative
+    ones down, so a label holding both shows both;
+  - the load animation grows every mark from zero.
+
+  A chart with no negative value is drawn exactly as before: a test compares
+  176 bar rects with the previous geometry, bit for bit, and the paint
+  baseline did not move.
+- **A chart bound to a table draws every mapped series.** It used to draw
+  the first value field only. Every numeric field the Data Binding dialog
+  finds is now a series, named after its field (which `SeriesLabels`
+  overrides). The legend and the tooltip show those names. The designer's
+  preview draws that many series, because binding fills in `LabelField` and
+  `ValueFields`.
+- **The tooltip reports the mark under the pointer:** the bar or stack
+  segment, or the nearest point of any line. It names the series when the
+  chart has several (`Q1 · Sales: 120`). It used to read the first series
+  whatever was under the pointer.
+
 ## [PowerRustCOBOL 1.80.239] — 2026-10-06
 
 ### Added

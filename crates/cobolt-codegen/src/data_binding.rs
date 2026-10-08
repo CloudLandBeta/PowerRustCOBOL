@@ -268,23 +268,29 @@ fn write_list_binding_seed(out: &mut String, control_id: &str, binding: &DataBin
 }
 
 /// `CobolTable` source -> chart target: one point per occurrence — the field
-/// mapped to the chart's category is the label, the first field mapped to a
-/// value series is the value (a chart draws one series). Refreshed at
-/// POPULATE, after `onLoad`, like a list.
+/// mapped to the chart's category is the label, and EVERY field mapped to a
+/// value series is one series, in mapping order (spec 052 R1/R6: no cap).
+/// More than one series also names them (`_BindingSeriesNames`), which the
+/// legend and the tooltip show. Refreshed at POPULATE, after `onLoad`, like
+/// a list.
 fn write_chart_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
     let category = binding
         .mappings
         .iter()
         .find(|m| matches!(m.target, BindingTargetPath::ChartCategory { .. }))
         .map(|m| m.source_field.as_str());
-    let value = binding
+    let series: Vec<(&str, &str)> = binding
         .sorted_mapping_refs()
         .into_iter()
-        .find(|m| matches!(m.target, BindingTargetPath::ChartValueSeries { .. }))
-        .map(|m| m.source_field.as_str());
-    let (Some(category), Some(value)) = (category, value) else {
+        .filter_map(|m| match &m.target {
+            BindingTargetPath::ChartValueSeries { series_id, .. } => Some((m.source_field.as_str(), series_id.as_str())),
+            _ => None,
+        })
+        .collect();
+    let (Some(category), false) = (category, series.is_empty()) else {
         return;
     };
+    let value = series.iter().map(|(f, _)| *f).collect::<Vec<_>>().join(",");
     out.push_str(&format!(
         "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\"\n"
     ));
@@ -294,6 +300,12 @@ fn write_chart_binding_seed(out: &mut String, control_id: &str, binding: &DataBi
     out.push_str(&format!(
         "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingChart\" BY CONTENT \"1\"\n"
     ));
+    if series.len() > 1 {
+        let names = series.iter().map(|(_, id)| *id).collect::<Vec<_>>().join(",");
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingSeriesNames\" BY CONTENT \"{names}\"\n"
+        ));
+    }
     out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
 }
 
