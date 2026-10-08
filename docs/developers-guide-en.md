@@ -12502,15 +12502,33 @@ from another.
 > - An application installed in a read-only folder cannot keep its
 >   Knowledge Base under `assets/KB`; set `Location` to a writable folder.
 
-### Calling AWS: the `AwsLambda` and `AwsMcp` controls
+### Calling AWS: the AWS controls
 
-Two non-visual controls in the toolbox's **AWS** section reach Amazon Web
-Services from COBOL. `AwsLambda` runs one of your Lambda functions with a
-JSON payload and hands you its answer. `AwsMcp` is the general door: it calls
-any tool of an AWS server by name. Neither asks you to write an HTTP request,
-sign it or handle a credential — you drop the control, name a function, and
-call a method, the way a PowerCOBOL or isCOBOL developer calls a control's
-method.
+The non-visual controls in the toolbox's **AWS** section reach Amazon Web
+Services from COBOL:
+
+| Control | What it does |
+|---|---|
+| `AwsLambda` | runs one of your Lambda functions with a JSON payload |
+| `AwsKnowledgeBase` | asks an Amazon Bedrock knowledge base a question and returns the matching passages |
+| `AwsAgentCore` | talks to an agent hosted in Amazon Bedrock AgentCore, one conversation at a time |
+| `AwsAgentMemory` | records a conversation in an AgentCore Memory and searches what it has learned |
+| `AwsS3Tables` | lists Amazon S3 Tables, reads them with SQL, appends rows |
+| `AwsGlue` | starts Glue jobs and crawlers, follows a run, reads a table's columns |
+| `AwsDynamoDB` | reads and writes DynamoDB items as plain JSON |
+| `AwsS3` | lists, reads, writes and deletes the objects of a bucket |
+| `AwsS3Vectors` | finds the vectors nearest to one, and stores vectors |
+| `AwsRekognition` | finds labels, text and faces in an image |
+| `AwsPolly` | speaks a text into an audio file |
+| `AwsComprehend` | the sentiment, entities, key phrases and language of a text |
+| `AwsTextract` | reads a document's lines, form fields and tables |
+| `AwsEC2` | describes, starts and stops instances |
+| `AwsCognito` | signs your application's own users up, in and out |
+| `AwsMcp` | the general door: any tool of an AWS server, by name |
+
+None asks you to write an HTTP request, sign it or handle a credential — you
+drop the control, fill in its properties, and call a method, the way a
+PowerCOBOL or isCOBOL developer calls a control's method.
 
 Behind them, the application talks to **AWS's own MCP servers** (small
 programs AWS publishes), which do the AWS work with the AWS CLI's credentials:
@@ -12529,7 +12547,11 @@ flowchart LR
 
 - **uv** (`uvx` starts AWS's servers) — `brew install uv`, `pip install uv`
   or `winget install astral-sh.uv`. uv brings the Python the servers run on
-  (3.10 or later).
+  (3.10 or later; 3.11 or later for `AwsS3Tables`, which uv fetches by
+  itself).
+- For the general-purpose controls, a profile whose IAM policy allows the
+  AWS MCP Server itself (AWS's setup page for it lists the permissions) and
+  the services you call.
 - **The AWS CLI** (2.32 or later) and a profile that is signed in:
   `aws login --profile sales` once on that machine.
 
@@ -12574,6 +12596,10 @@ an empty Connection means that only one.
   anything, so it counts as a write;
 - `Call` on an `AwsMcp` is refused for any tool its server does not declare
   read-only;
+- so are `AwsAgentCore`'s `Invoke`, `AwsAgentMemory`'s `RecordEvent`,
+  `AwsS3Tables`'s `AppendRows`, and `AwsGlue`'s `StartJobRun` and
+  `StartCrawler` — every operation that changes something, starts something
+  or is billed for acting;
 - a server that has a read-only mode starts in it.
 
 A refused call sends nothing and raises `onError` with `LastError` saying
@@ -12661,9 +12687,402 @@ its tools with a JSON object of arguments. `ListTools` lists them — `Name`,
 `ResponseBody` is the tool's answer as text and `ResultJson` the same answer
 as JSON, for the developer who wants all of it.
 
+#### Every argument has a default: the control's own properties
+
+Each AWS method takes its arguments in a fixed order, and **any of them may be
+left empty** (`SPACES`): the control's own property stands in for it. An
+`AwsKnowledgeBase` whose `KnowledgeBaseId` you set in the designer is asked a
+question with `Query` and nothing else to name; a `GetJobRun` with no
+arguments at all follows the run the last `StartJobRun` started. The
+properties are in the inspector, so most programs pass only the one thing
+that changes — the question, the prompt, the SQL.
+
+Answers that are lists — passages, records, tables, columns — arrive as
+**rows**: `RowCount` says how many, and `GetField(n, "name")` reads one field
+of row `n` (1-based). Each example below names the fields its rows carry.
+
+#### Example: ask a Bedrock knowledge base
+
+A knowledge base is your own documents, indexed by Amazon Bedrock. Set
+`KnowledgeBaseId` (and `MaxResults`, 10 by default); `Query` returns the
+passages that answer the question, best first, with where each came from and
+how well it matched.
+
+```cobol
+       PROGRAM-ID. BTN-ASK--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-KB         PIC X(20) VALUE SPACES.
+       01 WS-QUESTION   PIC X(500).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE TXT-QUESTION::Text TO WS-QUESTION
+           INVOKE KB-1 "Query" USING WS-KB WS-QUESTION
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. KB-1--ONQUERIED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N          PIC 9(4).
+       01 WS-I          PIC 9(4).
+       01 WS-FIELD      PIC X(20).
+       01 WS-TEXT       PIC X(1000).
+       01 WS-SOURCE     PIC X(300).
+       01 WS-ALL        PIC X(8000).
+       01 WS-PTR        PIC 9(4).
+       PROCEDURE DIVISION.
+           MOVE SPACES TO WS-ALL
+           MOVE 1 TO WS-PTR
+           MOVE KB-1::RowCount TO WS-N
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+               MOVE "Text" TO WS-FIELD
+               INVOKE KB-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-TEXT
+               MOVE "Source" TO WS-FIELD
+               INVOKE KB-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-SOURCE
+               STRING FUNCTION TRIM(WS-TEXT) " [" FUNCTION TRIM(WS-SOURCE)
+                   "] " DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
+           END-PERFORM
+           MOVE WS-ALL TO TXT-OUT::Text
+           .
+```
+
+- Each row has `Text`, `Source` (the document's S3 address, web page or other
+  location) and `Score`. Image passages are left out.
+- `ListKnowledgeBases` lists the knowledge bases you can reach — `Id`, `Name`,
+  `Description`, `Type` — in `onKnowledgeBasesListed`.
+- ⚠️ Only knowledge bases **tagged `mcp-multirag-kb` = `true`** in AWS can be
+  reached. An untagged one is simply not there: tag it in the Bedrock console
+  first.
+- Every `AwsKnowledgeBase` operation only reads, so it never needs
+  `AllowWrite`.
+
+#### Example: a conversation with an AgentCore agent, remembered
+
+`AwsAgentCore` sends a prompt to an agent you deployed in Amazon Bedrock
+AgentCore Runtime (`RuntimeArn`) and puts the reply in `ResponseBody`. The
+first `Invoke` starts a conversation and writes its id into `SessionId`, so
+the next `Invoke` continues it; move spaces to `SessionId` to start over.
+`AwsAgentMemory` records each turn in an AgentCore Memory, so a later session
+can recall what the user said.
+
+```cobol
+       PROGRAM-ID. BTN-CHAT--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ARN        PIC X(10) VALUE SPACES.
+       01 WS-PROMPT     PIC X(1000).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE TXT-QUESTION::Text TO WS-PROMPT
+           INVOKE AGENT-1 "Invoke" USING WS-ARN WS-PROMPT
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. AGENT-1--ONINVOKED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-REPLY      PIC X(4000).
+       01 WS-NONE       PIC X VALUE SPACE.
+       01 WS-ROLE       PIC X(10) VALUE "ASSISTANT".
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE AGENT-1::ResponseBody TO WS-REPLY
+           MOVE WS-REPLY TO TXT-OUT::Text
+           MOVE AGENT-1::SessionId TO MEMORY-1::SessionId
+           INVOKE MEMORY-1 "RecordEvent"
+               USING WS-NONE WS-NONE WS-NONE WS-REPLY WS-ROLE
+               RETURNING WS-STARTED
+           .
+```
+
+- `Invoke` sends the prompt as `{"prompt": "…"}`, the shape an agent built
+  with AWS's starter toolkit reads. A reply the agent sends as JSON arrives
+  as that JSON text.
+- `RecordEvent(memoryId, actorId, sessionId, text, role)` — the three ids
+  default to `MemoryId`, `ActorId` and `SessionId`, and `role` to `USER`
+  (`ASSISTANT` for the agent's side). `onEventRecorded` gives `EventId`.
+- `Retrieve(memoryId, namespace, query)` searches what the memory has learned
+  (its long-term records, up to `TopK`) and returns rows with `Text`, `Score`,
+  `Id` and `CreatedAt`, in `onRetrieved`.
+- ⚠️ `Invoke` and `RecordEvent` need `AllowWrite`: an agent can act, and each
+  call is billed.
+- ⚠️ A failure AgentCore reports inside its answer — an unknown agent, a
+  missing memory — raises `onError` with AgentCore's own message in
+  `LastError`.
+
+#### Example: read S3 Tables with SQL
+
+`AwsS3Tables` works on one table bucket (`TableBucketArn`) and one namespace
+(`Namespace`). `Query` runs one read-only SQL statement, and each result row
+becomes a row whose fields are named after the columns:
+
+```cobol
+       PROGRAM-ID. BTN-SALES--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-SQL        PIC X(200) VALUE
+           "SELECT region, SUM(total) AS total FROM orders GROUP BY region".
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE TABLES-1 "Query" USING WS-SQL RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. TABLES-1--ONQUERIED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N          PIC 9(4).
+       01 WS-I          PIC 9(4).
+       01 WS-FIELD      PIC X(20).
+       01 WS-REGION     PIC X(40).
+       01 WS-TOTAL      PIC X(20).
+       01 WS-ALL        PIC X(4000).
+       01 WS-PTR        PIC 9(4).
+       PROCEDURE DIVISION.
+           MOVE SPACES TO WS-ALL
+           MOVE 1 TO WS-PTR
+           MOVE TABLES-1::RowCount TO WS-N
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+               MOVE "region" TO WS-FIELD
+               INVOKE TABLES-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-REGION
+               MOVE "total" TO WS-FIELD
+               INVOKE TABLES-1 "GetField" USING WS-I WS-FIELD
+                   RETURNING WS-TOTAL
+               STRING FUNCTION TRIM(WS-REGION) ": " FUNCTION TRIM(WS-TOTAL)
+                   "  " DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
+           END-PERFORM
+           MOVE WS-ALL TO TXT-OUT::Text
+           .
+```
+
+- `ListTables(namespace)` lists the region's tables as rows — `Namespace`,
+  `Name`, `TableArn`, `Type`, `ModifiedAt`. With `Namespace` set (or a
+  namespace passed), only that namespace's tables are kept.
+- `AppendRows(table, rows)` appends a JSON array of objects, one per row, to
+  `table` (`TableName` when empty); `onRowsAppended` gives `RowsAppended`. It
+  needs `AllowWrite`, and rows that are not valid JSON are refused before
+  anything is sent.
+- ⚠️ `Query` only reads: a statement that writes (`INSERT`, `UPDATE`,
+  `DELETE`, `CREATE` …) is refused by AWS's server and arrives as `onError`.
+  Use `AppendRows` to add data.
+
+#### Example: run a Glue job and follow it
+
+`AwsGlue` starts a job (`JobName`) and tells you how its run is going.
+`StartJobRun` writes the new run's id into `JobRunId`, so a `GetJobRun` with
+no arguments follows exactly that run:
+
+```cobol
+       PROGRAM-ID. BTN-ETL--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-JOB        PIC X VALUE SPACE.
+       01 WS-ARGS       PIC X(100) VALUE '{"--day": "2026-10-07"}'.
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE GLUE-1 "StartJobRun" USING WS-JOB WS-ARGS
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. GLUE-1--ONJOBSTARTED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-RUN        PIC X(80).
+       PROCEDURE DIVISION.
+           MOVE GLUE-1::JobRunId TO WS-RUN
+           MOVE WS-RUN TO LBL-STATE::Caption
+           .
+
+       PROGRAM-ID. BTN-CHECK--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE GLUE-1 "GetJobRun" RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. GLUE-1--ONJOBRUN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-STATE      PIC X(20).
+       PROCEDURE DIVISION.
+           MOVE GLUE-1::State TO WS-STATE
+           MOVE WS-STATE TO LBL-STATE::Caption
+           .
+```
+
+- `State` is Glue's own word for the run: `STARTING`, `RUNNING`, `SUCCEEDED`,
+  `FAILED`, `TIMEOUT`, `STOPPED` …. A Timer that calls `GetJobRun` every few
+  seconds until it is no longer `RUNNING` is the usual way to wait.
+- `StartCrawler(name)` starts a crawler (`CrawlerName` when empty), in
+  `onCrawlerStarted`.
+- `GetTableSchema(database, table)` returns a Data Catalog table's columns as
+  rows — `Name`, `Type`, `Comment` — in `onTableSchema`.
+- ⚠️ `StartJobRun` and `StartCrawler` need `AllowWrite`. For your users'
+  privacy the server leaves a run's arguments and error message out of what
+  it returns; the state is always there.
+
+#### The general-purpose controls: one AWS server for many services
+
+`AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`,
+`AwsComprehend`, `AwsTextract`, `AwsEC2` and `AwsCognito` all go through
+**the AWS MCP Server** — the one AWS runs itself, reached through AWS's own
+proxy and signed by the connection's profile. You notice nothing of this: you
+call `GetItem` the way you call `Query` on the others. Two things are worth
+knowing:
+
+- Every request is a small Python script **shipped with PowerRustCOBOL**, run
+  by AWS in a sandbox. The values your program passes go into it as data
+  only — a text, a number, a file's bytes — never as code, so nothing a user
+  types can change what runs.
+- These calls take longer than the dedicated servers' — a few seconds each,
+  because AWS starts the sandbox every time. Keep `Mode = Async` for them,
+  and do not put one in a loop over thousands of rows.
+
+#### Example: DynamoDB items as plain JSON
+
+DynamoDB's own API writes every value with its type (`{"N": "42"}`).
+`AwsDynamoDB` does not: keys, items and values are the JSON your program
+would write anyway, and items come back as rows whose fields are the
+attributes.
+
+```cobol
+       PROGRAM-ID. BTN-FIND--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-KEY        PIC X(100).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           STRING '{"id": ' FUNCTION TRIM(TXT-ID::Text) '}'
+               DELIMITED BY SIZE INTO WS-KEY
+           INVOKE ORDERS-1 "GetItem" USING WS-KEY RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. ORDERS-1--ONITEM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ROW        PIC 9 VALUE 1.
+       01 WS-FIELD      PIC X(20) VALUE "customer".
+       01 WS-CUSTOMER   PIC X(80).
+       PROCEDURE DIVISION.
+           IF ORDERS-1::Found = "1"
+               INVOKE ORDERS-1 "GetField" USING WS-ROW WS-FIELD
+                   RETURNING WS-CUSTOMER
+               MOVE WS-CUSTOMER TO LBL-STATE::Caption
+           ELSE
+               MOVE "No such order" TO LBL-STATE::Caption
+           END-IF
+           .
+```
+
+- `Query(keyCondition, values, index)` reads the items matching a key
+  condition — `customer = :c` with `{":c": "C-7"}` — up to `Limit`, from
+  `IndexName` when no index is given. `Scan(limit)` reads the table.
+- `PutItem(item)`, `UpdateItem(key, expression, values)` and
+  `DeleteItem(key)` need `AllowWrite`. `UpdateItem` returns the item's new
+  state as row 1.
+
+#### Example: an image, a document, a voice
+
+`AwsRekognition` and `AwsTextract` take an image or a document either as a
+**local file** or as an object in S3 (`s3://bucket/key`). `AwsPolly` writes
+the speech into a local file.
+
+```cobol
+       PROGRAM-ID. BTN-PHOTO--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-IMAGE      PIC X(200) VALUE "photos/dog.jpg".
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           INVOKE VISION-1 "DetectLabels" USING WS-IMAGE
+               RETURNING WS-STARTED
+           .
+
+       PROGRAM-ID. VISION-1--ONLABELS.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ROW        PIC 9 VALUE 1.
+       01 WS-FIELD      PIC X(20) VALUE "Name".
+       01 WS-LABEL      PIC X(80).
+       PROCEDURE DIVISION.
+           INVOKE VISION-1 "GetField" USING WS-ROW WS-FIELD
+               RETURNING WS-LABEL
+           MOVE WS-LABEL TO LBL-STATE::Caption
+           .
+```
+
+| Control | Methods | Rows / results |
+|---|---|---|
+| `AwsRekognition` | `DetectLabels`, `DetectText`, `DetectFaces` (image) | `Name`, `Confidence` · `Text`, `Type` · `AgeLow`, `AgeHigh`, `Smile`, `Emotion` |
+| `AwsTextract` | `DetectText`, `AnalyzeDocument` (document) | lines `Text`, `Page` · fields and cells: `Kind` (FIELD or CELL), `Key`, `Value`, `Table`, `Row`, `Column` |
+| `AwsPolly` | `Synthesize(text, voice, format, toFile)` | `SavedFile`, `Characters` (what Polly bills) |
+| `AwsComprehend` | `DetectSentiment`, `DetectEntities`, `DetectKeyPhrases`, `DetectLanguage` | `Sentiment` · `Text`, `Type`, `Score` · `Language` |
+| `AwsS3` | `List(prefix)`, `GetObject(key, toFile)`, `PutObject(key, text, fromFile)`, `DeleteObject(key)` | `Key`, `Size`, `LastModified` · the object as text in `ResponseBody` |
+| `AwsS3Vectors` | `QueryVectors(index, vector, topK)`, `PutVectors(index, vectors)` | `Key`, `Distance`, `Metadata` |
+| `AwsEC2` | `Describe(ids)`, `Start(ids)`, `Stop(ids)` | `InstanceId`, `Name`, `State`, `Type`, `PublicIp`, `PrivateIp` |
+
+⚠️ Images, documents and objects travel inside the request and the answer,
+so these suit files of a few megabytes — a photo, a scanned form, a report —
+not a video.
+
+#### Example: signing your users in with Cognito
+
+`AwsCognito` signs the **users of your application** in to a Cognito user
+pool: `SignUp`, `Confirm` (with the code Cognito e-mails), `SignIn`,
+`GetAttribute`, `SignOut`. Set `ClientId` to an app client that has **no
+client secret**.
+
+```cobol
+       PROGRAM-ID. BTN-LOGIN--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-USER       PIC X(80).
+       01 WS-PASSWORD   PIC X(80).
+       01 WS-STARTED    PIC X.
+       PROCEDURE DIVISION.
+           MOVE TXT-USER::Text TO WS-USER
+           MOVE TXT-PASSWORD::Text TO WS-PASSWORD
+           INVOKE USERS-1 "SignIn" USING WS-USER WS-PASSWORD
+               RETURNING WS-STARTED
+           MOVE SPACES TO WS-PASSWORD
+           .
+
+       PROGRAM-ID. USERS-1--ONSIGNEDIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NAME       PIC X(80).
+       PROCEDURE DIVISION.
+           IF USERS-1::SignedIn = "1"
+               MOVE USERS-1::UserName TO WS-NAME
+               MOVE WS-NAME TO LBL-STATE::Caption
+           ELSE
+               MOVE USERS-1::Challenge TO LBL-STATE::Caption
+           END-IF
+           .
+```
+
+- The tokens a sign-in returns **never reach your program**: the runtime
+  keeps them in memory, uses them for `GetAttribute` and `SignOut`, and
+  forgets them when the user signs out or the application ends. Your COBOL
+  sees `SignedIn` and `UserName` — nothing that could be leaked.
+- `Verbose` never prints a request that carries a password or a token.
+- `Challenge` names what Cognito asks for instead of signing in (a new
+  password, a second factor); those flows are not offered yet.
+- ⚠️ The password travels to AWS inside the request — encrypted, signed by
+  the connection's profile, and never written anywhere by PowerRustCOBOL.
+  Clear the field that held it, as the example does.
+
 > **Note — the events are the asynchronous controls' own.** Each AWS control
 > raises its own completion event (`onInvoked`, `onFunctionsListed`,
-> `onToolResult`, `onToolsListed`), then `onComplete`; or `onError`,
+> `onToolResult`, `onToolsListed`, `onQueried`, `onKnowledgeBasesListed`,
+> `onEventRecorded`, `onRetrieved`, `onTablesListed`, `onRowsAppended`,
+> `onJobStarted`, `onJobRun`, `onCrawlerStarted`, `onTableSchema`, and
+> the general-purpose controls' `onItem`, `onLabels`, `onSignedIn` … listed
+> in each control's help), then `onComplete`; or `onError`,
 > `onTimeout` (after `TimeoutMs`, the first start having its own
 > `StartTimeoutMs`) or `onCancelled` (after `Cancel()`). One operation at a
 > time per control; `IsBusy()` says whether one is running.

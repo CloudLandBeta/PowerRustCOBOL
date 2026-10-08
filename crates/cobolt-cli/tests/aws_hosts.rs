@@ -79,15 +79,34 @@ fn project(tag: &str) -> Project {
         "pid_file": root.join("pids.txt").to_string_lossy(),
     });
     std::fs::write(root.join("fake.json"), script.to_string()).unwrap();
+    // The Delivery B servers answer from a script of their own, so the
+    // Lambda server still lists exactly its three tools.
+    let script_b = json!({
+        "tools": [
+            {"name": "QueryKnowledgeBases", "inputSchema": {"type": "object"}},
+            {"name": "ListKnowledgeBases", "inputSchema": {"type": "object"}},
+            {"name": "invoke_agent_runtime", "inputSchema": {"type": "object"}},
+            {"name": "memory_create_event", "inputSchema": {"type": "object"}},
+            {"name": "memory_retrieve_records", "inputSchema": {"type": "object"}},
+            {"name": "list_tables", "inputSchema": {"type": "object"}},
+            {"name": "query_database", "inputSchema": {"type": "object"}},
+            {"name": "append_rows_to_table", "inputSchema": {"type": "object"}},
+            {"name": "manage_aws_glue_jobs", "inputSchema": {"type": "object"}},
+            {"name": "manage_aws_glue_crawlers", "inputSchema": {"type": "object"}},
+            {"name": "manage_aws_glue_tables", "inputSchema": {"type": "object"}},
+            {"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}
+        ],
+        "answers": delivery_b_answers(),
+        "answers_when": hosted_answers(),
+        "pid_file": root.join("pids.txt").to_string_lossy(),
+    });
+    std::fs::write(root.join("fake-b.json"), script_b.to_string()).unwrap();
     let fake = fake_mcp();
     let server = |id: &str| {
-        format!(
-            "[servers.{id}]\ncommand = '{}'\nargs = ['{}']\n",
-            fake.display(),
-            root.join("fake.json").display()
-        )
+        let script = if matches!(id, "lambda" | "fake") { "fake.json" } else { "fake-b.json" };
+        format!("[servers.{id}]\ncommand = '{}'\nargs = ['{}']\n", fake.display(), root.join(script).display())
     };
-    let routes = format!("{}{}", server("lambda"), server("fake"));
+    let routes: String = ["lambda", "fake", "bedrock-kb", "agentcore", "s3tables", "dataprocessing", "hosted"].map(server).concat();
     let listed = |dir: &str, ext: &str| forms.iter().map(|f| format!("\"{dir}/{f}.{ext}\"")).collect::<Vec<_>>().join(", ");
     let manifest = format!(
         "[project]\nname = \"AwsHosts\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\ndebug_compilation = true\n\n\
@@ -104,6 +123,73 @@ fn project(tag: &str) -> Project {
     )
     .unwrap();
     Project { root }
+}
+
+/// What the fake answers each tool with: the shapes each real server's
+/// source produces (see the route fixtures' provenance).
+fn delivery_b_answers() -> Value {
+    let text = |t: &str| json!({"content": [{"type": "text", "text": t}], "isError": false});
+    let two = |m: &str, d: &str| json!({"content": [{"type": "text", "text": m}, {"type": "text", "text": d}], "isError": false});
+    json!({
+        "QueryKnowledgeBases": text(concat!(
+            r#"{"content": {"type": "TEXT", "text": "Refunds take 14 days."}, "location": {"type": "S3", "s3Location": {"uri": "s3://docs/refunds.pdf"}}, "score": 0.82}"#,
+            "\n\n",
+            r#"{"content": {"type": "TEXT", "text": "Keep the receipt."}, "location": {"type": "WEB", "webLocation": {"url": "https://example.com/faq"}}, "score": 0.41}"#
+        )),
+        "ListKnowledgeBases": text(r#"{"KB12345678": {"name": "Support docs", "description": "FAQ", "type": "VECTOR", "data_sources": []}}"#),
+        "invoke_agent_runtime": text(r#"{"status": "success", "runtime_session_id": "sess-0123456789abcdef0123456789abcdef", "response_body": "Hi! How can I help?", "message": "ok"}"#),
+        "memory_create_event": text(r#"{"status": "success", "message": "Event created", "event": {"eventId": "ev-77"}}"#),
+        "memory_retrieve_records": text(r#"{"status": "success", "message": "2 records", "memory_records": [{"memoryRecordId": "r1", "content": {"text": "Likes tea"}, "score": 0.91}, {"memoryRecordId": "r2", "content": {"text": "Lives in Porto"}, "score": 0.33}]}"#),
+        "list_tables": text(r#"{"tables": [{"namespace": ["sales"], "name": "orders", "table_arn": "arn:t/1"}, {"namespace": ["ops"], "name": "events", "table_arn": "arn:t/2"}, {"namespace": ["sales"], "name": "refunds", "table_arn": "arn:t/3"}], "total_count": 3}"#),
+        "query_database": text(r#"{"columns": ["order_id", "total"], "rows": [[1, 19.9], [2, 5.0]]}"#),
+        "append_rows_to_table": text(r#"{"status": "success", "rows_appended": 2}"#),
+        "manage_aws_glue_jobs": two("Successfully processed the job run", r#"{"job_name": "nightly-etl", "job_run_id": "jr_abc", "job_run_details": {"Id": "jr_abc", "JobRunState": "SUCCEEDED"}}"#),
+        "manage_aws_glue_crawlers": two("Successfully started crawler raw-crawler", r#"{"crawler_name": "raw-crawler", "operation": "start"}"#),
+        "manage_aws_glue_tables": two("Successfully retrieved table", r#"{"database_name": "sales", "table_name": "orders", "storage_descriptor": {"Columns": [{"Name": "order_id", "Type": "bigint"}, {"Name": "total", "Type": "double"}]}}"#),
+    })
+}
+
+/// What the hosted server's `aws___run_script` answers, by the AWS operation
+/// its script calls: the envelope AWS's own code reads, as text.
+fn hosted_answers() -> Value {
+    let env = |v: Value| {
+        let text = json!({"status": "success", "stdout": "", "stderr": "", "return_value": v}).to_string();
+        json!({"content": [{"type": "text", "text": text}], "isError": false})
+    };
+    let rules = [
+        ("GetItem", json!({"Items": [{"id": 42, "customer": "Ana"}], "Found": "1"})),
+        ("Scan", json!({"Items": [{"id": 1}, {"id": 2}], "Count": 2})),
+        ("'Query'", json!({"Items": [{"id": 1}, {"id": 2}], "Count": 2})),
+        ("PutItem", json!({"Done": "1"})),
+        ("ListObjectsV2", json!({"Contents": [{"Key": "a.txt", "Size": 5, "LastModified": "2026-10-07 10:00:00+00:00"}]})),
+        ("GetObject", json!({"Base64": "aGVsbG8=", "Text": "hello", "ContentType": "text/plain"})),
+        ("QueryVectors", json!({"vectors": [{"key": "doc-7", "distance": 0.12, "metadata": {}}]})),
+        ("DetectLabels", json!({"Labels": [{"Name": "Dog", "Confidence": 98.1}, {"Name": "Pet", "Confidence": 97.0}]})),
+        ("operation_name='DetectText'", json!({"TextDetections": [{"DetectedText": "GOOD BOY", "Type": "LINE", "Confidence": 99}]})),
+        ("DetectFaces", json!({"FaceDetails": [{"Confidence": 99.9, "AgeRange": {"Low": 2, "High": 6}}]})),
+        ("SynthesizeSpeech", json!({"Base64": "SUQzBAA=", "ContentType": "audio/mpeg", "Characters": 5})),
+        ("DetectSentiment", json!({"Sentiment": "POSITIVE", "Scores": [{"Positive": 0.97}]})),
+        ("DetectEntities", json!({"Entities": [{"Text": "Ana", "Type": "PERSON", "Score": 0.99}, {"Text": "Porto", "Type": "LOCATION", "Score": 0.98}]})),
+        ("DetectDominantLanguage", json!({"Languages": [{"LanguageCode": "pt", "Score": 0.98}]})),
+        ("DetectKeyPhrases", json!({"KeyPhrases": [{"Text": "the new ticket form", "Score": 0.99}]})),
+        ("DetectDocumentText", json!({"Lines": [{"Text": "Name: Ana", "Confidence": 99, "Page": 1}, {"Text": "Total: 42", "Confidence": 98, "Page": 1}]})),
+        ("AnalyzeDocument", json!({"Rows": [{"Kind": "FIELD", "Key": "Name:", "Value": "Ana"}, {"Kind": "CELL", "Value": "42", "Table": 1, "Row": 1, "Column": 1}]})),
+        ("DescribeInstances", json!({"Instances": [{"InstanceId": "i-1", "Name": "web", "State": "running"}]})),
+        ("StartInstances", json!({"Instances": [{"InstanceId": "i-1", "State": "pending", "Previous": "stopped"}]})),
+        ("InitiateAuth", json!({"SignedIn": "1", "UserName": "ana", "Challenge": "", "Secret": {"AccessToken": "demo-access-token", "IdToken": "demo-id-token"}})),
+        ("GetUser", json!({"Value": "ana@example.com"})),
+        ("GlobalSignOut", json!({"SignedIn": "0", "UserName": ""})),
+    ];
+    Value::Array(
+        rules
+            .into_iter()
+            .map(|(op, v)| {
+                let contains = if op.starts_with('\'') || op.starts_with("operation_name") { op.to_owned() } else { format!("'{op}'") };
+                let contains = if contains.starts_with("operation_name") { contains } else { format!("operation_name={contains}") };
+                json!({"tool": "aws___run_script", "contains": contains, "answer": env(v)})
+            })
+            .collect(),
+    )
 }
 
 /// The steps that run one demo; `open` loads it into the shell's pane first.
@@ -161,7 +247,24 @@ fn run_form(p: &Project, form: &str, program: &str, script: &Value) -> String {
     stdout
 }
 
-const DEMOS: [(&str, &str); 2] = [("aws-lambda-demo", "PASS 009 FAIL 000"), ("aws-mcp-demo", "PASS 009 FAIL 000")];
+const DEMOS: [(&str, &str); 16] = [
+    ("aws-lambda-demo", "PASS 009 FAIL 000"),
+    ("aws-mcp-demo", "PASS 009 FAIL 000"),
+    ("aws-knowledge-base-demo", "PASS 008 FAIL 000"),
+    ("aws-agent-core-demo", "PASS 006 FAIL 000"),
+    ("aws-agent-memory-demo", "PASS 007 FAIL 000"),
+    ("aws-s3-tables-demo", "PASS 010 FAIL 000"),
+    ("aws-glue-demo", "PASS 009 FAIL 000"),
+    ("aws-dynamodb-demo", "PASS 009 FAIL 000"),
+    ("aws-s3-demo", "PASS 007 FAIL 000"),
+    ("aws-s3-vectors-demo", "PASS 006 FAIL 000"),
+    ("aws-rekognition-demo", "PASS 007 FAIL 000"),
+    ("aws-polly-demo", "PASS 006 FAIL 000"),
+    ("aws-comprehend-demo", "PASS 007 FAIL 000"),
+    ("aws-textract-demo", "PASS 007 FAIL 000"),
+    ("aws-ec2-demo", "PASS 006 FAIL 000"),
+    ("aws-cognito-demo", "PASS 009 FAIL 000"),
+];
 
 #[test]
 fn the_demos_pass_under_run_form_and_as_embedded_child_forms() {
@@ -236,6 +339,27 @@ fn the_guides_aws_examples_compile() {
         ("TXT-OUT", cobolt_forms::ControlType::TextBox),
         ("BTN-QUOTE", cobolt_forms::ControlType::Button),
         ("BTN-TOOLS", cobolt_forms::ControlType::Button),
+        ("KB-1", cobolt_forms::ControlType::AwsKnowledgeBase),
+        ("AGENT-1", cobolt_forms::ControlType::AwsAgentCore),
+        ("MEMORY-1", cobolt_forms::ControlType::AwsAgentMemory),
+        ("TABLES-1", cobolt_forms::ControlType::AwsS3Tables),
+        ("GLUE-1", cobolt_forms::ControlType::AwsGlue),
+        ("TXT-QUESTION", cobolt_forms::ControlType::TextBox),
+        ("LBL-STATE", cobolt_forms::ControlType::Label),
+        ("BTN-ASK", cobolt_forms::ControlType::Button),
+        ("BTN-CHAT", cobolt_forms::ControlType::Button),
+        ("BTN-SALES", cobolt_forms::ControlType::Button),
+        ("BTN-ETL", cobolt_forms::ControlType::Button),
+        ("BTN-CHECK", cobolt_forms::ControlType::Button),
+        ("ORDERS-1", cobolt_forms::ControlType::AwsDynamoDB),
+        ("VISION-1", cobolt_forms::ControlType::AwsRekognition),
+        ("USERS-1", cobolt_forms::ControlType::AwsCognito),
+        ("TXT-ID", cobolt_forms::ControlType::TextBox),
+        ("TXT-USER", cobolt_forms::ControlType::TextBox),
+        ("TXT-PASSWORD", cobolt_forms::ControlType::TextBox),
+        ("BTN-FIND", cobolt_forms::ControlType::Button),
+        ("BTN-PHOTO", cobolt_forms::ControlType::Button),
+        ("BTN-LOGIN", cobolt_forms::ControlType::Button),
     ] {
         form.controls.push(cobolt_forms::Control::new(id, ct, 0, 0));
     }
@@ -249,6 +373,12 @@ fn the_guides_aws_examples_compile() {
                 "ONCLICK" => "onClick",
                 "ONINVOKED" => "onInvoked",
                 "ONTOOLRESULT" => "onToolResult",
+                "ONQUERIED" => "onQueried",
+                "ONJOBSTARTED" => "onJobStarted",
+                "ONJOBRUN" => "onJobRun",
+                "ONITEM" => "onItem",
+                "ONLABELS" => "onLabels",
+                "ONSIGNEDIN" => "onSignedIn",
                 other => panic!("an example handler for an unexpected event: {other}"),
             };
             let c = form.controls.iter_mut().find(|c| c.id == ctrl).unwrap_or_else(|| panic!("no control {ctrl}"));
@@ -260,7 +390,7 @@ fn the_guides_aws_examples_compile() {
             handlers.push(name.to_owned());
         }
     }
-    assert_eq!(handlers.len(), 4, "{handlers:?}");
+    assert_eq!(handlers.len(), 20, "{handlers:?}");
     let src = cobolt_codegen::generate(&form);
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
     let errors: Vec<String> = parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("line {}: {}", d.span.line, d.message)).collect();

@@ -1,0 +1,66 @@
+{
+  "_provenance": "awslabs.aws-dataprocessing-mcp-server@0.2.2 (PyPI, uploaded 2026-09-22). NOT a live recording: no AWS account was available when this was written (2026-10-07). Derived from that exact version's published sdist (handlers/glue/glue_etl_handler.py, crawler_handler.py, data_catalog_handler.py) and from how mcp 2.0.0's func_metadata renders a signature; pydantic `title` keys are left out. `operation` is a free string in the schema; the allowed values live only in the handlers' code and are listed in each description. PARTIAL: the server registers many more tools (EMR, Athena, other Glue resources …); only the three the routes use are listed here. Re-record with a live `tools/list` when an operator profile is available.",
+  "tools": [
+    {
+      "name": "manage_aws_glue_jobs",
+      "description": "Manage AWS Glue ETL jobs and job runs with both read and write operations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operation": { "type": "string", "description": "create-job, delete-job, get-job, get-jobs, update-job, start-job-run, stop-job-run, get-job-run, get-job-runs, batch-stop-job-run, get-job-bookmark, reset-job-bookmark" },
+          "job_name": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "job_definition": { "anyOf": [{ "type": "object", "additionalProperties": true }, { "type": "null" }], "default": null },
+          "job_run_id": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "job_run_ids": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }], "default": null },
+          "job_arguments": { "anyOf": [{ "type": "object", "additionalProperties": { "type": "string" } }, { "type": "null" }], "default": null },
+          "max_results": { "anyOf": [{ "type": "integer" }, { "type": "null" }], "default": null },
+          "next_token": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "worker_type": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "number_of_workers": { "anyOf": [{ "type": "integer" }, { "type": "null" }], "default": null },
+          "max_capacity": { "anyOf": [{ "type": "number" }, { "type": "null" }], "default": null },
+          "timeout": { "anyOf": [{ "type": "integer" }, { "type": "null" }], "default": null },
+          "security_configuration": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "execution_class": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "job_run_queuing_enabled": { "anyOf": [{ "type": "boolean" }, { "type": "null" }], "default": null },
+          "predecessors_included": { "anyOf": [{ "type": "boolean" }, { "type": "null" }], "default": null }
+        },
+        "required": ["operation"]
+      }
+    },
+    {
+      "name": "manage_aws_glue_crawlers",
+      "description": "Manage AWS Glue crawlers to discover and catalog data sources.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operation": { "type": "string", "description": "create-crawler, delete-crawler, get-crawler, get-crawlers, start-crawler, stop-crawler, batch-get-crawlers, list-crawlers, update-crawler" },
+          "crawler_name": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "crawler_definition": { "anyOf": [{ "type": "object", "additionalProperties": true }, { "type": "null" }], "default": null },
+          "crawler_names": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }], "default": null },
+          "max_results": { "anyOf": [{ "type": "integer" }, { "type": "null" }], "default": null },
+          "next_token": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "tags": { "anyOf": [{ "type": "object", "additionalProperties": { "type": "string" } }, { "type": "null" }], "default": null }
+        },
+        "required": ["operation"]
+      }
+    },
+    {
+      "name": "manage_aws_glue_tables",
+      "description": "Manage AWS Glue Data Catalog tables with both read and write operations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operation": { "type": "string", "description": "create-table, delete-table, get-table, list-tables, update-table, search-tables" },
+          "database_name": { "type": "string" },
+          "table_name": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "catalog_id": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "table_input": { "anyOf": [{ "type": "object", "additionalProperties": true }, { "type": "null" }], "default": null },
+          "search_text": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "max_results": { "anyOf": [{ "type": "integer" }, { "type": "null" }], "default": null },
+          "next_token": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null }
+        },
+        "required": ["operation", "database_name"]
+      }
+    }
+  ]
+}

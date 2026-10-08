@@ -17,6 +17,9 @@
 //!   "tools": [ {"name": "...", "inputSchema": {...}, "annotations": {...}} ],
 //!   "page_size": 1,                    // tools/list paging (0 = one page)
 //!   "answers": { "<tool>": {"content": [...], "isError": false} },
+//!   "answers_when": [ {"tool": "<tool>", "contains": "text",
+//!                      "answer": {...}} ],   // first whose arguments, as
+//!                                            // JSON text, contain "text"
 //!   "delay_ms": { "<tool>": 500 },     // wait before answering
 //!   "init_delay_ms": 300,              // a slow start (a first uvx download)
 //!   "silent": [ "<tool>" ],            // never answer this tool
@@ -147,8 +150,17 @@ fn main() {
                     send(&mut out, json!({"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"working"}}));
                     send(&mut out, json!({"jsonrpc":"2.0","id":"fake-ping","method":"ping"}));
                 }
+                let args_text = params.get("arguments").map(Value::to_string).unwrap_or_default();
+                let when = script.get("answers_when").and_then(Value::as_array).and_then(|rules| {
+                    rules.iter().find(|r| {
+                        r["tool"].as_str() == Some(name.as_str())
+                            && r["contains"].as_str().is_some_and(|c| args_text.contains(c))
+                    })
+                });
                 let result = if let Some(text) = s("fail_with") {
                     json!({"content":[{"type":"text","text":text}],"isError":true})
+                } else if let Some(rule) = when {
+                    rule["answer"].clone()
                 } else if let Some(a) = script.get("answers").and_then(|a| a.get(&name)) {
                     a.clone()
                 } else {

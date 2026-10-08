@@ -241,6 +241,76 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::AwsMcp,
         category: "AWS",
     },
+    ToolEntry {
+        label: "AwsKnowledgeBase",
+        ct: ControlType::AwsKnowledgeBase,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsAgentCore",
+        ct: ControlType::AwsAgentCore,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsAgentMemory",
+        ct: ControlType::AwsAgentMemory,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsS3Tables",
+        ct: ControlType::AwsS3Tables,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsGlue",
+        ct: ControlType::AwsGlue,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsDynamoDB",
+        ct: ControlType::AwsDynamoDB,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsS3",
+        ct: ControlType::AwsS3,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsS3Vectors",
+        ct: ControlType::AwsS3Vectors,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsRekognition",
+        ct: ControlType::AwsRekognition,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsPolly",
+        ct: ControlType::AwsPolly,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsComprehend",
+        ct: ControlType::AwsComprehend,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsTextract",
+        ct: ControlType::AwsTextract,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsEC2",
+        ct: ControlType::AwsEC2,
+        category: "AWS",
+    },
+    ToolEntry {
+        label: "AwsCognito",
+        ct: ControlType::AwsCognito,
+        category: "AWS",
+    },
     // ── Charts ─────────────────────────────────────────────────────────────────
     ToolEntry {
         label: "BarChart",
@@ -1577,7 +1647,7 @@ pub(crate) fn paint_control_icon(
         }
         // Spec 078 A5: the hand-drawn AWS-style tile, from the same function
         // the designer card draws with.
-        ControlType::AwsLambda | ControlType::AwsMcp => {
+        cobolt_forms::aws_pattern!() => {
             cobolt_forms::paint::paint_aws_icon(painter, rect.shrink(rect.width() * 0.12), &ct);
         }
         ControlType::WebSearch => {
@@ -1862,7 +1932,7 @@ mod snackbar_icon_tests {
     #[test]
     fn the_toolbox_aws_icons_are_the_controls_own_tiles() {
         let color = Color32::from_rgb(200, 205, 215);
-        for ct in [ControlType::AwsLambda, ControlType::AwsMcp] {
+        for ct in ControlType::ALL.iter().filter(|t| t.is_aws()).cloned() {
             let toolbox = shapes(|p, rect| paint_control_icon(p, rect, ct.clone(), color));
             let drew = std::cell::Cell::new(false);
             let control = shapes(|p, rect| {
@@ -1994,7 +2064,7 @@ mod toolbox_layout_tests {
             assert_eq!(headers.len(), 1, "{lang:?}: one AWS header: {texts:?}");
         }
         let aws: Vec<&str> = TOOLS.iter().filter(|t| t.category == "AWS").map(|t| t.label).collect();
-        assert_eq!(aws, ["AwsLambda", "AwsMcp"]);
+        assert_eq!(aws, ["AwsLambda", "AwsMcp", "AwsKnowledgeBase", "AwsAgentCore", "AwsAgentMemory", "AwsS3Tables", "AwsGlue", "AwsDynamoDB", "AwsS3", "AwsS3Vectors", "AwsRekognition", "AwsPolly", "AwsComprehend", "AwsTextract", "AwsEC2", "AwsCognito"]);
     }
 }
 

@@ -32,6 +32,93 @@
   segment, or the nearest point of any line. It names the series when the
   chart has several (`Q1 · Sales: 120`). It used to read the first series
   whatever was under the pointer.
+## [PowerRustCOBOL 1.80.242] — 2026-10-07
+
+### Added
+- **Spec 078 Delivery C: nine AWS controls through the hosted AWS MCP
+  Server.** Each one is reached through AWS's own proxy
+  (`mcp-proxy-for-aws` 1.7.0) and signed by the connection's profile:
+  - `AwsDynamoDB` — GetItem, Query, Scan, PutItem, UpdateItem, DeleteItem,
+    with items as plain JSON;
+  - `AwsS3` — List, GetObject (to text or a file), PutObject (text or a
+    file), DeleteObject;
+  - `AwsS3Vectors` — QueryVectors, PutVectors;
+  - `AwsRekognition` — DetectLabels, DetectText, DetectFaces, from a file or
+    `s3://`;
+  - `AwsPolly` — Synthesize, into an audio file;
+  - `AwsComprehend` — sentiment, entities, key phrases, language;
+  - `AwsTextract` — lines, form fields and table cells;
+  - `AwsEC2` — Describe, Start, Stop;
+  - `AwsCognito` — SignUp, Confirm, SignIn, GetAttribute, SignOut.
+- **How the requests are built.** Each operation is a Python script shipped
+  in the route table and run by AWS through `aws___run_script`; AWS removed
+  `call_aws` on 2026-08-31. A COBOL value enters a script only as a quoted
+  literal, a number or a file's base64. A test checks all 99 placeholders.
+- **Cognito tokens never reach COBOL.** They are kept in the runtime's
+  memory, cut out of every answer, used inside later scripts, and
+  forgotten on SignOut. `Verbose` never prints a request that carries a
+  password or a token. A test scans every property, every row, the
+  `Verbose` output and the disk.
+- **Coverage.** Each control has a hand-drawn tile, help in six languages,
+  System KB entries (2782 records), and a demo on all three hosts:
+  16 demos, 16 servers, none left running.
+- **Live smoke test.** `aws_live.rs` (`#[ignore]`, `COBOLT_AWS_LIVE=1`)
+  makes one read-only call per service and saves each server's real
+  `tools/list` for re-recording the fixtures.
+
+### Changed
+- The route table gained:
+  - `[snippets]` (shipped Python, pasted by `{snippet:name}`);
+  - `{secret:Name}`, plus the op fields `secrets`, `forget_secrets` and
+    `sensitive`;
+  - `save` (write an answer to a file);
+  - the filters `|filebase64` and `|source`;
+  - JSON Pointers that read on inside a string holding JSON.
+- The fake MCP server can answer by what a call's arguments contain
+  (`answers_when`).
+
+## [PowerRustCOBOL 1.80.241] — 2026-10-07
+
+### Added
+- **Spec 078 Delivery B: five more AWS controls**, in the toolbox's AWS section:
+  - `AwsKnowledgeBase` asks an Amazon Bedrock knowledge base a question and
+    returns the passages as rows (`Text`, `Source`, `Score`);
+    `ListKnowledgeBases` lists the ones you can reach.
+  - `AwsAgentCore` talks to an agent in AgentCore Runtime. The reply arrives
+    in `ResponseBody`, and the conversation is kept in `SessionId`.
+  - `AwsAgentMemory` records conversation turns (`RecordEvent`) and searches
+    what the memory learned (`Retrieve`).
+  - `AwsS3Tables` lists tables, runs read-only SQL with rows named after
+    the columns, and appends rows (`AppendRows`).
+  - `AwsGlue` starts jobs and crawlers, follows a run (`GetJobRun` → `State`),
+    and reads a table's columns (`GetTableSchema`).
+  - Each runs through AWS's own MCP server for that service, pinned
+    (`bedrock-kb-retrieval` 1.1.2, `amazon-bedrock-agentcore` 0.2.1,
+    `s3-tables` 0.1.1, `aws-dataprocessing` 0.2.2).
+  - Every write is refused while `AllowWrite` is off, before anything is sent.
+  - Every argument may be left empty, and the control's own property
+    stands in for it.
+- Each control has a hand-drawn tile, inspector rows, help in six languages
+  and System KB entries. Each has a demo form that reports a tally on all
+  three hosts: Run Form, embedded child form and built binary, with no
+  server left running.
+- The Developer's Guide's **Calling AWS** section has a worked example for
+  each new control. The support matrix counts 52 widgets.
+
+### Changed
+- What stands in for an argument that was not passed is now written in the
+  AWS route table (`{arg:1|or:{prop:FunctionName}}`, `{arg:2|json:{}}`). It
+  used to be one rule in code shared by every AWS control. `AwsLambda` and
+  `AwsMcp` behave exactly as before.
+- The route table gained:
+  - row shaping (`rows`);
+  - failures reported inside an answer (`fail`);
+  - filters for optional keys, defaults, numbers and JSON-in-a-string;
+  - JSON values one after another (`$jsonseq:`).
+  These are documented at the top of `routes.toml`.
+- Per-control facts — events, seeds, run-time properties, tile, caption —
+  now live in one table, `cobolt-forms/src/aws_catalog.rs`. The model, the
+  painter, the inspector and the runtime all read it.
 
 ## [PowerRustCOBOL 1.80.239] — 2026-10-06
 

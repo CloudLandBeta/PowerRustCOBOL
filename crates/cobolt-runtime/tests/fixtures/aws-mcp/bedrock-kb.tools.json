@@ -1,0 +1,27 @@
+{
+  "_provenance": "awslabs.bedrock-kb-retrieval-mcp-server@1.1.2 (PyPI, uploaded 2026-09-22). NOT a live recording: no AWS account was available when this was written (2026-10-07). Derived from that exact version's published sdist (server.py, knowledgebases/*.py) and from how mcp 2.0.0's func_metadata renders a signature; pydantic `title` keys are left out. The server also registers AgenticQueryKnowledgeBases, which no route uses and which is not listed here. Re-record with a live `tools/list` when an operator profile is available.",
+  "tools": [
+    {
+      "name": "ListKnowledgeBases",
+      "description": "List all available Amazon Bedrock Knowledge Bases and their data sources.",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "QueryKnowledgeBases",
+      "description": "Query an Amazon Bedrock Knowledge Base using natural language.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "A natural language query to search the knowledge base with" },
+          "knowledge_base_id": { "type": "string", "description": "The knowledge base ID to query. It must be a valid ID from the ListKnowledgeBases tool" },
+          "number_of_results": { "type": "integer", "default": 10 },
+          "reranking": { "type": "boolean", "default": false },
+          "reranking_model_name": { "type": "string", "enum": ["COHERE", "AMAZON"], "default": "AMAZON" },
+          "data_source_ids": { "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }], "default": null },
+          "user_id": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null }
+        },
+        "required": ["query", "knowledge_base_id"]
+      }
+    }
+  ]
+}

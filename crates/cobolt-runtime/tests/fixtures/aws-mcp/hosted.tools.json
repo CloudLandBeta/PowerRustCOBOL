@@ -1,0 +1,17 @@
+{
+  "_provenance": "The hosted AWS MCP Server (https://aws-mcp.us-east-1.api.aws/mcp) through mcp-proxy-for-aws@1.7.0. NOT a live recording: no AWS account was available when this was written (2026-10-07). The tool NAMES are the eight a live tools/list returned in users' wire captures on aws/agent-toolkit-for-aws issue #293 (after aws___call_aws was removed on 2026-08-31). AWS publishes no input schemas: only aws___run_script's is given, as AWS's own code calls it ({\"code\": <Python>}, in aws/agent-toolkit-for-aws PR #296); the other seven carry an open object schema because no route uses them. Re-record with a live `tools/list` (spec 078 T-C0/T-C12) when an operator profile is available.",
+  "tools": [
+    {
+      "name": "aws___run_script",
+      "description": "Run a Python script in a sandbox with AWS API access through `await call_boto3(service_name, operation_name, params, region_name)`; the last expression is the return value.",
+      "inputSchema": { "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"] }
+    },
+    { "name": "aws___get_presigned_url", "description": "A pre-signed URL for an S3 upload or download.", "inputSchema": { "type": "object" } },
+    { "name": "aws___get_tasks", "description": "The state of a long-running script.", "inputSchema": { "type": "object" } },
+    { "name": "aws___get_regional_availability", "description": "Where an AWS service or feature is available.", "inputSchema": { "type": "object" } },
+    { "name": "aws___list_regions", "description": "The AWS regions.", "inputSchema": { "type": "object" } },
+    { "name": "aws___read_documentation", "description": "Read an AWS documentation page.", "inputSchema": { "type": "object" } },
+    { "name": "aws___retrieve_skill", "description": "Retrieve an AWS skill.", "inputSchema": { "type": "object" } },
+    { "name": "aws___search_documentation", "description": "Search the AWS documentation.", "inputSchema": { "type": "object" } }
+  ]
+}

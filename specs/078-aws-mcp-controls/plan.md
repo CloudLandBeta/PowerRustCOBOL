@@ -262,6 +262,17 @@ mutating = true
 ## 9. Open questions — how the plan settles them
 
 - **Q1 (generic hosted tool):** probe first, in task C0. That task needs an operator AWS profile for one `tools/list`. Then `aws___call_aws` if it exists, or else shipped `aws___run_script` templates (§4).
+  - **Settled 2026-10-07, without the live probe — for the operator to review.** The operator was away and asked the agent not to wait. Evidence from AWS's own sources made the probe's answer known, so this is no longer an assumption:
+    - AWS's issue tracker (`aws/agent-toolkit-for-aws#293`) records users' wire captures of the live endpoint. A call to `aws___call_aws` answers `"The call_aws tool has been removed, use another one."`, and `tools/list` returns exactly eight tools: `aws___run_script`, `aws___get_presigned_url`, `aws___get_tasks`, `aws___get_regional_availability`, `aws___list_regions`, `aws___read_documentation`, `aws___retrieve_skill`, `aws___search_documentation`.
+    - AWS's own fix (`aws/agent-toolkit-for-aws#296`, 2026-09-07) calls `aws___run_script` with `{"code": …}`, its scripts calling `await call_boto3(service_name, operation_name, params, region_name)`. It confirms the answer is a text item holding the envelope `{status, stdout, stderr, return_value, …}`, where `return_value` is the script's last expression.
+    - The proxy's own release notes (PR #404, 2026-09-03) remove `call_aws` from the proxy's surface.
+  - **Decision: product-shipped `run_script` templates.** Each Delivery C operation is a Python template in `routes.toml`. A COBOL value enters a template only as a quoted literal (`|quote`), a number (`|int`), or a file's bytes in base64 (`|filebase64`, `|source`). It never enters as script text: `no_op_accepts_script_text_from_cobol` checks every placeholder of every hosted template.
+  - **Not `--read-only`.** The proxy's `--read-only` drops every tool not marked `readOnlyHint`, which would very likely drop `run_script` itself. Read-only is enforced as everywhere else: each operation's `mutating` flag, refused before anything is sent, and the profile's IAM policy.
+  - **Endpoint.** The connection's region may not host the service (eight regions do), so the server runs against `us-east-1`. The connection's region goes in as the default (`--metadata AWS_REGION=…`) and on every call (`region_name`).
+  - **What is still unverified, and why T-C12 matters:**
+    - `hosted.tools.json` is reconstructed from those captures. AWS publishes no input schema, so `run_script`'s `code` argument is the only one assumed.
+    - How the sandbox serialises non-JSON values (dates, bytes, streams) is not documented. Every template therefore passes its result through `json.dumps(…, default=str)`, and reads binary bodies defensively.
+    - Re-record the fixture and run the live smoke test with the operator's profile before Delivery C ships.
 - **Q2 (end-user install):** no bundling. The first-use check and the Guide cover it, as the spec suggests.
 - **Q3 (Streamable HTTP):** out of scope, as the spec suggests.
 - **Q4 (Lambda):** the connection carries `function_prefix`/`function_list`, which become the server's `FUNCTION_PREFIX`/`FUNCTION_LIST`, and Test connection lists the functions found.

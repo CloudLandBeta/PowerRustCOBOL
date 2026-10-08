@@ -24,7 +24,8 @@ use serde_json::{json, Value};
 use super::connections::AwsConnection;
 use super::pool::{self, Budget, CallError, ServerKey};
 use super::process::{mask, Launch};
-use super::routes::{self, Context, ExpandError, Mutating, Protocol, Routes};
+use super::routes::{self, Context, ExpandError, FailDef, Mutating, Protocol, Routes, RowsDef, SaveDef};
+use super::secrets;
 
 /// What a prepared operation does.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +46,17 @@ pub struct Prepared {
     /// `AwsMcp.Call`: the tool's own read-only hint decides (R26).
     pub check_tool_hint: bool,
     pub allow_write: bool,
+    /// How the answer becomes rows, with its `where` templates expanded.
+    pub rows: Option<(RowsDef, BTreeMap<String, String>)>,
+    pub fail: Option<FailDef>,
+    /// Where the answer is saved: the definition, with its path expanded.
+    pub save: Option<(SaveDef, String)>,
+    /// Who holds this operation's secrets: the connection and the control.
+    pub owner: String,
+    pub secrets: Option<String>,
+    pub forget_secrets: bool,
+    /// `Verbose` must not print the request.
+    pub sensitive: bool,
 }
 
 /// The outcome of [`execute`].
@@ -61,6 +73,8 @@ pub struct ControlView<'a> {
     pub method: &'a str,
     pub args: &'a [String],
     pub prop: &'a dyn Fn(&str) -> String,
+    /// The control, as the program names it (whose secrets these are).
+    pub control: &'a str,
     /// This control's `AllowWrite`.
     pub allow_write: bool,
     /// Whether ANY control on this connection allows writes — which decides
@@ -87,8 +101,9 @@ pub fn prepare(view: &ControlView, conn: &AwsConnection) -> Result<Prepared, Str
         ExpandError::InvalidJson { arg, message } => {
             format!("argument {arg} of {} is not valid JSON ({message}): nothing was sent", view.method)
         }
-        other => other.to_string(),
+        other => format!("{}: {other}", view.method),
     };
+    let owner = format!("{}/{}", conn.id, view.control.trim().to_ascii_uppercase());
     let server_id = routes::expand(&op.server, &ctx).map_err(expand_err)?;
     let server = table
         .servers
@@ -104,12 +119,37 @@ pub fn prepare(view: &ControlView, conn: &AwsConnection) -> Result<Prepared, Str
             return Err(format!("{}: no tool or function was named", view.method));
         }
         let input = match &op.input {
-            Some(t) => routes::expand_input(t, &ctx).map_err(expand_err)?,
+            Some(t) => {
+                let held = |name: &str| secrets::get(&owner, name);
+                let pasted = table.paste(t, &held).map_err(|e| format!("{}: {e}", view.method))?;
+                routes::expand_input(&pasted, &ctx).map_err(expand_err)?
+            }
             None => json!({}),
         };
         Action::Call { tool, input }
     };
+    let rows = match &op.rows {
+        Some(def) => {
+            let mut filter = BTreeMap::new();
+            for (ptr, t) in &def.filter {
+                filter.insert(ptr.clone(), routes::expand(t, &ctx).map_err(expand_err)?);
+            }
+            Some((def.clone(), filter))
+        }
+        None => None,
+    };
+    let save = match &op.save {
+        Some(def) => Some((def.clone(), routes::expand(&def.path, &ctx).map_err(expand_err)?)),
+        None => None,
+    };
     Ok(Prepared {
+        rows,
+        save,
+        owner,
+        secrets: op.secrets.clone(),
+        forget_secrets: op.forget_secrets,
+        sensitive: op.sensitive,
+        fail: op.fail.clone(),
         key: ServerKey { connection: conn.id.clone(), server: server_id },
         launch,
         mode: if server.protocol == Protocol::Stateless { Mode::Stateless } else { Mode::Handshake },
@@ -146,6 +186,30 @@ fn rows_of(v: &Value) -> Vec<Value> {
     match v {
         Value::Array(a) => a.clone(),
         _ => Vec::new(),
+    }
+}
+
+/// Write the part of an answer a route saves; `None` when it names no file.
+fn save_answer(r: &cobolt_mcp::ToolResult, def: &SaveDef, path: &str) -> Result<Option<String>, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Ok(None);
+    }
+    let content = routes::extract(r, &def.from);
+    let bytes = match def.decode.as_deref() {
+        Some("base64") => super::b64::decode(&content).map_err(|e| format!("the answer could not be saved: {e}"))?,
+        _ => content.into_bytes(),
+    };
+    std::fs::write(path, &bytes).map_err(|e| format!("could not write \"{path}\": {e}"))?;
+    Ok(Some(path.to_owned()))
+}
+
+/// Whether an answer the server did not flag reports a failure in its data.
+fn answered_failure(r: &cobolt_mcp::ToolResult, f: &FailDef) -> bool {
+    let w = routes::extract(r, &f.when);
+    match &f.equals {
+        Some(e) => w.trim() == e,
+        None => !w.trim().is_empty(),
     }
 }
 
@@ -186,6 +250,10 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
             Err(e) => fail(e),
         },
         Action::Call { tool, input } => {
+            // Signing out ends the session here whatever AWS answers.
+            if p.forget_secrets {
+                secrets::forget(&p.owner);
+            }
             if p.check_tool_hint && !p.allow_write {
                 let tools = match pool::list_tools(&p.key, &p.launch, p.mode, budget) {
                     Ok(t) => t,
@@ -198,9 +266,27 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
                     ));
                 }
             }
-            match pool::call_tool(&p.key, &p.launch, p.mode, tool, input.clone(), budget) {
+            let answer = pool::call_tool(&p.key, &p.launch, p.mode, tool, input.clone(), budget);
+            // The secrets leave the answer before anything reads it.
+            let answer = match (answer, &p.secrets) {
+                (Ok(r), Some(ptr)) if r.is_error != Some(true) => {
+                    let (found, cleaned) = routes::take_secrets(&r, ptr);
+                    if !found.is_empty() {
+                        secrets::keep(&p.owner, found);
+                    }
+                    Ok(cleaned)
+                }
+                (other, _) => other,
+            };
+            match answer {
                 Ok(r) if r.is_error == Some(true) => {
                     let text = routes::result_text(&r);
+                    Outcome::Error(plain_error(&text, &profile))
+                }
+                Ok(r) if p.fail.as_ref().is_some_and(|f| answered_failure(&r, f)) => {
+                    let f = p.fail.as_ref().expect("checked");
+                    let text = routes::extract(&r, &f.text);
+                    let text = if text.trim().is_empty() { routes::result_text(&r) } else { text };
                     Outcome::Error(plain_error(&text, &profile))
                 }
                 Ok(r) => {
@@ -214,10 +300,24 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
                         .map(|(_, v)| v.clone())
                         .or_else(|| body.clone().filter(|b| serde_json::from_str::<Value>(b.trim()).is_ok()))
                         .unwrap_or_default();
-                    let rows = serde_json::from_str::<Value>(json_text.trim()).map(|v| rows_of(&v)).unwrap_or_default();
+                    let rows = match &p.rows {
+                        Some((def, filter)) => routes::shape_rows(&r, def, filter),
+                        None => serde_json::from_str::<Value>(json_text.trim()).map(|v| rows_of(&v)).unwrap_or_default(),
+                    };
                     props.retain(|(k, _)| k != "ResultJson");
                     props.push(("ResultJson".into(), json_text));
                     props.push(("RowCount".into(), rows.len().to_string()));
+                    if let Some((def, path)) = &p.save {
+                        match save_answer(&r, def, path) {
+                            Ok(Some(written)) => {
+                                if let Some(prop) = &def.property {
+                                    props.push((prop.clone(), written));
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => return Outcome::Error(e),
+                        }
+                    }
                     Outcome::Done { props, rows, event: p.event.clone() }
                 }
                 Err(e) => fail(e),
@@ -239,7 +339,7 @@ mod tests {
     }
 
     fn view<'a>(ty: &'a str, method: &'a str, args: &'a [String], prop: &'a dyn Fn(&str) -> String, allow: bool) -> ControlView<'a> {
-        ControlView { control_type: ty, method, args, prop, allow_write: allow, connection_allows_write: allow }
+        ControlView { control_type: ty, method, args, prop, control: "AWS-1", allow_write: allow, connection_allows_write: allow }
     }
 
     #[test]

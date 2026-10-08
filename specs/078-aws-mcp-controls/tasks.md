@@ -312,54 +312,103 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
 
 Each task below repeats the A10 → A11 → A17 → A18 → A20 path for its controls. That means: the model, dispatch and ops, the route entries with a recorded fixture, glyphs, inspector rows, help in 6 languages, the KB, and a COBOL demo on three hosts. Gates K, P and G apply to each.
 
-- [ ] **T-B1 — Routes and fixtures for the four servers** (R14, R17; AC9)
+- [x] **T-B1 — Routes and fixtures for the four servers** (R14, R17; AC9)
   - Servers, each with its version pinned:
     - `bedrock-kb-retrieval-mcp-server@1.1.2` (`QueryKnowledgeBases`, `ListKnowledgeBases`);
     - `amazon-bedrock-agentcore-mcp-server@0.2.1`, started with `AGENTCORE_ENABLE_TOOLS` limited to `invoke_agent_runtime`, `memory_create_event` and `memory_retrieve_records`;
     - `s3-tables-mcp-server@0.1.1` (`query_database`, `list_tables`, `append_rows_to_table`, `--allow-write` as `write_args`; the route records Python ≥ 3.11);
     - `aws-dataprocessing-mcp-server@0.2.2` (`manage_aws_glue_jobs`, `manage_aws_glue_crawlers`, `manage_aws_glue_tables`, `--allow-write` as `write_args`).
   - Verify: the drift test passes against four recorded fixtures, each with its provenance in the header.
-- [ ] **T-B2 — `AwsKnowledgeBase`**: `Query(kbId, text)` gives passages as rows (`Text`, `Source`, `Score`); `ListKnowledgeBases()` (R18, R20).
-- [ ] **T-B3 — `AwsAgentCore`**: `Invoke(runtimeArn, prompt, sessionId)` puts the reply in `ResponseBody`. Mutating, so `AllowWrite` applies (R18, R25).
-- [ ] **T-B4 — `AwsAgentMemory`**: `RecordEvent(memoryId, actorId, sessionId, text)` is mutating; `Retrieve(memoryId, namespace, query)` gives rows (R18).
-- [ ] **T-B5 — `AwsS3Tables`**: `ListTables(bucketArn, namespace)` and `Query(sql)` give rows; `AppendRows(table, rowsJson)` is mutating (R18).
-- [ ] **T-B6 — `AwsGlue`**: `StartJobRun(job, argsJson)` and `StartCrawler(name)` are mutating; `GetJobRun(job, runId)` gives `State`; `GetTableSchema(db, table)` gives rows (R18).
+  - **Done 2026-10-07 (1.80.241).** `aws_routes::every_route_names_a_real_tool_with_its_required_inputs` — "AC9: 14 routed operations checked against their recorded servers"; `test result: ok. 3 passed`.
+  - **Decision — fixtures from source, not live.** No AWS account was available. Each fixture was derived from that exact version's PyPI sdist, and from how mcp 2.0.0 renders a signature. Its `_provenance` says so and asks for a live re-record (T-C12). The agentcore, s3tables and dataprocessing fixtures are PARTIAL: they list only the tools the routes use.
+  - **Deviation — AgentCore enables tools by service, not by tool.** `AGENTCORE_ENABLE_TOOLS` takes service names. `runtime,memory` is the narrowest set holding the three tools, and it also registers their lifecycle tools. Those are reachable only through `AwsMcp` with `AllowWrite` on, since none is marked read-only.
+  - **Grammar added to the route table**, all of it data (the R15 guard still passes):
+    - filters `|or:`, `|opt`, `|int`, `|quote`, `|obj:`, `|text`, `|json:<default>`;
+    - extractor `$jsonseq:`;
+    - `$json:` with `/a|/b` alternatives, and falling back to the last JSON text block;
+    - op fields `rows` (`from`/`columns`/`fields`/`where`) and `fail` (`when`/`equals`/`text`).
+  - **Argument defaults moved out of code.** The interpreter used to fill argument 1 from a catalogue `default_arg`, and argument 2 with `{}`, for every control. Each route now says it with `{arg:N|or:{prop:X}}` / `|json:{}`, because Glue's four methods each default to a different property.
+- [x] **T-B2 — `AwsKnowledgeBase`**: `Query(kbId, text)` gives passages as rows (`Text`, `Source`, `Score`); `ListKnowledgeBases()` (R18, R20).
+- [x] **T-B3 — `AwsAgentCore`**: `Invoke(runtimeArn, prompt, sessionId)` puts the reply in `ResponseBody`. Mutating, so `AllowWrite` applies (R18, R25).
+- [x] **T-B4 — `AwsAgentMemory`**: `RecordEvent(memoryId, actorId, sessionId, text)` is mutating; `Retrieve(memoryId, namespace, query)` gives rows (R18).
+- [x] **T-B5 — `AwsS3Tables`**: `ListTables(bucketArn, namespace)` and `Query(sql)` give rows; `AppendRows(table, rowsJson)` is mutating (R18).
+- [x] **T-B6 — `AwsGlue`**: `StartJobRun(job, argsJson)` and `StartCrawler(name)` are mutating; `GetJobRun(job, runId)` gives `State`; `GetTableSchema(db, table)` gives rows (R18).
+- **Deviations in T-B2…T-B6 (2026-10-07):**
+  - `AwsS3Tables.ListTables(namespace)` filters by namespace only. The server's `list_tables` takes a region, and its rows carry a bucket *id*, not the bucket ARN, so a bucket filter could not be honest.
+  - `AwsAgentMemory.RecordEvent` takes an optional fifth argument, `role` (`USER` by default), so the agent's side of a conversation can be recorded too.
+  - `AwsAgentCore.Invoke` sends the prompt as `{"prompt": …}` inside the string payload, the starter-toolkit shape, and writes the returned session into `SessionId`.
+  - `AwsGlue.StartJobRun` writes `JobRunId`, so `GetJobRun()` with no arguments follows that run.
+- **Evidence (2026-10-07):**
+  - `aws_delivery_b` — 18 cases on the fake, `test result: ok. 6 passed`: every operation, the exact arguments sent, the event order, and a refusal for each mutating operation with the server not started.
+  - `aws_hosts::the_demos_pass_under_run_form_and_as_embedded_child_forms` — 7 demos, Run Form and embedded, `ok`.
+  - `aws_hosts::the_demos_pass_in_a_built_binary_and_leave_no_server_behind` — the same 7 tallies; "servers started 7, still running 0".
+  - Toolbox `the_aws_category_lists_its_controls_in_every_language` / `the_toolbox_aws_icons_are_the_controls_own_tiles`; the prop-help ×6 guard; `every_routed_method_can_be_called_inline`; and the KB freshness test after `build_chunked_kb` (2433 records).
 - Each of T-B2 to T-B6 is verified by the same set:
   - runtime tests against the fake: the operation, the event order, and a mutating refusal where it applies (AC11, AC15);
   - a `tests/cobol/aws/<control>-demo` program on three hosts (AC16);
   - the toolbox, inspector and help tests;
   - Gate K.
-- [ ] **T-B7 — Guide part 2**: one worked example per Delivery B control; the translations are deleted again.
-- [ ] **T-B8 — Delivery B finalize**: Gate F, `cargo tree`, the operator's manual check. Delivery B can ship here.
+- [x] **T-B7 — Guide part 2**: one worked example per Delivery B control; the translations are deleted again.
+  - *2026-10-07:* `the_guides_aws_examples_compile` compiles all 14 handlers. There was nothing to delete: 1.80.239 had already removed the translations.
+- [x] **T-B8 — Delivery B finalize**: Gate F, `cargo tree`, the operator's manual check. Delivery B can ship here.
+  - *2026-10-07, commit `fd096a8` (1.80.241):* Gate F green — ast+parser+mcp 254, runtime 1230, forms 1368, form-host 190, codegen 76, cli 31, ide 1352 plus its integration tests. Two exceptions:
+    - the named expected red, `every_document_ships_in_every_language`;
+    - PowerChat's tests, which need `powerchat_regen` in a fresh worktree because `generated/` is git-ignored. After it: 4/4 and 20/20.
+  - No dependency was added, so `cargo tree` is unchanged.
+  - **The operator's manual check is still open:** the AWS toolbox section, and the five new tiles and inspector rows.
 
 ---
 
 ## Delivery C — hosted-server controls: `AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`, `AwsComprehend`, `AwsTextract`, `AwsEC2`, `AwsCognito`
 
-- [ ] **T-C0 — Probe the hosted AWS MCP Server** (Q1; **needs the operator's AWS profile**)
+- [x] **T-C0 — Probe the hosted AWS MCP Server** (Q1; **needs the operator's AWS profile**)
   - Do:
     - With the operator present, run `uvx mcp-proxy-for-aws-cli@<pin> https://aws-mcp.us-east-1.api.aws/mcp --profile <p> --read-only` through the T-A2 client, and record `tools/list` into `fixtures/aws-mcp/hosted.tools.json`.
     - Decide and record the answer in `plan.md` §9: `aws___call_aws` (with its schema) if it is listed, otherwise `aws___run_script` templates.
   - Verify: the operator confirms the decision before T-C1 starts. **The agent does not proceed on an assumption.**
-- [ ] **T-C1 — The hosted route and its per-operation mapping** (R14–R17)
+  - **2026-10-07 — decided without the live probe, FOR THE OPERATOR TO REVIEW** (plan §9 Q1). The operator was away and asked the agent not to wait. AWS's own sources answered the question the probe was for, so this is not an assumption:
+    - a live `tools/list` captured in aws/agent-toolkit-for-aws#293 lists eight tools and no `call_aws`;
+    - `call_aws` answers "has been removed";
+    - AWS's own fix (#296) calls `aws___run_script` with `call_boto3(service_name, operation_name, params, region_name)`.
+  - `fixtures/aws-mcp/hosted.tools.json` is reconstructed from those captures, and its provenance says so. **Still open:** the live `tools/list` — `aws_live.rs` saves it to `target/aws-live-tools/`.
+- [x] **T-C1 — The hosted route and its per-operation mapping** (R14–R17)
   - If `call_aws`: each op maps COBOL arguments to that tool's input.
   - If `run_script`: each op carries a **product-shipped** Python template in `routes.toml`. Parameters go in as JSON only, and **no control sends script text built from COBOL data** (plan §4).
   - Verify: the drift test against `hosted.tools.json`, plus `no_op_accepts_script_text_from_cobol`.
-- [ ] **T-C2 — `AwsDynamoDB`**: `GetItem`, `Query` and `Scan(limit)` read; `PutItem`, `UpdateItem` and `DeleteItem` are mutating.
-- [ ] **T-C3 — `AwsS3`**: `GetObject(bucket, key, toFile | toDataItem)` and `List(prefix)` read; `PutObject` and `DeleteObject` are mutating. Large transfers go through `aws___get_presigned_url` where the route says so.
-- [ ] **T-C4 — `AwsS3Vectors`**: `QueryVectors(index, vectorJson, topK)` gives rows; `PutVectors` is mutating.
-- [ ] **T-C5 — `AwsRekognition`**: `DetectLabels`, `DetectText` and `DetectFaces`, each from a file or an S3 object; results as rows.
-- [ ] **T-C6 — `AwsPolly`**: `Synthesize(text, voiceId, format, toFile)`. It writes a local file, and it is read-only in AWS.
-- [ ] **T-C7 — `AwsComprehend`**: `DetectSentiment`, `DetectEntities`, `DetectKeyPhrases`, `DetectLanguage`.
-- [ ] **T-C8 — `AwsTextract`**: `DetectText` and `AnalyzeDocument(forms, tables)`, from a file or S3; key/value pairs and table cells as rows.
-- [ ] **T-C9 — `AwsEC2`**: `Describe(ids)` reads; `Start(ids)` and `Stop(ids)` are mutating.
-- [ ] **T-C10 — `AwsCognito`** (Q6): `SignUp`, `Confirm`, `SignIn`, `SignOut`; `SignedIn`, `UserName` and `GetAttribute(name)`. Tokens live only in `aws/cognito.rs` memory.
+  - *Done:*
+    - `aws_routes` — "AC9: 44 routed operations checked against their recorded servers";
+    - `no_op_accepts_script_text_from_cobol` — "99 placeholders across the hosted templates, every COBOL value quoted or numeric".
+  - **Deviations:**
+    - The server runs against us-east-1's endpoint, with the connection's region as `AWS_REGION` and on every call: only eight regions host the service.
+    - It does **not** run `--read-only`, which would drop `run_script` itself.
+- [x] **T-C2 — `AwsDynamoDB`**: `GetItem`, `Query` and `Scan(limit)` read; `PutItem`, `UpdateItem` and `DeleteItem` are mutating.
+- [x] **T-C3 — `AwsS3`**: `GetObject(bucket, key, toFile | toDataItem)` and `List(prefix)` read; `PutObject` and `DeleteObject` are mutating. Large transfers go through `aws___get_presigned_url` where the route says so.
+- [x] **T-C4 — `AwsS3Vectors`**: `QueryVectors(index, vectorJson, topK)` gives rows; `PutVectors` is mutating.
+- [x] **T-C5 — `AwsRekognition`**: `DetectLabels`, `DetectText` and `DetectFaces`, each from a file or an S3 object; results as rows.
+- [x] **T-C6 — `AwsPolly`**: `Synthesize(text, voiceId, format, toFile)`. It writes a local file, and it is read-only in AWS.
+- [x] **T-C7 — `AwsComprehend`**: `DetectSentiment`, `DetectEntities`, `DetectKeyPhrases`, `DetectLanguage`.
+- [x] **T-C8 — `AwsTextract`**: `DetectText` and `AnalyzeDocument(forms, tables)`, from a file or S3; key/value pairs and table cells as rows.
+- [x] **T-C9 — `AwsEC2`**: `Describe(ids)` reads; `Start(ids)` and `Stop(ids)` are mutating.
+- [x] **T-C10 — `AwsCognito`** (Q6): `SignUp`, `Confirm`, `SignIn`, `SignOut`; `SignedIn`, `UserName` and `GetAttribute(name)`. Tokens live only in `aws/cognito.rs` memory.
   - Verify: `no_cognito_token_reaches_a_property_or_disk`, which scans every property and the working directory after a sign-in against the fake.
 - Each of T-C2 to T-C10 is verified by the same set as Delivery B (AC11, AC15, AC16, Gate K).
-- [ ] **T-C11 — Guide part 3**: examples per control; the translations are deleted.
+- **Evidence (2026-10-07):**
+  - `aws_delivery_c`: 20 cases plus the guard, `test result: ok. 5 passed`. It checks the AWS service and operation each script calls, every value as a quoted literal (including one that tries to escape), rows, files written (S3, Polly), and refusals.
+  - `no_cognito_token_reaches_a_property_or_disk`: no token or password in properties, rows, `Verbose` or disk. The kept token still reaches GetUser, and SignOut forgets it.
+  - `aws_hosts`: 16 demos under Run Form, embedded and in the built binary — "servers started 16, still running 0".
+  - KB rebuilt (2782 records).
+- **Deviations:**
+  - EC2's events are `onInstancesStarted` / `onInstancesStopped`, because `onStarted` already means an animation started.
+  - S3 objects, images, documents and audio travel inside the request and the answer (base64), so they suit files of a few MB. The presigned-URL route for large transfers would need HTTPS in the AWS feature, which AC2 forbids, so it is not taken.
+  - `AwsCognito` supports the plain password flow. A `Challenge` (new password, MFA) is reported, not answered. The password travels inside the script to AWS, and `Verbose` never prints it.
+  - The secret store is `aws/secrets.rs` (generic, route-driven: `secrets`, `{secret:Name}`, `forget_secrets`) rather than `aws/cognito.rs`.
+- **Unverified until the live run (T-C12):** how the sandbox serialises dates and bytes. The templates read bodies defensively and pass results through `json.dumps(…, default=str)`.
+- [x] **T-C11 — Guide part 3**: examples per control; the translations are deleted.
+  - *2026-10-07:* three worked examples (DynamoDB, Rekognition, Cognito) and a table for the other six. `the_guides_aws_examples_compile` compiles all 20 handlers. There were no translations to delete.
 - [ ] **T-C12 — Live smoke test** (AC20)
   - `crates/cobolt-runtime/tests/aws_live.rs` is `#[ignore]` and runs only with `COBOLT_AWS_LIVE=1`. It makes one read-only call per service and prints a table of what answered and how fast.
   - Verify: the operator runs it with their profile; it is skipped otherwise.
+  - *2026-10-07:* written and compiled; skipped without `COBOLT_AWS_LIVE=1`. **Open: the operator's run.**
 - [ ] **T-C13 — Finalize the feature**
   - Gate F, and AC2's `cargo tree`.
   - The orphan test (AC6) is reported for the platforms measured.

@@ -2331,11 +2331,7 @@ pub fn nv_icon_globe(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
 /// The AWS-style icon of an AWS control: a hand-drawn SVG in the style of the
 /// service's own icon (spec 078, amendment A5). `None` for any other type.
 pub fn aws_icon_svg(ct: &crate::ControlType) -> Option<&'static str> {
-    match ct {
-        crate::ControlType::AwsLambda => Some(include_str!("../assets/aws/AwsLambda.svg")),
-        crate::ControlType::AwsMcp => Some(include_str!("../assets/aws/AwsMcp.svg")),
-        _ => None,
-    }
+    crate::aws_catalog::get(ct).map(|c| c.icon_svg)
 }
 
 /// An SVG rendered into a `px`-square image, scaled to fit.
@@ -3295,13 +3291,9 @@ fn draw_control_body(
             }
             // Spec 078 A5: the AWS-style tile. The caption names what the
             // control will reach — the function, or the server.
-            CT::AwsLambda | CT::AwsMcp => {
+            t if t.is_aws() => {
                 paint_aws_icon(painter, Rect::from_center_size(cen, Vec2::splat(s * 2.3)), &ctrl.control_type);
-                let (prop, fallback) = if ctrl.control_type == CT::AwsLambda {
-                    ("FunctionName", "Lambda")
-                } else {
-                    ("ServerId", "MCP")
-                };
+                let (prop, fallback) = crate::aws_catalog::get(t).map_or(("", "AWS"), |c| c.caption);
                 ctrl.get_prop(prop)
                     .map(|v| v.as_str().trim().to_owned())
                     .filter(|v| !v.is_empty())

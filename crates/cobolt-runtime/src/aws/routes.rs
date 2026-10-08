@@ -83,6 +83,72 @@ pub struct OpDef {
     pub result: BTreeMap<String, String>,
     /// The control's own completion event, raised before `onComplete`.
     pub event: String,
+    /// How the answer becomes the control's rows, when the route shapes them.
+    #[serde(default)]
+    pub rows: Option<RowsDef>,
+    /// When an answer the server did not flag as an error is one anyway.
+    #[serde(default)]
+    pub fail: Option<FailDef>,
+    /// A file the answer is written to.
+    #[serde(default)]
+    pub save: Option<SaveDef>,
+    /// A pointer to an object of the answer whose members are SECRETS: kept
+    /// in the runtime's memory for this control (`{secret:Name}`), and cut
+    /// out of the answer before anything else reads it.
+    #[serde(default)]
+    pub secrets: Option<String>,
+    /// Forget this control's secrets — whatever the answer.
+    #[serde(default)]
+    pub forget_secrets: bool,
+    /// The request carries a password or a secret: `Verbose` never prints it.
+    #[serde(default)]
+    pub sensitive: bool,
+}
+
+/// An answer written to a local file.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SaveDef {
+    /// The file, a template; an empty one saves nothing.
+    pub path: String,
+    /// An extractor giving the content.
+    pub from: String,
+    /// `base64`: the content is base64, written as the bytes it encodes.
+    #[serde(default)]
+    pub decode: Option<String>,
+    /// A property that receives the path written.
+    #[serde(default)]
+    pub property: Option<String>,
+}
+
+/// How an answer becomes rows.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct RowsDef {
+    /// An extractor giving an array (one row per item), an object (one row
+    /// per entry; `$key` names it) or, with `columns`, an array of arrays.
+    pub from: String,
+    /// A pointer into the whole answer to the column names, when each row is
+    /// an array of values.
+    #[serde(default)]
+    pub columns: Option<String>,
+    /// Field = pointer into the row; `a|b` takes the first one present.
+    #[serde(default)]
+    pub fields: BTreeMap<String, String>,
+    /// Pointer into the row = template; a row is kept when the value there
+    /// equals the expanded template. An empty template keeps every row.
+    #[serde(default, rename = "where")]
+    pub filter: BTreeMap<String, String>,
+}
+
+/// An answer that reports failure in its own data.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct FailDef {
+    /// An extractor; the answer failed when it gives `equals` — or, without
+    /// `equals`, anything at all.
+    pub when: String,
+    #[serde(default)]
+    pub equals: Option<String>,
+    /// An extractor giving the failure's text.
+    pub text: String,
 }
 
 /// The whole table.
@@ -92,6 +158,9 @@ pub struct Routes {
     pub servers: BTreeMap<String, ServerDef>,
     #[serde(default)]
     pub ops: BTreeMap<String, OpDef>,
+    /// Product-shipped text pasted into templates by `{snippet:name}`.
+    #[serde(default)]
+    pub snippets: BTreeMap<String, String>,
 }
 
 impl Routes {
@@ -115,11 +184,49 @@ impl Routes {
         let mut merged = self.clone();
         merged.servers.extend(o.servers);
         merged.ops.extend(o.ops);
+        merged.snippets.extend(o.snippets);
         Ok(merged)
     }
 
     pub fn op(&self, control_type: &str, method: &str) -> Option<&OpDef> {
         self.ops.get(&format!("{control_type}.{method}"))
+    }
+
+    /// Paste the shipped snippets (`{snippet:name}`) and this control's
+    /// secrets (`{secret:Name}`, as a quoted literal) into an input template,
+    /// BEFORE its placeholders are expanded — so neither can come from, or be
+    /// reshaped by, a COBOL value. A secret the control does not hold fails:
+    /// the operation needs a sign-in first.
+    pub fn paste(&self, template: &toml::Value, secret: &dyn Fn(&str) -> Option<String>) -> Result<toml::Value, String> {
+        Ok(match template {
+            toml::Value::String(s) => {
+                let mut out = s.clone();
+                while let Some(at) = out.find("{snippet:") {
+                    let end = out[at..].find('}').map(|e| at + e).ok_or("an unclosed {snippet:")?;
+                    let name = &out[at + 9..end];
+                    let text = self.snippets.get(name).ok_or_else(|| format!("the AWS route table has no snippet \"{name}\""))?;
+                    out.replace_range(at..=end, text);
+                }
+                while let Some(at) = out.find("{secret:") {
+                    let end = out[at..].find('}').map(|e| at + e).ok_or("an unclosed {secret:")?;
+                    let name = out[at + 8..end].to_owned();
+                    let value = secret(&name)
+                        .filter(|v| !v.is_empty())
+                        .ok_or_else(|| "this control is not signed in: call SignIn first".to_string())?;
+                    out.replace_range(at..=end, &Value::String(value).to_string());
+                }
+                toml::Value::String(out)
+            }
+            toml::Value::Table(t) => {
+                let mut m = toml::map::Map::new();
+                for (k, v) in t {
+                    m.insert(k.clone(), self.paste(v, secret)?);
+                }
+                toml::Value::Table(m)
+            }
+            toml::Value::Array(a) => toml::Value::Array(a.iter().map(|v| self.paste(v, secret)).collect::<Result<_, _>>()?),
+            other => other.clone(),
+        })
     }
 }
 
@@ -138,6 +245,8 @@ pub enum ExpandError {
     InvalidJson { arg: usize, message: String },
     /// The template itself is wrong — a route-table bug.
     Template(String),
+    /// A value is not what the tool takes (`|int` on text).
+    BadValue(String),
 }
 
 impl std::fmt::Display for ExpandError {
@@ -147,14 +256,17 @@ impl std::fmt::Display for ExpandError {
                 write!(f, "argument {arg} is not valid JSON: {message}")
             }
             ExpandError::Template(e) => write!(f, "the AWS route table is wrong: {e}"),
+            ExpandError::BadValue(e) => write!(f, "{e}"),
         }
     }
 }
 
-/// A placeholder's value: text, or a JSON value (after `|json`).
+/// A placeholder's value: text, a JSON value (after `|json`), or nothing at
+/// all (an empty value after `|opt`: the input leaves the key out).
 enum Piece {
     Text(String),
     Json(Value),
+    Absent,
 }
 
 impl Piece {
@@ -163,6 +275,13 @@ impl Piece {
             Piece::Text(t) => t,
             Piece::Json(Value::String(s)) => s,
             Piece::Json(v) => v.to_string(),
+            Piece::Absent => String::new(),
+        }
+    }
+    fn into_json(self) -> Value {
+        match self {
+            Piece::Json(v) => v,
+            other => Value::String(other.into_text()),
         }
     }
 }
@@ -231,12 +350,62 @@ fn placeholder(body: &str, ctx: &Context) -> Result<Piece, ExpandError> {
         return Err(ExpandError::Template(format!("unknown placeholder {{{body}}}")));
     };
     for filter in &parts[1..] {
+        if matches!(piece, Piece::Absent) {
+            break;
+        }
         let filter = filter.trim();
-        piece = if filter == "json" {
-            let text = piece.into_text();
+        piece = if filter == "json" || filter.starts_with("json:") {
+            let mut text = piece.into_text();
+            if let (true, Some(default)) = (text.trim().is_empty(), filter.strip_prefix("json:")) {
+                text = default.to_owned();
+            }
             match serde_json::from_str::<Value>(text.trim()) {
                 Ok(v) => Piece::Json(v),
                 Err(e) => return Err(ExpandError::InvalidJson { arg: arg_no, message: e.to_string() }),
+            }
+        } else if filter == "opt" {
+            let text = piece.into_text();
+            if text.trim().is_empty() {
+                Piece::Absent
+            } else {
+                Piece::Text(text)
+            }
+        } else if let Some(fallback) = filter.strip_prefix("or:") {
+            let text = piece.into_text();
+            Piece::Text(if text.trim().is_empty() { expand(fallback, ctx)? } else { text })
+        } else if filter == "int" {
+            let text = piece.into_text();
+            match text.trim().parse::<i64>() {
+                Ok(n) => Piece::Json(Value::from(n)),
+                Err(_) => return Err(ExpandError::BadValue(format!("\"{}\" is not a whole number ({source})", text.trim()))),
+            }
+        } else if filter == "quote" {
+            Piece::Text(Value::String(piece.into_text()).to_string())
+        } else if let Some(key) = filter.strip_prefix("obj:") {
+            let mut map = serde_json::Map::new();
+            map.insert(key.trim().to_owned(), piece.into_json());
+            Piece::Json(Value::Object(map))
+        } else if filter == "text" {
+            Piece::Text(piece.into_text())
+        } else if filter == "filebase64" || filter == "source" {
+            // A local file's bytes, base64-encoded. `source` is for an image
+            // or document that may instead name an S3 object: `s3://…` stays
+            // as it is, and a file becomes `b64:<its bytes>`.
+            let text = piece.into_text();
+            let path = text.trim();
+            if path.is_empty() && filter == "filebase64" {
+                Piece::Text(String::new())
+            } else if path.is_empty() {
+                return Err(ExpandError::BadValue(format!("no file or s3:// object was named ({source})")));
+            } else if filter == "source" && path.starts_with("s3://") {
+                if !path[5..].contains('/') {
+                    return Err(ExpandError::BadValue(format!("\"{path}\" names a bucket but no object: s3://bucket/key")));
+                }
+                Piece::Text(path.to_owned())
+            } else {
+                let bytes = std::fs::read(path).map_err(|e| ExpandError::BadValue(format!("cannot read \"{path}\": {e}")))?;
+                let b64 = super::b64::encode(&bytes);
+                Piece::Text(if filter == "source" { format!("b64:{b64}") } else { b64 })
             }
         } else if filter == "ident" {
             Piece::Text(ident(&piece.into_text()))
@@ -274,29 +443,44 @@ pub fn expand(template: &str, ctx: &Context) -> Result<String, ExpandError> {
 /// placeholder ending in `|json` becomes that JSON value; other strings are
 /// expanded as text; tables and arrays are walked.
 pub fn expand_input(template: &toml::Value, ctx: &Context) -> Result<Value, ExpandError> {
-    Ok(match template {
+    Ok(input_value(template, ctx)?.unwrap_or(Value::Null))
+}
+
+/// One input leaf; `None` when it is an empty `|opt` value, which leaves its
+/// key out.
+fn input_value(template: &toml::Value, ctx: &Context) -> Result<Option<Value>, ExpandError> {
+    Ok(Some(match template {
         toml::Value::String(s) => {
             let t = s.trim();
             let whole = t.starts_with('{') && closing(t, 0) == Some(t.len() - 1);
             match whole.then(|| placeholder(&t[1..t.len() - 1], ctx)).transpose()? {
                 Some(Piece::Json(v)) => v,
                 Some(Piece::Text(text)) => Value::String(text),
+                Some(Piece::Absent) => return Ok(None),
                 None => Value::String(expand(s, ctx)?),
             }
         }
         toml::Value::Table(t) => {
             let mut map = serde_json::Map::new();
             for (k, v) in t {
-                map.insert(k.clone(), expand_input(v, ctx)?);
+                if let Some(v) = input_value(v, ctx)? {
+                    map.insert(k.clone(), v);
+                }
             }
             Value::Object(map)
         }
-        toml::Value::Array(a) => Value::Array(a.iter().map(|v| expand_input(v, ctx)).collect::<Result<_, _>>()?),
+        toml::Value::Array(a) => {
+            let mut out = Vec::new();
+            for v in a {
+                out.extend(input_value(v, ctx)?);
+            }
+            Value::Array(out)
+        }
         toml::Value::Integer(n) => Value::from(*n),
         toml::Value::Float(f) => Value::from(*f),
         toml::Value::Boolean(b) => Value::from(*b),
         toml::Value::Datetime(d) => Value::String(d.to_string()),
-    })
+    }))
 }
 
 /// How to start `server` for a connection (R25: read-only unless a control
@@ -324,6 +508,156 @@ pub fn result_text(r: &ToolResult) -> String {
     r.content.iter().filter_map(Content::as_text).collect::<Vec<_>>().join("\n")
 }
 
+/// A JSON value as a property's text: a string as itself, `null` as empty.
+pub fn value_text(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Null) | None => String::new(),
+        Some(v) => v.to_string(),
+    }
+}
+
+/// The answer as one JSON value: its structured content, else its text read
+/// as JSON — the whole text, or else the last text block that is JSON (a
+/// server that sends a message and then the data).
+fn answer_json(r: &ToolResult) -> Option<Value> {
+    if let Some(v) = &r.structured_content {
+        return Some(v.clone());
+    }
+    if let Ok(v) = serde_json::from_str::<Value>(result_text(r).trim()) {
+        return Some(v);
+    }
+    r.content.iter().rev().filter_map(Content::as_text).find_map(|t| serde_json::from_str::<Value>(t.trim()).ok())
+}
+
+/// The first of `a|b|…` present (and not `null`) under `v`. A pointer that
+/// meets a string holding JSON reads on inside it — a server that answers
+/// with a JSON value written as text.
+fn first_pointer(v: &Value, alternatives: &str) -> Option<Value> {
+    alternatives.split('|').find_map(|p| pointer_into(v, p.trim()).filter(|x| !x.is_null()))
+}
+
+fn pointer_into(v: &Value, ptr: &str) -> Option<Value> {
+    if ptr.is_empty() {
+        return Some(v.clone());
+    }
+    let mut cur = v.clone();
+    for raw in ptr.strip_prefix('/')?.split('/') {
+        let key = raw.replace("~1", "/").replace("~0", "~");
+        if let Value::String(s) = &cur {
+            match serde_json::from_str::<Value>(s) {
+                Ok(inner @ (Value::Object(_) | Value::Array(_))) => cur = inner,
+                _ => return None,
+            }
+        }
+        cur = match cur {
+            Value::Object(mut o) => o.remove(&key)?,
+            Value::Array(mut a) => {
+                let i: usize = key.parse().ok()?;
+                (i < a.len()).then(|| a.swap_remove(i))?
+            }
+            _ => return None,
+        };
+    }
+    Some(cur)
+}
+
+/// An extractor's JSON: `$json:/ptr` (alternatives allowed), or `$jsonseq:`
+/// — a text of JSON values one after another, as an array.
+pub fn extract_value(r: &ToolResult, expr: &str) -> Option<Value> {
+    if let Some(ptr) = expr.strip_prefix("$json:") {
+        let whole = answer_json(r)?;
+        return if ptr.is_empty() { Some(whole) } else { first_pointer(&whole, ptr) };
+    }
+    if expr == "$jsonseq:" {
+        let text = result_text(r);
+        let values: Result<Vec<Value>, _> = serde_json::Deserializer::from_str(&text).into_iter::<Value>().collect();
+        return values.ok().map(Value::Array);
+    }
+    None
+}
+
+/// The rows a route's `rows` shapes from an answer. `filter` holds the
+/// `where` templates already expanded.
+pub fn shape_rows(r: &ToolResult, def: &RowsDef, filter: &BTreeMap<String, String>) -> Vec<Value> {
+    let Some(source) = extract_value(r, &def.from) else { return Vec::new() };
+    let mut items: Vec<(Option<String>, Value)> = match source {
+        Value::Array(a) => a.into_iter().map(|v| (None, v)).collect(),
+        Value::Object(o) => o.into_iter().map(|(k, v)| (Some(k), v)).collect(),
+        _ => Vec::new(),
+    };
+    if let Some(cols) = &def.columns {
+        let names: Vec<String> = answer_json(r)
+            .as_ref()
+            .and_then(|w| first_pointer(w, cols))
+            .as_ref()
+            .and_then(Value::as_array)
+            .map(|a| a.iter().map(|c| value_text(Some(c))).collect())
+            .unwrap_or_default();
+        for (_, v) in &mut items {
+            if let Value::Array(cells) = v {
+                let row: serde_json::Map<String, Value> = names.iter().cloned().zip(cells.iter().cloned()).collect();
+                *v = Value::Object(row);
+            }
+        }
+    }
+    items.retain(|(_, v)| filter.iter().all(|(ptr, want)| want.is_empty() || value_text(pointer_into(v, ptr).as_ref()) == *want));
+    if def.fields.is_empty() {
+        return items.into_iter().map(|(_, v)| v).collect();
+    }
+    items
+        .into_iter()
+        .map(|(key, v)| {
+            let row: serde_json::Map<String, Value> = def
+                .fields
+                .iter()
+                .map(|(name, spec)| {
+                    let value = if spec.trim() == "$key" {
+                        key.clone().map(Value::String)
+                    } else {
+                        first_pointer(&v, spec)
+                    };
+                    (name.clone(), value.unwrap_or(Value::String(String::new())))
+                })
+                .collect();
+            Value::Object(row)
+        })
+        .collect()
+}
+
+/// Cut the secrets object at `ptr` out of an answer: its string members, and
+/// the answer without them — rebuilt as one text block, so nothing that reads
+/// the answer afterwards can see a secret.
+pub fn take_secrets(r: &ToolResult, ptr: &str) -> (Vec<(String, String)>, ToolResult) {
+    let Some(mut whole) = answer_json(r) else { return (Vec::new(), r.clone()) };
+    let mut found = Vec::new();
+    let (parent, key) = ptr.rsplit_once('/').unwrap_or(("", ptr));
+    // A node on the way that is JSON written as text is read as JSON first,
+    // so the secrets cannot hide inside a string.
+    let mut walked = String::new();
+    for seg in parent.split('/').skip(1) {
+        walked.push('/');
+        walked.push_str(seg);
+        if let Some(node) = whole.pointer_mut(&walked) {
+            if let Some(inner) = node.as_str().and_then(|s| serde_json::from_str::<Value>(s).ok()) {
+                *node = inner;
+            }
+        }
+    }
+    if let Some(Value::Object(o)) = whole.pointer_mut(parent) {
+        if let Some(Value::Object(secrets)) = o.remove(key) {
+            for (k, v) in secrets {
+                if let Value::String(s) = v {
+                    found.push((k, s));
+                }
+            }
+        }
+    }
+    let mut cleaned = ToolResult::ok(vec![Content::text(whole.to_string())]);
+    cleaned.is_error = r.is_error;
+    (found, cleaned)
+}
+
 /// Apply one result extractor.
 pub fn extract(r: &ToolResult, expr: &str) -> String {
     if expr == "$text" {
@@ -332,16 +666,8 @@ pub fn extract(r: &ToolResult, expr: &str) -> String {
     if expr == "$isError" {
         return if r.is_error == Some(true) { "1" } else { "0" }.into();
     }
-    if let Some(ptr) = expr.strip_prefix("$json:") {
-        let whole = r
-            .structured_content
-            .clone()
-            .or_else(|| serde_json::from_str::<Value>(result_text(r).trim()).ok());
-        return match whole.as_ref().and_then(|v| v.pointer(ptr)) {
-            Some(Value::String(s)) => s.clone(),
-            Some(v) => v.to_string(),
-            None => String::new(),
-        };
+    if expr.starts_with("$json:") || expr == "$jsonseq:" {
+        return value_text(extract_value(r, expr).as_ref());
     }
     if let Some(markers) = expr.strip_prefix("$after:") {
         let text = result_text(r);
@@ -513,6 +839,76 @@ args = ["script.json"]
         assert_eq!(ro.args, ["pkg@1.0.0", "--read-only"]);
         assert_eq!(ro.env, [("FUNCTION_PREFIX".to_string(), "app-".to_string())], "an empty variable is not set");
         assert_eq!(launch_for(&s, &c, true, "dev", "eu-west-1").unwrap().args, ["pkg@1.0.0", "--allow-write"]);
+    }
+
+    /// The Delivery B filters: defaults, optional keys, numbers, and JSON
+    /// inside a string.
+    #[test]
+    fn filters_default_omit_and_shape_values() {
+        let args = vec![String::new(), "say \"hi\"".to_string()];
+        let prop = |n: &str| match n {
+            "RuntimeArn" => "arn:x".into(),
+            "MaxResults" => "5".into(),
+            _ => String::new(),
+        };
+        let none = |_: &str| String::new();
+        let c = ctx(&args, &prop, &none);
+        assert_eq!(expand("{arg:1|or:{prop:RuntimeArn}}", &c).unwrap(), "arn:x");
+        assert_eq!(expand("{arg:2|or:{prop:RuntimeArn}}", &c).unwrap(), "say \"hi\"");
+        assert_eq!(expand("{arg:2|quote}", &c).unwrap(), r#""say \"hi\"""#);
+        let input: toml::Value = toml::from_str(
+            r#"
+a = "{arg:1|or:{prop:RuntimeArn}}"
+payload = "{arg:2|obj:prompt|text}"
+session = "{arg:3|opt}"
+n = "{prop:MaxResults|opt|int}"
+gone = "{prop:Nothing|opt|int}"
+p = "{arg:4|json:{}}"
+list = [{ text = "{arg:2}", role = "{arg:5|or:USER}" }]
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            expand_input(&input, &c).unwrap(),
+            json!({"a": "arn:x", "payload": r#"{"prompt":"say \"hi\""}"#, "n": 5, "p": {}, "list": [{"text": "say \"hi\"", "role": "USER"}]})
+        );
+        let bad = vec!["seven".to_string()];
+        let e = expand("{arg:1|int}", &ctx(&bad, &none, &none)).unwrap_err();
+        assert!(e.to_string().contains("not a whole number"), "{e}");
+    }
+
+    #[test]
+    fn rows_are_shaped_from_arrays_objects_sequences_and_columns() {
+        let def = |t: &str| -> RowsDef { toml::from_str(t).unwrap() };
+        let none = BTreeMap::new();
+        // A sequence of JSON objects, one after another, with alternatives.
+        let seq = ToolResult::ok(vec![Content::text(
+            "{\"content\":{\"text\":\"A\"},\"location\":{\"s3Location\":{\"uri\":\"s3://b/a\"}},\"score\":0.9}\n\n{\"content\":{\"text\":\"B\"},\"location\":{\"type\":\"WEB\",\"webLocation\":{\"url\":\"https://x\"}},\"score\":0.5}",
+        )]);
+        let rows = shape_rows(&seq, &def(r#"from = "$jsonseq:"
+fields = { Text = "/content/text", Source = "/location/s3Location/uri|/location/webLocation/url", Score = "/score" }"#), &none);
+        assert_eq!(rows, vec![json!({"Text": "A", "Source": "s3://b/a", "Score": 0.9}), json!({"Text": "B", "Source": "https://x", "Score": 0.5})]);
+        // An object: a row per entry, `$key` its key.
+        let obj = ToolResult::ok(vec![Content::text(r#"{"KB1":{"name":"Docs"},"KB2":{"name":"FAQ"}}"#)]);
+        let rows = shape_rows(&obj, &def(r#"from = "$json:"
+fields = { Id = "$key", Name = "/name" }"#), &none);
+        assert_eq!(rows, vec![json!({"Id": "KB1", "Name": "Docs"}), json!({"Id": "KB2", "Name": "FAQ"})]);
+        // Arrays of values named by a column list.
+        let tab = ToolResult::ok(vec![Content::text(r#"{"columns":["id","city"],"rows":[[1,"Lisboa"],[2,"Porto"]]}"#)]);
+        let rows = shape_rows(&tab, &def(r#"from = "$json:/rows"
+columns = "/columns""#), &none);
+        assert_eq!(rows, vec![json!({"id": 1, "city": "Lisboa"}), json!({"id": 2, "city": "Porto"})]);
+        // `where`: an expanded value keeps matching rows; empty keeps all.
+        let listed = ToolResult::ok(vec![Content::text(r#"{"tables":[{"namespace":["sales"],"name":"a"},{"namespace":["ops"],"name":"b"}]}"#)]);
+        let d = def(r#"from = "$json:/tables"
+fields = { Name = "/name" }"#);
+        let only = BTreeMap::from([("/namespace/0".to_string(), "ops".to_string())]);
+        assert_eq!(shape_rows(&listed, &d, &only), vec![json!({"Name": "b"})]);
+        let all = BTreeMap::from([("/namespace/0".to_string(), String::new())]);
+        assert_eq!(shape_rows(&listed, &d, &all).len(), 2);
+        // A message block, then the data: `$json:` finds the data.
+        let two = ToolResult::ok(vec![Content::text("Successfully retrieved table"), Content::text(r#"{"job_run_id":"jr_1"}"#)]);
+        assert_eq!(extract(&two, "$json:/job_run_id"), "jr_1");
     }
 
     /// R15: no Rust source names a server package or launcher; they live in

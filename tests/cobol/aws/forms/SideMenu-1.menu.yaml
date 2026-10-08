@@ -11,3 +11,87 @@ menu:
   icon: home
   action: open-form:aws-mcp-demo
   enabled: true
+- id: knowle
+  label: AwsKnowledgeBase demo
+  type: action
+  icon: home
+  action: open-form:aws-knowledge-base-demo
+  enabled: true
+- id: agentc
+  label: AwsAgentCore demo
+  type: action
+  icon: home
+  action: open-form:aws-agent-core-demo
+  enabled: true
+- id: agentm
+  label: AwsAgentMemory demo
+  type: action
+  icon: home
+  action: open-form:aws-agent-memory-demo
+  enabled: true
+- id: s3tabl
+  label: AwsS3Tables demo
+  type: action
+  icon: home
+  action: open-form:aws-s3-tables-demo
+  enabled: true
+- id: glue
+  label: AwsGlue demo
+  type: action
+  icon: home
+  action: open-form:aws-glue-demo
+  enabled: true
+- id: ddb
+  label: AwsDynamoDB demo
+  type: action
+  icon: home
+  action: open-form:aws-dynamodb-demo
+  enabled: true
+- id: s3
+  label: AwsS3 demo
+  type: action
+  icon: home
+  action: open-form:aws-s3-demo
+  enabled: true
+- id: vec
+  label: AwsS3Vectors demo
+  type: action
+  icon: home
+  action: open-form:aws-s3-vectors-demo
+  enabled: true
+- id: rek
+  label: AwsRekognition demo
+  type: action
+  icon: home
+  action: open-form:aws-rekognition-demo
+  enabled: true
+- id: polly
+  label: AwsPolly demo
+  type: action
+  icon: home
+  action: open-form:aws-polly-demo
+  enabled: true
+- id: nlp
+  label: AwsComprehend demo
+  type: action
+  icon: home
+  action: open-form:aws-comprehend-demo
+  enabled: true
+- id: doc
+  label: AwsTextract demo
+  type: action
+  icon: home
+  action: open-form:aws-textract-demo
+  enabled: true
+- id: ec2
+  label: AwsEC2 demo
+  type: action
+  icon: home
+  action: open-form:aws-ec2-demo
+  enabled: true
+- id: users
+  label: AwsCognito demo
+  type: action
+  icon: home
+  action: open-form:aws-cognito-demo
+  enabled: true

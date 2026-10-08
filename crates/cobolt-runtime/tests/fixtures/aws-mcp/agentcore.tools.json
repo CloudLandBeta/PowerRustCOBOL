@@ -1,0 +1,53 @@
+{
+  "_provenance": "awslabs.amazon-bedrock-agentcore-mcp-server@0.2.1 (PyPI, uploaded 2026-09-08), started with AGENTCORE_ENABLE_TOOLS=runtime,memory. NOT a live recording: no AWS account was available when this was written (2026-10-07). Derived from that exact version's published sdist (tools/runtime/invocation.py, tools/memory/events.py, tools/memory/records.py) and from how mcp 2.0.0's func_metadata renders a signature; pydantic `title` keys are left out. PARTIAL: with that setting the server registers 35 tools of the two groups plus two documentation tools; only the three the routes use are listed here. Re-record with a live `tools/list` when an operator profile is available.",
+  "tools": [
+    {
+      "name": "invoke_agent_runtime",
+      "description": "Invoke an agent hosted in AgentCore Runtime.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "agent_runtime_arn": { "type": "string" },
+          "payload": { "type": "string" },
+          "runtime_session_id": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "qualifier": { "type": "string", "default": "DEFAULT" }
+        },
+        "required": ["agent_runtime_arn", "payload"]
+      }
+    },
+    {
+      "name": "memory_create_event",
+      "description": "Create an event in an AgentCore Memory resource (short-term memory).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string" },
+          "actor_id": { "type": "string" },
+          "payload": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "session_id": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "event_timestamp": { "anyOf": [{ "type": "number" }, { "type": "null" }], "default": null },
+          "branch": { "anyOf": [{ "type": "object", "additionalProperties": { "type": "string" } }, { "type": "null" }], "default": null },
+          "metadata": { "anyOf": [{ "type": "object", "additionalProperties": true }, { "type": "null" }], "default": null }
+        },
+        "required": ["memory_id", "actor_id", "payload"]
+      }
+    },
+    {
+      "name": "memory_retrieve_records",
+      "description": "Semantic search for memory records in an AgentCore Memory resource.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string" },
+          "namespace": { "type": "string" },
+          "search_query": { "type": "string" },
+          "memory_strategy_id": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null },
+          "top_k": { "anyOf": [{ "type": "integer" }, { "type": "null" }], "default": null },
+          "max_results": { "anyOf": [{ "type": "integer" }, { "type": "null" }], "default": null },
+          "next_token": { "anyOf": [{ "type": "string" }, { "type": "null" }], "default": null }
+        },
+        "required": ["memory_id", "namespace", "search_query"]
+      }
+    }
+  ]
+}

@@ -8977,7 +8977,7 @@ impl PropertiesPanel {
             // `Connection` holds the connection's NAME — what the property's
             // documentation promises and what a program writes with a MOVE —
             // and an empty one means the project's only connection.
-            ControlType::AwsLambda | ControlType::AwsMcp if phase == TypeSection::Basic => {
+            cobolt_forms::aws_pattern!() if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 let conns = self.aws_connections.clone();
                 let cur = ctrl
@@ -9023,11 +9023,14 @@ impl PropertiesPanel {
                     ui.label(RichText::new(note).small().color(Color32::from_rgb(220, 120, 90)));
                 }
                 combo_prop_row(ui, id, "Mode", "Mode", ctrl, action, &["Async", "Sync"], "Async");
-                if ctrl.control_type == ControlType::AwsLambda {
-                    text_prop_row(ui, id, "FunctionName", "FunctionName", ctrl, action, &mut self.text_bufs);
-                } else {
-                    text_prop_row(ui, id, "ServerId", "ServerId", ctrl, action, &mut self.text_bufs);
-                    text_prop_row(ui, id, "ToolName", "ToolName", ctrl, action, &mut self.text_bufs);
+                // The control's own inputs, as the AWS catalogue lists them.
+                use cobolt_forms::aws_catalog::{self, Seed};
+                for (name, seed) in aws_catalog::get(&ctrl.control_type).map_or(&[][..], |c| c.seeds) {
+                    match *seed {
+                        Seed::Str(_) => text_prop_row(ui, id, name, name, ctrl, action, &mut self.text_bufs),
+                        Seed::Int(d) => int_prop_row(ui, id, name, name, ctrl, action, 1..=1000, None, d),
+                        Seed::Bool(_) => bool_prop_row(ui, id, name, name, ctrl, action),
+                    }
                 }
                 int_prop_row(ui, id, "TimeoutMs", "TimeoutMs", ctrl, action, 1..=3_600_000, Some(" ms"), 30_000);
                 int_prop_row(

@@ -214,25 +214,10 @@ impl Interpreter {
             return Some(self.aws_refuse(obj, sync, message));
         };
 
-        // The arguments, with the control's own properties as defaults: a
-        // function or tool not passed is the one the designer named, and a
-        // payload not passed is the empty object.
-        let mut texts: Vec<String> = args.iter().map(|v| v.as_display_string().trim().to_string()).collect();
-        let default_name = match class.as_str() {
-            "AwsLambda" => self.obj_get(obj, "FunctionName"),
-            "AwsMcp" => self.obj_get(obj, "ToolName"),
-            _ => String::new(),
-        };
-        if texts.is_empty() {
-            texts.push(default_name.trim().to_string());
-        } else if texts[0].is_empty() {
-            texts[0] = default_name.trim().to_string();
-        }
-        if texts.len() < 2 {
-            texts.push("{}".into());
-        } else if texts[1].is_empty() {
-            texts[1] = "{}".into();
-        }
+        // An argument not passed is empty; the route table says what stands
+        // in for it — the property the designer set (`|or:{prop:…}`), the
+        // empty object (`|json:{}`), or nothing (`|opt`).
+        let texts: Vec<String> = args.iter().map(|v| v.as_display_string().trim().to_string()).collect();
 
         let allow_write = self.obj_get(obj, "AllowWrite").trim().eq_ignore_ascii_case("true");
         let connection_allows_write = allow_write || self.aws_connection_allows_write(&conn.id);
@@ -243,6 +228,7 @@ impl Interpreter {
                 method: &method,
                 args: &texts,
                 prop: &prop,
+                control: obj,
                 allow_write,
                 connection_allows_write,
             };
@@ -254,6 +240,8 @@ impl Interpreter {
         };
         if self.obj_get(obj, "Verbose").trim().eq_ignore_ascii_case("true") {
             let what = match &prepared.action {
+                // A password or a token travels in this request.
+                ops::Action::Call { tool, .. } if prepared.sensitive => format!("{tool} (arguments not shown: they carry a password or a token)"),
                 ops::Action::Call { tool, input } => format!("{tool} {input}"),
                 ops::Action::ListTools => "tools/list".into(),
             };
