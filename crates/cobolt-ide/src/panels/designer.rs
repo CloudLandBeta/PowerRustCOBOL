@@ -4505,7 +4505,7 @@ impl DesignerPanel {
             }
             // The canvas shows a hidden control so it can still be
             // selected; only the tab question applies here.
-            if !super::containers::is_visible(
+            if !super::containers::is_shown_when(
                 &self.form.controls,
                 idx,
                 &self.active_tabs,
@@ -4548,7 +4548,7 @@ impl DesignerPanel {
         for &idx in super::containers::render_order(controls).iter().rev() {
             // Hit-testing on the CANVAS: a control the design hides is
             // still selectable there, so only the tab question applies.
-            if !super::containers::is_visible(controls, idx, &self.active_tabs, &|_| true) {
+            if !super::containers::is_shown_when(controls, idx, &self.active_tabs, &|_| true) {
                 continue;
             }
             if let Some(clip) = super::containers::clip_rect(controls, idx) {

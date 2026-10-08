@@ -2871,7 +2871,11 @@ TabControl page, and so on).
   takes its children with it and `SET MY-GROUP::Visible TO 1` brings them back.
   The children's own `Visible` is never touched, so a control you had hidden
   individually stays hidden when the group returns — showing a group restores
-  exactly what was showing before, not everything in it.
+  exactly what was showing before, not everything in it. The Form Designer is
+  the exception: it draws a container whose `Visible` is off, **and what is
+  inside it**, so you can still select, move and edit every control of a card
+  your program shows a moment after the form opens. (Before 1.90.13 the
+  designer drew only the card's face and left its contents out.)
 - **Auto-scroll** — turn **Auto-scroll** on for a container whose children may
   overflow its bounds. (When off, overflowing content is simply clipped.)
 - **TabControl pages** — each tab owns its own set of children. Click a tab in

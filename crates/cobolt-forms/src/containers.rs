@@ -133,15 +133,36 @@ pub fn is_visible(
     active: &ActiveTabs,
     ancestor_shown: &dyn Fn(&Control) -> bool,
 ) -> bool {
+    // A container that is not on screen has no inside to be on screen in.
+    // Both the designed flag and the live answer, because a form can be
+    // saved with a hidden group AND hide one while it runs.
+    is_shown_when(controls, idx, active, &|c| c.visible && ancestor_shown(c))
+}
+
+/// [`is_visible`] without the designed `visible` flag: an ancestor hides this
+/// control only when `ancestor_shown` says so, or when a `TabControl` shows
+/// another page.
+///
+/// This is the question the DESIGNER canvas asks. It paints a control the
+/// design hides — or it could never be selected to be shown again — and the
+/// contents of a hidden container are no different: a card saved with
+/// `Visible` off, shown by the program a moment after the form opens, lost
+/// everything inside it on the canvas while it still ran fine (operator,
+/// 2026-10-08: "os controls internos dos painéis sumiram do RAD, mas funcionam
+/// no runtime"). The canvas callers already said "ask only the tab question"
+/// and passed `|_| true`, but [`is_visible`] still read the designed flag.
+pub fn is_shown_when(
+    controls: &[Control],
+    idx: usize,
+    active: &ActiveTabs,
+    ancestor_shown: &dyn Fn(&Control) -> bool,
+) -> bool {
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
         let Some(p) = index_of(controls, &pid) else {
             break;
         };
-        // A container that is not on screen has no inside to be on screen in.
-        // Both the designed flag and the live answer, because a form can be
-        // saved with a hidden group AND hide one while it runs.
-        if !controls[p].visible || !ancestor_shown(&controls[p]) {
+        if !ancestor_shown(&controls[p]) {
             return false;
         }
         if controls[p].control_type == ControlType::TabControl {
@@ -289,7 +310,7 @@ pub fn resolve_drop_target(
         }
         // The canvas: a control hidden by the DESIGN is still a legal
         // drop target, so this asks only the tab question.
-        if !is_visible(controls, idx, active, &|_| true) {
+        if !is_shown_when(controls, idx, active, &|_| true) {
             continue;
         }
         // Must be inside the control's own clip (ancestor content areas).
@@ -481,6 +502,19 @@ mod tests {
         assert!(!is_visible(&c, 2, &active, &|_| true));
         active.insert("Tabs".into(), 2);
         assert!(is_visible(&c, 2, &active, &|_| true));
+    }
+
+    /// A hidden container hides its contents on a running surface, not on the
+    /// canvas: `is_shown_when` leaves the designed flag out, and keeps the tab
+    /// question and the state's own answer.
+    #[test]
+    fn a_hidden_container_hides_its_contents_only_where_the_flag_counts() {
+        let mut c = sample();
+        c[0].visible = false;
+        let active = ActiveTabs::new();
+        assert!(!is_visible(&c, 1, &active, &|_| true), "a running surface honours the flag");
+        assert!(is_shown_when(&c, 1, &active, &|_| true), "the canvas does not");
+        assert!(!is_shown_when(&c, 1, &active, &|p| p.id != c[0].id), "the state still can");
     }
 
     #[test]

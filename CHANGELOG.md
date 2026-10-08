@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.13] — 2026-10-08
+
+### Fixed
+- **The Form Designer left out what was inside a hidden container.** A card
+  saved with `Visible` off — the way PowerAnalytics keeps its panels unseen
+  until the program shows them — kept its face on the canvas and lost every
+  control inside it, although the running form drew it all. The canvas paints a
+  hidden control so it can be selected; the same now holds for the controls
+  inside it, for drawing, for picking one with the mouse and for dropping a new
+  one into the card. A running form is unchanged: a hidden container still
+  hides its contents.
+
 ## [PowerRustCOBOL 1.90.12] — 2026-10-08
 
 ### Changed

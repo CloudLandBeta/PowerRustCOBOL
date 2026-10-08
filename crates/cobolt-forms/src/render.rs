@@ -3679,7 +3679,9 @@ pub fn render_faces(
         if !input.state.visible(base) {
             continue;
         }
-        if !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
+        // The canvas draws what the DESIGN hides, and what is inside it — the
+        // state decides, not the designed flag (`containers::is_shown_when`).
+        if !containers::is_shown_when(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
 
@@ -15408,6 +15410,63 @@ mod tests {
             "a DataGrid with ShadowEnabled must paint outside its own rect while \
              running: {on} shape(s) with the shadow on vs {off} with it off"
         );
+    }
+
+    /// **The designer canvas draws what is inside a container the design
+    /// hides.** A card saved with `Visible` off — shown by the program a moment
+    /// after the form opens — kept its face on the canvas and lost everything
+    /// inside it, while the running form drew it all (operator, 2026-10-08).
+    /// The running surfaces keep the rule that a hidden container hides its
+    /// contents (2026-09-09); only the canvas, which paints a hidden control so
+    /// it can be selected, ignores the designed flag.
+    ///
+    /// `control_rects` is the witness: a control the engine skips leaves no
+    /// rect behind.
+    #[test]
+    fn the_canvas_draws_what_is_inside_a_hidden_container() {
+        let mut card = ctrl("Card", ControlType::GroupBox, 20, 20, 200, 100);
+        card.visible = false;
+        let mut label = ctrl("Lbl", ControlType::Label, 30, 50, 100, 20);
+        label.parent = Some("Card".into());
+        let controls = vec![card, label];
+
+        let run = |faces: bool| {
+            let ctx = egui::Context::default();
+            let active = ActiveTabs::new();
+            let mut rects = None;
+            ctx.run_ui(egui::RawInput::default(), |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(300.0, 200.0));
+                    let canvas = DesignedState;
+                    let running = DesignedVisibility;
+                    let state: &dyn FormState = if faces { &canvas } else { &running };
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state,
+                        form_size: Vec2::new(300.0, 200.0),
+                        glass: true,
+                        mode: if faces { RenderMode::Static } else { RenderMode::Interactive },
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    rects = Some(if faces {
+                        let painter = ui.painter().clone();
+                        let origin = ui.min_rect().min;
+                        render_faces(&painter, origin, &rin).control_rects
+                    } else {
+                        render_form(ui, &rin).control_rects
+                    });
+                });
+            })
+            .textures_delta
+            .clear();
+            rects.expect("rects")
+        };
+        let canvas = run(true);
+        assert!(canvas.contains_key("Card"), "the canvas draws the hidden card itself");
+        assert!(canvas.contains_key("Lbl"), "…and what is inside it");
+        let running = run(false);
+        assert!(!running.contains_key("Lbl"), "a running form still hides the contents of a hidden card");
     }
 
     /// How many fills of one frame reach past the right or bottom edge of a
