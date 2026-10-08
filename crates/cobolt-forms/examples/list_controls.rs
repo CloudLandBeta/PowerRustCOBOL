@@ -50,6 +50,7 @@ fn main() {
         ControlType::AreaChart,
         ControlType::ScatterChart,
         ControlType::DonutChart,
+        ControlType::RadarChart,
     ];
 
     println!("# Toolbox control metadata ({} controls)\n", controls.len());

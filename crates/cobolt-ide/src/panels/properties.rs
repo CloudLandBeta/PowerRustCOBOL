@@ -10153,6 +10153,7 @@ impl PropertiesPanel {
             | ControlType::AreaChart
             | ControlType::ScatterChart
             | ControlType::DonutChart
+            | ControlType::RadarChart
                 if phase == TypeSection::Basic =>
             {
                 section_header(ui, tr.sec_basic);
@@ -10253,8 +10254,11 @@ impl PropertiesPanel {
                 color_row_labeled(ui, id, "TitleColor", "Title colour", ctrl, action);
                 bool_row_inline(ui, id, "ShowLegend", "Show legend", ctrl, action);
                 bool_row_inline(ui, id, "ShowGridLines", "Show grid lines", ctrl, action);
-                // A pie or a donut has no axes to show or hide.
-                if !matches!(ctrl.control_type, ControlType::PieChart | ControlType::DonutChart) {
+                // A pie, a donut or a radar has no X/Y axes to show or hide.
+                if !matches!(
+                    ctrl.control_type,
+                    ControlType::PieChart | ControlType::DonutChart | ControlType::RadarChart
+                ) {
                     bool_row_inline(ui, id, "ShowXAxis", "Show X axis line", ctrl, action);
                     bool_row_inline(ui, id, "ShowYAxis", "Show Y axis line", ctrl, action);
                 }
@@ -10290,7 +10294,7 @@ impl PropertiesPanel {
                 bool_row_inline(ui, id, "Monochrome", "Monochrome", ctrl, action);
                 if !matches!(
                     ctrl.control_type,
-                    ControlType::PieChart | ControlType::DonutChart
+                    ControlType::PieChart | ControlType::DonutChart | ControlType::RadarChart
                 ) {
                     let cx = ctrl
                         .get_prop("XAxisLabel")
@@ -10430,7 +10434,8 @@ impl PropertiesPanel {
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => {
+            | ControlType::DonutChart
+            | ControlType::RadarChart => {
                 // ── Data Binding ──────────────────────────────────────────────
                 section_header(ui, tr.sec_data_binding_table);
                 // `text_row_hint` is a self-contained full-width row (label +
@@ -10605,6 +10610,45 @@ impl PropertiesPanel {
                             40,
                         );
                     }
+                }
+                if matches!(ctrl.control_type, ControlType::RadarChart) {
+                    section_header(ui, tr.sec_radar_options);
+                    int_prop_row(ui, id, "GridLevels", "Grid rings", ctrl, action, 1..=10, None, 5);
+                    int_prop_row(
+                        ui,
+                        id,
+                        "FillOpacity",
+                        "Fill opacity (%)",
+                        ctrl,
+                        action,
+                        0..=100,
+                        Some("%"),
+                        35,
+                    );
+                    bool_row_inline(ui, id, "ShowPoints", "Show points", ctrl, action);
+                    int_prop_row(ui, id, "PointRadius", "Point radius", ctrl, action, 0..=20, None, 3);
+                    // The scale shared by every axis. Text rows, not integer
+                    // ones: a scale of 0 to 1.5 is as likely as 0 to 100.
+                    let min_v = ctrl
+                        .get_prop("MinValue")
+                        .map(|v| v.to_xml_string())
+                        .unwrap_or_default();
+                    text_row_hint(ui, &mut self.hints, id, "MinValue", &min_v, "Scale minimum:", "0", action);
+                    let max_v = ctrl
+                        .get_prop("MaxValue")
+                        .map(|v| v.to_xml_string())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "MaxValue",
+                        &max_v,
+                        "Scale maximum (0 = auto):",
+                        "100",
+                        action,
+                    );
+                    bool_row_inline(ui, id, "ShowAxisValues", "Show ring values", ctrl, action);
                 }
                 if matches!(ctrl.control_type, ControlType::ScatterChart) {
                     section_header(ui, tr.sec_scatter_options);

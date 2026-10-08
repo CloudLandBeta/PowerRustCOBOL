@@ -529,7 +529,8 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
                 ("GetItem", "Read an item by index"),
             ],
         ),
-        "BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart" => (
+        "BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart"
+        | "RadarChart" => (
             UNIVERSAL_VISUAL,
             &[
                 ("SetData", "Bind a COBOL table/array as data"),

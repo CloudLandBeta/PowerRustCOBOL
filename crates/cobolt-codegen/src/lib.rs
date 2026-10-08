@@ -750,6 +750,7 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         ControlType::AreaChart,
         ControlType::ScatterChart,
         ControlType::DonutChart,
+        ControlType::RadarChart,
     ];
     for ctrl in all_controls
         .iter()
@@ -2039,6 +2040,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         ControlType::AreaChart,
         ControlType::ScatterChart,
         ControlType::DonutChart,
+        ControlType::RadarChart,
     ];
     let charts: Vec<&&Control> = all_controls
         .iter()
@@ -3923,6 +3925,66 @@ mod tests {
         let one = generate(&data_binding_fixture_form());
         assert!(!one.contains("_BindingSeriesNames"), "one series: seeded as before");
         println!("052 R1: a chart bound to 3 value fields seeds 3 series (AMOUNT, TAX, TOTAL); one field seeds as before");
+    }
+
+    /// A RadarChart has the chart facade every other chart has: working-storage
+    /// for the selected label and value, and the SET-TABLE / ADD-POINT / CLEAR /
+    /// REFRESH paragraphs calling the same `CHART-*` built-ins. Bound to
+    /// several value fields it loads every series, like the bar, line and area
+    /// charts it shares a data model with.
+    #[test]
+    fn a_radar_chart_gets_the_chart_paragraphs_and_binds_every_series() {
+        let mut form = Form::new("RADAR-FORM", "Radar", 640, 480);
+        let mut radar = Control::new("RADAR-1", ControlType::RadarChart, 0, 0);
+        radar.set_prop("DataSource", PropValue::String("WS-SKILLS".into()));
+        radar.set_prop("DataCount", PropValue::String("WS-SKILL-COUNT".into()));
+        form.add_control(radar);
+        let series = |id: &str| BindingTargetPath::ChartValueSeries {
+            control_id: "RADAR-1".into(),
+            series_id: id.into(),
+        };
+        form.data_bindings.push(
+            DataBindingDef::new(
+                "BIND-TABLE-RADAR",
+                "Table Radar",
+                BindingSourceDescriptor::CobolTable {
+                    table_name: "CUSTOMER-TABLE".into(),
+                    occurs_item: "CUSTOMER-ROW".into(),
+                    fields: binding_fields(),
+                    key_fields: vec!["ID".into()],
+                    writable: true,
+                },
+                BindingTargetDescriptor::Chart {
+                    control_id: "RADAR-1".into(),
+                    chart_kind: cobolt_forms::BindingChartKind::Radar,
+                },
+            )
+            .with_mappings(vec![
+                FieldMapping::new("NAME", BindingTargetPath::ChartCategory { control_id: "RADAR-1".into() }),
+                FieldMapping::new("AMOUNT", series("AMOUNT")),
+                FieldMapping::new("TAX", series("TAX")),
+            ]),
+        );
+
+        let src = generate(&form);
+        for needle in [
+            "(type: RadarChart)",
+            "WS-RADAR-1-SELECTED-LBL PIC X(64)",
+            "RADAR-1-SET-TABLE.",
+            "COBOL::\"CHART-SET-TABLE\" ( \"RADAR-1\" WS-SKILLS WS-SKILL-COUNT )",
+            "RADAR-1-ADD-POINT.",
+            "COBOL::\"CHART-ADD-POINT\" ( \"RADAR-1\" WS-RADAR-1-SELECTED-LBL WS-RADAR-1-SELECTED-VAL )",
+            "RADAR-1-CLEAR.",
+            "COBOL::\"CHART-CLEAR\" ( \"RADAR-1\" )",
+            "RADAR-1-REFRESH.",
+            "COBOL::\"CHART-REFRESH\" ( \"RADAR-1\" )",
+            "INVOKE RADAR-1 'SetProperty' USING BY CONTENT \"_BindingChart\" BY CONTENT \"1\"",
+            "INVOKE RADAR-1 'SetProperty' USING BY CONTENT \"_BindingSeriesNames\" BY CONTENT \"AMOUNT,TAX\"",
+            "INVOKE RADAR-1 'RefreshBinding'",
+        ] {
+            assert!(src.contains(needle), "the radar form's program lacks `{needle}`:\n{src}");
+        }
+        println!("RadarChart: SET-TABLE, ADD-POINT, CLEAR and REFRESH paragraphs generated; bound to 2 value fields it seeds 2 series");
     }
 
     #[test]

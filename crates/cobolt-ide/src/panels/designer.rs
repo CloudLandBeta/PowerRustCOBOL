@@ -14553,6 +14553,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::AreaChart => "AreaChart",
         CT::ScatterChart => "ScatterChart",
         CT::DonutChart => "DonutChart",
+        CT::RadarChart => "RadarChart",
         CT::Knob => "Knob",
         CT::Gauge => "Gauge",
         CT::Switch => "Switch",
@@ -18021,6 +18022,7 @@ mod render_behavior_tests {
             (AreaChart, "AreaChart"),
             (ScatterChart, "ScatterChart"),
             (DonutChart, "DonutChart"),
+            (RadarChart, "RadarChart"),
         ]
     }
 

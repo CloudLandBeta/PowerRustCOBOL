@@ -2080,6 +2080,7 @@ pub enum BindingChartKind {
     Area,
     Scatter,
     Donut,
+    Radar,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2593,6 +2594,7 @@ pub enum ControlType {
     AreaChart,    // Stacked or overlapping area chart
     ScatterChart, // Scatter / bubble plot
     DonutChart,   // Donut (ring) chart
+    RadarChart,   // Radar / spider chart — one polygon per series, one spoke per label
     // Batch 039 (spec 039), phase 1: Knob/Gauge/Switch/FileDropZone.
     // Maps and WebSearch join this enum in later 039 tasks (T8, T14).
     Knob,         // Rotary dial setting a numeric Value within Minimum..Maximum
@@ -2703,6 +2705,7 @@ impl ControlType {
             ControlType::AreaChart => Some(BindingChartKind::Area),
             ControlType::ScatterChart => Some(BindingChartKind::Scatter),
             ControlType::DonutChart => Some(BindingChartKind::Donut),
+            ControlType::RadarChart => Some(BindingChartKind::Radar),
             _ => None,
         }
     }
@@ -2768,6 +2771,7 @@ impl ControlType {
         ControlType::AreaChart,
         ControlType::ScatterChart,
         ControlType::DonutChart,
+        ControlType::RadarChart,
         ControlType::Knob,
         ControlType::Gauge,
         ControlType::Switch,
@@ -2833,6 +2837,7 @@ impl ControlType {
             ControlType::AreaChart => "AreaChart",
             ControlType::ScatterChart => "ScatterChart",
             ControlType::DonutChart => "DonutChart",
+            ControlType::RadarChart => "RadarChart",
             ControlType::Knob => "Knob",
             ControlType::Gauge => "Gauge",
             ControlType::Switch => "Switch",
@@ -2903,6 +2908,7 @@ impl ControlType {
             "AreaChart" => ControlType::AreaChart,
             "ScatterChart" => ControlType::ScatterChart,
             "DonutChart" => ControlType::DonutChart,
+            "RadarChart" => ControlType::RadarChart,
             "Knob" => ControlType::Knob,
             "Gauge" => ControlType::Gauge,
             "Switch" => ControlType::Switch,
@@ -2991,6 +2997,7 @@ impl ControlType {
             ControlType::AreaChart => (320, 220),
             ControlType::ScatterChart => (320, 220),
             ControlType::DonutChart => (240, 240),
+            ControlType::RadarChart => (280, 260),
             ControlType::Knob => (80, 96),
             ControlType::Gauge => (140, 90),
             ControlType::Switch => (52, 28),
@@ -3031,7 +3038,8 @@ impl ControlType {
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => "onDataChanged",
+            | ControlType::DonutChart
+            | ControlType::RadarChart => "onDataChanged",
             ControlType::Knob => "onChange",
             ControlType::Switch => "onClick",
             ControlType::FileDropZone => "onFilesDropped",
@@ -3143,7 +3151,8 @@ impl ControlType {
                 | ControlType::PieChart
                 | ControlType::AreaChart
                 | ControlType::ScatterChart
-                | ControlType::DonutChart => {
+                | ControlType::DonutChart
+                | ControlType::RadarChart => {
                     if eq("Data") || eq("Series") || eq("DataSource") {
                         vec!["onDataChanged"]
                     } else {
@@ -3796,7 +3805,8 @@ impl ControlType {
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => &[
+            | ControlType::DonutChart
+            | ControlType::RadarChart => &[
                 "onDataChanged",
                 "onClick",
                 "onDblClick",
@@ -4675,7 +4685,8 @@ pub(crate) fn seed_theme_owned_appearance(
         | ControlType::PieChart
         | ControlType::AreaChart
         | ControlType::ScatterChart
-        | ControlType::DonutChart => Some(8),
+        | ControlType::DonutChart
+        | ControlType::RadarChart => Some(8),
         // A deliberate choice, not the old look (operator, 2026-08-16):
         // the bar's artwork was hard-wired to a 2 px round, so once
         // `CornerRadius` actually reached the paint a seeded 0 would have
@@ -6237,7 +6248,8 @@ impl Control {
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => {
+            | ControlType::DonutChart
+            | ControlType::RadarChart => {
                 // Visual
                 props.insert("Title".into(), PropValue::String("".into()));
                 // The title's own type, independent of the chart's `FontSize`.
@@ -6251,9 +6263,12 @@ impl Control {
                 props.insert("TitleColor".into(), PropValue::String("".into()));
                 props.insert("ShowLegend".into(), PropValue::Bool(true));
                 props.insert("ShowGridLines".into(), PropValue::Bool(true));
-                // Independent X/Y axis-line visibility (default on). A pie or
-                // a donut has no axes, so it carries neither.
-                if !matches!(control_type, ControlType::PieChart | ControlType::DonutChart) {
+                // Independent X/Y axis-line visibility (default on). A pie, a
+                // donut or a radar has no X/Y axes, so it carries neither.
+                if !matches!(
+                    control_type,
+                    ControlType::PieChart | ControlType::DonutChart | ControlType::RadarChart
+                ) {
                     props.insert("ShowXAxis".into(), PropValue::Bool(true));
                     props.insert("ShowYAxis".into(), PropValue::Bool(true));
                 }
@@ -6284,8 +6299,12 @@ impl Control {
                    // Diagonal gradient: when on, data elements shade from ~20% lighter
                    // (top-left) to ~20% darker (bottom-right) of MonochromeColor.
                 props.insert("MonochromeGradient".into(), PropValue::Bool(false));
-                props.insert("XAxisLabel".into(), PropValue::String("".into()));
-                props.insert("YAxisLabel".into(), PropValue::String("".into()));
+                // A radar has no X/Y axes to caption: its axes are named by the
+                // data's own labels.
+                if !matches!(control_type, ControlType::RadarChart) {
+                    props.insert("XAxisLabel".into(), PropValue::String("".into()));
+                    props.insert("YAxisLabel".into(), PropValue::String("".into()));
+                }
                 props.insert(
                     "SeriesColors".into(),
                     PropValue::String("#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C".into()),
@@ -6355,6 +6374,19 @@ impl Control {
                 if matches!(control_type, ControlType::ScatterChart) {
                     props.insert("BubbleField".into(), PropValue::String("".into())); // field for bubble size
                     props.insert("BubbleScale".into(), PropValue::Int(20)); // max bubble radius px
+                }
+                // Radar: one spoke per label, one polygon per series, every
+                // axis on one scale (`chart::radar_*`).
+                if matches!(control_type, ControlType::RadarChart) {
+                    props.insert("GridLevels".into(), PropValue::Int(5)); // rings, 1-10
+                    props.insert("FillOpacity".into(), PropValue::Int(35)); // 0-100%
+                    props.insert("ShowPoints".into(), PropValue::Bool(true));
+                    props.insert("PointRadius".into(), PropValue::Int(3));
+                    // The scale shared by every axis. `MaxValue` 0 means
+                    // automatic, from the data.
+                    props.insert("MinValue".into(), PropValue::Int(0));
+                    props.insert("MaxValue".into(), PropValue::Int(0));
+                    props.insert("ShowAxisValues".into(), PropValue::Bool(false));
                 }
             }
 
@@ -10006,6 +10038,7 @@ mod tests {
             (ControlType::AreaChart, BindingChartKind::Area),
             (ControlType::ScatterChart, BindingChartKind::Scatter),
             (ControlType::DonutChart, BindingChartKind::Donut),
+            (ControlType::RadarChart, BindingChartKind::Radar),
         ] {
             assert_eq!(
                 control_type.approved_binding_target_kind(),
@@ -10784,6 +10817,7 @@ mod tests {
             ControlType::AreaChart,
             ControlType::ScatterChart,
             ControlType::DonutChart,
+            ControlType::RadarChart,
         ] {
             let c = Control::new("C1", t, 0, 0);
             let v = c
@@ -10807,6 +10841,7 @@ mod tests {
             ControlType::AreaChart,
             ControlType::ScatterChart,
             ControlType::DonutChart,
+            ControlType::RadarChart,
         ] {
             let c = Control::new("C1", t, 0, 0);
             assert!(!c
@@ -10830,6 +10865,41 @@ mod tests {
         assert!(Control::new("B", ControlType::Button, 0, 0)
             .get_prop("Monochrome")
             .is_none());
+    }
+
+    /// The RadarChart takes the multi-series data model of the Bar, Line and
+    /// Area charts and the shared chart appearance, adds the radar's own
+    /// scale and grid, and carries nothing that belongs to an X/Y chart.
+    #[test]
+    fn a_radar_chart_is_a_multi_series_chart_without_xy_axes() {
+        let c = Control::new("R", ControlType::RadarChart, 0, 0);
+        assert_eq!((c.rect.w, c.rect.h), (280, 260), "dropped at 280x260");
+        assert_eq!(ControlType::from_str("RadarChart"), ControlType::RadarChart);
+        assert_eq!(ControlType::RadarChart.as_str(), "RadarChart");
+        assert!(ControlType::ALL.contains(&ControlType::RadarChart));
+        assert_eq!(ControlType::RadarChart.primary_event(), "onDataChanged");
+        assert!(ControlType::RadarChart.supported_events().contains(&"onDataChanged"));
+        assert_eq!(c.approved_binding_target_kind(), Some(ApprovedBindingTargetKind::Chart(BindingChartKind::Radar)));
+
+        let ints = [("GridLevels", 5), ("FillOpacity", 35), ("PointRadius", 3), ("MinValue", 0), ("MaxValue", 0)];
+        for (key, want) in ints {
+            assert_eq!(c.get_prop(key).unwrap_or_else(|| panic!("{key} not seeded")).as_i64(), want, "{key}");
+        }
+        assert!(c.get_prop("ShowPoints").unwrap().as_bool());
+        assert!(!c.get_prop("ShowAxisValues").unwrap().as_bool());
+        for key in [
+            "Title", "TitleFontSize", "TitleColor", "ShowLegend", "ShowGridLines", "ShowTooltips", "AnimateOnLoad",
+            "AnimateValues", "AnimationDuration", "HideBackground", "Monochrome", "MonochromeColor",
+            "MonochromeGradient", "SeriesColors", "DataSource", "DataCount", "LabelField", "ValueFields",
+            "SeriesLabels", "BorderStyle", "BorderWidth", "BorderColor", "BorderGradientEnabled", "BorderBlur",
+            "BorderTransparency", "CornerRadius", "Transparency",
+        ] {
+            assert!(c.get_prop(key).is_some(), "a radar shares {key} with the other charts");
+        }
+        for key in ["ShowXAxis", "ShowYAxis", "XAxisLabel", "YAxisLabel", "Horizontal", "Stacked", "Smooth", "FillAlpha"] {
+            assert!(c.get_prop(key).is_none(), "{key} does not apply to a radar");
+        }
+        assert_eq!(c.get_prop("CornerRadius").unwrap().as_i64(), 8, "charts are rounded at 8");
     }
 
     #[test]

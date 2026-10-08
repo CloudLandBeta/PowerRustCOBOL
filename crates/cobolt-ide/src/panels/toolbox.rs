@@ -342,6 +342,11 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::DonutChart,
         category: "Charts",
     },
+    ToolEntry {
+        label: "RadarChart",
+        ct: ControlType::RadarChart,
+        category: "Charts",
+    },
 ];
 
 /// The toolbox category a control type belongs to (internal key). Used by the
@@ -1835,6 +1840,44 @@ pub(crate) fn paint_control_icon(
                 r * 0.22,
                 dim,
             );
+        }
+        ControlType::RadarChart => {
+            // A hexagonal web (outer ring and a half-size ring, three spokes)
+            // with one polygon laid across it.
+            let ring = |k: f32| -> Vec<Pos2> {
+                (0..6)
+                    .map(|i| {
+                        let a = std::f32::consts::TAU * i as f32 / 6.0;
+                        Pos2::new(c.x + a.sin() * r * k, c.y - a.cos() * r * k)
+                    })
+                    .collect()
+            };
+            painter.add(egui::Shape::closed_line(ring(1.1), s));
+            painter.add(egui::Shape::closed_line(ring(0.55), th));
+            for i in 0..3 {
+                let a = std::f32::consts::TAU * i as f32 / 3.0;
+                painter.line_segment(
+                    [c, Pos2::new(c.x + a.sin() * r * 1.1, c.y - a.cos() * r * 1.1)],
+                    th,
+                );
+            }
+            let reach = [0.85, 0.5, 0.95, 0.4, 0.7, 0.6];
+            let poly: Vec<Pos2> = (0..6)
+                .map(|i| {
+                    let a = std::f32::consts::TAU * i as f32 / 6.0;
+                    Pos2::new(c.x + a.sin() * r * reach[i], c.y - a.cos() * r * reach[i])
+                })
+                .collect();
+            // The polygon can be concave, so it is filled as a fan of convex
+            // triangles from the centre.
+            for i in 0..6 {
+                painter.add(egui::Shape::convex_polygon(
+                    vec![c, poly[i], poly[(i + 1) % 6]],
+                    dim,
+                    Stroke::NONE,
+                ));
+            }
+            painter.add(egui::Shape::closed_line(poly, s));
         }
 
         // The Snackbar had no arm at all, so it fell through to the generic

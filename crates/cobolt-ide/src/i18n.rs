@@ -1632,6 +1632,7 @@ pub struct Tr {
     pub sec_line_area_options: &'static str,
     pub sec_pie_options: &'static str,
     pub sec_scatter_options: &'static str,
+    pub sec_radar_options: &'static str,
 
     // ── Drop shadow labels ────────────────────────────────────────────────────
     pub lbl_shadow_enabled: &'static str,
@@ -3409,6 +3410,7 @@ const EN: Tr = Tr {
     sec_line_area_options:  "📈 Line / Area Options",
     sec_pie_options:        "🥧 Pie / Donut Options",
     sec_scatter_options:    "⚪ Scatter / Bubble Options",
+    sec_radar_options:      "📡 Radar Chart Options",
 
     lbl_shadow_enabled:   "Enabled:",
     lbl_shadow_opacity:   "Opacity:",
@@ -5053,6 +5055,7 @@ const ES: Tr = Tr {
     sec_line_area_options:  "📈 Opciones de líneas / áreas",
     sec_pie_options:        "🥧 Opciones de tarta / anillo",
     sec_scatter_options:    "⚪ Opciones de dispersión / burbujas",
+    sec_radar_options:      "📡 Opciones del gráfico de radar",
 
     lbl_shadow_enabled:   "Activado:",
     lbl_shadow_opacity:   "Opacidad:",
@@ -6697,6 +6700,7 @@ const PT: Tr = Tr {
     sec_line_area_options:  "📈 Opções de linhas / áreas",
     sec_pie_options:        "🥧 Opções de pizza / rosca",
     sec_scatter_options:    "⚪ Opções de dispersão / bolhas",
+    sec_radar_options:      "📡 Opções do gráfico de radar",
 
     lbl_shadow_enabled:   "Ativado:",
     lbl_shadow_opacity:   "Opacidade:",
@@ -8340,6 +8344,7 @@ const JA: Tr = Tr {
     sec_line_area_options:  "📈 折れ線 / 面グラフのオプション",
     sec_pie_options:        "🥧 円 / ドーナツグラフのオプション",
     sec_scatter_options:    "⚪ 散布 / バブルのオプション",
+    sec_radar_options:      "📡 レーダーチャートのオプション",
 
     lbl_shadow_enabled:   "有効:",
     lbl_shadow_opacity:   "不透明度:",
@@ -9990,6 +9995,7 @@ const ZH: Tr = Tr {
     sec_line_area_options:  "📈 折线 / 面积图选项",
     sec_pie_options:        "🥧 饼图 / 环形图选项",
     sec_scatter_options:    "⚪ 散点 / 气泡图选项",
+    sec_radar_options:      "📡 雷达图选项",
 
     lbl_shadow_enabled: "启用：",
     lbl_shadow_opacity: "不透明度：",
@@ -11635,6 +11641,7 @@ const FR: Tr = Tr {
     sec_line_area_options:  "📈 Options courbes / aires",
     sec_pie_options:        "🥧 Options camembert / anneau",
     sec_scatter_options:    "⚪ Options nuage / bulles",
+    sec_radar_options:      "📡 Options du graphique radar",
 
     lbl_shadow_enabled:   "Activée :",
     lbl_shadow_opacity:   "Opacité :",

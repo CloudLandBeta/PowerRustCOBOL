@@ -2956,6 +2956,7 @@ fn passive_to_the_mouse(ctrl: &Control) -> bool {
         | CT::AreaChart
         | CT::ScatterChart
         | CT::DonutChart
+        | CT::RadarChart
         | CT::ProgressBar
         | CT::Gauge
         | CT::StatusBar => true,
@@ -13238,7 +13239,8 @@ fn render_interactive(
         | CT::PieChart
         | CT::AreaChart
         | CT::ScatterChart
-        | CT::DonutChart => {
+        | CT::DonutChart
+        | CT::RadarChart => {
             // Charts render through the SAME path as the designer (draw_control â
             // chart painter) so the running chart matches the canvas (spec 017).
             // `AnimateValues` (operator, 2026-09-02) puts a tween in front of
@@ -24512,6 +24514,7 @@ mod tests {
             ControlType::ScatterChart,
             ControlType::PieChart,
             ControlType::DonutChart,
+            ControlType::RadarChart,
         ];
         eprintln!("\n  chart type     glyph ink   visible   shown   inside the control");
         eprintln!("  ------------   --------   -------   -----   ------------------");
@@ -24560,6 +24563,231 @@ mod tests {
         }
         eprintln!();
         assert!(failures.is_empty(), "{}", failures.join("; "));
+    }
+
+    // ── RadarChart ──────────────────────────────────────────────────────────
+
+    const RADAR_DATA: &str = "Speed\t80\t55\t35\nPower\t60\t85\t40\nRange\t70\t45\t90\nComfort\t90\t60\t45\nSafety\t55\t80\t65\nValue\t75\t50\t85";
+
+    /// A 280 x 260 radar fed `RADAR_DATA`, plus whatever `props` set.
+    fn radar(props: &[(&str, &str)]) -> Control {
+        let mut base: Vec<(&str, &str)> = vec![
+            ("__ChartData", RADAR_DATA),
+            ("AnimateOnLoad", "false"),
+            ("Title", "Skills"),
+            ("SeriesLabels", "Team A,Team B,Team C"),
+        ];
+        base.extend_from_slice(props);
+        ctrlp("Radar", ControlType::RadarChart, 20, 20, 280, 260, &base)
+    }
+
+    /// The fan meshes of the radar's polygons: a vertex at the centre and one
+    /// per axis. (Nothing else a chart paints is a mesh of 7 vertices.)
+    fn radar_fans(p: &Painted, axes: usize) -> Vec<(Rect, Vec<Color32>)> {
+        p.mesh_colors.iter().filter(|(_, c)| c.len() == axes + 1).cloned().collect()
+    }
+
+    /// One translucent polygon per series, in the series' own colour at
+    /// `FillOpacity`; `FillOpacity` 0 leaves the outline alone.
+    #[test]
+    fn a_radar_chart_draws_one_translucent_polygon_per_series() {
+        let frames = || vec![(0.0, vec![]), (0.05, vec![])];
+        let fans = radar_fans(&drive_painted(&[radar(&[])], frames()), 6);
+        assert_eq!(fans.len(), 3, "three series, three polygons");
+        let fills: Vec<Color32> = fans.iter().map(|(_, c)| c[1]).collect();
+        assert!(fills.iter().all(|c| c.a() == 89), "35 % of 255 is 89: {fills:?}");
+        assert!(fills[0] != fills[1] && fills[1] != fills[2] && fills[0] != fills[2], "each series has a colour of its own: {fills:?}");
+
+        // SeriesColors paint them; FillOpacity sets how solid.
+        let colours = "#D01010,#10D010,#1010D0";
+        let fans = radar_fans(&drive_painted(&[radar(&[("SeriesColors", colours), ("FillOpacity", "60")])], frames()), 6);
+        let want = [Color32::from_rgba_unmultiplied(0xD0, 0x10, 0x10, 153), Color32::from_rgba_unmultiplied(0x10, 0xD0, 0x10, 153), Color32::from_rgba_unmultiplied(0x10, 0x10, 0xD0, 153)];
+        assert_eq!(fans.iter().map(|(_, c)| c[1]).collect::<Vec<_>>(), want.to_vec());
+        // The same colour at the centre and the rim: a flat fill.
+        assert!(fans.iter().all(|(_, c)| c[0] == c[1]));
+
+        // FillOpacity 0: no fill at all.
+        let bare = radar_fans(&drive_painted(&[radar(&[("FillOpacity", "0")])], frames()), 6);
+        assert!(bare.is_empty(), "an outline only: {bare:?}");
+        println!("\n  RadarChart -- 3 series -> 3 fans at 35 % (alpha 89); SeriesColors + FillOpacity 60 -> alpha 153 in the given colours; FillOpacity 0 -> no fill\n");
+    }
+
+    /// Monochrome draws the series in tones of one colour, and its gradient
+    /// shades each fill from the centre out.
+    #[test]
+    fn a_radar_chart_follows_monochrome() {
+        let frames = || vec![(0.0, vec![]), (0.05, vec![])];
+        let flat = radar_fans(&drive_painted(&[radar(&[("Monochrome", "true"), ("MonochromeColor", "#3F6FB5")])], frames()), 6);
+        let tones: std::collections::HashSet<[u8; 3]> = flat.iter().map(|(_, c)| [c[1].r(), c[1].g(), c[1].b()]).collect();
+        assert_eq!((flat.len(), tones.len()), (3, 3), "three distinct tones of one colour");
+        assert!(flat.iter().all(|(_, c)| c[0] == c[1]));
+        let shaded = radar_fans(&drive_painted(&[radar(&[("Monochrome", "true"), ("MonochromeGradient", "true")])], frames()), 6);
+        assert!(shaded.iter().all(|(_, c)| c[0] != c[1] && c[0].r() as u32 + c[0].g() as u32 + c[0].b() as u32 > c[1].r() as u32 + c[1].g() as u32 + c[1].b() as u32), "lighter at the centre, darker at the rim");
+    }
+
+    /// Every axis is named around the rim and the series in the legend, all
+    /// whole, all inside the control, and none over the title or each other.
+    #[test]
+    fn a_radar_chart_names_its_axes_inside_the_control() {
+        for (w, h) in [(280, 260), (200, 180), (420, 300)] {
+            let mut c = radar(&[]);
+            c.rect = crate::model::Rect::new(20, 20, w, h);
+            let (runs, placed) = painted_captions(std::slice::from_ref(&c));
+            let frame = *placed.get("Radar").expect("placed");
+            let names = ["Skills", "Speed", "Power", "Range", "Comfort", "Safety", "Value", "Team A", "Team B", "Team C"];
+            let mut found: Vec<&PaintedText> = Vec::new();
+            for n in names {
+                // On a small control a caption may be shortened ("Comfo\u{2026}") to leave the circle room.
+                let run = runs
+                    .iter()
+                    .find(|r| r.text == n || (r.text.ends_with('\u{2026}') && n.starts_with(r.text.trim_end_matches('\u{2026}'))))
+                    .unwrap_or_else(|| panic!("{w}x{h}: `{n}` was never painted: {:?}", runs.iter().map(|r| &r.text).collect::<Vec<_>>()));
+                assert!(frame.contains_rect(run.rect()), "{w}x{h}: `{n}` leaves the control: {:?} vs {frame:?}", run.rect());
+                assert!(run.shown() > 0.95, "{w}x{h}: `{n}` is cut off ({:.0} %)", run.shown() * 100.0);
+                found.push(run);
+            }
+            for i in 0..found.len() {
+                for j in i + 1..found.len() {
+                    assert!(!found[i].rect().intersects(found[j].rect()), "{w}x{h}: `{}` overlaps `{}`", found[i].text, found[j].text);
+                }
+            }
+        }
+        // A caption too long for the room is shortened, still whole and inside.
+        let mut long = radar(&[]);
+        long.set_prop("__ChartData", crate::PropValue::String(RADAR_DATA.replace("Comfort", "Passenger comfort over long distances")));
+        let (runs, placed) = painted_captions(std::slice::from_ref(&long));
+        let frame = *placed.get("Radar").unwrap();
+        let cut = runs.iter().find(|r| r.text.starts_with("Pas")).expect("the long caption is painted");
+        assert!(cut.text.ends_with('\u{2026}') && frame.contains_rect(cut.rect()), "shortened with an ellipsis, inside: {:?}", cut.text);
+    }
+
+    /// The grid is the face's own ink at a whisper: soft bands between the
+    /// rings, pale on a dark face and dark on a pale one, gone with
+    /// `ShowGridLines`.
+    #[test]
+    fn a_radar_grid_is_the_faces_ink_at_a_whisper() {
+        let frames = || vec![(0.0, vec![]), (0.05, vec![])];
+        // A band is a mesh of two corners per axis; the polygons' fans have one more than the axes.
+        let bands = |c: Control| -> Vec<[u8; 4]> {
+            drive_painted(&[c], frames())
+                .mesh_colors
+                .iter()
+                .filter(|(_, v)| v.len() == 12)
+                .map(|(_, v)| v[0].to_srgba_unmultiplied())
+                .collect()
+        };
+        let dark = bands(radar(&[]));
+        assert_eq!(dark.len(), 3, "five rings: the bands out to rings 1, 3 and 5");
+        assert!(dark.iter().all(|c| c[3] > 0 && c[3] <= 15), "at most 6 %: {dark:?}");
+        assert!(dark.iter().all(|c| c[0] > 150), "pale ink on the dark face: {dark:?}");
+        let pale = bands(radar(&[("BackgroundColor", "#F4F6FAFF")]));
+        assert_eq!(pale.len(), 3);
+        assert!(pale.iter().all(|c| c[0] < 100), "dark ink on a pale face: {pale:?}");
+        assert!(bands(radar(&[("ShowGridLines", "false")])).is_empty(), "no grid, no bands");
+        assert_eq!(bands(radar(&[("GridLevels", "4")])).len(), 2, "four rings: the bands out to rings 1 and 3");
+    }
+
+    /// `ShowAxisValues` writes the ring values up the first axis; `GridLevels`
+    /// sets how many; `MaxValue` fixes the top of the scale.
+    #[test]
+    fn a_radar_chart_writes_its_ring_values_on_request() {
+        let texts = |c: &Control| -> Vec<String> { painted_text_interactive(std::slice::from_ref(c)).into_iter().map(|(t, _)| t).collect() };
+        let numbers = |t: &[String]| -> Vec<String> { t.iter().filter(|s| s.parse::<f32>().is_ok()).cloned().collect() };
+        assert!(numbers(&texts(&radar(&[]))).is_empty(), "off by default: no number is written");
+        // Largest value 90, five rings: 0..100 in steps of 20.
+        assert_eq!(numbers(&texts(&radar(&[("ShowAxisValues", "true")]))), ["20", "40", "60", "80", "100"]);
+        // Four rings: 90 / 4 rounds up to 25 a ring.
+        assert_eq!(numbers(&texts(&radar(&[("ShowAxisValues", "true"), ("GridLevels", "4")]))), ["25", "50", "75", "100"]);
+        // A fixed top, decimals allowed.
+        assert_eq!(numbers(&texts(&radar(&[("ShowAxisValues", "true"), ("MaxValue", "200")]))), ["40", "80", "120", "160", "200"]);
+        assert_eq!(numbers(&texts(&radar(&[("ShowAxisValues", "true"), ("MaxValue", "1.5"), ("GridLevels", "3")]))), ["0.5", "1.0", "1.5"]);
+        // A floor below zero: -50..50.
+        assert_eq!(numbers(&texts(&radar(&[("ShowAxisValues", "true"), ("MinValue", "-50"), ("MaxValue", "50"), ("GridLevels", "2")]))), ["0", "50"]);
+    }
+
+    /// Hovering a vertex names its axis, its series and its value; hovering
+    /// nothing says nothing; the sample is not data.
+    #[test]
+    fn a_radar_chart_tooltip_finds_the_nearest_vertex() {
+        let c = radar(&[]);
+        let frame = Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(280.0, 260.0));
+        let plot = crate::paint::chart_frame(&c, frame).plot;
+        let setup = crate::paint::radar_setup(&c, plot);
+        let vertices = crate::chart::radar_vertices(&setup.layout, &setup.scale, &setup.rows, 1.0);
+        // Series 2 ("Team B"), axis 2 ("Power") is the highest vertex there: 85.
+        let (x, y) = vertices[1][1];
+        let hit = crate::paint::chart_hit_at(&c, frame, pos2(x + 2.0, y - 1.0)).expect("a vertex is under the pointer");
+        assert_eq!((hit.label.as_str(), hit.series.as_str(), hit.value), ("Power", "Team B", 85.0));
+        assert_eq!(crate::paint::chart_tip_text(&hit, &c), "Power \u{b7} Team B: 85");
+        // Nowhere near a vertex: nothing to report.
+        assert!(crate::paint::chart_hit_at(&c, frame, setup_centre(&setup)).is_none(), "the middle of the radar is no vertex");
+        // One unnamed series reads "label: value".
+        let mut one = radar(&[]);
+        one.set_prop("__ChartData", crate::PropValue::String("Speed\t80\nPower\t60\nRange\t70".into()));
+        one.set_prop("SeriesLabels", crate::PropValue::String(String::new()));
+        let setup = crate::paint::radar_setup(&one, crate::paint::chart_frame(&one, frame).plot);
+        let (x, y) = crate::chart::radar_vertices(&setup.layout, &setup.scale, &setup.rows, 1.0)[0][2];
+        let hit = crate::paint::chart_hit_at(&one, frame, pos2(x, y)).unwrap();
+        assert_eq!(crate::paint::chart_tip_text(&hit, &one), "Range: 70");
+        // Before any data there is only the sample, and the sample is not data.
+        let mut sample = radar(&[]);
+        sample.set_prop("__ChartData", crate::PropValue::String(String::new()));
+        assert!(crate::paint::chart_hit_at(&sample, frame, pos2(x, y)).is_none());
+    }
+
+    fn setup_centre(setup: &crate::paint::RadarSetup) -> egui::Pos2 {
+        pos2(setup.layout.centre.0, setup.layout.centre.1)
+    }
+
+    /// AnimateOnLoad: the polygons open out from the centre.
+    #[test]
+    fn a_radar_chart_grows_from_its_centre_on_load() {
+        let c = radar(&[("AnimateOnLoad", "true"), ("AnimationDuration", "250")]);
+        let extent = |n: usize| -> f32 {
+            let lists: Vec<&[Control]> = (0..n).map(|_| std::slice::from_ref(&c)).collect();
+            let p = drive_painted_series(&lists);
+            radar_fans(&p, 6).iter().map(|(r, _)| r.height().max(r.width())).fold(0.0, f32::max)
+        };
+        let (early, settled) = (extent(3), extent(10));
+        assert!(settled > 40.0, "the settled polygons have a size: {settled}");
+        assert!(early < settled * 0.9, "part way the polygons are smaller: {early} vs {settled}");
+    }
+
+    /// A see-through radar keeps its marks solid: only the face fades. The
+    /// type stays pale on the dark glass.
+    #[test]
+    fn a_translucent_radar_stays_readable() {
+        let frames = || vec![(0.0, vec![]), (0.05, vec![])];
+        let clear = radar(&[("Transparency", "40")]);
+        let fans = radar_fans(&drive_painted(std::slice::from_ref(&clear), frames()), 6);
+        assert!(fans.iter().all(|(_, c)| c[1].a() == 89), "the polygons keep their opacity at Transparency 40");
+        let ink = painted_text_interactive(std::slice::from_ref(&clear));
+        for name in ["Speed", "Comfort", "Team A"] {
+            let (_, colour) = ink.iter().find(|(t, _)| t == name).unwrap_or_else(|| panic!("`{name}` not painted"));
+            assert_eq!(colour.a(), 255, "`{name}` stays solid");
+            assert!(colour.r() as u32 + colour.g() as u32 + colour.b() as u32 > 450, "`{name}` is pale on the dark face: {colour:?}");
+        }
+    }
+
+    /// Nothing, one axis, two axes, junk values: it paints, and does not panic.
+    #[test]
+    fn a_radar_chart_survives_degenerate_data() {
+        let sample = drive_painted(&[radar(&[("__ChartData", "")])], vec![(0.0, vec![]), (0.05, vec![])]);
+        assert_eq!(radar_fans(&sample, 6).len(), 3, "no data: the six-axis, three-series sample");
+        let texts = |p: &Painted| -> Vec<String> { p.texts.iter().map(|t| t.text.clone()).collect() };
+        assert!(texts(&sample).iter().any(|t| t == "Speed"), "the sample's axes are named");
+        for (data, axes, polygons, what) in [
+            ("Only\t50", 1, 0, "one axis"),
+            ("Up\t100\nDown\t60", 2, 0, "two axes"),
+            ("A\t-5\tNaN\nB\tNaN\nC\t-1e30\nD\t1e30\nE\tinf", 5, 2, "negative, NaN and huge values"),
+            ("A\t0\nB\t0\nC\t0", 3, 1, "all zero"),
+        ] {
+            let p = drive_painted(&[radar(&[("__ChartData", data)])], vec![(0.0, vec![]), (0.05, vec![])]);
+            assert_eq!(radar_fans(&p, axes).len(), polygons, "{what}: one fan per series, and none below three axes");
+            let first = data.split('\t').next().unwrap();
+            assert!(texts(&p).iter().any(|t| t == first), "{what}: the first axis is named: {:?}", texts(&p));
+        }
+        println!("\n  RadarChart -- sample when empty; 1 axis, 2 axes, NaN/negative/huge and all-zero data paint without a panic\n");
     }
 
     /// A chart honours its own visual properties. All were seeded, shown in the

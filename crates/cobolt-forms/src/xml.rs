@@ -975,7 +975,8 @@ fn seed_missing_props(form: &mut Form) {
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => {
+            | ControlType::DonutChart
+            | ControlType::RadarChart => {
                 let defaults: &[(&str, PropValue)] = &[
                     ("BorderStyle", PropValue::String("Single".into())),
                     ("BorderWidth", PropValue::Int(1)),
@@ -991,6 +992,14 @@ fn seed_missing_props(form: &mut Form) {
                     if c.get_prop(key).is_none() {
                         c.set_prop(*key, value.clone());
                     }
+                }
+                // A radar written by hand with a type and a few properties
+                // shows its legend like one dropped from the toolbox: the
+                // painter reads an absent `ShowLegend` as off, which is the
+                // answer for charts that predate it, not for a control that
+                // is seeded on.
+                if c.control_type == ControlType::RadarChart && c.get_prop("ShowLegend").is_none() {
+                    c.set_prop("ShowLegend", PropValue::Bool(true));
                 }
             }
             ControlType::MenuBar => {
@@ -3470,6 +3479,66 @@ Actor Caption:string</Property>
         assert!(c.get_prop("Monochrome").unwrap().as_bool());
         assert_eq!(c.get_prop("MonochromeColor").unwrap().as_str(), "#2E8B8B");
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A `RadarChart` is a first-class control in a `.cfrm`: its own properties
+    /// and the multi-series binding keys survive a save and a load, a decimal
+    /// scale bound stays a decimal, and a control written by hand with only a
+    /// type and a few properties loads as a radar.
+    #[test]
+    fn roundtrip_radar_chart() {
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut radar = Control::new("Radar-1", ControlType::RadarChart, 10, 10);
+        radar.set_prop("Title", PropValue::String("Skills".into()));
+        radar.set_prop("ValueFields", PropValue::String("SCORE-A,SCORE-B,SCORE-C".into()));
+        radar.set_prop("SeriesLabels", PropValue::String("Team A,Team B,Team C".into()));
+        radar.set_prop("SeriesColors", PropValue::String("#D01010,#10D010,#1010D0".into()));
+        radar.set_prop("LabelField", PropValue::String("SKILL-NAME".into()));
+        radar.set_prop("DataSource", PropValue::String("WS-SKILLS".into()));
+        radar.set_prop("GridLevels", PropValue::Int(4));
+        radar.set_prop("FillOpacity", PropValue::Int(50));
+        radar.set_prop("ShowPoints", PropValue::Bool(false));
+        radar.set_prop("ShowAxisValues", PropValue::Bool(true));
+        radar.set_prop("MinValue", PropValue::Int(-10));
+        radar.set_prop("MaxValue", PropValue::String("1.5".into()));
+        radar.set_prop("Transparency", PropValue::Int(40));
+        form.controls = vec![radar];
+        let xml = form_to_string(&form).expect("save");
+        assert!(xml.contains(r#"type="RadarChart""#), "{xml}");
+
+        let loaded = load_form_from_str(&xml).expect("load");
+        let c = loaded.controls.iter().find(|c| c.id == "Radar-1").unwrap();
+        assert_eq!(c.control_type, ControlType::RadarChart);
+        let s = |k: &str| c.get_prop(k).unwrap_or_else(|| panic!("{k} lost")).as_str().to_owned();
+        let i = |k: &str| c.get_prop(k).unwrap_or_else(|| panic!("{k} lost")).as_i64();
+        assert_eq!(s("ValueFields"), "SCORE-A,SCORE-B,SCORE-C");
+        assert_eq!(s("SeriesLabels"), "Team A,Team B,Team C");
+        assert_eq!(s("SeriesColors"), "#D01010,#10D010,#1010D0");
+        assert_eq!(s("LabelField"), "SKILL-NAME");
+        assert_eq!(s("DataSource"), "WS-SKILLS");
+        assert_eq!(s("Title"), "Skills");
+        assert_eq!((i("GridLevels"), i("FillOpacity"), i("MinValue"), i("Transparency")), (4, 50, -10, 40));
+        assert!(!c.get_prop("ShowPoints").unwrap().as_bool());
+        assert!(c.get_prop("ShowAxisValues").unwrap().as_bool());
+        assert_eq!(crate::chart::radar_bounds(c), (-10.0, 1.5), "a decimal MaxValue survives as written");
+
+        // By hand: a type and one property is a radar, with the painter's own
+        // defaults for the rest.
+        let hand = load_form_from_str(
+            r#"<?xml version="1.0"?>
+<Form name="F" title="F" width="400" height="300">
+  <Control id="R" type="RadarChart" x="0" y="0" w="280" h="260">
+    <Property name="Title">By hand</Property>
+  </Control>
+</Form>"#,
+        )
+        .expect("load");
+        let r = &hand.controls[0];
+        assert_eq!(r.control_type, ControlType::RadarChart);
+        assert_eq!(crate::chart::radar_levels(r), 5);
+        assert_eq!(crate::chart::radar_fill_opacity(r), 0.35);
+        assert!(r.get_prop("ShowLegend").unwrap().as_bool(), "the legend is on, as for a radar from the toolbox");
+        assert!(r.get_prop("BorderStyle").is_some(), "the border rows are offered");
     }
 
     #[test]

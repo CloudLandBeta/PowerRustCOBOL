@@ -1646,6 +1646,7 @@ pub(crate) fn paints_no_card(ctrl: &Control) -> bool {
             | CT::AreaChart
             | CT::ScatterChart
             | CT::DonutChart
+            | CT::RadarChart
     );
     let radio_frameless =
         matches!(ctrl.control_type, CT::RadioButton) && border_style == "None";
@@ -6667,6 +6668,7 @@ fn draw_control_body(
             | CT::AreaChart
             | CT::ScatterChart
             | CT::DonutChart
+            | CT::RadarChart
     ) {
         draw_chart_preview(
             painter,
@@ -13169,6 +13171,57 @@ fn band_mesh(top: &[Pos2], bottom: &[Pos2], color: Color32) -> egui::epaint::Mes
     mesh
 }
 
+/// The corners of the radar's ring at `frac` of the way to the rim.
+fn at_point_ring(
+    centre: (f32, f32),
+    rim: f32,
+    axes: usize,
+    frac: f32,
+    at: &dyn Fn((f32, f32)) -> Pos2,
+) -> Vec<Pos2> {
+    (0..axes).map(|i| at(crate::chart::radar_point(centre, rim, i, axes, frac))).collect()
+}
+
+/// The band between two radar rings (`inner` may be the centre repeated), one
+/// flat colour.
+fn radar_band_mesh(inner: &[Pos2], outer: &[Pos2], color: Color32) -> egui::epaint::Mesh {
+    let mut mesh = egui::epaint::Mesh::default();
+    let n = inner.len().min(outer.len());
+    for i in 0..n {
+        mesh.colored_vertex(inner[i], color);
+        mesh.colored_vertex(outer[i], color);
+    }
+    let n = n as u32;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        mesh.add_triangle(2 * i, 2 * i + 1, 2 * j);
+        mesh.add_triangle(2 * i + 1, 2 * j + 1, 2 * j);
+    }
+    mesh
+}
+
+/// A radar polygon's fill: triangles from `centre` to each edge of `ring`,
+/// `centre_c` at the centre fading to `rim_c` at the vertices. A radar polygon
+/// is star-shaped about its centre, so the fan covers it exactly — also when an
+/// axis with a low value makes it concave.
+fn radar_fill_mesh(
+    centre: Pos2,
+    ring: &[Pos2],
+    centre_c: Color32,
+    rim_c: Color32,
+) -> egui::epaint::Mesh {
+    let mut mesh = egui::epaint::Mesh::default();
+    mesh.colored_vertex(centre, centre_c);
+    for &p in ring {
+        mesh.colored_vertex(p, rim_c);
+    }
+    let n = ring.len() as u32;
+    for i in 0..n {
+        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
+    }
+    mesh
+}
+
 fn grad_area_mesh(
     top: &[Pos2],
     baseline: f32,
@@ -13571,6 +13624,15 @@ pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
     let mut margin_b = rect.height() * 0.12 + cap_h + legend_h;
     let mut margin_t = (rect.height() * 0.12).max(title_band);
     let mut margin_r = rect.width() * 0.04 + legend_w;
+    if ctrl.control_type == CT::RadarChart {
+        // A radar centres its circle in the plot and hangs the axis captions
+        // off the rim INSIDE it (`chart::radar_layout`), so the margins hold
+        // only the title and the legend.
+        margin_l = rect.width() * 0.02;
+        margin_r = rect.width() * 0.02;
+        margin_t = if title_text.is_empty() { rect.height() * 0.02 } else { title_band + 2.0 };
+        margin_b = rect.height() * 0.02 + legend_h;
+    }
     // The bands are absolute sizes and the chart is not: on a small enough
     // control they add up to more than there is, and the plot comes out
     // INSIDE-OUT. Doubling the type halved the size at which that happens, so
@@ -13628,10 +13690,12 @@ pub(crate) struct ChartGeometry {
 }
 
 /// How many series a chart without data shows: one per `ValueFields` entry
-/// when it names any (a bound chart's fields), else two.
+/// when it names any (a bound chart's fields), else two — three on a radar,
+/// where a single polygon says little.
 fn sample_series_count(ctrl: &Control) -> usize {
     let fields = ctrl.get_prop("ValueFields").map(|v| v.as_str().to_owned()).unwrap_or_default();
     match fields.split(',').filter(|f| !f.trim().is_empty()).count() {
+        0 if ctrl.control_type == crate::model::ControlType::RadarChart => 3,
         0 => 2,
         k => k,
     }
@@ -13673,7 +13737,10 @@ pub(crate) fn chart_geometry(ctrl: &Control) -> ChartGeometry {
         .map(|s| crate::chart::parse_chart_rows(&s))
         .unwrap_or_default();
     let live: Vec<(String, f32)> = live_rows.iter().map(|(l, v)| (l.clone(), v[0])).collect();
-    let category_chart = matches!(ctrl.control_type, CT::BarChart | CT::LineChart | CT::AreaChart);
+    // A radar is a category chart for what this reads — one value per series on
+    // every label — but is laid out by `radar_setup`, not by the band below.
+    let category_chart =
+        matches!(ctrl.control_type, CT::BarChart | CT::LineChart | CT::AreaChart | CT::RadarChart);
     let series_count = if category_chart {
         live_rows.iter().map(|(_, v)| v.len()).max().unwrap_or(0)
     } else {
@@ -13833,6 +13900,53 @@ pub(crate) fn chart_bar_rect(
     }
 }
 
+/// The type scale a chart's own `FontSize` gives its text — the factor
+/// `chart_frame` and `draw_chart_preview` both apply to every size they use.
+fn chart_type_scale(ctrl: &Control) -> f32 {
+    let chart_font_size =
+        crate::layout::fonts::resolve_font_size(ctrl, CHART_FONT_BASE, 4.0, 200.0);
+    CHART_FONT_SCALE * (chart_font_size / CHART_FONT_BASE)
+}
+
+/// A radar's data, scale and layout on its plot — shared by the painter and
+/// the hover hit-test, so a tooltip finds the vertex that was drawn.
+pub(crate) struct RadarSetup {
+    /// One row per axis (spoke), one value per series.
+    pub rows: Vec<crate::chart::Row>,
+    pub scale: crate::chart::RadarScale,
+    pub layout: crate::chart::RadarLayout,
+    pub levels: usize,
+}
+
+/// Rows, scale and layout for the radar `ctrl` draws in `plot`. Without data
+/// they are the sample's, on an automatic scale — `MinValue` and `MaxValue`
+/// describe the developer's data, not the sample.
+pub(crate) fn radar_setup(ctrl: &Control, plot: egui::Rect) -> RadarSetup {
+    let live: Vec<crate::chart::Row> = ctrl
+        .get_prop("__ChartData")
+        .map(|v| v.as_str().to_owned())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| crate::chart::parse_chart_rows(&s))
+        .unwrap_or_default();
+    let levels = crate::chart::radar_levels(ctrl);
+    let (rows, scale) = if live.is_empty() {
+        let rows = crate::chart::radar_sample_rows(sample_series_count(ctrl));
+        let scale = crate::chart::radar_scale(&rows, 0.0, 0.0, levels);
+        (rows, scale)
+    } else {
+        let (min, max) = crate::chart::radar_bounds(ctrl);
+        let scale = crate::chart::radar_scale(&live, min, max, levels);
+        (live, scale)
+    };
+    let labels: Vec<String> = rows.iter().map(|(l, _)| l.clone()).collect();
+    let layout = crate::chart::radar_layout(
+        [plot.min.x, plot.min.y, plot.max.x, plot.max.y],
+        &labels,
+        9.0 * chart_type_scale(ctrl) * crate::chart::RADAR_LABEL_SCALE,
+    );
+    RadarSetup { rows, scale, layout, levels }
+}
+
 /// What the pointer is over on a chart: its label, the series it belongs to
 /// (named as the legend names it), and its value.
 #[derive(Debug, Clone, PartialEq)]
@@ -13898,6 +14012,14 @@ pub fn chart_hit_at(ctrl: &Control, rect: egui::Rect, pos: Pos2) -> Option<Chart
             let best = marks.into_iter().map(|(si, i, p)| (si, i, p.distance(pos))).min_by(|a, b| a.2.total_cmp(&b.2))?;
             let reach = ctrl.get_prop("BubbleScale").filter(|_| ctrl.control_type == CT::ScatterChart).map(|v| v.as_i64() as f32).unwrap_or(0.0).max(10.0);
             (best.2 <= reach).then(|| hit(best.0, best.1)).flatten()
+        }
+        CT::RadarChart => {
+            // The nearest vertex of any polygon, within a marker's reach.
+            let radar = radar_setup(ctrl, plot);
+            let marker = crate::chart::radar_marker_radius(ctrl);
+            let vertices = crate::chart::radar_vertices(&radar.layout, &radar.scale, &radar.rows, geo.grow);
+            let (si, axis) = crate::chart::radar_nearest(&vertices, (pos.x, pos.y), marker + 8.0)?;
+            hit(si, axis)
         }
         CT::PieChart | CT::DonutChart => {
             let center = plot.center();
@@ -14181,7 +14303,8 @@ pub fn draw_chart_preview(
             .unwrap_or_else(|| "#3F6FB5".into()),
     );
     let pal: Vec<Color32> = if mono {
-        let k = if matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
+        // A radar draws three series by default; two tones would repeat.
+        let k = if matches!(ctrl.control_type, CT::PieChart | CT::DonutChart | CT::RadarChart) {
             4
         } else {
             2
@@ -14289,7 +14412,8 @@ pub fn draw_chart_preview(
         .get_prop("ShowGridLines")
         .map(|v| v.as_bool())
         .unwrap_or(true);
-    if show_grid {
+    // A radar's grid is rings and spokes, drawn with its data below.
+    if show_grid && ctrl.control_type != CT::RadarChart {
         // Monochrome: grid lines use a soft pastel of the base colour (spec 013 R5).
         // Neumorphic: faint gray-blue on the light face (strong blue reads harsh).
         let grid_c = if mono {
@@ -14327,7 +14451,7 @@ pub fn draw_chart_preview(
     // falls, which is the plot's floor unless a value is negative.
     let geo = chart_geometry(ctrl);
     let axis_zero = if ctrl.control_type == CT::ScatterChart { geo.scatter_zero } else { geo.zero };
-    if !matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
+    if !matches!(ctrl.control_type, CT::PieChart | CT::DonutChart | CT::RadarChart) {
         // X/Y axis-line visibility is independently toggleable (default on).
         let show_x = ctrl
             .get_prop("ShowXAxis")
@@ -14572,6 +14696,173 @@ pub fn draw_chart_preview(
                         painter.circle_stroke(p, r, Stroke::new(1.5, c));
                     }
                 }
+            }
+        }
+        CT::RadarChart => {
+            // One spoke per label, one polygon per series, every axis on one
+            // scale. The geometry — scale, layout, vertices — is `chart::radar_*`,
+            // which the hover hit-test reads too, so a tooltip finds the vertex
+            // that was drawn.
+            let radar = radar_setup(ctrl, plot);
+            let centre = radar.layout.centre;
+            let rim = radar.layout.radius;
+            let axes = radar.rows.len();
+            let at = |p: (f32, f32)| Pos2::new(p.0, p.1);
+            let centre_pos = at(centre);
+            // The type, the grid and the halo all take their colour from what
+            // the face really is — pale on dark glass, dark on a pale one. A
+            // see-through face is judged against the form behind it, the best
+            // guess there is for what shows through.
+            let ground = {
+                let solid = Color32::from_rgb(face.r(), face.g(), face.b());
+                let behind = form_backdrop_of(painter.ctx());
+                if face_a < 255 && behind.a() > 0 {
+                    lerp_color(Color32::from_rgb(behind.r(), behind.g(), behind.b()), solid, face_a as f32 / 255.0)
+                } else {
+                    solid
+                }
+            };
+            let ink_base = caret_color(ground, Color32::from_rgb(214, 224, 247));
+            let ink_at = |k: f32| {
+                Color32::from_rgba_unmultiplied(ink_base.r(), ink_base.g(), ink_base.b(), (a as f32 * k) as u8)
+            };
+            let ink = ink_at(1.0);
+            // The grid is the ink at a whisper (Monochrome tints it with the base
+            // colour instead), so it frames the data rather than competing with it.
+            let grid_base = if mono { pastel_of(mono_base) } else { ink_base };
+            let grid_at = |k: f32| {
+                Color32::from_rgba_unmultiplied(grid_base.r(), grid_base.g(), grid_base.b(), (a as f32 * k) as u8)
+            };
+            let ring_at = |level: usize| at_point_ring(centre, rim, axes, level as f32 / radar.levels as f32, &at);
+
+            if show_grid && axes > 0 && rim > 0.0 {
+                if axes >= 3 {
+                    // Soft concentric bands, every other one a hair lighter.
+                    for level in (1..=radar.levels).step_by(2) {
+                        let inner = ring_at(level - 1);
+                        let outer = ring_at(level);
+                        painter.add(egui::Shape::mesh(radar_band_mesh(&inner, &outer, grid_at(0.055))));
+                    }
+                    for level in 1..=radar.levels {
+                        let k = if level == radar.levels { 0.34 } else { 0.20 };
+                        painter.add(egui::Shape::closed_line(ring_at(level), Stroke::new(1.0, grid_at(k))));
+                    }
+                }
+                let spoke = Stroke::new(1.0, grid_at(0.15));
+                for i in 0..axes {
+                    painter.line_segment(
+                        [centre_pos, at(crate::chart::radar_point(centre, rim, i, axes, 1.0))],
+                        spoke,
+                    );
+                }
+            }
+
+            // The polygons. The largest goes down first, so a smaller one is
+            // never buried under a bigger one's fill. `grow` is the load
+            // animation: every vertex travels out from the centre.
+            let fill_k = crate::chart::radar_fill_opacity(ctrl);
+            let fill_a = (fill_k * a as f32).round().clamp(0.0, 255.0) as u8;
+            let marker_r = crate::chart::radar_marker_radius(ctrl);
+            // 2 px, and never thinner than 1.5: a theme's thin chart line is
+            // too faint for an outline that has to carry a series on its own.
+            let line_w = chart_stroke.clamp(2.0, 2.25);
+            let vertices = crate::chart::radar_vertices(&radar.layout, &radar.scale, &radar.rows, grow);
+            let fractions = crate::chart::radar_fractions(&radar.rows, &radar.scale);
+            let area = |poly: &[(f32, f32)]| -> f32 {
+                (0..poly.len())
+                    .map(|i| {
+                        let (p, q) = (poly[i], poly[(i + 1) % poly.len()]);
+                        (p.0 * q.1 - q.0 * p.1) * 0.5
+                    })
+                    .sum::<f32>()
+                    .abs()
+            };
+            let mut order: Vec<usize> = (0..vertices.len()).collect();
+            order.sort_by(|&x, &y| area(&vertices[y]).total_cmp(&area(&vertices[x])));
+            for &si in &order {
+                let polygon = &vertices[si];
+                let c = pal[si % pal.len()];
+                let ring: Vec<Pos2> = polygon.iter().map(|&p| at(p)).collect();
+                let line_c = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a);
+                if ring.len() >= 3 {
+                    if fill_a > 0 {
+                        // A fan from the centre: a radar polygon is star-shaped
+                        // about it, so the fan fills the notch an axis with a
+                        // low value cuts in the outline, where a convex fill
+                        // would paint over it. Monochrome gradient: lighter
+                        // at the centre, darker at the rim.
+                        let (inner, outer) = if gradient { (shade(c, 0.20), shade(c, -0.20)) } else { (c, c) };
+                        painter.add(egui::Shape::mesh(radar_fill_mesh(
+                            centre_pos,
+                            &ring,
+                            Color32::from_rgba_unmultiplied(inner.r(), inner.g(), inner.b(), fill_a),
+                            Color32::from_rgba_unmultiplied(outer.r(), outer.g(), outer.b(), fill_a),
+                        )));
+                    }
+                    painter.add(egui::Shape::closed_line(ring.clone(), Stroke::new(line_w, line_c)));
+                } else if ring.len() == 2 {
+                    painter.line_segment([ring[0], ring[1]], Stroke::new(line_w, line_c));
+                }
+                // Round joins: egui strokes a corner square, so each vertex gets
+                // a disc as wide as the line.
+                for &p in &ring {
+                    painter.circle_filled(p, line_w * 0.5, line_c);
+                }
+            }
+            // The markers go over every outline, each with a light halo so it
+            // reads on any fill. A value at `MinValue` sits on the centre and
+            // gets none — a dot there per series is just clutter — except a
+            // lone axis, which is nothing but its point.
+            if show_points {
+                let halo = Color32::from_rgba_unmultiplied(255, 255, 255, (a as f32 * 0.85) as u8);
+                for &si in &order {
+                    let c = pal[si % pal.len()];
+                    let line_c = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a);
+                    for (ai, &p) in vertices[si].iter().enumerate() {
+                        if fractions[si][ai] > 0.0 || axes == 1 {
+                            painter.circle_filled(at(p), marker_r + 1.5, halo);
+                            painter.circle_filled(at(p), marker_r, line_c);
+                        }
+                    }
+                }
+            }
+
+            // What each ring stands for, up the first spoke.
+            let label_px = 9.0 * type_scale * crate::chart::RADAR_LABEL_SCALE;
+            let show_values = ctrl.get_prop("ShowAxisValues").map(|v| v.as_bool()).unwrap_or(false);
+            if show_values && axes > 0 && rim > 0.0 {
+                let font = egui::FontId::proportional(label_px * 0.9);
+                let step = (radar.scale.max - radar.scale.min) / radar.levels as f32;
+                for level in 1..=radar.levels {
+                    let value = radar.scale.ring_value(level, radar.levels);
+                    let y = centre.1 - rim * level as f32 / radar.levels as f32;
+                    chrome.text(
+                        Pos2::new(centre.0 + 3.0, y + 1.0),
+                        egui::Align2::LEFT_TOP,
+                        crate::chart::radar_value_text(value, step),
+                        font.clone(),
+                        ink_at(0.7),
+                    );
+                }
+            }
+
+            // The axis captions, outward off the rim. The layout sized the
+            // circle from an estimate of their width; the real measurement
+            // keeps each one inside the plot, clear of the title and legend.
+            let label_font = egui::FontId::proportional(label_px);
+            for (i, text) in radar.layout.labels.iter().enumerate().filter(|(_, t)| !t.is_empty()) {
+                let anchor = crate::chart::radar_point(centre, rim + crate::chart::RADAR_LABEL_GAP, i, axes, 1.0);
+                let (ax, ay) = crate::chart::radar_label_anchor(crate::chart::radar_dir(i, axes));
+                let galley = chrome.layout_no_wrap(text.clone(), label_font.clone(), ink);
+                let size = galley.size();
+                let place = |side: crate::chart::Anchor, at: f32, len: f32| match side {
+                    crate::chart::Anchor::Start => at,
+                    crate::chart::Anchor::Middle => at - len * 0.5,
+                    crate::chart::Anchor::End => at - len,
+                };
+                let x = place(ax, anchor.0, size.x).clamp(plot.min.x, (plot.max.x - size.x).max(plot.min.x));
+                let y = place(ay, anchor.1, size.y).clamp(plot.min.y, (plot.max.y - size.y).max(plot.min.y));
+                chrome.add(egui::Shape::Text(egui::epaint::TextShape::new(Pos2::new(x, y), galley, ink)));
             }
         }
         CT::PieChart | CT::DonutChart => {
@@ -14921,7 +15212,8 @@ pub fn themed_corner_radius(ctx: &egui::Context, ctrl: &Control) -> f32 {
         | ControlType::PieChart
         | ControlType::AreaChart
         | ControlType::ScatterChart
-        | ControlType::DonutChart => 8.0,
+        | ControlType::DonutChart
+        | ControlType::RadarChart => 8.0,
         ControlType::ProgressBar => 10.0,
         _ => 0.0,
     };
@@ -15063,7 +15355,8 @@ pub fn corner_radius(ctrl: &Control) -> f32 {
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => 8.0,
+            | ControlType::DonutChart
+            | ControlType::RadarChart => 8.0,
             ControlType::ProgressBar => 10.0,
             _ => 0.0,
         });

@@ -16,6 +16,10 @@ use cobolt_parser::{parse, Severity};
 use cobolt_runtime::{Interpreter, StateUpdate};
 
 fn run_with_chart(src: &str) -> Vec<StateUpdate> {
+    run_with_object(src, "LineChart-1", "LineChart")
+}
+
+fn run_with_object(src: &str, id: &str, class: &str) -> Vec<StateUpdate> {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
         result
@@ -31,8 +35,8 @@ fn run_with_chart(src: &str) -> Vec<StateUpdate> {
     let (display_tx, _display_rx) = mpsc::channel();
     let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
     interp.seed_objects(vec![(
-        "LineChart-1".to_owned(),
-        "LineChart".to_owned(),
+        id.to_owned(),
+        class.to_owned(),
         vec![("Title".to_owned(), "Sales".to_owned())],
     )]);
     interp.run().expect("run failed");
@@ -129,4 +133,31 @@ fn inline_addpoint_takes_a_value_per_series() {
     assert_eq!(data[0], "Jan\t150\t90");
     assert_eq!(data[1], "Jan\t150\t90\nFeb\t200\t0");
     assert_eq!(data[2], "Jan\t150\t90\t0\nFeb\t200\t0\t0\nMar\t120\t80\t40");
+}
+
+/// A radar takes the same multi-series points as the bar, line and area
+/// charts: each `AddPoint` is one AXIS (its label), and the arguments after
+/// the label are that axis's value in series 1, 2, 3. `Clear` and `Refresh`
+/// work as on every chart, and the built-in `CHART-ADD-POINT` call carries the
+/// extra series too.
+#[test]
+fn a_radar_chart_takes_a_value_per_series_and_clears() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DEMO.
+       PROCEDURE DIVISION.
+           RADAR-1::AddPoint("Speed", 80, 55, 35).
+           RADAR-1::AddPoint("Power", 60, 85).
+           CALL "COBOL-CHART-ADD-POINT" USING "Radar-1" "Range" 70 45 90.
+           RADAR-1::Refresh().
+           RADAR-1::Clear().
+           STOP RUN.
+"#;
+    let data = chart_data_updates(&run_with_object(src, "Radar-1", "RadarChart"));
+    assert_eq!(data[0], "Speed\t80\t55\t35");
+    assert_eq!(data[1], "Speed\t80\t55\t35\nPower\t60\t85\t0");
+    assert_eq!(data[2], "Speed\t80\t55\t35\nPower\t60\t85\t0\nRange\t70\t45\t90");
+    assert_eq!(data[3], data[2], "Refresh re-sends the same points");
+    assert_eq!(data[4], "", "Clear sends an empty set, so the sample comes back");
+    println!("RadarChart: 3 axes x 3 series through AddPoint and CHART-ADD-POINT, Refresh and Clear as on every chart");
 }
