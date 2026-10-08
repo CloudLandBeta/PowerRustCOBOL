@@ -9510,8 +9510,10 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
                             // Every line is measured against what it is drawn
                             // on: the highlight, or the panel itself. The panel
                             // was assumed to suit the header's ink, and on
-                            // Spatial the two differ (operator, 2026-10-04).
-                            caret_color(fill.unwrap_or(panel_tone), p.text),
+                            // Spatial the two differ (operator, 2026-10-04). A
+                            // highlight is usually translucent, so it is
+                            // measured as it LOOKS, laid over the panel.
+                            ink_on_band(fill, panel_tone, p.text),
                         );
                     }
                 });
@@ -13394,6 +13396,15 @@ fn at_point_ring(
     (0..axes).map(|i| at(crate::chart::radar_point(centre, rim, i, axes, frac))).collect()
 }
 
+/// Whether a vertex gets a marker. One at `MinValue` sits on the centre and gets
+/// none, and neither does one so close to the centre that its disc would cover
+/// it (`marker_r` is the disc's radius): a dozen small values piled their
+/// discs into one blob in the middle of the chart. A lone axis is nothing but
+/// its point, so it always keeps its own.
+fn radar_marker_shown(fraction: f32, distance_from_centre: f32, marker_r: f32, axes: usize) -> bool {
+    axes == 1 || (fraction > 0.0 && distance_from_centre >= marker_r * 2.0)
+}
+
 /// The band between two radar rings (`inner` may be the centre repeated), one
 /// flat colour.
 fn radar_band_mesh(inner: &[Pos2], outer: &[Pos2], color: Color32) -> egui::epaint::Mesh {
@@ -15011,7 +15022,19 @@ pub fn draw_chart_preview(
                             Color32::from_rgba_unmultiplied(outer.r(), outer.g(), outer.b(), fill_a),
                         )));
                     }
-                    painter.add(egui::Shape::closed_line(ring.clone(), Stroke::new(line_w, line_c)));
+                    // One segment per edge, never a closed path: a polygon with
+                    // an axis far out between two near the centre has a tip
+                    // sharper than a few degrees, and egui's closed stroke
+                    // throws the feathering of such a corner far past the
+                    // outline — a hairline spike running out of the chart, over
+                    // its captions (operator, 2026-10-08). The discs below
+                    // round each join, so a segment has nothing to join.
+                    for i in 0..ring.len() {
+                        let (p, q) = (ring[i], ring[(i + 1) % ring.len()]);
+                        if (q - p).length() > 0.25 {
+                            painter.line_segment([p, q], Stroke::new(line_w, line_c));
+                        }
+                    }
                 } else if ring.len() == 2 {
                     painter.line_segment([ring[0], ring[1]], Stroke::new(line_w, line_c));
                 }
@@ -15023,15 +15046,18 @@ pub fn draw_chart_preview(
             }
             // The markers go over every outline, each with a light halo so it
             // reads on any fill. A value at `MinValue` sits on the centre and
-            // gets none — a dot there per series is just clutter — except a
-            // lone axis, which is nothing but its point.
+            // gets none — a dot there per series is just clutter — and neither
+            // does one so close to it that its marker would cover the centre:
+            // a dozen small values piled their discs into one blob at the
+            // middle of the chart. A lone axis is nothing but its point, so it
+            // keeps its own.
             if show_points {
                 let halo = Color32::from_rgba_unmultiplied(255, 255, 255, (a as f32 * 0.85) as u8);
                 for &si in &order {
                     let c = pal[si % pal.len()];
                     let line_c = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), a);
                     for (ai, &p) in vertices[si].iter().enumerate() {
-                        if fractions[si][ai] > 0.0 || axes == 1 {
+                        if radar_marker_shown(fractions[si][ai], (at(p) - centre_pos).length(), marker_r, axes) {
                             painter.circle_filled(at(p), marker_r + 1.5, halo);
                             painter.circle_filled(at(p), marker_r, line_c);
                         }
@@ -16600,6 +16626,23 @@ pub fn caret_color(surface: Color32, text: Color32) -> Color32 {
     } else {
         Color32::WHITE
     }
+}
+
+/// The ink for a line of text laid on a highlight `band` over `surface`.
+///
+/// A highlight is almost always translucent, and judging text against its own
+/// RGB — as the dropdown did — asks the wrong question: the default selection,
+/// a mid blue at about half strength, measures as DARK, so white text was
+/// chosen, and over a light panel that same band is pale sky blue, white on
+/// which is unreadable (operator, 2026-10-08, "dropdown colours must be high
+/// contrast"). The band is composited over the surface first, and the text is
+/// judged against the colour that is actually there.
+pub fn ink_on_band(band: Option<Color32>, surface: Color32, text: Color32) -> Color32 {
+    let seen = match band {
+        Some(band) => composite_premultiplied_over(band, surface),
+        None => surface,
+    };
+    caret_color(seen, text)
 }
 
 /// The colour an `Accent` property names: a `#RRGGBB`/`#RRGGBBAA` colour as
@@ -29297,5 +29340,129 @@ mod translucent_face_shadow_tests {
         assert_eq!(stack.layers.len(), 1);
         assert_eq!(stack.sample(face().center()), Color32::TRANSPARENT);
         assert!(stack.sample(Pos2::new(160.0, 185.0)) != Color32::TRANSPARENT);
+    }
+}
+
+/// The radar's outline and the dropdown's highlight ink (operator, 2026-10-08).
+#[cfg(test)]
+mod radar_outline_and_dropdown_ink_tests {
+    use super::*;
+    use crate::model::PropValue;
+
+    fn radar(data: &str) -> Control {
+        let mut c = Control::new("RAD", ControlType::RadarChart, 0, 0);
+        c.rect = crate::model::Rect::new(0, 0, 600, 300);
+        c.set_prop("__ChartData", PropValue::String(data.into()));
+        c.set_prop("HideBackground", PropValue::Bool(true));
+        c.set_prop("ShowLegend", PropValue::Bool(false));
+        c.set_prop("ShowTooltips", PropValue::Bool(false));
+        c.set_prop("AnimateOnLoad", PropValue::Bool(false));
+        c.set_prop("MinValue", PropValue::Int(0));
+        c.set_prop("MaxValue", PropValue::Int(100));
+        c
+    }
+
+    fn frame(c: &Control) -> egui::ColorImage {
+        let ctx = egui::Context::default();
+        let mut raster = crate::raster::Rasterizer::new();
+        crate::raster::render_frame(&ctx, &mut raster, Vec2::new(600.0, 300.0), Color32::WHITE, 0.0, |ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, c, false, true, 1.0, 1.0, None);
+            });
+        })
+    }
+
+    /// **The reported defect.** A series with one axis far out and the axes on
+    /// either side near the centre has a tip sharper than a few degrees, and
+    /// egui's closed stroke threw the feathering of that corner far past the
+    /// outline: a hairline spike running out of the chart, over its captions.
+    /// The outline is now drawn edge by edge.
+    ///
+    /// The data is the PowerAnalytics radar: ten categories, three series each
+    /// indexed to its own leader, the third (Cotistas) 100 at Renda Fixa and
+    /// under 5 on both its neighbours. Captions are left empty so that only the
+    /// grid, the polygons and the markers are painted; the grid alone fixes
+    /// where the chart ends, and nothing the data adds may go past it.
+    #[test]
+    fn a_sharp_tip_throws_no_spike_out_of_the_chart() {
+        let table = [
+            (0.0_f32, 100.0, 24.59, 22.74),
+            (0.0, 98.51, 8.25, 4.22),
+            (0.0, 56.26, 100.0, 100.0),
+            (0.0, 39.36, 51.14, 2.91),
+            (0.0, 36.51, 11.1, 32.51),
+            (0.0, 27.88, 3.47, 7.01),
+            (0.0, 14.39, 1.62, 13.8),
+            (0.0, 6.39, 0.28, 1.78),
+            (0.0, 1.97, 1.99, 10.73),
+            (0.0, 0.58, 0.17, 0.42),
+        ];
+        let rows = |zero: bool| {
+            table
+                .iter()
+                .map(|r| if zero { "\t0\t0\t0".to_owned() } else { format!("\t{}\t{}\t{}", r.1, r.2, r.3) })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        /// The box around every pixel that is not background.
+        fn painted(img: &egui::ColorImage) -> (usize, usize, usize, usize) {
+            let w = img.size[0];
+            let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
+            for (i, p) in img.pixels.iter().enumerate() {
+                if *p != Color32::WHITE {
+                    let (x, y) = (i % w, i / w);
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                }
+            }
+            (x0, y0, x1, y1)
+        }
+        let grid = painted(&frame(&radar(&rows(true))));
+        let data = painted(&frame(&radar(&rows(false))));
+        // A vertex at the rim wears a marker, which reaches a few pixels past it.
+        let reach = 10;
+        assert!(
+            data.0 + reach >= grid.0 && data.1 + reach >= grid.1 && data.2 <= grid.2 + reach && data.3 <= grid.3 + reach,
+            "the data reaches {data:?} but the chart ends at {grid:?}: a spike runs out of it"
+        );
+        println!("radar: data stays inside the chart: grid {grid:?}, data {data:?}");
+    }
+
+    /// A value too close to the centre to be told from it gets no marker.
+    #[test]
+    fn a_marker_close_to_the_centre_is_left_off() {
+        let r = 4.0;
+        assert!(!radar_marker_shown(0.0, 100.0, r, 10), "at MinValue: none");
+        assert!(!radar_marker_shown(0.01, 1.4, r, 10), "1 % of a 140 px radius sits under the centre");
+        assert!(!radar_marker_shown(0.05, 7.0, r, 10), "5 % is still inside two marker radii");
+        assert!(radar_marker_shown(0.10, 14.0, r, 10), "10 % is clear of the centre");
+        assert!(radar_marker_shown(1.0, 140.0, r, 10), "the rim, always");
+        assert!(radar_marker_shown(0.0, 0.0, r, 1), "a lone axis keeps its point");
+    }
+
+    /// The dropdown's default selection is a translucent mid blue. Measured as
+    /// the opaque colour it is made from, it reads as dark and white text was
+    /// chosen; laid over a light panel it is pale sky blue, and that white text
+    /// vanished. The ink is judged against the composited colour.
+    #[test]
+    fn a_translucent_highlight_gets_the_ink_that_reads_on_what_it_looks_like() {
+        let navy = Color32::from_rgb(0x1B, 0x2A, 0x4E);
+        let light_panel = Color32::from_rgb(0xF6, 0xF9, 0xFD);
+        let seen = composite_premultiplied_over(COMBO_SELECTED_FILL, light_panel);
+        // What was drawn before: white, on the pale blue the highlight is.
+        assert_eq!(caret_color(COMBO_SELECTED_FILL, navy), Color32::WHITE, "the old measurement");
+        assert!(contrast_ratio(Color32::WHITE, seen) < 2.0, "white on {seen:?} is unreadable");
+        // Now: the control's own navy, which reads on it.
+        let ink = ink_on_band(Some(COMBO_SELECTED_FILL), light_panel, navy);
+        assert_eq!(ink, navy);
+        assert!(contrast_ratio(ink, seen) >= 4.5, "{ink:?} on {seen:?}");
+        // The hover band too, and no band at all.
+        let hover = ink_on_band(Some(COMBO_HOVER_FILL), light_panel, navy);
+        assert!(contrast_ratio(hover, composite_premultiplied_over(COMBO_HOVER_FILL, light_panel)) >= 4.5);
+        assert_eq!(ink_on_band(None, light_panel, navy), navy);
+        // An undesigned dark dropdown is unchanged: light ink stays light.
+        let on_dark = ink_on_band(Some(COMBO_SELECTED_FILL), COMBO_PANEL_TINT, Color32::WHITE);
+        assert!(contrast_ratio(on_dark, composite_premultiplied_over(COMBO_SELECTED_FILL, COMBO_PANEL_TINT)) >= 4.5);
+        println!("dropdown ink: navy on the pale selection, {:.1}:1 (white was {:.1}:1)",
+            contrast_ratio(ink, seen), contrast_ratio(Color32::WHITE, seen));
     }
 }

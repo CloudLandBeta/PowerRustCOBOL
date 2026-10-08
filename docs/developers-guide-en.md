@@ -2758,6 +2758,18 @@ polygons, named in the legend. Until the first point arrives the control shows
 a six-axis, three-series sample so the designer canvas is never empty;
 `Clear` brings it back.
 
+**Reading a radar well.** Every axis shares one scale, so give it an obvious one:
+set `MinValue` and `MaxValue` (a common 0 to 100 index works when the series are
+in different units — each divided by its own leader) and tick `ShowAxisValues` to
+write the ring values up the first spoke. Keep to two or three series: more
+become unreadable, and a small multiple per series reads better. The outline is
+opaque and the fill translucent (`FillOpacity`), so overlapping series stay
+visible. A value too close to the centre to be told from it gets no marker, and
+a spoke that is far out between two near the centre is drawn as an ordinary
+sharp tip — it no longer sends a hairline out of the chart (before 1.90.9 the
+outline was one closed stroke, and egui threw the feathering of such a corner
+across the captions).
+
 > 📷 Screenshot needed — `radar-chart-three-series.png`. Drop a RadarChart on a
 > form with a dark background, set **Transparency** to about 40, and run the
 > form with the six `AddPoint` lines above in `onLoad` and `SeriesLabels` =
@@ -4227,6 +4239,14 @@ Two differences from the list are worth knowing:
   one; here, setting **Selected item** leaves **Hovered item** exactly where it
   was. Set both when you restyle, or the pointer will still flash the old blue
   across your new colour.
+
+**The text on a highlight is judged against what the highlight looks like.**
+The default selection is a translucent mid blue; over a light dropdown it is a
+pale sky blue, and white text on it cannot be read. Since 1.90.9 the row's ink is
+chosen against the highlight laid over the panel — your `ForegroundColor` when it
+reads there (WCAG AA, 4.5:1), black or white otherwise — instead of against the
+highlight's own colour. For a high-contrast list, name a deep `ActiveItemColor`
+and a pale `HoverItemColor`.
 
 Left empty each falls back to the highlight the dropdown has always painted —
 not to the theme, which is what a ListBox falls back to. These two were never

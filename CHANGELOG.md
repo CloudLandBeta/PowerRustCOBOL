@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.9] — 2026-10-08
+
+### Fixed
+- **A radar chart sent hairline spikes out of the chart.** A series with one
+  axis far out between two near the centre has a tip sharper than a few
+  degrees, and the outline was drawn as one closed stroke, whose feathering egui
+  throws far past such a corner — a thin line running out of the chart, over its
+  captions, from every sharp tip (the PowerAnalytics radar, "Cotistas" at Renda
+  Fixa). The outline is now drawn edge by edge, the round joins that were
+  already there covering the corners. A value so close to the centre that its
+  marker would cover the centre no longer gets one: a dozen small values used to
+  pile their discs into one blob in the middle.
+- **Dropdown text was unreadable on the selected row.** The ink on a dropdown's
+  highlight was chosen against the highlight's own colour, but the highlight is
+  translucent: the default selection (a mid blue at about half strength)
+  measured as dark, so white text was chosen, and over a light panel that band is
+  pale sky blue — white on it is 1.3:1. The ink is now judged against the
+  highlight laid over the panel (`ink_on_band`): navy on it is 10.9:1. Designed
+  highlights that already read are untouched, and an undesigned dark dropdown
+  keeps its light ink.
+
 ## [PowerRustCOBOL 1.90.8] — 2026-10-08
 
 ### Fixed
