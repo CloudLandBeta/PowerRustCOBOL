@@ -637,11 +637,13 @@ pub struct CoboltApp {
     preview_toolbar_runner: cobolt_forms::toolbar_actions::Runner,
     #[allow(dead_code)]
     pub(crate) clipboard: Option<DesignerClipboard>,
-    /// Spec 046 R3/R4 — the project-relative destination directory for a
-    /// Paste Form request awaiting the OS clipboard's `Event::Paste`, which
-    /// `RequestPaste` triggers but doesn't deliver until a later frame.
-    /// `None` = no paste request in flight.
-    pending_form_paste: Option<PathBuf>,
+    /// Spec 046 R3/R4 — a Paste Form waiting for the clipboard's text: only
+    /// when the clipboard could not be read at the click, and egui's
+    /// `RequestPaste` was asked instead, which delivers it on a later frame.
+    /// The destination directory, and when to give up and say so — a
+    /// request left armed would take the developer's NEXT Cmd/Ctrl+V,
+    /// anywhere, as a form. `None` = no paste request in flight.
+    pending_form_paste: Option<(PathBuf, std::time::Instant)>,
     /// Spec 046 R7/R8 — a parsed paste awaiting the rename-or-replace
     /// choice for a form-name collision.
     pending_paste_conflict: Option<PendingPasteConflict>,
@@ -1652,6 +1654,33 @@ fn extract_pasted_text(events: &[egui::Event]) -> Option<String> {
         egui::Event::Paste(text) => Some(text.clone()),
         _ => None,
     })
+}
+
+/// The system clipboard's text, read now. `Ok(None)` when it holds no text;
+/// `Err` when the clipboard itself cannot be opened.
+fn read_clipboard_text() -> Result<Option<String>, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    match clipboard.get_text() {
+        Ok(text) => Ok(Some(text)),
+        Err(arboard::Error::ContentNotAvailable) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Why a Paste Form pasted nothing.
+#[derive(Debug, PartialEq)]
+enum PasteRefusal {
+    /// The clipboard holds no text at all.
+    Empty,
+    /// It holds text that is not a copied form, and why.
+    NotAForm(String),
+}
+
+/// The form a clipboard's text holds (spec 046 R4): what Copy Form put
+/// there, whatever line endings the platform's clipboard gave it back with.
+fn parse_pasted_form(text: Option<&str>) -> Result<Form, PasteRefusal> {
+    let text = text.map(str::trim).filter(|t| !t.is_empty()).ok_or(PasteRefusal::Empty)?;
+    load_form_from_str(&text.replace("\r\n", "\n")).map_err(|e| PasteRefusal::NotAForm(e.to_string()))
 }
 
 /// A one-line, human-readable label + accent colour for one agent operation
@@ -13840,14 +13869,39 @@ impl CoboltApp {
         }
     }
 
-    /// Spec 046 R3 — the developer clicked Paste Form. There is no
-    /// synchronous "read the clipboard now": `RequestPaste` asks the
-    /// platform layer for it, and the text arrives as `Event::Paste` on a
-    /// later frame (`poll_form_paste` below), the same path egui itself
-    /// uses for an ordinary Cmd/Ctrl+V.
+    /// Spec 046 R3 — the developer clicked Paste Form: read the clipboard
+    /// NOW and paste, or say why not. Reading it at the click is the fix for
+    /// a Paste Form that did nothing: the old path only asked egui to paste
+    /// (`RequestPaste`) and waited for the text on a later frame, and when
+    /// none came — an empty clipboard, or no frame — nothing was reported
+    /// and the request stayed armed. That asynchronous path is kept only for
+    /// a platform where the clipboard cannot be opened directly, now with a
+    /// deadline (`poll_form_paste`).
     fn paste_form_requested(&mut self, ctx: &egui::Context, dir: &Path) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-        self.pending_form_paste = Some(dir.to_path_buf());
+        let tr = self.lang.tr();
+        match read_clipboard_text() {
+            Ok(text) => self.paste_form_text(ctx, text.as_deref(), dir, &tr),
+            Err(e) => {
+                tracing::debug!(target: "paste", "clipboard not readable directly ({e}); asking egui");
+                ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                ctx.request_repaint();
+                self.pending_form_paste =
+                    Some((dir.to_path_buf(), std::time::Instant::now() + std::time::Duration::from_secs(2)));
+            }
+        }
+    }
+
+    /// Paste the form the clipboard's `text` holds into `dir`, or report
+    /// why it cannot: nothing on the clipboard, or something that is not a
+    /// copied form.
+    fn paste_form_text(&mut self, ctx: &egui::Context, text: Option<&str>, dir: &Path, tr: &Tr) {
+        match parse_pasted_form(text) {
+            Ok(form) => self.finish_form_paste(ctx, form, dir),
+            Err(PasteRefusal::Empty) => self.output.push_status(tr.paste_form_clipboard_empty.to_owned()),
+            Err(PasteRefusal::NotAForm(e)) => {
+                self.output.push_status(format!("{}: {e}", tr.paste_form_invalid_clipboard));
+            }
+        }
     }
 
     /// Spec 046 R3/R4/R9 — consumes the `Event::Paste` a pending Paste Form
@@ -13856,21 +13910,23 @@ impl CoboltApp {
     /// `ctx.input`'s event list is the same one every widget reads, this
     /// does not "steal" the event from anything.
     fn poll_form_paste(&mut self, ctx: &egui::Context, tr: &Tr) {
-        let Some(dir) = self.pending_form_paste.clone() else {
+        let Some((dir, deadline)) = self.pending_form_paste.clone() else {
             return;
         };
         let text = ctx.input(|i| extract_pasted_text(&i.events));
         let Some(text) = text else {
+            // egui sends nothing for an empty clipboard: past the deadline,
+            // say so and disarm, so a later Cmd/Ctrl+V is not taken as a form.
+            if std::time::Instant::now() >= deadline {
+                self.pending_form_paste = None;
+                self.output.push_status(tr.paste_form_clipboard_empty.to_owned());
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
             return;
         };
         self.pending_form_paste = None;
-        match load_form_from_str(&text) {
-            Ok(form) => self.finish_form_paste(ctx, form, &dir),
-            Err(e) => {
-                self.output
-                    .push_status(format!("{}: {e}", tr.paste_form_invalid_clipboard));
-            }
-        }
+        self.paste_form_text(ctx, Some(&text), &dir, tr);
     }
 
     /// Spec 046 R5/R7 — a form successfully parsed off the clipboard.
@@ -21439,6 +21495,29 @@ mod form_paste_tests {
     fn pasted_form_file_name_matches_the_create_convention() {
         assert_eq!(pasted_form_file_name("MAIN-FORM"), "main-form.cfrm");
         assert_eq!(pasted_form_file_name("Login"), "login.cfrm");
+    }
+
+    /// Spec 046 R3/R4 — Paste Form reports an empty clipboard and a
+    /// clipboard that holds no form, each in its own words, and takes back
+    /// exactly what Copy Form wrote.
+    #[test]
+    fn paste_form_says_why_it_pasted_nothing_and_takes_back_what_copy_form_wrote() {
+        // Nothing on the clipboard: its own message, not silence.
+        assert_eq!(parse_pasted_form(None).unwrap_err(), PasteRefusal::Empty);
+        assert_eq!(parse_pasted_form(Some("  \n ")).unwrap_err(), PasteRefusal::Empty);
+        // Text that is not a form.
+        assert!(matches!(parse_pasted_form(Some("hello")), Err(PasteRefusal::NotAForm(_))));
+        // What Copy Form writes comes back whole — also with the CRLF line
+        // endings a Windows clipboard returns.
+        let mut form = Form::new("ORDERS-FORM", "Orders", 640, 480);
+        form.controls.push(cobolt_forms::Control::new("BTN-OK", ControlType::Button, 10, 10));
+        let xml = form_to_string(&form).unwrap();
+        for text in [xml.clone(), xml.replace('\n', "\r\n")] {
+            let back = parse_pasted_form(Some(&text)).expect("a copied form pastes");
+            assert_eq!(back.name, "ORDERS-FORM");
+            assert_eq!(back.controls.len(), 1);
+            assert_eq!(back.controls[0].id, "BTN-OK");
+        }
     }
 
     /// Spec 046 R3/R4 — `extract_pasted_text` finds the `Paste` event among

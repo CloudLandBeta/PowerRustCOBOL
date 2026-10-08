@@ -1271,6 +1271,7 @@ pub struct Tr {
     pub tree_copy_form: &'static str,           // form row context menu: copy
     pub tree_paste_form: &'static str,          // Forms category context menu: paste
     pub paste_form_invalid_clipboard: &'static str, // refusal: clipboard isn't a copied form
+    pub paste_form_clipboard_empty: &'static str, // refusal: the clipboard holds nothing to paste
     pub paste_form_name_conflict_title: &'static str, // rename/replace modal title
     pub paste_form_name_conflict_body: &'static str,  // rename/replace modal explanation
     pub paste_form_rename: &'static str,        // rename/replace modal: rename action
@@ -3112,6 +3113,7 @@ const EN: Tr = Tr {
     tree_copy_form: "Copy Form",
     tree_paste_form: "Paste Form",
     paste_form_invalid_clipboard: "The clipboard doesn't contain a copied form",
+    paste_form_clipboard_empty: "The clipboard is empty: right-click a form in the tree and choose Copy Form first",
     paste_form_name_conflict_title: "Form already exists",
     paste_form_name_conflict_body: "This project already has a form with that name",
     paste_form_rename: "Rename and Add",
@@ -4755,6 +4757,7 @@ const ES: Tr = Tr {
     tree_copy_form: "Copiar formulario",
     tree_paste_form: "Pegar formulario",
     paste_form_invalid_clipboard: "El portapapeles no contiene un formulario copiado",
+    paste_form_clipboard_empty: "El portapapeles está vacío: haga clic con el botón derecho en un formulario del árbol y elija Copy Form",
     paste_form_name_conflict_title: "El formulario ya existe",
     paste_form_name_conflict_body: "Este proyecto ya tiene un formulario con ese nombre",
     paste_form_rename: "Renombrar y añadir",
@@ -6398,6 +6401,7 @@ const PT: Tr = Tr {
     tree_copy_form: "Copiar formulário",
     tree_paste_form: "Colar formulário",
     paste_form_invalid_clipboard: "A área de transferência não contém um formulário copiado",
+    paste_form_clipboard_empty: "A área de transferência está vazia: clique com o botão direito num formulário da árvore e escolha Copy Form",
     paste_form_name_conflict_title: "O formulário já existe",
     paste_form_name_conflict_body: "Este projeto já tem um formulário com esse nome",
     paste_form_rename: "Renomear e adicionar",
@@ -8040,6 +8044,7 @@ const JA: Tr = Tr {
     tree_copy_form: "フォームをコピー",
     tree_paste_form: "フォームを貼り付け",
     paste_form_invalid_clipboard: "クリップボードにコピーされたフォームが含まれていません",
+    paste_form_clipboard_empty: "クリップボードが空です。ツリーのフォームを右クリックして Copy Form を選んでください",
     paste_form_name_conflict_title: "フォームは既に存在します",
     paste_form_name_conflict_body: "このプロジェクトには同じ名前のフォームが既にあります",
     paste_form_rename: "名前を変更して追加",
@@ -9689,6 +9694,7 @@ const ZH: Tr = Tr {
     tree_copy_form: "复制表单",
     tree_paste_form: "粘贴表单",
     paste_form_invalid_clipboard: "剪贴板中没有已复制的表单",
+    paste_form_clipboard_empty: "剪贴板为空：请先在树中右键单击一个表单并选择 Copy Form",
     paste_form_name_conflict_title: "表单已存在",
     paste_form_name_conflict_body: "此项目中已有同名表单",
     paste_form_rename: "重命名并添加",
@@ -11333,6 +11339,7 @@ const FR: Tr = Tr {
     tree_copy_form: "Copier le formulaire",
     tree_paste_form: "Coller le formulaire",
     paste_form_invalid_clipboard: "Le presse-papiers ne contient pas de formulaire copié",
+    paste_form_clipboard_empty: "Le presse-papiers est vide : faites un clic droit sur un formulaire de l'arborescence et choisissez Copy Form",
     paste_form_name_conflict_title: "Le formulaire existe déjà",
     paste_form_name_conflict_body: "Ce projet a déjà un formulaire portant ce nom",
     paste_form_rename: "Renommer et ajouter",

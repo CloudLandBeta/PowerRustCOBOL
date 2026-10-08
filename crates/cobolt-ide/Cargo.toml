@@ -18,6 +18,9 @@ name = "cobolt-ide"
 path = "src/main.rs"
 
 [dependencies]
+# Paste Form reads the system clipboard at the click (spec 046 R3). The same
+# arboard, with the same features, that egui-winit already builds.
+arboard = { version = "3.6", default-features = false, features = ["image-data"] }
 # Core runtime pipeline
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
