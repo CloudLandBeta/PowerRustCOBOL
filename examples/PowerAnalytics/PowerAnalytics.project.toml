@@ -11,7 +11,7 @@ license_model = ""
 license_text = ""
 destination_folder = "dist"
 debug_compilation = true
-built_with_version = "1.90.10"
+built_with_version = "1.90.16"
 
 [files]
 sources = ["src/main.cbl"]

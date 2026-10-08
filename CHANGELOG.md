@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.20] — 2026-10-08
+
+### Changed
+- **PowerAnalytics: the form as it was edited in the designer.** The round close
+  button is 56 px (it was 64), the period filter group sits 8 px lower in the
+  design, and `C-GOALS` is hidden again at load so it waits for its turn in the
+  panel animation like the others. (The 8 px also puts the period group last in
+  the filter bar: a flex container orders its items by their designed position,
+  top to bottom first.)
+
 ## [PowerRustCOBOL 1.90.19] — 2026-10-08
 
 ### Fixed
