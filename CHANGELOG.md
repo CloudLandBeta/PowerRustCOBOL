@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.21] — 2026-10-08
+
+### Fixed
+- **PowerAnalytics: the period filter is back between the category and the
+  value filters.** Its group had been nudged 8 px down in the design, and a flex
+  container orders its items by designed position, top to bottom first, so it
+  had slipped to the end of the filter bar, after *Aplicar*. The group and the
+  three controls in it are on the 118 row again, like the other filters.
+
 ## [PowerRustCOBOL 1.90.20] — 2026-10-08
 
 ### Changed

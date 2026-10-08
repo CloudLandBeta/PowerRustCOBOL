@@ -3420,7 +3420,7 @@
 
 ]]></Event>
   </Control>
-  <Control id="GRP-PER" type="Panel" x="498" y="126" w="284" h="56" tab-order="21" z-order="20" visible="true" enabled="true" parent="FILT">
+  <Control id="GRP-PER" type="Panel" x="498" y="118" w="284" h="56" tab-order="21" z-order="20" visible="true" enabled="true" parent="FILT">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="HideBackground">true</Property>
@@ -3442,7 +3442,7 @@
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
   </Control>
-  <Control id="LBL-F-PER" type="Label" x="498" y="126" w="284" h="16" tab-order="22" z-order="21" visible="true" enabled="true" parent="GRP-PER">
+  <Control id="LBL-F-PER" type="Label" x="498" y="118" w="284" h="16" tab-order="22" z-order="21" visible="true" enabled="true" parent="GRP-PER">
     <Property name="Caption">Início de atividade (de / até)</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -3467,7 +3467,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
   </Control>
-  <Control id="DTP-INI" type="DateTimePicker" x="498" y="144" w="138" h="34" tab-order="23" z-order="22" visible="true" enabled="true" parent="GRP-PER">
+  <Control id="DTP-INI" type="DateTimePicker" x="498" y="136" w="138" h="34" tab-order="23" z-order="22" visible="true" enabled="true" parent="GRP-PER">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">18</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -3494,7 +3494,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="EnterAsTab">true</Property>
   </Control>
-  <Control id="DTP-FIM" type="DateTimePicker" x="644" y="144" w="138" h="34" tab-order="24" z-order="23" visible="true" enabled="true" parent="GRP-PER">
+  <Control id="DTP-FIM" type="DateTimePicker" x="644" y="136" w="138" h="34" tab-order="24" z-order="23" visible="true" enabled="true" parent="GRP-PER">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">18</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
