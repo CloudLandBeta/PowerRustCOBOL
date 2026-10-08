@@ -91,6 +91,7 @@ const CONTROLS: &[(&str, &str, &str)] = &[
     ("Charts", "AreaChart", "control-area-chart"),
     ("Charts", "ScatterChart", "control-scatter-chart"),
     ("Charts", "DonutChart", "control-donut-chart"),
+    ("Charts", "RadarChart", "control-radar-chart"),
 ];
 
 /// Demo forms whose name does not spell out the control they demonstrate.

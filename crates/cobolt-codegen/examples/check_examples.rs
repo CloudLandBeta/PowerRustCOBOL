@@ -51,6 +51,7 @@ fn all_controls() -> Vec<ControlType> {
         AreaChart,
         ScatterChart,
         DonutChart,
+        RadarChart,
     ]
 }
 

@@ -6391,11 +6391,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
              near-invisible on a white one.",
         ),
         "ShowLegend" => (BOOL_DOMAIN, "Shows the series legend."),
-        "ShowGridLines" => (BOOL_DOMAIN, "Shows the plot grid."),
+        "ShowGridLines" => (BOOL_DOMAIN, "Shows the plot grid — on a RadarChart, its rings and spokes."),
         "ShowXAxis" => (BOOL_DOMAIN, "Shows the X axis line. Bar, Line, Area and Scatter charts only — a pie or a donut has no axes and does not carry it."),
         "ShowYAxis" => (BOOL_DOMAIN, "Shows the Y axis line. Bar, Line, Area and Scatter charts only — a pie or a donut has no axes and does not carry it."),
-        "ShowTooltips" => (BOOL_DOMAIN, "In the running form, the bar, point or slice under the pointer shows `label: value` in a tooltip — with the series' name (`Q1 · Sales: 120`) when the chart has several series or names them, and the value of the series actually under the pointer, below zero included. Live data only — the sample a chart shows before it has any is not data. On by default."),
-        "AnimateOnLoad" => (BOOL_DOMAIN, "The first time the running chart has data, every mark grows into place — bars and lines rise, a pie sweeps round — over `AnimationDuration` (250 ms at least). On by default. `AnimateValues` is the separate animation for data that CHANGES afterwards."),
+        "ShowTooltips" => (BOOL_DOMAIN, "In the running form, the bar, point or slice under the pointer (on a RadarChart, the vertex nearest to it) shows `label: value` in a tooltip — with the series' name (`Q1 · Sales: 120`) when the chart has several series or names them, and the value of the series actually under the pointer, below zero included. Live data only — the sample a chart shows before it has any is not data. On by default."),
+        "AnimateOnLoad" => (BOOL_DOMAIN, "The first time the running chart has data, every mark grows into place — bars and lines rise, a pie sweeps round, a radar's polygons open out from the centre — over `AnimationDuration` (250 ms at least). On by default. `AnimateValues` is the separate animation for data that CHANGES afterwards."),
         "AnimateValues" => (
             BOOL_DOMAIN,
             "Animates a CHANGE OF DATA. With it on, a chart whose points are replaced TRAVELS from the values it is showing to the new ones instead of cutting to them; a point the new set added rises from zero, and one it dropped simply stops being drawn. The labels are the new set's from the first frame, so a half-played move never shows a point under the name it used to have. Off by default: a chart filled once, on load, should not spend two seconds arriving. The whole series moves together, so the chart settles in the same time with four points or forty. Set `AnimationDuration` to say how long.",
@@ -6409,27 +6409,32 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "MonochromeGradient" => (BOOL_DOMAIN, "Diagonal light-to-dark shading in monochrome mode."),
         "XAxisLabel" => ("free text", "X axis caption."),
         "YAxisLabel" => ("free text", "Y axis caption."),
-        "SeriesColors" => ("comma-separated colours, e.g. `#D01010,#10D010`", "The colours of the series — a pie's or donut's slices — in order, repeating when there are more series than colours. The seeded list means 'not chosen': the theme's palette paints the chart until you change it."),
+        "SeriesColors" => ("comma-separated colours, e.g. `#D01010,#10D010`", "The colours of the series — a pie's or donut's slices, a radar's polygons — in order, repeating when there are more series than colours. The seeded list means 'not chosen': the theme's palette paints the chart until you change it."),
         "DataSource" => (
             "COBOL table data-item name (charts / repeating GroupBox / DataGrid binding)",
             "Table the control binds to. On a chart, `SET-TABLE` reads each occurrence's label and value from the sub-fields named by `LabelField` and `ValueFields`; with no `LabelField` it reads the fixed `PIC X(64)` label + `PIC 9(18)V9(6)` value layout.",
         ),
         "DataCount" => ("COBOL data-item name", "Item holding the number of occupied table rows."),
         "LabelField" => ("sub-field name", "Charts: the table sub-field (an OCCURS item) whose value labels each point. With it and `ValueFields` set, `SET-TABLE` reads occurrences 1 to `DataCount` from these fields instead of the fixed layout."),
-        "ValueFields" => ("comma-separated sub-field names", "Charts: the table sub-fields holding each point's values — the first is the first series, each further field one more series, with no limit on how many (a bar, line or area chart draws them all; pie, donut and scatter use the first). Negative values are drawn below the X axis, which sits at zero. A data binding fills this in itself with the fields it maps. `SeriesLabels` names the series in the legend (without it, the field names do); `Stacked` piles them up."),
+        "ValueFields" => ("comma-separated sub-field names", "Charts: the table sub-fields holding each point's values — the first is the first series, each further field one more series, with no limit on how many (a bar, line, area or radar chart draws them all; pie, donut and scatter use the first). Negative values are drawn below the X axis, which sits at zero. A data binding fills this in itself with the fields it maps. `SeriesLabels` names the series in the legend (without it, the field names do); `Stacked` piles them up."),
         "SeriesLabels" => ("comma-separated display names", "The names the legend and the tooltip give the series, in order. A series left unnamed takes the name its data arrived with — a bound chart's value field, or the field `ValueFields` names — and otherwise shows as `Series n`. A pie's legend names its slices from the data instead."),
         "Horizontal" => (BOOL_DOMAIN, "Horizontal bars instead of vertical."),
         "Stacked" => (BOOL_DOMAIN, "BarChart / AreaChart (default false): with several series, pile each series on the ones before it — one bar per label made of coloured segments, or area bands laid one over the other — so a label's marks add up to its total, and the plot scales to the largest total. Signed: positive values pile UPWARD from the zero line and negative ones DOWNWARD from it, so a label holding both shows both. Off, the series stand side by side (bars) or overlap from the axis (areas). With one series it changes nothing. Series come from `AddPoint(label, v1, v2, …)`, from every field named in `ValueFields`, or from every value field a data binding maps."),
         "BarCornerRadius" => ("pixels ≥ 0", "Rounding on every corner of a bar, held to half the bar's width and height so a short bar stays a bar."),
         "Smooth" => (BOOL_DOMAIN, "Catmull-Rom smoothing of the polyline."),
-        "ShowPoints" => (BOOL_DOMAIN, "Draws a marker on every point of a Line or Area chart."),
-        "PointRadius" => ("pixels > 0", "The marker radius on a Line or Area chart, and a Scatter point's radius when it has no bubble sizes."),
+        "ShowPoints" => (BOOL_DOMAIN, "Draws a marker on every point of a Line or Area chart, and on every vertex of each RadarChart polygon, except one at `MinValue` — that sits on the centre, where a dot per series would only pile up (default true)."),
+        "PointRadius" => ("pixels > 0", "The marker radius on a Line or Area chart (default 4) and on a RadarChart (default 3), and a Scatter point's radius when it has no bubble sizes. On a RadarChart it also widens the area around a vertex that shows its tooltip."),
         "FillAlpha" => ("0-100 (percent)", "Area fill opacity."),
         "ShowLabels" => (BOOL_DOMAIN, "Draws slice labels."),
         "LabelFormat" => ("one of: `percent` | `value` | `label`", "What pie/donut slice labels show."),
         "InnerRadius" => ("0-100 (% of outer radius)", "Donut hole size."),
         "BubbleField" => ("sub-field name or empty", "ScatterChart: the table sub-field whose value sizes each bubble, read by `SET-TABLE` with `LabelField`/`ValueFields`. `AddPoint(label, value, size)` gives a size one point at a time."),
         "BubbleScale" => ("pixels > 0 (default 20)", "ScatterChart: the radius of the LARGEST bubble; the others are sized in proportion (2 pixels at least). Without bubble sizes every point is a `PointRadius` marker."),
+        "GridLevels" => ("integer 1-10 (default 5)", "RadarChart: how many concentric rings the grid draws between the centre (`MinValue`) and the rim (the top of the scale). Each ring is a polygon with a corner on every axis. `ShowGridLines` hides the rings and the spokes together."),
+        "FillOpacity" => ("0-100 (percent, default 35)", "RadarChart: how solid each polygon's fill is. 0 leaves just the outline; the outline and the vertex markers are always drawn solid. A see-through fill lets polygons laid over each other all be read. (AreaChart's matching property is `FillAlpha`.)"),
+        "MinValue" => ("number, decimals allowed (default 0)", "RadarChart: the value at the centre of the radar, shared by every axis. A value below it — a negative one on the default scale — is drawn on the centre, and so is a value that is not a number."),
+        "MaxValue" => ("number, decimals allowed; 0 = automatic (default 0)", "RadarChart: the value on the rim, shared by every axis. While it is 0 — the default, which always means automatic — or not above `MinValue`, the top of the scale comes from the data: the largest value of any series, rounded up so that the rings are 1, 2, 2.5, 5 or 10 times a power of ten apart (rings at 20, 40, 60 … rather than 17.4, 34.8 …). Set it to hold the scale still while the data changes, or to compare two radars on the same scale. A value above it is drawn on the rim."),
+        "ShowAxisValues" => (BOOL_DOMAIN, "RadarChart (default false): writes the value each ring stands for beside the first axis, from `GridLevels` rings up to the top of the scale."),
 
         // ── Icons (Button) ──
         "IsDefault" => (BOOL_DOMAIN, "Form's default button (activated by Enter)."),
@@ -7110,6 +7115,7 @@ fn control_purpose(name: &str) -> &'static str {
         "AreaChart" => "Filled area chart.",
         "ScatterChart" => "Scatter/bubble chart.",
         "DonutChart" => "Donut chart.",
+        "RadarChart" => "Radar (spider) chart with any number of series: one spoke per label, one filled polygon per series, all drawn on one shared scale. The data model is that of the Bar, Line and Area charts — each `AddPoint(label, v1, v2, …)` is one AXIS, and each further value is that axis's value in the next series — so it takes `ValueFields`, `SeriesLabels` and `SeriesColors` and the same binding.",
         "Knob" => "Rotary dial that sets a numeric Value within Minimum..Maximum by dragging.",
         "Gauge" => "Read-only KPI display (Radial | Linear | Donut) — never changed by user interaction. With BOTH `WarningThreshold` and `CriticalThreshold` set, the fill KEEPS EACH ZONE'S COLOUR ALONG ITS OWN STRETCH (1.61.172): green up to the warning mark, amber from there to the critical one, red beyond — so a gauge reading 88 against marks at 70/90 is green to 70 and amber from 70 to 88, with no red at all. Before that the whole fill took the current zone's colour, which read as 'all red' the moment the needle crossed a mark. The NEEDLE (and a Linear's thumb) still takes the colour of the zone the reading is IN, so the current state is still legible at a glance. Thresholds are FRACTIONS of the Minimum..Maximum span (0.0-1.0), not readings on it.",
         "Switch" => "Boolean on/off visual toggle.",
@@ -7204,7 +7210,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
     let chart_methods: Vec<(&'static str, &'static str)> = vec![
         (
             "AddPoint(label: String, value: Number)",
-            "Append one data point and repaint. On a BarChart, LineChart or AreaChart each further argument — `AddPoint(label, v1, v2, …)` — is the point's value in the next series (a point given fewer is 0 in the rest); on a ScatterChart the third argument is the bubble's size.",
+            "Append one data point and repaint. On a BarChart, LineChart, AreaChart or RadarChart each further argument — `AddPoint(label, v1, v2, …)` — is the point's value in the next series (a point given fewer is 0 in the rest); on a ScatterChart the third argument is the bubble's size.",
         ),
         ("Clear()", "Remove all pushed data (chart falls back to its sample preview)."),
         ("Refresh()", "Force a repaint with the current data."),
@@ -7432,9 +7438,8 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("FetchAll() → Integer", "Row count of the current result set."),
             ("Close()", "Close the connection."),
         ],
-        "BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart" => {
-            chart_methods
-        }
+        "BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart"
+        | "RadarChart" => chart_methods,
         "GroupBox" => {
             let mut v = caption_methods;
             v.push((
@@ -7699,6 +7704,15 @@ Three equivalent ways to feed the chart:\n\
 2. Generated paragraphs: `PERFORM Chart-1-ADD-POINT` (after `MOVE`s to `WS-Chart-1-SELECTED-LBL` / `-SELECTED-VAL`), `PERFORM Chart-1-SET-TABLE`, `PERFORM Chart-1-CLEAR`, `PERFORM Chart-1-REFRESH`.\n\
 3. Built-in calls: `COBOL::\"CHART-ADD-POINT\"( \"Chart-1\" label value )` and `COBOL::\"CHART-SET-TABLE\"( \"Chart-1\" table count )` (table rows: `PIC X(64)` label + `PIC 9(18)V9(6)` value).\n\
 Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueFields` properties.\n",
+        "RadarChart" => "\
+### Axes and series\n\
+Each POINT is one AXIS — a spoke of the radar, captioned with its label — and each SERIES is one polygon. `AddPoint(label, v1, v2, …)` gives that axis's value in series 1, 2, 3 …. The first axis points straight up and the rest follow clockwise, in the order the points were added. Every axis shares one scale: `MinValue` at the centre and `MaxValue` on the rim — automatic, from the largest value of any series, while `MaxValue` is 0 — and a value below `MinValue` is drawn on the centre. Name the polygons with `SeriesLabels` and colour them with `SeriesColors`. Fewer than three axes cannot enclose an area: two axes draw each series as a line and one axis as a point.\n\
+### Data flow\n\
+Three equivalent ways to feed the chart:\n\
+1. Inline methods: `Radar-1::AddPoint(\"Speed\", 80, 55, 35).` / `Radar-1::Clear().` / `Radar-1::Refresh().`\n\
+2. Generated paragraphs: `PERFORM Radar-1-ADD-POINT` (after `MOVE`s to `WS-Radar-1-SELECTED-LBL` / `-SELECTED-VAL` — one value, for the first series), `PERFORM Radar-1-SET-TABLE`, `PERFORM Radar-1-CLEAR`, `PERFORM Radar-1-REFRESH`.\n\
+3. Built-in calls: `COBOL::\"CHART-ADD-POINT\"( \"Radar-1\" label v1 v2 v3 )` and `COBOL::\"CHART-SET-TABLE\"( \"Radar-1\" table count )` (with `LabelField` and `ValueFields` set, one table field per series).\n\
+Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueFields` properties. With no data pushed yet the chart shows a six-axis, three-series sample, and `Clear()` brings it back.\n",
         "GroupBox" => "\
 ### Repeating groups (control arrays)\n\
 With `IsRepeatingGroup = 1` the GroupBox becomes a card template: set `ItemCount` (or bind `DataSource`) and address instance members as `Member(index)::Property` (1-based index). Handlers on members receive `CONTROL-ARRAY-INDEX`.\n",
@@ -8614,7 +8628,7 @@ fn methods_reference_doc() -> String {
             ],
         ),
         (
-            "Charts (BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart)",
+            "Charts (BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart, RadarChart)",
             "Equivalent to the `COBOL::\"CHART-…\"` built-in calls and the generated `PERFORM <id>-ADD-POINT` paragraphs.",
             &[
                 ("AddPoint(label: String, value: Number)", "Append one point and repaint."),
@@ -12030,6 +12044,7 @@ generated = ["generated/inner-form1.cbl"]
             cobolt_forms::ControlType::AreaChart,
             cobolt_forms::ControlType::ScatterChart,
             cobolt_forms::ControlType::DonutChart,
+            cobolt_forms::ControlType::RadarChart,
             cobolt_forms::ControlType::Knob,
             cobolt_forms::ControlType::Gauge,
             cobolt_forms::ControlType::Switch,

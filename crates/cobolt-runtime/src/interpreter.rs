@@ -11350,8 +11350,8 @@ impl Interpreter {
             }
             // COBOL-CHART-ADD-POINT chart-id label value [more…]  (append one
             // point; on a ScatterChart the fourth argument is its bubble's
-            // size, on a bar, line or area chart each further argument is the
-            // point's value in the next series)
+            // size, on a bar, line, area or radar chart each further argument
+            // is the point's value in the next series)
             "COBOL-CHART-ADD-POINT" if using.len() >= 3 => {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let label = self.eval_call_arg(&using[1], span)?.as_display_string();
@@ -14095,12 +14095,12 @@ impl Interpreter {
         matches!(self.objects.get(obj).map(|o| o.class.as_str()), Some("ComboBox" | "ListBox"))
     }
 
-    /// `true` when the object was seeded as one of the six chart control types,
+    /// `true` when the object was seeded as one of the seven chart control types,
     /// so chart-specific method arms only fire on actual charts.
     fn is_chart_object(&self, obj: &str) -> bool {
         matches!(
             self.objects.get(obj).map(|o| o.class.as_str()),
-            Some("BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart")
+            Some("BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart" | "RadarChart")
         )
     }
 

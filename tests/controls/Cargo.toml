@@ -116,6 +116,10 @@ name = "progressbar"
 path = "progressbar.rs"
 
 [[test]]
+name = "radarchart"
+path = "radarchart.rs"
+
+[[test]]
 name = "radiobutton"
 path = "radiobutton.rs"
 

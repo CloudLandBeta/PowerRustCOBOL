@@ -1011,6 +1011,7 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-area-chart",
             "control-scatter-chart",
             "control-donut-chart",
+            "control-radar-chart",
             "control-knob",
             "control-gauge",
             "control-switch",
@@ -7521,6 +7522,16 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(15.6, 12.0), (20.0, 12.0)]),
             p(&[(10.8, 8.6), (9.3, 4.5)]),
             p(&[(9.1, 13.8), (5.2, 15.9)]),
+        ],
+        // Two rings and the spokes of a hexagonal web, with one filled polygon
+        // across it: a radar is read as the polygon on the web.
+        "control-radar-chart" => vec![
+            pc(&[(12.0, 3.0), (19.8, 7.5), (19.8, 16.5), (12.0, 21.0), (4.2, 16.5), (4.2, 7.5)]),
+            pc(&[(12.0, 7.5), (15.9, 9.75), (15.9, 14.25), (12.0, 16.5), (8.1, 14.25), (8.1, 9.75)]),
+            p(&[(12.0, 12.0), (12.0, 3.0)]),
+            p(&[(12.0, 12.0), (19.8, 16.5)]),
+            p(&[(12.0, 12.0), (4.2, 16.5)]),
+            pf(&[(12.0, 5.0), (16.3, 9.5), (18.9, 16.0), (12.0, 16.0), (6.8, 15.0), (7.2, 9.3)]),
         ],
         "control-area-chart" => vec![
             p(&[(3.0, 4.0), (3.0, 19.5), (21.0, 19.5)]),

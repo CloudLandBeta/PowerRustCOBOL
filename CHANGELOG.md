@@ -8,6 +8,46 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.3] — 2026-10-08
+
+### Added
+- **RadarChart**, a seventh chart control, with any number of series. Each
+  point is one **axis** (a spoke, named by its label) and each series is one
+  **polygon** across the spokes, all on one shared scale; the first axis points
+  straight up and the rest follow clockwise. It takes the data model of the Bar,
+  Line and Area charts unchanged — `AddPoint(label, v1, v2, …)`, `Clear()`,
+  `Refresh()`, `RefreshBinding()`, `DataSource` / `DataCount` / `LabelField` /
+  `ValueFields`, `SeriesLabels`, `SeriesColors`, the `CHART-ADD-POINT` and
+  `CHART-SET-TABLE` built-ins and the generated `<id>-ADD-POINT`, `-SET-TABLE`,
+  `-CLEAR` and `-REFRESH` paragraphs. It is listed with the other charts in the
+  toolbox and drops at 280×260.
+  - New properties: `GridLevels` (1–10 concentric rings, default 5),
+    `FillOpacity` (0–100 %, default 35), `ShowPoints` and `PointRadius` (vertex
+    markers, default on, 3), `MinValue` (default 0), `MaxValue` (**0 =
+    automatic**: the largest value of any series, rounded up so the rings fall
+    on 1, 2, 2.5, 5 or 10 times a power of ten) and `ShowAxisValues` (the value
+    of each ring, default off). `MinValue` and `MaxValue` accept decimals.
+  - It honours what the other charts do: `Title`, `ShowLegend`,
+    `ShowGridLines` (rings and spokes), `ShowTooltips` (the vertex nearest the
+    pointer: `Power · Model B: 85`), `AnimateOnLoad` (the polygons open out from
+    the centre), `AnimateValues`, `Monochrome` and its gradient, the theme's
+    palette, `HideBackground`, `Border*`, `CornerRadius`, `Transparency` and the
+    shadows. Its marks and type stay solid when the face is see-through. Before
+    any data is pushed it shows a six-axis, three-series sample.
+  - Axis names hang off the rim inside the control, a little smaller than the
+    legend, in the ink the face calls for — shortened with `…` only as far as
+    keeping the circle large requires — and never run into the title or the
+    legend. The grid is that ink at a whisper (soft concentric bands, thin
+    rings and spokes), polygons are drawn largest first with a 2 px outline, and
+    vertex markers carry a light halo and are left off where a value sits at
+    `MinValue`. Fewer than
+    three axes draw a line (two) or a point (one); a value below `MinValue`, or
+    that is not a number, sits on the centre.
+  - It has no X/Y axes, so it carries none of `ShowXAxis`, `ShowYAxis`,
+    `XAxisLabel`, `YAxisLabel`, `Horizontal` or `Stacked`.
+  - The Knowledge Base (`kb_lookup`, the reference pack) and the Developer's
+    Guide describe it.
+
 ## [PowerRustCOBOL 1.90.2] — 2026-10-07
 
 ### Added

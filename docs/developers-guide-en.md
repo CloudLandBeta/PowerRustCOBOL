@@ -2586,7 +2586,7 @@ correctly on each. Leave it unticked and the shape wears **FillColor** (or the
 Appearance **Background color** when you have not set a FillColor).
 
 **Charts**
-: BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart.
+: BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart, RadarChart.
 Every chart has a **Hide background** property: when checked, the chart's panel
 fill and border frame are not drawn, so only the chart content (grid, axes,
 labels, data) shows — letting the chart sit transparently on the form.
@@ -2626,16 +2626,16 @@ A chart also honours its own **captions, labels and legend**:
 | `TitleFontSize`             | The title's own point size. **0** — the default — leaves it following the chart's `FontSize`. The band above the plot grows with it, so a large title takes room rather than printing over the data. |
 | `TitleColor`                | The title's own colour. **Empty** — the default — keeps the automatic choice, which reads dark on a face that can carry it and switches to the readable pole when it cannot. |
 | `XAxisLabel` / `YAxisLabel` | Free-text axis captions. Room is reserved for them in the margins, so a caption never runs across the data. Empty means no caption and no space taken. |
-| `ShowLegend`                | Slice names beside a pie or donut; series names under a bar, line, area or scatter chart. **Ticked by default.**                                        |
+| `ShowLegend`                | Slice names beside a pie or donut; series names under a bar, line, area, scatter or radar chart. **Ticked by default.**                                 |
 | `ShowLabels`                | A label on every pie/donut slice. **Ticked by default.**                                                                                                |
 | `LabelFormat`               | What that label says: `percent` (the slice's share), `value` (the number), or `label` (its name).                                                       |
 | `SeriesColors`              | The series' colours (a pie's slices), comma-separated, in order. The seeded list means "not chosen" — the theme's palette paints the chart until you change it. |
 | `SeriesLabels`              | The names the legend gives the series, comma-separated; an unnamed series shows as `Series n`.                                                          |
-| `ShowPoints`                | A marker on every point of a line **or area** chart.                                                                                                    |
-| `PointRadius`               | Line and area marker radius, and a scatter point's radius when it has no bubble sizes, in pixels.                                                        |
+| `ShowPoints`                | A marker on every point of a line **or area** chart, and on every vertex of a radar chart's polygons.                                                    |
+| `PointRadius`               | Line and area marker radius (4), a radar vertex marker's radius (3), and a scatter point's radius when it has no bubble sizes, in pixels.                |
 | `BubbleScale`               | A scatter chart's largest bubble radius; the others are sized in proportion to their sizes (see below).                                                  |
-| `ShowTooltips`              | In the running form, the bar, point or slice under the pointer shows `label: value`. **Ticked by default.**                                              |
-| `AnimateOnLoad`             | The first time the running chart has data, its marks grow into place over `AnimationDuration`. **Ticked by default.**                                   |
+| `ShowTooltips`              | In the running form, the bar, point or slice under the pointer — a radar's nearest vertex — shows `label: value`. **Ticked by default.**                 |
+| `AnimateOnLoad`             | The first time the running chart has data, its marks grow into place — a radar's polygons open out from the centre — over `AnimationDuration`. **Ticked by default.** |
 | `FillAlpha`                 | The opacity an area chart fills at, 0–100 %.                                                                                                          |
 | `AnimateValues`             | Animate a **change of data**: the chart travels from the values it is showing to the new ones instead of cutting to them. Off by default.               |
 | `AnimationDuration`         | How long that move — and the `AnimateOnLoad` growth — takes, in milliseconds. Default 2000; anything under 250 is raised to 250.                     |
@@ -2722,6 +2722,83 @@ On a **scatter chart** there is one series, and the third `AddPoint` argument
 is the bubble's size instead; `BubbleField` = `SALES-VOLUME` sizes every bubble
 from the table (the largest is `BubbleScale` across its radius). A pie or donut
 draws the first series.
+
+**Radar chart.** A `RadarChart` compares several things across the same set
+of measures — a candidate scored on six skills, three products rated on the same
+five criteria. It has the data model of the bar, line and area charts, read a
+different way: each **point is an axis** — a spoke of the radar, named by its
+label — and each **series is a polygon** drawn across the spokes, one value on
+each. The first axis points straight up and the rest follow clockwise, in the
+order the points were added. Everything you know about feeding those charts
+carries over: `AddPoint(label, v1, v2, …)` gives the axis's value in series 1,
+2, 3 …; `Clear`, `Refresh` and `RefreshBinding` work as they do there; and
+`DataSource`, `DataCount`, `LabelField`, `ValueFields`, `SeriesLabels` and
+`SeriesColors` bind and name the series in the same way, with no limit on how
+many.
+
+```cobol
+           INVOKE Radar-1::Clear()
+           INVOKE Radar-1::AddPoint("Speed",   80, 55, 35)
+           INVOKE Radar-1::AddPoint("Power",   60, 85, 40)
+           INVOKE Radar-1::AddPoint("Range",   70, 45, 90)
+           INVOKE Radar-1::AddPoint("Comfort", 90, 60, 45)
+           INVOKE Radar-1::AddPoint("Safety",  55, 80, 65)
+           INVOKE Radar-1::AddPoint("Value",   75, 50, 85)
+```
+
+With `SeriesLabels` = `Team A,Team B,Team C` this draws six spokes and three
+polygons, named in the legend. Until the first point arrives the control shows
+a six-axis, three-series sample so the designer canvas is never empty;
+`Clear` brings it back.
+
+> 📷 Screenshot needed — `radar-chart-three-series.png`. Drop a RadarChart on a
+> form with a dark background, set **Transparency** to about 40, and run the
+> form with the six `AddPoint` lines above in `onLoad` and `SeriesLabels` =
+> `Team A,Team B,Team C`. Capture the chart showing the three overlapping
+> polygons, the axis names around the rim and the legend underneath.
+
+A radar's own properties, besides the captions, legend, colours, border and
+`Monochrome` it shares with every chart:
+
+| Property         | What it does                                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GridLevels`     | How many concentric rings the grid draws, 1 to 10. Default 5. `ShowGridLines` hides the rings and the spokes together.                                         |
+| `FillOpacity`    | How solid each polygon's fill is, 0–100 %. Default 35, so polygons laid over each other can all be read; 0 leaves just the outline. It is the radar's `FillAlpha`. |
+| `ShowPoints`     | A marker, with a light halo so it reads on any fill, on every vertex whose value is above `MinValue`. **Ticked by default.** `PointRadius` (default 3) sizes it. |
+| `MinValue`       | The value at the centre, shared by every axis. Default 0. Decimals are fine: `-2.5`.                                                                           |
+| `MaxValue`       | The value on the rim. **0 — the default — means automatic**: the largest value of any series, rounded up so the rings fall on 1, 2, 2.5, 5 or 10 times a power of ten (rings at 20, 40, 60 … rather than 17.4, 34.8 …). Set it above `MinValue` to hold the scale still. |
+| `ShowAxisValues` | Writes the value each ring stands for beside the first axis. Off by default.                                                                                   |
+
+One scale serves every axis, which is what makes the polygons comparable: to
+compare two radars, give both the same `MinValue` and `MaxValue`. A value past
+the top is drawn on the rim.
+
+A radar honours the shared chart behaviour too. `AnimateOnLoad` opens the
+polygons out from the centre and `AnimateValues` travels them to a new set of
+values; `ShowTooltips` shows the nearest vertex's axis, series and value —
+`Power · Team B: 85`; `HideBackground`, `Transparency`, the border properties
+and `Monochrome` (with its gradient, a lighter centre fading to a darker rim)
+work as on any chart. Its text and lines are drawn solid whatever the
+**Transparency**, so a radar set to 40 on a dark form stays readable.
+
+> ⚠️ **Caveats.**
+> - **Fewer than three axes** cannot enclose an area: two axes draw each series
+>   as a line and one axis as a single point.
+> - **A radar has no negative side.** A value below `MinValue` — a negative one
+>   on the default scale — is drawn on the centre, and so is a value that is not
+>   a number. Set `MinValue` below zero to chart signed values.
+> - **`MaxValue` 0 is automatic**, even when `MinValue` is negative; to fix a
+>   top at zero, use a number just above it.
+> - **Axis names are shortened with `…`** when they would otherwise crowd the
+>   rim, and the circle shrinks on a small control to keep every name inside it.
+>   A larger control, a shorter label or a smaller `FontSize` gives the circle
+>   more room.
+> - **No X/Y axes, captions, `Horizontal` or `Stacked`.** A radar has none of
+>   `ShowXAxis`, `ShowYAxis`, `XAxisLabel`, `YAxisLabel`, `Horizontal` or
+>   `Stacked`; a property it does not carry is never read.
+> - The generated `<id>-ADD-POINT` paragraph carries a label and ONE value (the
+>   first series), as on every chart. Use `AddPoint` with several values, or
+>   `ValueFields` with `SET-TABLE`, for more.
 
 > **Note.** A tooltip (`ShowTooltips`) reports the mark under the pointer —
 > the bar or segment, or the nearest point of any line — with its series'
