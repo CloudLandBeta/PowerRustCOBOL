@@ -1320,6 +1320,12 @@ fn draw_deferred_groupbox_captions(
     }
 }
 
+/// Whether an animation has the control bigger than its place: scaled up past
+/// 1, with a hair of margin so a settled animation (exactly 1) never counts.
+fn grows_past_its_place(tf: &RenderTransform) -> bool {
+    tf.scale > 1.001
+}
+
 /// The container whose face the drop shadow of control `idx` may fall on: its
 /// parent, unless the parent paints no face of its own (`HideBackground` — a
 /// layout grid or flex row that only arranges its children), in which case the
@@ -2562,6 +2568,14 @@ fn render_form_inner(
             None => content_rect,
         }
         .intersect(surface_clip);
+        // An animation that makes a control GROW past its place (an elastic
+        // zoom overshoots, a pulse swells) is let out of its containers while
+        // it does: the card is clipped to nothing but the surface — and so is
+        // its shadow — for as long as its scale is above 1 (operator,
+        // 2026-10-08: "when controls are animated and grow beyond the grid,
+        // only this time they are allowed to bleed out of the grid").
+        let growing = grows_past_its_place(&tf);
+        let bleed = content_rect.intersect(surface_clip);
         // How far this control's drop shadow may fall: its container's OUTER
         // rect (within what clips the container), not the content rect the
         // control itself is clipped to — see `paint::ShadowBoundsScope`.
@@ -2569,6 +2583,9 @@ fn render_form_inner(
         // not a boundary: the room is the next ancestor's that has one, or
         // the whole surface when none does.
         let shadow_bounds = controls[idx].parent.as_deref().and_then(|_| {
+            if growing {
+                return Some(bleed);
+            }
             let Some(pidx) = shadow_room_owner(controls, idx, input.state) else {
                 return Some(content_rect.intersect(surface_clip));
             };
@@ -2587,6 +2604,7 @@ fn render_form_inner(
         // the parent/container clip, so offscreen cards do not animate while
         // partially visible cards animate and remain clipped.
         let tf = apply_card_appear(base, tf, final_screen, clip, ui.ctx(), input.state);
+        let clip = if growing { bleed } else { clip };
         let base_screen = Rect::from_min_size(
             origin + Vec2::new(r.x as f32 + tf.dx - scroll.x, r.y as f32 + tf.dy - scroll.y),
             Vec2::new(r.w as f32, r.h as f32),
@@ -3752,7 +3770,11 @@ pub fn render_faces(
 
         // Clip children to ancestor container content areas; top-level controls
         // draw to the painter's existing clip (the canvas), matching the designer.
+        let growing = grows_past_its_place(&tf);
         let clip = match containers::clip_rect(controls, idx) {
+            // …except while an animation makes it grow past its place: then it
+            // bleeds out of its containers, as on a running form.
+            Some(_) if growing => painter.clip_rect(),
             Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
                 origin + Vec2::new(cm.x as f32, cm.y as f32),
                 Vec2::new(cm.w as f32, cm.h as f32),
@@ -3762,6 +3784,9 @@ pub fn render_faces(
         // The drop shadow may fall into the container's padding, as in
         // `render_form` (`paint::ShadowBoundsScope`).
         let shadow_bounds = controls[idx].parent.as_deref().and_then(|_| {
+            if growing {
+                return Some(painter.clip_rect());
+            }
             let Some(pidx) = shadow_room_owner(controls, idx, input.state) else {
                 return Some(painter.clip_rect());
             };
@@ -15578,6 +15603,93 @@ mod tests {
         assert_ne!(expand, collapse, "the two states look different");
         assert!(expand_icon_strokes(false, true, false).is_empty(), "not Expandable: no icon");
         assert!(expand_icon_strokes(true, false, false).is_empty(), "not laid out: no icon");
+    }
+
+    /// Scales one control about its centre, as an entrance animation does.
+    struct Scaling(&'static str, f32);
+    impl FormState for Scaling {
+        fn transform(&self, base: &Control) -> RenderTransform {
+            if base.id == self.0 {
+                RenderTransform { dx: 0.0, dy: 0.0, scale: self.1, alpha: 1.0 }
+            } else {
+                RenderTransform::IDENTITY
+            }
+        }
+    }
+
+    /// The right-most pixel any fill of one frame shows — each cut to the clip it
+    /// was painted under — with `Card`, a GroupBox filling most of a 200×100 Panel
+    /// at 40,40, scaled by `scale` about its centre.
+    fn right_edge_shown(faces: bool, scale: f32) -> f32 {
+        let panel = ctrl("Pnl", ControlType::Panel, 40, 40, 200, 100);
+        let mut card = ctrl("Card", ControlType::GroupBox, 50, 50, 180, 80);
+        card.parent = Some("Pnl".into());
+        let controls = vec![panel, card];
+        let state = Scaling("Card", scale);
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                ui.set_min_size(Vec2::new(400.0, 300.0));
+                let rin = RenderInput {
+                    controls: &controls,
+                    state: &state,
+                    form_size: Vec2::new(400.0, 300.0),
+                    glass: true,
+                    mode: if faces { RenderMode::Static } else { RenderMode::Interactive },
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                if faces {
+                    let painter = ui.painter().clone();
+                    let origin = ui.min_rect().min;
+                    let _ = render_faces(&painter, origin, &rin);
+                } else {
+                    let _ = render_form(ui, &rin);
+                }
+            });
+        });
+        out.textures_delta.clear();
+        fn walk(s: &egui::Shape, clip: Rect, right: &mut f32) {
+            match s {
+                // (the form's own backdrop spans the whole surface: not a control's)
+                egui::Shape::Rect(r) if r.fill.a() > 0 && r.rect.width() < 300.0 => {
+                    let seen = r.rect.intersect(clip);
+                    if seen.is_positive() {
+                        *right = right.max(seen.max.x);
+                    }
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, right)),
+                _ => {}
+            }
+        }
+        let mut right = 0.0_f32;
+        for cs in &out.shapes {
+            walk(&cs.shape, cs.clip_rect, &mut right);
+        }
+        right
+    }
+
+    /// **A control an animation makes grow bleeds out of its container, only
+    /// then.** An elastic zoom overshoots its place; clipped to the container
+    /// the card showed cut off along the container's edge (operator,
+    /// 2026-10-08: the KPI strip of PowerAnalytics's data page). While its scale
+    /// is above 1 it is clipped to the surface alone; at 1, or smaller, the
+    /// container clips it as ever. Both surfaces.
+    #[test]
+    fn a_control_an_animation_grows_bleeds_out_of_its_container() {
+        for faces in [false, true] {
+            // What shows past the container at rest is the container's own
+            // face and halo; the measure is relative to that.
+            let settled = right_edge_shown(faces, 1.0);
+            let shrunk = right_edge_shown(faces, 0.8);
+            let grown = right_edge_shown(faces, 1.3);
+            assert!(shrunk <= settled + 1.0, "faces={faces}: a card dipping inside its place stays in it: {shrunk} vs {settled}");
+            assert!(
+                grown > settled + 10.0,
+                "faces={faces}: a card grown to 1.3x must show past the container's edge: {grown} vs {settled} at rest"
+            );
+        }
     }
 
     /// How many fills of one frame reach past the right or bottom edge of a

@@ -2406,6 +2406,14 @@ The designer canvas, the form preview, **Run Form** and the built application
 all step animations through the same clock, so a loop and its pauses look the
 same everywhere.
 
+A control is normally cut off at the edge of the container it sits in. An
+animation that makes it **bigger than its place** — a `ZoomOut` or `Pulse` with
+elastic easing swells past 100 % before it settles — is the one exception: for as
+long as it is larger than its place it is drawn over its container's edge, and
+so is its drop shadow, instead of being sliced off along the grid; the moment it
+is back to its size, or smaller, the container clips it again. (Before 1.90.18 a
+card that overshot at the edge of a grid or a flex row showed cut off.)
+
 ---
 
 ## 8. The control catalogue

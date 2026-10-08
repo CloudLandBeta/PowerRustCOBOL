@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.18] — 2026-10-08
+
+### Fixed
+- **A control that an animation made grow was cut off at the edge of its
+  container.** An elastic zoom overshoots its place, and a card at the edge of a
+  grid or a flex row — the KPI strip of PowerAnalytics's data page — showed
+  sliced along the container, with its text cut. For as long as an animation
+  has a control bigger than its place it is now drawn over the container's edge,
+  its shadow too, and the container clips it again once it is back to its size.
+  On a running form and on the designer canvas.
+
 ## [PowerRustCOBOL 1.90.17] — 2026-10-08
 
 ### Fixed
