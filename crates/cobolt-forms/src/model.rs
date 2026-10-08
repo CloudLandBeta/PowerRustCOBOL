@@ -5232,6 +5232,9 @@ impl Control {
                 props.insert("VScroll".into(), PropValue::Bool(false));
                 // Panel shares the same visual model as GroupBox (minus caption).
                 props.insert("HideBackground".into(), PropValue::Bool(false));
+                // Spec 090 — a card that can take the room of its siblings.
+                props.insert("Expandable".into(), PropValue::Bool(false));
+                props.insert("Expanded".into(), PropValue::Bool(false));
             }
             ControlType::GroupBox => {
                 props.insert("Caption".into(), PropValue::String(String::new()));
@@ -5258,6 +5261,9 @@ impl Control {
                     props.insert(k.into(), v);
                 }
                 props.insert("HideBackground".into(), PropValue::Bool(false));
+                // Spec 090 — a card that can take the room of its siblings.
+                props.insert("Expandable".into(), PropValue::Bool(false));
+                props.insert("Expanded".into(), PropValue::Bool(false));
                 // ── Repeating group / array template (spec 015, Phase 2) ───────
                 // Inert until IsRepeatingGroup is turned on (existing forms stay
                 // unchanged). ArrayName empty ⇒ use the control id.

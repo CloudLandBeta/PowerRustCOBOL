@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use crate::layout::defaults;
 use crate::layout::{Insets, LayoutMode};
-use crate::model::{Control, PropValue};
+use crate::model::{Control, ControlType, PropValue};
 
 /// Where layout properties are read from.
 pub trait PropSource {
@@ -118,6 +118,14 @@ impl Edges {
         .collect::<Vec<_>>()
         .join(",")
     }
+}
+
+/// Spec 090 — whether `c` is a Panel or a GroupBox that is expanded, taking
+/// the room of its siblings. Written by the `Expand()` / `Collapse()` methods,
+/// a click on the expand icon, or the designer.
+pub fn expanded(c: &Control) -> bool {
+    matches!(c.control_type, ControlType::Panel | ControlType::GroupBox)
+        && c.get_prop("Expanded").is_some_and(|v| v.as_bool())
 }
 
 /// A control's `Anchor` edges. A boolean or integer value is the pre-056

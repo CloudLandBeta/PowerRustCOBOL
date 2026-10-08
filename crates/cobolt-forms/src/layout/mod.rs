@@ -241,6 +241,9 @@ pub struct LayoutOutput {
     pub hidden: HashSet<String>,
     /// Controls a breakpoint shows although they were designed hidden.
     pub shown: HashSet<String>,
+    /// Spec 090 — the siblings of an expanded Panel or GroupBox: they give
+    /// their room up, and nothing of them (or inside them) is drawn.
+    pub expanded_away: HashSet<String>,
     /// The active breakpoint's name (empty with no table).
     pub breakpoint: String,
     /// The form's font factor, system factor included (R67, R68).
@@ -517,6 +520,7 @@ fn place_children(
             let (cw, ch) = content.unwrap_or((0.0, 0.0));
             content = Some((cw.max(w), ch.max(h)));
         }
+        expand(input, &set, client, out);
     }
 
     for &i in &visual {
@@ -549,6 +553,22 @@ fn place_children(
         }
     }
     content
+}
+
+/// Spec 090 — the Panel or GroupBox of one sibling set that is expanded takes
+/// the whole client rectangle, the room all its siblings had between them, and
+/// the siblings drop out. The contents of the expanded control are laid out
+/// afterwards, against its new rectangle, like at any other size.
+///
+/// `set` is in z-order, so when several are expanded the topmost wins.
+fn expand(input: &LayoutInput<'_>, set: &[usize], client: LRect, out: &mut LayoutOutput) {
+    let Some(&winner) = set.iter().rev().find(|&&i| props::expanded(&input.controls[i])) else {
+        return;
+    };
+    out.rects.insert(input.controls[winner].id.clone(), client);
+    for &i in set.iter().filter(|&&i| i != winner) {
+        out.expanded_away.insert(input.controls[i].id.clone());
+    }
 }
 
 /// Place one sibling set of `parent`'s visual children — all of them, or one
@@ -940,6 +960,67 @@ mod tests {
             "grid in a Fill panel at 800×500: G1 {:?}, G2 {:?}; flex column in G1: B1 {:?}, B2 {:?}; form minimum {:?}",
             r(&o, "G1"), r(&o, "G2"), r(&o, "B1"), r(&o, "B2"), o.min_size
         );
+    }
+
+    /// Spec 090 (AC1, AC2, R7) — a grid of four cards, two columns by two rows,
+    /// at 800 × 600 with a 20 px gap. Expand B: it takes the whole client of the
+    /// grid, its three siblings and what is inside them are given up, and the
+    /// label inside B, anchored `Top,Left,Right,Bottom`, follows B's new size.
+    /// Collapse it: everything is back in its cell. The topmost of two expanded
+    /// siblings wins.
+    #[test]
+    fn an_expanded_card_takes_the_room_of_its_siblings() {
+        let s = |v: &str| PropValue::String(v.into());
+        let mut grid = with(ctrl("G", ControlType::Panel, (0, 0, 800, 600), None), "LayoutMode", s("Grid"));
+        grid = with(with(with(grid, "GridColumns", s("1fr 1fr")), "GridRows", s("1fr 1fr")), "Gap", PropValue::Int(20));
+        let card = |id: &str, x: i32, y: i32, z: i32| {
+            let mut c = ctrl(id, ControlType::GroupBox, (x, y, 100, 100), Some("G"));
+            c.z_order = z;
+            c
+        };
+        let mut inner = ctrl("IN", ControlType::Label, (110, 110, 80, 20), Some("B"));
+        inner.set_prop("Anchor", s("Top,Left,Right,Bottom"));
+        let build = |expanded: &[&str]| {
+            let mut v = vec![grid.clone(), card("A", 0, 0, 1), card("B", 120, 0, 2), card("C", 0, 120, 3), card("D", 120, 120, 4), inner.clone()];
+            for c in v.iter_mut().filter(|c| expanded.contains(&c.id.as_str())) {
+                c.set_prop("Expanded", PropValue::Bool(true));
+            }
+            v
+        };
+
+        let collapsed = solve_at(&build(&[]), (800.0, 600.0), (800.0, 600.0));
+        assert!(collapsed.expanded_away.is_empty());
+        let cell_b = r(&collapsed, "B");
+        assert!(cell_b.2 < 400.0 && cell_b.3 < 300.0, "B is one cell: {cell_b:?}");
+
+        let open = solve_at(&build(&["B"]), (800.0, 600.0), (800.0, 600.0));
+        let client = open.containers["G"].client;
+        assert_eq!(r(&open, "B"), (client.x, client.y, client.w, client.h), "B takes the whole client");
+        let mut away: Vec<&str> = open.expanded_away.iter().map(String::as_str).collect();
+        away.sort_unstable();
+        assert_eq!(away, ["A", "C", "D"], "its three siblings give their room up");
+        let (dw, dh) = (client.w - cell_b.2, client.h - cell_b.3);
+        let (before, after) = (r(&collapsed, "IN"), r(&open, "IN"));
+        assert!(
+            (after.2 - before.2 - dw).abs() < 1.0 && (after.3 - before.3 - dh).abs() < 1.0,
+            "what is inside B follows its size: {before:?} -> {after:?}, B grew by {dw} x {dh}"
+        );
+
+        let two = solve_at(&build(&["A", "D"]), (800.0, 600.0), (800.0, 600.0));
+        assert_eq!(r(&two, "D"), (client.x, client.y, client.w, client.h), "the topmost wins");
+        assert!(two.expanded_away.contains("A") && !two.expanded_away.contains("D"));
+    }
+
+    /// Only a Panel or a GroupBox expands; a control of any other type carrying
+    /// the property is just placed.
+    #[test]
+    fn only_a_panel_or_a_groupbox_expands() {
+        let mut grid = with(ctrl("G", ControlType::Panel, (0, 0, 400, 200), None), "LayoutMode", PropValue::String("Flex".into()));
+        grid.set_prop("Gap", PropValue::Int(0));
+        let mut label = ctrl("L", ControlType::Label, (0, 0, 100, 20), Some("G"));
+        label.set_prop("Expanded", PropValue::Bool(true));
+        let o = solve_at(&[grid, label, ctrl("M", ControlType::Label, (100, 0, 100, 20), Some("G"))], (400.0, 200.0), (400.0, 200.0));
+        assert!(o.expanded_away.is_empty(), "a Label never expands");
     }
 
     /// R53 — a flex-column form is as tall as its content when that is taller

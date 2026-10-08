@@ -7044,6 +7044,82 @@ pub fn media_dest_rect(rect: egui::Rect, native: Vec2, size_mode: &str) -> egui:
     }
 }
 
+/// Spec 090 — whether a Panel or a GroupBox shows the expand/collapse icon:
+/// `Expandable` is on, the form is laid out (an expansion is a layout, so
+/// without one a click would change nothing) and the card is big enough to
+/// carry it.
+pub fn shows_expand_icon(ctrl: &Control, screen: Rect) -> bool {
+    matches!(ctrl.control_type, ControlType::Panel | ControlType::GroupBox)
+        && ctrl.get_prop("Expandable").is_some_and(|v| v.as_bool())
+        && ctrl
+            .get_prop(crate::layout::apply::LAID_OUT)
+            .is_some_and(|v| v.as_bool())
+        && screen.width() >= EXPAND_ICON_SIZE * 2.0
+        && screen.height() >= EXPAND_ICON_SIZE * 2.0
+}
+
+/// The side of the expand/collapse icon's square, in points.
+pub const EXPAND_ICON_SIZE: f32 = 24.0;
+
+/// Where the expand/collapse icon of the card at `screen` sits and is hit: a
+/// square in the top-right corner, kept inside the arc of a rounded corner.
+pub fn expand_icon_rect(ctrl: &Control, screen: Rect) -> Rect {
+    let inset = 6.0 + 0.25 * corner_radius(ctrl);
+    let min = Pos2::new(screen.max.x - inset - EXPAND_ICON_SIZE, screen.min.y + inset);
+    Rect::from_min_size(min, Vec2::splat(EXPAND_ICON_SIZE))
+}
+
+/// Spec 090 — the standard expand/collapse icon of a Panel or a GroupBox: two
+/// arrows pointing apart (expand) or together (collapse) along the diagonal,
+/// inked like the control's caption, with a soft square behind it while the
+/// pointer is over it.
+pub fn draw_expand_icon(painter: &egui::Painter, ctrl: &Control, screen: Rect, alpha_mul: f32, hovered: bool) {
+    let hit = expand_icon_rect(ctrl, screen);
+    let is_neumorphic =
+        glass_config_applies(painter.ctx()) && active_glass_style(painter.ctx()).is_neumorphic();
+    let (default_fill, _, default_text) = control_colors(&ctrl.control_type, false);
+    let fill = if is_neumorphic {
+        ctrl.get_prop("BackgroundColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::from_rgb(232, 237, 254))
+    } else {
+        default_fill
+    };
+    let ink = resolve_label_ink(painter.ctx(), ctrl, is_neumorphic, fill, default_text)
+        .gamma_multiply(alpha_mul.clamp(0.0, 1.0));
+    if hovered {
+        painter.rect_filled(hit, 6.0, ink.gamma_multiply(0.16));
+    }
+    let stroke = egui::Stroke::new(1.6, ink);
+    let c = hit.center();
+    let (reach, arm) = (7.0_f32, 5.5_f32);
+    // The diagonal runs from the bottom-left to the top-right of the icon.
+    let up_right = Vec2::new(1.0, -1.0);
+    let expanded = ctrl.get_prop("Expanded").is_some_and(|v| v.as_bool());
+    // The head of an arrow whose tip is `tip`: two short legs along the axes,
+    // `toward` saying which way the arrow points (+1 up-right, -1 down-left).
+    let head = |tip: Pos2, toward: f32| {
+        let back = -toward;
+        painter.line_segment([tip, tip + Vec2::new(back * arm, 0.0)], stroke);
+        painter.line_segment([tip, tip + Vec2::new(0.0, -back * arm)], stroke);
+    };
+    if expanded {
+        // Collapse: each arrow comes in from its corner, its tip next to the
+        // centre — the upper-right one points down-left, the other up-right.
+        let (a, b) = (c + up_right * 1.5, c - up_right * 1.5);
+        head(a, -1.0);
+        head(b, 1.0);
+        painter.line_segment([c + up_right * reach, a], stroke);
+        painter.line_segment([c - up_right * reach, b], stroke);
+    } else {
+        // Expand: the tips go out to the corners.
+        let (a, b) = (c + up_right * reach, c - up_right * reach);
+        head(a, 1.0);
+        head(b, -1.0);
+        painter.line_segment([a, b], stroke);
+    }
+}
+
 /// Draw a GroupBox caption as a top overlay. The shared renderer defers captions
 /// until after children are drawn, so child clipping can use the whole container
 /// interior while the caption still sits above any overlapping child content.

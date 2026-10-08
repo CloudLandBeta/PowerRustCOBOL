@@ -16579,6 +16579,17 @@ impl Interpreter {
                 none
             }
             "ISENABLED" => val(b01(&self.obj_get(obj, "Enabled"))),
+            // ── Panel / GroupBox (spec 090) ──
+            // The card takes the room of its siblings, or gives it back. The
+            // host writes `Expanded` into the design the layout reads.
+            "EXPAND" => {
+                self.obj_set(obj, "Expanded", "1".into());
+                none
+            }
+            "COLLAPSE" => {
+                self.obj_set(obj, "Expanded", "0".into());
+                none
+            }
             // ── Animation ──
             "PLAYANIMATION" | "PLAY" => {
                 let a = if args.is_empty() {

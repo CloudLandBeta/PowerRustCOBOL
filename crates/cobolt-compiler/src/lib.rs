@@ -6111,6 +6111,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "HScroll" => (BOOL_DOMAIN, "Panel, GroupBox, TabControl: horizontal scrolling when the children reach past the content area."),
         "VScroll" => (BOOL_DOMAIN, "Panel, GroupBox, TabControl: vertical scrolling when the children reach past the content area."),
         "HideBackground" => (BOOL_DOMAIN, "Hides the fill/border while keeping the content visible."),
+        "Expandable" => (BOOL_DOMAIN, "Panel, GroupBox: shows the expand/collapse icon at the card's top-right corner. Clicking it expands the card to the whole area of its container — the room all its sibling cards had between them, which are not shown meanwhile — and clicking again gives the room back. Needs a responsive form (`Responsive` on), because the layout is what places the cards. Default off."),
+        "Expanded" => (BOOL_DOMAIN, "Panel, GroupBox: whether the card is expanded, taking the whole area of its container (see `Expandable`). Read it to know; `Expand()` and `Collapse()` — or writing it — change it, whether or not `Expandable` is on, and the controls inside the card are laid out for its new size by their own anchors, docks and layout mode. Saved with the form, so a card can open expanded. If several siblings are expanded the one highest in z-order wins. Default off."),
         "HideCaption" => (BOOL_DOMAIN, "Hides the GroupBox caption text."),
         "CaptionEnabled" => (BOOL_DOMAIN, "Whether the legend reads as enabled: off draws it dimmed (about 45% opacity), like a disabled caption. It reserves no space and does not change where children go."),
         "CaptionBackgroundStyle" => ("one of: `None` | `Flat` | `Gradient` (default `None`)", "GroupBox: how the caption is filled. `None` keeps the classic legend on the top border; `Flat` draws it in a box filled with `CaptionBackColor`; `Gradient` fills the box from `CaptionGradientStart` to `CaptionGradientEnd` along `CaptionGradientDirection`. The box is outlined in the GroupBox's `BorderColor` at its `BorderWidth`, and the caption text takes an ink that reads on the fill."),
@@ -7161,6 +7163,10 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ("SetCaption(text: String)", "Replace the caption."),
         ("GetCaption() → String", "Read the caption."),
     ];
+    let expand_methods: Vec<(&'static str, &'static str)> = vec![
+        ("Expand()", "Take the whole area of the container, the room the sibling cards had; they are not shown while this card is expanded. Needs a responsive form."),
+        ("Collapse()", "Give the room back: the card returns to its place and its siblings show again."),
+    ];
     let value_methods: Vec<(&'static str, &'static str)> = vec![
         ("SetValue(value: Integer)", "Set the current value."),
         ("GetValue() → Integer", "Read the current value."),
@@ -7446,8 +7452,10 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
                 "RefreshBinding() → Integer",
                 "Repeating group: re-hydrate the cards from the bound data source.",
             ));
+            v.extend(expand_methods);
             v
         }
+        "Panel" => expand_methods,
         "Maps" => vec![
             ("Geocode(address: String)", "**Async** — starts the lookup and returns an EMPTY string at once. `onComplete` delivers `lat\\tlng\\tformatted_address` in `ResponseBody`. Fails \"not configured\" with no google_maps key set (R33)."),
             ("ReverseGeocode(lat: String, lng: String)", "**Async** — `onComplete` delivers the formatted address in `ResponseBody`."),

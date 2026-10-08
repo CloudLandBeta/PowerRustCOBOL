@@ -114,6 +114,8 @@ pub fn is_known_method(name: &str) -> bool {
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
+        // Panel / GroupBox (spec 090)
+            | "EXPAND" | "COLLAPSE"
         // Agent / window / SQL / HTTP
             | "CLOSE" | "GETRESULT" | "SETTITLE" | "SETPROMPT" | "SETMODEL"
             | "ASK" | "GET" | "POST" | "PUT" | "DELETE" | "CALL" | "SETHEADER"

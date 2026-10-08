@@ -67,7 +67,9 @@ pub fn narrowest(table: &[Breakpoint]) -> Option<&Breakpoint> {
 /// defaults table seeds (anchoring, docking, limits, container and item
 /// properties, padding) and `FontSize`. Content never.
 pub fn overridable(c: &Control, property: &str) -> bool {
-    const GEOMETRY: &[&str] = &["Visible", "X", "Y", "Width", "Height", "FontSize"];
+    // `Expanded` (spec 090) is placement: an expanded card takes its siblings'
+    // room, so a program's write to it must reach the design the layout reads.
+    const GEOMETRY: &[&str] = &["Visible", "X", "Y", "Width", "Height", "FontSize", "Expanded"];
     GEOMETRY.iter().any(|k| k.eq_ignore_ascii_case(property))
         || crate::layout::defaults::control_default(&c.control_type, property).is_some()
 }

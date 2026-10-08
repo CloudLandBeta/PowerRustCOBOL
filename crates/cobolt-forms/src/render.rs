@@ -1240,6 +1240,51 @@ fn mask_container_notches(
     }
 }
 
+/// Spec 090 — the expand/collapse icon of every Panel and GroupBox that offers
+/// one, painted over what is inside it, and — on an interactive surface — a
+/// click on it. The click flips `Expanded` (the host writes it into the design
+/// the layout reads) and is not a click on the card: the `onClick` the card's
+/// own pointer pass queued for this press is taken back.
+fn draw_expand_icons(
+    ui: Option<&egui::Ui>,
+    painter: &egui::Painter,
+    input: &RenderInput<'_>,
+    out: &mut RenderOutput,
+) {
+    let clicked_at = ui.and_then(|ui| {
+        ui.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None })
+    });
+    for (idx, base) in input.controls.iter().enumerate() {
+        if !matches!(base.control_type, ControlType::Panel | ControlType::GroupBox)
+            || !input.state.visible(base)
+            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| input.state.visible(c))
+        {
+            continue;
+        }
+        let live = input.state.live(base);
+        let Some(&screen) = out.control_rects.get(&live.id) else {
+            continue;
+        };
+        if !crate::paint::shows_expand_icon(&live, screen) {
+            continue;
+        }
+        let enabled = input.state.enabled(base)
+            && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
+        let alpha = containers::ancestor_opacity(input.controls, idx)
+            * input.state.transform(base).alpha
+            * if enabled { 1.0 } else { 0.45 };
+        let hit = crate::paint::expand_icon_rect(&live, screen);
+        let hovered = enabled && ui.is_some_and(|ui| ui.rect_contains_pointer(hit));
+        crate::paint::draw_expand_icon(painter, &live, screen, alpha, hovered);
+        if enabled && clicked_at.is_some_and(|p| hit.contains(p)) {
+            let now = !live.get_prop("Expanded").is_some_and(|v| v.as_bool());
+            out.prop_updates
+                .push((live.id.clone(), "Expanded".to_owned(), if now { "1" } else { "0" }.to_owned()));
+            out.events.retain(|e| !(e.ctrl_id == live.id && e.event == "onClick"));
+        }
+    }
+}
+
 fn draw_deferred_groupbox_captions(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
@@ -1275,11 +1320,6 @@ fn draw_deferred_groupbox_captions(
     }
 }
 
-/// How far a child's shadow may spread inside `parent`, whose screen rect is
-/// `outer`: into the container's padding, up to its outer edge (1.70.265) —
-/// except a TabControl's tab strip, which is chrome, not room. There the bound
-/// is the page (`paint::tabcontrol_page_rect`); a child's shadow painted over
-/// a side strip showed as a grey block under the tabs (operator, 2026-09-27).
 /// The container whose face the drop shadow of control `idx` may fall on: its
 /// parent, unless the parent paints no face of its own (`HideBackground` — a
 /// layout grid or flex row that only arranges its children), in which case the
@@ -1311,6 +1351,11 @@ fn shadow_room_owner(controls: &[Control], idx: usize, state: &dyn FormState) ->
     }
 }
 
+/// How far a child's shadow may spread inside `parent`, whose screen rect is
+/// `outer`: into the container's padding, up to its outer edge (1.70.265) —
+/// except a TabControl's tab strip, which is chrome, not room. There the bound
+/// is the page (`paint::tabcontrol_page_rect`); a child's shadow painted over
+/// a side strip showed as a grey block under the tabs (operator, 2026-09-27).
 fn shadow_room(outer: Rect, parent: &Control) -> Rect {
     if parent.control_type == ControlType::TabControl {
         let mut sized = parent.clone();
@@ -2777,6 +2822,7 @@ fn render_form_inner(
     );
     draw_deferred_groupbox_captions(&painter, input, &out);
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
+    draw_expand_icons(interactive.then_some(&*ui), &painter, input, &mut out);
     if interactive {
         paint_focus_ring(ui, &painter, input, controls, &tab_targets, &out);
     }
@@ -3776,6 +3822,7 @@ pub fn render_faces(
     }
     draw_deferred_groupbox_captions(painter, input, &out);
     draw_deferred_tabcontrol_tabs(painter, input, &out);
+    draw_expand_icons(None, painter, input, &mut out);
     out
 }
 
@@ -15467,6 +15514,70 @@ mod tests {
         assert!(canvas.contains_key("Lbl"), "…and what is inside it");
         let running = run(false);
         assert!(!running.contains_key("Lbl"), "a running form still hides the contents of a hidden card");
+    }
+
+    /// The line segments of one frame that lie inside the expand icon's square
+    /// of a 200×100 GroupBox at 40,40, drawn the way the designer canvas draws it.
+    fn expand_icon_strokes(expandable: bool, laid_out: bool, expanded: bool) -> Vec<[egui::Pos2; 2]> {
+        let mut card = ctrl("Card", ControlType::GroupBox, 40, 40, 200, 100);
+        card.set_prop("Expandable", PropValue::Bool(expandable));
+        card.set_prop("Expanded", PropValue::Bool(expanded));
+        if laid_out {
+            card.set_prop(crate::layout::apply::LAID_OUT, PropValue::Bool(true));
+        }
+        let hit = crate::paint::expand_icon_rect(&card, Rect::from_min_size(pos2(40.0, 40.0), Vec2::new(200.0, 100.0)));
+        let controls = vec![card];
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                ui.set_min_size(Vec2::new(300.0, 200.0));
+                let rin = RenderInput {
+                    controls: &controls,
+                    state: &DesignedState,
+                    form_size: Vec2::new(300.0, 200.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let painter = ui.painter().clone();
+                let origin = ui.min_rect().min;
+                let _ = render_faces(&painter, origin, &rin);
+            });
+        });
+        out.textures_delta.clear();
+        fn walk(s: &egui::Shape, hit: Rect, into: &mut Vec<[egui::Pos2; 2]>) {
+            match s {
+                egui::Shape::LineSegment { points, .. }
+                    if points.iter().all(|p| hit.expand(1.0).contains(*p)) =>
+                {
+                    into.push(*points)
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, hit, into)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for cs in &out.shapes {
+            walk(&cs.shape, hit, &mut found);
+        }
+        found
+    }
+
+    /// Spec 090 (AC3) — the expand icon is there when the card is Expandable and
+    /// its form is laid out, in the top-right corner, and not otherwise; and it
+    /// is a different drawing once the card is expanded (arrows together).
+    #[test]
+    fn the_expand_icon_shows_only_when_it_can_work() {
+        let expand = expand_icon_strokes(true, true, false);
+        let collapse = expand_icon_strokes(true, true, true);
+        assert_eq!(expand.len(), 5, "a diagonal and two arrowheads: {expand:?}");
+        assert_eq!(collapse.len(), 6, "two shafts and two arrowheads: {collapse:?}");
+        assert!(expand.iter().flatten().all(|p| p.x > 180.0 && p.y < 80.0), "top-right corner: {expand:?}");
+        assert_ne!(expand, collapse, "the two states look different");
+        assert!(expand_icon_strokes(false, true, false).is_empty(), "not Expandable: no icon");
+        assert!(expand_icon_strokes(true, false, false).is_empty(), "not laid out: no icon");
     }
 
     /// How many fills of one frame reach past the right or bottom edge of a

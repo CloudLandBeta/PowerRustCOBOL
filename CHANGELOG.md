@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.14] — 2026-10-08
+
+### Added
+- **Expandable cards.** A Panel or a GroupBox with the new `Expandable` property
+  shows the standard expand icon at its top-right corner; clicking it makes the
+  card take the whole area of its container — the room its sibling cards had
+  between them, which are not shown meanwhile — and the icon becomes the
+  collapse icon that gives the room back. The state is the new `Expanded`
+  property (saved with the form, so a card can open expanded), and a program
+  drives it with the new `Expand()` and `Collapse()` methods or by writing
+  `Expanded`. What is inside the card is laid out for its new size by its own
+  anchors, docks and layout mode. It works on a responsive form, which is what
+  places the cards; the designer shows it too. Spec 090.
+
 ## [PowerRustCOBOL 1.90.13] — 2026-10-08
 
 ### Fixed

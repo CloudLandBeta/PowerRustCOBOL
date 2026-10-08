@@ -1738,6 +1738,11 @@ impl FormBody {
         // value that caused it.
         for (id, key, val) in prop_updates {
             self.state_entry_mut(id).set(key, val.clone());
+            // Spec 090 — a click on a card's expand icon is placement: the
+            // layout reads the design, so it goes there like a program's write.
+            if self.responsive.is_some() && key.eq_ignore_ascii_case("Expanded") {
+                self.write_design(id, key, val);
+            }
             let _ = self
                 .input_tx
                 .send(StateUpdate::new(id.clone(), key.clone(), val.clone()));
@@ -12229,6 +12234,99 @@ mod parity {
         assert_eq!(after["PNL"].min.y, 110.0);
         assert_eq!(after["LBL"].min.y, before["LBL"].min.y - 40.0, "the container carries its contents");
         println!("056 T7.2: BTN 500 → 510 → 520 on screen; at 700 wide → 620; PNL::Y 150 → 110 carries LBL {} → {}", before["LBL"].min.y, after["LBL"].min.y);
+    }
+
+    /// Spec 090 (AC4) — an Expandable card in a responsive grid of four. A click
+    /// on its icon expands it to the grid's whole client and gives the others'
+    /// room up; a second click gives it back; and the program does the same
+    /// with a write to `Expanded` (what `Expand()` / `Collapse()` send). The
+    /// click is not a click on the card: its bound `onClick` stays quiet.
+    #[test]
+    fn an_expandable_card_takes_the_room_of_its_siblings_090() {
+        use cobolt_forms::{Control, ControlType, PropValue};
+        let s = |v: &str| PropValue::String(v.into());
+        let mut f = cobolt_forms::Form::new("EXP-FORM", "Expand", 800, 600);
+        f.responsive = true;
+        let mut grid = Control::new("G", ControlType::Panel, 0, 0);
+        grid.rect = cobolt_forms::model::Rect::new(0, 0, 800, 600);
+        for (k, v) in [("LayoutMode", "Grid"), ("GridColumns", "1fr 1fr"), ("GridRows", "1fr 1fr")] {
+            grid.set_prop(k, s(v));
+        }
+        grid.set_prop("Gap", PropValue::Int(20));
+        f.controls.push(grid);
+        for (id, x, y) in [("A", 0, 0), ("B", 420, 0), ("C", 0, 320), ("D", 420, 320)] {
+            let mut c = Control::new(id, ControlType::GroupBox, x, y);
+            c.rect = cobolt_forms::model::Rect::new(x, y, 380, 280);
+            c.parent = Some("G".into());
+            c.set_prop("Expandable", PropValue::Bool(id == "B"));
+            c.ensure_event("onClick");
+            f.controls.push(c);
+        }
+        let card_b = f.controls[2].clone();
+        let (mut app, _f, pipes) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let size = egui::vec2(800.0, 600.0);
+        let settle = |app: &mut FormHost| {
+            for _ in 0..CORPUS_FRAMES {
+                frame(app, &ctx, corpus_input(size));
+            }
+        };
+        let rect_of = |app: &FormHost, id: &str| app.last_control_rects()[id];
+        let expanded = |app: &FormHost| {
+            let l = app.root.last_layout.as_ref().expect("laid out");
+            (l.expanded_away.len(), l.containers["G"].client)
+        };
+
+        settle(&mut app);
+        let cell = rect_of(&app, "B");
+        assert_eq!(expanded(&app).0, 0, "nothing is expanded yet");
+        assert!(rect_of(&app, "A").width() < 400.0, "four cells");
+
+        // The host ignores interaction for its first 450 ms.
+        std::thread::sleep(Duration::from_millis(500));
+        settle(&mut app);
+        let _ = drain_events(&pipes);
+        let click = |app: &mut FormHost, at: egui::Pos2| {
+            let mut down = corpus_input(size);
+            down.events = vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() },
+            ];
+            frame(app, &ctx, down);
+            let mut up = corpus_input(size);
+            up.events = vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }];
+            frame(app, &ctx, up);
+            settle(app);
+        };
+
+        let icon = cobolt_forms::paint::expand_icon_rect(&card_b, rect_of(&app, "B")).center();
+        click(&mut app, icon);
+        let (away, client) = expanded(&app);
+        assert_eq!(away, 3, "the other three give their room up");
+        let b = rect_of(&app, "B");
+        assert!(
+            (b.min.x - client.x).abs() < 1.0 && (b.width() - client.w).abs() < 1.0 && (b.height() - client.h).abs() < 1.0,
+            "B fills the grid's client {client:?}: {b:?}"
+        );
+        assert!(!app.last_control_rects().contains_key("A"), "A is not drawn");
+        assert!(
+            !drain_events(&pipes).iter().any(|(id, e)| id == "B" && e == "onClick"),
+            "a click on the icon is not a click on the card"
+        );
+
+        // The icon is at the corner of the expanded card now; a second click collapses it.
+        let icon = cobolt_forms::paint::expand_icon_rect(&card_b, rect_of(&app, "B")).center();
+        click(&mut app, icon);
+        assert_eq!(expanded(&app).0, 0, "collapsed again");
+        assert!((rect_of(&app, "B").min.x - cell.min.x).abs() < 1.0, "B is back in its cell");
+
+        // The program: Expand() / Collapse() are writes of `Expanded`.
+        app.root.apply_interpreter_update(StateUpdate::new("D", "Expanded", "1"), false);
+        settle(&mut app);
+        assert_eq!(expanded(&app).0, 3, "a write expands even a card that is not Expandable");
+        app.root.apply_interpreter_update(StateUpdate::new("D", "Expanded", "0"), false);
+        settle(&mut app);
+        assert_eq!(expanded(&app).0, 0);
     }
 
     /// Spec 056 T7.3 (AC18, AC31; R37, R39, R46, R47) — what the program is

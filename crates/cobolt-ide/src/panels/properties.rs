@@ -7705,6 +7705,9 @@ impl PropertiesPanel {
                     );
                 }
                 bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
+                // Spec 090 — a card that can take the room of its siblings.
+                bool_row_inline(ui, id, "Expandable", "Expandable (icon)", ctrl, action);
+                bool_row_inline(ui, id, "Expanded", "Expanded", ctrl, action);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
 

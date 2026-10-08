@@ -3044,6 +3044,52 @@ face: the glass styles, a background gradient, a form theme or an asset pack.
 > Older forms that used a container **Border radius** still load and round
 > correctly — it is read as an alias for **Corner radius**.
 
+#### Expandable cards
+
+A dashboard is a grid of cards, and now and then one deserves the whole screen:
+a chart you want to read closely, a grid you want to scroll. Any **Panel** or
+**GroupBox** can be **expanded** — it takes the room that all of its sibling
+cards had between them — and **collapsed** again to give that room back.
+
+| Property     | What it does                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `Expandable` | Turn it on and the card shows the standard expand icon (two arrows pointing apart) at its top-right corner. Clicking it expands the card; the icon then shows two arrows pointing together, and clicking that collapses it. Off by default. |
+| `Expanded`   | The state: on while the card is expanded. Saved with the form, so a card can open expanded. |
+
+Your program drives it too, with or without the icon:
+
+```cobol
+       INVOKE CARD-SALES::Expand()
+       INVOKE CARD-SALES::Collapse()
+
+       IF CARD-SALES::Expanded IS true
+           MOVE "Back to the dashboard" TO LBL-HINT::Caption
+       END-IF
+```
+
+`Expand()` and `Collapse()` are shorthand for writing `Expanded` 1 and 0; the
+controls inside the card are laid out for its new size exactly as for any other
+size — by their own `Anchor`, `Dock` or `LayoutMode` — so give a chart inside
+the card `Top,Left,Right,Bottom` and it grows with it.
+
+> **Note.** "The room of its siblings" is the whole client area of the card's
+> container: for a card in a Grid, the grid's tracks and gaps together; for a card
+> straight on the form, the form. While a card is expanded its siblings, and
+> everything inside them, are not drawn and do not answer the mouse. If two
+> siblings are expanded at once, the one highest in the stacking order wins.
+> Clicking the icon is not a click on the card, so the card's `onClick` stays
+> quiet; there is no event for the change — read `Expanded` when you need it.
+
+> ⚠️ **Caveat.** The layout is what places the cards, so this works on a
+> **responsive** form (`Responsive` on) — which every application should be — and
+> the icon is not drawn on a form that is not. In the Form Designer, ticking
+> `Expanded` in the properties pane shows the card expanded and takes its siblings
+> off the canvas until you untick it.
+
+> 📷 Screenshot needed — `expandable-card.png`: a running dashboard grid with one
+> card showing the expand icon at its top-right corner, and the same dashboard
+> with that card expanded, showing the collapse icon.
+
 #### GroupBox appearance
 
 Beyond the shared container properties, a **GroupBox** adds visual options in the

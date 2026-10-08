@@ -149,7 +149,7 @@ pub fn laid_out_controls(controls: &[Control], layout: &LayoutOutput) -> Vec<Con
                 );
             }
             c.set_prop(LAID_OUT, PropValue::Bool(true));
-            if layout.hidden.contains(&c.id) {
+            if layout.hidden.contains(&c.id) || layout.expanded_away.contains(&c.id) {
                 c.set_prop(BREAKPOINT_VISIBLE, PropValue::Bool(false));
             } else if layout.shown.contains(&c.id) {
                 c.set_prop(BREAKPOINT_VISIBLE, PropValue::Bool(true));
