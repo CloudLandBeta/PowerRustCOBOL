@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.15] — 2026-10-08
+
+### Changed
+- **PowerAnalytics: expandable cards, the radar's second dimension, and the
+  animation of PowerDemo3's coloured buttons.** The chart cards and the data
+  grid card are `Expandable`: the icon in their top-right corner opens one over
+  the room of all the others. The panels take the animation settings of the
+  coloured buttons of PowerDemo3's main form — Elastic, 1800 ms, once, 400 ms
+  between one and the next, ZoomOut — and each page is animated only the first
+  time it is shown, so changing page no longer plays it again. The radar's axes
+  are always the ten most popular categories; what forms its polygons follows
+  the picks in *Nome comercial*: none, *Todos* or more than three give ONE
+  polygon in ONE colour (funds per category); two or three companies give a
+  polygon each, with a legend; one company gives its three series (funds, PL and
+  cotistas). Needs an IDE or `rcrun` of 1.90.14 or later for the icon.
+
 ## [PowerRustCOBOL 1.90.14] — 2026-10-08
 
 ### Added
