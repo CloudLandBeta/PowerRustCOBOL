@@ -3778,6 +3778,12 @@ at the ends rather than wrapping or running off:
 | **Press and drag** | Anchors on the row pressed and extends to the row under the pointer —*up or down*. Reversing direction **shrinks** the range back. Dragging above the first row holds at the first; below the last, at the last. |
 | **↑ / ↓**        | Moves the active row one line, once the list has been clicked (or Tabbed to).                                                                                                                                     |
 
+With `ShowCheckBoxes` on there is a fourth: **Space** ticks the active row, or
+unticks it if it was ticked — what a click on its box does, from the keyboard —
+and raises `onItemChecked` with the whole ticked set like the click does.
+Together with ↑ / ↓ that is a checked list worked without the mouse. A list
+without tick boxes leaves Space alone.
+
 Whatever moves the active row, the list **scrolls to keep it in view**, landing
 it on the first or last visible line — so a drag that runs past the bottom of
 the frame carries the view with it, and the operator never selects a row they

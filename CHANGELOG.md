@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.19] — 2026-10-08
+
+### Fixed
+- **Space did nothing on a ListBox with tick boxes.** The boxes answered only
+  the mouse, so a checked list — a type-ahead dropdown of names with a tick
+  beside each — could not be worked from the keyboard. Space now ticks or
+  unticks the highlighted row, as a click on its box does, and raises
+  `onItemChecked` with the whole ticked set; the arrows move the highlight. A
+  list without tick boxes leaves Space alone.
+
 ## [PowerRustCOBOL 1.90.18] — 2026-10-08
 
 ### Fixed

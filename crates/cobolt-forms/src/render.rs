@@ -8739,6 +8739,24 @@ fn render_interactive(
                         reveal = Some(to);
                     }
                 }
+                // Space ticks or unticks the highlighted row of a list with tick
+                // boxes — what a click on it does, from the keyboard
+                // (operator, 2026-10-08). Taken off the input, so no row the
+                // keyboard focus happens to rest on is "clicked" by it too.
+                if show_checks
+                    && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space))
+                {
+                    has_keyboard = true;
+                    if let Some(item) = items.iter().find(|it| **it == active_item) {
+                        match checked.iter().position(|c| c == item) {
+                            Some(at) => {
+                                checked.remove(at);
+                            }
+                            None => checked.push(item.clone()),
+                        }
+                        checks_changed = true;
+                    }
+                }
                 // Type-ahead (operator, 2026-10-03): the first item the typed
                 // search begins is chosen, as an arrow would choose it, and
                 // goes to the TOP of the list; the arrows carry on from it.
@@ -18859,6 +18877,79 @@ mod tests {
             "\n  ListBox tick boxes â a plain click on Delta then Beta â CheckedItems \
              \"Delta, Beta\", with no modifier held\n"
         );
+    }
+
+    /// Space ticks and unticks the highlighted row of a list with tick boxes
+    /// (operator, 2026-10-08): the keyboard half of the click. A click ticks Alpha;
+    /// Space unticks it; the arrow moves the highlight to Beta; Space ticks that
+    /// one. A list without tick boxes leaves Space alone.
+    #[test]
+    fn space_ticks_and_unticks_the_highlighted_row_of_a_checked_list() {
+        let pitch = |lb: &Control| crate::model::text_line_height(lb) + crate::model::LIST_ROW_PAD * 2.0;
+        let row_at = |lb: &Control, n: usize| {
+            pos2(120.0, 28.0 + crate::model::LIST_FRAME_PAD + pitch(lb) * (n as f32 + 0.5))
+        };
+        let key = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        let build = |checks: bool| {
+            let mut lb = ctrl("ListBox-1", ControlType::ListBox, 20, 20, 220, 240);
+            lb.set_prop("Items", crate::PropValue::String("Alpha\nBeta\nGamma".to_owned()));
+            lb.set_prop("ShowCheckBoxes", crate::PropValue::Bool(checks));
+            lb
+        };
+        let lb = build(true);
+        let checked = |o: &Map<String, Map<String, String>>| {
+            o.get("ListBox-1").and_then(|p| p.get("CheckedItems")).cloned()
+        };
+        // A click on the row ticks it and hands the list the keyboard.
+        let click = vec![
+            (0.00, vec![Event::PointerMoved(row_at(&lb, 0))]),
+            (0.05, vec![press(row_at(&lb, 0))]),
+            (0.10, vec![release(row_at(&lb, 0))]),
+        ];
+        let with = |more: Vec<(f64, Vec<Event>)>| {
+            let mut frames = click.clone();
+            frames.extend(more);
+            frames.push((1.0, vec![]));
+            drive(&[lb.clone()], frames)
+        };
+
+        let (_, o) = with(vec![]);
+        assert_eq!(checked(&o).as_deref(), Some("Alpha"), "the click ticked Alpha");
+        let (ev, o) = with(vec![(0.15, vec![key(egui::Key::Space)])]);
+        assert_eq!(checked(&o).as_deref(), Some(""), "Space unticked the highlighted row");
+        assert_eq!(
+            ev.iter().filter(|e| e.event == "onItemChecked").count(),
+            2,
+            "the click and the Space each report onItemChecked: {:?}",
+            ev.iter().map(|e| e.event.as_str()).collect::<Vec<_>>()
+        );
+        let (_, o) = with(vec![
+            (0.15, vec![key(egui::Key::Space)]),
+            (0.20, vec![key(egui::Key::ArrowDown)]),
+            (0.25, vec![key(egui::Key::Space)]),
+        ]);
+        assert_eq!(checked(&o).as_deref(), Some("Beta"), "…and the arrow moved the highlight to Beta, which Space ticked");
+
+        // No tick boxes: Space does nothing to the list.
+        let plain = build(false);
+        let (ev, o) = drive(
+            &[plain.clone()],
+            vec![
+                (0.00, vec![Event::PointerMoved(row_at(&plain, 0))]),
+                (0.05, vec![press(row_at(&plain, 0))]),
+                (0.10, vec![release(row_at(&plain, 0))]),
+                (0.15, vec![key(egui::Key::Space)]),
+                (0.20, vec![]),
+            ],
+        );
+        assert_eq!(checked(&o), None, "a list without tick boxes ticks nothing");
+        assert!(!ev.iter().any(|e| e.event == "onItemChecked"));
     }
 
     /// One radio at a time. A radio turned itself on when clicked and nothing
