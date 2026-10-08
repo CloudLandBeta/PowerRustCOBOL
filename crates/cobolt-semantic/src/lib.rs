@@ -30,6 +30,7 @@
 //! }
 //! ```
 
+pub mod calls;
 pub mod duplicates;
 pub mod exec_rust;
 pub mod exec_sql;
@@ -171,6 +172,18 @@ pub struct AnalyzeOptions {
     /// error, because the call would land on nothing and say nothing.
     /// `None` = no form context (a lone `.cbl`); receivers are not checked.
     pub known_objects: Option<std::collections::HashSet<String>>,
+    /// The program-names a literal `CALL "NAME"` may reach besides what the
+    /// unit itself holds — its programs, paragraphs and sections: the
+    /// project's Common Code, in UPPERCASE. `Some(set)` = a closed world (the
+    /// caller can see everything a run or a build links): a literal target
+    /// that the unit and this set do not answer is an error, because the
+    /// runtime would skip the call and say nothing — unless the `CALL` names
+    /// `ON EXCEPTION`, which is how a program declares the target optional.
+    /// `None` = the caller cannot see the project (a lone file, a lint that
+    /// has not read the manifest): nothing is checked. The built-in
+    /// `COBOL-…` / `COBOLT-…` names are never checked here — their table
+    /// lives in the runtime, which this crate cannot see.
+    pub known_programs: Option<std::collections::HashSet<String>>,
 }
 
 /// 049 R1 — a project form's FormFormat, as the load-path check needs it.
@@ -206,6 +219,10 @@ pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult 
     // cursor or a GLOBAL host variable crosses program boundaries.
     exec_sql::check(program, &mut result.diagnostics);
     national::check(program, &mut result.diagnostics);
+    // A literal CALL target the unit and the project do not answer (2026-10-08).
+    if let Some(known) = &opts.known_programs {
+        calls::check(program, known, &mut result.diagnostics);
+    }
     result
 }
 

@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.22] — 2026-10-08
+
+### Fixed
+- **A `CALL` to a procedure that does not exist is now a compile error.** A
+  mistyped `CALL "CALC-TXA"` compiled and ran: the runtime skipped an
+  unresolved target with a log line and nothing else, so the handler carried
+  on as if the call had been made, and the compiler never said a word. Inside a
+  project, Run Form, Build, the form check (the IDE's and the coding agents')
+  and `rcrun check` now refuse a literal `CALL` whose name is not a program the
+  unit contains, a paragraph or section of it, or a linked Common Code
+  program, and suggest the nearest real name. A `CALL` that names `ON
+  EXCEPTION` is left alone (it says the target is optional), as is a target
+  held in a data item and the `COBOL-…` built-ins. A file outside any project
+  is not checked: nothing there can say what its calls reach. `rcrun run` does
+  not get the check, because it does not link Common Code.
+  New `AnalyzeOptions::known_programs`, the Common Code names, supplied the way
+  `known_objects` is; `cobolt_compiler::common_code_names` reads them. Over the
+  four shipped example projects (80 form programs, 7 sources) the check
+  resolves 1661 literal `CALL` targets and refuses none.
+
 ## [PowerRustCOBOL 1.90.21] — 2026-10-08
 
 ### Fixed

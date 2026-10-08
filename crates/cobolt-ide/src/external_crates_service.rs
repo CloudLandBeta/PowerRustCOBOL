@@ -131,6 +131,9 @@ pub fn analyze_project(
             tolerate_undeclared: false,
             // No form context here: forms are checked by Run Form and Build.
             known_objects: None,
+            // No path here either: a literal CALL is checked by the form
+            // check, Run Form and Build, which know the project.
+            known_programs: None,
         },
     )
 }

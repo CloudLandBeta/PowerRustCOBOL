@@ -1676,6 +1676,18 @@ files: `SELECT … ASSIGN TO WS-PATH` opens the path its `WS-PATH` holds.
 > holding `EXEC RUST` blocks (their ids are numbered per application). A form
 > that defines a program of the same name keeps its own.
 
+> **A `CALL` to a name that does not exist is now a compile error.** A mistyped
+> `CALL "CALC-TXA"` used to compile and run, and the call was skipped without a
+> word, so the handler carried on as if the tax had been calculated. Inside a
+> project, Run Form, Build, the form check and `rcrun check` now refuse a
+> literal `CALL` whose name is not a program the form contains, a paragraph or
+> section, or a Common Code program that is linked, and say *did you mean
+> "CALC-TAX"?* A Common Code program left out for the reasons above counts as
+> not existing. Two things are left alone: a `CALL` that names `ON EXCEPTION`,
+> which says the program is optional, and a program name held in a data item,
+> which cannot be known before the program runs. The `COBOL-…` built-in calls
+> are not checked by this rule.
+
 ### Creating vs. importing
 
 The **➕** on a category **creates a new item**:
