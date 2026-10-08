@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.8] — 2026-10-08
+
+### Fixed
+- **A drop shadow showed through a translucent control.** A control with
+  `ShadowEnabled` and a `Transparency` above 0 (or a background colour with an
+  alpha, which is how the Spatial faces are made) had its shadow painted under
+  its whole face, so the face let the shadow through instead of what is behind
+  the control: its colour was tinted with the shadow's and went grey or dark.
+  The shadow is now cast only OUTSIDE the control, as a CSS `box-shadow` is, and
+  the face shows the form behind it. It is painted as one mesh that omits the
+  face's rounded rectangle (a three-quarter-pixel overlap hides the seam under
+  the face's own edge), in the same layers and strength as before, so the shadow
+  outside is unchanged. Opaque controls, sunken (negative blur) shadows and the
+  Neumorphic relief are untouched, and the notch mask that restores the shadow at
+  a rounded container's corners no longer puts any back inside the face.
+
 ## [PowerRustCOBOL 1.90.3] — 2026-10-08
 
 ### Added

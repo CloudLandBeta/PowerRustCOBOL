@@ -8,7 +8,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=209 digest=7a5d5cbe22ad21b8
+shapes=197 digest=1256721eb88d8946
 ## Run 0.75x 1254x666
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -18,7 +18,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=202 digest=c4900d2cc615eead
+shapes=190 digest=81b2a6977de2b7b9
 ## Preview 0.75x 1254x666
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -28,7 +28,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=202 digest=59abe6510f119cfc
+shapes=190 digest=819eb9637aa21d24
 ## Canvas 1x 1672x888
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -38,7 +38,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=209 digest=0239fc4c808199e1
+shapes=197 digest=9f58b3469411a705
 ## Run 1x 1672x888
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -48,7 +48,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=202 digest=fef0b6b8fc61197c
+shapes=190 digest=d07ac63988274082
 ## Preview 1x 1672x888
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -58,7 +58,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=202 digest=f36e4198781bcd69
+shapes=190 digest=9f1d7636d9f03047
 ## Canvas 1.5x 2508x1332
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -68,7 +68,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=209 digest=f67b721f3310d82a
+shapes=197 digest=5449efc9c18d327c
 ## Run 1.5x 2508x1332
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -78,7 +78,7 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=202 digest=b229c3a12b1f96a0
+shapes=190 digest=29bf9d40e836ac1e
 ## Preview 1.5x 2508x1332
 Gauge-1 rect=[904 56 1044 146] font=16
 Gauge-2 rect=[720 56 860 146] font=16
@@ -88,4 +88,4 @@ Panel-1 rect=[488 48 1080 544] font=16
 PictureBox-1 rect=[0 104 1720 888] font=16
 PictureBox-2 rect=[-288 72 1680 920] font=16
 Timer-1 rect=[1608 8 1656 56] font=16
-shapes=202 digest=08c7d74434a3406c
+shapes=190 digest=8ba178a0d972c254

@@ -6335,6 +6335,14 @@ buttons, panels and group boxes are 70 % opaque — set in their colours
 (`#36383EB3`, `#4E4E4EB3` to `#000000B3`) — so the glass shows through them
 while what they hold keeps its own colours.
 
+**A drop shadow falls outside its control.** The shadow is painted around a
+control and never under it, so a see-through face shows the form behind it —
+not its own shadow. That holds for every control whose `Transparency` is above 0
+or whose background colour carries an alpha, which is how the Spatial faces above
+are made. An opaque control is unchanged. (Before 1.90.8 the shadow was painted
+under the whole face and showed through it, tinting the control's colour with
+the shadow's.)
+
 > ⚠️ **Caveat.** A Panel's `Transparency` fades everything inside it, not
 > just its face: a picture in a Panel at `Transparency` 30 is drawn at 70 %.
 > To see through a card but not through its contents, give its colours an

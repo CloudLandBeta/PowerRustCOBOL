@@ -17,7 +17,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=169 digest=8a9d3e6807fbf838
+shapes=73 digest=2eb0f2b63192b34e
 ## Run 0.75x 960x540
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -36,7 +36,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=90652d0246ec5899
+shapes=75 digest=dcf2a90c50153dc7
 ## Preview 0.75x 960x540
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -55,7 +55,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=90652d0246ec5899
+shapes=75 digest=dcf2a90c50153dc7
 ## Canvas 1x 1280x720
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -74,7 +74,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=169 digest=9cd9044e0108ab62
+shapes=73 digest=62c54acfd494fafc
 ## Run 1x 1280x720
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -93,7 +93,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=e9a908e56ff2d65e
+shapes=75 digest=ec7d9b36c8350054
 ## Preview 1x 1280x720
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -112,7 +112,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=e9a908e56ff2d65e
+shapes=75 digest=ec7d9b36c8350054
 ## Canvas 1.5x 1920x1080
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -131,7 +131,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=169 digest=7f486f6fa11e443b
+shapes=73 digest=600e3e9feed77055
 ## Run 1.5x 1920x1080
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -150,7 +150,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=53dd030271d4e959
+shapes=75 digest=0c2e9e0c028b1387
 ## Preview 1.5x 1920x1080
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -169,4 +169,4 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=53dd030271d4e959
+shapes=75 digest=0c2e9e0c028b1387
