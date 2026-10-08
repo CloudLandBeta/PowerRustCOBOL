@@ -8,6 +8,45 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.6] — 2026-10-08
+
+### Fixed
+- **Grace answered a change request with the project's file list.** Asked to
+  "adicionar sombras para os painéis", Grace's clarity check came back 9/10 with
+  the `inventory` field set to `forms`, and the IDE — which answers a listing
+  straight from the project manifest, with no planning — printed the list of
+  forms instead of sending the change to the Form Designer. It did so twice in
+  a row, and the wrong answer then sat in the conversation and coloured the
+  next turns. The check now also declares an `intent` (`list`, `change` or
+  `other`), chosen before the inventory, and the shortcut applies only when it
+  says `list`. A reply with any other intent, or none, is planned as usual, and
+  the AI log records that the file list was set aside. A genuine "list the
+  forms" is unchanged for a model that declares it.
+
+## [PowerRustCOBOL 1.90.5] — 2026-10-08
+
+### Fixed
+- **The control's type was invisible next to its name in the Properties pane.**
+  Selecting a control shows its name in an editable field with its type beside
+  it (`HEAD  [GroupBox]`), but the type was drawn in a fixed mid-grey — which on
+  a glass theme is the colour of the blurred backdrop behind the pane, so on a
+  form like PowerAnalytics it could not be seen. The type now takes the same ink
+  as every other label in the pane, and follows the theme, light or dark.
+
+## [PowerRustCOBOL 1.90.4] — 2026-10-08
+
+### Fixed
+- **Grace's reply was cut off mid-sentence.** When Grace answered the developer
+  herself — a question about an unclear request, an inventory, or a plain
+  answer with no plan — the chat showed only the first 50 words followed by an
+  ellipsis. A clarification such as "Which panel or control do you want the
+  shadow on? … can only be applied to…" lost the sentence that listed the
+  options, and with it the question's own balloon. The chat now shows her reply
+  whole: fenced code and JSON blocks are still left out, a change-set is still
+  summarised in plain language, and a reply over 5,000 words is still capped
+  with every question line kept. The 50-word lead remains for the output of
+  specialist agents, and verbose mode was never affected.
+
 ## [PowerRustCOBOL 1.90.3] — 2026-10-08
 
 ### Added
