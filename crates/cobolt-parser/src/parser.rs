@@ -9,7 +9,7 @@
 use cobolt_ast::data::{ConditionValue, DataDecl, PicClause, PicKind, Usage};
 use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{
-    AccessMode, AlternateKey, DataDivision, DataSection, EnvironmentDivision, FileControl,
+    AccessMode, AlternateKey, DataDivision, KeyField, DataSection, EnvironmentDivision, FileControl,
     EngineChoice, FileOrganization, InputOutputSection, RustItemBlock, StorageMode,
 };
 use cobolt_ast::stmt::Stmt;
@@ -1402,6 +1402,69 @@ fn parse_organization(p: &mut Parser) -> Option<FileOrganization> {
     None
 }
 
+/// The names after `RECORD KEY IS` / `ALTERNATE RECORD KEY IS`: the key's
+/// name, its qualifiers, and — for a SPLIT key — its fields in order.
+///
+/// - `data-name` — an ordinary key (no parts).
+/// - `key-name = data-name-1 [data-name-2] …` — Micro Focus's split key:
+///   the key is the fields joined, and `key-name` is what `START`/`READ`
+///   name it by.
+/// - `data-name-1 [,] data-name-2 [,] …` — Fujitsu's split key, which
+///   `START`/`READ` name by its first field.
+///
+/// The fields need not be contiguous in the record. A name that opens the
+/// SELECT's next clause (`ALTERNATE`, `STORAGE`, …) ends the list.
+fn parse_key_names(p: &mut Parser) -> Option<(String, Vec<String>, Vec<KeyField>)> {
+    // Words that open another SELECT clause but lex as plain identifiers.
+    const CLAUSE_WORDS: &[&str] = &[
+        "ALTERNATE", "STORAGE", "ENGINE", "LOCK", "SHARING", "PASSWORD", "SUPPRESS", "COLLATING", "DELIMITER",
+        "PADDING", "RESERVE", "DUPLICATES",
+    ];
+    let next_is_field = |p: &Parser| {
+        matches!(p.peek(), Token::Identifier(w) if !CLAUSE_WORDS.iter().any(|c| w.eq_ignore_ascii_case(c)))
+            && !crate::stmt::at_cobol_object_call(p)
+    };
+    let field = |p: &mut Parser| -> Option<KeyField> {
+        let (name, _) = p.eat_identifier()?;
+        Some(KeyField { name, quals: parse_key_qualifiers(p) })
+    };
+    if !p.at_identifier() {
+        return None;
+    }
+    let first = field(p)?;
+    // Micro Focus: `key-name = data-name …`.
+    if p.at(&Token::Eq) {
+        p.advance();
+        let mut parts = Vec::new();
+        loop {
+            p.eat(&Token::Comma);
+            if !next_is_field(p) {
+                break;
+            }
+            parts.extend(field(p));
+        }
+        return Some((first.name, first.quals, parts));
+    }
+    // Fujitsu: further data-names, commas optional.
+    let mut rest = Vec::new();
+    loop {
+        let comma = p.at(&Token::Comma) && matches!(p.peek_at(1), Token::Identifier(_));
+        if comma {
+            p.advance();
+        }
+        if !next_is_field(p) {
+            break;
+        }
+        rest.extend(field(p));
+    }
+    let parts = if rest.is_empty() {
+        Vec::new()
+    } else {
+        std::iter::once(first.clone()).chain(rest).collect()
+    };
+    Some((first.name, first.quals, parts))
+}
+
 /// The `OF`/`IN` chain that may follow a `RECORD KEY` / `ALTERNATE RECORD KEY`
 /// data-name, returned innermost first.
 ///
@@ -1446,6 +1509,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let mut record_key: Option<String> = None;
     let mut relative_key: Option<String> = None;
     let mut record_key_quals: Vec<String> = Vec::new();
+    let mut record_key_parts: Vec<KeyField> = Vec::new();
     let mut file_status: Option<String> = None;
     let mut alternate_keys: Vec<AlternateKey> = Vec::new();
     // No STORAGE clause ⇒ default to DISK.
@@ -1512,8 +1576,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                     p.eat(&Token::Record);
                     p.eat(&Token::Key);
                     p.eat(&Token::Is);
-                    if let Some((field, _)) = p.eat_identifier() {
-                        let quals = parse_key_qualifiers(p);
+                    if let Some((field, quals, parts)) = parse_key_names(p) {
                         let mut with_duplicates = false;
                         p.eat(&Token::With);
                         if let Token::Identifier(d) = p.peek() {
@@ -1526,6 +1589,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                             field,
                             quals,
                             with_duplicates,
+                            parts,
                         });
                     }
                     continue;
@@ -1674,9 +1738,10 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                 if !is_delimiter {
                     p.eat(&Token::Key);
                     p.eat(&Token::Is);
-                    if p.at_identifier() {
-                        record_key = p.eat_identifier().map(|(n, _)| n);
-                        record_key_quals = parse_key_qualifiers(p);
+                    if let Some((name, quals, parts)) = parse_key_names(p) {
+                        record_key = Some(name);
+                        record_key_quals = quals;
+                        record_key_parts = parts;
                     }
                 }
             }
@@ -1695,6 +1760,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         record_key,
         relative_key,
         record_key_quals,
+        record_key_parts,
         alternate_keys,
         file_status,
         storage_mode,

@@ -757,6 +757,13 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   uncompressed record); without `WITH PERSISTENCE` a MEMORY file is a read-only
   copy for queries, and with it (MEMORY only) the in-RAM file is writable and
   saved on `CLOSE`. Both modes write the same on-disk container, `PRCIDXD1`.
+- ✅ **Split keys** — `RECORD KEY` / `ALTERNATE RECORD KEY` made of several
+  fields, joined in order, contiguous or not, in both vendor spellings:
+  Micro Focus `KEY IS key-name = data-name-1 [data-name-2] … [WITH
+  DUPLICATES]` and Fujitsu `KEY IS data-name-1 [,] data-name-2 … [WITH
+  DUPLICATES]` (not COBOL-85; a portability extension). `START`/`READ … KEY`
+  name a Micro Focus split key by its key name and a Fujitsu one by its first
+  field. All three indexed engines.
 - ✅ `WRITE rec [FROM id] [{BEFORE|AFTER} ADVANCING n [LINE[S]]]
   [INVALID KEY …][NOT …][END-WRITE]`.
 - ✅ `REWRITE rec [FROM id] [INVALID KEY …][END-REWRITE]`;

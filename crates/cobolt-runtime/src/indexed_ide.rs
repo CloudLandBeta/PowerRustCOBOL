@@ -93,31 +93,28 @@ pub(crate) fn sniff_disk_format(path: &Path) -> DiskFormat {
 
 /// Build runtime key specs from a definition.
 pub fn key_specs_from_def(def: &IndexedDefinition) -> (KeySpec, Vec<KeySpec>) {
-    let primary = def
-        .keys
-        .primary
-        .parts
-        .first()
-        .map(|p| KeySpec {
-            offset: p.offset as usize,
-            len: p.length as usize,
-            duplicates: false,
-        })
-        .unwrap_or(KeySpec {
-            offset: 0,
-            len: 1,
-            duplicates: false,
-        });
+    // Every part of a key: a definition whose key joins several fields
+    // is a split key, and taking only its first part would index the wrong
+    // bytes.
+    let spec_of = |parts: &[cobolt_indexed::KeyPartDef], duplicates: bool| -> Option<KeySpec> {
+        match parts {
+            [] => None,
+            [p] => Some(KeySpec { parts: Vec::new(), offset: p.offset as usize, len: p.length as usize, duplicates }),
+            many => Some(KeySpec::split(many.iter().map(|p| (p.offset as usize, p.length as usize)).collect(), duplicates)),
+        }
+    };
+    let primary = spec_of(&def.keys.primary.parts, false).unwrap_or(KeySpec {
+        parts: Vec::new(),
+        offset: 0,
+        len: 1,
+        duplicates: false,
+    });
     let alternates: Vec<KeySpec> = def
         .keys
         .alternates
         .iter()
-        .map(|alt| match alt.parts.first() {
-            Some(p) => KeySpec {
-                offset: p.offset as usize,
-                len: p.length as usize,
-                duplicates: alt.duplicates_allowed,
-            },
+        .map(|alt| match spec_of(&alt.parts, alt.duplicates_allowed) {
+            Some(spec) => spec,
             // An alternate with no parts takes the primary's range — which
             // itself falls back when the primary has none. It used to index
             // the primary's first part directly and panicked when a

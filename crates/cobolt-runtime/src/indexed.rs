@@ -328,24 +328,60 @@ pub struct IndexedFileInfo {
     pub alternates: Vec<KeyDescriptor>,
 }
 
-/// A key: a `[offset, offset+len)` slice of the record, optionally allowing
-/// duplicate values (alternate keys only). The engine's runtime key type —
-/// single-part by construction; the richer [`KeyDescriptor`] is the persisted /
-/// discoverable form.
+/// A key: a `[offset, offset+len)` slice of the record — or, for a SPLIT key,
+/// several slices joined in order — optionally allowing duplicate values
+/// (alternate keys only). The engine's runtime key type; the richer
+/// [`KeyDescriptor`] is the persisted / discoverable form.
 #[derive(Clone, Debug)]
 pub struct KeySpec {
+    /// Where the key starts: its first part's offset.
     pub offset: usize,
+    /// The key's TOTAL length — every part's, for a split key. Every engine
+    /// pads and bounds keys by it.
     pub len: usize,
     pub duplicates: bool,
+    /// A split key's parts, `(offset, len)` each, in key order (Fujitsu's
+    /// `KEY IS a, b, c`, Micro Focus's `KEY IS name = a b c`). Empty for an
+    /// ordinary contiguous key.
+    pub parts: Vec<(usize, usize)>,
 }
 
 impl KeySpec {
-    fn extract(&self, rec: &[u8]) -> Bytes {
-        let end = (self.offset + self.len).min(rec.len());
-        let start = self.offset.min(rec.len());
-        let mut k = rec[start..end].to_vec();
-        k.resize(self.len, b' '); // pad short records with spaces
+    /// A split key over `parts`, in order.
+    pub fn split(parts: Vec<(usize, usize)>, duplicates: bool) -> KeySpec {
+        KeySpec {
+            offset: parts.first().map_or(0, |p| p.0),
+            len: parts.iter().map(|p| p.1).sum(),
+            duplicates,
+            parts,
+        }
+    }
+
+    /// The `(offset, len)` ranges the key is made of, in order.
+    pub fn ranges(&self) -> Vec<(usize, usize)> {
+        if self.parts.is_empty() {
+            vec![(self.offset, self.len)]
+        } else {
+            self.parts.clone()
+        }
+    }
+
+    /// The key's value in a record image: its part (or parts, joined), each
+    /// padded with spaces where the image is short. Every engine extracts
+    /// keys through this.
+    pub fn key_of(&self, rec: &[u8]) -> Bytes {
+        let mut k = Vec::with_capacity(self.len);
+        for (offset, len) in self.ranges() {
+            let start = offset.min(rec.len());
+            let end = (offset + len).min(rec.len()).max(start);
+            k.extend_from_slice(&rec[start..end]);
+            k.resize(k.len() + (len - (end - start)), b' ');
+        }
         k
+    }
+
+    fn extract(&self, rec: &[u8]) -> Bytes {
+        self.key_of(rec)
     }
 }
 
@@ -458,16 +494,18 @@ impl IndexedFile {
         self.key_names.get(idx).cloned().flatten()
     }
 
-    /// Build a [`KeyDescriptor`] from a single-part runtime [`KeySpec`].
+    /// Build a [`KeyDescriptor`] from a runtime [`KeySpec`] — one part per
+    /// range, so a split key keeps all of them.
     fn descriptor(&self, key_number: u16, spec: &KeySpec, name_idx: usize) -> KeyDescriptor {
         KeyDescriptor {
             key_number,
             name: self.key_name(name_idx),
-            parts: vec![KeyPart {
-                offset: spec.offset as u32,
-                length: spec.len as u32,
-                encoding: KeyEncoding::Bytes,
-            }],
+            // One part per range: a split key persists every field it joins.
+            parts: spec
+                .ranges()
+                .into_iter()
+                .map(|(offset, len)| KeyPart { offset: offset as u32, length: len as u32, encoding: KeyEncoding::Bytes })
+                .collect(),
             duplicates_allowed: spec.duplicates,
             ordering: KeyOrdering::Ascending,
         }
@@ -1297,6 +1335,7 @@ impl IndexedFile {
             "",
             0,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 0,
                 duplicates: false,
@@ -1522,11 +1561,13 @@ mod tests {
             p,
             15,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 5,
                 duplicates: false,
             },
             vec![KeySpec {
+                parts: Vec::new(),
                 offset: 5,
                 len: 10,
                 duplicates: dup,
@@ -1693,7 +1734,7 @@ mod tests {
         m.write(&rec("2", "BOB"));
         assert_eq!(m.close(), status::OK);
         assert!(is_disk_container(&p), "saved as PRCIDXD1");
-        let mut d = DiskIndexedFile::new(&p, 15, KeySpec { offset: 0, len: 5, duplicates: false }, vec![KeySpec { offset: 5, len: 10, duplicates: false }]);
+        let mut d = DiskIndexedFile::new(&p, 15, KeySpec { parts: Vec::new(), offset: 0, len: 5, duplicates: false }, vec![KeySpec { parts: Vec::new(), offset: 5, len: 10, duplicates: false }]);
         assert_eq!(d.open(OpenMode::Input), status::OK, "the DISK engine opens it in place");
         assert_eq!(&d.read_key(b"00002").0.unwrap()[5..8], b"BOB");
         d.close();

@@ -645,8 +645,9 @@ impl Interpreter {
         let primary = spec
             .record_key
             .as_deref()
-            .and_then(|k| layout.key_spec_qualified(k, &spec.record_key_quals, false))
+            .and_then(|k| super::declared_key_spec(layout, k, &spec.record_key_quals, &spec.record_key_parts, false))
             .unwrap_or(crate::indexed::KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: layout.len.max(1),
                 duplicates: false,

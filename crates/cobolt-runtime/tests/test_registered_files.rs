@@ -120,7 +120,7 @@ fn record(id: u64, salary: &str) -> Vec<u8> {
 }
 
 fn primary() -> KeySpec {
-    KeySpec { offset: 0, len: 9, duplicates: false }
+    KeySpec { parts: Vec::new(), offset: 0, len: 9, duplicates: false }
 }
 
 /// `rows` actors — every other one earns 100000 — in a `PRCIDXD1` container

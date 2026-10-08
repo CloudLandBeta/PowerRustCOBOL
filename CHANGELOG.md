@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.2] — 2026-10-07
+
+### Added
+- **Split keys:** a `RECORD KEY` or `ALTERNATE RECORD KEY` made of several
+  fields, joined in order, which need not be next to each other. Both vendor
+  spellings work:
+  - Micro Focus: `KEY IS key-name = data-name-1 data-name-2 … [WITH DUPLICATES]`
+  - Fujitsu / PowerCOBOL: `KEY IS data-name-1, data-name-2 … [WITH DUPLICATES]`
+
+  `START` and `READ … KEY` name a Micro Focus split key by its key name, and a
+  Fujitsu one by its first field. All three indexed engines (in-memory,
+  PRCIDXD1, redb) store and check the full key layout.
+  `tests/cobol/fileio/split-keys.cbl` gives `PASS 009 FAIL 000` on each.
+- Two things this ends, which were the visible symptoms of keys that had no
+  way to join several fields:
+  - A list of fields after `KEY IS` used to be accepted silently and read as
+    its first field alone, with any `WITH DUPLICATES` after it dropped. A
+    second record sharing only that first field then failed with status 22,
+    and `rcrun check` reported nothing.
+  - A key the Indexed File Editor built from several fields used to be
+    generated as its first field (or its name) alone, so the program indexed
+    the wrong bytes. It is now generated as a split key.
+
 ## [PowerRustCOBOL 1.90.1] — 2026-10-07
 
 ### Fixed

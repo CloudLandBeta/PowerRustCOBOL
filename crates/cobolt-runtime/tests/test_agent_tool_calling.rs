@@ -248,6 +248,7 @@ fn build_actors(path: &Path) {
         path,
         RECORD_LEN,
         KeySpec {
+            parts: Vec::new(),
             offset: 0,
             len: 9,
             duplicates: false,

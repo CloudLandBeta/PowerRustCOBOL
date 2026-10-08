@@ -125,11 +125,13 @@ fn rec(id: &str, name: &str) -> Vec<u8> {
 fn store_crud_and_alternate_duplicates() {
     let path = tmp_path("crud");
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
     };
     let city = KeySpec {
+        parts: Vec::new(),
         offset: 4,
         len: 5,
         duplicates: true,
@@ -180,6 +182,7 @@ fn store_crud_and_alternate_duplicates() {
 fn store_commit_survives_rollback_undoes() {
     let path = tmp_path("tx");
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
@@ -221,6 +224,7 @@ fn scale_open_is_instant_and_reads_are_fast() {
         .unwrap_or(200_000);
     let path = tmp_path("scale");
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 9,
         duplicates: false,
@@ -283,6 +287,7 @@ fn scale_open_is_instant_and_reads_are_fast() {
 fn open_input_missing_file_is_35() {
     let path = tmp_path("missing");
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
@@ -301,6 +306,7 @@ fn observability_log_records_transactions() {
         std::path::PathBuf::from(os)
     };
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
@@ -441,6 +447,7 @@ fn observability_log_json_format() {
         std::path::PathBuf::from(os)
     };
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
@@ -500,6 +507,7 @@ fn observability_log_json_format() {
 fn dropping_after_commit_with_no_explicit_close_does_not_deadlock() {
     let path = tmp_path("drop-after-commit");
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
@@ -525,6 +533,7 @@ fn dropping_after_commit_with_no_explicit_close_does_not_deadlock() {
     // …and the fresh transaction Drop had to finalize was actually committed,
     // not silently discarded: the record written before Commit is still there.
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
@@ -553,11 +562,13 @@ fn dropping_after_commit_with_no_explicit_close_does_not_deadlock() {
 fn two_open_input_handles_share_one_container() {
     let path = tmp_path("shared-readers");
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
     };
     let spec = || KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,
@@ -598,6 +609,7 @@ fn two_open_input_handles_share_one_container() {
 fn a_reader_cannot_join_a_live_writer() {
     let path = tmp_path("reader-vs-writer");
     let spec = || KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 4,
         duplicates: false,

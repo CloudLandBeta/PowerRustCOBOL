@@ -521,6 +521,26 @@ impl RedbIndexedFile {
             b.extend_from_slice(&(k.len as u32).to_le_bytes());
             b.push(k.duplicates as u8);
         }
+        // A split key's parts, appended only when a key has them, so the
+        // blob of every file without one is exactly what it always was.
+        let split: Vec<&KeySpec> = std::iter::once(&self.primary)
+            .chain(self.alternates.iter())
+            .filter(|k| !k.parts.is_empty())
+            .collect();
+        if !split.is_empty() {
+            b.extend_from_slice(b"SPLIT");
+            for (i, k) in std::iter::once(&self.primary).chain(self.alternates.iter()).enumerate() {
+                if k.parts.is_empty() {
+                    continue;
+                }
+                b.extend_from_slice(&(i as u16).to_le_bytes());
+                b.extend_from_slice(&(k.parts.len() as u16).to_le_bytes());
+                for (offset, len) in &k.parts {
+                    b.extend_from_slice(&(*offset as u32).to_le_bytes());
+                    b.extend_from_slice(&(*len as u32).to_le_bytes());
+                }
+            }
+        }
         b
     }
 
@@ -878,11 +898,7 @@ impl<T: ReadableTable<Slice, Slice>> ReadMeta for T {
 // ── free helpers ─────────────────────────────────────────────────────────────
 
 fn extract(spec: &KeySpec, rec: &[u8]) -> Bytes {
-    let end = (spec.offset + spec.len).min(rec.len());
-    let start = spec.offset.min(rec.len());
-    let mut k = rec[start..end].to_vec();
-    k.resize(spec.len, b' ');
-    k
+    spec.key_of(rec)
 }
 
 fn pad(key: &[u8], len: usize) -> Bytes {

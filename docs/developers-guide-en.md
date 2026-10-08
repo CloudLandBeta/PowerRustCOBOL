@@ -9896,10 +9896,58 @@ by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
   dependencies).
 - **`WITH PERSISTENCE`** (MEMORY only) lets an in-RAM file be changed and saves
   it to disk on `CLOSE`. Without it, a `STORAGE IS MEMORY` file is a
-  **read-only** copy held for fast queries (see the next section). The phrases
+  **read-only** copy held for fast queries (see [When data reaches disk (persistence timing)](#when-data-reaches-disk-persistence-timing)). The phrases
   combine: `STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE`.
 - **Composite and alternate keys**, ascending key order, and `WITH DUPLICATES`
   semantics are honoured.
+
+### Keys made of several fields (split keys)
+
+A key can join several fields of the record, in the order you name them, and
+the fields need not be next to each other. PowerRustCOBOL accepts both
+spellings you may be bringing with you, for `RECORD KEY` and for
+`ALTERNATE RECORD KEY` alike:
+
+```cobol
+       SELECT ORDERS ASSIGN TO "orders.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS DYNAMIC
+      *>   Micro Focus: the key has a name of its own
+           RECORD KEY IS ORD-KEY = ORD-REGION ORD-NUMBER
+      *>   Fujitsu (PowerCOBOL): a list of fields
+           ALTERNATE RECORD KEY IS ORD-CUSTOMER, ORD-DATE
+               WITH DUPLICATES
+           ALTERNATE RECORD KEY IS ORD-REF = ORD-DATE ORD-NUMBER
+           FILE STATUS IS WS-FS.
+
+       FD ORDERS.
+       01 ORD-REC.
+          05 ORD-REGION    PIC X(2).
+          05 ORD-CUSTOMER  PIC X(6).
+          05 ORD-AMOUNT    PIC 9(5).
+          05 ORD-DATE      PIC 9(8).
+          05 ORD-NUMBER    PIC 9(4).
+```
+
+- The key's value is its fields joined in order: `ORD-KEY` above is the region
+  followed by the order number, even though four other fields sit between them.
+- `WITH DUPLICATES` applies to the whole key — two records may share
+  `ORD-CUSTOMER`, or `ORD-CUSTOMER` and `ORD-DATE` together, only when it is
+  given.
+- To position or read by a split key, name it as its spelling does: Micro
+  Focus's by its key name (`START ORDERS KEY IS >= ORD-REF`,
+  `READ ORDERS KEY IS ORD-REF`), Fujitsu's by its **first** field
+  (`START ORDERS KEY IS = ORD-CUSTOMER`). Move a value into every field of the
+  key first.
+- A Micro Focus key name is a name for the key, not a data item: do not
+  declare it in the `FD`. Every field the key joins must be a field of the
+  `FD`; a misspelt one is a compile error that names it.
+- A key the **Indexed File Editor** builds from several fields is generated
+  in the Micro Focus form, named after the key.
+
+> **Note.** In PowerCOBOL you could only reach this by laying the fields out
+> side by side under a group item. That still works, and a group key is still
+> the right choice when the fields already sit together.
 
 ### When data reaches disk (persistence timing)
 
