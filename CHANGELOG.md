@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.0] — 2026-10-07
+
+Minor release, raised by the operator. It gathers 1.80.240 to 1.80.243:
+- **Spec 078 finished:** sixteen AWS controls in the toolbox's AWS section
+  — Lambda and MCP from Delivery A, five on AWS's dedicated servers
+  (Delivery B), nine on AWS's hosted MCP Server (Delivery C).
+- **Spec 052 fix:** charts draw negative values below a zero axis, every
+  series a binding maps, and the series under the pointer.
+- **Spec 088 amendment A1** (specification only): selecting a control in a
+  grid shows that grid, with draggable lines.
+
+Being a minor, this release opens GOLDEN RULE #8's regeneration cycle for
+every document whose translations were deleted.
+
 ## [PowerRustCOBOL 1.80.243] — 2026-10-07
 
 ### Fixed
