@@ -1,0 +1,23 @@
+{
+  "id": "e5b0ea5c-18f6-42ec-b806-0542f3beafef",
+  "name": "COBOL Proficiency Judge",
+  "kind": "pedantic",
+  "specialization": "proficiency-review",
+  "purpose": "Independently re-scores a model's COBOL proficiency assessment, so a ranked score is never one the model gave itself.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.4,
+  "max_tokens": 8192,
+  "timeout_secs": 120,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Invoked by the COBOL proficiency test; reviews the model under test and returns the authoritative scores. Calls nothing.",
+  "companion": null,
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [],
+  "knowledge": []
+}

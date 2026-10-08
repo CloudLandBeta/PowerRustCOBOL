@@ -2236,6 +2236,8 @@ pub struct Tr {
     pub examples_powerchat_about: &'static str,
     /// Help → Examples → PowerSpatial: what the example shows.
     pub examples_powerspatial_about: &'static str,
+    /// Help → Examples → PowerAnalytics: what the example shows.
+    pub examples_poweranalytics_about: &'static str,
     /// Help → Examples: hover of an example this build does not ship.
     pub examples_not_installed: &'static str,
 }
@@ -3901,6 +3903,7 @@ const EN: Tr = Tr {
     items_file_clear: "Clear the file and the items",
     examples_powerchat_about: "PowerChat is an example chatbot that supports both RAG (Retrieval Augmented Generation) over your documents and real-time analysis of data in indexed files. It is built 100% in RustCOBOL, and it can easily be adapted and sold as a solution for bringing Generative AI to COBOL applications.",
     examples_powerspatial_about: "A smart-home dashboard in the Spatial theme: frameless glass windows, a toolbar, a rail and a room bar docked around the dashboard that move with it as one, a thermostat dial, a music player and six languages. Built 100% in RustCOBOL.",
+    examples_poweranalytics_about: "A fund-analytics dashboard in the Spatial theme: 43,750 investment funds read from an ANBIMA spreadsheet, glass panels that zoom in one after another, charts that grow from zero (bar, line, donut and the new radar, up to three series each), search fields with a type-ahead list of ticks, range filters, a Dashboard / Data menu with a data grid and a strip of KPIs, and a layout that adapts down to a phone's width.",
     examples_not_installed: "No example project is installed with this build.",
 };
 
@@ -5546,6 +5549,7 @@ const ES: Tr = Tr {
     items_file_clear: "Borrar el archivo y los elementos",
     examples_powerchat_about: "PowerChat es un ejemplo de chatbot que admite tanto RAG (Retrieval Augmented Generation) sobre sus documentos como el análisis en tiempo real de datos en archivos indexados. Está hecho 100 % en RustCOBOL y puede modificarse fácilmente para venderse como una solución que lleva la IA generativa a las aplicaciones COBOL.",
     examples_powerspatial_about: "Un panel de hogar inteligente con el tema Spatial: ventanas de vidrio sin marco, una barra de herramientas, un riel y una barra de habitaciones acoplados al panel que se mueven con él como uno solo, un dial de termostato, un reproductor de música y seis idiomas. Hecho 100 % en RustCOBOL.",
+    examples_poweranalytics_about: "Un panel de análisis de fondos de inversión con el tema Spatial: 43.750 fondos leídos de una hoja de cálculo de ANBIMA, paneles de cristal que aparecen uno tras otro, gráficos que crecen desde cero (barras, líneas, anillo y el nuevo radar, con hasta tres series cada uno), campos de búsqueda con una lista de casillas que se filtra al escribir, filtros por rango, un menú Dashboard / Datos con tabla y una franja de KPIs, y un diseño que se adapta hasta el ancho de un teléfono.",
     examples_not_installed: "No hay ningún proyecto de ejemplo instalado con esta versión.",
 };
 
@@ -7191,6 +7195,7 @@ const PT: Tr = Tr {
     items_file_clear: "Limpar o arquivo e os itens",
     examples_powerchat_about: "O PowerChat é um exemplo de chatbot que suporta tanto RAG (Retrieval Augmented Generation) sobre os seus documentos quanto análise em tempo real de dados em arquivos indexados. É feito 100% em RustCOBOL e pode ser facilmente modificado para ser vendido como uma solução para implementar IA Generativa em aplicações COBOL.",
     examples_powerspatial_about: "Um painel de casa inteligente no tema Spatial: janelas de vidro sem moldura, uma barra de ferramentas, um trilho e uma barra de cômodos acoplados ao painel que se movem com ele como um só, um mostrador de termostato, um player de música e seis idiomas. Feito 100% em RustCOBOL.",
+    examples_poweranalytics_about: "Um painel de análise de fundos de investimento no tema Spatial: 43.750 fundos lidos de uma planilha da ANBIMA, painéis de vidro que entram um após o outro, gráficos que crescem do zero (barras, linhas, rosca e o novo radar, com até três séries cada), campos de busca com uma lista de caixas de seleção que filtra enquanto se digita, filtros por faixa, um menu Dashboard / Dados com tabela e uma faixa de KPIs, e um layout que se adapta até a largura de um celular.",
     examples_not_installed: "Nenhum projeto de exemplo foi instalado com esta versão.",
 };
 
@@ -8835,6 +8840,7 @@ const JA: Tr = Tr {
     items_file_clear: "ファイルと項目をクリア",
     examples_powerchat_about: "PowerChat は、ドキュメントに対する RAG（Retrieval Augmented Generation）と、索引ファイルのデータのリアルタイム分析の両方に対応したチャットボットのサンプルです。100% RustCOBOL で作られており、COBOL アプリケーションに生成 AI を導入するソリューションとして販売できるよう、簡単に改造できます。",
     examples_powerspatial_about: "Spatial テーマのスマートホーム用ダッシュボード。枠のないガラスのウィンドウ、ダッシュボードの周りにドッキングして一体で動くツールバー・レール・部屋バー、サーモスタットのダイヤル、音楽プレーヤー、6 言語に対応。100% RustCOBOL で作られています。",
+    examples_poweranalytics_about: "Spatial テーマの投資ファンド分析ダッシュボード。ANBIMA のスプレッドシートから読み込んだ 43,750 本のファンド、順に拡大して現れるガラスのパネル、ゼロから伸びるグラフ（棒・折れ線・ドーナツ・新しいレーダー。それぞれ最大 3 系列）、入力に合わせて絞り込まれるチェック付きリストの検索フィールド、範囲フィルター、データグリッドと KPI 帯を備えた Dashboard / データ メニュー、スマートフォンの幅まで適応するレイアウト。",
     examples_not_installed: "このビルドにはサンプルプロジェクトがインストールされていません。",
 };
 
@@ -10487,6 +10493,7 @@ const ZH: Tr = Tr {
     items_file_clear: "清除文件和项目",
     examples_powerchat_about: "PowerChat 是一个聊天机器人示例，既支持基于文档的 RAG（Retrieval Augmented Generation），也支持对索引文件中的数据进行实时分析。它 100% 由 RustCOBOL 编写，可以轻松修改，作为为 COBOL 应用引入生成式 AI 的解决方案出售。",
     examples_powerspatial_about: "采用 Spatial 主题的智能家居仪表板：无边框的玻璃窗口，停靠在仪表板周围并随其一起移动的工具栏、导航栏和房间栏，恒温器旋钮，音乐播放器，支持六种语言。100% 使用 RustCOBOL 构建。",
+    examples_poweranalytics_about: "采用 Spatial 主题的投资基金分析仪表板：从 ANBIMA 电子表格读取 43,750 只基金，玻璃面板依次放大出现，图表从零开始生长（柱状、折线、环形和新的雷达图，每种最多三个系列），带勾选列表且随输入即时筛选的搜索字段，区间筛选，含数据表格和 KPI 栏的 Dashboard / 数据菜单，以及可缩小到手机宽度的自适应布局。",
     examples_not_installed: "此版本未安装示例项目。",
 };
 
@@ -12132,6 +12139,7 @@ const FR: Tr = Tr {
     items_file_clear: "Effacer le fichier et les éléments",
     examples_powerchat_about: "PowerChat est un exemple de chatbot qui prend en charge à la fois le RAG (Retrieval Augmented Generation) sur vos documents et l'analyse en temps réel des données de fichiers indexés. Il est écrit à 100 % en RustCOBOL et peut facilement être adapté pour être vendu comme une solution d'IA générative pour les applications COBOL.",
     examples_powerspatial_about: "Un tableau de bord de maison connectée dans le thème Spatial : des fenêtres de verre sans cadre, une barre d'outils, un rail et une barre des pièces ancrés au tableau de bord qui se déplacent avec lui d'un seul bloc, un cadran de thermostat, un lecteur de musique et six langues. Réalisé à 100 % en RustCOBOL.",
+    examples_poweranalytics_about: "Un tableau de bord d'analyse de fonds d'investissement dans le thème Spatial : 43 750 fonds lus dans un tableur ANBIMA, des panneaux de verre qui apparaissent l'un après l'autre, des graphiques qui partent de zéro (barres, lignes, anneau et le nouveau radar, jusqu'à trois séries chacun), des champs de recherche avec une liste à cocher qui se filtre à la frappe, des filtres par plage, un menu Dashboard / Données avec grille et bandeau d'indicateurs, et une mise en page qui s'adapte jusqu'à la largeur d'un téléphone.",
     examples_not_installed: "Aucun projet d'exemple n'est installé avec cette version.",
 };
 
