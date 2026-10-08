@@ -12900,7 +12900,9 @@ impl DesignerPanel {
         let controls: &[Control] = view.as_deref().unwrap_or(&self.form.controls);
         let mut hit = None;
         for c in controls {
-            if c.control_type != ControlType::Splitter || !c.visible {
+            // `Visible` is for the running form: the canvas draws a splitter the
+            // design hides, so its division has to be there to grab too.
+            if c.control_type != ControlType::Splitter {
                 continue;
             }
             let g = cobolt_forms::splitter::geometry(c, c.rect);
@@ -21545,6 +21547,20 @@ mod sidebar_seam_tests {
         assert!(
             x_of(&dp, "BTN-2") > b2,
             "pane 2 still translates with the division — the two panes are independent"
+        );
+    }
+
+    /// `Visible` is a property for the running form, not the designer: the canvas
+    /// draws a Splitter whose `Visible` is off, and its division can be grabbed
+    /// like any other (operator, 2026-10-08).
+    #[test]
+    fn a_splitter_the_design_hides_still_has_its_division_to_grab() {
+        let mut dp = splitter_form();
+        dp.form.find_control_mut("Splitter-1").unwrap().visible = false;
+        assert_eq!(
+            dp.splitter_division_at(200, 150).as_deref(),
+            Some("Splitter-1"),
+            "the division of a hidden splitter is still on the canvas"
         );
     }
 

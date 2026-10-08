@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.17] — 2026-10-08
+
+### Fixed
+- **A Splitter that the design hides could not have its division grabbed in the
+  Form Designer.** `Visible` is a property for the running form, not for the
+  designer: the canvas draws the splitter, so its division line now answers the
+  mouse like any other. It was the last place in the designer that still read
+  the flag.
+
 ## [PowerRustCOBOL 1.90.16] — 2026-10-08
 
 ### Changed
