@@ -8812,6 +8812,13 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 > `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
 > `PIC XX`. Both receive the code.
 
+> ⚠️ **Caveat.** The item `FILE STATUS IS` names must be **declared**. A name that
+> is not — a typo in the `SELECT`, a status item renamed in `WORKING-STORAGE` —
+> is a compile error, `FILE STATUS 'XYZ' of file 'CUSTOMER' is not declared in
+> DATA DIVISION`, like any undeclared name. (Before 1.90.22 it compiled and ran:
+> the runtime filled in an item of that name, and every test of the status you
+> meant passed unseen.)
+
 ### Copybook paths in `COPY`
 
 `COPY` takes the copybook as a word (`COPY CUSTREC.`) or as a literal, and the

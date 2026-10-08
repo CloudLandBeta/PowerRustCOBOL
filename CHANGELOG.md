@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.22] — 2026-10-08
+
+### Fixed
+- **A `FILE STATUS` item that is not declared compiled and ran.** `FILE STATUS IS
+  XYZ`, with no `XYZ` in the DATA DIVISION, raised nothing: the runtime filled in
+  an item of that name, so the program ran and every test of the status item the
+  developer meant passed unseen. It is now the error any undeclared name is —
+  `FILE STATUS 'XYZ' of file 'CUSTOMER' is not declared in DATA DIVISION` — for
+  every organization, and every gate that stops on an error refuses the program.
+
 ## [PowerRustCOBOL 1.90.21] — 2026-10-08
 
 ### Fixed
