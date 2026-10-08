@@ -1280,6 +1280,37 @@ fn draw_deferred_groupbox_captions(
 /// except a TabControl's tab strip, which is chrome, not room. There the bound
 /// is the page (`paint::tabcontrol_page_rect`); a child's shadow painted over
 /// a side strip showed as a grey block under the tabs (operator, 2026-09-27).
+/// The container whose face the drop shadow of control `idx` may fall on: its
+/// parent, unless the parent paints no face of its own (`HideBackground` — a
+/// layout grid or flex row that only arranges its children), in which case the
+/// next ancestor up. `None` when every ancestor is such a container: the room
+/// is then the whole surface.
+///
+/// A container that scrolls its content stays a boundary even without a face —
+/// content scrolled past its viewport must not paint outside it. Only a Panel
+/// or a GroupBox is looked through; a TabControl, a Splitter and the rest keep
+/// the room they always gave (operator, 2026-10-08: the cards of a Grid and a
+/// Flex row's button lost their shadow along the container's edge).
+fn shadow_room_owner(controls: &[Control], idx: usize, state: &dyn FormState) -> Option<usize> {
+    let position = |pid: &str| controls.iter().position(|c| c.id.eq_ignore_ascii_case(pid));
+    let mut cur = controls[idx].parent.as_deref().and_then(position)?;
+    loop {
+        let live = state.live(&controls[cur]);
+        let looked_through = matches!(live.control_type, ControlType::Panel | ControlType::GroupBox)
+            && crate::paint::paints_no_card(&live)
+            && !["HScroll", "VScroll"]
+                .iter()
+                .any(|p| live.get_prop(p).is_some_and(|v| v.as_bool()));
+        if !looked_through {
+            return Some(cur);
+        }
+        match controls[cur].parent.as_deref().and_then(position) {
+            Some(up) => cur = up,
+            None => return None,
+        }
+    }
+}
+
 fn shadow_room(outer: Rect, parent: &Control) -> Rect {
     if parent.control_type == ControlType::TabControl {
         let mut sized = parent.clone();
@@ -2489,8 +2520,14 @@ fn render_form_inner(
         // How far this control's drop shadow may fall: its container's OUTER
         // rect (within what clips the container), not the content rect the
         // control itself is clipped to — see `paint::ShadowBoundsScope`.
-        let shadow_bounds = controls[idx].parent.as_deref().and_then(|pid| {
-            let pidx = controls.iter().position(|c| c.id.eq_ignore_ascii_case(pid))?;
+        // A container with no face of its own (a layout grid, a flex row) is
+        // not a boundary: the room is the next ancestor's that has one, or
+        // the whole surface when none does.
+        let shadow_bounds = controls[idx].parent.as_deref().and_then(|_| {
+            let Some(pidx) = shadow_room_owner(controls, idx, input.state) else {
+                return Some(content_rect.intersect(surface_clip));
+            };
+            let pid = controls[pidx].id.as_str();
             let outer = shadow_room(out.control_rects.get(pid).copied()?, &input.state.live(&controls[pidx]));
             let pscroll = ancestor_auto_scroll_offset(scope, controls, pidx, ui.ctx());
             let pclip = match ancestor_clip_rect(controls, pidx, origin, pscroll, input.state) {
@@ -3676,8 +3713,11 @@ pub fn render_faces(
         };
         // The drop shadow may fall into the container's padding, as in
         // `render_form` (`paint::ShadowBoundsScope`).
-        let shadow_bounds = controls[idx].parent.as_deref().and_then(|pid| {
-            let pidx = controls.iter().position(|c| c.id.eq_ignore_ascii_case(pid))?;
+        let shadow_bounds = controls[idx].parent.as_deref().and_then(|_| {
+            let Some(pidx) = shadow_room_owner(controls, idx, input.state) else {
+                return Some(painter.clip_rect());
+            };
+            let pid = controls[pidx].id.as_str();
             let outer = shadow_room(out.control_rects.get(pid).copied()?, &input.state.live(&controls[pidx]));
             let pclip = match containers::clip_rect(controls, pidx) {
                 Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
@@ -15368,6 +15408,128 @@ mod tests {
             "a DataGrid with ShadowEnabled must paint outside its own rect while \
              running: {on} shape(s) with the shadow on vs {off} with it off"
         );
+    }
+
+    /// How many fills of one frame reach past the right or bottom edge of a
+    /// 200×100 container at 40,40 — cut to the clip each was painted under, so
+    /// it counts what the screen shows, not what was merely submitted. The
+    /// container holds one card the size of its whole rect, shadow cast
+    /// south-east; `container` turns the container into the case under test.
+    fn card_shadow_past_its_container(
+        faces: bool,
+        shadow_on: bool,
+        container: impl Fn(&mut Control),
+    ) -> usize {
+        let mut panel = ctrl("Pnl", ControlType::Panel, 40, 40, 200, 100);
+        container(&mut panel);
+        let mut card = ctrl("Card", ControlType::GroupBox, 40, 40, 200, 100);
+        card.parent = Some("Pnl".into());
+        card.set_prop("ShadowEnabled", PropValue::Bool(shadow_on));
+        card.set_prop("ShadowOpacity", PropValue::Int(100));
+        card.set_prop("ShadowDistance", PropValue::Int(9));
+        card.set_prop("ShadowDirection", PropValue::String("SouthEast".into()));
+        let controls = vec![panel, card];
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(400.0, 300.0));
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedVisibility,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: if faces { RenderMode::Static } else { RenderMode::Interactive },
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    if faces {
+                        let painter = ui.painter().clone();
+                        let origin = ui.min_rect().min;
+                        let _ = render_faces(&painter, origin, &rin);
+                    } else {
+                        let _ = render_form(ui, &rin);
+                    }
+                });
+        });
+        out.textures_delta.clear();
+
+        fn walk(s: &egui::Shape, clip: Rect, into: &mut Vec<Rect>) {
+            match s {
+                egui::Shape::Rect(r) if r.fill.a() > 0 => {
+                    let seen = r.rect.intersect(clip);
+                    if seen.is_positive() {
+                        into.push(seen);
+                    }
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, into)),
+                _ => {}
+            }
+        }
+        let mut seen = Vec::new();
+        for cs in &out.shapes {
+            walk(&cs.shape, cs.clip_rect, &mut seen);
+        }
+        let own = Rect::from_min_max(pos2(40.0, 40.0), pos2(240.0, 140.0));
+        seen.into_iter()
+            .filter(|r| r.max.x > own.max.x + 1.0 || r.max.y > own.max.y + 1.0)
+            .count()
+    }
+
+    /// **A container that paints no face is not where a child's shadow stops.**
+    /// A Grid or a Flex row exists to arrange its children; it has no edge of its
+    /// own to cast a shadow against. The cards of a dashboard, flush with the
+    /// grid, lost their shadow along the grid's rect, and a button at the end of
+    /// a flex row lost it at the row's end (operator, 2026-10-08: "o dropshadow
+    /// está clipada pelo grid... apenas a sombra vaza para fora").
+    ///
+    /// Differential, on both surfaces: the SAME card with its shadow on must put
+    /// more on screen past the container's rect than with it off.
+    #[test]
+    fn a_faceless_container_lets_its_childs_shadow_fall_past_it() {
+        for faces in [false, true] {
+            let frameless = |p: &mut Control| {
+                p.set_prop("BorderStyle", PropValue::String("None".into()));
+                p.set_prop("HideBackground", PropValue::Bool(true));
+            };
+            let on = card_shadow_past_its_container(faces, true, frameless);
+            let off = card_shadow_past_its_container(faces, false, frameless);
+            assert!(
+                on > off,
+                "faces={faces}: a card in a container with no face must cast its shadow past \
+                 the container: {on} fill(s) beyond it with the shadow on vs {off} with it off"
+            );
+        }
+    }
+
+    /// The other side of the same rule: a container that DOES paint a face is an
+    /// edge, and a scrolling one is a viewport whether or not it paints one.
+    /// Neither lets a child's shadow out.
+    #[test]
+    fn a_container_with_a_face_or_a_viewport_still_holds_its_childs_shadow() {
+        for faces in [false, true] {
+            let framed = |_: &mut Control| {};
+            let scrolling = |p: &mut Control| {
+                p.set_prop("BorderStyle", PropValue::String("None".into()));
+                p.set_prop("HideBackground", PropValue::Bool(true));
+                p.set_prop("VScroll", PropValue::Bool(true));
+            };
+            for (name, case) in [
+                ("a panel with its own face", &framed as &dyn Fn(&mut Control)),
+                ("a faceless panel that scrolls", &scrolling),
+            ] {
+                let on = card_shadow_past_its_container(faces, true, case);
+                let off = card_shadow_past_its_container(faces, false, case);
+                assert_eq!(
+                    on, off,
+                    "faces={faces}: {name} must hold its child's shadow: {on} fill(s) beyond \
+                     it with the shadow on vs {off} with it off"
+                );
+            }
+        }
     }
 
     #[test]

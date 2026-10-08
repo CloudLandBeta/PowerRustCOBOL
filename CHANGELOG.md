@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.11] — 2026-10-08
+
+### Fixed
+- **A drop shadow was cut off at the edge of a grid or a flex row.** A control
+  inside a container may cast its shadow into the room that container gives it,
+  and for a Panel or a GroupBox that paints nothing of its own (`HideBackground`
+  on — the grids and rows that only arrange their children) the room was the
+  container's own rect: the cards flush with the dashboard grid, and the round
+  close button at the end of its row, lost their shadow along that edge. Such a
+  container is now looked through — the shadow falls as far as the nearest
+  container that has a face, or the window when none does — while the control
+  keeps the size of its cell. A container with a face, and one that scrolls,
+  still hold their children's shadows. The same on the designer canvas and in a
+  running form.
+
 ## [PowerRustCOBOL 1.90.10] — 2026-10-08
 
 ### Changed

@@ -6370,6 +6370,16 @@ are made. An opaque control is unchanged. (Before 1.90.8 the shadow was painted
 under the whole face and showed through it, tinting the control's colour with
 the shadow's.)
 
+**A container with no face of its own does not stop a shadow.** A Panel or a
+GroupBox with `HideBackground` on draws nothing; it only arranges what it holds,
+as a `Grid` or `Flex` layout does. The shadow of a control inside it falls as
+far as the nearest container that *does* have a face — or the window, when none
+does — so a card flush with the edge of a grid keeps its shadow all round, and
+so does the last button of a row. The control itself stays the size of its cell;
+only the shadow leaves it. A container with a face, or one that scrolls
+(`HScroll` / `VScroll` on), is an edge: shadows stay inside it. (Before 1.90.11
+the shadow was cut at the edge of the grid or the row.)
+
 > ⚠️ **Caveat.** A Panel's `Transparency` fades everything inside it, not
 > just its face: a picture in a Panel at `Transparency` 30 is drawn at 70 %.
 > To see through a card but not through its contents, give its colours an
