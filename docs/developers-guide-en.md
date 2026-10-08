@@ -1726,6 +1726,11 @@ with a `BUTTON1` some other, unrelated form in that project happens to use
 internally. Its Generated Code is produced immediately, so the pasted form is
 ready to Run without a separate Build step first.
 
+Paste Form reads the clipboard at the moment you choose it. If the clipboard
+is empty, or holds something you copied after the form, the Output panel
+says so — "The clipboard is empty" or "The clipboard doesn't contain a
+copied form" — and nothing is created. Copy the form again and paste.
+
 If the target project already has a form with the same name, PowerRustCOBOL
 asks what to do rather than guessing: **rename** the incoming form (typing a
 new name, re-checked live against what's already there) or **replace** the

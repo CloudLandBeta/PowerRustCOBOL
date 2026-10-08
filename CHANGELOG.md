@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.1] — 2026-10-07
+
+### Fixed
+- **Paste Form pastes.** Choosing Paste Form on the Forms category often did
+  nothing at all. It asked egui to paste and waited for the clipboard's text
+  on a later frame; when that text never arrived — an empty clipboard, or no
+  frame to deliver it — nothing was reported, and the request stayed armed,
+  ready to take the developer's next Cmd/Ctrl+V anywhere as a form. The
+  clipboard is now read at the click, and the form is pasted at once.
+  - Every way of pasting nothing is reported in the Output panel: an empty
+    clipboard, or text that is not a copied form.
+  - The old asynchronous path remains only where the clipboard cannot be
+    opened directly. It now gives up after two seconds and says so.
+
 ## [PowerRustCOBOL 1.90.0] — 2026-10-07
 
 Minor release, raised by the operator. It gathers 1.80.240 to 1.80.243:
