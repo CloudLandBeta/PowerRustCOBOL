@@ -2270,6 +2270,60 @@ mod covered_button_tests {
         egui::DragAndDrop::has_payload_of_type::<ControlType>(&ctx)
     }
 
+    /// The toolbox section is a bounded body: a button that overflows it is
+    /// clipped, and the pane below (Objects) lies over where its unclipped rect
+    /// would be. A click there is the Objects list's — it must neither start a
+    /// toolbox drag nor place the control (operator, 2026-10-08: clicking the
+    /// object list placed Animators in the form).
+    fn press_and_release_below_a_clipped_button() -> (Option<ControlType>, bool) {
+        let ctx = egui::Context::default();
+        let entry = TOOLS.iter().find(|e| e.ct == ControlType::Animator).expect("an Animator tool");
+        let mut placed: Option<ControlType> = None;
+        let mut target = Pos2::ZERO;
+        let mut run = |events: Vec<Event>, placed: &mut Option<ControlType>, target: &mut Pos2| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            input.events = events;
+            let mut out = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().show_inside(root, |ui| {
+                    ui.scope(|ui| {
+                        // 12 px of the toolbox body show; the button is taller.
+                        let body = egui::Rect::from_min_size(ui.cursor().min, Vec2::new(200.0, 12.0));
+                        ui.set_clip_rect(body.intersect(ui.clip_rect()));
+                        let top = ui.cursor().min;
+                        if let Some(ct) = icon_btn(ui, entry) {
+                            *placed = Some(ct);
+                        }
+                        // Well below the clip, inside the button's own rect.
+                        *target = Pos2::new(top.x + BTN * 0.5, top.y + BTN_PAD_TOP + BTN * 0.7);
+                    });
+                });
+            });
+            out.textures_delta.clear();
+        };
+        run(vec![], &mut placed, &mut target);
+        run(vec![], &mut placed, &mut target);
+        let at = target;
+        run(vec![Event::PointerMoved(at)], &mut placed, &mut target);
+        let button = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        run(vec![button(true)], &mut placed, &mut target);
+        let payload = egui::DragAndDrop::has_payload_of_type::<ControlType>(&ctx);
+        run(vec![button(false)], &mut placed, &mut target);
+        (placed, payload)
+    }
+
+    #[test]
+    fn a_click_below_a_clipped_toolbox_button_starts_nothing_and_places_nothing() {
+        let (placed, payload) = press_and_release_below_a_clipped_button();
+        assert!(!payload, "the press is outside the visible toolbox: no drag may start");
+        assert_eq!(placed, None, "…and no control is placed");
+    }
+
     #[test]
     fn a_press_on_a_window_over_the_toolbox_does_not_start_its_drag() {
         assert!(payload_after_press(false), "control: a press on the button starts the toolbox drag");

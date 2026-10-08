@@ -3075,10 +3075,15 @@ Your program drives it too, with or without the icon:
        END-IF
 ```
 
-`Expand()` and `Collapse()` are shorthand for writing `Expanded` 1 and 0; the
-controls inside the card are laid out for its new size exactly as for any other
-size — by their own `Anchor`, `Dock` or `LayoutMode` — so give a chart inside
-the card `Top,Left,Right,Bottom` and it grows with it.
+`Expand()` and `Collapse()` are shorthand for writing `Expanded` 1 and 0. While a
+card is expanded **everything inside it grows with it**, at every depth: each
+control keeps the same share of the card — its position and its size are the
+designed ones times how much the card has grown, in each direction — whatever its
+`Anchor` says, so a label, a bar, a chart and a panel with controls of its own
+all spread over the new room together. (`Dock` and the `LayoutMode` of a
+container inside the card still do their own layout.) Text keeps its font size;
+only the room around it grows. Collapse the card and its contents go back to
+their anchors.
 
 > **Note.** "The room of its siblings" is the whole client area of the card's
 > container: for a card in a Grid, the grid's tracks and gaps together; for a card
@@ -3087,6 +3092,11 @@ the card `Top,Left,Right,Bottom` and it grows with it.
 > siblings are expanded at once, the one highest in the stacking order wins.
 > Clicking the icon is not a click on the card, so the card's `onClick` stays
 > quiet; there is no event for the change — read `Expanded` when you need it.
+
+> The icon belongs to the card's own layer: a control drawn **over** a card — a
+> dropdown's overlay card, a panel laid on top — hides the card's icon while it
+> covers it, and a click there is the control's, not the card's. (Before 1.90.24 the
+> icons of the cards behind a dropdown showed on top of it.)
 
 > ⚠️ **Caveat.** The layout is what places the cards, so this works on a
 > **responsive** form (`Responsive` on) — which every application should be — and

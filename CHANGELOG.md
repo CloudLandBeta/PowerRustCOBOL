@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.24] — 2026-10-08
+
+### Fixed
+- **The expand/collapse icons of the cards behind a dropdown showed on top of
+  it.** The icons are painted after everything else, so an overlay card drawn over
+  an expandable one — the filter dropdowns of PowerAnalytics — had its icons
+  showing through. An icon is now left out while a later control that is not part
+  of its card covers it, and the click goes with it.
+- **Only some of the controls in an expanded card grew with it.** The contents
+  were laid out by their anchors, so what was anchored to every edge stretched
+  and the rest stayed put: the donut stayed small and the legend rows bunched at
+  the top. Everything inside an expanded card, at every depth, now keeps its share
+  of the card — position and size scale with it, whatever its anchor says — and
+  goes back to its anchors when the card collapses.
+
+### Verified
+- **Clicking the Objects list of the designer placed Animators in the form.** Fixed
+  in 1.90.23 (the toolbox buttons answered a press although they were clipped
+  away, under the Objects pane); 1.90.24 adds the test that reproduces it.
+
 ## [PowerRustCOBOL 1.90.23] — 2026-10-08
 
 ### Fixed
