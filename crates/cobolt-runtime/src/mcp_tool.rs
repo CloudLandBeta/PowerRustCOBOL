@@ -906,6 +906,7 @@ mod tests {
     fn build_indexed_fixture(path: &std::path::Path, rows: &[(&str, &str)]) {
         use crate::indexed::{KeySpec, OpenMode, status};
         let primary = KeySpec {
+            parts: Vec::new(),
             offset: 0,
             len: 9,
             duplicates: false,
@@ -926,6 +927,7 @@ mod tests {
             path: path.to_path_buf(),
             record_len: 111,
             primary: crate::indexed::KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 9,
                 duplicates: false,
@@ -972,8 +974,8 @@ mod tests {
         let mut f = crate::indexed_disk::DiskIndexedFile::new(
             &data,
             111,
-            KeySpec { offset: 0, len: 9, duplicates: false },
-            vec![KeySpec { offset: 99, len: 11, duplicates: true }],
+            KeySpec { parts: Vec::new(), offset: 0, len: 9, duplicates: false },
+            vec![KeySpec { parts: Vec::new(), offset: 99, len: 11, duplicates: true }],
         );
         assert_eq!(f.open(OpenMode::Output), status::OK);
         for (id, salary) in [("1", "100000"), ("2", "250000"), ("3", "100000")] {
@@ -1166,6 +1168,7 @@ mod tests {
                 &inram,
                 111,
                 KeySpec {
+                    parts: Vec::new(),
                     offset: 0,
                     len: 9,
                     duplicates: false,
@@ -1219,6 +1222,7 @@ mod tests {
             &data,
             111,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 9,
                 duplicates: false,
@@ -1360,6 +1364,7 @@ mod tests {
         let dir = temp("memory");
         let data = dir.join("actors.mem");
         let primary = KeySpec {
+            parts: Vec::new(),
             offset: 0,
             len: 9,
             duplicates: false,

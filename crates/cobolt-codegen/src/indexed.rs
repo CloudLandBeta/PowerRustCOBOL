@@ -19,6 +19,35 @@ pub fn generate_indexed(def: &IndexedDefinition) -> String {
     out
 }
 
+/// A key that joins several fields, as a split key in Micro Focus's form —
+/// `name = field-1 field-2 …` — named after the key, or `fallback` when the
+/// definition gives it no name. `None` for a key of one field, which is
+/// written as it always was.
+///
+/// The key's name must not be a data item of the record — a `START … KEY`
+/// naming it would be ambiguous — so a name the record already uses gives
+/// way to `fallback`.
+fn split_key_phrase(def: &IndexedDefinition, key: &cobolt_indexed::KeyDef, fallback: &str) -> Option<String> {
+    if key.parts.len() < 2 {
+        return None;
+    }
+    fn names(f: &cobolt_indexed::IndexedField, out: &mut Vec<String>) {
+        out.push(f.name.to_ascii_uppercase());
+        f.children.iter().for_each(|c| names(c, out));
+    }
+    let mut taken = Vec::new();
+    def.fields.iter().for_each(|f| names(f, &mut taken));
+    taken.extend(key.parts.iter().map(|p| p.field_name.to_ascii_uppercase()));
+    let name = key
+        .name
+        .as_deref()
+        .map(|n| n.trim().to_ascii_uppercase().replace(' ', "-"))
+        .filter(|n| !n.is_empty() && !taken.contains(n))
+        .unwrap_or_else(|| fallback.to_ascii_uppercase());
+    let fields: Vec<&str> = key.parts.iter().map(|p| p.field_name.as_str()).collect();
+    Some(format!("{name} = {}", fields.join(" ")))
+}
+
 fn write_indexed_header(out: &mut String) {
     out.push_str("      *> ───────────────────────────────────────────────────────────\n");
     out.push_str("      *>  This code was generated automatically by PowerRustCOBOL RAD.\n");
@@ -41,17 +70,18 @@ pub fn generate_indexed_select(def: &IndexedDefinition) -> String {
         access_mode_cobol(def.access_mode)
     ));
     if let Some(key_field) = def.keys.primary.parts.first() {
-        out.push_str(&format!(
-            "               RECORD KEY IS {}\n",
-            key_field.field_name
-        ));
+        let key = split_key_phrase(def, &def.keys.primary, &format!("{}-KEY", def.name))
+            .unwrap_or_else(|| key_field.field_name.clone());
+        out.push_str(&format!("               RECORD KEY IS {key}\n"));
     }
-    for alt in &def.keys.alternates {
-        let name = alt
-            .name
-            .as_deref()
-            .or_else(|| alt.parts.first().map(|p| p.field_name.as_str()))
-            .unwrap_or("ALT-KEY");
+    for (i, alt) in def.keys.alternates.iter().enumerate() {
+        let split = split_key_phrase(def, alt, &format!("{}-ALT{}", def.name, i + 1));
+        let name = split.as_deref().unwrap_or_else(|| {
+            alt.name
+                .as_deref()
+                .or_else(|| alt.parts.first().map(|p| p.field_name.as_str()))
+                .unwrap_or("ALT-KEY")
+        });
         if alt.duplicates_allowed {
             out.push_str(&format!(
                 "               ALTERNATE RECORD KEY IS {} WITH DUPLICATES\n",
@@ -118,17 +148,18 @@ fn write_environment(out: &mut String, def: &IndexedDefinition) {
         access_mode_cobol(def.access_mode)
     ));
     if let Some(key_field) = def.keys.primary.parts.first() {
-        out.push_str(&format!(
-            "               RECORD KEY IS {}\n",
-            key_field.field_name
-        ));
+        let key = split_key_phrase(def, &def.keys.primary, &format!("{}-KEY", def.name))
+            .unwrap_or_else(|| key_field.field_name.clone());
+        out.push_str(&format!("               RECORD KEY IS {key}\n"));
     }
-    for alt in &def.keys.alternates {
-        let name = alt
-            .name
-            .as_deref()
-            .or_else(|| alt.parts.first().map(|p| p.field_name.as_str()))
-            .unwrap_or("ALT-KEY");
+    for (i, alt) in def.keys.alternates.iter().enumerate() {
+        let split = split_key_phrase(def, alt, &format!("{}-ALT{}", def.name, i + 1));
+        let name = split.as_deref().unwrap_or_else(|| {
+            alt.name
+                .as_deref()
+                .or_else(|| alt.parts.first().map(|p| p.field_name.as_str()))
+                .unwrap_or("ALT-KEY")
+        });
         if alt.duplicates_allowed {
             out.push_str(&format!(
                 "               ALTERNATE RECORD KEY IS {} WITH DUPLICATES\n",
@@ -315,6 +346,26 @@ mod tests {
         assert!(out.contains("RECORD KEY IS CUST-ID"));
         assert!(out.contains("FD  CUSTOMER-FILE"));
         assert!(out.contains("PIC 9(8)"));
+    }
+
+    /// A key the Indexed File Editor built from several fields is written
+    /// as a split key, every field in order; it used to be written as its
+    /// first field alone, indexing the wrong bytes.
+    #[test]
+    fn a_key_of_several_fields_is_generated_as_a_split_key() {
+        let mut def = sample();
+        let template = def.keys.primary.parts[0].clone();
+        let part = |name: &str| cobolt_indexed::KeyPartDef { field_name: name.into(), ..template.clone() };
+        def.keys.primary.parts = vec![part("CUST-REGION"), part("CUST-ID")];
+        def.keys.alternates = vec![cobolt_indexed::KeyDef {
+            name: Some("by name".into()),
+            parts: vec![part("CUST-NAME"), part("CUST-CITY")],
+            duplicates_allowed: true,
+            ordering: def.keys.primary.ordering,
+        }];
+        let out = generate_indexed_select(&def);
+        assert!(out.contains("RECORD KEY IS CUSTOMER-FILE-KEY = CUST-REGION CUST-ID"), "{out}");
+        assert!(out.contains("ALTERNATE RECORD KEY IS BY-NAME = CUST-NAME CUST-CITY WITH DUPLICATES"), "{out}");
     }
 
     /// The developer's descriptions reach the generated source.

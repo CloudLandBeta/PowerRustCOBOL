@@ -13,6 +13,10 @@
 //! READ by key never found the record (operator report, 2026-09-30, LugSys:
 //! "mudei o nome da chave da FD, mas esqueci de alterar no RECORD KEY da
 //! Select, e não acusou erro"). It is an error here, before the program runs.
+//!
+//! A SPLIT key (Micro Focus `KEY IS name = a b`, Fujitsu `KEY IS a, b`) is
+//! checked field by field: each field it joins must be in the record. Micro
+//! Focus's key name is a name for the key, not a data item, so it is not.
 
 use cobolt_ast::data::DataDecl;
 use cobolt_ast::program::{DataSection, FileOrganization, Program};
@@ -57,10 +61,16 @@ fn check_program(program: &Program, diagnostics: &mut Vec<SemanticDiagnostic>) {
         fd.records.iter().for_each(|r| names_in(r, &mut fields));
         let mut keys: Vec<(&str, &str)> = Vec::new();
         if let Some(k) = &fc.record_key {
-            keys.push(("RECORD KEY", k.as_str()));
+            if fc.record_key_parts.is_empty() {
+                keys.push(("RECORD KEY", k.as_str()));
+            }
+            keys.extend(fc.record_key_parts.iter().map(|p| ("RECORD KEY", p.name.as_str())));
         }
         for a in &fc.alternate_keys {
-            keys.push(("ALTERNATE RECORD KEY", a.field.as_str()));
+            if a.parts.is_empty() {
+                keys.push(("ALTERNATE RECORD KEY", a.field.as_str()));
+            }
+            keys.extend(a.parts.iter().map(|p| ("ALTERNATE RECORD KEY", p.name.as_str())));
         }
         for (clause, key) in keys {
             if fields.iter().any(|f| f.eq_ignore_ascii_case(key.trim())) {

@@ -124,7 +124,7 @@ fn sample_orders(path: &Path) {
     let mut f = cobolt_runtime::indexed_disk::DiskIndexedFile::new(
         path,
         97,
-        KeySpec { offset: 0, len: 6, duplicates: false },
+        KeySpec { parts: Vec::new(), offset: 0, len: 6, duplicates: false },
         Vec::new(),
     );
     assert_eq!(f.open(OpenMode::Output), status::OK, "{}", path.display());

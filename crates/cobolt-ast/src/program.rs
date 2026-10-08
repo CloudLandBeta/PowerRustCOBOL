@@ -94,6 +94,10 @@ pub struct FileControl {
     /// first. See [`AlternateKey::quals`].
     #[serde(default)]
     pub record_key_quals: Vec<String>,
+    /// The RECORD KEY's fields when it is a split key (see
+    /// [`AlternateKey::parts`]); empty for an ordinary key.
+    #[serde(default)]
+    pub record_key_parts: Vec<KeyField>,
     /// `RELATIVE KEY IS data-name` — the integer record number a RELATIVE file
     /// is addressed by.
     ///
@@ -224,6 +228,22 @@ pub struct AlternateKey {
     #[serde(default)]
     pub quals: Vec<String>,
     pub with_duplicates: bool,
+    /// A split key's fields, joined in this order to make the key (empty
+    /// for an ordinary single-field key). `field` is then the name a
+    /// `START … KEY` or `READ … KEY` refers to the key by: the key name of
+    /// Micro Focus's `KEY IS name = a b c`, or the first field of
+    /// Fujitsu's `KEY IS a, b, c`.
+    #[serde(default)]
+    pub parts: Vec<KeyField>,
+}
+
+/// One field of a split key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeyField {
+    pub name: String,
+    /// Its `OF`/`IN` chain, innermost first.
+    #[serde(default)]
+    pub quals: Vec<String>,
 }
 
 // ── DATA DIVISION ─────────────────────────────────────────────────────────────

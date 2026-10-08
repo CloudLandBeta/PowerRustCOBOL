@@ -40,7 +40,7 @@ use cobolt_ast::{
     expr::{
         ArithOp, CmpOp, Condition, DataClass, Expr, FigurativeConstant, Literal, SignCond, UnaryOp,
     },
-    program::{AccessMode, AlternateKey, FileOrganization, ProcedureBody, Program, UseMode},
+    program::{AccessMode, AlternateKey, FileOrganization, KeyField, ProcedureBody, Program, UseMode},
     stmt::{
         AcceptSource, CallArg, EvalSubject, ExitKind, InspectRegion, InspectSpec, OpenMode,
         PerformTarget, ReplaceWhat, Stmt, TallyFor, UnstringTarget, VaryingAfter, WhenClause,
@@ -234,6 +234,8 @@ struct FileSpec {
     /// the SELECT wrote one; several keys of one file may share a data-name and
     /// be told apart only by this.
     record_key_quals: Vec<String>,
+    /// The RECORD KEY's fields when it is a split key; empty otherwise.
+    record_key_parts: Vec<KeyField>,
     /// `RELATIVE KEY IS data-name` — the integer record number a RELATIVE file
     /// is addressed by. Not part of the record: the program sets it before a
     /// random access, and a sequential read fills it in.
@@ -1068,6 +1070,7 @@ fn collect_file_specs(
                             .iter()
                             .map(|s| s.to_ascii_uppercase())
                             .collect(),
+                        record_key_parts: fc.record_key_parts.clone(),
                         alternate_keys: fc.alternate_keys.clone(),
                         storage_mode: fc.storage_mode,
                         engine: fc.engine,
@@ -1156,6 +1159,60 @@ fn detect_container_engine(path: &str) -> Option<crate::indexed::IndexedEngine> 
     None
 }
 
+
+/// A declared key's runtime spec: its field's bytes, or — for a split key —
+/// the bytes of each of its fields, joined in order (spec: split keys).
+fn declared_key_spec(
+    layout: &crate::files::RecordLayout,
+    name: &str,
+    quals: &[String],
+    parts: &[KeyField],
+    duplicates: bool,
+) -> Option<crate::indexed::KeySpec> {
+    if parts.is_empty() {
+        return layout.key_spec_qualified(name, quals, duplicates);
+    }
+    let ranges = parts
+        .iter()
+        .map(|p| layout.field_qualified(&p.name, &p.quals).map(|f| (f.offset, f.len)))
+        .collect::<Option<Vec<_>>>()?;
+    Some(crate::indexed::KeySpec::split(ranges, duplicates))
+}
+
+/// The fields of the key a statement names (`READ … KEY IS`, `START … KEY`,
+/// or the RECORD KEY): a split key's parts when the name is a declared split
+/// key's, else none — the name is then an ordinary field.
+fn declared_key_parts<'a>(spec: &'a FileSpec, name: &str, quals: &[String]) -> &'a [KeyField] {
+    if spec.record_key.as_deref().is_some_and(|k| k.eq_ignore_ascii_case(name))
+        && (quals.is_empty() || quals == spec.record_key_quals.as_slice())
+    {
+        return &spec.record_key_parts;
+    }
+    spec.alternate_keys
+        .iter()
+        .find(|ak| ak.field.eq_ignore_ascii_case(name) && !ak.parts.is_empty())
+        .map_or(&[], |ak| &ak.parts)
+}
+
+/// The current value of the key a statement names, from the record area: a
+/// split key's fields joined in order, or the one field's bytes.
+fn declared_key_value(
+    spec: &FileSpec,
+    env: &crate::environment::CobolEnvironment,
+    name: &str,
+    quals: &[String],
+) -> Option<Vec<u8>> {
+    let parts = declared_key_parts(spec, name, quals);
+    if parts.is_empty() {
+        return spec.layout.field_value_qualified(env, name, quals);
+    }
+    let mut value = Vec::new();
+    for p in parts {
+        value.extend(spec.layout.field_value_qualified(env, &p.name, &p.quals)?);
+    }
+    Some(value)
+}
+
 fn make_indexed_engine(
     spec: &FileSpec,
     path: &str,
@@ -1172,8 +1229,9 @@ fn make_indexed_engine(
     let primary = spec
         .record_key
         .as_deref()
-        .and_then(|k| layout.key_spec_qualified(k, &spec.record_key_quals, false))
+        .and_then(|k| declared_key_spec(layout, k, &spec.record_key_quals, &spec.record_key_parts, false))
         .unwrap_or(KeySpec {
+            parts: Vec::new(),
             offset: 0,
             len: reclen,
             duplicates: false,
@@ -1186,7 +1244,7 @@ fn make_indexed_engine(
     let mut alts = Vec::new();
     let mut names: Vec<Option<String>> = vec![spec.record_key.clone()];
     for ak in &spec.alternate_keys {
-        if let Some(ks) = layout.key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates) {
+        if let Some(ks) = declared_key_spec(layout, &ak.field, &ak.quals, &ak.parts, ak.with_duplicates) {
             alts.push(ks);
             names.push(Some(ak.field.clone()));
         }
@@ -10153,10 +10211,9 @@ impl Interpreter {
         let primary = spec
             .record_key
             .as_deref()
-            .and_then(|k| spec.layout.key_spec_qualified(k, &spec.record_key_quals, false));
+            .and_then(|k| declared_key_spec(&spec.layout, k, &spec.record_key_quals, &spec.record_key_parts, false));
         let alt_spec = |ak: &AlternateKey| {
-            spec.layout
-                .key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates)
+            declared_key_spec(&spec.layout, &ak.field, &ak.quals, &ak.parts, ak.with_duplicates)
         };
         // An item covering exactly a key's bytes *is* that key — that is how a
         // `REDEFINES` of a key names it.
@@ -10199,12 +10256,15 @@ impl Interpreter {
     /// field is not in the record layout, or the image is too short to hold it.
     fn record_key_of(&self, file: &str, buf: &[u8]) -> Option<Vec<u8>> {
         let spec = self.file_specs.get(file)?;
-        let ks = spec.layout.key_spec_qualified(
+        let ks = declared_key_spec(
+            &spec.layout,
             spec.record_key.as_deref()?,
             &spec.record_key_quals,
+            &spec.record_key_parts,
             false,
         )?;
-        buf.get(ks.offset..ks.offset + ks.len).map(<[u8]>::to_vec)
+        let end = ks.ranges().iter().map(|(o, l)| o + l).max().unwrap_or(0);
+        (buf.len() >= end).then(|| ks.key_of(buf))
     }
 
     /// The record number a RELATIVE file is currently addressed by — the value
@@ -10483,10 +10543,7 @@ impl Interpreter {
             ),
         };
         let key_bytes = (!key_name.is_empty())
-            .then(|| {
-                spec.layout
-                    .field_value_qualified(&self.env, &key_name, &key_quals)
-            })
+            .then(|| declared_key_value(&spec, &self.env, &key_name, &key_quals))
             .flatten();
         let kor = self.key_of_reference(&spec, &key_name, &key_quals);
         // A RELATIVE file's key is a record number kept outside the record, so
@@ -10892,10 +10949,10 @@ impl Interpreter {
         let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
                                                             // RANDOM DELETE addresses the record by the current RECORD KEY value;
                                                             // sequential/dynamic DELETE removes the current (last read) record.
-        let key_bytes = spec.record_key.as_deref().and_then(|k| {
-            spec.layout
-                .field_value_qualified(&self.env, k, &spec.record_key_quals)
-        });
+        let key_bytes = spec
+            .record_key
+            .as_deref()
+            .and_then(|k| declared_key_value(&spec, &self.env, k, &spec.record_key_quals));
         // A RELATIVE delete under RANDOM or DYNAMIC access names its record by
         // number, from the RELATIVE KEY item.
         let rel_num = (spec.organization == FileOrganization::Relative)
@@ -10956,9 +11013,7 @@ impl Interpreter {
                 spec.record_key_quals.clone(),
             ),
         };
-        let key_bytes = spec
-            .layout
-            .field_value_qualified(&self.env, &key_name, &key_quals);
+        let key_bytes = declared_key_value(&spec, &self.env, &key_name, &key_quals);
         let kor = self.key_of_reference(&spec, &key_name, &key_quals);
         // A RELATIVE `START` compares record *numbers*, and the data-name it
         // carries is the RELATIVE KEY item — in WORKING-STORAGE, not in the

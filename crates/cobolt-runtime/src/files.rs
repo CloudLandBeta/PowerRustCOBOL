@@ -314,6 +314,7 @@ impl RecordLayout {
         duplicates: bool,
     ) -> Option<KeySpec> {
         self.field_qualified(name, quals).map(|f| KeySpec {
+            parts: Vec::new(),
             offset: f.offset,
             len: f.len,
             duplicates,

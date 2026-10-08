@@ -49,6 +49,7 @@ fn cidx(purpose: &str, id_note: &str, declared_offset: u32, declared_len: u32) -
 
 fn build_data(path: &Path, rows: &[(&str, &str)]) {
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 9,
         duplicates: false,
@@ -75,6 +76,7 @@ fn access(path: &Path) -> FileAccess {
         path: path.to_path_buf(),
         record_len: RECORD_LEN,
         primary: KeySpec {
+            parts: Vec::new(),
             offset: 0,
             len: 9,
             duplicates: false,

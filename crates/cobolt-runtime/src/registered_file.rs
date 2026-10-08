@@ -346,6 +346,7 @@ pub fn validate(cidx_text: &str, stored: &IndexedFileInfo) -> Result<Checked, Re
     let single = |k: &cobolt_indexed::KeyDef| -> Option<KeySpec> {
         match k.parts.as_slice() {
             [p] => Some(KeySpec {
+                parts: Vec::new(),
                 offset: p.offset as usize,
                 len: p.length as usize,
                 duplicates: k.duplicates_allowed,

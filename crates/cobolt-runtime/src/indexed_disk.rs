@@ -1500,11 +1500,7 @@ impl DiskIndexedFile {
     // ── Keys ─────────────────────────────────────────────────────────────────
 
     fn extract(spec: &KeySpec, rec: &[u8]) -> Bytes {
-        let end = (spec.offset + spec.len).min(rec.len());
-        let start = spec.offset.min(rec.len());
-        let mut k = rec[start..end].to_vec();
-        k.resize(spec.len, b' ');
-        k
+        spec.key_of(rec)
     }
 
     /// The B+tree key for an alternate index: the raw alt key, with a **join
@@ -2588,11 +2584,12 @@ impl DiskIndexedFile {
         KeyDescriptor {
             key_number,
             name: self.key_name(name_idx),
-            parts: vec![KeyPart {
-                offset: spec.offset as u32,
-                length: spec.len as u32,
-                encoding: KeyEncoding::Bytes,
-            }],
+            // One part per range: a split key persists every field it joins.
+            parts: spec
+                .ranges()
+                .into_iter()
+                .map(|(offset, len)| KeyPart { offset: offset as u32, length: len as u32, encoding: KeyEncoding::Bytes })
+                .collect(),
             duplicates_allowed: spec.duplicates,
             ordering: KeyOrdering::Ascending,
         }
@@ -3044,6 +3041,7 @@ impl DiskIndexedFile {
             path.as_ref(),
             0,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 0,
                 duplicates: false,
@@ -3070,6 +3068,7 @@ impl DiskIndexedFile {
             path.as_ref(),
             0,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 0,
                 duplicates: false,
@@ -3168,11 +3167,13 @@ mod tests {
             p,
             15,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 5,
                 duplicates: false,
             },
             vec![KeySpec {
+                parts: Vec::new(),
                 offset: 5,
                 len: 10,
                 duplicates: dup,
@@ -3187,6 +3188,7 @@ mod tests {
             p,
             15,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 5,
                 duplicates: false,
@@ -3201,11 +3203,13 @@ mod tests {
             p,
             15,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 5,
                 duplicates: false,
             },
             vec![KeySpec {
+                parts: Vec::new(),
                 offset: 5,
                 len: 10,
                 duplicates: true,
@@ -4294,6 +4298,7 @@ mod tests {
             p.clone(),
             600,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 5,
                 duplicates: false,
@@ -4319,6 +4324,7 @@ mod tests {
             p.clone(),
             600,
             KeySpec {
+                parts: Vec::new(),
                 offset: 0,
                 len: 5,
                 duplicates: false,

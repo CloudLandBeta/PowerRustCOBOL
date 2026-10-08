@@ -705,7 +705,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     {
         use cobolt_runtime::indexed::{status, KeySpec, OpenMode};
         let mut f = cobolt_runtime::indexed_disk::DiskIndexedFile::new(
-            &actors, 111, KeySpec { offset: 0, len: 9, duplicates: false }, Vec::new(),
+            &actors, 111, KeySpec { parts: Vec::new(), offset: 0, len: 9, duplicates: false }, Vec::new(),
         );
         assert_eq!(f.open(OpenMode::Output), status::OK);
         for (id, salary) in [("1", "100000"), ("2", "250000"), ("3", "100000")] {
@@ -844,7 +844,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     let records = |file: &str, len: usize, key: usize| -> Vec<String> {
         use cobolt_runtime::indexed::{IndexedStore, KeySpec, OpenMode, ReadDir};
         let mut f = cobolt_runtime::indexed_disk::DiskIndexedFile::new(
-            data.join(file), len, KeySpec { offset: 0, len: key, duplicates: false }, Vec::new(),
+            data.join(file), len, KeySpec { parts: Vec::new(), offset: 0, len: key, duplicates: false }, Vec::new(),
         );
         assert_eq!(f.open(OpenMode::Input), "00", "{file}");
         let mut out = Vec::new();

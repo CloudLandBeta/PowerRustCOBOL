@@ -325,6 +325,7 @@ fn data_binding_indexed_file_populates_grid_rows_from_disk() {
     cobolt_indexed::save_indexed(&cidx_path, &def).expect("write .cidx");
 
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 9,
         duplicates: false,
@@ -384,6 +385,7 @@ fn data_binding_indexed_file_empty_file_yields_zero_rows_not_an_error() {
     // fault. Created the same way a plain `OPEN OUTPUT ... CLOSE` would leave
     // it.
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 9,
         duplicates: false,
@@ -448,6 +450,7 @@ fn data_binding_indexed_file_resolves_designer_paths_against_the_project_anchor(
     cobolt_indexed::save_indexed(&cidx_path, &def).expect("write .cidx");
 
     let primary = KeySpec {
+        parts: Vec::new(),
         offset: 0,
         len: 9,
         duplicates: false,
