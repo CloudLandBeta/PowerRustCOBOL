@@ -3957,11 +3957,10 @@ impl PropertiesPanel {
                     *buf = id.clone();
                 }
             }
-            ui.label(
-                RichText::new(format!("[{}]", ctrl.control_type.as_str()))
-                    .color(Color32::GRAY)
-                    .small(),
-            );
+            // The type sits beside the name in the pane's own ink. It was a
+            // hardcoded mid-grey, which on a glass theme is the colour of the
+            // blurred backdrop behind the pane — drawn, but invisible.
+            ui.label(RichText::new(format!("[{}]", ctrl.control_type.as_str())).small());
         });
         ui.separator();
         self.property_split = self
@@ -14592,6 +14591,58 @@ mod tests {
         form.layout.insert("LayoutMode".into(), PropValue::String("Flex".into()));
         assert!(has(&labels(&form, tr), tr.lbl_flex_direction), "the form's own flex rows follow its LayoutMode");
         println!("056 AC40 (form inspector): Responsive switch always; layout, font scaling, minimum size and the breakpoint editor when on");
+    }
+
+    /// **The control's type is readable beside its name.** The Identity header
+    /// drew `[GroupBox]` in a hardcoded mid-grey; on a glass theme that is the
+    /// colour of the blurred backdrop, so the tag was there and could not be
+    /// seen (operator, 2026-10-08: "the type of the control was supposed to
+    /// appear next to its name"). It is now drawn in the pane's own ink — the
+    /// colour the theme gives every label — so it follows the theme, light or
+    /// dark, instead of fighting it.
+    #[test]
+    fn the_type_beside_the_control_name_is_drawn_in_the_panes_own_ink() {
+        let form = Form::new("F", "F", 800, 600);
+        let tr = &crate::i18n::Language::English.tr();
+        let ink = egui::Color32::from_rgb(241, 236, 224);
+        let ctx = egui::Context::default();
+        let mut visuals = egui::Visuals::dark();
+        visuals.widgets.noninteractive.fg_stroke.color = ink;
+        ctx.set_visuals(visuals);
+        let mut panel = PropertiesPanel::new();
+        let group = Control::new("HEAD", ControlType::GroupBox, 10, 10);
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 2000.0))),
+                ..Default::default()
+            },
+            |ui| {
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    let _ = panel.show(ui, &form, Some(&group), &[], tr);
+                });
+            },
+        );
+        // The colour a text shape is actually painted in: the override when
+        // the shape carries one, else the section's own, else the fallback.
+        fn painted(shape: &egui::Shape, needle: &str, out: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Text(t) if t.galley.text() == needle => {
+                    let own = t.galley.job.sections[0].format.color;
+                    let own = if own == egui::Color32::PLACEHOLDER { t.fallback_color } else { own };
+                    out.push(t.override_text_color.unwrap_or(own));
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| painted(s, needle, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for cs in &full.shapes {
+            painted(&cs.shape, "[GroupBox]", &mut found);
+        }
+        full.textures_delta.clear();
+        assert_eq!(found.len(), 1, "the type tag is drawn once beside the name: {found:?}");
+        assert_eq!(found[0], ink, "the tag takes the theme's label ink, not a fixed grey");
+        assert_ne!(found[0], egui::Color32::GRAY);
     }
 
     #[test]

@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.5] — 2026-10-08
+
+### Fixed
+- **The control's type was invisible next to its name in the Properties pane.**
+  Selecting a control shows its name in an editable field with its type beside
+  it (`HEAD  [GroupBox]`), but the type was drawn in a fixed mid-grey — which on
+  a glass theme is the colour of the blurred backdrop behind the pane, so on a
+  form like PowerAnalytics it could not be seen. The type now takes the same ink
+  as every other label in the pane, and follows the theme, light or dark.
+
 ## [PowerRustCOBOL 1.90.4] — 2026-10-08
 
 ### Fixed
