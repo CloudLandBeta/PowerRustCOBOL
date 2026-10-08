@@ -119,6 +119,15 @@
 - Per-control facts — events, seeds, run-time properties, tile, caption —
   now live in one table, `cobolt-forms/src/aws_catalog.rs`. The model, the
   painter, the inspector and the runtime all read it.
+## [PowerRustCOBOL 1.80.240] — 2026-10-07
+
+### Changed
+- **Spec 088 amended (A1): selecting a control shows its grid.** On a
+  responsive form a control in a grid has no size of its own to drag — its
+  cell's tracks set it. Selecting such a control, with Show Grid off, now
+  shows the grid it sits in (its cell highlighted), and that grid's lines
+  can be dragged to resize the tracks around it (R27–R31, AC15–AC16). Spec
+  only; nothing is implemented yet.
 
 ## [PowerRustCOBOL 1.80.239] — 2026-10-06
 
