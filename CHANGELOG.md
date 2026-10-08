@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.23] — 2026-10-08
+
+### Fixed
+- **Selecting text in the COBOL event editor dragged a control out of the
+  toolbox, behind the editor.** The editor is a window over the designer. When it
+  lay over the toolbox, a press on its text was taken as a press on the toolbox
+  button underneath — the button asked only where the pointer was, not whether a
+  window covered it — so the selection drag carried a ghost of that control (a
+  TabControl, in the report) over the form and dropped one there on release. The
+  button now answers only while the pointer can reach it, and a toolbox drag
+  released over the editor window places nothing on the canvas behind it.
+
 ## [PowerRustCOBOL 1.90.22] — 2026-10-08
 
 ### Fixed

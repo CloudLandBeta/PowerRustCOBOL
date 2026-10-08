@@ -6720,6 +6720,14 @@ top-right, and the **status bar** along the bottom (caret `Ln, Col`,
 **Insert/Overwrite** via the `Insert` key, **Trim on save**, and **Beautify**). It
 opens at 70 % of the window and is freely resizable.
 
+The editor is a window **over** the designer, and everything the mouse does on it
+is the window's: selecting text in it never reaches the toolbox or the form
+behind it — a button of the toolbox under the window does not start its drag, and
+a control dragged from the toolbox and released over the editor is not placed on
+the form behind it. (Before 1.90.23 a press on the editor over a toolbox button
+started that button's drag, and the selection drag carried a ghost of the control
+over the form.)
+
 The **first time** you open an unwritten handler, the editor seeds it with the
 standard skeleton so you only fill in the blanks:
 

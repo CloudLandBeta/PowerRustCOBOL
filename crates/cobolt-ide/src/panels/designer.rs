@@ -14320,10 +14320,10 @@ impl DesignerPanel {
         // Repaint each frame so the ghost tracks the cursor smoothly.
         ctx.request_repaint();
 
-        let over_canvas = ctx
-            .pointer_interact_pos()
-            .map(|p| canvas_rect.contains(p))
-            .unwrap_or(false);
+        // Over the canvas the pointer can REACH: a window above it — the COBOL
+        // event editor — takes the ghost and the drop with it, so a control is
+        // never placed behind the window the pointer is on.
+        let over_canvas = ui.rect_contains_pointer(canvas_rect);
         let released = ctx.input(|i| i.pointer.any_released());
 
         // If the pointer is off the canvas, do nothing: when the button is released
@@ -23826,5 +23826,70 @@ mod aws_drop_tests_078 {
         d.project_aws_connections = vec!["Sales".into()];
         d.add_control(ControlType::Button, 40, 40);
         assert!(d.form.controls.last().unwrap().get_prop("Connection").is_none());
+    }
+}
+
+/// The COBOL event editor is a window over the designer canvas, and what the
+/// pointer does on the window is the window's: a control dragged from the toolbox
+/// and released over it must not be placed on the canvas behind it (operator,
+/// 2026-10-08: selecting text in the event editor carried a "TabControl" ghost
+/// over the designer — the toolbox button under the window had taken the press).
+#[cfg(test)]
+mod event_editor_drag_tests {
+    use super::*;
+    use crate::llm::LlmConfig;
+    use egui::{Event, PointerButton};
+
+    fn frame(ctx: &egui::Context, d: &mut DesignerPanel, llm: &LlmConfig, events: Vec<Event>) {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(1400.0, 1000.0)));
+        input.max_texture_side = Some(8192);
+        input.events = events;
+        let mut out = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().show_inside(root, |ui| {
+                let _ = d.show(ui, &mut None, &[], llm, None, None);
+            });
+        });
+        out.textures_delta.clear();
+    }
+
+    fn button(pos: Pos2, pressed: bool) -> Event {
+        Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }
+    }
+
+    /// Release a toolbox drag of a Button at `at`; how many controls the form has
+    /// afterwards.
+    fn controls_after_dropping(at: impl Fn(egui::Rect) -> Pos2) -> usize {
+        let ctx = egui::Context::default();
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut form = Form::new("F", "F", 1200, 800);
+        form.controls.push(Control::new("Button-1", ControlType::Button, 600, 700));
+        let mut d = DesignerPanel::new(form);
+        d.open_event_modal("Button-1", "onClick");
+        for _ in 0..4 {
+            frame(&ctx, &mut d, &llm, vec![]);
+        }
+        let code = d.event_box_rect.expect("the code box was laid out");
+        let win = ctx
+            .memory(|m| m.area_rect(egui::Id::new("event_editor_modal")))
+            .expect("the event editor window is open");
+        // A drag from the toolbox is under way: the payload it stashes.
+        egui::DragAndDrop::set_payload(&ctx, ControlType::Button);
+        let _ = win;
+        let target = at(code);
+        frame(&ctx, &mut d, &llm, vec![Event::PointerMoved(target)]);
+        frame(&ctx, &mut d, &llm, vec![button(target, false)]);
+        frame(&ctx, &mut d, &llm, vec![]);
+        d.form.controls.len()
+    }
+
+    #[test]
+    fn a_toolbox_drag_released_over_the_event_editor_places_nothing_behind_it() {
+        // Control: released on the canvas beside the window, it places a control.
+        let beside = controls_after_dropping(|_| Pos2::new(120.0, 600.0));
+        assert_eq!(beside, 2, "released over the canvas, the control is placed");
+        // Released on the window, it is the window's: nothing is placed behind it.
+        let over = controls_after_dropping(|code| code.center());
+        assert_eq!(over, 1, "released over the event editor, nothing is placed behind the window");
     }
 }
