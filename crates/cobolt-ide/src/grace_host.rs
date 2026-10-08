@@ -147,7 +147,8 @@ struct ClarityCheck {
     /// else — the model's own reading of the request, never a word match.
     /// Non-empty means the IDE answers from the manifest's file lists
     /// (1.80.143): "list existing forms" took a 26 KB planning prompt and
-    /// 219 s on a reasoning model, and answered an earlier question.
+    /// 219 s on a reasoning model, and answered an earlier question. Only
+    /// kept when the same reply declares `"intent": "list"` (1.90.6).
     inventory: Vec<InventoryCategory>,
 }
 
@@ -349,7 +350,7 @@ fn evaluate_request_clarity(
     let surface_slice = clarity_surface_slice(&routing.context);
     let conversation_slice = clarity_conversation_slice(&routing.context);
     let user = format!(
-        "CLARITY PRE-CHECK (Grace-internal). This rating is telemetry for the workflow record: the developer is not shown the number and it must NEVER reach any specialist.\n\nBefore any Knowledge Base retrieval or planning happens, rate the developer's request below for clarity and conciseness on a 0-10 scale:\n- 9-10: unambiguous and actionable — also EVERY greeting, capability question, or other conversational/read-only message;\n- 7-8: minor vagueness a specialist could resolve safely without guessing;\n- 0-6: competing readings would produce DIFFERENT artifacts, or an essential fact (identifiers, exact values) is missing AND is not supplied by the surface or the recent conversation below.\n\nJudge ONLY the request text against the surface and the recent conversation shown below. A fact the surface already supplies is NOT missing: the resource open on the surface (for example the form named on the FORM: line) is the implicit target of the request — NEVER ask which form or resource is meant when the surface names one. Do not call tools, do not retrieve knowledge, do not plan tasks, do not answer the request itself.\n\nTHE CONVERSATION IS PART OF THE REQUEST. When the last assistant turn in the recent conversation asked a clarifying question and this request reads as its answer, the true request is the COMBINED one — the developer's earlier request merged with this answer — and that combined request is what you rate and restate in the interpretation. Likewise, when the request refers back to the conversation (\"the initial request\", \"as I said before\"), resolve the reference from the conversation. A fact stated anywhere in the recent conversation is NOT missing — NEVER ask for it again.\n\nREQUEST (verbatim):\n{request}\n\nCHAT SURFACE: {surface}\nOPEN ON THIS SURFACE:\n{surface_slice}\n\nRECENT CONVERSATION ON THIS SURFACE (oldest first; \"(none)\" when this is the first message):\n{conversation_slice}\n\nINVENTORY REQUESTS. When the request asks for NOTHING but a listing of the project's own files in one or more of these categories — forms, indexed, sources, generated, assets, documentation — name them in \"inventory\" (for example [\"forms\"] for \"list the forms\", [\"indexed\"] for \"which indexed files are there\"); the IDE then lists them from the project itself. Leave \"inventory\" empty for anything else, including a listing narrowed by a property or by content (\"the responsive forms\", \"forms that use a DataGrid\"), which needs the files opened.\n\nReply with ONLY one fenced JSON block of this exact shape and nothing else:\n{{\"clarity\": <0-10>, \"interpretation\": \"<one short paragraph restating what you understand the developer wants — the combined request when this message answers the assistant's question — in the developer's language>\", \"questions\": [\"<clarifying question, in the developer's language>\"], \"inventory\": [\"<forms|indexed|sources|generated|assets|documentation>\"]}}\nWhen clarity is below {CLARITY_GATE_THRESHOLD}, questions MUST contain at least one question naming exactly what is missing or ambiguous; when clarity is {CLARITY_GATE_THRESHOLD} or above, questions MUST be empty."
+        "CLARITY PRE-CHECK (Grace-internal). This rating is telemetry for the workflow record: the developer is not shown the number and it must NEVER reach any specialist.\n\nBefore any Knowledge Base retrieval or planning happens, rate the developer's request below for clarity and conciseness on a 0-10 scale:\n- 9-10: unambiguous and actionable — also EVERY greeting, capability question, or other conversational/read-only message;\n- 7-8: minor vagueness a specialist could resolve safely without guessing;\n- 0-6: competing readings would produce DIFFERENT artifacts, or an essential fact (identifiers, exact values) is missing AND is not supplied by the surface or the recent conversation below.\n\nJudge ONLY the request text against the surface and the recent conversation shown below. A fact the surface already supplies is NOT missing: the resource open on the surface (for example the form named on the FORM: line) is the implicit target of the request — NEVER ask which form or resource is meant when the surface names one. Do not call tools, do not retrieve knowledge, do not plan tasks, do not answer the request itself.\n\nTHE CONVERSATION IS PART OF THE REQUEST. When the last assistant turn in the recent conversation asked a clarifying question and this request reads as its answer, the true request is the COMBINED one — the developer's earlier request merged with this answer — and that combined request is what you rate and restate in the interpretation. Likewise, when the request refers back to the conversation (\"the initial request\", \"as I said before\"), resolve the reference from the conversation. A fact stated anywhere in the recent conversation is NOT missing — NEVER ask for it again.\n\nREQUEST (verbatim):\n{request}\n\nCHAT SURFACE: {surface}\nOPEN ON THIS SURFACE:\n{surface_slice}\n\nRECENT CONVERSATION ON THIS SURFACE (oldest first; \"(none)\" when this is the first message):\n{conversation_slice}\n\nINTENT. Say in \"intent\" what the request is: \"list\" when it asks for NOTHING but a listing of the project's own files; \"change\" when it asks to create, modify, restyle or fix anything in the project; \"other\" for a question, a greeting, an explanation or anything else. \"inventory\" may be non-empty ONLY when \"intent\" is \"list\".\n\nINVENTORY REQUESTS. When the request asks for NOTHING but a listing of the project's own files in one or more of these categories — forms, indexed, sources, generated, assets, documentation — name them in \"inventory\" (for example [\"forms\"] for \"list the forms\", [\"indexed\"] for \"which indexed files are there\"); the IDE then lists them from the project itself. Leave \"inventory\" empty for anything else, including a listing narrowed by a property or by content (\"the responsive forms\", \"forms that use a DataGrid\"), which needs the files opened.\n\nReply with ONLY one fenced JSON block of this exact shape and nothing else:\n{{\"clarity\": <0-10>, \"intent\": \"<list|change|other>\", \"interpretation\": \"<one short paragraph restating what you understand the developer wants — the combined request when this message answers the assistant's question — in the developer's language>\", \"questions\": [\"<clarifying question, in the developer's language>\"], \"inventory\": [\"<forms|indexed|sources|generated|assets|documentation>\"]}}\nWhen clarity is below {CLARITY_GATE_THRESHOLD}, questions MUST contain at least one question naming exactly what is missing or ambiguous; when clarity is {CLARITY_GATE_THRESHOLD} or above, questions MUST be empty."
     );
     let reply = match invoker.invoke(GRACE, "", &user) {
         Ok(reply) => reply,
@@ -429,6 +430,18 @@ fn parse_clarity_reply(reply: &str) -> Option<ClarityCheck> {
                 .collect()
         })
         .unwrap_or_default();
+    // The model's own reading of what the request IS, declared before it may
+    // name an inventory. A small model filled `inventory` with ["forms"] for
+    // "add shadows to the panels" (observed live, twice in a row on
+    // nemotron-3-nano), and the IDE answered with the project's file list
+    // instead of ever planning the change. A listing now needs the model to
+    // say `"intent": "list"` as well; a reply that leaves the field out, or
+    // names another intent, falls through to normal planning — a slower route
+    // for a real listing, never a wrong answer to a change.
+    let lists = value
+        .get("intent")
+        .and_then(|i| i.as_str())
+        .is_some_and(|i| i.trim().eq_ignore_ascii_case("list"));
     let mut inventory: Vec<InventoryCategory> = Vec::new();
     for category in value
         .get("inventory")
@@ -441,6 +454,18 @@ fn parse_clarity_reply(reply: &str) -> Option<ClarityCheck> {
         if !inventory.contains(&category) {
             inventory.push(category);
         }
+    }
+    if !lists && !inventory.is_empty() {
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Info,
+            format!(
+                "clarity pre-check named {} inventory categor{} without declaring a listing intent — \
+                 the request goes on to planning instead of a file list.",
+                inventory.len(),
+                if inventory.len() == 1 { "y" } else { "ies" }
+            ),
+        );
+        inventory.clear();
     }
     Some(ClarityCheck {
         clarity,
@@ -4876,7 +4901,7 @@ mod tests {
     fn an_inventory_request_is_listed_from_the_manifest() {
         let t = std::time::Instant::now();
         let check = parse_clarity_reply(
-            "```json\n{\"clarity\": 7, \"interpretation\": \"The developer wants a complete list of all forms currently present in the project workspace.\", \"questions\": [], \"inventory\": [\"forms\", \"FORMS\", \"tables\"]}\n```",
+            "```json\n{\"clarity\": 7, \"intent\": \"list\", \"interpretation\": \"The developer wants a complete list of all forms currently present in the project workspace.\", \"questions\": [], \"inventory\": [\"forms\", \"FORMS\", \"tables\"]}\n```",
         )
         .expect("verdict parses");
         assert_eq!(check.inventory, vec![InventoryCategory::Forms], "case-blind, deduplicated, unknown dropped");
@@ -4906,6 +4931,42 @@ mod tests {
             demo.join("PowerDemo3.project.toml").display(),
             t.elapsed().as_secs_f64() * 1000.0
         );
+    }
+
+    /// Observed live (PowerAnalytics, 2026-10-08, nemotron-3-nano): for "adicionar
+    /// sombras para os painéis" the model rated 9/10 and filled `inventory` with
+    /// ["forms"], and the IDE answered with the project's file list — twice in a
+    /// row — so the change never reached the Form Designer. The listing shortcut
+    /// now needs the model to declare `"intent": "list"` too; any other intent,
+    /// or none, means the request is planned.
+    #[test]
+    fn an_inventory_needs_a_declared_listing_intent() {
+        let parse = |body: &str| {
+            parse_clarity_reply(&format!("```json\n{{\"clarity\": 9, {body}}}\n```")).expect("verdict parses")
+        };
+        // The recorded failure: a change request carrying an inventory.
+        let change = parse(
+            "\"intent\": \"change\", \"interpretation\": \"adicionar sombras para os painéis\", \"questions\": [], \"inventory\": [\"forms\"]",
+        );
+        assert!(change.inventory.is_empty(), "a change is planned, not answered with a file list");
+        assert_eq!(change.clarity, 9, "the rest of the verdict is untouched");
+        assert_eq!(change.interpretation, "adicionar sombras para os painéis");
+
+        let other = parse("\"intent\": \"other\", \"interpretation\": \"x\", \"questions\": [], \"inventory\": [\"forms\"]");
+        assert!(other.inventory.is_empty(), "a question or greeting is not a listing");
+
+        let silent = parse("\"interpretation\": \"x\", \"questions\": [], \"inventory\": [\"forms\", \"assets\"]");
+        assert!(silent.inventory.is_empty(), "no declared intent, no shortcut");
+
+        let list = parse("\"intent\": \" List \", \"interpretation\": \"x\", \"questions\": [], \"inventory\": [\"forms\", \"assets\"]");
+        assert_eq!(
+            list.inventory,
+            vec![InventoryCategory::Forms, InventoryCategory::Assets],
+            "a declared listing keeps its categories, case and spacing tolerated"
+        );
+        let no_categories = parse("\"intent\": \"list\", \"interpretation\": \"x\", \"questions\": [], \"inventory\": []");
+        assert!(no_categories.inventory.is_empty(), "intent alone names nothing to list");
+        println!("inventory intent: change, other and undeclared drop the file list; a declared listing keeps it");
     }
 
     /// The pre-check must see the recent conversation — observed live: with

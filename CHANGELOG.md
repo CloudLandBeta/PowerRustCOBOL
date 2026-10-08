@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.6] — 2026-10-08
+
+### Fixed
+- **Grace answered a change request with the project's file list.** Asked to
+  "adicionar sombras para os painéis", Grace's clarity check came back 9/10 with
+  the `inventory` field set to `forms`, and the IDE — which answers a listing
+  straight from the project manifest, with no planning — printed the list of
+  forms instead of sending the change to the Form Designer. It did so twice in
+  a row, and the wrong answer then sat in the conversation and coloured the
+  next turns. The check now also declares an `intent` (`list`, `change` or
+  `other`), chosen before the inventory, and the shortcut applies only when it
+  says `list`. A reply with any other intent, or none, is planned as usual, and
+  the AI log records that the file list was set aside. A genuine "list the
+  forms" is unchanged for a model that declares it.
+
 ## [PowerRustCOBOL 1.90.5] — 2026-10-08
 
 ### Fixed
