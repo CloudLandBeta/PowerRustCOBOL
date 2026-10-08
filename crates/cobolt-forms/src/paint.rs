@@ -1434,6 +1434,191 @@ pub struct ShadowStack {
     layers: Vec<ShadowLayer>,
     /// Sunken relief is clipped inside the control; a raised halo is not.
     clip: Option<egui::Rect>,
+    /// The control's own face, when that face lets what is behind it show
+    /// through: no layer is painted inside it ([`push_layer_outside`]).
+    hole: Option<ShadowHole>,
+}
+
+/// The face a translucent control leaves un-shadowed: a rounded rect.
+///
+/// A drop shadow falls OUTSIDE its control, as a CSS `box-shadow` does. It used
+/// to be painted as filled layers under the whole face, which is invisible
+/// while the face is opaque — and, once `Transparency` (or a background alpha)
+/// let the face show what is behind it, showed the shadow instead of the form:
+/// the control's colour changed with the shadow, not with what was under it
+/// (operator, 2026-10-08).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ShadowHole {
+    pub rect: Rect,
+    pub radius: f32,
+}
+
+/// How far a painted shadow reaches under the edge of its hole, so the face's
+/// own anti-aliased edge blends over shadow rather than over a hairline gap.
+const SHADOW_HOLE_UNDERLAP: f32 = 0.75;
+
+/// The horizontal extent `[left, right]` of `rect` rounded by `r`, at height
+/// `y`; `None` above or below it.
+fn rounded_extent(rect: Rect, r: egui::CornerRadius, y: f32) -> Option<(f32, f32)> {
+    if y < rect.min.y || y > rect.max.y {
+        return None;
+    }
+    let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+    let rad = |v: u8| f32::from(v).min(cap);
+    // How far a corner of `radius` has pulled the edge in, `from_edge` below
+    // (or above) the corner's own horizontal edge.
+    let inset = |radius: f32, from_edge: f32| -> f32 {
+        if radius <= 0.0 || from_edge >= radius {
+            0.0
+        } else {
+            let dy = radius - from_edge;
+            radius - (radius * radius - dy * dy).max(0.0).sqrt()
+        }
+    };
+    let (from_top, from_bottom) = (y - rect.min.y, rect.max.y - y);
+    let left = inset(rad(r.nw), from_top).max(inset(rad(r.sw), from_bottom));
+    let right = inset(rad(r.ne), from_top).max(inset(rad(r.se), from_bottom));
+    Some((rect.min.x + left, rect.max.x - right))
+}
+
+/// The heights at which the outline of `rect` rounded by `r` changes direction:
+/// its top and bottom, and an even run of points along each corner's arc.
+fn rounded_levels(rect: Rect, r: egui::CornerRadius, out: &mut Vec<f32>) {
+    let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+    out.push(rect.min.y);
+    out.push(rect.max.y);
+    for (v, at_top) in [(r.nw, true), (r.ne, true), (r.sw, false), (r.se, false)] {
+        let radius = f32::from(v).min(cap);
+        if radius < 0.5 {
+            continue;
+        }
+        // A segment per ~third of a pixel of sag keeps the arc smooth at the
+        // size a control is drawn; more only costs vertices on every frame.
+        let steps = ((radius.sqrt() * 0.9).ceil() as usize).clamp(3, 8);
+        for k in 1..steps {
+            let theta = k as f32 / steps as f32 * std::f32::consts::FRAC_PI_2;
+            let from_edge = radius * (1.0 - theta.cos());
+            out.push(if at_top { rect.min.y + from_edge } else { rect.max.y - from_edge });
+        }
+        out.push(if at_top { rect.min.y + radius } else { rect.max.y - radius });
+    }
+}
+
+/// Append to `mesh` the part of `layer` that lies OUTSIDE `hole`, in the layer's
+/// colour, with the half-pixel fade on its outer edge that egui's tessellator
+/// gives a `rect_filled`.
+///
+/// Both outlines are rounded rects, so the difference is exact between
+/// consecutive heights: on each horizontal strip it is a piece left of the hole
+/// and a piece right of it (or the whole layer, above and below the hole). The
+/// vertices of one height are shared by the strips above and below it, which
+/// keeps a control's whole shadow to about as many vertices as the layered
+/// rects it replaces.
+fn push_layer_outside(mesh: &mut egui::Mesh, layer: &ShadowLayer, hole: &ShadowHole) {
+    use egui::epaint::Vertex;
+    // egui feathers a filled shape over one pixel centred on its edge: full
+    // colour half a pixel inside, nothing half a pixel outside.
+    const HALF: f32 = 0.5;
+    if layer.color.a() == 0 {
+        return;
+    }
+    let (top, bottom) = (layer.rect.min.y, layer.rect.max.y);
+    if bottom - top < 2.0 * HALF {
+        return;
+    }
+    let hole_rad = egui::CornerRadius::same(hole.radius.round().clamp(0.0, 255.0) as u8);
+    let mut ys = Vec::new();
+    rounded_levels(layer.rect, layer.rounding, &mut ys);
+    rounded_levels(hole.rect, hole_rad, &mut ys);
+    ys.retain(|y| *y > top + HALF && *y < bottom - HALF);
+    ys.push(top + HALF);
+    ys.push(bottom - HALF);
+    ys.sort_by(f32::total_cmp);
+    ys.dedup_by(|a, b| (*a - *b).abs() < 0.1);
+    if ys.len() < 2 {
+        return;
+    }
+
+    // Is the strip below level `k` cut by the hole?
+    let cut = |k: usize| {
+        let ym = 0.5 * (ys[k] + ys[k + 1]);
+        ym > hole.rect.min.y && ym < hole.rect.max.y
+    };
+    let strips = ys.len() - 1;
+    let (c, z) = (layer.color, Color32::TRANSPARENT);
+    let push = |mesh: &mut egui::Mesh, x: f32, y: f32, color: Color32| -> u32 {
+        mesh.vertices.push(Vertex::untextured(Pos2::new(x, y), color));
+        (mesh.vertices.len() - 1) as u32
+    };
+    /// One level's vertices: the outer feather and solid edge on each side, and
+    /// where the hole begins and ends when a strip next to the level is cut.
+    struct Row {
+        y: f32,
+        l0: u32,
+        l1: u32,
+        r1: u32,
+        r0: u32,
+        e: Option<u32>,
+        s: Option<u32>,
+        x: [f32; 4], // l1, r1, e, s
+    }
+    let mut rows: Vec<Row> = Vec::with_capacity(ys.len());
+    for (k, &y) in ys.iter().enumerate() {
+        let Some((a, b)) = rounded_extent(layer.rect, layer.rounding, y) else {
+            return;
+        };
+        let mid = 0.5 * (a + b);
+        let (lx, rx) = ((a + HALF).min(mid), (b - HALF).max(mid));
+        let near_cut = (k > 0 && cut(k - 1)) || (k < strips && cut(k));
+        let hole_at = if near_cut { rounded_extent(hole.rect, hole_rad, y) } else { None };
+        let (l0, l1) = (push(mesh, lx - 2.0 * HALF, y, z), push(mesh, lx, y, c));
+        let (r1, r0) = (push(mesh, rx, y, c), push(mesh, rx + 2.0 * HALF, y, z));
+        let (mut e, mut s, mut ex, mut sx) = (None, None, 0.0, 0.0);
+        if let Some((hl, hr)) = hole_at {
+            ex = hl.min(b).max(lx);
+            sx = hr.max(a).min(rx);
+            e = Some(push(mesh, ex, y, c));
+            s = Some(push(mesh, sx, y, c));
+        }
+        rows.push(Row { y, l0, l1, r1, r0, e, s, x: [lx, rx, ex, sx] });
+    }
+    let quad = |mesh: &mut egui::Mesh, q: [u32; 4]| {
+        mesh.indices.extend_from_slice(&[q[0], q[1], q[2], q[0], q[2], q[3]]);
+    };
+    for k in 0..strips {
+        let (u, d) = (&rows[k], &rows[k + 1]);
+        quad(mesh, [u.l0, u.l1, d.l1, d.l0]);
+        quad(mesh, [u.r1, u.r0, d.r0, d.r1]);
+        if cut(k) {
+            if let (Some(ue), Some(de), Some(us), Some(ds)) = (u.e, d.e, u.s, d.s) {
+                quad(mesh, [u.l1, ue, de, d.l1]);
+                quad(mesh, [us, u.r1, d.r1, ds]);
+            }
+        } else {
+            quad(mesh, [u.l1, u.r1, d.r1, d.l1]);
+        }
+    }
+    // The fade above the first level and below the last, over the same
+    // intervals as the strip next to it.
+    let edge = |mesh: &mut egui::Mesh, row: &Row, strip_cut: bool, outward: f32| {
+        let intervals: &[(u32, u32, f32, f32)] = &if strip_cut {
+            [
+                (row.l1, row.e.unwrap_or(row.l1), row.x[0], row.x[2]),
+                (row.s.unwrap_or(row.r1), row.r1, row.x[3], row.x[1]),
+            ]
+        } else {
+            [(row.l1, row.r1, row.x[0], row.x[1]), (row.l1, row.l1, row.x[0], row.x[0])]
+        };
+        for &(i0, i1, x0, x1) in intervals {
+            if x1 - x0 < 1e-3 {
+                continue;
+            }
+            let (p0, p1) = (push(mesh, x0, row.y + outward, z), push(mesh, x1, row.y + outward, z));
+            mesh.indices.extend_from_slice(&[p0, p1, i1, p0, i1, i0]);
+        }
+    };
+    edge(mesh, &rows[0], cut(0), -2.0 * HALF);
+    edge(mesh, &rows[strips], cut(strips - 1), 2.0 * HALF);
 }
 
 impl ShadowStack {
@@ -1467,8 +1652,25 @@ impl ShadowStack {
                 None => painter,
             },
         };
-        for l in &self.layers {
-            p.rect_filled(l.rect, l.rounding, l.color);
+        match self.hole {
+            // A face that lets the form show through: one mesh, every layer
+            // minus the face, in the same back-to-front order.
+            Some(hole) if !self.layers.is_empty() => {
+                let hole = ShadowHole {
+                    rect: hole.rect.shrink(SHADOW_HOLE_UNDERLAP),
+                    radius: (hole.radius - SHADOW_HOLE_UNDERLAP).max(0.0),
+                };
+                let mut mesh = egui::Mesh::default();
+                for l in &self.layers {
+                    push_layer_outside(&mut mesh, l, &hole);
+                }
+                p.add(egui::Shape::mesh(mesh));
+            }
+            _ => {
+                for l in &self.layers {
+                    p.rect_filled(l.rect, l.rounding, l.color);
+                }
+            }
         }
     }
 
@@ -1478,6 +1680,14 @@ impl ShadowStack {
     pub fn sample(&self, p: Pos2) -> Color32 {
         if self.clip.is_some_and(|c| !c.contains(p)) {
             return Color32::TRANSPARENT;
+        }
+        // Inside a translucent face nothing is cast: the painter leaves the
+        // hole empty, so the notch mask must not put shadow back into it.
+        if let Some(hole) = self.hole {
+            let radius = egui::CornerRadius::same(hole.radius.round().clamp(0.0, 255.0) as u8);
+            if rounded_rect_contains(hole.rect, radius, p) {
+                return Color32::TRANSPARENT;
+            }
         }
         let mut acc = Color32::TRANSPARENT;
         for l in &self.layers {
@@ -11892,6 +12102,8 @@ pub(crate) fn draw_viewer(
             blur_strength: 14,
             corner_radius: VIEWER_PAGE_RADIUS,
             overlay: false,
+            // The sheet is an opaque surface; its shadow sits under it.
+            translucent_face: false,
         };
         shadow.paint(painter, content_rect, alpha_mul);
         painter.rect_filled(content_rect, round, surface);
@@ -15491,6 +15703,8 @@ struct RegularDropShadow {
     /// GroupBox/Panel: every ring of the shadow is cut to it, exactly as the
     /// face is (spec 057, E13). `None` for a free-standing control.
     clip: Option<ContainerClip>,
+    /// The face to leave un-shadowed, when it is translucent ([`ShadowHole`]).
+    hole: Option<ShadowHole>,
 }
 
 /// A control's drop shadow with the geometry left out — everything the painter
@@ -15514,6 +15728,9 @@ pub struct DropShadowSpec {
     /// A NEGATIVE `ShadowBlurStrength`: the shadow goes OVER the face instead
     /// of under it, which reads as sunken.
     overlay: bool,
+    /// The face lets what is behind it show (`Transparency` above 0, or a
+    /// background colour with alpha): the shadow is then cast only OUTSIDE it.
+    translucent_face: bool,
 }
 
 impl DropShadowSpec {
@@ -15560,6 +15777,11 @@ impl DropShadowSpec {
             corner_radius: self.corner_radius,
             overlay: self.overlay,
             clip: None,
+            // A sunken (overlay) shadow is meant to lie over the face.
+            hole: (self.translucent_face && !self.overlay).then_some(ShadowHole {
+                rect,
+                radius: self.corner_radius,
+            }),
         }
     }
 }
@@ -15692,6 +15914,11 @@ pub(crate) fn drop_shadow_spec(ctrl: &Control, is_neumorphic: bool) -> Option<Dr
         blur_strength: signed_blur.unsigned_abs() as usize,
         corner_radius: drop_shadow_corner_radius(ctrl),
         overlay: signed_blur < 0,
+        translucent_face: crate::model::transparency_of(ctrl) > 0
+            || ctrl
+                .get_prop("BackgroundColor")
+                .map(|v| parse_color(v.as_str()))
+                .is_some_and(|c| c.a() > 0 && c.a() < 255),
     })
 }
 
@@ -15900,7 +16127,9 @@ pub(crate) fn draw_loose_drop_shadow(
     let rad = direction_degrees.to_radians();
     let offset = Vec2::new(rad.cos(), rad.sin()) * distance.max(0) as f32;
     let shadow = RegularDropShadow {
-        clip: None,        rect: rect.translate(offset),
+        clip: None,
+        hole: None,
+        rect: rect.translate(offset),
         color,
         opacity,
         blur_strength: blur_strength.clamp(0, 20) as usize,
@@ -15919,7 +16148,7 @@ fn draw_regular_drop_shadow(painter: &egui::Painter, shadow: &RegularDropShadow,
 /// this shadow left at a point, and one definition is what keeps the answer true.
 fn regular_shadow_stack(shadow: &RegularDropShadow, alpha_mul: f32) -> ShadowStack {
     let sc = shadow.color;
-    let mut stack = ShadowStack::default();
+    let mut stack = ShadowStack { hole: shadow.hole, ..ShadowStack::default() };
     if shadow.blur_strength == 0 {
         let alpha = (shadow.opacity * alpha_mul * 255.0) as u8;
         // Cut to the container arc like the face (spec 057, E13): a ring that
@@ -28952,5 +29181,121 @@ mod signed_chart_tests {
         let g = chart_geometry(&sc);
         assert_eq!((g.scatter_zero, g.live_norm[0], g.live_norm[1]), (0.25, 0.0, 1.0));
         println!("\n  052 -- zero at 0.0 (all positive), 0.25 (30/-10), 1.0 (all negative), 0.286 (stacked 10/-4); line and scatter on the same mapping\n");
+    }
+}
+
+/// A drop shadow falls outside its control (operator, 2026-10-08).
+#[cfg(test)]
+mod translucent_face_shadow_tests {
+    use super::*;
+    use crate::model::PropValue;
+
+    const SIZE: Vec2 = Vec2::new(320.0, 240.0);
+
+    /// A 200 x 120 card at (60, 60) with a soft shadow falling 10 px downward.
+    fn card(transparency: i64, shadow: bool) -> Control {
+        let mut c = Control::new("CARD", ControlType::Panel, 0, 0);
+        c.rect = crate::model::Rect::new(60, 60, 200, 120);
+        c.set_prop("BackgroundColor", PropValue::String("#FFFFFFFF".into()));
+        c.set_prop("Transparency", PropValue::Int(transparency));
+        c.set_prop("CornerRadius", PropValue::Int(20));
+        c.set_prop("ShadowEnabled", PropValue::Bool(shadow));
+        c.set_prop("ShadowDirection", PropValue::String("South".into()));
+        c.set_prop("ShadowDistance", PropValue::Int(10));
+        c.set_prop("ShadowBlurStrength", PropValue::Int(8));
+        c.set_prop("ShadowOpacity", PropValue::Int(60));
+        c
+    }
+
+    fn face() -> Rect {
+        Rect::from_min_size(Pos2::new(60.0, 60.0), Vec2::new(200.0, 120.0))
+    }
+
+    /// The control as the renderer draws it, over a flat blue form.
+    fn frame(c: &Control) -> egui::ColorImage {
+        let ctx = egui::Context::default();
+        let mut raster = crate::raster::Rasterizer::new();
+        crate::raster::render_frame(&ctx, &mut raster, SIZE, Color32::from_rgb(40, 120, 200), 0.0, |ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, c, false, true, 1.0, 1.0, None);
+            });
+        })
+    }
+
+    fn at(img: &egui::ColorImage, x: usize, y: usize) -> Color32 {
+        img.pixels[y * img.size[0] + x]
+    }
+
+    /// **The reported defect.** `Transparency` lets the form show through a
+    /// control, and the shadow painted under its whole face showed through with
+    /// it: the control's colour changed with the shadow instead of with what is
+    /// behind it. Compared with the SAME control without a shadow, no pixel
+    /// inside the face may differ — and the shadow must still be there outside.
+    #[test]
+    fn a_translucent_face_shows_the_form_behind_it_not_its_own_shadow() {
+        for transparency in [20, 50, 80] {
+            let with = frame(&card(transparency, true));
+            let without = frame(&card(transparency, false));
+            // Well inside the face, clear of its edge and its border.
+            let mut differing = 0;
+            let mut sampled = 0;
+            for y in (80..160).step_by(4) {
+                for x in (90..230).step_by(4) {
+                    sampled += 1;
+                    if at(&with, x, y) != at(&without, x, y) {
+                        differing += 1;
+                    }
+                }
+            }
+            assert_eq!(
+                differing, 0,
+                "Transparency {transparency}: {differing} of {sampled} pixels inside the face carry the shadow"
+            );
+            // Outside, below the face, the shadow is cast as before.
+            let (a, b) = (at(&with, 160, 188), at(&without, 160, 188));
+            assert!(
+                a.r() < b.r() && a.b() < b.b(),
+                "Transparency {transparency}: no shadow below the face ({a:?} vs {b:?})"
+            );
+        }
+        println!("translucent face: 0 of 700 pixels inside the face differ from the shadowless control at Transparency 20/50/80; the shadow below it is intact");
+    }
+
+    /// An opaque face hides its shadow anyway, so it keeps the cheaper path:
+    /// nothing about it changes.
+    #[test]
+    fn an_opaque_face_keeps_painting_its_shadow_as_filled_layers() {
+        let ctx = egui::Context::default();
+        let opaque = control_shadow_stack(&ctx, &card(0, true), face(), 1.0);
+        assert!(opaque.hole.is_none(), "an opaque face needs no hole");
+        assert!(opaque.sample(face().center()) != Color32::TRANSPARENT, "the shadow still lies under an opaque face");
+        let glass = control_shadow_stack(&ctx, &card(40, true), face(), 1.0);
+        assert!(glass.hole.is_some(), "a translucent face gets a hole");
+        assert_eq!(glass.sample(face().center()), Color32::TRANSPARENT, "nothing is cast inside it");
+        assert!(glass.sample(Pos2::new(160.0, 188.0)) != Color32::TRANSPARENT, "the shadow is cast below it");
+    }
+
+    /// A background colour with its own alpha is translucent too, with no
+    /// `Transparency` set.
+    #[test]
+    fn a_background_colour_with_alpha_counts_as_translucent() {
+        let ctx = egui::Context::default();
+        let mut c = card(0, true);
+        c.set_prop("BackgroundColor", PropValue::String("#FFFFFF99".into()));
+        let stack = control_shadow_stack(&ctx, &c, face(), 1.0);
+        assert!(stack.hole.is_some());
+        assert_eq!(stack.sample(face().center()), Color32::TRANSPARENT);
+    }
+
+    /// A shadow with no blur is a single layer; it is cut the same way.
+    #[test]
+    fn a_hard_shadow_is_cut_around_a_translucent_face_too() {
+        let ctx = egui::Context::default();
+        let mut c = card(40, true);
+        c.set_prop("ShadowBlurStrength", PropValue::Int(0));
+        let stack = control_shadow_stack(&ctx, &c, face(), 1.0);
+        assert_eq!(stack.layers.len(), 1);
+        assert_eq!(stack.sample(face().center()), Color32::TRANSPARENT);
+        assert!(stack.sample(Pos2::new(160.0, 185.0)) != Color32::TRANSPARENT);
     }
 }
