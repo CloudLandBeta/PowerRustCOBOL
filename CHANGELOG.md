@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.7] — 2026-10-08
+
+### Added
+- **PowerAnalytics joins Help → Examples.** A fund-analytics dashboard on the
+  Spatial theme, built from an ANBIMA spreadsheet of 43,750 investment funds:
+  glass panels that zoom in one after another (800 ms, 200 ms apart), charts that
+  grow from zero once their panel has arrived — bar, line, donut and the new
+  RadarChart, up to three series each — search fields for the commercial name
+  and the category with a type-ahead list of ticks (a "Todos" row, a clear-text
+  button, selections kept across searches), filters by start date, net worth
+  and category levels 2 and 3, a Dashboard / Data menu with a data grid and a
+  strip of five KPIs, and a layout that adapts from a wide screen down to a
+  phone's width. The data is read from `data/fundos.sql` into an in-memory SQLite
+  database when the form opens. The menu entry carries a six-language hover
+  text, and the project ships its sources, form, data, assets and agent kit —
+  no build output, generated code or run records.
+
 ## [PowerRustCOBOL 1.90.3] — 2026-10-08
 
 ### Added

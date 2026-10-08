@@ -1785,11 +1785,13 @@ impl Example {
 
 /// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
 /// one entry per example instead of a single one).
-pub const EXAMPLES: [Example; 3] = [
+pub const EXAMPLES: [Example; 4] = [
     Example { project: "PowerChat", manifest: "PowerChat.project.toml" },
     Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml" },
     // The Spatial theme, and a group of docked windows (operator, 2026-10-04).
     Example { project: "PowerSpatial", manifest: "PowerSpatial.project.toml" },
+    // Fund analytics on the Spatial theme: glass panels, multi-series charts, filters (operator, 2026-10-08).
+    Example { project: "PowerAnalytics", manifest: "PowerAnalytics.project.toml" },
 ];
 
 /// The folder the developer's own copies of the shipped examples live in.
@@ -15858,6 +15860,7 @@ impl eframe::App for CoboltApp {
                             let about = match ex.project {
                                 "PowerChat" => Some(tr.examples_powerchat_about),
                                 "PowerSpatial" => Some(tr.examples_powerspatial_about),
+                                "PowerAnalytics" => Some(tr.examples_poweranalytics_about),
                                 _ => None,
                             };
                             let entry = match (&found, about) {

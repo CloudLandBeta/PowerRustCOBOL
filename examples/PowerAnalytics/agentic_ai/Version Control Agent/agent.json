@@ -1,0 +1,27 @@
+{
+  "id": "1ac0ad5c-d988-4a55-9305-f1aa3fc1ebb5",
+  "name": "Version Control Agent",
+  "kind": "specialist",
+  "specialization": "version-control",
+  "purpose": "Manages Git for the project: branches, commits, push, revert, rebase.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives project Git tasks from Grace or an explicit developer request; requires confirmation for destructive or history-changing operations; returns command evidence and repository state to Grace.",
+  "companion": "3a47d85b-6f7f-4ac1-843a-c136624b67aa",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "git (project repository)",
+    "git.run",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

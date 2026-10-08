@@ -1329,6 +1329,13 @@ statement catches it like any other; with no `CATCH`, it reaches
   docked around the dashboard that move with it as one, a thermostat dial, a
   music player, and six languages kept in a setting the forms share through
   Common Code. It is the example to copy for a group of floating windows.
+- **Help → Examples → PowerAnalytics** opens a fund-analytics dashboard on the
+  Spatial theme: 43,750 investment funds read from a spreadsheet into an
+  in-memory SQLite database, glass panels that zoom in one after another, charts
+  that grow from zero (bar, line, donut and the RadarChart, up to three series
+  each), search fields with a type-ahead list of ticks, range filters, a
+  Dashboard / Data menu with a data grid, and a layout that adapts down to a
+  phone's width. It is the example to copy for a data dashboard.
 
 The IDE finds each project itself, so you do not need to know where it lives:
 beside the executable in an installed build, or in the tree the IDE was built
