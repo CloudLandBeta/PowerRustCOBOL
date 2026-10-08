@@ -25,6 +25,7 @@ Uma única janela com duas páginas, escolhidas nos botões do topo:
   - **Todos** marca tudo e usa todos os resultados da busca, inclusive os que a lista não exibe. Desmarcar um item sai do modo Todos; desmarcar Todos limpa a seleção.
   - **×** limpa o texto e volta a listar todos os nomes únicos; **▾** abre/fecha a lista; **Limpar seleção** desmarca tudo; **Aplicar** (ou `Enter`) fecha e aplica. `Esc` ou um clique fora da lista também a fecham.
   - **Categoria** é o *Nível 1* da planilha (Multimercados, FIDC, Renda Fixa, Previdência, Ações…).
+  - As listas e o combo de ordenação usam **cores de alto contraste**: linha ativa em azul profundo com texto branco (8,4:1), itens marcados em azul-claro com texto azul-marinho (11:1) e caixas marcadas em azul profundo com ✓ branco.
 - **Início de atividade (de / até)** — faixa de datas.
 - **PL em R$ milhões (de / até)** — faixa de valores.
 - **Níveis 2 e 3** — duas listas com caixas de seleção; marque quantos itens quiser. Dentro de um nível os itens se somam (OU); entre os filtros, restringem (E).
@@ -52,14 +53,15 @@ Para atualizar os dados com uma planilha nova, regere esse arquivo com o mesmo e
 
 ## Visual e comportamento
 
-- Janela **50 % transparente** (tema Spatial; o sistema desfoca o fundo no macOS e no Windows); cada painel é um `GroupBox` branco com `Transparency` 30 — o `GroupBox` esmaece só a moldura, de modo que texto e gráficos continuam nítidos.
+- Janela **50 % transparente** (tema Spatial; o sistema desfoca o fundo no macOS e no Windows) sobre um fundo azul-acinzentado **claro**, como na imagem de referência; cada painel é um `GroupBox` branco com `Transparency` 30 — o `GroupBox` esmaece só a moldura, de modo que texto e gráficos continuam nítidos — e o cartão principal é azul-marinho profundo.
+- Cada painel projeta uma **sombra suave** (`ShadowEnabled`, `ShadowOpacity` 4, `ShadowDistance` 10, `ShadowBlurStrength` 14) só do lado de fora: num painel translúcido a sombra não aparece através do fundo (correção do motor na 1.90.8 — é preciso um IDE/`rcrun` dessa versão ou mais nova).
 - No topo, à direita do painel superior e separado dele, o botão redondo vermelho **×** (`BTN-CLOSE`, com a mesma altura do painel, 64 px) fecha a janela (`INVOKE me::Close()`). Em tela de celular o logotipo some para o botão caber ao lado de Dashboard e Dados.
-- Painéis entram com a animação **ZoomOut / Elastic** de **800 ms**, um após o outro com **200 ms** de intervalo, para chegarem em ordem visível (animação `intro` no carregamento e `replay` ao trocar de página, via `PlayAnimation`).
-- Os **gráficos** ficam ocultos até o painel que os contém terminar de entrar; só então aparecem e suas barras, linhas, fatias e polígonos **crescem de zero até os valores** (`AnimateOnLoad`, 800 ms). Um `Timer` (`TMR-STAGE`) mostra cada gráfico na hora certa. Se a carga dos dados demorar mais que as animações, os gráficos aparecem todos de uma vez, já com os dados.
+- Painéis entram com a animação **ZoomOut / Elastic** de **1200 ms**, cada um começando **600 ms** depois do anterior, para chegarem em ordem visível (animação `intro` no carregamento e `replay` ao trocar de página, via `PlayAnimation`).
+- Os **gráficos** ficam ocultos até o **último** painel terminar de entrar; só então aparecem **todos ao mesmo tempo** e suas barras, linhas, fatias e polígonos **crescem de zero até os valores** em **1500 ms** (`AnimateOnLoad`). Ao **aplicar filtros**, os gráficos que já estão na tela passam dos valores antigos para os novos na mesma duração (`AnimateValues`). Um `Timer` (`TMR-STAGE`) mostra os gráficos na hora certa. Se a carga dos dados demorar mais que as animações, os gráficos aparecem de uma vez, já com os dados.
 - As listas suspensas (busca de Nome/Categoria e Níveis 2 e 3) são cartões opacos (`SM-DROP`, `LV-DROP`) que flutuam sobre a página; uma camada transparente (`SCRIM`) abaixo delas fecha a lista num clique fora. No **designer** esses cartões aparecem sobre o painel porque ele mostra os controles ocultos; em execução ficam escondidos até serem abertos.
 - **Responsivo** (`responsive="true"`): ≥ 1024 px, grade de 4 colunas; 600–1023 px, cartões em fluxo (dois por linha onde cabem); < 600 px (celular), uma coluna com rolagem vertical e o donut de PL por categoria omitido. A janela pode ser reduzida até ~390 px de largura.
 
 ## Requisitos
 
-- O gráfico de estrutura usa o controle **`RadarChart`** (novo). Use um `rcrun`/IDE construído com esse controle.
+- O gráfico de estrutura usa o controle **`RadarChart`** (novo) com uma escala comum de 0 a 100 escrita no primeiro eixo, contorno opaco e preenchimento translúcido, como recomendam as diretrizes de gráficos de radar (data-to-viz): são só três séries, indexadas ao líder de cada uma. Use um `rcrun`/IDE construído com esse controle.
 - Para abrir/rodar: abra a pasta no PowerRustCOBAL AI e execute o formulário `forms/main-form.cfrm` (formulário principal).

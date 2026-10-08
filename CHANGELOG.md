@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.10] — 2026-10-08
+
+### Changed
+- **PowerAnalytics, closer to its reference.** A pale sky-blue background and
+  white panels instead of the dark blue glass — every alpha is unchanged, so the
+  window is still 50 % see-through and the panels 30 % — a deep-navy main card,
+  and a soft drop shadow switched on for every panel (cast outside the panel
+  only, opacity 4). The panels now zoom in over 1200 ms, each starting 600 ms
+  after the one before. The charts wait for the last panel, then all appear
+  together and grow from zero over 1500 ms; when filters are applied they move
+  from the old values to the new ones over the same time. A round red close
+  button sits beside the top panel, as tall as it. The lists and the sort
+  dropdown are high contrast (deep-blue active row with white text, pale-blue
+  ticked rows with navy text), and the radar writes its 0–100 scale up the first
+  spoke. The drop shadow needs an IDE or `rcrun` of 1.90.8 or later to be drawn
+  outside the panel only.
+
 ## [PowerRustCOBOL 1.90.9] — 2026-10-08
 
 ### Fixed
