@@ -11,7 +11,7 @@ license_model = ""
 license_text = ""
 destination_folder = "dist"
 debug_compilation = true
-built_with_version = ""
+built_with_version = "1.90.10"
 
 [files]
 sources = ["src/main.cbl"]
@@ -60,10 +60,10 @@ main-form-seal = "3fdb9aebd2e27ae15ce0df3c01b4022410535632e685c93cc3e0d8f87c96b7
 
 [ai]
 schema_version = 1
-provider = ""
-endpoint = ""
+provider = "ollama_cloud"
+endpoint = "https://ollama.com/api/chat"
 endpoint_user_edited = false
-model = ""
+model = "nemotron-3-nano:30b"
 system_prompt = "You are an expert pair programmer for PowerRustCOBOL..."
 cobol_proficiency_prompt = """
 You are an expert evaluator of Large Language Models for COBOL-85 and PowerRustCOBOL development.

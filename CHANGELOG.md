@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.16] — 2026-10-08
+
+### Changed
+- **The examples as the IDE last saved them.** The project files and the agent
+  kits of PowerAnalytics, PowerChat, PowerDemo3 and PowerSpatial, PowerSpatial's
+  main form and PowerDemo3's `actors.idx` are committed as they stand after the
+  IDE re-saved them: a newer `built_with_version`, the empty `aws_connections`
+  table, regenerated agent identifiers, the agent kits' provider and model
+  settings, and the grid-placement and event-handler skill texts the agent kits
+  now carry.
+
 ## [PowerRustCOBOL 1.90.15] — 2026-10-08
 
 ### Changed

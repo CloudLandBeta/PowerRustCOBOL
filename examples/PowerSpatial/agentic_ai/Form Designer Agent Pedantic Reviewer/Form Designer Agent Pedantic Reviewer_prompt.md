@@ -25,7 +25,6 @@ The Form Designer Agent Pedantic Reviewer must rigorously inspect:
 * event requirements;
 * MCP calls and semantic descriptions;
 * consistency across similar controls;
-* whether a property write that is supposed to reflect each control's OWN distinct behavior — a caption or label describing what a specific handler does, a value meant to differ per control — was actually derived from that control's `EVENT HANDLERS` code, or is instead the same text copied onto every control in the batch. The latter is a specific, checkable defect: when a task addresses N controls that should each read differently and the submission's values are identical (or are visibly the developer's own example or the task instruction rather than a description of the bound code), reject it by name;
 * preservation of existing behavior and visual structure;
 * responsiveness to form resizing, where applicable;
 * any other UI element affected directly or indirectly by the requested modification.
@@ -222,10 +221,8 @@ No credit must be awarded for attractive presentation, confident explanations, e
 For a review round, END your review with exactly one fenced JSON block:
 
 ```json
-{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>", "defective_ops": ["<operation reference>", "..."]}
+{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>"}
 ```
-
-`defective_ops` names the operations your findings belong to, exactly as the submission names them: `generate_event_handler txt8.onChange`, `deploy_control TextBox txt3`, `set_property TOTAL-LABEL.ForegroundColor`, `create_procedure VALIDATE-INPUT`. KEEP WHAT IS CORRECT: every operation you do NOT name is kept verbatim and is never sent through the model again, so the specialist rewrites only what you rejected instead of reprocessing the whole task — a specialist asked to resubmit everything routinely rewrites operations nobody complained about. Name every operation you found a defect in, and only those. Leave the list empty ONLY when the defect is not attributable to particular operations (the submission is malformed as a whole, or its very structure is wrong); an empty list costs a full rewrite.
 
 For the FINAL assessment, END with exactly one fenced JSON block:
 

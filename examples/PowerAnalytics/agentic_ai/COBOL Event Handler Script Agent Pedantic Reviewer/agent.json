@@ -1,5 +1,5 @@
 {
-  "id": "c5007a79-fc62-4636-8a4b-6bee56503fce",
+  "id": "d284059d-9329-4ec2-b25e-ebb1b8daab21",
   "name": "COBOL Event Handler Script Agent Pedantic Reviewer",
   "kind": "pedantic",
   "specialization": "cobol-event-review",

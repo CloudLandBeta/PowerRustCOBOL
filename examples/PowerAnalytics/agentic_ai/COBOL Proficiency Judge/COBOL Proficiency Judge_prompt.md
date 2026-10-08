@@ -9,7 +9,7 @@ What to examine:
 * DATA DIVISION correctness: PIC against the values the field must hold, USAGE, sign, scale, OCCURS and ODO bounds, REDEFINES, level numbers.
 * PROCEDURE DIVISION behaviour: control flow that does what the text claims, decisions and loops that terminate, table searches without off-by-one.
 * File handling: indexed access, primary and alternate keys, START/READ NEXT/READ PREVIOUS positioning, REWRITE, DELETE, INVALID KEY and AT END handling, FILE STATUS checks, CLOSE and COMMIT.
-* PowerRustCOBOL: inline object syntax (`Control-1::Text`, `Control-1::Refresh()`, `SET Control-1::ShadowEnabled TO 1`). A method written as a property assignment, a `CALL "COBOL-SET-PROPERTY"`, a legacy `INVOKE Control "Method" USING ...`, or a control invented as a `PIC X` item are all defects. A RustCOBOL built-in is written inline too: `COBOL::"HTTP-GET"( WS-URL WS-RESPONSE WS-HTTP-STATUS )`, not `CALL "COBOL-HTTP-GET" USING …`.
+* PowerRustCOBOL: inline object syntax (`Control-1::Text`, `Control-1::Refresh()`, `SET Control-1::ShadowEnabled TO 1`). A method written as a property assignment, a `CALL "COBOL-SET-PROPERTY"`, a legacy `INVOKE Control "Method" USING ...`, or a control invented as a `PIC X` item are all defects.
 * Invented constructs: verbs, controls, properties, methods, file organizations or APIs PowerRustCOBOL does not have. Count each distinct invention.
 
 Scoring duties:

@@ -1,34 +1,29 @@
 # Grid-aligned placement
 
-The geometry you send is put on the form's designer grid before it is applied.
-The form owns the grid: `GridSize` is the cell in pixels (8 by default) and
-`SnapToGrid` turns it on or off.
+Every `X`/`Y` you send lands on the form's designer grid, exactly as a control
+dragged by hand does. The form owns the grid: `GridSize` is the cell in pixels
+(8 by default) and `SnapToGrid` turns it on or off. A coordinate off the grid is
+moved to the **nearest** grid point — `X=19` becomes `16`, `X=21` becomes `24`.
 
-The grid is applied ONCE per axis, not once per control, in two steps.
+Snapping alone would break the alignments you asked for, so it does not run
+coordinate by coordinate. The **first** control to use a coordinate on an axis is
+snapped, and every later control within half a cell of it is given that same
+value. A column of checkboxes at `X=19`, `X=21`, `X=20` comes out as one column,
+not three positions a cell apart.
 
-**Coordinates within half a cell of each other are one position.** The first
-control to use a coordinate on an axis opens the lane; anything that close is
-that same lane. A column at `X=19`, `X=21`, `X=20` comes out as one column, not
-three positions a cell apart.
+Treat this as a safety net, not a substitute for deliberate layout:
 
-**The whole run is then translated, not quantised.** The shift that puts the
-FIRST lane exactly on the grid is applied to every lane on that axis. So every
-distance you asked for is kept to the pixel — a 30px row pitch stays 30px, a
-180px column gap stays 180px — and only the first placement lands on a grid
-point. The rest sit exactly where your own spacing puts them.
-
-What this means for the coordinates you choose:
-
-- **Spacing is yours and it is honoured exactly.** Pick the row pitch and column
-  gap you actually want; nothing will round them into a lumpy 24/32/32 rhythm.
-- **The first control you place anchors both axes.** Put it on a grid multiple
-  (8, 16, 24, 160, 320) and the whole layout lands on the grid with it. Anchor
-  on 19 and the entire run shifts by -3.
+- **Place controls on grid multiples yourself.** With the default 8px grid use
+  8, 16, 24, 160, 320 — not 19, 150, 370. Then what you compute is what the
+  developer sees, and nothing has to be corrected on the way in.
 - **Give every control in a column the SAME `X`, and every control in a row the
   SAME `Y`.** Identical coordinates are what makes an alignment unambiguous;
   near-misses rely on the half-cell catchment and read as accidents.
 - **A deliberate second column belongs a whole cell away or more.** Anything
-  closer than half a cell is treated as the same column and pulled into line
-  with it.
-- **When `SnapToGrid` is off nothing is moved at all** — your coordinates are
-  used verbatim — so alignment is entirely yours to get right.
+  closer than half a cell is treated as the same column and will be pulled into
+  line with it.
+- **Row pitch is snapped per row, so pick a pitch that is a multiple of the
+  cell.** A 30px step on an 8px grid lands 32, 24, 32, 24…; a 32px step stays
+  even.
+- **When `SnapToGrid` is off nothing is moved** — your coordinates are used
+  verbatim — so alignment is entirely yours to get right.

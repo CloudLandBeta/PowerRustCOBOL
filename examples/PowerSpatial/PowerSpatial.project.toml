@@ -11,7 +11,7 @@ license_model = ""
 license_text = ""
 destination_folder = "dist"
 debug_compilation = true
-built_with_version = "1.80.182"
+built_with_version = "1.80.232"
 
 [files]
 sources = [
@@ -705,3 +705,4 @@ For the FINAL assessment, END with exactly one fenced JSON block:
 google_search_engine_id = ""
 rest_connections = []
 search_connections = []
+aws_connections = []

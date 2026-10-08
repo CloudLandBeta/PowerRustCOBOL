@@ -1455,7 +1455,7 @@
   </Control>
   <Control id="Lbl-Cooling" type="Label" x="42" y="376" w="348" h="14" tab-order="33" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
     <Property name="Caption">COOLING TO</Property>
-    <Property name="FontSize">9</Property>
+    <Property name="FontSize">8</Property>
     <Property name="TextAlignment">Center</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="Transparency">100</Property>
@@ -1480,7 +1480,7 @@
   </Control>
   <Control id="Lbl-Target" type="Label" x="42" y="390" w="348" h="40" tab-order="34" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
     <Property name="Caption">28°C</Property>
-    <Property name="FontSize">27</Property>
+    <Property name="FontSize">26</Property>
     <Property name="TextAlignment">Center</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="Transparency">100</Property>
@@ -1489,31 +1489,6 @@
     <Property name="ColumnSpan">3</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
-  </Control>
-  <Control id="Lbl-Under" type="Label" x="42" y="430" w="348" h="14" tab-order="35" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
-    <Property name="Caption">UNDER 10 MIN</Property>
-    <Property name="FontSize">9</Property>
-    <Property name="TextAlignment">Center</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="Transparency">100</Property>
-    <Property name="ForegroundColor">#FFFFFFAA</Property>
-    <Property name="GridColumn">1</Property>
-    <Property name="GridRow">4</Property>
-    <Property name="ColumnSpan">3</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
@@ -3460,4 +3435,17 @@
            CALL "PS-LANG-CHECK"
 ]]></Event>
   </Control>
+  <deleted-controls>
+    <DeletedControl id="AwsLambda-1" deleted-at="designer-delete-1791363452-106">
+      <Event name="onInvoked" paragraph="AWSLAMBDA-1--ONINVOKED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           DISPLAY "Hello"
+           CONTINUE.
+]]></Event>
+    </DeletedControl>
+  </deleted-controls>
 </Form>
