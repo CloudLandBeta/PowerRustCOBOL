@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.12] — 2026-10-08
+
+### Changed
+- **PowerAnalytics: panels wait unseen, 300 ms apart.** The panels are
+  invisible when the form loads and each one is shown only just before its own
+  1200 ms zoom starts, so nothing sits on screen before its turn. The gap from
+  one panel to the next is now 300 ms instead of 600 ms, which also brings the
+  charts forward: they appear together as soon as the last panel has finished
+  (3.45 s after the first panel), and still grow over 1500 ms. Changing page
+  hides the new page's panels and brings them in again the same way.
+
 ## [PowerRustCOBOL 1.90.11] — 2026-10-08
 
 ### Fixed

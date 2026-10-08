@@ -257,6 +257,8 @@
              10 WS-OS-PL  PIC 9(15)V99.
              10 WS-OS-COT PIC 9(12).
        01 WS-BP           GLOBAL PIC X(12).
+       01 WS-SPAGE        GLOBAL PIC X VALUE "D".
+       01 WS-CHARTS       GLOBAL PIC 9 VALUE 0.
 ]]></working-storage>
   <file-control><![CDATA[           SELECT SQL-FILE ASSIGN TO "data/fundos.sql"
                ORGANIZATION IS LINE SEQUENTIAL
@@ -2120,190 +2122,287 @@
            END-IF
            INVOKE PRG-BIN5::SetValue(WS-PCTI)
 ]]></Event>
+    <Event name="HIDE-D" paragraph="HIDE-D"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-KPI::Hide()
+           INVOKE C-BAR::Hide()
+           INVOKE C-RADAR::Hide()
+           INVOKE C-GOALS::Hide()
+           INVOKE C-DONUT1::Hide()
+           INVOKE C-DONUT2::Hide()
+           INVOKE C-LINE::Hide()
+           INVOKE C-BINS::Hide()
+]]></Event>
+    <Event name="HIDE-G" paragraph="HIDE-G"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE K1-C::Hide()
+           INVOKE K2-C::Hide()
+           INVOKE K3-C::Hide()
+           INVOKE K4-C::Hide()
+           INVOKE K5-C::Hide()
+           INVOKE C-GRID::Hide()
+]]></Event>
+    <Event name="SHOW-C-KPI" paragraph="SHOW-C-KPI"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-KPI::Show()
+           INVOKE C-KPI::PlayAnimation("intro")
+           INVOKE LBL-KPI-T::PlayAnimation("intro")
+           INVOKE LBL-KPI-V::PlayAnimation("intro")
+           INVOKE GAU-UNIV::PlayAnimation("intro")
+           INVOKE LBL-KPI-GC::PlayAnimation("intro")
+           INVOKE LBL-KPI-C::PlayAnimation("intro")
+           INVOKE SPK::PlayAnimation("intro")
+           INVOKE LBL-KPI-F::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-BAR" paragraph="SHOW-C-BAR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-BAR::Show()
+           INVOKE C-BAR::PlayAnimation("intro")
+           INVOKE LBL-BAR-T::PlayAnimation("intro")
+           INVOKE LBL-BAR-TOT::PlayAnimation("intro")
+           INVOKE LBL-BAR-U::PlayAnimation("intro")
+           INVOKE BTN-M1::PlayAnimation("intro")
+           INVOKE BTN-M2::PlayAnimation("intro")
+           INVOKE BTN-M3::PlayAnimation("intro")
+           INVOKE CH-BAR::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-RADAR" paragraph="SHOW-C-RADAR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-RADAR::Show()
+           INVOKE C-RADAR::PlayAnimation("intro")
+           INVOKE LBL-RAD-T::PlayAnimation("intro")
+           INVOKE SHP-RAD-1::PlayAnimation("intro")
+           INVOKE LBL-RAD-L1::PlayAnimation("intro")
+           INVOKE SHP-RAD-2::PlayAnimation("intro")
+           INVOKE LBL-RAD-L2::PlayAnimation("intro")
+           INVOKE SHP-RAD-3::PlayAnimation("intro")
+           INVOKE LBL-RAD-L3::PlayAnimation("intro")
+           INVOKE LBL-RAD-S::PlayAnimation("intro")
+           INVOKE CH-RADAR::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-GOALS" paragraph="SHOW-C-GOALS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-GOALS::Show()
+           INVOKE C-GOALS::PlayAnimation("intro")
+           INVOKE LBL-GOAL-T::PlayAnimation("intro")
+           INVOKE LBL-TOP1-N::PlayAnimation("intro")
+           INVOKE LBL-TOP1-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-TOP1::PlayAnimation("intro")
+           INVOKE PRG-TOP1::PlayAnimation("intro")
+           INVOKE LBL-TOP2-N::PlayAnimation("intro")
+           INVOKE LBL-TOP2-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-TOP2::PlayAnimation("intro")
+           INVOKE PRG-TOP2::PlayAnimation("intro")
+           INVOKE LBL-TOP3-N::PlayAnimation("intro")
+           INVOKE LBL-TOP3-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-TOP3::PlayAnimation("intro")
+           INVOKE PRG-TOP3::PlayAnimation("intro")
+           INVOKE LBL-TOP4-N::PlayAnimation("intro")
+           INVOKE LBL-TOP4-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-TOP4::PlayAnimation("intro")
+           INVOKE PRG-TOP4::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-DONUT1" paragraph="SHOW-C-DONUT1"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-DONUT1::Show()
+           INVOKE C-DONUT1::PlayAnimation("intro")
+           INVOKE LBL-D1-T::PlayAnimation("intro")
+           INVOKE CH-DONUT1::PlayAnimation("intro")
+           INVOKE LBL-D1-C::PlayAnimation("intro")
+           INVOKE LBL-D1-S::PlayAnimation("intro")
+           INVOKE LBL-CLS-N::PlayAnimation("intro")
+           INVOKE TRK-PRG-CLS::PlayAnimation("intro")
+           INVOKE PRG-CLS::PlayAnimation("intro")
+           INVOKE LBL-CLS-P::PlayAnimation("intro")
+           INVOKE LBL-SUB-N::PlayAnimation("intro")
+           INVOKE TRK-PRG-SUB::PlayAnimation("intro")
+           INVOKE PRG-SUB::PlayAnimation("intro")
+           INVOKE LBL-SUB-P::PlayAnimation("intro")
+           INVOKE BOX-AVG::PlayAnimation("intro")
+           INVOKE LBL-AVG-V::PlayAnimation("intro")
+           INVOKE LBL-AVG-C::PlayAnimation("intro")
+           INVOKE SHP-L1-1::PlayAnimation("intro")
+           INVOKE LBL-L1-1-N::PlayAnimation("intro")
+           INVOKE LBL-L1-1-P::PlayAnimation("intro")
+           INVOKE LBL-L1-1-V::PlayAnimation("intro")
+           INVOKE SHP-L1-2::PlayAnimation("intro")
+           INVOKE LBL-L1-2-N::PlayAnimation("intro")
+           INVOKE LBL-L1-2-P::PlayAnimation("intro")
+           INVOKE LBL-L1-2-V::PlayAnimation("intro")
+           INVOKE SHP-L1-3::PlayAnimation("intro")
+           INVOKE LBL-L1-3-N::PlayAnimation("intro")
+           INVOKE LBL-L1-3-P::PlayAnimation("intro")
+           INVOKE LBL-L1-3-V::PlayAnimation("intro")
+           INVOKE SHP-L1-4::PlayAnimation("intro")
+           INVOKE LBL-L1-4-N::PlayAnimation("intro")
+           INVOKE LBL-L1-4-P::PlayAnimation("intro")
+           INVOKE LBL-L1-4-V::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-DONUT2" paragraph="SHOW-C-DONUT2"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-DONUT2::Show()
+           INVOKE C-DONUT2::PlayAnimation("intro")
+           INVOKE LBL-D2-T::PlayAnimation("intro")
+           INVOKE CH-DONUT2::PlayAnimation("intro")
+           INVOKE LBL-D2-C::PlayAnimation("intro")
+           INVOKE LBL-D2-S::PlayAnimation("intro")
+           INVOKE SHP-L2-1::PlayAnimation("intro")
+           INVOKE LBL-L2-1-N::PlayAnimation("intro")
+           INVOKE LBL-L2-1-P::PlayAnimation("intro")
+           INVOKE LBL-L2-1-V::PlayAnimation("intro")
+           INVOKE SHP-L2-2::PlayAnimation("intro")
+           INVOKE LBL-L2-2-N::PlayAnimation("intro")
+           INVOKE LBL-L2-2-P::PlayAnimation("intro")
+           INVOKE LBL-L2-2-V::PlayAnimation("intro")
+           INVOKE SHP-L2-3::PlayAnimation("intro")
+           INVOKE LBL-L2-3-N::PlayAnimation("intro")
+           INVOKE LBL-L2-3-P::PlayAnimation("intro")
+           INVOKE LBL-L2-3-V::PlayAnimation("intro")
+           INVOKE SHP-L2-4::PlayAnimation("intro")
+           INVOKE LBL-L2-4-N::PlayAnimation("intro")
+           INVOKE LBL-L2-4-P::PlayAnimation("intro")
+           INVOKE LBL-L2-4-V::PlayAnimation("intro")
+           INVOKE SHP-L2-5::PlayAnimation("intro")
+           INVOKE LBL-L2-5-N::PlayAnimation("intro")
+           INVOKE LBL-L2-5-P::PlayAnimation("intro")
+           INVOKE LBL-L2-5-V::PlayAnimation("intro")
+           INVOKE SHP-L2-6::PlayAnimation("intro")
+           INVOKE LBL-L2-6-N::PlayAnimation("intro")
+           INVOKE LBL-L2-6-P::PlayAnimation("intro")
+           INVOKE LBL-L2-6-V::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-LINE" paragraph="SHOW-C-LINE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-LINE::Show()
+           INVOKE C-LINE::PlayAnimation("intro")
+           INVOKE LBL-LIN-T::PlayAnimation("intro")
+           INVOKE LBL-LIN-U::PlayAnimation("intro")
+           INVOKE LBL-ACUM::PlayAnimation("intro")
+           INVOKE SW-ACUM::PlayAnimation("intro")
+           INVOKE CH-LINE::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-BINS" paragraph="SHOW-C-BINS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-BINS::Show()
+           INVOKE C-BINS::PlayAnimation("intro")
+           INVOKE LBL-BIN-T::PlayAnimation("intro")
+           INVOKE LBL-BIN1-N::PlayAnimation("intro")
+           INVOKE LBL-BIN1-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-BIN1::PlayAnimation("intro")
+           INVOKE PRG-BIN1::PlayAnimation("intro")
+           INVOKE LBL-BIN2-N::PlayAnimation("intro")
+           INVOKE LBL-BIN2-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-BIN2::PlayAnimation("intro")
+           INVOKE PRG-BIN2::PlayAnimation("intro")
+           INVOKE LBL-BIN3-N::PlayAnimation("intro")
+           INVOKE LBL-BIN3-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-BIN3::PlayAnimation("intro")
+           INVOKE PRG-BIN3::PlayAnimation("intro")
+           INVOKE LBL-BIN4-N::PlayAnimation("intro")
+           INVOKE LBL-BIN4-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-BIN4::PlayAnimation("intro")
+           INVOKE PRG-BIN4::PlayAnimation("intro")
+           INVOKE LBL-BIN5-N::PlayAnimation("intro")
+           INVOKE LBL-BIN5-V::PlayAnimation("intro")
+           INVOKE TRK-PRG-BIN5::PlayAnimation("intro")
+           INVOKE PRG-BIN5::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-K1-C" paragraph="SHOW-K1-C"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE K1-C::Show()
+           INVOKE K1-C::PlayAnimation("intro")
+           INVOKE LBL-K1-T::PlayAnimation("intro")
+           INVOKE DOT-K1::PlayAnimation("intro")
+           INVOKE LBL-K1-V::PlayAnimation("intro")
+           INVOKE LBL-K1-S::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-K2-C" paragraph="SHOW-K2-C"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE K2-C::Show()
+           INVOKE K2-C::PlayAnimation("intro")
+           INVOKE LBL-K2-T::PlayAnimation("intro")
+           INVOKE DOT-K2::PlayAnimation("intro")
+           INVOKE LBL-K2-V::PlayAnimation("intro")
+           INVOKE LBL-K2-S::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-K3-C" paragraph="SHOW-K3-C"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE K3-C::Show()
+           INVOKE K3-C::PlayAnimation("intro")
+           INVOKE LBL-K3-T::PlayAnimation("intro")
+           INVOKE DOT-K3::PlayAnimation("intro")
+           INVOKE LBL-K3-V::PlayAnimation("intro")
+           INVOKE LBL-K3-S::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-K4-C" paragraph="SHOW-K4-C"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE K4-C::Show()
+           INVOKE K4-C::PlayAnimation("intro")
+           INVOKE LBL-K4-T::PlayAnimation("intro")
+           INVOKE DOT-K4::PlayAnimation("intro")
+           INVOKE LBL-K4-V::PlayAnimation("intro")
+           INVOKE LBL-K4-S::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-K5-C" paragraph="SHOW-K5-C"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE K5-C::Show()
+           INVOKE K5-C::PlayAnimation("intro")
+           INVOKE LBL-K5-T::PlayAnimation("intro")
+           INVOKE DOT-K5::PlayAnimation("intro")
+           INVOKE LBL-K5-V::PlayAnimation("intro")
+           INVOKE LBL-K5-S::PlayAnimation("intro")
+]]></Event>
+    <Event name="SHOW-C-GRID" paragraph="SHOW-C-GRID"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE C-GRID::Show()
+           INVOKE C-GRID::PlayAnimation("intro")
+           INVOKE LBL-GRID-T::PlayAnimation("intro")
+           INVOKE LBL-GRID-S::PlayAnimation("intro")
+           INVOKE CMB-ORDER::PlayAnimation("intro")
+           INVOKE GRD-FUNDOS::PlayAnimation("intro")
+           INVOKE BTN-PREV::PlayAnimation("intro")
+           INVOKE LBL-PAGE::PlayAnimation("intro")
+           INVOKE BTN-NEXT::PlayAnimation("intro")
+]]></Event>
     <Event name="SHOW-VIEW" paragraph="SHOW-VIEW"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            IF WS-VIEW = "D"
                INVOKE PG-DATA::Hide()
+               CALL "HIDE-D"
                INVOKE PG-DASH::Show()
                MOVE "#3E7BE8" TO BTN-DASH::BackgroundColor
                MOVE "#FFFFFF" TO BTN-DASH::ForegroundColor
                MOVE "#FFFFFF" TO BTN-DATA::BackgroundColor
                MOVE "#1B2A4E" TO BTN-DATA::ForegroundColor
-           INVOKE C-KPI::PlayAnimation("replay")
-           INVOKE LBL-KPI-T::PlayAnimation("replay")
-           INVOKE LBL-KPI-V::PlayAnimation("replay")
-           INVOKE GAU-UNIV::PlayAnimation("replay")
-           INVOKE LBL-KPI-GC::PlayAnimation("replay")
-           INVOKE LBL-KPI-C::PlayAnimation("replay")
-           INVOKE SPK::PlayAnimation("replay")
-           INVOKE LBL-KPI-F::PlayAnimation("replay")
-           INVOKE C-BAR::PlayAnimation("replay")
-           INVOKE LBL-BAR-T::PlayAnimation("replay")
-           INVOKE LBL-BAR-TOT::PlayAnimation("replay")
-           INVOKE LBL-BAR-U::PlayAnimation("replay")
-           INVOKE BTN-M1::PlayAnimation("replay")
-           INVOKE BTN-M2::PlayAnimation("replay")
-           INVOKE BTN-M3::PlayAnimation("replay")
-           INVOKE CH-BAR::PlayAnimation("replay")
-           INVOKE C-RADAR::PlayAnimation("replay")
-           INVOKE LBL-RAD-T::PlayAnimation("replay")
-           INVOKE SHP-RAD-1::PlayAnimation("replay")
-           INVOKE LBL-RAD-L1::PlayAnimation("replay")
-           INVOKE SHP-RAD-2::PlayAnimation("replay")
-           INVOKE LBL-RAD-L2::PlayAnimation("replay")
-           INVOKE SHP-RAD-3::PlayAnimation("replay")
-           INVOKE LBL-RAD-L3::PlayAnimation("replay")
-           INVOKE LBL-RAD-S::PlayAnimation("replay")
-           INVOKE CH-RADAR::PlayAnimation("replay")
-           INVOKE C-GOALS::PlayAnimation("replay")
-           INVOKE LBL-GOAL-T::PlayAnimation("replay")
-           INVOKE LBL-TOP1-N::PlayAnimation("replay")
-           INVOKE LBL-TOP1-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-TOP1::PlayAnimation("replay")
-           INVOKE PRG-TOP1::PlayAnimation("replay")
-           INVOKE LBL-TOP2-N::PlayAnimation("replay")
-           INVOKE LBL-TOP2-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-TOP2::PlayAnimation("replay")
-           INVOKE PRG-TOP2::PlayAnimation("replay")
-           INVOKE LBL-TOP3-N::PlayAnimation("replay")
-           INVOKE LBL-TOP3-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-TOP3::PlayAnimation("replay")
-           INVOKE PRG-TOP3::PlayAnimation("replay")
-           INVOKE LBL-TOP4-N::PlayAnimation("replay")
-           INVOKE LBL-TOP4-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-TOP4::PlayAnimation("replay")
-           INVOKE PRG-TOP4::PlayAnimation("replay")
-           INVOKE C-DONUT1::PlayAnimation("replay")
-           INVOKE LBL-D1-T::PlayAnimation("replay")
-           INVOKE CH-DONUT1::PlayAnimation("replay")
-           INVOKE LBL-D1-C::PlayAnimation("replay")
-           INVOKE LBL-D1-S::PlayAnimation("replay")
-           INVOKE LBL-CLS-N::PlayAnimation("replay")
-           INVOKE TRK-PRG-CLS::PlayAnimation("replay")
-           INVOKE PRG-CLS::PlayAnimation("replay")
-           INVOKE LBL-CLS-P::PlayAnimation("replay")
-           INVOKE LBL-SUB-N::PlayAnimation("replay")
-           INVOKE TRK-PRG-SUB::PlayAnimation("replay")
-           INVOKE PRG-SUB::PlayAnimation("replay")
-           INVOKE LBL-SUB-P::PlayAnimation("replay")
-           INVOKE BOX-AVG::PlayAnimation("replay")
-           INVOKE LBL-AVG-V::PlayAnimation("replay")
-           INVOKE LBL-AVG-C::PlayAnimation("replay")
-           INVOKE SHP-L1-1::PlayAnimation("replay")
-           INVOKE LBL-L1-1-N::PlayAnimation("replay")
-           INVOKE LBL-L1-1-P::PlayAnimation("replay")
-           INVOKE LBL-L1-1-V::PlayAnimation("replay")
-           INVOKE SHP-L1-2::PlayAnimation("replay")
-           INVOKE LBL-L1-2-N::PlayAnimation("replay")
-           INVOKE LBL-L1-2-P::PlayAnimation("replay")
-           INVOKE LBL-L1-2-V::PlayAnimation("replay")
-           INVOKE SHP-L1-3::PlayAnimation("replay")
-           INVOKE LBL-L1-3-N::PlayAnimation("replay")
-           INVOKE LBL-L1-3-P::PlayAnimation("replay")
-           INVOKE LBL-L1-3-V::PlayAnimation("replay")
-           INVOKE SHP-L1-4::PlayAnimation("replay")
-           INVOKE LBL-L1-4-N::PlayAnimation("replay")
-           INVOKE LBL-L1-4-P::PlayAnimation("replay")
-           INVOKE LBL-L1-4-V::PlayAnimation("replay")
-           INVOKE C-DONUT2::PlayAnimation("replay")
-           INVOKE LBL-D2-T::PlayAnimation("replay")
-           INVOKE CH-DONUT2::PlayAnimation("replay")
-           INVOKE LBL-D2-C::PlayAnimation("replay")
-           INVOKE LBL-D2-S::PlayAnimation("replay")
-           INVOKE SHP-L2-1::PlayAnimation("replay")
-           INVOKE LBL-L2-1-N::PlayAnimation("replay")
-           INVOKE LBL-L2-1-P::PlayAnimation("replay")
-           INVOKE LBL-L2-1-V::PlayAnimation("replay")
-           INVOKE SHP-L2-2::PlayAnimation("replay")
-           INVOKE LBL-L2-2-N::PlayAnimation("replay")
-           INVOKE LBL-L2-2-P::PlayAnimation("replay")
-           INVOKE LBL-L2-2-V::PlayAnimation("replay")
-           INVOKE SHP-L2-3::PlayAnimation("replay")
-           INVOKE LBL-L2-3-N::PlayAnimation("replay")
-           INVOKE LBL-L2-3-P::PlayAnimation("replay")
-           INVOKE LBL-L2-3-V::PlayAnimation("replay")
-           INVOKE SHP-L2-4::PlayAnimation("replay")
-           INVOKE LBL-L2-4-N::PlayAnimation("replay")
-           INVOKE LBL-L2-4-P::PlayAnimation("replay")
-           INVOKE LBL-L2-4-V::PlayAnimation("replay")
-           INVOKE SHP-L2-5::PlayAnimation("replay")
-           INVOKE LBL-L2-5-N::PlayAnimation("replay")
-           INVOKE LBL-L2-5-P::PlayAnimation("replay")
-           INVOKE LBL-L2-5-V::PlayAnimation("replay")
-           INVOKE SHP-L2-6::PlayAnimation("replay")
-           INVOKE LBL-L2-6-N::PlayAnimation("replay")
-           INVOKE LBL-L2-6-P::PlayAnimation("replay")
-           INVOKE LBL-L2-6-V::PlayAnimation("replay")
-           INVOKE C-LINE::PlayAnimation("replay")
-           INVOKE LBL-LIN-T::PlayAnimation("replay")
-           INVOKE LBL-LIN-U::PlayAnimation("replay")
-           INVOKE LBL-ACUM::PlayAnimation("replay")
-           INVOKE SW-ACUM::PlayAnimation("replay")
-           INVOKE CH-LINE::PlayAnimation("replay")
-           INVOKE C-BINS::PlayAnimation("replay")
-           INVOKE LBL-BIN-T::PlayAnimation("replay")
-           INVOKE LBL-BIN1-N::PlayAnimation("replay")
-           INVOKE LBL-BIN1-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-BIN1::PlayAnimation("replay")
-           INVOKE PRG-BIN1::PlayAnimation("replay")
-           INVOKE LBL-BIN2-N::PlayAnimation("replay")
-           INVOKE LBL-BIN2-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-BIN2::PlayAnimation("replay")
-           INVOKE PRG-BIN2::PlayAnimation("replay")
-           INVOKE LBL-BIN3-N::PlayAnimation("replay")
-           INVOKE LBL-BIN3-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-BIN3::PlayAnimation("replay")
-           INVOKE PRG-BIN3::PlayAnimation("replay")
-           INVOKE LBL-BIN4-N::PlayAnimation("replay")
-           INVOKE LBL-BIN4-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-BIN4::PlayAnimation("replay")
-           INVOKE PRG-BIN4::PlayAnimation("replay")
-           INVOKE LBL-BIN5-N::PlayAnimation("replay")
-           INVOKE LBL-BIN5-V::PlayAnimation("replay")
-           INVOKE TRK-PRG-BIN5::PlayAnimation("replay")
-           INVOKE PRG-BIN5::PlayAnimation("replay")
+               MOVE "D" TO WS-SPAGE
            ELSE
                INVOKE PG-DASH::Hide()
+               CALL "HIDE-G"
                INVOKE PG-DATA::Show()
                MOVE "#3E7BE8" TO BTN-DATA::BackgroundColor
                MOVE "#FFFFFF" TO BTN-DATA::ForegroundColor
                MOVE "#FFFFFF" TO BTN-DASH::BackgroundColor
                MOVE "#1B2A4E" TO BTN-DASH::ForegroundColor
-           INVOKE K1-C::PlayAnimation("replay")
-           INVOKE LBL-K1-T::PlayAnimation("replay")
-           INVOKE DOT-K1::PlayAnimation("replay")
-           INVOKE LBL-K1-V::PlayAnimation("replay")
-           INVOKE LBL-K1-S::PlayAnimation("replay")
-           INVOKE K2-C::PlayAnimation("replay")
-           INVOKE LBL-K2-T::PlayAnimation("replay")
-           INVOKE DOT-K2::PlayAnimation("replay")
-           INVOKE LBL-K2-V::PlayAnimation("replay")
-           INVOKE LBL-K2-S::PlayAnimation("replay")
-           INVOKE K3-C::PlayAnimation("replay")
-           INVOKE LBL-K3-T::PlayAnimation("replay")
-           INVOKE DOT-K3::PlayAnimation("replay")
-           INVOKE LBL-K3-V::PlayAnimation("replay")
-           INVOKE LBL-K3-S::PlayAnimation("replay")
-           INVOKE K4-C::PlayAnimation("replay")
-           INVOKE LBL-K4-T::PlayAnimation("replay")
-           INVOKE DOT-K4::PlayAnimation("replay")
-           INVOKE LBL-K4-V::PlayAnimation("replay")
-           INVOKE LBL-K4-S::PlayAnimation("replay")
-           INVOKE K5-C::PlayAnimation("replay")
-           INVOKE LBL-K5-T::PlayAnimation("replay")
-           INVOKE DOT-K5::PlayAnimation("replay")
-           INVOKE LBL-K5-V::PlayAnimation("replay")
-           INVOKE LBL-K5-S::PlayAnimation("replay")
-           INVOKE C-GRID::PlayAnimation("replay")
-           INVOKE LBL-GRID-T::PlayAnimation("replay")
-           INVOKE LBL-GRID-S::PlayAnimation("replay")
-           INVOKE CMB-ORDER::PlayAnimation("replay")
-           INVOKE GRD-FUNDOS::PlayAnimation("replay")
-           INVOKE BTN-PREV::PlayAnimation("replay")
-           INVOKE LBL-PAGE::PlayAnimation("replay")
-           INVOKE BTN-NEXT::PlayAnimation("replay")
+               MOVE "G" TO WS-SPAGE
            END-IF
+           CALL "STAGE-START"
 ]]></Event>
     <Event name="SET-FILT-HEIGHT" paragraph="SET-FILT-HEIGHT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -2387,32 +2486,79 @@
            IF WS-ELAPSED < 0
                ADD 86400000 TO WS-ELAPSED
            END-IF
-           IF WS-STAGE = 1 AND WS-ELAPSED >= 5550
-               INVOKE SPK::Show()
+           IF WS-SPAGE = "D"
+           IF WS-STAGE = 1 AND WS-ELAPSED >= 0
+               CALL "SHOW-C-KPI"
                ADD 1 TO WS-STAGE
            END-IF
-           IF WS-STAGE = 2 AND WS-ELAPSED >= 5550
-               INVOKE CH-BAR::Show()
+           IF WS-STAGE = 2 AND WS-ELAPSED >= 300
+               CALL "SHOW-C-BAR"
                ADD 1 TO WS-STAGE
            END-IF
-           IF WS-STAGE = 3 AND WS-ELAPSED >= 5550
-               INVOKE CH-RADAR::Show()
+           IF WS-STAGE = 3 AND WS-ELAPSED >= 600
+               CALL "SHOW-C-RADAR"
                ADD 1 TO WS-STAGE
            END-IF
-           IF WS-STAGE = 4 AND WS-ELAPSED >= 5550
-               INVOKE CH-DONUT1::Show()
+           IF WS-STAGE = 4 AND WS-ELAPSED >= 900
+               CALL "SHOW-C-GOALS"
                ADD 1 TO WS-STAGE
            END-IF
-           IF WS-STAGE = 5 AND WS-ELAPSED >= 5550
-               INVOKE CH-DONUT2::Show()
+           IF WS-STAGE = 5 AND WS-ELAPSED >= 1200
+               CALL "SHOW-C-DONUT1"
                ADD 1 TO WS-STAGE
            END-IF
-           IF WS-STAGE = 6 AND WS-ELAPSED >= 5550
-               INVOKE CH-LINE::Show()
+           IF WS-STAGE = 6 AND WS-ELAPSED >= 1500
+               CALL "SHOW-C-DONUT2"
                ADD 1 TO WS-STAGE
            END-IF
-           IF WS-STAGE > 6
-               MOVE 0 TO TMR-STAGE::Enabled
+           IF WS-STAGE = 7 AND WS-ELAPSED >= 1800
+               CALL "SHOW-C-LINE"
+               ADD 1 TO WS-STAGE
+           END-IF
+           IF WS-STAGE = 8 AND WS-ELAPSED >= 2100
+               CALL "SHOW-C-BINS"
+               ADD 1 TO WS-STAGE
+           END-IF
+               IF WS-CHARTS = 0 AND WS-STAGE > 8 AND WS-ELAPSED >= 3450
+                   INVOKE SPK::Show()
+                   INVOKE CH-BAR::Show()
+                   INVOKE CH-RADAR::Show()
+                   INVOKE CH-DONUT1::Show()
+                   INVOKE CH-DONUT2::Show()
+                   INVOKE CH-LINE::Show()
+                   MOVE 1 TO WS-CHARTS
+               END-IF
+               IF WS-STAGE > 8 AND WS-CHARTS = 1
+                   MOVE 0 TO TMR-STAGE::Enabled
+               END-IF
+           ELSE
+           IF WS-STAGE = 1 AND WS-ELAPSED >= 0
+               CALL "SHOW-K1-C"
+               ADD 1 TO WS-STAGE
+           END-IF
+           IF WS-STAGE = 2 AND WS-ELAPSED >= 300
+               CALL "SHOW-K2-C"
+               ADD 1 TO WS-STAGE
+           END-IF
+           IF WS-STAGE = 3 AND WS-ELAPSED >= 600
+               CALL "SHOW-K3-C"
+               ADD 1 TO WS-STAGE
+           END-IF
+           IF WS-STAGE = 4 AND WS-ELAPSED >= 900
+               CALL "SHOW-K4-C"
+               ADD 1 TO WS-STAGE
+           END-IF
+           IF WS-STAGE = 5 AND WS-ELAPSED >= 1200
+               CALL "SHOW-K5-C"
+               ADD 1 TO WS-STAGE
+           END-IF
+           IF WS-STAGE = 6 AND WS-ELAPSED >= 1500
+               CALL "SHOW-C-GRID"
+               ADD 1 TO WS-STAGE
+           END-IF
+               IF WS-STAGE > 6
+                   MOVE 0 TO TMR-STAGE::Enabled
+               END-IF
            END-IF
 ]]></Event>
     <Event name="STAGE-START" paragraph="STAGE-START"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2430,7 +2576,6 @@
     <Event name="onLoad" paragraph="MAIN-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           CALL "STAGE-START"
            CALL "INIT-DB"
            CALL "LOAD-DIMS"
            INVOKE GRD-FUNDOS::SetColumnWidth(1, 330)
@@ -2451,6 +2596,8 @@
            INVOKE GRD-FUNDOS::SetColumnWidth(16, 130)
            CALL "SET-FILT-HEIGHT"
            CALL "APPLY-FILTERS"
+           MOVE "D" TO WS-SPAGE
+           CALL "STAGE-START"
 ]]></Event>
     <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE"><![CDATA[]]></Event>
     <Event name="onBreakpointChanged" paragraph="MAIN-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -3043,7 +3190,7 @@
     <Property name="GridRows">MinMax(0px, 1.35fr) MinMax(0px, 1fr) MinMax(0px, 0.95fr)</Property>
     <Property name="Gap">24</Property>
   </Control>
-  <Control id="C-KPI" type="GroupBox" x="24" y="204" w="330" h="260" tab-order="35" z-order="34" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-KPI" type="GroupBox" x="24" y="204" w="330" h="260" tab-order="35" z-order="34" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#0F2A63</Property>
     <Property name="Transparency">12</Property>
     <Property name="BorderStyle">None</Property>
@@ -3065,8 +3212,7 @@
     <Property name="GridRow">1</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="RowSpan">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-KPI-T" type="Label" x="46" y="220" w="190" h="22" tab-order="36" z-order="35" visible="true" enabled="true" parent="C-KPI">
     <Property name="Caption">PL total filtrado</Property>
@@ -3079,8 +3225,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-KPI-V" type="Label" x="46" y="244" w="230" h="44" tab-order="37" z-order="36" visible="true" enabled="true" parent="C-KPI">
     <Property name="Caption">R$ 0</Property>
@@ -3093,8 +3238,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="GAU-UNIV" type="Gauge" x="266" y="216" w="66" h="66" tab-order="38" z-order="37" visible="true" enabled="true" parent="C-KPI">
     <Property name="GaugeStyle">Donut</Property>
@@ -3109,8 +3253,7 @@
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="Anchor">Top,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-KPI-GC" type="Label" x="256" y="282" w="86" h="14" tab-order="39" z-order="38" visible="true" enabled="true" parent="C-KPI">
     <Property name="Caption">do universo</Property>
@@ -3123,8 +3266,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-KPI-C" type="Label" x="46" y="294" w="290" h="18" tab-order="40" z-order="39" visible="true" enabled="true" parent="C-KPI">
     <Property name="Caption"></Property>
@@ -3137,8 +3279,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SPK" type="LineChart" x="30" y="318" w="318" h="110" tab-order="41" z-order="40" visible="false" enabled="true" parent="C-KPI">
     <Property name="HideBackground">true</Property>
@@ -3158,7 +3299,7 @@
     <Property name="ShowPoints">false</Property>
     <Property name="SeriesColors">#22C3D6</Property>
     <Property name="AnimateValues">true</Property>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-KPI-F" type="Label" x="46" y="434" w="290" h="18" tab-order="42" z-order="41" visible="true" enabled="true" parent="C-KPI">
     <Property name="Caption"></Property>
@@ -3171,10 +3312,9 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Bottom,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-BAR" type="GroupBox" x="378" y="204" w="684" h="260" tab-order="43" z-order="42" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-BAR" type="GroupBox" x="378" y="204" w="684" h="260" tab-order="43" z-order="42" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -3192,8 +3332,7 @@
     <Property name="GridRow">1</Property>
     <Property name="ColumnSpan">2</Property>
     <Property name="RowSpan">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BAR-T" type="Label" x="402" y="216" w="230" h="26" tab-order="44" z-order="43" visible="true" enabled="true" parent="C-BAR">
     <Property name="Caption">Fundos criados por ano</Property>
@@ -3206,8 +3345,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BAR-TOT" type="Label" x="928" y="214" w="110" h="28" tab-order="45" z-order="44" visible="true" enabled="true" parent="C-BAR">
     <Property name="Caption"></Property>
@@ -3220,8 +3358,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BAR-U" type="Label" x="868" y="250" w="170" h="16" tab-order="46" z-order="45" visible="true" enabled="true" parent="C-BAR">
     <Property name="Caption"></Property>
@@ -3234,8 +3371,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="BTN-M1" type="Button" x="402" y="248" w="84" h="26" tab-order="47" z-order="46" visible="true" enabled="true" parent="C-BAR">
     <Property name="Caption">Fundos</Property>
@@ -3257,8 +3393,7 @@
            CALL "PAINT-TABS"
 
 ]]></Event>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="BTN-M2" type="Button" x="492" y="248" w="56" h="26" tab-order="48" z-order="47" visible="true" enabled="true" parent="C-BAR">
     <Property name="Caption">PL</Property>
@@ -3280,8 +3415,7 @@
            CALL "PAINT-TABS"
 
 ]]></Event>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="BTN-M3" type="Button" x="554" y="248" w="84" h="26" tab-order="49" z-order="48" visible="true" enabled="true" parent="C-BAR">
     <Property name="Caption">Cotistas</Property>
@@ -3303,8 +3437,7 @@
            CALL "PAINT-TABS"
 
 ]]></Event>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="CH-BAR" type="BarChart" x="390" y="282" w="660" h="174" tab-order="50" z-order="49" visible="false" enabled="true" parent="C-BAR">
     <Property name="HideBackground">true</Property>
@@ -3321,9 +3454,9 @@
     <Property name="ShowGridLines">false</Property>
     <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8</Property>
     <Property name="AnimateValues">true</Property>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-RADAR" type="GroupBox" x="1086" y="204" w="330" h="260" tab-order="51" z-order="50" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-RADAR" type="GroupBox" x="1086" y="204" w="330" h="260" tab-order="51" z-order="50" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -3341,8 +3474,7 @@
     <Property name="GridRow">1</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="RowSpan">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-RAD-T" type="Label" x="1108" y="216" w="120" h="26" tab-order="52" z-order="51" visible="true" enabled="true" parent="C-RADAR">
     <Property name="Caption">Estrutura</Property>
@@ -3355,8 +3487,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-RAD-1" type="Shape" x="1206" y="225" w="8" h="8" tab-order="53" z-order="52" visible="true" enabled="true" parent="C-RADAR">
     <Property name="ShapeType">Circle</Property>
@@ -3365,8 +3496,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-RAD-L1" type="Label" x="1217" y="219" w="62" h="20" tab-order="54" z-order="53" visible="true" enabled="true" parent="C-RADAR">
     <Property name="Caption">Fundos</Property>
@@ -3379,8 +3509,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-RAD-2" type="Shape" x="1270" y="225" w="8" h="8" tab-order="55" z-order="54" visible="true" enabled="true" parent="C-RADAR">
     <Property name="ShapeType">Circle</Property>
@@ -3389,8 +3518,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-RAD-L2" type="Label" x="1281" y="219" w="62" h="20" tab-order="56" z-order="55" visible="true" enabled="true" parent="C-RADAR">
     <Property name="Caption">PL</Property>
@@ -3403,8 +3531,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-RAD-3" type="Shape" x="1306" y="225" w="8" h="8" tab-order="57" z-order="56" visible="true" enabled="true" parent="C-RADAR">
     <Property name="ShapeType">Circle</Property>
@@ -3413,8 +3540,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-RAD-L3" type="Label" x="1317" y="219" w="62" h="20" tab-order="58" z-order="57" visible="true" enabled="true" parent="C-RADAR">
     <Property name="Caption">Cotistas</Property>
@@ -3427,8 +3553,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-RAD-S" type="Label" x="1108" y="240" w="280" h="14" tab-order="59" z-order="58" visible="true" enabled="true" parent="C-RADAR">
     <Property name="Caption">índice relativo por categoria (100 = líder)</Property>
@@ -3441,8 +3566,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="CH-RADAR" type="RadarChart" x="1090" y="254" w="322" h="206" tab-order="60" z-order="59" visible="false" enabled="true" parent="C-RADAR">
     <Property name="HideBackground">true</Property>
@@ -3462,9 +3586,9 @@
     <Property name="GridLevels">4</Property>
     <Property name="ShowAxisValues">true</Property>
     <Property name="AnimateValues">true</Property>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-GOALS" type="GroupBox" x="24" y="488" w="330" h="193" tab-order="61" z-order="60" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-GOALS" type="GroupBox" x="24" y="488" w="330" h="193" tab-order="61" z-order="60" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -3482,8 +3606,7 @@
     <Property name="GridRow">2</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="RowSpan">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-GOAL-T" type="Label" x="46" y="498" w="280" h="24" tab-order="62" z-order="61" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption">Maiores fundos (PL)</Property>
@@ -3496,8 +3619,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP1-N" type="Label" x="46" y="530" w="195" h="16" tab-order="63" z-order="62" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3510,8 +3632,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP1-V" type="Label" x="252" y="530" w="80" h="16" tab-order="64" z-order="63" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3524,8 +3645,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-TOP1" type="Panel" x="46" y="551" w="286" h="8" tab-order="65" z-order="64" visible="true" enabled="true" parent="C-GOALS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -3534,8 +3654,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-TOP1" type="Gauge" x="46" y="545" w="286" h="20" tab-order="66" z-order="65" visible="true" enabled="true" parent="C-GOALS">
     <Property name="GaugeStyle">Linear</Property>
@@ -3551,8 +3670,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP2-N" type="Label" x="46" y="566" w="195" h="16" tab-order="67" z-order="66" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3565,8 +3683,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP2-V" type="Label" x="252" y="566" w="80" h="16" tab-order="68" z-order="67" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3579,8 +3696,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-TOP2" type="Panel" x="46" y="587" w="286" h="8" tab-order="69" z-order="68" visible="true" enabled="true" parent="C-GOALS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -3589,8 +3705,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-TOP2" type="Gauge" x="46" y="581" w="286" h="20" tab-order="70" z-order="69" visible="true" enabled="true" parent="C-GOALS">
     <Property name="GaugeStyle">Linear</Property>
@@ -3606,8 +3721,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP3-N" type="Label" x="46" y="602" w="195" h="16" tab-order="71" z-order="70" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3620,8 +3734,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP3-V" type="Label" x="252" y="602" w="80" h="16" tab-order="72" z-order="71" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3634,8 +3747,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-TOP3" type="Panel" x="46" y="623" w="286" h="8" tab-order="73" z-order="72" visible="true" enabled="true" parent="C-GOALS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -3644,8 +3756,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-TOP3" type="Gauge" x="46" y="617" w="286" h="20" tab-order="74" z-order="73" visible="true" enabled="true" parent="C-GOALS">
     <Property name="GaugeStyle">Linear</Property>
@@ -3661,8 +3772,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP4-N" type="Label" x="46" y="638" w="195" h="16" tab-order="75" z-order="74" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3675,8 +3785,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-TOP4-V" type="Label" x="252" y="638" w="80" h="16" tab-order="76" z-order="75" visible="true" enabled="true" parent="C-GOALS">
     <Property name="Caption"></Property>
@@ -3689,8 +3798,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-TOP4" type="Panel" x="46" y="659" w="286" h="8" tab-order="77" z-order="76" visible="true" enabled="true" parent="C-GOALS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -3699,8 +3807,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-TOP4" type="Gauge" x="46" y="653" w="286" h="20" tab-order="78" z-order="77" visible="true" enabled="true" parent="C-GOALS">
     <Property name="GaugeStyle">Linear</Property>
@@ -3716,10 +3823,9 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-DONUT1" type="GroupBox" x="378" y="488" w="684" h="193" tab-order="79" z-order="78" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-DONUT1" type="GroupBox" x="378" y="488" w="684" h="193" tab-order="79" z-order="78" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -3737,8 +3843,7 @@
     <Property name="GridRow">2</Property>
     <Property name="ColumnSpan">2</Property>
     <Property name="RowSpan">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-D1-T" type="Label" x="400" y="498" w="200" h="24" tab-order="80" z-order="79" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption">PL por categoria</Property>
@@ -3751,8 +3856,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="CH-DONUT1" type="DonutChart" x="390" y="522" w="160" h="152" tab-order="81" z-order="80" visible="false" enabled="true" parent="C-DONUT1">
     <Property name="HideBackground">true</Property>
@@ -3770,7 +3874,7 @@
     <Property name="InnerRadius">66</Property>
     <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8,#8EDCE8,#5F7FB8,#B7CDF2,#1B2A59,#1297AB,#6FA2F0,#C9D3E6</Property>
     <Property name="AnimateValues">true</Property>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-D1-C" type="Label" x="420" y="578" w="100" h="20" tab-order="82" z-order="81" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -3783,8 +3887,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-D1-S" type="Label" x="420" y="600" w="100" h="14" tab-order="83" z-order="82" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption">PL total</Property>
@@ -3797,8 +3900,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-CLS-N" type="Label" x="568" y="500" w="66" h="16" tab-order="84" z-order="83" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption">Classes</Property>
@@ -3811,8 +3913,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-CLS" type="Panel" x="636" y="504" w="190" h="8" tab-order="85" z-order="84" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -3821,8 +3922,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-CLS" type="Gauge" x="636" y="498" w="190" h="20" tab-order="86" z-order="85" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="GaugeStyle">Linear</Property>
@@ -3838,8 +3938,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-CLS-P" type="Label" x="832" y="500" w="56" h="16" tab-order="87" z-order="86" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -3852,8 +3951,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-SUB-N" type="Label" x="568" y="524" w="66" h="16" tab-order="88" z-order="87" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption">Subclasses</Property>
@@ -3866,8 +3964,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-SUB" type="Panel" x="636" y="528" w="190" h="8" tab-order="89" z-order="88" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -3876,8 +3973,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-SUB" type="Gauge" x="636" y="522" w="190" h="20" tab-order="90" z-order="89" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="GaugeStyle">Linear</Property>
@@ -3893,8 +3989,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-SUB-P" type="Label" x="832" y="524" w="56" h="16" tab-order="91" z-order="90" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -3907,8 +4002,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="BOX-AVG" type="GroupBox" x="920" y="500" w="118" h="80" tab-order="92" z-order="91" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="BackgroundColor">#FFFFFF</Property>
@@ -3925,8 +4019,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
     <Property name="Anchor">Top,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-AVG-V" type="Label" x="920" y="516" w="118" h="28" tab-order="93" z-order="92" visible="true" enabled="true" parent="BOX-AVG">
     <Property name="Caption"></Property>
@@ -3939,8 +4032,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-AVG-C" type="Label" x="920" y="544" w="118" h="16" tab-order="94" z-order="93" visible="true" enabled="true" parent="BOX-AVG">
     <Property name="Caption">PL médio</Property>
@@ -3953,8 +4045,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L1-1" type="Shape" x="568" y="593" w="9" h="9" tab-order="95" z-order="94" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="ShapeType">Circle</Property>
@@ -3963,8 +4054,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-1-N" type="Label" x="584" y="588" w="190" h="18" tab-order="96" z-order="95" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -3977,8 +4067,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-1-P" type="Label" x="830" y="588" w="60" h="18" tab-order="97" z-order="96" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -3991,8 +4080,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-1-V" type="Label" x="896" y="588" w="96" h="18" tab-order="98" z-order="97" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4005,8 +4093,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L1-2" type="Shape" x="568" y="615" w="9" h="9" tab-order="99" z-order="98" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="ShapeType">Circle</Property>
@@ -4015,8 +4102,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-2-N" type="Label" x="584" y="610" w="190" h="18" tab-order="100" z-order="99" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4029,8 +4115,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-2-P" type="Label" x="830" y="610" w="60" h="18" tab-order="101" z-order="100" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4043,8 +4128,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-2-V" type="Label" x="896" y="610" w="96" h="18" tab-order="102" z-order="101" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4057,8 +4141,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L1-3" type="Shape" x="568" y="637" w="9" h="9" tab-order="103" z-order="102" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="ShapeType">Circle</Property>
@@ -4067,8 +4150,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-3-N" type="Label" x="584" y="632" w="190" h="18" tab-order="104" z-order="103" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4081,8 +4163,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-3-P" type="Label" x="830" y="632" w="60" h="18" tab-order="105" z-order="104" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4095,8 +4176,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-3-V" type="Label" x="896" y="632" w="96" h="18" tab-order="106" z-order="105" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4109,8 +4189,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L1-4" type="Shape" x="568" y="659" w="9" h="9" tab-order="107" z-order="106" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="ShapeType">Circle</Property>
@@ -4119,8 +4198,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-4-N" type="Label" x="584" y="654" w="190" h="18" tab-order="108" z-order="107" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4133,8 +4211,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-4-P" type="Label" x="830" y="654" w="60" h="18" tab-order="109" z-order="108" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4147,8 +4224,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L1-4-V" type="Label" x="896" y="654" w="96" h="18" tab-order="110" z-order="109" visible="true" enabled="true" parent="C-DONUT1">
     <Property name="Caption"></Property>
@@ -4161,10 +4237,9 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-DONUT2" type="GroupBox" x="1086" y="488" w="330" h="388" tab-order="111" z-order="110" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-DONUT2" type="GroupBox" x="1086" y="488" w="330" h="388" tab-order="111" z-order="110" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -4182,8 +4257,7 @@
     <Property name="GridRow">2</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="RowSpan">2</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-D2-T" type="Label" x="1108" y="500" w="280" h="24" tab-order="112" z-order="111" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption">Fundos por nível 2</Property>
@@ -4196,8 +4270,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="CH-DONUT2" type="DonutChart" x="1100" y="528" w="302" h="204" tab-order="113" z-order="112" visible="false" enabled="true" parent="C-DONUT2">
     <Property name="HideBackground">true</Property>
@@ -4215,7 +4288,7 @@
     <Property name="InnerRadius">64</Property>
     <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8,#8EDCE8,#5F7FB8,#B7CDF2,#1B2A59,#1297AB,#6FA2F0,#C9D3E6</Property>
     <Property name="AnimateValues">true</Property>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-D2-C" type="Label" x="1201" y="618" w="100" h="24" tab-order="114" z-order="113" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4228,8 +4301,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-D2-S" type="Label" x="1201" y="642" w="100" h="14" tab-order="115" z-order="114" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption">fundos</Property>
@@ -4242,8 +4314,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L2-1" type="Shape" x="1108" y="745" w="9" h="9" tab-order="116" z-order="115" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="ShapeType">Circle</Property>
@@ -4252,8 +4323,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-1-N" type="Label" x="1124" y="740" w="132" h="18" tab-order="117" z-order="116" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4266,8 +4336,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-1-P" type="Label" x="1260" y="740" w="50" h="18" tab-order="118" z-order="117" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4280,8 +4349,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-1-V" type="Label" x="1314" y="740" w="72" h="18" tab-order="119" z-order="118" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4294,8 +4362,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L2-2" type="Shape" x="1108" y="766" w="9" h="9" tab-order="120" z-order="119" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="ShapeType">Circle</Property>
@@ -4304,8 +4371,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-2-N" type="Label" x="1124" y="761" w="132" h="18" tab-order="121" z-order="120" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4318,8 +4384,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-2-P" type="Label" x="1260" y="761" w="50" h="18" tab-order="122" z-order="121" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4332,8 +4397,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-2-V" type="Label" x="1314" y="761" w="72" h="18" tab-order="123" z-order="122" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4346,8 +4410,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L2-3" type="Shape" x="1108" y="787" w="9" h="9" tab-order="124" z-order="123" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="ShapeType">Circle</Property>
@@ -4356,8 +4419,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-3-N" type="Label" x="1124" y="782" w="132" h="18" tab-order="125" z-order="124" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4370,8 +4432,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-3-P" type="Label" x="1260" y="782" w="50" h="18" tab-order="126" z-order="125" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4384,8 +4445,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-3-V" type="Label" x="1314" y="782" w="72" h="18" tab-order="127" z-order="126" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4398,8 +4458,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L2-4" type="Shape" x="1108" y="808" w="9" h="9" tab-order="128" z-order="127" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="ShapeType">Circle</Property>
@@ -4408,8 +4467,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-4-N" type="Label" x="1124" y="803" w="132" h="18" tab-order="129" z-order="128" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4422,8 +4480,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-4-P" type="Label" x="1260" y="803" w="50" h="18" tab-order="130" z-order="129" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4436,8 +4493,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-4-V" type="Label" x="1314" y="803" w="72" h="18" tab-order="131" z-order="130" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4450,8 +4506,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L2-5" type="Shape" x="1108" y="829" w="9" h="9" tab-order="132" z-order="131" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="ShapeType">Circle</Property>
@@ -4460,8 +4515,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-5-N" type="Label" x="1124" y="824" w="132" h="18" tab-order="133" z-order="132" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4474,8 +4528,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-5-P" type="Label" x="1260" y="824" w="50" h="18" tab-order="134" z-order="133" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4488,8 +4541,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-5-V" type="Label" x="1314" y="824" w="72" h="18" tab-order="135" z-order="134" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4502,8 +4554,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SHP-L2-6" type="Shape" x="1108" y="850" w="9" h="9" tab-order="136" z-order="135" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="ShapeType">Circle</Property>
@@ -4512,8 +4563,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-6-N" type="Label" x="1124" y="845" w="132" h="18" tab-order="137" z-order="136" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4526,8 +4576,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-6-P" type="Label" x="1260" y="845" w="50" h="18" tab-order="138" z-order="137" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4540,8 +4589,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-L2-6-V" type="Label" x="1314" y="845" w="72" h="18" tab-order="139" z-order="138" visible="true" enabled="true" parent="C-DONUT2">
     <Property name="Caption"></Property>
@@ -4554,10 +4602,9 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-LINE" type="GroupBox" x="24" y="705" w="684" h="171" tab-order="140" z-order="139" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-LINE" type="GroupBox" x="24" y="705" w="684" h="171" tab-order="140" z-order="139" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -4575,8 +4622,7 @@
     <Property name="GridRow">3</Property>
     <Property name="ColumnSpan">2</Property>
     <Property name="RowSpan">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-LIN-T" type="Label" x="46" y="713" w="260" h="24" tab-order="141" z-order="140" visible="true" enabled="true" parent="C-LINE">
     <Property name="Caption">Evolução por ano de início</Property>
@@ -4589,8 +4635,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-LIN-U" type="Label" x="46" y="735" w="260" h="14" tab-order="142" z-order="141" visible="true" enabled="true" parent="C-LINE">
     <Property name="Caption"></Property>
@@ -4603,8 +4648,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-ACUM" type="Label" x="522" y="716" w="106" h="20" tab-order="143" z-order="142" visible="true" enabled="true" parent="C-LINE">
     <Property name="Caption">Acumulado</Property>
@@ -4617,8 +4661,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="SW-ACUM" type="Switch" x="632" y="713" w="52" h="26" tab-order="144" z-order="143" visible="true" enabled="true" parent="C-LINE">
     <Property name="Checked">true</Property>
@@ -4635,8 +4678,7 @@
            CALL "PAINT-YEARS"
 
 ]]></Event>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="CH-LINE" type="LineChart" x="36" y="751" w="660" h="119" tab-order="145" z-order="144" visible="false" enabled="true" parent="C-LINE">
     <Property name="HideBackground">true</Property>
@@ -4655,9 +4697,9 @@
     <Property name="PointRadius">3</Property>
     <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8</Property>
     <Property name="AnimateValues">true</Property>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-BINS" type="GroupBox" x="732" y="705" w="330" h="171" tab-order="146" z-order="145" visible="true" enabled="true" parent="PG-DASH">
+  <Control id="C-BINS" type="GroupBox" x="732" y="705" w="330" h="171" tab-order="146" z-order="145" visible="false" enabled="true" parent="PG-DASH">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -4675,8 +4717,7 @@
     <Property name="GridRow">3</Property>
     <Property name="ColumnSpan">1</Property>
     <Property name="RowSpan">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN-T" type="Label" x="754" y="713" w="280" h="24" tab-order="147" z-order="146" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption">Faixas de PL</Property>
@@ -4689,8 +4730,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN1-N" type="Label" x="754" y="739" w="160" h="14" tab-order="148" z-order="147" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption">Até R$ 1 mi</Property>
@@ -4703,8 +4743,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN1-V" type="Label" x="930" y="739" w="110" h="15" tab-order="149" z-order="148" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption"></Property>
@@ -4717,8 +4756,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-BIN1" type="Panel" x="754" y="754" w="286" h="8" tab-order="150" z-order="149" visible="true" enabled="true" parent="C-BINS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -4727,8 +4765,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-BIN1" type="Gauge" x="754" y="750" w="286" h="16" tab-order="151" z-order="150" visible="true" enabled="true" parent="C-BINS">
     <Property name="GaugeStyle">Linear</Property>
@@ -4744,8 +4781,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN2-N" type="Label" x="754" y="766" w="160" h="14" tab-order="152" z-order="151" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption">R$ 1 a 10 mi</Property>
@@ -4758,8 +4794,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN2-V" type="Label" x="930" y="766" w="110" h="15" tab-order="153" z-order="152" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption"></Property>
@@ -4772,8 +4807,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-BIN2" type="Panel" x="754" y="781" w="286" h="8" tab-order="154" z-order="153" visible="true" enabled="true" parent="C-BINS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -4782,8 +4816,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-BIN2" type="Gauge" x="754" y="777" w="286" h="16" tab-order="155" z-order="154" visible="true" enabled="true" parent="C-BINS">
     <Property name="GaugeStyle">Linear</Property>
@@ -4799,8 +4832,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN3-N" type="Label" x="754" y="793" w="160" h="14" tab-order="156" z-order="155" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption">R$ 10 a 100 mi</Property>
@@ -4813,8 +4845,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN3-V" type="Label" x="930" y="793" w="110" h="15" tab-order="157" z-order="156" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption"></Property>
@@ -4827,8 +4858,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-BIN3" type="Panel" x="754" y="808" w="286" h="8" tab-order="158" z-order="157" visible="true" enabled="true" parent="C-BINS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -4837,8 +4867,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-BIN3" type="Gauge" x="754" y="804" w="286" h="16" tab-order="159" z-order="158" visible="true" enabled="true" parent="C-BINS">
     <Property name="GaugeStyle">Linear</Property>
@@ -4854,8 +4883,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN4-N" type="Label" x="754" y="820" w="160" h="14" tab-order="160" z-order="159" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption">R$ 100 mi a 1 bi</Property>
@@ -4868,8 +4896,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN4-V" type="Label" x="930" y="820" w="110" h="15" tab-order="161" z-order="160" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption"></Property>
@@ -4882,8 +4909,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-BIN4" type="Panel" x="754" y="835" w="286" h="8" tab-order="162" z-order="161" visible="true" enabled="true" parent="C-BINS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -4892,8 +4918,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-BIN4" type="Gauge" x="754" y="831" w="286" h="16" tab-order="163" z-order="162" visible="true" enabled="true" parent="C-BINS">
     <Property name="GaugeStyle">Linear</Property>
@@ -4909,8 +4934,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN5-N" type="Label" x="754" y="847" w="160" h="14" tab-order="164" z-order="163" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption">Acima de R$ 1 bi</Property>
@@ -4923,8 +4947,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-BIN5-V" type="Label" x="930" y="847" w="110" h="15" tab-order="165" z-order="164" visible="true" enabled="true" parent="C-BINS">
     <Property name="Caption"></Property>
@@ -4937,8 +4960,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="TRK-PRG-BIN5" type="Panel" x="754" y="862" w="286" h="8" tab-order="166" z-order="165" visible="true" enabled="true" parent="C-BINS">
     <Property name="BackgroundColor">#7C93BA</Property>
@@ -4947,8 +4969,7 @@
     <Property name="Transparency">70</Property>
     <Property name="CornerRadius">4</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PRG-BIN5" type="Gauge" x="754" y="858" w="286" h="16" tab-order="167" z-order="166" visible="true" enabled="true" parent="C-BINS">
     <Property name="GaugeStyle">Linear</Property>
@@ -4964,8 +4985,7 @@
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#34456B</Property>
     <Property name="Anchor">Top,Left,Right</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="4200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="PG-DATA" type="Panel" x="24" y="204" w="1392" h="672" tab-order="168" z-order="167" visible="false" enabled="true" parent="PNL-PAGES">
     <Property name="BackgroundColor">#00000000</Property>
@@ -4989,7 +5009,7 @@
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">1</Property>
   </Control>
-  <Control id="K1-C" type="GroupBox" x="24" y="204" w="250" h="115" tab-order="170" z-order="169" visible="true" enabled="true" parent="STRIP">
+  <Control id="K1-C" type="GroupBox" x="24" y="204" w="250" h="115" tab-order="170" z-order="169" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -5006,8 +5026,7 @@
     <Property name="FlexGrow">1</Property>
     <Property name="FlexBasis">0</Property>
     <Property name="MinHeight">84</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K1-T" type="Label" x="44" y="218" w="190" h="16" tab-order="171" z-order="170" visible="true" enabled="true" parent="K1-C">
     <Property name="Caption">FUNDOS</Property>
@@ -5020,8 +5039,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="DOT-K1" type="Shape" x="244" y="221" w="12" h="12" tab-order="172" z-order="171" visible="true" enabled="true" parent="K1-C">
     <Property name="ShapeType">Circle</Property>
@@ -5030,8 +5048,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K1-V" type="Label" x="44" y="238" w="214" h="36" tab-order="173" z-order="172" visible="true" enabled="true" parent="K1-C">
     <Property name="Caption"></Property>
@@ -5044,8 +5061,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K1-S" type="Label" x="44" y="278" w="214" h="36" tab-order="174" z-order="173" visible="true" enabled="true" parent="K1-C">
     <Property name="Caption"></Property>
@@ -5059,10 +5075,9 @@
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K2-C" type="GroupBox" x="24" y="343" w="250" h="115" tab-order="175" z-order="174" visible="true" enabled="true" parent="STRIP">
+  <Control id="K2-C" type="GroupBox" x="24" y="343" w="250" h="115" tab-order="175" z-order="174" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -5079,8 +5094,7 @@
     <Property name="FlexGrow">1</Property>
     <Property name="FlexBasis">0</Property>
     <Property name="MinHeight">84</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K2-T" type="Label" x="44" y="357" w="190" h="16" tab-order="176" z-order="175" visible="true" enabled="true" parent="K2-C">
     <Property name="Caption">PL TOTAL</Property>
@@ -5093,8 +5107,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="DOT-K2" type="Shape" x="244" y="360" w="12" h="12" tab-order="177" z-order="176" visible="true" enabled="true" parent="K2-C">
     <Property name="ShapeType">Circle</Property>
@@ -5103,8 +5116,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K2-V" type="Label" x="44" y="377" w="214" h="36" tab-order="178" z-order="177" visible="true" enabled="true" parent="K2-C">
     <Property name="Caption"></Property>
@@ -5117,8 +5129,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K2-S" type="Label" x="44" y="417" w="214" h="36" tab-order="179" z-order="178" visible="true" enabled="true" parent="K2-C">
     <Property name="Caption"></Property>
@@ -5132,10 +5143,9 @@
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K3-C" type="GroupBox" x="24" y="482" w="250" h="115" tab-order="180" z-order="179" visible="true" enabled="true" parent="STRIP">
+  <Control id="K3-C" type="GroupBox" x="24" y="482" w="250" h="115" tab-order="180" z-order="179" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -5152,8 +5162,7 @@
     <Property name="FlexGrow">1</Property>
     <Property name="FlexBasis">0</Property>
     <Property name="MinHeight">84</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K3-T" type="Label" x="44" y="496" w="190" h="16" tab-order="181" z-order="180" visible="true" enabled="true" parent="K3-C">
     <Property name="Caption">COTISTAS</Property>
@@ -5166,8 +5175,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="DOT-K3" type="Shape" x="244" y="499" w="12" h="12" tab-order="182" z-order="181" visible="true" enabled="true" parent="K3-C">
     <Property name="ShapeType">Circle</Property>
@@ -5176,8 +5184,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K3-V" type="Label" x="44" y="516" w="214" h="36" tab-order="183" z-order="182" visible="true" enabled="true" parent="K3-C">
     <Property name="Caption"></Property>
@@ -5190,8 +5197,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K3-S" type="Label" x="44" y="556" w="214" h="36" tab-order="184" z-order="183" visible="true" enabled="true" parent="K3-C">
     <Property name="Caption"></Property>
@@ -5205,10 +5211,9 @@
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K4-C" type="GroupBox" x="24" y="621" w="250" h="115" tab-order="185" z-order="184" visible="true" enabled="true" parent="STRIP">
+  <Control id="K4-C" type="GroupBox" x="24" y="621" w="250" h="115" tab-order="185" z-order="184" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -5225,8 +5230,7 @@
     <Property name="FlexGrow">1</Property>
     <Property name="FlexBasis">0</Property>
     <Property name="MinHeight">84</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K4-T" type="Label" x="44" y="635" w="190" h="16" tab-order="186" z-order="185" visible="true" enabled="true" parent="K4-C">
     <Property name="Caption">MAIOR FUNDO</Property>
@@ -5239,8 +5243,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="DOT-K4" type="Shape" x="244" y="638" w="12" h="12" tab-order="187" z-order="186" visible="true" enabled="true" parent="K4-C">
     <Property name="ShapeType">Circle</Property>
@@ -5249,8 +5252,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K4-V" type="Label" x="44" y="655" w="214" h="36" tab-order="188" z-order="187" visible="true" enabled="true" parent="K4-C">
     <Property name="Caption"></Property>
@@ -5263,8 +5265,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K4-S" type="Label" x="44" y="695" w="214" h="36" tab-order="189" z-order="188" visible="true" enabled="true" parent="K4-C">
     <Property name="Caption"></Property>
@@ -5278,10 +5279,9 @@
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="1800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K5-C" type="GroupBox" x="24" y="760" w="250" h="115" tab-order="190" z-order="189" visible="true" enabled="true" parent="STRIP">
+  <Control id="K5-C" type="GroupBox" x="24" y="760" w="250" h="115" tab-order="190" z-order="189" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -5298,8 +5298,7 @@
     <Property name="FlexGrow">1</Property>
     <Property name="FlexBasis">0</Property>
     <Property name="MinHeight">84</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K5-T" type="Label" x="44" y="774" w="190" h="16" tab-order="191" z-order="190" visible="true" enabled="true" parent="K5-C">
     <Property name="Caption">CATEGORIA LÍDER</Property>
@@ -5312,8 +5311,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="DOT-K5" type="Shape" x="244" y="777" w="12" h="12" tab-order="192" z-order="191" visible="true" enabled="true" parent="K5-C">
     <Property name="ShapeType">Circle</Property>
@@ -5322,8 +5320,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="LineThickness">0</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K5-V" type="Label" x="44" y="794" w="214" h="36" tab-order="193" z-order="192" visible="true" enabled="true" parent="K5-C">
     <Property name="Caption"></Property>
@@ -5336,8 +5333,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-K5-S" type="Label" x="44" y="834" w="214" h="36" tab-order="194" z-order="193" visible="true" enabled="true" parent="K5-C">
     <Property name="Caption"></Property>
@@ -5351,10 +5347,9 @@
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-GRID" type="GroupBox" x="298" y="204" w="1118" h="672" tab-order="195" z-order="194" visible="true" enabled="true" parent="PG-DATA">
+  <Control id="C-GRID" type="GroupBox" x="298" y="204" w="1118" h="672" tab-order="195" z-order="194" visible="false" enabled="true" parent="PG-DATA">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -5370,8 +5365,7 @@
     <Property name="ShadowBlurStrength">14</Property>
     <Property name="GridColumn">2</Property>
     <Property name="GridRow">1</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-GRID-T" type="Label" x="320" y="216" w="240" h="28" tab-order="196" z-order="195" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption">Fundos de investimento</Property>
@@ -5384,8 +5378,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-GRID-S" type="Label" x="320" y="244" w="520" h="16" tab-order="197" z-order="196" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption"></Property>
@@ -5398,8 +5391,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="CMB-ORDER" type="ComboBox" x="1162" y="220" w="230" h="34" tab-order="198" z-order="197" visible="true" enabled="true" parent="C-GRID">
     <Property name="BackgroundColor">#FFFFFF</Property>
@@ -5425,8 +5417,7 @@ Nome (A-Z)</Property>
            CALL "REFRESH-GRID"
 
 ]]></Event>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="GRD-FUNDOS" type="DataGrid" x="310" y="270" w="1094" h="550" tab-order="199" z-order="198" visible="true" enabled="true" parent="C-GRID">
     <Property name="Columns">Nome Comercial:string
@@ -5466,8 +5457,7 @@ Data de referência:string</Property>
     <Property name="CSVExportMode">AllRows</Property>
     <Property name="CSVDelimiter">;</Property>
     <Property name="Anchor">Top,Left,Right,Bottom</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="BTN-PREV" type="Button" x="322" y="830" w="120" h="32" tab-order="200" z-order="199" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption">Anterior</Property>
@@ -5490,8 +5480,7 @@ Data de referência:string</Property>
            END-IF
 
 ]]></Event>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LBL-PAGE" type="Label" x="747" y="832" w="220" h="28" tab-order="201" z-order="200" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption"></Property>
@@ -5504,8 +5493,7 @@ Data de referência:string</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="Anchor">Bottom</Property>
     <Property name="Transparency">100</Property>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="BTN-NEXT" type="Button" x="1272" y="830" w="120" h="32" tab-order="202" z-order="201" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption">Próxima</Property>
@@ -5528,8 +5516,7 @@ Data de referência:string</Property>
            END-IF
 
 ]]></Event>
-    <Animation name="intro" trigger="OnFormLoad" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
-    <Animation name="replay" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="3000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
+    <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1200" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="LV-DROP" type="GroupBox" x="24" y="192" w="1392" h="196" tab-order="203" z-order="202" visible="false" enabled="true">
     <Property name="BackgroundColor">#F4F8FF</Property>
@@ -5743,7 +5730,7 @@ Data de referência:string</Property>
     <Property name="ConnectionString">:memory:</Property>
   </Control>
   <Control id="TMR-STAGE" type="Timer" x="0" y="0" w="24" h="24" tab-order="218" z-order="217" visible="true" enabled="true">
-    <Property name="Interval">100</Property>
+    <Property name="Interval">50</Property>
     <Property name="Enabled">false</Property>
     <Event name="onTick" paragraph="TMR-STAGE--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
