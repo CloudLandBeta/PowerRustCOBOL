@@ -1441,6 +1441,27 @@ pub struct Tr {
     pub cat_graphics: &'static str,
     pub cat_menu: &'static str,
     pub cat_nonvisual: &'static str,
+    // ── Spec 091 — form layers and the Non-Visuals tab ───────────────────────
+    /// The fixed tab at the left of the designer's tab bar (R46). A translated
+    /// label, not an identifier: no program can address it (R55, Q14).
+    pub layer_tab_non_visuals: &'static str,
+    pub layer_tab_non_visuals_hint: &'static str,
+    pub layer_tab_form_hint: &'static str,
+    /// `{}` = the layer's name.
+    pub layer_tab_layer_hint: &'static str,
+    pub layer_tab_visible_hint: &'static str,
+    pub layer_tab_delete_hint: &'static str,
+    pub layer_tab_add_hint: &'static str,
+    pub layer_tab_scroll_left_hint: &'static str,
+    pub layer_tab_scroll_right_hint: &'static str,
+    /// `{}` = the limit (64, R7).
+    pub layer_limit_reached: &'static str,
+    pub layer_name_refused: &'static str,
+    pub layer_delete_title: &'static str,
+    /// `{}` ×3 = the layer's name, its control count, its handler count (R63).
+    pub layer_delete_body: &'static str,
+    pub toolbox_visual_disabled_hint: &'static str,
+    pub layer_paste_refused: &'static str,
     pub cat_charts: &'static str,
     /// Spec 078: the AWS controls' toolbox category — the brand, in every language.
     pub cat_aws: &'static str,
@@ -3275,6 +3296,21 @@ const EN: Tr = Tr {
     cat_graphics:  "Graphics",
     cat_menu:      "Menus & Bars",
     cat_nonvisual: "Non-Visual",
+    layer_tab_non_visuals: "Non-Visuals",
+    layer_tab_non_visuals_hint: "Every control that paints nothing when the program runs — timers, connections, agents — arranged here automatically",
+    layer_tab_form_hint: "The form itself: its controls are always shown",
+    layer_tab_layer_hint: "Layer {} — click to edit it, drag to re-stack it, double-click to rename it",
+    layer_tab_visible_hint: "Show or hide this layer while you design. This is not saved: every layer starts hidden when the program runs",
+    layer_tab_delete_hint: "Delete this layer with its controls and their event handlers",
+    layer_tab_add_hint: "Add a layer",
+    layer_tab_scroll_left_hint: "Scroll the tabs left",
+    layer_tab_scroll_right_hint: "Scroll the tabs right",
+    layer_limit_reached: "A form holds at most {} layers above the base",
+    layer_name_refused: "A layer name must start with a letter, use only letters, digits and hyphens, be used by no control or layer, and not be Form or Non-Visuals",
+    layer_delete_title: "Delete layer",
+    layer_delete_body: "Delete layer {} together with its {} control(s) and {} event handler(s)? You can undo this.",
+    toolbox_visual_disabled_hint: "Select Form or a layer to add visual controls",
+    layer_paste_refused: "Only non-visual controls can be pasted into Non-Visuals",
     cat_charts:    "Charts",
     cat_aws: "AWS",
     aws_conn_only: "the only one",
@@ -4919,6 +4955,21 @@ const ES: Tr = Tr {
     cat_graphics:  "Gráficos",
     cat_menu:      "Menús y barras",
     cat_nonvisual: "No visual",
+    layer_tab_non_visuals: "No visuales",
+    layer_tab_non_visuals_hint: "Todo control que no dibuja nada al ejecutar el programa — temporizadores, conexiones, agentes — organizado aquí automáticamente",
+    layer_tab_form_hint: "El formulario: sus controles siempre se muestran",
+    layer_tab_layer_hint: "Capa {} — haga clic para editarla, arrastre para reordenarla, doble clic para renombrarla",
+    layer_tab_visible_hint: "Muestra u oculta esta capa mientras diseña. No se guarda: todas las capas empiezan ocultas cuando el programa se ejecuta",
+    layer_tab_delete_hint: "Elimina esta capa con sus controles y sus manejadores de eventos",
+    layer_tab_add_hint: "Agregar una capa",
+    layer_tab_scroll_left_hint: "Desplazar las pestañas a la izquierda",
+    layer_tab_scroll_right_hint: "Desplazar las pestañas a la derecha",
+    layer_limit_reached: "Un formulario admite como máximo {} capas sobre la base",
+    layer_name_refused: "El nombre de una capa debe empezar con una letra, usar solo letras, dígitos y guiones, no estar en uso por ningún control o capa y no ser Form ni Non-Visuals",
+    layer_delete_title: "Eliminar capa",
+    layer_delete_body: "¿Eliminar la capa {} junto con sus {} control(es) y {} manejador(es) de eventos? Puede deshacerlo.",
+    toolbox_visual_disabled_hint: "Seleccione Form o una capa para agregar controles visuales",
+    layer_paste_refused: "Solo se pueden pegar controles no visuales en No visuales",
     cat_charts:    "Gráficas",
     cat_aws: "AWS",
     aws_conn_only: "la única",
@@ -6563,6 +6614,21 @@ const PT: Tr = Tr {
     cat_graphics:  "Gráficos",
     cat_menu:      "Menus e barras",
     cat_nonvisual: "Não visual",
+    layer_tab_non_visuals: "Não visuais",
+    layer_tab_non_visuals_hint: "Todo controle que não desenha nada quando o programa roda — temporizadores, conexões, agentes — organizado aqui automaticamente",
+    layer_tab_form_hint: "O formulário: seus controles são sempre exibidos",
+    layer_tab_layer_hint: "Camada {} — clique para editá-la, arraste para reordená-la, clique duas vezes para renomeá-la",
+    layer_tab_visible_hint: "Mostra ou oculta esta camada enquanto você projeta. Isto não é salvo: toda camada começa oculta quando o programa roda",
+    layer_tab_delete_hint: "Exclui esta camada com seus controles e seus manipuladores de eventos",
+    layer_tab_add_hint: "Adicionar uma camada",
+    layer_tab_scroll_left_hint: "Rolar as abas para a esquerda",
+    layer_tab_scroll_right_hint: "Rolar as abas para a direita",
+    layer_limit_reached: "Um formulário comporta no máximo {} camadas acima da base",
+    layer_name_refused: "O nome de uma camada deve começar com uma letra, usar apenas letras, dígitos e hifens, não estar em uso por nenhum controle ou camada e não ser Form nem Non-Visuals",
+    layer_delete_title: "Excluir camada",
+    layer_delete_body: "Excluir a camada {} junto com seus {} controle(s) e {} manipulador(es) de eventos? Você pode desfazer.",
+    toolbox_visual_disabled_hint: "Selecione Form ou uma camada para adicionar controles visuais",
+    layer_paste_refused: "Só é possível colar controles não visuais em Não visuais",
     cat_charts:    "Gráficos",
     cat_aws: "AWS",
     aws_conn_only: "a única",
@@ -8206,6 +8272,21 @@ const JA: Tr = Tr {
     cat_graphics:  "グラフィック",
     cat_menu:      "メニューとバー",
     cat_nonvisual: "非表示",
+    layer_tab_non_visuals: "非ビジュアル",
+    layer_tab_non_visuals_hint: "プログラム実行時に何も描画しないコントロール(タイマー、接続、エージェントなど)を、ここに自動で整列します",
+    layer_tab_form_hint: "フォーム本体:そのコントロールは常に表示されます",
+    layer_tab_layer_hint: "レイヤー {} — クリックで編集、ドラッグで並べ替え、ダブルクリックで名前変更",
+    layer_tab_visible_hint: "設計中にこのレイヤーを表示/非表示にします。保存されません。プログラム実行時は、すべてのレイヤーが非表示で始まります",
+    layer_tab_delete_hint: "このレイヤーとそのコントロール、イベントハンドラーを削除します",
+    layer_tab_add_hint: "レイヤーを追加",
+    layer_tab_scroll_left_hint: "タブを左へスクロール",
+    layer_tab_scroll_right_hint: "タブを右へスクロール",
+    layer_limit_reached: "フォームのベースの上に置けるレイヤーは最大 {} 個です",
+    layer_name_refused: "レイヤー名は文字で始め、英数字とハイフンのみを使い、他のコントロールやレイヤーと重複せず、Form や Non-Visuals にはできません",
+    layer_delete_title: "レイヤーの削除",
+    layer_delete_body: "レイヤー {} を、{} 個のコントロールと {} 個のイベントハンドラーとともに削除しますか?元に戻せます。",
+    toolbox_visual_disabled_hint: "ビジュアルコントロールを追加するには、Form またはレイヤーを選択してください",
+    layer_paste_refused: "非ビジュアルには非ビジュアルコントロールのみ貼り付けできます",
     cat_charts:    "チャート",
     cat_aws: "AWS",
     aws_conn_only: "唯一の接続",
@@ -9856,6 +9937,21 @@ const ZH: Tr = Tr {
     cat_graphics: "图形",
     cat_menu: "菜单和工具栏",
     cat_nonvisual: "非视觉",
+    layer_tab_non_visuals: "非可视控件",
+    layer_tab_non_visuals_hint: "程序运行时不绘制任何内容的控件(定时器、连接、代理等)会自动排列在这里",
+    layer_tab_form_hint: "窗体本身:其控件始终显示",
+    layer_tab_layer_hint: "图层 {} — 单击编辑,拖动调整叠放顺序,双击重命名",
+    layer_tab_visible_hint: "设计时显示或隐藏此图层。此状态不会保存:程序运行时所有图层都从隐藏开始",
+    layer_tab_delete_hint: "删除此图层及其控件和事件处理程序",
+    layer_tab_add_hint: "添加图层",
+    layer_tab_scroll_left_hint: "向左滚动标签",
+    layer_tab_scroll_right_hint: "向右滚动标签",
+    layer_limit_reached: "一个窗体在基础层之上最多可有 {} 个图层",
+    layer_name_refused: "图层名称必须以字母开头,只能使用字母、数字和连字符,不得与任何控件或图层重名,也不能是 Form 或 Non-Visuals",
+    layer_delete_title: "删除图层",
+    layer_delete_body: "确定要删除图层 {} 及其 {} 个控件和 {} 个事件处理程序吗?此操作可以撤销。",
+    toolbox_visual_disabled_hint: "请选择 Form 或某个图层以添加可视控件",
+    layer_paste_refused: "只能将非可视控件粘贴到非可视控件标签",
     cat_charts: "图表",
     cat_aws: "AWS",
     aws_conn_only: "唯一的连接",
@@ -11501,6 +11597,21 @@ const FR: Tr = Tr {
     cat_graphics:  "Graphiques",
     cat_menu:      "Menus et barres",
     cat_nonvisual: "Non visuels",
+    layer_tab_non_visuals: "Non visuels",
+    layer_tab_non_visuals_hint: "Tout contrôle qui ne dessine rien quand le programme s'exécute — minuteries, connexions, agents — rangé ici automatiquement",
+    layer_tab_form_hint: "Le formulaire lui-même : ses contrôles sont toujours affichés",
+    layer_tab_layer_hint: "Calque {} — cliquez pour le modifier, faites glisser pour le réordonner, double-cliquez pour le renommer",
+    layer_tab_visible_hint: "Affiche ou masque ce calque pendant la conception. Ce n'est pas enregistré : chaque calque démarre masqué quand le programme s'exécute",
+    layer_tab_delete_hint: "Supprime ce calque avec ses contrôles et leurs gestionnaires d'événements",
+    layer_tab_add_hint: "Ajouter un calque",
+    layer_tab_scroll_left_hint: "Faire défiler les onglets vers la gauche",
+    layer_tab_scroll_right_hint: "Faire défiler les onglets vers la droite",
+    layer_limit_reached: "Un formulaire contient au plus {} calques au-dessus de la base",
+    layer_name_refused: "Le nom d'un calque doit commencer par une lettre, n'utiliser que des lettres, des chiffres et des traits d'union, n'être utilisé par aucun contrôle ni calque et ne pas être Form ni Non-Visuals",
+    layer_delete_title: "Supprimer le calque",
+    layer_delete_body: "Supprimer le calque {} avec ses {} contrôle(s) et {} gestionnaire(s) d'événements ? Vous pouvez annuler.",
+    toolbox_visual_disabled_hint: "Sélectionnez Form ou un calque pour ajouter des contrôles visuels",
+    layer_paste_refused: "Seuls les contrôles non visuels peuvent être collés dans Non visuels",
     cat_charts:    "Diagrammes",
     cat_aws: "AWS",
     aws_conn_only: "la seule",
@@ -12654,5 +12765,58 @@ mod viewer_tooltip_tests {
             }
         }
         println!("i18n: {checked} coding-agent kit strings checked ({} keys × {} languages)", en.len(), Language::ALL.len());
+    }
+}
+
+#[cfg(test)]
+mod layer_strings_091 {
+    use super::*;
+
+    /// Spec 091 — the strings of the layer tab bar, the layer delete window and
+    /// the toolbox's disabled hint: non-empty in every language, translated (not
+    /// a copy of English), and every `{}` the English carries kept.
+    #[test]
+    fn the_layer_strings_are_in_every_language() {
+        let pick = |t: &Tr| {
+            [
+                ("layer_tab_non_visuals", t.layer_tab_non_visuals),
+                ("layer_tab_non_visuals_hint", t.layer_tab_non_visuals_hint),
+                ("layer_tab_form_hint", t.layer_tab_form_hint),
+                ("layer_tab_layer_hint", t.layer_tab_layer_hint),
+                ("layer_tab_visible_hint", t.layer_tab_visible_hint),
+                ("layer_tab_delete_hint", t.layer_tab_delete_hint),
+                ("layer_tab_add_hint", t.layer_tab_add_hint),
+                ("layer_tab_scroll_left_hint", t.layer_tab_scroll_left_hint),
+                ("layer_tab_scroll_right_hint", t.layer_tab_scroll_right_hint),
+                ("layer_limit_reached", t.layer_limit_reached),
+                ("layer_name_refused", t.layer_name_refused),
+                ("layer_delete_title", t.layer_delete_title),
+                ("layer_delete_body", t.layer_delete_body),
+                ("toolbox_visual_disabled_hint", t.toolbox_visual_disabled_hint),
+                ("layer_paste_refused", t.layer_paste_refused),
+            ]
+        };
+        let en = pick(&Language::English.tr());
+        let mut checked = 0;
+        for &lang in Language::ALL {
+            for ((name, text), (_, english)) in pick(&lang.tr()).into_iter().zip(en) {
+                assert!(!text.trim().is_empty(), "{lang:?}/{name} is empty");
+                assert_eq!(
+                    text.matches("{}").count(),
+                    english.matches("{}").count(),
+                    "{lang:?}/{name}: placeholders differ from English in {text:?}"
+                );
+                // `Form` and `Non-Visuals` are identifiers a layer cannot take, so
+                // the refusal names them untranslated in every language.
+                if name == "layer_name_refused" {
+                    assert!(text.contains("Form") && text.contains("Non-Visuals"), "{lang:?}: {text}");
+                }
+                if lang != Language::English {
+                    assert_ne!(text, english, "{lang:?}/{name} is untranslated");
+                }
+                checked += 1;
+            }
+        }
+        println!("i18n 091: {checked} layer strings checked (15 keys × {} languages)", Language::ALL.len());
     }
 }

@@ -316,6 +316,23 @@ pub fn resolve_drop_target(
     dragged: usize,
     active: &ActiveTabs,
 ) -> DropTarget {
+    resolve_drop_target_in(controls, px, py, dragged, active, &|_| true)
+}
+
+/// [`resolve_drop_target`] over only the controls `usable` admits (spec 091 R8,
+/// R44): a designer editing one layer asks about that layer's controls alone, so
+/// a control dropped in `Layer 1` is never adopted by a `Panel` in the base or in
+/// `Layer 2` — which would take it out of its layer and into a container it
+/// cannot see. `usable(i)` is asked of every candidate by index; a control it
+/// refuses is not there to be dropped on, as though it had no rectangle.
+pub fn resolve_drop_target_in(
+    controls: &[Control],
+    px: i32,
+    py: i32,
+    dragged: usize,
+    active: &ActiveTabs,
+    usable: &dyn Fn(usize) -> bool,
+) -> DropTarget {
     // A status bar reports on the window, so it is never a child of anything
     // (operator, 2026-09-09). Refusing it HERE rather than at the drop is what
     // makes the drop hint agree with the drop: the hint asks this same
@@ -328,7 +345,7 @@ pub fn resolve_drop_target(
         return DropTarget::Form;
     }
     for &idx in render_order(controls).iter().rev() {
-        if idx == dragged || is_descendant(controls, idx, dragged) {
+        if idx == dragged || is_descendant(controls, idx, dragged) || !usable(idx) {
             continue;
         }
         // The canvas: a control hidden by the DESIGN is still a legal

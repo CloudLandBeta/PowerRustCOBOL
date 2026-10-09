@@ -17,6 +17,43 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.36] — 2026-10-09
+
+### Added
+- **Spec 091, slice 4 — the designer's tab bar and the `Non-Visuals` tab.** A strip
+  32 px high sits directly under the canvas of every form: `Non-Visuals`, `Form`,
+  one tab per layer with its visibility box and red ✕, and a `+`. The active tab is
+  blue with white text and the others white with blue text, on every IDE theme.
+  Choosing a tab or ticking a box is not an edit — the form is not marked modified,
+  no undo step is made and the saved file does not change. Selecting a layer shows
+  it over `Form` and hides the other layers (the developer may tick them back); a
+  box never changes the tab; a layer whose box is off cannot be reached. The pointer,
+  the rubber-band lasso, Ctrl-click, Select All and the drop target all see only
+  the active tab's controls. `Non-Visuals` shows a grid of five columns of cards,
+  types A–Z then names A–Z, scrolling when it is long; a card is selected but never
+  moved, has no resize knobs and is not nudged by the arrow keys. While a layer or
+  `Non-Visuals` is active the form cannot be resized: no grips, and `Width`,
+  `Height`, the target device and the orientation are read only. A press on a
+  non-visual toolbox control selects `Non-Visuals` at once; while that tab is active
+  the visual entries are greyed and take no press, click or drag, and a paste
+  holding any visual control is refused whole, each with a message in the Output
+  panel. A new, pasted or deployed control lands in the active tab — in the active
+  layer, on `Form`, or as a card — a child follows its container and an undo of its
+  drop restores its layer, and only the active tab's containers can adopt a drop.
+  The IDE preview draws the form with all its layers. A generated control name
+  never equals a layer's name.
+  **Not yet:** the `+`, the ✕, the rename by double-click and the drag to re-stack
+  are drawn and answer the pointer, but add, delete, rename and re-stack arrive in
+  the next two slices; so do the layer inspector and "move to layer".
+  47 new tests — the guards of the bar, resizing, toolbox, placement and
+  selection were each removed in turn to see a test fail: the tab bar
+  (6), the pointer, resizing and knobs per tab (5), the toolbox and paste rules (5
+  in the designer, 3 on the widget), placement and containers (7), selection, the
+  lasso, Select All and the grid across all six languages (8), the bar's own rules
+  (12) and the strings (1). The IDE unit suite is 1410 passed and one red, the
+  translation guard that was red before; the forms suite is 1474 passed, 0 failed;
+  the seven IDE integration test files are green.
+
 ## [PowerRustCOBOL 1.90.35] — 2026-10-09
 
 ### Changed

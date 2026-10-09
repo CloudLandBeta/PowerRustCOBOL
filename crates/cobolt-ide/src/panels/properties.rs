@@ -3572,6 +3572,10 @@ pub struct PropertiesPanel {
     /// selected control (lower-case keys): their rows carry a marker and a
     /// "reset to base" button. Empty while the design itself is viewed.
     pub overridden: std::collections::HashSet<String>,
+    /// Spec 091 R30, R57 — set by the designer each frame: while a layer or the
+    /// `Non-Visuals` tab is active the form cannot be resized, so the form's
+    /// `Width` and `Height` rows are read only.
+    pub form_size_locked: bool,
     hints: HintState,
     text_bufs: std::collections::HashMap<String, String>,
     form_bufs: std::collections::HashMap<String, String>,
@@ -3667,6 +3671,7 @@ impl PropertiesPanel {
     pub fn new() -> Self {
         Self {
             overridden: Default::default(),
+            form_size_locked: false,
             hints: Default::default(),
             text_bufs: Default::default(),
             form_bufs: Default::default(),
@@ -10723,10 +10728,14 @@ impl PropertiesPanel {
                 action.form_props.push(("Y".into(), y.to_string()));
             }
         });
+        let size_locked = self.form_size_locked;
         let mut w = form.width as i64;
         property_row_keyed(ui, tr.lbl_width, Some("Width"), |ui| {
             if ui
-                .add(DragValue::new(&mut w).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)))
+                .add_enabled(
+                    !size_locked,
+                    DragValue::new(&mut w).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)),
+                )
                 .changed()
             {
                 action.form_props.push(("Width".into(), w.to_string()));
@@ -10735,7 +10744,10 @@ impl PropertiesPanel {
         let mut h = form.height as i64;
         property_row_keyed(ui, tr.lbl_height, Some("Height"), |ui| {
             if ui
-                .add(DragValue::new(&mut h).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)))
+                .add_enabled(
+                    !size_locked,
+                    DragValue::new(&mut h).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)),
+                )
                 .changed()
             {
                 action.form_props.push(("Height".into(), h.to_string()));
@@ -10826,6 +10838,10 @@ impl PropertiesPanel {
     }
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
+        // The rows that change the form's size — Width and Height (below, in the
+        // geometry section), the target device and the orientation — are read only
+        // while a layer or `Non-Visuals` is the active tab (spec 091 R30, R57).
+        let size_locked = self.form_size_locked;
         self.property_split = self
             .property_split
             .clamp(72.0, ui.available_width().max(72.0));
@@ -10876,6 +10892,9 @@ impl PropertiesPanel {
                 section_header(ui, tr.sec_target);
                 property_row_keyed(ui, tr.lbl_target_label, Some("Target"), |ui| {
                     use super::designer::TARGET_PRESETS;
+                    if size_locked {
+                        ui.disable();
+                    }
 
                     let cur = form.target.as_str();
                     // Show current selection + dimensions hint
@@ -10975,6 +10994,9 @@ impl PropertiesPanel {
                         });
                 });
                 property_row_keyed(ui, tr.lbl_orientation, Some("Orientation"), |ui| {
+                    if size_locked {
+                        ui.disable();
+                    }
                     let portrait = form.width <= form.height;
                     ui.horizontal(|ui| {
                         // Icons, not words — a tall and a wide device outline;

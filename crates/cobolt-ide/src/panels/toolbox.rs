@@ -416,11 +416,20 @@ pub struct ToolboxAction {
     /// The user clicked the collapse/expand chevron this frame. The owning
     /// designer flips `DesignerPanel::toolbox_collapsed` in response.
     pub toggle_collapse: bool,
+    /// Spec 091 R59 — the control the pointer **went down on** this frame, to
+    /// click it or to drag it: the moment the designer chooses the tab it will be
+    /// created in. A non-visual type selects `Non-Visuals`; a visual one leaves
+    /// the active tab alone. Never set for a disabled entry.
+    pub pressed: Option<ControlType>,
 }
 
 pub struct ToolboxPanel {
     filter: String,
     collapsed: std::collections::HashSet<String>,
+    /// Spec 091 R58, R59 — set by the designer each frame: while the
+    /// `Non-Visuals` tab is active every visual entry is drawn greyed and takes
+    /// no press, click or drag. The non-visual ones stay as they were.
+    pub visual_disabled: bool,
 }
 
 impl ToolboxPanel {
@@ -428,6 +437,7 @@ impl ToolboxPanel {
         Self {
             filter: String::new(),
             collapsed: std::collections::HashSet::new(),
+            visual_disabled: false,
         }
     }
 
@@ -454,13 +464,16 @@ impl ToolboxPanel {
             dragged_type: None,
             dragged_user_control: None,
             toggle_collapse: false,
+            pressed: None,
         };
+        // The hint a disabled visual entry shows (R58), when entries are disabled.
+        let locked = self.visual_disabled.then_some(tr.toolbox_visual_disabled_hint);
 
         // Collapsed: render only a narrow, vertically-scrolling ICON rail (plus
         // the expand chevron). No labels, no search, no forms list — the rail is
         // a FIXED-width panel (see `TOOLBOX_RAIL_W`) so it can't self-inflate.
         if collapsed {
-            self.show_rail(ui, tr, &mut action);
+            self.show_rail(ui, tr, &mut action, locked);
             return action;
         }
 
@@ -539,18 +552,18 @@ impl ToolboxPanel {
                                 );
                                 ui.add_space(4.0); // ← 4 px top gap before first icon row
 
-                                render_icon_grid(ui, &tools_in_cat, &mut action);
+                                render_icon_grid(ui, &tools_in_cat, &mut action, locked);
                                 ui.add_space(4.0);
                             }
                         }
-                        render_user_controls(ui, tr, user_controls, &filter_lo, &mut action);
+                        render_user_controls(ui, tr, user_controls, &filter_lo, &mut action, locked);
                     } else {
                         let filtered: Vec<&ToolEntry> = TOOLS
                             .iter()
                             .filter(|e| e.label.to_ascii_lowercase().contains(&filter_lo))
                             .collect();
-                        render_icon_grid(ui, &filtered, &mut action);
-                        render_user_controls(ui, tr, user_controls, &filter_lo, &mut action);
+                        render_icon_grid(ui, &filtered, &mut action, locked);
+                        render_user_controls(ui, tr, user_controls, &filter_lo, &mut action, locked);
                     }
                 });
         });
@@ -561,7 +574,7 @@ impl ToolboxPanel {
     /// Narrow icon-only rail shown when the toolbox is collapsed. Renders the
     /// expand chevron then every tool as a single-column stack of draggable
     /// icons. Reuses `icon_btn` so click-to-place and drag-to-place still work.
-    fn show_rail(&self, ui: &mut Ui, tr: &Tr, action: &mut ToolboxAction) {
+    fn show_rail(&self, ui: &mut Ui, tr: &Tr, action: &mut ToolboxAction, locked: Option<&str>) {
         ui.vertical_centered(|ui| {
             // Points right (▶) — expanding grows the pane back toward the canvas.
             if ui
@@ -581,7 +594,7 @@ impl ToolboxPanel {
                 // a single column (one 59px cell won't fit twice), giving a clean
                 // vertical icon stack.
                 let all: Vec<&ToolEntry> = TOOLS.iter().collect();
-                render_icon_grid(ui, &all, action);
+                render_icon_grid(ui, &all, action, locked);
             });
     }
 }
@@ -659,6 +672,9 @@ fn render_user_controls(
     user_controls: &[UserControlDef],
     filter_lo: &str,
     action: &mut ToolboxAction,
+    // `Some(hint)` while visual entries are disabled (spec 091 R58): a user
+    // control is a visual one, so it is greyed with the rest.
+    locked: Option<&str>,
 ) {
     let entries: Vec<&UserControlDef> = user_controls
         .iter()
@@ -686,6 +702,18 @@ fn render_user_controls(
     ui.add_space(4.0);
 
     for def in entries {
+        if let Some(hint) = locked {
+            // Greyed, and inert: no press, no click, no drag (R59).
+            ui.add_enabled_ui(false, |ui| {
+                ui.add_sized(
+                    [ui.available_width(), 28.0],
+                    egui::Button::new(RichText::new(format!("▣ {}", def.name)).strong()),
+                )
+            })
+            .response
+            .on_disabled_hover_text(hint);
+            continue;
+        }
         let response = ui.add_sized(
             [ui.available_width(), 28.0],
             egui::Button::new(RichText::new(format!("▣ {}", def.name)).strong()),
@@ -705,7 +733,7 @@ fn render_user_controls(
 
 // ── Grid renderer ──────────────────────────────────────────────────────────────
 
-fn render_icon_grid(ui: &mut Ui, entries: &[&ToolEntry], action: &mut ToolboxAction) {
+fn render_icon_grid(ui: &mut Ui, entries: &[&ToolEntry], action: &mut ToolboxAction, locked: Option<&str>) {
     // Dynamic columns: compute how many BTN-sized icons (each allocated BTN+BTN_PAD_RIGHT wide)
     // fit in the available pane width, using fixed GAP between them.
     // The group of N icons is centered (same as the previous 2-col behavior).
@@ -741,7 +769,10 @@ fn render_icon_grid(ui: &mut Ui, entries: &[&ToolEntry], action: &mut ToolboxAct
             ui.add_space(padding);
 
             for e in row_entries {
-                if let Some(ct) = icon_btn(ui, e) {
+                // Only the visual entries are disabled (R58, R59); the
+                // non-visual ones stay as they were.
+                let entry_lock = if e.ct.is_non_visual() { None } else { locked };
+                if let Some(ct) = icon_btn(ui, e, entry_lock, &mut action.pressed) {
                     action.dragged_type = Some(ct);
                 }
             }
@@ -753,13 +784,24 @@ fn render_icon_grid(ui: &mut Ui, entries: &[&ToolEntry], action: &mut ToolboxAct
 
 // ── Single icon button ─────────────────────────────────────────────────────────
 
-fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
+/// `locked` is `Some(hint)` when this entry is disabled (spec 091 R58): it is
+/// drawn greyed, takes no press, click or drag, and says `hint` when hovered.
+/// `pressed` receives the entry's type at the moment the pointer goes down on an
+/// enabled one (R59).
+fn icon_btn(
+    ui: &mut Ui,
+    entry: &ToolEntry,
+    locked: Option<&str>,
+    pressed_type: &mut Option<ControlType>,
+) -> Option<ControlType> {
+    let enabled = locked.is_none();
     // Allocate a cell that is BTN_PAD_RIGHT wider (right padding) and BTN_PAD_TOP
     // taller (top padding).  The visible button lives in the bottom-left BTN×BTN
     // portion of the cell, leaving the padding areas empty.
     let cell_size = Vec2::new(BTN + BTN_PAD_RIGHT, BTN + BTN_PAD_TOP);
-    let (cell, resp) = ui.allocate_exact_size(cell_size, Sense::click_and_drag());
-    if resp.hovered() {
+    let sense = if enabled { Sense::click_and_drag() } else { Sense::hover() };
+    let (cell, resp) = ui.allocate_exact_size(cell_size, sense);
+    if enabled && resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     // Inner button rect: offset down by top-pad, keep left edge, width/height = BTN.
@@ -777,9 +819,9 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
     // it, so the selection drag in the editor carried a "TabControl" ghost over
     // the designer and dropped one there (operator, 2026-10-08).
     let pointer_in_btn = ui.rect_contains_pointer(rect);
-    let hovered = resp.hovered() && pointer_in_btn;
-    let pressed = resp.is_pointer_button_down_on() && pointer_in_btn;
-    let dragging = resp.dragged();
+    let hovered = enabled && resp.hovered() && pointer_in_btn;
+    let pressed = enabled && resp.is_pointer_button_down_on() && pointer_in_btn;
+    let dragging = enabled && resp.dragged();
 
     if ui.is_rect_visible(rect) {
         let visuals = ui.style().interact(&resp);
@@ -838,7 +880,10 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
         // Theme-aware icon strokes: dark on light themes, light on dark ones.
         // Pressed/dragging under Neumorphic Light sits on the graphite badge
         // above, so the icon is white there instead of the theme's dark text.
-        let icon_color = if is_neumorphic && (pressed || dragging) {
+        let icon_color = if !enabled {
+            // A disabled entry is greyed: the resting colour, faded.
+            theme.text_dim.gamma_multiply(0.35)
+        } else if is_neumorphic && (pressed || dragging) {
             Color32::WHITE
         } else if pressed || dragging || hovered {
             theme.text_bright
@@ -853,11 +898,16 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
 
-    let clicked = resp.clicked() && pointer_in_btn;
-    let pressed_to_drag = pointer_in_btn && ui.input(|i| i.pointer.primary_pressed());
-    let drag_started = (resp.drag_started() && pointer_in_btn) || pressed_to_drag;
+    // A disabled entry takes nothing: `pressed_to_drag` reads the raw pointer, not
+    // the response, so it has to be refused here (spec 091 R59).
+    let clicked = enabled && resp.clicked() && pointer_in_btn;
+    let pressed_to_drag = enabled && pointer_in_btn && ui.input(|i| i.pointer.primary_pressed());
+    let drag_started = enabled && ((resp.drag_started() && pointer_in_btn) || pressed_to_drag);
 
     if drag_started {
+        // The press is where the designer chooses the tab this control is created
+        // in (R59): a non-visual one selects `Non-Visuals` before it is placed.
+        *pressed_type = Some(entry.ct.clone());
         // Begin a cross-panel drag: stash the control type as an egui drag-and-drop
         // payload. The designer canvas (a different panel, so a normal per-widget
         // drag can't reach it) reads this payload to show a live ghost preview and
@@ -867,11 +917,19 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
     }
 
     if pointer_in_btn {
-        let tooltip = match entry.ct {
-            ControlType::Animator => "PlayGIF/WebP/APNG files",
-            _ => entry.label,
-        };
-        resp.on_hover_text(tooltip);
+        match locked {
+            // Greyed: it says why, instead of its own name.
+            Some(hint) => {
+                resp.on_hover_text(hint);
+            }
+            None => {
+                let tooltip = match entry.ct {
+                    ControlType::Animator => "PlayGIF/WebP/APNG files",
+                    _ => entry.label,
+                };
+                resp.on_hover_text(tooltip);
+            }
+        }
     }
 
     // Click still places at center (legacy). Drag uses the memory path above for direct drop.
@@ -2236,7 +2294,7 @@ mod covered_button_tests {
         let mut out = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().show_inside(root, |ui| {
                 let top_left = ui.cursor().min;
-                let _ = icon_btn(ui, entry);
+                let _ = icon_btn(ui, entry, None, &mut None);
                 centre = Pos2::new(top_left.x + BTN * 0.5, top_left.y + BTN_PAD_TOP + BTN * 0.5);
             });
             if covered {
@@ -2291,7 +2349,7 @@ mod covered_button_tests {
                         let body = egui::Rect::from_min_size(ui.cursor().min, Vec2::new(200.0, 12.0));
                         ui.set_clip_rect(body.intersect(ui.clip_rect()));
                         let top = ui.cursor().min;
-                        if let Some(ct) = icon_btn(ui, entry) {
+                        if let Some(ct) = icon_btn(ui, entry, None, &mut None) {
                             *placed = Some(ct);
                         }
                         // Well below the clip, inside the button's own rect.
@@ -2331,5 +2389,96 @@ mod covered_button_tests {
             !payload_after_press(true),
             "a window lies over the button: the press is the window's, no drag may start"
         );
+    }
+}
+
+/// Spec 091 R58, R59 — a press on a toolbox control reports itself, and while
+/// `Non-Visuals` is the active tab the visual entries are greyed and take nothing.
+#[cfg(test)]
+mod non_visuals_tab_091 {
+    use super::*;
+    use egui::{Event, PointerButton};
+
+    const HINT: &str = "Select Form or a layer to add visual controls";
+
+    /// What a press and a release on one entry of a two-entry row (`Button`, then
+    /// `Timer`) did.
+    struct Outcome {
+        pressed: Option<ControlType>,
+        payload: bool,
+        placed: Option<ControlType>,
+    }
+
+    /// One frame of a row of two icon buttons exactly as wide as the two of them,
+    /// so the cell centres are known. Returns the two centres.
+    fn frame(
+        ctx: &egui::Context,
+        locked: Option<&str>,
+        events: Vec<Event>,
+        out: &mut ToolboxAction,
+    ) -> [Pos2; 2] {
+        let entries: Vec<&ToolEntry> = [ControlType::Button, ControlType::Timer]
+            .iter()
+            .map(|ct| TOOLS.iter().find(|e| e.ct == *ct).expect("a tool for it"))
+            .collect();
+        let mut centres = [Pos2::ZERO; 2];
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+        input.events = events;
+        let mut result = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().show_inside(root, |ui| {
+                let cell = BTN + BTN_PAD_RIGHT;
+                let width = 2.0 * cell + GAP;
+                let top_left = ui.cursor().min;
+                ui.allocate_ui(Vec2::new(width, BTN + BTN_PAD_TOP), |ui| {
+                    render_icon_grid(ui, &entries, out, locked);
+                });
+                for (i, c) in centres.iter_mut().enumerate() {
+                    *c = Pos2::new(top_left.x + i as f32 * (cell + GAP) + BTN * 0.5, top_left.y + BTN_PAD_TOP + BTN * 0.5);
+                }
+            });
+        });
+        result.textures_delta.clear();
+        centres
+    }
+
+    fn press_and_release(locked: Option<&str>, entry: usize) -> Outcome {
+        let ctx = egui::Context::default();
+        let mut sink = ToolboxAction { dragged_type: None, dragged_user_control: None, toggle_collapse: false, pressed: None };
+        frame(&ctx, locked, vec![], &mut sink);
+        let at = frame(&ctx, locked, vec![], &mut sink)[entry];
+        let button = |pressed| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        frame(&ctx, locked, vec![Event::PointerMoved(at)], &mut sink);
+        let mut down = ToolboxAction { dragged_type: None, dragged_user_control: None, toggle_collapse: false, pressed: None };
+        frame(&ctx, locked, vec![button(true)], &mut down);
+        let payload = egui::DragAndDrop::has_payload_of_type::<ControlType>(&ctx);
+        let mut up = ToolboxAction { dragged_type: None, dragged_user_control: None, toggle_collapse: false, pressed: None };
+        frame(&ctx, locked, vec![button(false)], &mut up);
+        Outcome { pressed: down.pressed, payload, placed: up.dragged_type }
+    }
+
+    #[test]
+    fn a_press_reports_the_control_it_went_down_on() {
+        let on_button = press_and_release(None, 0);
+        assert_eq!(on_button.pressed, Some(ControlType::Button), "a visual entry reports its press");
+        assert!(on_button.payload && on_button.placed == Some(ControlType::Button), "and still drags and clicks");
+        let on_timer = press_and_release(None, 1);
+        assert_eq!(on_timer.pressed, Some(ControlType::Timer), "a non-visual entry reports its press too");
+    }
+
+    #[test]
+    fn a_disabled_visual_entry_takes_no_press_no_drag_and_no_click() {
+        let on_button = press_and_release(Some(HINT), 0);
+        assert_eq!(on_button.pressed, None, "no press is reported");
+        assert!(!on_button.payload, "no drag starts");
+        assert_eq!(on_button.placed, None, "and no control is placed by a click");
+    }
+
+    #[test]
+    fn the_non_visual_entries_stay_enabled_while_the_visual_ones_are_not() {
+        let on_timer = press_and_release(Some(HINT), 1);
+        assert_eq!(on_timer.pressed, Some(ControlType::Timer));
+        assert!(on_timer.payload, "a Timer still drags");
+        assert_eq!(on_timer.placed, Some(ControlType::Timer), "and still clicks");
     }
 }

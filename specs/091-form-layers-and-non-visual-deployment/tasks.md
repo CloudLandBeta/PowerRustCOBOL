@@ -1,7 +1,7 @@
 # Tasks — Form layers and the Non-Visuals tab (spec 091)
 
 - **Spec:** ./spec.md  **Plan:** ./plan.md  **Date:** 2026-10-09
-- **Status:** in progress — T1–T10 done (T9–T10 uncommitted in the worktree); T11 onward to do
+- **Status:** in progress — T1–T16 done (slice 4 committed); T17 onward to do
 - **Branch:** `features-form-layers` (worktree `.claude/worktrees/form-layers`). Feature ⇒ `features` line, one `z` bump and one CHANGELOG entry per commit. Merge to `main` and push only when asked, never 09:00–18:00 São Paulo Mon–Fri.
 - Every verify line assumes `CARGO_TARGET_DIR=/Users/emersonlopes/Documents/PowerRustCOBOL/target CARGO_INCREMENTAL=0`, one crate at a time, test executables in `target/debug/deps` deleted between crates.
 
@@ -52,31 +52,31 @@
   - Files: `cobolt-ide/src/panels/designer.rs`: `tabs`, `DesignerState{anim,tabs}`, `TabView`, `Backdrop.layers`, `non_visuals_view`, `canvas_size`, `active_tab_ids`/`active_tab_rects`, the active-tab filter at `hit_top_id`, hover, Select All, lasso, `splitter_division_at`, `tab_strip_hit`.
   - Verify: `cargo check -p cobolt-ide --bin cobolt-ide --tests` clean; behaviour is proved by T15.
 
-- [ ] **T11 — Register the bar and apply its actions** (R23, R24, R25, R26 select, R43, R44 retention, R60–R62; AC11 bar, AC16, AC19 bar, AC29, AC30)
+- [x] **T11 — Register the bar and apply its actions** (R23, R24, R25, R26 select, R43, R44 retention, R60–R62; AC11 bar, AC16, AC19 bar, AC29, AC30)
   - Files: `designer.rs` (`DesignerPanel::show`).
   - `egui::Panel::bottom(Id::new(("layer-tabs", ai_pane_id()))).exact_size(BAR_H).frame(NONE)` before `canvas_max_h`; `tabs.reconcile(&form)` every frame; `apply_tab_actions` — select (R60/R61, no dirty flag, no undo), toggle shown (R62, active tab unchanged), drop selected controls that leave the active tab (R44).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::bar` — the bar is 32 px on a form with no layers and the window size is unchanged with 64 tabs; AC29/AC30 sequences leave `modified` false and the undo stack empty.
 
-- [ ] **T12 — The form is only resized from `Form`** (R30, R52, R57; AC19 resize, AC24 drag)
+- [x] **T12 — The form is only resized from `Form`** (R30, R52, R57; AC19 resize, AC24 drag)
   - Files: `designer.rs` (`handle_drag`, the form outline, `Width`/`Height` editability).
   - Form-edge grips only on `Form`; on `Non-Visuals` no control handles and no move drag, and the form outline is hidden; cards are selectable only.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::gating` — a drag on a card changes no cell and no `X`/`Y`; grips absent on a layer and on `Non-Visuals`.
 
-- [ ] **T13 — The toolbox chooses the tab, and disables what the tab cannot take** (R28, R48, R58, R59; AC21, AC28)
+- [x] **T13 — The toolbox chooses the tab, and disables what the tab cannot take** (R28, R48, R58, R59; AC21, AC28)
   - Files: `panels/toolbox.rs`, `app.rs`, `designer.rs`; `i18n.rs` already carries `toolbox_visual_disabled_hint` and `layer_paste_refused`.
   - `ToolboxAction.pressed` set where `set_payload` is called; a non-visual press selects `Non-Visuals` without touching any `Visible`; every visual entry (user controls included) is drawn greyed and takes no press, click or drag while `Non-Visuals` is active; paste is disabled when the clipboard holds any visual control (all or nothing, Q29) and refused with a message if one arrives another way.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::toolbox` — the AC28 sequence on `Layer 1`, `Form` and `Non-Visuals`; clipboard of a Button, of a Button + Timer, of a Timer only.
 
-- [ ] **T14 — A new control lands in the active tab; the preview shows the layers** (R28, R47, R54; AC20, AC26)
+- [x] **T14 — A new control lands in the active tab; the preview shows the layers** (R28, R47, R54; AC20, AC26)
   - Files: `designer.rs` (`add_control`), `app.rs` / the preview's `PreviewState` and `Backdrop` (layers all shown, as the snapshot does).
   - `add_control` sets `Control.layer` to the active layer (none on `Form`, none for a non-visual one); non-visual controls already in a form sit in the grid with their `X`/`Y` untouched.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::placement` — a test walks `ControlType::ALL` (non-visual ⇔ `is_non_visual()`); `cargo test -p cobolt-forms --features render --test every_example_form_saves_unchanged_091` — AC26's before/after dump still clean.
 
-- [ ] **T15 — Selection, lasso, Select All and the grid, per tab** (R29, R44, R45, R49–R52; AC17, AC18, AC22, AC23, AC24)
+- [x] **T15 — Selection, lasso, Select All and the grid, per tab** (R29, R44, R45, R49–R52; AC17, AC18, AC22, AC23, AC24)
   - Files: `designer.rs` tests (`event_editor_drag_tests::frame` harness); any existing designer test that clicked a non-visual control on the `Form` tab is updated.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::selection` — click / Ctrl-click / drag / double-click / lasso / Cmd+A on base, `Layer 1`, `Layer 2`; 1, 5, 6, 11 cards give the cells of AC22; deleting the third moves the rest up; scrambled types and names read A–Z (AC23) under all six `Language::ALL`.
 
-- [ ] **T16 — Slice 4 gate and commit** (AC11, AC16, AC19)
+- [x] **T16 — Slice 4 gate and commit** (AC11, AC16, AC19)
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide --tests` (its only red is the pre-existing `docs_embed::every_document_ships_in_every_language`); `cargo test -p cobolt-forms --features render`.
   - Do: bump `z`, CHANGELOG, commit "Spec 091 slice 4: the tab bar and the Non-Visuals tab". Nothing else in the commit.
 
