@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.244] — 2026-10-07
+
+### Fixed
+- **The prebuilt System Knowledge Base is compacted before it ships.** redb
+  grows its file in doubling regions and keeps the slack, and
+  `build_chunked_kb` never gave it back. When spec 078 Delivery C grew the
+  store by 14% (2433 → 2782 records), the file doubled from 8,454,144 to
+  16,846,848 bytes. `assets/knowledge/chunked.data` is committed on every
+  rebuild, so each rebuild added the whole file to `.git`. The build now
+  calls the new `chunked_knowledge::compact` on the scratch store, before it
+  checks freshness and before it copies the file into `assets/`.
+  Compacting the Delivery C store takes it from 16,846,848 to 9,486,336
+  bytes (−44%). The store on `main` goes from 8,425,472 to
+  7,876,608 bytes. The IDE's read-only open reads the compacted file, and
+  `prebuilt_chunked_kb_matches_the_published_documentation` passes. A new
+  test, `a_compacted_store_shrinks_and_still_answers_read_only`, covers
+  this.
+
 ## [PowerRustCOBOL 1.80.243] — 2026-10-07
 
 ### Fixed
