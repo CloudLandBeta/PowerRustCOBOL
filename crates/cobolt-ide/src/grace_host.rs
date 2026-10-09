@@ -1198,7 +1198,7 @@ const PLAN_EXTRACT_PREAMBLE: &str = "The provided text is an agent's workflow-pl
 
 const VERDICT_EXTRACT_PREAMBLE: &str = "The provided text is a Pedantic reviewer's round verdict whose verdict JSON could not be parsed. Extract the verdict EXACTLY as the review states it: pedantic_verdict is \"acceptable\" only when the review approves the submission without requiring corrections, otherwise \"defects\"; correction_request carries the requested corrections verbatim (empty when acceptable); defective_ops lists the operations the review attributed its findings to, exactly as the review names them (an empty array when it named none). Never soften, add, or drop defects.";
 
-const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a form specialist's submission (Form Designer or COBOL Event Handler Script Agent) whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure — with identifiers, property names, values, and code copied verbatim. A submission that presents an operation as prose or a bullet list (for example \"Operation: generate_event_handler, control_id: X, event: onClick\" followed by a fenced code block) still specifies that operation: extract it, taking the handler body verbatim from the code block. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
+const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a form specialist's submission (Form Designer or COBOL Event Handler Script Agent) whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure, add_layer, rename_layer, delete_layer, move_layer, set_layer_property, move_to_layer — with identifiers, property names, values, and code copied verbatim. A submission that presents an operation as prose or a bullet list (for example \"Operation: generate_event_handler, control_id: X, event: onClick\" followed by a fenced code block) still specifies that operation: extract it, taking the handler body verbatim from the code block. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
 
 impl DbAgentInvoker {
     /// Provider-native typed extraction over `source` using `agent`'s resolved
@@ -3897,8 +3897,13 @@ fn summarize_operations(ops: &[serde_json::Value]) -> Vec<String> {
                     .push(str_of(op, "control_id"));
             }
             "deploy_control" => {
+                let on_layer = op
+                    .get("layer")
+                    .and_then(|v| v.as_str())
+                    .map(|l| format!(" on layer '{l}'"))
+                    .unwrap_or_default();
                 lines.push(format!(
-                    "Added {} '{}'.",
+                    "Added {} '{}'{on_layer}.",
                     str_of(op, "control_type"),
                     str_of(op, "id")
                 ));
@@ -3912,6 +3917,41 @@ fn summarize_operations(ops: &[serde_json::Value]) -> Vec<String> {
             }
             "create_procedure" => {
                 lines.push(format!("Added procedure {}.", str_of(op, "name")));
+            }
+            "add_layer" => match op.get("name").and_then(|v| v.as_str()) {
+                Some(name) => lines.push(format!("Added layer '{name}'.")),
+                None => lines.push("Added a layer.".to_string()),
+            },
+            "rename_layer" => lines.push(format!(
+                "Renamed layer '{}' to '{}'.",
+                str_of(op, "name"),
+                str_of(op, "new_name")
+            )),
+            "delete_layer" => {
+                lines.push(format!("Deleted layer '{}'.", str_of(op, "name")));
+            }
+            "move_layer" => lines.push(format!(
+                "Moved layer '{}' to position {}.",
+                str_of(op, "name"),
+                op.get("position").map(|p| p.to_string()).unwrap_or_else(|| "?".into())
+            )),
+            "set_layer_property" => lines.push(format!(
+                "Set {} to {} on layer '{}'.",
+                str_of(op, "key"),
+                val_of(op),
+                str_of(op, "layer")
+            )),
+            "move_to_layer" => {
+                let ids: Vec<String> = op
+                    .get("control_ids")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                    .unwrap_or_default();
+                lines.push(format!(
+                    "Moved {} to layer '{}'.",
+                    ids.join(", "),
+                    str_of(op, "layer")
+                ));
             }
             _ => {}
         }
@@ -6331,6 +6371,81 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(project);
+    }
+}
+
+#[cfg(test)]
+mod layer_summary_tests {
+    use super::*;
+
+    /// Spec 091 R71 — Grace's one-liner reports layer work; before this an unknown
+    /// operation fell through `_ => {}` and a change-set that only built a layer was
+    /// summarised as nothing at all.
+    #[test]
+    fn grace_summarises_the_layer_operations() {
+        let ops: Vec<serde_json::Value> = serde_json::from_str(
+            r##"[
+                {"op":"add_layer","name":"Help"},
+                {"op":"add_layer"},
+                {"op":"rename_layer","name":"Help","new_name":"Tips"},
+                {"op":"move_layer","name":"Tips","position":1},
+                {"op":"set_layer_property","layer":"Tips","key":"Transparency","value":40},
+                {"op":"move_to_layer","control_ids":["SAVE","BOX"],"layer":"Tips"},
+                {"op":"delete_layer","name":"Tips"},
+                {"op":"deploy_control","control_type":"Label","id":"L1","layer":"Tips"},
+                {"op":"deploy_control","control_type":"Label","id":"L2"}
+            ]"##,
+        )
+        .unwrap();
+        let lines = summarize_operations(&ops);
+        assert_eq!(
+            lines,
+            [
+                "Added layer 'Help'.",
+                "Added a layer.",
+                "Renamed layer 'Help' to 'Tips'.",
+                "Moved layer 'Tips' to position 1.",
+                "Set Transparency to 40 on layer 'Tips'.",
+                "Moved SAVE, BOX to layer 'Tips'.",
+                "Deleted layer 'Tips'.",
+                "Added Label 'L1' on layer 'Tips'.",
+                "Added Label 'L2'.",
+            ]
+        );
+    }
+
+    /// Spec 091 R71 — what Grace hands a delegated Form Designer task is the form
+    /// context from `FORM:` to `PROPERTY KEYS BY TYPE`, found by the exact line
+    /// `CONTROLS:`. It must carry the layers and each control's layer, and the
+    /// `CONTROLS:` header must stay exactly that, or every task loses its controls.
+    #[test]
+    fn a_delegated_task_receives_the_layers_with_the_control_inventory() {
+        let mut form = cobolt_forms::Form::new("F", "F", 800, 600);
+        form.add_layer().expect("a layer");
+        let mut note = cobolt_forms::Control::new("NOTE", cobolt_forms::ControlType::Label, 10, 10);
+        note.layer = Some("Layer-1".into());
+        form.controls.push(note);
+        form.controls.push(cobolt_forms::Control::new("SAVE", cobolt_forms::ControlType::Button, 10, 50));
+
+        let context = crate::agent::build_context(&form);
+        assert!(
+            context.lines().any(|l| l == "CONTROLS:"),
+            "the header Grace's slicing looks for must be exactly `CONTROLS:`"
+        );
+        let excerpt = control_inventory_excerpt(&context);
+        assert!(excerpt.contains("LAYERS"), "the layers travel with the inventory:\n{excerpt}");
+        assert!(excerpt.contains("1. Layer-1  controls=1"), "{excerpt}");
+        assert!(excerpt.contains("NOTE (Label)") && excerpt.contains("layer=Layer-1"), "{excerpt}");
+        assert!(excerpt.contains("SAVE (Button)"), "the base control is listed too");
+    }
+
+    /// The extractor that recovers an unparseable change-set must know the new names,
+    /// or it would drop them as "operations the text does not state".
+    #[test]
+    fn the_change_set_extractor_names_the_layer_operations() {
+        for op in ["add_layer", "rename_layer", "delete_layer", "move_layer", "set_layer_property", "move_to_layer"] {
+            assert!(CHANGE_SET_EXTRACT_PREAMBLE.contains(op), "{op} missing from the extraction preamble");
+        }
     }
 }
 

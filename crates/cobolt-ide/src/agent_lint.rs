@@ -66,6 +66,7 @@ pub fn apply_for_probe(form: &mut Form, cs: &AgentChangeSet) {
                 parent_id,
                 parent,
                 properties,
+                layer,
             } => {
                 let ct = ControlType::from_str(control_type);
                 let cid = id
@@ -91,10 +92,53 @@ pub fn apply_for_probe(form: &mut Form, cs: &AgentChangeSet) {
                 if let Some(p) = parent.as_ref().or(parent_id.as_ref()) {
                     form.controls[idx].parent = Some(p.clone());
                 }
+                if let Some(l) = layer.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+                    // A name the form does not define stays unset, as the applier leaves it.
+                    let _ = form.set_control_layer(&cid, Some(l));
+                }
                 for (k, v) in properties {
                     if let Some(pv) = json_value_to_prop(v) {
                         form.controls[idx].set_prop(k, pv);
                     }
+                }
+            }
+            // Spec 091 — what a layer operation does to what the compiler reads: the
+            // layers a handler may name, and which controls exist.
+            AgentOp::AddLayer { name } => {
+                let name = name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| form.next_layer_name());
+                if form.layer_index(&name).is_none() && form.layers.len() < cobolt_forms::model::MAX_LAYERS {
+                    form.layers.push(cobolt_forms::Layer::new(name));
+                }
+            }
+            AgentOp::RenameLayer { name, new_name } => {
+                let _ = form.rename_layer(name, new_name);
+            }
+            AgentOp::DeleteLayer { name } => {
+                let doomed: Vec<String> = form
+                    .controls
+                    .iter()
+                    .filter(|c| form.layer_of(&c.id).is_some_and(|l| l.eq_ignore_ascii_case(name)))
+                    .map(|c| c.id.clone())
+                    .collect();
+                form.controls.retain(|c| !doomed.contains(&c.id));
+                if let Some(i) = form.layer_index(name) {
+                    form.layers.remove(i);
+                }
+            }
+            AgentOp::MoveLayer { name, position } => {
+                if let Some(i) = form.layer_index(name) {
+                    let _ = form.move_layer(i, position.saturating_sub(1).min(form.layers.len() - 1));
+                }
+            }
+            AgentOp::SetLayerProperty { .. } => {} // a background changes no generated COBOL
+            AgentOp::MoveToLayer { control_ids, layer } => {
+                for id in control_ids {
+                    let _ = form.set_control_layer(id.trim(), Some(layer.trim()));
                 }
             }
             AgentOp::SetProperty {

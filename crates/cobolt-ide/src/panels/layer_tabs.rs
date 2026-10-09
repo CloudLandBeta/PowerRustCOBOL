@@ -220,15 +220,23 @@ impl LayerTabs {
 pub const BAR_H: f32 = 32.0;
 /// A tab's height, and how far its edges lean.
 pub const TAB_H: f32 = 26.0;
+/// The rules along the top of the strip (black, white, black), which the tabs hang from.
+pub const RULES_H: f32 = 4.0;
 pub const SLANT: f32 = 9.0;
 /// The scroll arrows' width.
 pub const ARROW_W: f32 = 22.0;
-const GAP: f32 = 2.0;
+/// The room between the last tab and the `+`.
+const PLUS_GAP: f32 = 4.0;
 const LEFT_PAD: f32 = 6.0;
-/// A layer tab's two controls: the visibility box and the red ✕.
-pub const BOX: f32 = 13.0;
+/// A layer tab's two controls: the eye and the red ✕. The eye is a little wider
+/// than the old box, which an almond needs.
+pub const BOX: f32 = 16.0;
 pub const CROSS: f32 = 11.0;
 const INNER_PAD: f32 = 6.0;
+/// The air either side of a fixed tab's name (`Non-Visuals`, `Form`).
+const FIXED_PAD: f32 = 28.0;
+/// The air between a layer's name and its eye.
+const LABEL_GAP: f32 = 8.0;
 
 /// What sits at a place in the bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -264,8 +272,11 @@ pub struct BarLayout {
 
 /// A tab's width: its text and what it carries, plus the lean of both edges.
 pub fn tab_width(text_w: f32, layer: bool) -> f32 {
-    let carried = if layer { BOX + CROSS + 2.0 * INNER_PAD } else { 0.0 };
-    text_w + carried + 2.0 * INNER_PAD + SLANT
+    let carried = if layer { BOX + CROSS + 2.0 * INNER_PAD + LABEL_GAP } else { 0.0 };
+    // The two fixed tabs are roomy in the mock-up (a layer's is compact, with its
+    // eye and ✕ to fill it).
+    let pad = if layer { INNER_PAD } else { FIXED_PAD };
+    text_w + carried + 2.0 * pad + SLANT
 }
 
 /// Lay the bar out for `avail` pixels of width (R23, R26).
@@ -275,6 +286,10 @@ pub fn tab_width(text_w: f32, layer: bool) -> f32 {
 /// left by `scroll` when they do not all fit; the arrows then appear at the right
 /// edge and the tabs are cut to the room between. Pure: no fonts, no window.
 ///
+/// The tabs touch, as in the operator's mock-up (R66): each leans `/`, so a tab's
+/// top edge starts where the last one's ends and its foot starts where the last
+/// one's ends — they overlap by the lean, [`SLANT`], and share one line.
+///
 /// `layer_text_w` are the layers' label widths in stack order; `nv_w` and
 /// `form_w` the two fixed tabs'.
 pub fn bar_layout(nv_text_w: f32, form_text_w: f32, layer_text_w: &[f32], avail: f32, scroll: f32) -> BarLayout {
@@ -282,10 +297,10 @@ pub fn bar_layout(nv_text_w: f32, form_text_w: f32, layer_text_w: &[f32], avail:
     let form_w = tab_width(form_text_w, false);
     let add_w = TAB_H;
     let tabs_w: f32 = form_w
-        + layer_text_w.iter().map(|w| GAP + tab_width(*w, true)).sum::<f32>()
-        + GAP
+        + layer_text_w.iter().map(|w| tab_width(*w, true) - SLANT).sum::<f32>()
+        + PLUS_GAP
         + add_w;
-    let pinned_end = LEFT_PAD + nv_w + GAP;
+    let pinned_end = LEFT_PAD + nv_w - SLANT;
     let room_without_arrows = (avail - pinned_end).max(0.0);
     let overflow = tabs_w > room_without_arrows;
     let room = if overflow { (room_without_arrows - 2.0 * ARROW_W).max(0.0) } else { room_without_arrows };
@@ -295,15 +310,14 @@ pub fn bar_layout(nv_text_w: f32, form_text_w: f32, layer_text_w: &[f32], avail:
     let mut placed = vec![Placed { slot: Slot::NonVisuals, x: LEFT_PAD, w: nv_w }];
     let mut x = pinned_end - scroll;
     placed.push(Placed { slot: Slot::Form, x, w: form_w });
-    x += form_w;
+    let mut right = x + form_w;
     for (i, tw) in layer_text_w.iter().enumerate() {
-        x += GAP;
+        x = right - SLANT;
         let w = tab_width(*tw, true);
         placed.push(Placed { slot: Slot::Layer(i), x, w });
-        x += w;
+        right = x + w;
     }
-    x += GAP;
-    placed.push(Placed { slot: Slot::Add, x, w: add_w });
+    placed.push(Placed { slot: Slot::Add, x: right + PLUS_GAP, w: add_w });
     BarLayout { placed, overflow, max_scroll, clip: (pinned_end, pinned_end + room) }
 }
 
@@ -347,15 +361,37 @@ pub fn drop_position(layout: &BarLayout, dragged_centre: f32, from: usize) -> us
 /// The active tab's face and its text; the inactive's are the reverse. The IDE
 /// ships 33 themes, glass ones among them, and a tab read from the theme would
 /// be dark on dark on some — the colours are the same on every one.
-pub const ACTIVE_FACE: Color32 = Color32::from_rgb(0x2F, 0x63, 0xB3);
+///
+/// The values are the operator's mock-up's, measured from its pixels (R66): the
+/// blue `#40649F`, the dark strip `#50504E`, black outlines and a white rule.
+pub const ACTIVE_FACE: Color32 = Color32::from_rgb(0x40, 0x64, 0x9F);
 pub const ACTIVE_TEXT: Color32 = Color32::WHITE;
 pub const INACTIVE_FACE: Color32 = Color32::WHITE;
 pub const INACTIVE_TEXT: Color32 = ACTIVE_FACE;
-const EDGE: Color32 = Color32::from_rgb(0x1B, 0x1B, 0x1B);
+const EDGE: Color32 = Color32::BLACK;
+/// The strip the tabs hang from, and the white rule along its top.
+pub const STRIP: Color32 = Color32::from_rgb(0x50, 0x50, 0x4E);
+const RULE: Color32 = Color32::WHITE;
+/// The eye's ink on a white tab; on the active tab it is white.
+const EYE_INK: Color32 = Color32::BLACK;
 /// The red of the ✕ — it reads on both faces.
 pub const CROSS_RED: Color32 = Color32::from_rgb(0xD8, 0x22, 0x22);
 
 // ── The bar itself ───────────────────────────────────────────────────────────
+
+/// The strip the tabs hang from (R66): dark, with a white rule along its top
+/// edged in black above and below it — the same on every IDE theme, so the white
+/// `+` and the black outlines read on all of them.
+fn paint_strip(painter: &egui::Painter, bar: Rect) {
+    painter.rect_filled(bar, 0.0, STRIP);
+    let band = |y0: f32, y1: f32, col: Color32| {
+        painter.rect_filled(Rect::from_min_max(pos2(bar.min.x, bar.min.y + y0), pos2(bar.max.x, bar.min.y + y1)), 0.0, col);
+    };
+    // Whole points, so the rule is crisp at one pixel to the point as well as at two.
+    band(0.0, 1.0, EDGE);
+    band(1.0, 3.0, RULE);
+    band(3.0, RULES_H, EDGE);
+}
 
 fn tab_font() -> FontId {
     FontId::proportional(13.0)
@@ -373,7 +409,61 @@ pub fn layout_for(ctx: &egui::Context, form: &Form, tr: &crate::i18n::Tr, width:
 
 /// The rectangle of a placed tab inside the bar `bar`.
 pub fn placed_rect(bar: Rect, p: &Placed) -> Rect {
-    Rect::from_min_size(pos2(bar.min.x + p.x, bar.min.y + (BAR_H - TAB_H) * 0.5), vec2(p.w, TAB_H))
+    Rect::from_min_size(pos2(bar.min.x + p.x, bar.min.y + RULES_H), vec2(p.w, TAB_H))
+}
+
+/// The first tab's shape in the mock-up: a trapezoid, its left edge leaning `\`
+/// and its right edge `/`, so it is wider at the top than at its foot.
+fn trapezoid(rect: Rect) -> Vec<egui::Pos2> {
+    vec![
+        pos2(rect.min.x, rect.min.y),
+        pos2(rect.max.x, rect.min.y),
+        pos2(rect.max.x - SLANT, rect.max.y),
+        pos2(rect.min.x + SLANT, rect.max.y),
+    ]
+}
+
+/// The eye of a layer's tab (R67): open — an almond with its iris — while the
+/// layer is shown, closed — a lid with lashes — while it is hidden. Painted from
+/// lines, so no font has to carry it.
+pub fn paint_eye(painter: &egui::Painter, rect: Rect, shown: bool, ink: Color32, hovered: bool) {
+    let c = rect.center();
+    let hw = rect.width() * 0.5 - 0.5;
+    let hh = rect.height() * 0.30;
+    let stroke = Stroke::new(if hovered { 1.9 } else { 1.4 }, ink);
+    let steps = 14;
+    let at = |k: usize| -1.0 + 2.0 * k as f32 / steps as f32;
+    if shown {
+        let upper: Vec<egui::Pos2> = (0..=steps)
+            .map(|k| {
+                let t = at(k);
+                pos2(c.x + t * hw, c.y - hh * (1.0 - t * t))
+            })
+            .collect();
+        let lower: Vec<egui::Pos2> = (0..=steps)
+            .rev()
+            .map(|k| {
+                let t = at(k);
+                pos2(c.x + t * hw, c.y + hh * (1.0 - t * t))
+            })
+            .collect();
+        painter.add(Shape::line(upper, stroke));
+        painter.add(Shape::line(lower, stroke));
+        painter.circle_filled(c, rect.height() * 0.17, ink);
+    } else {
+        // The lid: from corner to corner, sagging.
+        let lid: Vec<egui::Pos2> = (0..=steps)
+            .map(|k| {
+                let t = at(k);
+                pos2(c.x + t * hw, c.y - hh * 0.5 + hh * 1.3 * (1.0 - t * t))
+            })
+            .collect();
+        for t in [-0.6_f32, 0.0, 0.6] {
+            let base = pos2(c.x + t * hw, c.y - hh * 0.5 + hh * 1.3 * (1.0 - t * t));
+            painter.line_segment([base, pos2(base.x + t * 2.2, base.y + rect.height() * 0.22)], stroke);
+        }
+        painter.add(Shape::line(lid, stroke));
+    }
 }
 
 fn slanted(rect: Rect) -> Vec<egui::Pos2> {
@@ -392,6 +482,7 @@ impl LayerTabs {
         let mut actions = Vec::new();
         let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_H), Sense::hover());
         let painter = ui.painter_at(bar);
+        paint_strip(&painter, bar);
         let font = tab_font();
         let layers: Vec<&str> = form.layers.iter().map(|l| l.name.as_str()).collect();
         let layout = layout_for(ui.ctx(), form, tr, bar.width(), self.scroll);
@@ -438,7 +529,7 @@ impl LayerTabs {
             match p.slot {
                 Slot::NonVisuals => {
                     let a = self.is_non_visuals();
-                    if tab_face(ui, &tp, rect, tr.layer_tab_non_visuals, a, ui.id().with("nv"), &font, tr.layer_tab_non_visuals_hint)
+                    if tab_face(ui, &tp, rect, tr.layer_tab_non_visuals, a, true, ui.id().with("nv"), &font, tr.layer_tab_non_visuals_hint)
                         .clicked()
                     {
                         actions.push(TabAction::SelectNonVisuals);
@@ -446,7 +537,7 @@ impl LayerTabs {
                 }
                 Slot::Form => {
                     let a = self.is_form();
-                    if tab_face(ui, &tp, rect, cobolt_forms::model::BASE_LAYER_NAME, a, ui.id().with("form"), &font, tr.layer_tab_form_hint)
+                    if tab_face(ui, &tp, rect, cobolt_forms::model::BASE_LAYER_NAME, a, false, ui.id().with("form"), &font, tr.layer_tab_form_hint)
                         .clicked()
                     {
                         actions.push(TabAction::SelectForm);
@@ -461,9 +552,10 @@ impl LayerTabs {
                         .interact(rect, ui.id().with("layer-add"), Sense::click())
                         .on_hover_text(tr.layer_tab_add_hint);
                     let c = rect.center();
-                    let col = if resp.hovered() { Color32::WHITE } else { Color32::LIGHT_GRAY };
-                    tp.line_segment([pos2(c.x - 6.0, c.y), pos2(c.x + 6.0, c.y)], Stroke::new(2.0, col));
-                    tp.line_segment([pos2(c.x, c.y - 6.0), pos2(c.x, c.y + 6.0)], Stroke::new(2.0, col));
+                    // Plain white, outside any tab (R66); heavier under the pointer.
+                    let w = if resp.hovered() { 2.6 } else { 1.8 };
+                    tp.line_segment([pos2(c.x - 7.0, c.y), pos2(c.x + 7.0, c.y)], Stroke::new(w, Color32::WHITE));
+                    tp.line_segment([pos2(c.x, c.y - 7.0), pos2(c.x, c.y + 7.0)], Stroke::new(w, Color32::WHITE));
                     if resp.clicked() {
                         actions.push(TabAction::Add);
                     }
@@ -525,7 +617,7 @@ impl LayerTabs {
         // Rename in place (R26): a double-click turns the label into a field.
         let renaming = matches!(&self.rename, Some((n, _)) if n.eq_ignore_ascii_case(name));
         let body = ui.interact(
-            rect,
+            rect.shrink2(vec2(SLANT * 0.5, 0.0)),
             ui.id().with(("layer-tab", index)),
             Sense::click_and_drag(),
         );
@@ -590,18 +682,12 @@ impl LayerTabs {
             }
         }
 
-        // The visibility box: a boxed X when the layer is shown (R25).
+        // The eye (R25, R67): open while the layer is shown, closed while it is hidden.
         let shown = self.is_shown(name);
-        painter.rect_stroke(box_r, 1.0, Stroke::new(1.0, if active { Color32::WHITE } else { Color32::BLACK }), egui::StrokeKind::Inside);
-        if shown {
-            let m = 3.0;
-            let col = if active { Color32::WHITE } else { Color32::BLACK };
-            painter.line_segment([box_r.min + vec2(m, m), box_r.max - vec2(m, m)], Stroke::new(1.6, col));
-            painter.line_segment([pos2(box_r.max.x - m, box_r.min.y + m), pos2(box_r.min.x + m, box_r.max.y - m)], Stroke::new(1.6, col));
-        }
         let box_resp = ui
             .interact(box_r.expand(2.0), ui.id().with(("layer-box", index)), Sense::click())
             .on_hover_text(tr.layer_tab_visible_hint);
+        paint_eye(painter, box_r, shown, if active { Color32::WHITE } else { EYE_INK }, box_resp.hovered());
         if box_resp.clicked() {
             actions.push(TabAction::ToggleShown(name.to_owned()));
         }
@@ -624,7 +710,8 @@ impl LayerTabs {
     }
 }
 
-/// A fixed tab (`Non-Visuals`, `Form`): face, label and one click target.
+/// A fixed tab (`Non-Visuals`, `Form`): face, label and one click target. The
+/// first tab is the mock-up's trapezoid; the others lean `/` (R66).
 #[allow(clippy::too_many_arguments)]
 fn tab_face(
     ui: &mut Ui,
@@ -632,14 +719,17 @@ fn tab_face(
     rect: Rect,
     label: &str,
     active: bool,
+    first: bool,
     id: egui::Id,
     font: &FontId,
     hint: &str,
 ) -> egui::Response {
     let (face, ink) = if active { (ACTIVE_FACE, ACTIVE_TEXT) } else { (INACTIVE_FACE, INACTIVE_TEXT) };
-    painter.add(Shape::convex_polygon(slanted(rect), face, Stroke::new(1.0, EDGE)));
+    let shape = if first { trapezoid(rect) } else { slanted(rect) };
+    painter.add(Shape::convex_polygon(shape, face, Stroke::new(1.0, EDGE)));
     painter.text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
-    ui.interact(rect, id, Sense::click()).on_hover_text(hint)
+    // The click target is the tab less the lean its neighbours overlap.
+    ui.interact(rect.shrink2(vec2(SLANT * 0.5, 0.0)), id, Sense::click()).on_hover_text(hint)
 }
 
 #[cfg(test)]

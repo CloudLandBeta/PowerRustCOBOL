@@ -2041,6 +2041,9 @@ Each control's place is its `TabOrder` property. A control you drop on the form
 takes the next number, so until you say otherwise Tab follows the order you
 placed things in — the same default PowerCOBOL and isCOBOL give you.
 
+On a form with layers each tab — `Form` and every layer — has its own order,
+numbered from 1 (§7); the two buttons below act on the active tab.
+
 Two toolbar buttons at the right end of the designer toolbar set it:
 
 - **Visual Tab Order** — toggle it on, then click the controls in the order Tab
@@ -2402,19 +2405,22 @@ written to its file.
 Under the canvas of **every** form runs a **tab bar**:
 
 📷 **Screenshot needed — `layers-tab-bar.png`.** Open a form, click **+** twice,
-select `Layer-1`, put a Button on it, and capture the strip under the canvas
-with the canvas above it: `Non-Visuals`, `Form`, `Layer-1` (blue, selected, with
-its box and red ✕), `Layer-2` and the `+`.
+select `Layer-1`, put a Button on it, close the eye of `Layer-2`, and capture
+the strip under the canvas with the canvas above it: `Non-Visuals`, `Form`,
+`Layer-1` (blue, selected, with its open eye and red ✕), `Layer-2` (white, with
+a closed eye) and the `+`.
 
 | Tab | What it is |
 |-----|------------|
 | **Non-Visuals** | A fixed tab at the far left, always there. Every non-visual control — Timer, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, WebSearch, Snackbar and the AWS controls — lives here and nowhere else. |
-| **Form** | The base. It cannot be moved, renamed or deleted, and it has no visibility box: the base is always shown. |
-| **Layer-1, Layer-2 …** | One tab per layer, left to right from the layer nearest `Form` to the one on top. Each has a **visibility box** and a red **✕**. |
+| **Form** | The base. It cannot be moved, renamed or deleted, and it has no eye: the base is always shown. |
+| **Layer-1, Layer-2 …** | One tab per layer, left to right from the layer nearest `Form` to the one on top. Each has an **eye** — open when the layer is shown, closed when it is hidden — and a red **✕**. |
 | **+** | Adds a layer. |
 
-The **active** tab is drawn blue with white text and all the others white with
-blue text, whatever IDE theme you use. You edit **one tab at a time**:
+The tabs are slanted and touch one another, and they sit on a dark strip with a
+thin white rule above it. The **active** tab is drawn blue with white text and
+all the others white with blue text, whatever IDE theme you use. You edit **one
+tab at a time**:
 
 - **The pointer sees only the active tab.** Click, Ctrl-click, drag, the
   rubber-band lasso, the context menu, and **Select All** (⌘A / Ctrl+A) reach the
@@ -2422,14 +2428,25 @@ blue text, whatever IDE theme you use. You edit **one tab at a time**:
   their layer is shown, but behave as if they were not there — a click on one is
   a click on empty canvas. A control you create, paste or duplicate lands in the
   active tab.
+- **The Objects list follows the tab.** The list in the left sidebar names the
+  controls of the active tab only, so a row you click is always a control you can
+  reach on the canvas; choose another tab and the list changes with it. On
+  `Non-Visuals` it lists the non-visual controls.
+- **Every tab has its own tab order.** The keyboard path (see *Tab order and the
+  Enter key*) is numbered from 1 **inside each tab**, so `Form` and every layer
+  each have a control numbered 1, 2, 3 …. A control you create, paste or move into
+  a tab takes the next number *in that tab*. **Visual Tab Order** and the **Tab
+  Order list** work on the active tab alone. When the program runs, Tab walks
+  `Form` first and then each layer that is shown, from the lowest to the top,
+  each by its own numbers; the controls of a hidden layer are skipped.
 - **Selecting a layer shows it.** The `Form` is always drawn, and the layer you
-  select is drawn above it, turned on if its box was off. Every *other* layer is
-  turned off, because you are editing this one; tick any box afterwards to see
-  more at once, and nothing hides it again until you select another layer.
-- **The visibility box never changes the tab.** Ticking or unticking a box — the
-  active layer's own or another's — only shows or hides that layer. A layer whose
-  box is off is not drawn, and its controls cannot be reached until you tick it.
-- **Choosing a tab and ticking a box are not edits.** The form is not marked
+  select is drawn above it, with its eye opened if it was closed. Every *other*
+  layer is hidden, because you are editing this one; open any eye afterwards to
+  see more at once, and nothing hides it again until you select another layer.
+- **The eye never changes the tab.** Clicking an eye — the active layer's own or
+  another's — only shows or hides that layer. A layer whose eye is closed is not
+  drawn, and its controls cannot be reached until you open it.
+- **Choosing a tab and clicking an eye are not edits.** The form is not marked
   modified, there is no undo step, and the saved file is the same whatever you
   left showing. Layers start **hidden** when the program runs (§11).
 - **The form can be resized only from `Form`.** On a layer or on `Non-Visuals`
@@ -2508,6 +2525,28 @@ and a SqlDatabase, select `Non-Visuals`, and capture the grid of cards.
   confirmation when it carries code and the same single undo step.
 - A form that already has non-visual controls shows them in the grid when it is
   opened. Their `X` and `Y` in the file are untouched.
+
+**Agents and layers.** The IDE's AI agents (§5, *Agents Manager*) work with layers the way you do. With
+every request the **Form Designer Agent** is told which layers the form has, in
+stack order, what each one holds and the layer of every control, so it can
+
+- add, rename, delete and re-stack a layer, and set its background
+  (`Transparency`, `BackgroundColor`, the gradient and the image properties);
+- create a control straight into a layer, or send existing controls to one — or
+  back to `Form`;
+- tell you plainly when it cannot: an agent never fakes a layer with a Panel when
+  you asked for a layer.
+
+A request such as *"Add a layer called HELP with a dark, half-transparent
+background, and put a Label and a Close button on it"* becomes one reviewed
+change. The agent follows your rules: the same names (never `Form` or
+`Non-Visuals`, never a name a control already uses), the 64-layer limit, a
+container carrying its children, and no layer for a non-visual control — those
+land on `Non-Visuals` by themselves. An operation the rules refuse is skipped and
+reported, and the rest of the change still applies. **Deleting a layer deletes the
+controls on it**, so an agent cannot delete a layer in the same change that puts
+controls into it — it is told to leave one of the two out. However many layers and
+controls the agent touched, the whole change is **one undo step**.
 
 > **Notes.**
 > - Layers are for *structure you show and hide*. For one-off emphasis a
@@ -3101,6 +3140,14 @@ The Form Designer has a control clipboard for fast layout work:
 The same actions are also available from the RAD toolbar and from the canvas
 right-click menu, so mouse-driven layout work does not require keyboard
 shortcuts.
+
+On a form with layers, **a paste always lands in the active tab** — whichever tab
+(or form) the controls were copied from. Copy a group of controls on `Layer-1`,
+select `Layer-2` and press `Cmd/Ctrl+V`, and they appear on `Layer-2`; copy them
+on a layer and paste on `Form` to bring them down to the base. A duplicate stays
+in the tab it was made in. A pasted control takes the next tab-order number of the
+tab it lands in, and a pasted Panel brings its children to the same tab. On the
+`Non-Visuals` tab only non-visual controls can be pasted (see §7).
 
 Container membership is preserved inside the copied selection. If you copy a
 GroupBox with child controls, the pasted copy has a new GroupBox ID and the
