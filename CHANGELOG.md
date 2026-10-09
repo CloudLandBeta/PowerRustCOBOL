@@ -17,6 +17,28 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.52] — 2026-10-09
+
+*(This entry was written on branch `fixes-kb-compact` as 1.80.244 and is numbered here where it landed on `main`.)*
+
+*(The store that ships on `main` was **not** recompacted by this merge — its content is current and the freshness test passes — so the 8,425,472 → 7,876,608 bytes quoted below were measured on the branch's older store. The code is in; the next run of `build_chunked_kb` gives the slack back.)*
+
+### Fixed
+- **The prebuilt System Knowledge Base is compacted before it ships.** redb
+  grows its file in doubling regions and keeps the slack, and
+  `build_chunked_kb` never gave it back. When spec 078 Delivery C grew the
+  store by 14% (2433 → 2782 records), the file doubled from 8,454,144 to
+  16,846,848 bytes. `assets/knowledge/chunked.data` is committed on every
+  rebuild, so each rebuild added the whole file to `.git`. The build now
+  calls the new `chunked_knowledge::compact` on the scratch store, before it
+  checks freshness and before it copies the file into `assets/`.
+  Compacting the Delivery C store takes it from 16,846,848 to 9,486,336
+  bytes (−44%). The store on `main` goes from 8,425,472 to
+  7,876,608 bytes. The IDE's read-only open reads the compacted file, and
+  `prebuilt_chunked_kb_matches_the_published_documentation` passes. A new
+  test, `a_compacted_store_shrinks_and_still_answers_read_only`, covers
+  this.
+
 ## [PowerRustCOBOL 1.90.51] — 2026-10-09
 
 *(This entry was written on branch `fixes-example-aurora-module` as 1.90.26 and is numbered here where it landed on `main`.)*

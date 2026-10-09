@@ -358,6 +358,27 @@ fn open_read_only(db_path: &Path) -> Result<redb::ReadOnlyDatabase, String> {
     }
 }
 
+/// Compact the store at `db_path` in place, returning its size in bytes
+/// before and after.
+///
+/// redb grows its file in doubling regions and never gives the slack back on
+/// its own: 2433 → 2782 records took the shipped store from 8.4 MB to 16.8 MB.
+/// The prebuilt store is committed on every rebuild, so that slack lands in
+/// `.git` each time. redb's `Database::compact` returns `false` once nothing
+/// more can move, so it runs until then.
+pub fn compact(db_path: &Path) -> Result<(u64, u64), String> {
+    let size = || {
+        std::fs::metadata(db_path)
+            .map(|m| m.len())
+            .map_err(|e| e.to_string())
+    };
+    let before = size()?;
+    let mut database = open(db_path)?;
+    while database.compact().map_err(|e| e.to_string())? {}
+    drop(database);
+    Ok((before, size()?))
+}
+
 /// Remove every chunk record belonging to `doc_path`.
 fn remove_doc_chunks(
     chunks: &mut redb::Table<&str, &[u8]>,
@@ -782,6 +803,43 @@ mod tests {
         println!(
             "resync: {live1} → {live2} (unchanged) → {live4} records after deletion"
         );
+    }
+
+    /// A compacted store gives its slack back and still answers through the
+    /// read-only open the IDE searches with.
+    #[test]
+    fn a_compacted_store_shrinks_and_still_answers_read_only() {
+        let path = store("compact");
+        let bulk: Vec<(String, String)> = (0..40)
+            .map(|i| {
+                (
+                    format!("Knowledge Base/bulk-{i}.md"),
+                    format!("## Bulk {i}\n\n{}\n", "Filler text for slack. ".repeat(80)),
+                )
+            })
+            .collect();
+        let keep = (
+            "Knowledge Base/keep.md".to_string(),
+            "## Ledger\n\nThe ledger balances at close of day.\n".to_string(),
+        );
+        let mut all = bulk;
+        all.push(keep.clone());
+        sync_documents(&path, &all).unwrap();
+        // Dropping 40 of 41 documents leaves free pages behind.
+        let live = sync_documents(&path, &[keep]).unwrap();
+        let (before, after) = compact(&path).unwrap();
+        assert!(
+            after < before,
+            "compaction must shrink the file ({before} → {after})"
+        );
+        let hits = search(&path, "ledger balances", 3).unwrap();
+        assert!(
+            hits.iter()
+                .any(|h| h.source_path == "Knowledge Base/keep.md"),
+            "the compacted store must still answer through open_read_only"
+        );
+        let _ = std::fs::remove_file(&path);
+        println!("compact: {live} live records, {before} → {after} bytes");
     }
 
     /// Retrieval answers a subject question with THAT subject's records only.

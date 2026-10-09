@@ -85,6 +85,11 @@ fn main() -> Result<(), String> {
         println!("embedding device: {dev}");
     }
 
+    // Give back redb's doubling-region slack before the store is verified and
+    // committed: every rebuild adds the whole file to `.git`.
+    let (before, after) = cobolt_agents::chunked_knowledge::compact(&store)?;
+    println!("compacted: {before} → {after} bytes");
+
     // Verify the store answers for every published document under the
     // semantic stamp before shipping it.
     let documents = cobolt_agents::chunked_knowledge::tree_documents(&scratch)?;
