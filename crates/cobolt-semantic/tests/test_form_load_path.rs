@@ -49,6 +49,7 @@ fn errors_with_map(procedure: &str) -> Vec<String> {
             form_formats: Some(forms_map()),
             tolerate_undeclared: false,
             known_objects: None,
+            known_programs: None,
         },
     )
     .diagnostics

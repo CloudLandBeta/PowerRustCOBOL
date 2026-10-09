@@ -373,11 +373,14 @@ pub fn cmd_run_form(args: &[String]) {
         }
     };
     // The receiver check (2026-10-02): a `X::…` naming no control of this
-    // form is an error, not a call that silently reaches nothing.
+    // form is an error, not a call that silently reaches nothing. So is a
+    // literal `CALL` naming no program, paragraph or Common Code procedure
+    // (2026-10-08) — the Common Code is linked below, after this analysis.
     let sem = cobolt_semantic::analyze_with(
         &program,
         &cobolt_semantic::AnalyzeOptions {
             known_objects: Some(cobolt_forms::toolbar::object_names(&form)),
+            known_programs: cobolt_compiler::common_code_names(&cbl_path),
             ..Default::default()
         },
     );

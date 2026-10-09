@@ -996,7 +996,7 @@ mod tests_056 {
 
 /// The known object whose name is nearest to `name` (edit distance), when it
 /// is close enough to be a likely misspelling.
-fn closest_object<'a>(name: &str, known: impl Iterator<Item = &'a str>) -> Option<String> {
+pub(crate) fn closest_object<'a>(name: &str, known: impl Iterator<Item = &'a str>) -> Option<String> {
     fn distance(a: &str, b: &str) -> usize {
         let b: Vec<char> = b.chars().collect();
         let mut prev: Vec<usize> = (0..=b.len()).collect();

@@ -361,7 +361,17 @@ fn cmd_check(args: &[String]) {
             process::exit(1);
         }
         Some(prog) => {
-            let sem = cobolt_semantic::analyze_with(&prog, &analyze_opts());
+            // `check` reads the project the way a build does: a literal CALL
+            // must name a program, a paragraph or a Common Code procedure of
+            // it (2026-10-08). `run` does not link Common Code, so it does
+            // not get the names.
+            let sem = cobolt_semantic::analyze_with(
+                &prog,
+                &cobolt_semantic::AnalyzeOptions {
+                    known_programs: cobolt_compiler::common_code_names(&path),
+                    ..analyze_opts()
+                },
+            );
             has_errors |= print_diagnostics(&sem.diagnostics, &path.display().to_string());
 
             if has_errors {

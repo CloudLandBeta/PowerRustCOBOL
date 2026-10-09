@@ -1436,6 +1436,31 @@ pub fn link_common_code(path: &Path, program: &mut cobolt_ast::program::Program)
     warnings
 }
 
+/// The program-names of `common`, in UPPERCASE: what a literal `CALL` may
+/// reach in them (`cobolt_semantic::AnalyzeOptions::known_programs`).
+fn program_names(common: &[cobolt_ast::program::Program]) -> std::collections::HashSet<String> {
+    common
+        .iter()
+        .map(|p| p.identification.program_id.trim().to_ascii_uppercase())
+        .collect()
+}
+
+/// The names of the Common Code programs a run or a build links for the
+/// project holding `path` (any file inside it), for the semantic analyser's
+/// CALL-target check. Only the programs [`link_common_code`] would actually
+/// link are named: a source it leaves out (it does not parse, or holds
+/// `EXEC RUST`) cannot be CALLed at run time, so its name must not pass.
+///
+/// `None` outside a project — nothing here can say what a lone file's `CALL`
+/// reaches, and the check is skipped, as it is for External Crates.
+pub fn common_code_names(path: &Path) -> Option<std::collections::HashSet<String>> {
+    let manifest = find_project_manifest(path)?;
+    let text = std::fs::read_to_string(&manifest).ok()?;
+    let proj = toml::from_str::<CoboltProject>(&text).ok()?;
+    let (common, _) = common_code_programs(&proj, manifest.parent()?);
+    Some(program_names(&common))
+}
+
 fn main_form_program(proj: &CoboltProject, dir: &Path) -> Option<String> {
     if proj.files.forms.is_empty() {
         return None;
@@ -2043,6 +2068,22 @@ fn build_core(
             }
         }
     }
+    // Common Code rides inside every program that may CALL it: the main one
+    // here, each form's below — as Run Form links it when it loads them. Read
+    // before the analysis, which needs its names to check a literal CALL.
+    let common = if has_project {
+        let (common, warnings) = common_code_programs(&proj, &project_dir);
+        for w in &warnings {
+            log(&format!("⚠️  {w}"));
+        }
+        if !common.is_empty() {
+            log(&format!("   {} Common Code program(s) linked", common.len()));
+        }
+        common
+    } else {
+        Vec::new()
+    };
+
     // Spec 044 R20 — registered External Crates extend the block allowlist;
     // their `use`-line names come from the project's pins.
     let sem = analyze_with(
@@ -2053,6 +2094,9 @@ fn build_core(
             form_formats: form_formats.as_ref().map(|(_, map)| map.clone()),
             // A build is a product gate: an undeclared item is an error.
             tolerate_undeclared: false,
+            // A literal CALL must name a program, a paragraph or a Common
+            // Code procedure of this project (2026-10-08).
+            known_programs: has_project.then(|| program_names(&common)),
             // When the main program is a form's, its `X::…` receivers must
             // name that form's objects (2026-10-02).
             known_objects: form_formats.as_ref().and_then(|(parsed, _)| {
@@ -2074,20 +2118,6 @@ fn build_core(
         }
     }
 
-    // Common Code rides inside every program that may CALL it: the main one
-    // here, each form's below — as Run Form links it when it loads them.
-    let common = if has_project {
-        let (common, warnings) = common_code_programs(&proj, &project_dir);
-        for w in &warnings {
-            log(&format!("⚠️  {w}"));
-        }
-        if !common.is_empty() {
-            log(&format!("   {} Common Code program(s) linked", common.len()));
-        }
-        common
-    } else {
-        Vec::new()
-    };
     link_into(&mut program, &common);
 
     // ── 4. Serialize + compress the AST ──────────────────────────────────────
@@ -11785,6 +11815,42 @@ generated = ["generated/inner-form1.cbl"]
         assert_eq!(ids, ["ORDER-FORM-OWN", "CALC-TAX"], "only the Common Code it does not already have");
         assert!(warnings.iter().any(|w| w.contains("broken.cbl")), "a source that does not parse is named: {warnings:?}");
         fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The names the CALL-target check passes (2026-10-08) are the programs
+    /// `link_common_code` would link — not the main program, not a form's own
+    /// program, not a source that does not parse — and a path outside any
+    /// project has none, so the check is skipped for it.
+    #[test]
+    fn common_code_names_are_the_programs_that_would_be_linked() {
+        let dir = temp_dir("commonnames");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("generated")).unwrap();
+        fs::write(
+            dir.join("Shop.project.toml"),
+            "[project]\nname = \"Shop\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\n\n[files]\n\
+             sources = [\"src/main.cbl\", \"src/tax.cbl\", \"src/broken.cbl\", \"src/order-form.cbl\"]\n\
+             forms = [\"forms/order-form.cfrm\"]\ngenerated = [\"generated/order-form.cbl\"]\n",
+        )
+        .unwrap();
+        let prog = |id: &str| format!("       IDENTIFICATION DIVISION.\n       PROGRAM-ID. {id}.\n       PROCEDURE DIVISION.\n           GOBACK.\n");
+        fs::write(dir.join("src/main.cbl"), prog("MAIN")).unwrap();
+        fs::write(dir.join("src/tax.cbl"), prog("calc-tax")).unwrap();
+        fs::write(dir.join("src/broken.cbl"), "       IDENTIFICATION DIVISION.\n       PROGRAM-ID BROKEN\n").unwrap();
+        fs::write(dir.join("src/order-form.cbl"), prog("ORDER-FORM")).unwrap();
+
+        // From a path inside the project that does not exist yet, as the form
+        // check passes it.
+        let names = common_code_names(&dir.join("generated/order-form.cbl")).expect("inside a project");
+        let mut names: Vec<String> = names.into_iter().collect();
+        names.sort();
+        assert_eq!(names, ["CALC-TAX"], "linked Common Code only, in UPPERCASE");
+
+        let lone = temp_dir("commonnames-lone");
+        fs::create_dir_all(&lone).unwrap();
+        assert_eq!(common_code_names(&lone.join("solo.cbl")), None, "no project, no names");
+        fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&lone).ok();
     }
 
     /// A form belonging to no project at all still runs: its program is simply
