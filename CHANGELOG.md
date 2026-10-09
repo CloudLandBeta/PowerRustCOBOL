@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.35] — 2026-10-09
+
+### Changed
+- **Spec 091 — the plan and the task list.** `specs/091-form-layers-and-non-visual-deployment/`
+  gains `plan.md` (what slices 0–3 delivered, and what slices 4–7 still hold) and
+  `tasks.md` (30 ordered tasks, each with its files, requirements and verify
+  command; T1–T10 done, and a table that ties every acceptance criterion, AC1 to
+  AC33, to the tasks that prove it). Documents only — no code changed. The
+  designer's tab bar (slice 4) is not in this commit and not yet on screen.
+
 ## [PowerRustCOBOL 1.90.34] — 2026-10-09
 
 ### Fixed
