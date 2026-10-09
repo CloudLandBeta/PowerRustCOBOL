@@ -82,7 +82,8 @@ if the bundle would carry an API key or a personal path. The plugin brings:
 - **Golden rules** every generated application follows: responsive at any resolution,
   the Spatial theme, a side menu with screens embedded in its content pane, a slick and
   lean layout, built-in controls first, every text in six languages switched at run time,
-  GitHub if you want it, and PowerChat only when you ask.
+  GitHub if you want it, PowerChat only when you ask, and idiomatic RustCOBOL — the language's
+  extensions used in place of scratch fields (see *Code style* in the Developer's Guide).
 
 When you ask for something the product cannot do yet, the agent does not invent it: it
 builds the part that works and writes a **gap report** in `docs/compiler-requests/`,

@@ -43,6 +43,8 @@ See the LICENSE file in the project root for full license information.
 11. [Talking to the UI from COBOL](#11-talking-to-the-ui-from-cobol)
 12. [Generated code](#12-generated-code)
 13. [The RustCOBOL language](#13-the-rustcobol-language)
+    - [Code style](#code-style)
+    - [Value methods of a data item](#value-methods-of-a-data-item)
     - [Writing it the way the standard lets you](#writing-it-the-way-the-standard-lets-you)
     - [International text: national (`PIC N`) and UTF-8 (`PIC U`) data](#international-text-national-pic-n-and-utf-8-pic-u-data)
     - [Handing a whole table to a function](#handing-a-whole-table-to-a-function)
@@ -7031,6 +7033,9 @@ A control's properties are read and written with the **`::`** member syntax or
 the **`INVOKE`** verb — the same forms used for methods. The member is just the
 property name; there is **one** consistent way to touch a property.
 
+A property behaves like a working-storage item of its own type, so you do not
+declare scratch fields for it — see *Code style* in §13.
+
 **Read (GET)** — `control::property` is a value usable anywhere (DISPLAY, a MOVE
 source, IF, COMPUTE), or read with `INVOKE … RETURNING`:
 
@@ -8070,6 +8075,191 @@ extensions. Highlights a working COBOL programmer will rely on:
 > `CLASS`/`METHOD` definitions are not implemented. **RELATIVE file
 > organisation is implemented** — see
 > [Addressing records by number](#addressing-records-by-number-organization-is-relative).
+
+### Code style
+
+PowerRustCOBOL AI adds a handful of extensions to COBOL-85, and they all do the
+same job: they take away the **scratch fields** that plain COBOL makes you
+declare to carry a value from one place to the next. Write with them. A
+RustCOBOL program that uses them is a fraction of the length and has fewer names
+to invent and keep apart.
+
+**The one rule: do not declare a working-storage item whose only job is to ferry
+a value.** If the value can be read, tested or moved where it is, do that.
+
+| Plain COBOL-85 makes you … | RustCOBOL lets you write |
+|---|---|
+| declare an item, `MOVE` the property into it, then test the item | `IF NUD-AGE::Value > 17` |
+| `MOVE` a result into a temporary, do the arithmetic on it, `MOVE` it back | `COMPUTE SLD-1::Value = SLD-1::Value * 2` or `ADD 1 TO NUD-AGE::Value` |
+| receive a method's answer in an item before using it | `IF LST-1::GetCount() > 1` |
+| code an `INSPECT … REPLACING` or an `UNSTRING` for a text clean-up | `MOVE WS-NAME::Replace(", MD", ", M.D.") TO WS-NAME` |
+| write `CALL "COBOL-OPEN-DB" USING …` | `COBOL::"OPEN-DB" ( ":memory:" WS-DB WS-ST )` |
+
+Every behaviour described below is exercised by a program that runs under the
+test suite — `tests/cobol/code-style/test-code-style.cbl` (26 cases in 12 forms)
+and `tests/cobol/string-ops/test-data-item-methods.cbl` (32 cases in 16 forms) —
+so the examples show what the compiler and the runtime actually do.
+
+#### A property is a data item
+
+A control's property — `NUD-AGE::Value`, `PERSON::Name`, `LBL-1::Caption`,
+`CHK-1::Checked` — can be used **wherever a working-storage item can**, without
+declaring anything. The compiler knows from the value what it is: a number is a
+number in arithmetic and in a comparison, text is text. That is the *type
+inference* the language is built around, and it is what lets the reading and the
+writing of a control look like COBOL.
+
+```cobol
+      *> read it — IF, EVALUATE, PERFORM UNTIL, STRING, DISPLAY, a MOVE source
+           IF PERSON::Age > 18
+               DISPLAY "Not a minor"
+           END-IF
+           EVALUATE PERSON::Age
+               WHEN 7 DISPLAY "seven"
+           END-EVALUATE
+           PERFORM UNTIL PERSON::Age >= 25
+               ADD 1 TO PERSON::Age                 *> ... and write it back
+           END-PERFORM
+           STRING "Name: " PERSON::Name DELIMITED BY SIZE INTO WS-LINE
+
+      *> write it — MOVE, SET, COMPUTE and ADD all take a property as target
+           MOVE 17 TO PERSON::Age
+           COMPUTE PERSON::Age = PERSON::Age + 2
+
+      *> property to property — no intermediate item
+           MOVE PERSON::Name TO LBL-B::Caption
+
+      *> a Boolean property takes TRUE and FALSE
+           MOVE TRUE TO CHK-1::Checked
+           IF CHK-1::Checked = TRUE
+               DISPLAY "ticked"
+           END-IF
+           SET CHK-1::Checked TO FALSE
+```
+
+Compare the same age test without it: `MOVE NUD-AGE::Value TO WS-AGE`, then
+`IF WS-AGE > 17` — and a `WS-AGE` to name, to declare with the right `PIC`, to
+keep in step with the control, and to leave behind when the screen changes. The
+extension does not make the second form wrong; it makes it unnecessary.
+
+> **Note.** What follows the `::` is the control's own member. Look the names up
+> in the control catalogue (§8) rather than guessing them; a **control** that
+> does not exist is an error at Check and Build (see *Talking to the UI*), and a
+> layer answers only its own few properties.
+
+#### A method that returns a value is an expression
+
+A method that answers with a value is used where the value is wanted — in a
+condition, in arithmetic, as a `MOVE` source — with no receiving item in between:
+
+```cobol
+           IF LST-1::GetCount() > 1
+               DISPLAY "more than one item"
+           END-IF
+           COMPUTE WS-N = LST-1::GetCount() * 10
+           INVOKE NUD-AGE::Increment()               *> nothing to receive: INVOKE
+```
+
+When the method answers with a **record** — the fixed-layout text of a record —
+`MOVE` it straight into the 01-level group that describes it. It lands in the
+group's children by position, exactly as any `MOVE` to a group does, and no
+separate "record buffer" item is needed:
+
+```cobol
+       01 WS-RECORD.
+          05 WS-REC-ID    PIC 9(4).
+          05 WS-REC-NAME  PIC X(20).
+      ...
+           MOVE TXT-REC::GetText() TO WS-RECORD     *> "0042Gregory House"
+           DISPLAY WS-REC-ID " " WS-REC-NAME         *> 0042 Gregory House
+```
+
+Use `INVOKE obj::Method(args) RETURNING item` only when you want the answer to
+stay in an item for later; if you use it once, put the call where it is used.
+
+#### An ordinary data item has methods too
+
+A `PIC X` item (and a group, a table occurrence, a slice) answers a small, fixed
+set of **value methods**: `Trim`, `UpperCase` (`ToUpperCase`, `Upper`),
+`LowerCase` (`ToLowerCase`, `Lower`), `Replace`, `Len` (`Length`) and `Split`.
+They return a value, they **chain**, and they work on a property as well:
+
+```cobol
+       WORKING-STORAGE SECTION.
+       01 person-name    PIC X(40) VALUE "Dr. House, MD".
+      ...
+       PROCEDURE DIVISION.
+           MOVE person-name::Replace(", MD", ", M.D.")  TO person-name
+           MOVE person-name::Trim()::UpperCase()        TO WS-HEADING
+           MOVE PERSON::Name::UpperCase()               TO LBL-B::Caption
+           IF PERSON::Name::Len() > 5
+               DISPLAY "a long name"
+           END-IF
+```
+
+The full table, two worked examples of each method, and the points to watch
+(padding, read-only, the error for any other name) are in the next subsection,
+*Value methods of a data item*. Anything those methods do not cover — finding
+text inside text, reversing, padding — is standard COBOL's job: reference
+modification `WS-A(start:length)`, `INSPECT`, `STRING` / `UNSTRING` and the
+intrinsic functions.
+
+#### An expression where COBOL-85 wants an identifier
+
+The standard allows only an identifier or a literal in most sending positions.
+RustCOBOL evaluates a whole expression there, so a one-line calculation needs no
+scratch item and no `COMPUTE`:
+
+```cobol
+           MOVE WS-N * 2 TO WS-CNT                   *> instead of COMPUTE + MOVE
+           SET WS-CNT TO WS-CNT + 1                  *> SET an item TO an expression
+           SET LBL-A::Caption TO WS-TEXT::Trim()     *> a property, from a method result
+           STRING WS-N * 3 DELIMITED BY SIZE         *> an expression as a STRING source
+                  " items" DELIMITED BY SIZE
+               INTO WS-LINE
+```
+
+#### Built-ins are written inline
+
+The runtime's built-in calls (HTTP, SQL, files, dialogs, keys, models, charts)
+are methods of the `COBOL` object. Write them as such — never as `CALL
+"COBOL-…" USING …`; the two are one call, but the inline form says what it is and
+is completed by the IDE:
+
+```cobol
+           COBOL::"OPEN-DB"  ( ":memory:" WS-DB WS-ST )
+           COBOL::"EXEC-SQL" ( WS-DB "SELECT A FROM T" WS-ROWS WS-ST )
+           COBOL::"FETCH-ROW" ( WS-DB 1 WS-VAL WS-ST )
+           COBOL::"CLOSE-DB" ( WS-DB )
+```
+
+See *The built-ins: the `COBOL` object* in §11 for the list. A common procedure
+of your own is still reached with `CALL "PROCEDURE-NAME"`. Arguments are
+separated by spaces, and a comma between arguments is accepted too — `Replace("," ";")`
+and `Replace(",", ";")` are the same call.
+
+#### The rules, in one list
+
+1. **Do not declare a field only to carry a value.** Read and write the property,
+   or call the method, where the value is used.
+2. **Treat a property as a data item**: `IF`, `EVALUATE`, `PERFORM UNTIL`,
+   `COMPUTE`, `ADD … TO`, `MOVE`, `SET`, `STRING`, `DISPLAY`.
+3. **Put a method call inside the expression that needs it**; use `INVOKE` for
+   a method whose answer you do not need, `RETURNING` only to keep the answer.
+4. **`MOVE` a returned record into its 01 group**; do not unpack it by hand.
+5. **Chain the value methods** (`::Trim()::UpperCase()`) rather than writing an
+   `INSPECT` or a scratch item for a text clean-up.
+6. **Use an expression** in `MOVE`, `SET` and `STRING` where a calculation would
+   otherwise need `COMPUTE` and a temporary.
+7. **Write built-ins inline**: `COBOL::"NAME" ( … )`.
+8. **`TRUE` and `FALSE`** for Boolean properties; `SET LAYER-NAME::Visible TO TRUE`
+   for a layer.
+9. **Keep data-item and paragraph names in English**, whatever the IDE's
+   language, and close every verb with its `END-` scope terminator.
+10. **Reach for standard COBOL when the extension does not cover the job** —
+    `INSPECT`, `UNSTRING`, reference modification, the intrinsic functions —
+    rather than asking a data item for a method it does not have: any other
+    name after a data item is an **error**.
 
 ### Value methods of a data item
 
@@ -12389,6 +12579,10 @@ rules, which the servers give it on connecting and its reviewer checks:
 9. **PowerChat only when asked** — the agent leaves room in the side menu for
    an Assistant entry, and adds PowerChat only when you ask (`add_powerchat`,
    below).
+10. **Idiomatic RustCOBOL** — the agent writes with the language's extensions: a
+    property used like a data item, a method's answer used inside the
+    expression, the value methods of a data item, expressions in `MOVE`, `SET`
+    and `STRING`, and the built-ins written inline — see *Code style* in §13.
 
 They also offer a **patterns pack**: working forms from the PowerDemo3 and
 PowerChat examples, each with a note on what it shows — the application shell

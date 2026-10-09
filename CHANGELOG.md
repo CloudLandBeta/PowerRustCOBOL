@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.48] — 2026-10-09
+
+### Fixed
+- **The Developer's Guide has a "Code style" section, and the plugin tells a coding
+  agent to follow it.** §13 now explains, with examples checked against the
+  compiler, the extensions that take the scratch fields out of COBOL-85: a
+  control's property used like a data item (`IF NUD-AGE::Value > 17`,
+  `ADD 1 TO NUD-AGE::Value`, property to property with no intermediate item), a
+  method's answer used inside the expression that needs it (and a returned record
+  `MOVE`d straight into its 01 group), the value methods of an ordinary data item,
+  an expression where COBOL-85 wants an identifier (`MOVE`, `SET`, `STRING`),
+  built-ins written inline, and a ten-point list of rules. The examples are
+  `tests/cobol/code-style/test-code-style.cbl` (26 cases in 12 forms, run by a
+  Rust test). The agent-facing instructions gain a tenth golden rule,
+  *Idiomatic RustCOBOL*, so a coding agent that builds an application through the
+  plugin writes with the extensions; `README.md` and the guide's list of golden
+  rules say so.
+
 ## [PowerRustCOBOL 1.90.47] — 2026-10-09
 
 ### Fixed

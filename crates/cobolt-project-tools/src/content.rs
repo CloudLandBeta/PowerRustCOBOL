@@ -246,7 +246,7 @@ pub fn server_instructions(version: &str) -> String {
 
 /// The golden rules for every application a coding agent builds (operator,
 /// 2026-10-03): `(id, rule)`, in the order they are told.
-pub const APPLICATION_RULES: [(&str, &str); 9] = [
+pub const APPLICATION_RULES: [(&str, &str); 10] = [
     (
         "responsive",
         "Responsive. Every form is responsive (`responsive=\"true\"`) and holds together at any screen \
@@ -339,6 +339,23 @@ pub const APPLICATION_RULES: [(&str, &str); 9] = [
          whether to keep it on GitHub. If yes, help them set it up — an account, `gh auth login`, a private \
          repository — and commit and push as the work progresses. If not, carry on: the application must \
          work entirely without GitHub. Never commit an API key or a password.",
+    ),
+    (
+        "code-style",
+        "Idiomatic RustCOBOL — use the language's extensions, extensively; they exist to remove scratch \
+         fields. A control's property is a data item: `IF NUD-AGE::Value > 17`, `COMPUTE SLD-1::Value = \
+         SLD-1::Value * 2`, `ADD 1 TO NUD-AGE::Value`, `MOVE TXT-A::Text TO LBL-B::Caption`, `SET \
+         CHK-1::Checked TO TRUE` — so never declare a working-storage item only to carry a value from one \
+         place to another. A method that returns a value goes inside the expression that needs it (`IF \
+         LST-1::GetCount() > 1`; `MOVE TXT-REC::GetText() TO WS-RECORD` puts a returned record straight \
+         into its 01 group). A data item has seven value methods — Trim, UpperCase (ToUpperCase, Upper), \
+         LowerCase (ToLowerCase, Lower), Replace, Len (Length) and Split (`Split(sep)(n)` for the n-th \
+         piece) — and they chain: `MOVE WS-NAME::Replace(\", MD\", \", M.D.\") TO WS-NAME`, \
+         `WS-NAME::Trim()::UpperCase()`. Any other name after a data item is an error, so use INSPECT, \
+         UNSTRING, reference modification or an intrinsic FUNCTION for the rest. MOVE, SET and STRING take \
+         an expression (`MOVE WS-N * 2 TO WS-CNT`, `SET WS-CNT TO WS-CNT + 1`). Write the built-ins \
+         inline, `COBOL::\"OPEN-DB\" ( … )`, never `CALL \"COBOL-OPEN-DB\" USING …`. Read \"Code style\" in \
+         `powerrustcobol://reference/developers-guide.md` before writing COBOL.",
     ),
     (
         "powerchat",
