@@ -17,6 +17,62 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.41] — 2026-10-09
+
+### Added
+- **Spec 091 follow-up — the operator's six requests on layers (R66–R71).**
+  - **The tab bar as the mock-up draws it.** Slanted tabs that touch, hanging from
+    a white rule on a dark strip, the active one blue with white text and the others
+    white with blue text, the same on every IDE theme.
+  - **An eye instead of a box.** The visibility control on a layer tab is an eye,
+    open while the layer is shown and closed while it is hidden; clicking it behaves
+    as the box did and never changes the tab.
+  - **The Objects list follows the tab.** It names the controls of the active tab
+    only (the non-visual ones on `Non-Visuals`), so a row you click is always a
+    control the canvas can reach, and clicking one no longer leaves a selection
+    that is out of sight.
+  - **Every tab has its own tab order**, numbered from 1 inside the tab. A control
+    created, pasted or moved into a tab takes that tab's next number; Visual Tab
+    Order and the Tab Order list work on the active tab; at run time Tab walks
+    `Form`, then each shown layer upward, each by its own numbers (a number repeated
+    across tabs is not a tie).
+  - **Copy here, paste there.** A paste lands in the active tab whichever tab or form
+    the controls came from, with fresh names and the next tab-order number; a Panel
+    brings its children.
+  - **The AI agents work with layers.** Six new change-set operations — `add_layer`,
+    `rename_layer`, `delete_layer`, `move_layer`, `set_layer_property`,
+    `move_to_layer` — and an optional `layer` on `deploy_control`. Each operation is
+    judged against the form the ones before it leave, so one change-set can add a
+    layer, fill it and style it; the whole change-set is one undo step. The agent's
+    context lists the layers and marks every control's layer, the specialist
+    protocol, the change-set contract, the Form Designer prompt and its reviewer's
+    teach the operations, Grace's summary and extraction know them, the preview
+    shows them, and the System KB describes them (`chunked.data` rebuilt, 2,875
+    records). The `LEGACY_*` prompts are untouched, so an unmodified old prompt is
+    still recognised and upgraded.
+- The Developer's Guide (§7) describes the new look, the eye, the Objects list, the
+  per-tab tab order, paste across tabs and the agents; the tab-order section and
+  the clipboard section say so too.
+
+### Fixed
+- **Found while building the agent operations, before any release carried them.**
+  A `move_to_layer` into a layer the same change-set had just added did nothing;
+  two `delete_layer` operations in one change-set planned their deletions against
+  positions the first had already moved, so the second would have taken the wrong
+  controls (deletions are now one combined step at the end of the batch, with a
+  single undo); validation treated a redeploy of an existing control as a move while
+  applying it did not (a redeploy now moves a control only when it names a layer);
+  and a change-set that puts controls into a layer and deletes that same layer is
+  refused with the reason instead of deleting what it has just placed.
+- **Grace lost the controls of every task** when the context's `CONTROLS:` header
+  was reworded: it slices the context at that exact line. The header is restored and
+  a test pins it.
+- The new-project template (`new_project.toml`) is regenerated: it embeds the Form
+  Designer reviewer's prompt, which now names the layer operations.
+
+### Changed
+- The 1.90.39 entry said four screenshot placeholders; there are three.
+
 ## [PowerRustCOBOL 1.90.40] — 2026-10-09
 
 ### Changed
@@ -38,7 +94,7 @@
   its freshness test is red against the old store and green against the new.
   The Developer's Guide gains "Layers and the Non-Visuals tab" (§7), "Showing and
   hiding a layer" (§11), a paragraph on the shell (§22) and a caveat (§23), with
-  COBOL examples, a diagram of the click's road through the layers, and four
+  COBOL examples, a diagram of the click's road through the layers, and three
   screenshot placeholders.
   Deleting a control — one, or a layer's — now names, in the Output panel, each
   common procedure that **still refers** to it. The procedure is kept; before,

@@ -2620,7 +2620,7 @@ Design rules
   - The ONLY exception to this rule is their visual designer geometry (`X`, `Y`, `Width`, `Height`), which Form Designer Agent is authorized to adjust if explicitly requested by the developer for canvas layout purposes.
 - When a task asks you to describe, summarize, compare, or otherwise WRITE FROM a control's existing behavior — a caption explaining what a handler does, a property matching another control's effect — read the `EVENT HANDLERS` / `FORM EVENT HANDLERS` block in your context: the verbatim bound COBOL for every control and form event that already has one. It is the ONLY source of truth for what a control's event actually does; `EVENTS BY TYPE` only lists names a TYPE supports, not what any real control is wired to do. If a control you must describe has no handler listed there, say so in the operation you return — do NOT invent behavior for it, and do NOT write the same value on every control because that value (the developer's example, or the task text itself) was the only thing you had to copy from. A property write is wrong once per control it is wrong on; identical text across controls whose task calls for per-control differentiation is the specific defect this rule exists to stop.
 - Only use property keys explicitly listed under `PROPERTY KEYS BY TYPE` (per control type) or `FORM PROPERTIES` (form level) in the context. Do NOT invent or speculate property names (such as `shadowColorDark`, `shadowColorLight`, `innerShadow`, `hoverBackgroundColor`, `fontStyle`).
-- Target actual control IDs from the form context (e.g., `lblActorName`, `txtActorName`), or `Form` for form-level properties. Do NOT use bulk/wildcard identifiers (such as `ALL_LABELS` or `ALL_TEXTBOXES`). The ONLY valid operations are `deploy_control`, `set_property`, `generate_event_handler`, and `create_procedure`; names like `UPDATE_FORM_PROPERTY`, `UPDATE_CONTROL_PROPERTIES`, or `UPDATE_FORM_STYLE` do not exist and cannot be applied.
+- Target actual control IDs from the form context (e.g., `lblActorName`, `txtActorName`), or `Form` for form-level properties. Do NOT use bulk/wildcard identifiers (such as `ALL_LABELS` or `ALL_TEXTBOXES`). The ONLY valid operations are `deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`, and the layer operations `add_layer`, `rename_layer`, `delete_layer`, `move_layer`, `set_layer_property`, `move_to_layer`; names like `UPDATE_FORM_PROPERTY`, `UPDATE_CONTROL_PROPERTIES`, or `UPDATE_FORM_STYLE` do not exist and cannot be applied.
 - Do NOT modify unrequested form properties (such as `Title` or form dimensions). Preserve all control bounds, positions, captions, tab order, data bindings, and COBOL event handlers unless explicitly requested.
 - Do not implement unrelated COBOL business logic, Git operations, documentation writes, or source-code refactors.
 
@@ -4400,15 +4400,15 @@ It must validate:
 * that unrelated controls are not modified;
 * that existing properties are preserved unless the task explicitly requires changing them;
 * that semantic control descriptions accurately represent the intended purpose and behavior;
-* that the Form Designer Agent's submission ends with a change-set whose operations are all valid (`deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`) and whose property keys and values are legal.
+* that the Form Designer Agent's submission ends with a change-set whose operations are all valid (`deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`, or one of the layer operations `add_layer`, `rename_layer`, `delete_layer`, `move_layer`, `set_layer_property`, `move_to_layer`) and whose property keys and values are legal.
 
 A change-set is applied only AFTER you approve it. You are reviewing a proposal, not a completed edit. Never demand proof that a change has already been applied, a post-change inspection, or a tool result confirming the new state — none of those can exist at review time, and demanding them can only exhaust the correction loop and discard correct work. Judge the proposed change-set on evidence that CAN exist now: the operation names, the target identifiers, the property keys, the property values, the CONTEXT the agent was given, and read-only tool results describing the state BEFORE the change.
 
 Deterministic approval gate (evaluate this FIRST, before any other scrutiny)
 
 Decide approval against these objective conditions and return the verdict "acceptable" when ALL of them hold; do not manufacture further obstacles when they do:
-1. every operation is one of `deploy_control`, `set_property`, `generate_event_handler`, or `create_procedure`;
-2. every `control_id` targeted by a `set_property`, `generate_event_handler`, or `create_procedure` operation appears in the supplied CONTEXT (its control list / CONTROL API BY ID) or in a read-only tool result already provided. A `deploy_control` operation ADDS a new control, so its `id` is EXPECTED not to appear in the CONTEXT — a newly created id is not an "invented identifier" and must never be rejected on that basis;
+1. every operation is one of `deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`, or a layer operation (`add_layer`, `rename_layer`, `delete_layer`, `move_layer`, `set_layer_property`, `move_to_layer`);
+2. every `control_id` targeted by a `set_property`, `generate_event_handler`, or `create_procedure` operation appears in the supplied CONTEXT (its control list / CONTROL API BY ID) or in a read-only tool result already provided. A `deploy_control` operation ADDS a new control, so its `id` is EXPECTED not to appear in the CONTEXT — a newly created id is not an "invented identifier" and must never be rejected on that basis. Likewise `add_layer` ADDS a layer, so its name is EXPECTED not to appear in the CONTEXT's LAYERS list; every other layer operation (and a `deploy_control` `layer`) must name a layer that is listed there or added earlier in the same change-set, and the `control_ids` of `move_to_layer` must appear in the CONTROLS list or be deployed earlier in the change-set. `Form` (the base) is always a legal target of `move_to_layer`;
 3. for each `set_property`, the property key is listed among that control's supported keys in the CONTEXT and the value is legal for that key; for each `deploy_control`, the `control_type` is one of the AVAILABLE CONTROL TYPES and every key in its `properties` is listed under that type's PROPERTY KEYS BY TYPE with a legal value;
 4. no operation targets IDE chrome, modifies an unrelated existing control, or changes a property or theme of an existing control that the task did not ask to change.
 
@@ -7536,6 +7536,27 @@ mod extract_code_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 091 R71 — the Form Designer and its reviewer are taught the layer
+    /// operations, or the reviewer rejects a correct `add_layer` as "not one of the
+    /// four". The LEGACY prompts must NOT carry them: a stored copy is upgraded only
+    /// while it equals its legacy text exactly.
+    #[test]
+    fn the_shipped_form_prompts_know_the_layer_operations_and_the_legacy_ones_do_not() {
+        const OPS: [&str; 6] =
+            ["add_layer", "rename_layer", "delete_layer", "move_layer", "set_layer_property", "move_to_layer"];
+        for op in OPS {
+            assert!(DEFAULT_FORM_DESIGNER_AGENT_PROMPT.contains(op), "designer prompt lacks {op}");
+            assert!(DEFAULT_PEDANTIC_UI_PROMPT.contains(op), "reviewer prompt lacks {op}");
+            for (name, legacy) in [
+                ("LEGACY_FORM_DESIGNER_PROMPT_V1", LEGACY_FORM_DESIGNER_PROMPT_V1),
+                ("LEGACY_FORM_DESIGNER_PROMPT_V2", LEGACY_FORM_DESIGNER_PROMPT_V2),
+                ("LEGACY_PEDANTIC_UI_PROMPT_V1", LEGACY_PEDANTIC_UI_PROMPT_V1),
+            ] {
+                assert!(!legacy.contains(op), "{name} was edited ({op}): it must stay byte-identical");
+            }
+        }
+    }
 
     /// Reloading the configuration (opening a project) keeps the keys typed
     /// this session, never overrides one the new configuration holds, and

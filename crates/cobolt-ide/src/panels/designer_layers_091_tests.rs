@@ -50,6 +50,8 @@ struct Rig {
     /// Every accessibility node egui has reported so far (after `ctx.enable_accesskit()`):
     /// where a button is, found by its label rather than by guessing.
     nodes: std::collections::HashMap<egui::accesskit::NodeId, egui::accesskit::Node>,
+    /// The clipboard the designer's Cmd+C / Cmd+X / Cmd+V use, kept between frames.
+    clipboard: Option<DesignerClipboard>,
 }
 
 impl Rig {
@@ -61,6 +63,7 @@ impl Rig {
             used: Vec2::ZERO,
             mods: egui::Modifiers::NONE,
             nodes: Default::default(),
+            clipboard: None,
         }
     }
 
@@ -74,9 +77,10 @@ impl Rig {
         let mut used = Vec2::ZERO;
         let d = &mut self.d;
         let llm = &self.llm;
+        let clipboard = &mut self.clipboard;
         let mut out = self.ctx.run_ui(input, |root| {
             egui::CentralPanel::default().show_inside(root, |ui| {
-                result = d.show(ui, &mut None, &[], llm, None, None);
+                result = d.show(ui, clipboard, &[], llm, None, None);
                 used = ui.min_rect().size();
             });
         });
@@ -2147,6 +2151,960 @@ mod bench {
             "64 layers must not cost three times what the same controls cost in the base: {:.1} ms against {:.1} ms",
             t_shown.frame_avg_ms,
             t_base.frame_avg_ms
+        );
+    }
+}
+
+// ── T31, T32: the bar as the mock-up, the eye ────────────────────────────────
+
+mod look {
+    use super::*;
+    use crate::panels::layer_tabs::{LayerTabs, ACTIVE_FACE, STRIP};
+    use egui::{Color32, ColorImage};
+
+    const WIDTH: f32 = 560.0;
+
+    /// The bar rendered to pixels: a form with `Layer-1` and `Layer-2`, the tab
+    /// `active` selected, `Layer-1` shown or not.
+    fn picture(active: &ActiveTab, layer_one_shown: bool) -> ColorImage {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::fonts::base_font_definitions());
+        let tr = crate::i18n::Language::English.tr();
+        let form = form_with_layers(2);
+        let mut tabs = LayerTabs::default();
+        match active {
+            ActiveTab::NonVisuals => tabs.select_non_visuals(),
+            ActiveTab::Form => tabs.select_form(),
+            ActiveTab::Layer(n) => tabs.select_layer(n),
+        }
+        tabs.set_shown("Layer-1", layer_one_shown);
+        let mut raster = cobolt_forms::raster::Rasterizer::new();
+        let mut img = None;
+        for time in [0.0, 0.5, 1.0] {
+            img = Some(cobolt_forms::raster::render_frame(
+                &ctx,
+                &mut raster,
+                Vec2::new(WIDTH, BAR_H),
+                Color32::from_rgb(20, 24, 34),
+                time,
+                |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::ZERO;
+                    let _ = tabs.show_bar(ui, &form, &tr);
+                },
+            ));
+        }
+        img.unwrap()
+    }
+
+    fn at(img: &ColorImage, x: usize, y: usize) -> Color32 {
+        img.pixels[y * img.size[0] + x]
+    }
+
+    fn near(a: Color32, b: Color32) -> bool {
+        (a.r() as i32 - b.r() as i32).abs() < 12 && (a.g() as i32 - b.g() as i32).abs() < 12 && (a.b() as i32 - b.b() as i32).abs() < 12
+    }
+
+    /// The leftmost and rightmost pixel of `face` in a row.
+    fn extent(img: &ColorImage, y: usize, face: Color32) -> Option<(usize, usize)> {
+        let xs: Vec<usize> = (0..img.size[0]).filter(|&x| near(at(img, x, y), face)).collect();
+        Some((*xs.first()?, *xs.last()?))
+    }
+
+    fn save(img: &ColorImage, name: &str) -> std::path::PathBuf {
+        let out = std::env::temp_dir().join(name);
+        std::fs::write(&out, cobolt_forms::raster::to_png(img).unwrap()).unwrap();
+        out
+    }
+
+    /// AC34 (R66) — the mock-up's colours and lean, measured on the picture.
+    #[test]
+    fn the_bar_is_drawn_as_the_mock_up() {
+        let img = picture(&ActiveTab::NonVisuals, true);
+        let out = save(&img, "prc-091-tab-bar-non-visuals.png");
+        let (w, h) = (img.size[0], img.size[1]);
+        println!("tab bar picture {w}x{h} -> {}", out.display());
+
+        // The strip, in the far corner past the tabs and the plus.
+        assert!(near(at(&img, w - 3, h - 3), STRIP), "the strip is #50504E: {:?}", at(&img, w - 3, h - 3));
+        // The white rule along the top, with black above and below it.
+        assert!(near(at(&img, w - 3, 0), Color32::BLACK), "black above the rule");
+        assert!(near(at(&img, w - 3, 1), Color32::WHITE) && near(at(&img, w - 3, 2), Color32::WHITE), "the white rule, two points thick");
+        assert!(near(at(&img, w - 3, 3), Color32::BLACK), "black below the rule");
+
+        // The first tab: active blue, a trapezoid — wider at the top than at its foot,
+        // its left edge leaning `\` and its right edge `/`.
+        let row_top = 5;
+        let row_foot = (BAR_H as usize) - 5;
+        let (tl, tr) = extent(&img, row_top, ACTIVE_FACE).expect("blue at the top of the first tab");
+        let (bl, br) = extent(&img, row_foot, ACTIVE_FACE).expect("blue at the foot of the first tab");
+        assert!(bl > tl + 4, "the left edge leans \\ : x {tl} at the top, {bl} at the foot");
+        assert!(br + 4 < tr, "the right edge leans / : x {tr} at the top, {br} at the foot");
+
+        // A tab after the first leans `/` on both edges: with `Form` active, its blue
+        // starts further left at its foot than at its top.
+        let form_active = picture(&ActiveTab::Form, true);
+        save(&form_active, "prc-091-tab-bar-form.png");
+        let (fl_top, fr_top) = extent(&form_active, row_top, ACTIVE_FACE).expect("blue at the top of Form");
+        let (fl_foot, fr_foot) = extent(&form_active, row_foot, ACTIVE_FACE).expect("blue at the foot of Form");
+        assert!(fl_foot + 4 < fl_top, "Form's left edge leans / : {fl_top} at the top, {fl_foot} at the foot");
+        assert!(fr_foot + 4 < fr_top, "Form's right edge leans / : {fr_top} at the top, {fr_foot} at the foot");
+        // …and it starts where the first tab ends: the tabs touch.
+        let (_, nv_right_top) = extent(&img, row_top, ACTIVE_FACE).unwrap();
+        assert!(fl_top.abs_diff(nv_right_top) <= 3, "Form's top starts where Non-Visuals' ends: {fl_top} against {nv_right_top}");
+
+        // Inactive tabs are white, and the `+` is white on the strip.
+        assert!(
+            (0..w).any(|x| near(at(&img, x, BAR_H as usize / 2), Color32::WHITE)),
+            "white faces on the inactive tabs"
+        );
+        let plus_x = (w / 2..w).filter(|&x| near(at(&img, x, BAR_H as usize / 2), Color32::WHITE)).count();
+        assert!(plus_x >= 8, "the plus is white outside the tabs: {plus_x} px in the middle row to the right of the middle");
+    }
+
+    /// AC34 — the same pixels under every theme in the registry.
+    #[test]
+    fn the_bar_is_the_same_under_every_theme() {
+        let reference = picture(&ActiveTab::Layer("Layer-1".into()), true).pixels;
+        for theme in crate::theme::THEMES {
+            crate::theme::set_active(theme);
+            let img = picture(&ActiveTab::Layer("Layer-1".into()), true);
+            assert!(img.pixels == reference, "theme {} changed the bar", theme.id);
+        }
+        crate::theme::set_active(crate::theme::default_theme());
+        println!("tab bar: identical under all {} themes", crate::theme::THEMES.len());
+    }
+
+    /// AC35 (R67) — an open eye while the layer is shown, a closed one while it is
+    /// hidden; the two differ, and neither is the old box.
+    #[test]
+    fn the_eye_is_open_when_the_layer_is_shown_and_closed_when_it_is_hidden() {
+        let shown = picture(&ActiveTab::Form, true);
+        let hidden = picture(&ActiveTab::Form, false);
+        save(&shown, "prc-091-tab-bar-eye-open.png");
+        save(&hidden, "prc-091-tab-bar-eye-closed.png");
+        // Where Layer-1's eye is, from the layout the painter used.
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::fonts::base_font_definitions());
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear(); // the fonts exist after a first frame
+        let tr = crate::i18n::Language::English.tr();
+        let form = form_with_layers(2);
+        let layout = layout_for(&ctx, &form, &tr, WIDTH, 0.0);
+        let p = layout.placed.iter().find(|p| p.slot == Slot::Layer(0)).unwrap();
+        let bar = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(WIDTH, BAR_H));
+        let eye = layer_tab_parts(placed_rect(bar, p)).check;
+        let (x0, x1, y0, y1) = (eye.min.x as usize, eye.max.x as usize + 1, eye.min.y as usize, eye.max.y as usize + 1);
+        let differing = (y0..y1)
+            .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+            .filter(|&(x, y)| !near(at(&shown, x, y), at(&hidden, x, y)))
+            .count();
+        let dark = |img: &ColorImage| (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).filter(|&(x, y)| at(img, x, y).r() < 100).count();
+        println!("eye: {differing} px differ between open and closed; ink px {} open, {} closed", dark(&shown), dark(&hidden));
+        assert!(differing >= 15, "the open and the closed eye are different drawings: {differing} px");
+        assert!(dark(&shown) >= 10 && dark(&hidden) >= 8, "both are drawn in dark ink on the white tab");
+        assert!(dark(&shown) > dark(&hidden) + 10, "the open eye (almond and iris) carries more ink than the closed lid: {} against {}", dark(&shown), dark(&hidden));
+        // Nothing of the old box: its black frame ran along the eye's whole outline.
+        let corner_dark = [(x0, y0), (x1 - 1, y0), (x0, y1 - 1), (x1 - 1, y1 - 1)]
+            .iter()
+            .filter(|&&(x, y)| at(&shown, x, y).r() < 100)
+            .count();
+        assert_eq!(corner_dark, 0, "no square frame: the corners of the eye's box are empty");
+    }
+}
+
+// ── T33: the Objects list follows the tab ────────────────────────────────────
+
+mod objects {
+    use super::*;
+    use crate::panels::objects_list::{object_rows_in, show};
+
+    fn fixture() -> Form {
+        let mut f = form_with_layers(2);
+        let mut add = |id: &str, ct: ControlType, layer: Option<&str>, parent: Option<&str>| {
+            let mut c = Control::new(id, ct, 10, 10);
+            c.layer = layer.map(str::to_owned);
+            c.parent = parent.map(str::to_owned);
+            f.controls.push(c);
+        };
+        add("Base-Btn", ControlType::Button, None, None);
+        add("L1-Panel", ControlType::Panel, Some("Layer-1"), None);
+        add("L1-Child", ControlType::Button, None, Some("L1-Panel"));
+        add("L2-Btn", ControlType::Button, Some("Layer-2"), None);
+        add("Timer-1", ControlType::Timer, None, None);
+        f
+    }
+
+    fn ids(d: &DesignerPanel) -> Vec<(String, usize)> {
+        object_rows_in(&d.form, d.active_tab_ids().as_ref()).into_iter().map(|r| (r.id, r.depth)).collect()
+    }
+
+    /// AC36 (R68) — each tab lists its own controls, containers indented as before.
+    #[test]
+    fn each_tab_lists_only_its_own_controls() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_form();
+        assert_eq!(ids(&d), [("Base-Btn".to_string(), 0)], "Form: the base's control, not the layers' nor the Timer");
+        d.tabs.select_layer("Layer-1");
+        assert_eq!(
+            ids(&d),
+            [("L1-Panel".to_string(), 0), ("L1-Child".to_string(), 1)],
+            "Layer-1: its Panel and the child inside it, indented"
+        );
+        d.tabs.select_layer("Layer-2");
+        assert_eq!(ids(&d), [("L2-Btn".to_string(), 0)]);
+        d.tabs.select_non_visuals();
+        assert_eq!(ids(&d), [("Timer-1".to_string(), 0)], "Non-Visuals: the cards");
+        // A layer whose box is off cannot be reached, so it lists nothing.
+        d.tabs.select_layer("Layer-2");
+        d.tabs.set_shown("Layer-2", false);
+        assert!(ids(&d).is_empty());
+        // A form with no layers and no non-visual control: every control, as before.
+        let mut plain = Form::new("F", "F", 640, 480);
+        plain.controls.push(Control::new("A", ControlType::Button, 0, 0));
+        plain.controls.push(Control::new("B", ControlType::Label, 0, 0));
+        let p = DesignerPanel::new(plain);
+        assert_eq!(object_rows_in(&p.form, p.active_tab_ids().as_ref()).len(), 2);
+    }
+
+    /// The drawn list: the names of this tab's controls and nothing of another's.
+    #[test]
+    fn the_drawn_list_names_only_the_active_tabs_controls() {
+        let mut d = DesignerPanel::new(fixture());
+        let tr = crate::i18n::Language::English.tr();
+        let drawn = |d: &DesignerPanel| -> String {
+            let ctx = egui::Context::default();
+            ctx.set_fonts(crate::fonts::base_font_definitions());
+            let members = d.active_tab_ids();
+            let mut raster = cobolt_forms::raster::Rasterizer::new();
+            let mut texts: Vec<String> = Vec::new();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 300.0)));
+            for time in [0.0, 0.5] {
+                input.time = Some(time);
+                let mut out = ctx.run_ui(input.clone(), |root| {
+                    egui::CentralPanel::default().show_inside(root, |ui| {
+                        let _ = show(ui, &d.form, members.as_ref(), &d.selected_ids, 250.0, &tr);
+                    });
+                });
+                raster.apply(&out.textures_delta);
+                out.textures_delta.clear();
+                texts.clear();
+                fn painted(shape: &egui::Shape, out: &mut Vec<String>) {
+                    match shape {
+                        egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| painted(s, out)),
+                        _ => {}
+                    }
+                }
+                for c in &out.shapes {
+                    painted(&c.shape, &mut texts);
+                }
+            }
+            texts.join("|")
+        };
+        d.tabs.select_layer("Layer-1");
+        let layer1 = drawn(&d);
+        assert!(layer1.contains("L1-Panel") && layer1.contains("L1-Child"), "Layer-1's own: {layer1}");
+        assert!(!layer1.contains("Base-Btn") && !layer1.contains("L2-Btn") && !layer1.contains("Timer-1"), "none of the others: {layer1}");
+        d.tabs.select_form();
+        let form_tab = drawn(&d);
+        assert!(form_tab.contains("Base-Btn") && !form_tab.contains("L1-Panel"), "{form_tab}");
+    }
+}
+
+// ── T34, T35: a tab order for each tab; copy here, paste there ───────────────
+
+mod tab_order {
+    use super::*;
+
+    fn button(id: &str, layer: Option<&str>, order: u32) -> Control {
+        let mut c = Control::new(id, ControlType::Button, 10, 10);
+        c.layer = layer.map(str::to_owned);
+        c.tab_order = order;
+        c
+    }
+
+    /// Base 1–3, `Layer-1` 1–2, `Layer-2` 1: each tab numbered from 1 on its own.
+    fn fixture() -> Form {
+        let mut f = form_with_layers(2);
+        for c in [
+            button("Base-A", None, 1),
+            button("Base-B", None, 2),
+            button("Base-C", None, 3),
+            button("L1-A", Some("Layer-1"), 1),
+            button("L1-B", Some("Layer-1"), 2),
+            button("L2-A", Some("Layer-2"), 1),
+        ] {
+            f.controls.push(c);
+        }
+        f
+    }
+
+    fn number(d: &DesignerPanel, id: &str) -> u32 {
+        d.form.find_control(id).unwrap().tab_order
+    }
+
+    fn numbers(d: &DesignerPanel, ids: &[&str]) -> Vec<u32> {
+        ids.iter().map(|id| number(d, id)).collect()
+    }
+
+    /// AC37 (R69) — a new control takes the next number in ITS tab.
+    #[test]
+    fn a_new_control_takes_the_next_number_in_its_own_tab() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_layer("Layer-2");
+        d.add_control(ControlType::Button, 100, 100);
+        let made = d.form.controls.last().unwrap().id.clone();
+        assert_eq!(number(&d, &made), 2, "Layer-2 held 1, so its next is 2 — not 7");
+        d.tabs.select_form();
+        d.add_control(ControlType::Button, 200, 100);
+        assert_eq!(number(&d, &d.form.controls.last().unwrap().id.clone()), 4, "Form held 1–3");
+        d.tabs.select_layer("Layer-1");
+        d.add_control(ControlType::Button, 300, 100);
+        assert_eq!(number(&d, &d.form.controls.last().unwrap().id.clone()), 3);
+    }
+
+    /// AC37 — the Tab Order list shows and renumbers the active tab's controls alone.
+    #[test]
+    fn the_tab_order_list_covers_the_active_tab_only() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_layer("Layer-1");
+        d.open_tab_order_list();
+        let modal = d.tab_order_modal.as_mut().expect("the list is open");
+        assert_eq!(modal.order(), ["L1-A", "L1-B"], "Layer-1's two, not the form's six");
+        modal.move_row(0, 1); // L1-B first
+        let order = modal.order();
+        d.tab_order_modal = None;
+        d.apply_tab_order(&order);
+        assert_eq!(numbers(&d, &["L1-B", "L1-A"]), [1, 2]);
+        assert_eq!(numbers(&d, &["Base-A", "Base-B", "Base-C"]), [1, 2, 3], "the base is as it was");
+        assert_eq!(number(&d, "L2-A"), 1, "and so is Layer-2");
+        assert_eq!(d.undo_stack.len(), 1, "one undo step");
+        d.undo();
+        assert_eq!(numbers(&d, &["L1-A", "L1-B"]), [1, 2]);
+    }
+
+    /// AC37 — and so does Visual Tab Order.
+    #[test]
+    fn visual_tab_order_covers_the_active_tab_only() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_form();
+        d.toggle_visual_tab_order();
+        {
+            let v = d.tab_order_visual.as_mut().expect("the mode is on");
+            assert_eq!(v.order, ["Base-A", "Base-B", "Base-C"], "the base's three");
+            assert!(!v.click("L1-A"), "a control of another tab is not part of this tab's order");
+            v.click("Base-C");
+            v.click("Base-A");
+        }
+        d.toggle_visual_tab_order(); // off: written
+        assert_eq!(numbers(&d, &["Base-C", "Base-A", "Base-B"]), [1, 2, 3]);
+        assert_eq!(numbers(&d, &["L1-A", "L1-B", "L2-A"]), [1, 2, 1], "no other tab's number moved");
+    }
+
+    /// AC37 (R69), AC38 — what is pasted takes the next places in the target tab, in
+    /// the order it had.
+    #[test]
+    fn a_paste_takes_the_next_places_in_the_target_tab() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_layer("Layer-1");
+        d.selected_ids = vec!["L1-B".into(), "L1-A".into()];
+        let mut clip = None;
+        d.copy_selected(&mut clip);
+        d.tabs.select_layer("Layer-2");
+        d.paste_from_clipboard(&clip);
+        let pasted: Vec<&Control> = d.form.controls.iter().filter(|c| c.id.starts_with("Button-")).collect();
+        assert_eq!(pasted.len(), 2);
+        // L1-A (1) then L1-B (2) in the order they had, after Layer-2's own 1: 2 then 3.
+        let by_number: Vec<u32> = pasted.iter().map(|c| c.tab_order).collect();
+        assert_eq!({ let mut v = by_number.clone(); v.sort(); v }, [2, 3], "after Layer-2's 1: {by_number:?}");
+        assert_eq!(d.form.layer_of(&pasted[0].id), Some("Layer-2"));
+    }
+
+    /// AC37 — sending controls to a layer gives them the next places there, and
+    /// undo gives the old numbers back.
+    #[test]
+    fn controls_sent_to_a_layer_take_its_next_places_and_undo_restores_them() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_form();
+        d.selected_ids = vec!["Base-B".into(), "Base-A".into()];
+        d.move_selected_to_layer("Layer-1");
+        assert_eq!(numbers(&d, &["Base-A", "Base-B"]), [3, 4], "after Layer-1's 1 and 2, in the order they had");
+        assert_eq!(number(&d, "Base-C"), 3, "the base keeps its own");
+        d.undo();
+        assert_eq!(numbers(&d, &["Base-A", "Base-B"]), [1, 2]);
+        assert_eq!(d.form.layer_of("Base-A"), None);
+    }
+}
+
+mod clipboard {
+    use super::*;
+
+    impl Rig {
+        fn cmd_key(&mut self, key: egui::Key) {
+            self.mods = egui::Modifiers::COMMAND;
+            self.frame(vec![Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }]);
+            self.mods = egui::Modifiers::NONE;
+            self.frame(vec![]);
+        }
+    }
+
+    fn fixture() -> Form {
+        let mut f = form_with_layers(2);
+        let mut panel = Control::new("L1-Panel", ControlType::Panel, 20, 20);
+        panel.rect.w = 200;
+        panel.rect.h = 120;
+        panel.layer = Some("Layer-1".into());
+        f.controls.push(panel);
+        let mut child = Control::new("L1-Child", ControlType::Button, 30, 40);
+        child.parent = Some("L1-Panel".into());
+        f.controls.push(child);
+        let mut lone = Control::new("L1-Btn", ControlType::Button, 300, 20);
+        lone.layer = Some("Layer-1".into());
+        f.controls.push(lone);
+        f.controls.push(Control::new("Base-Btn", ControlType::Button, 20, 300));
+        f
+    }
+
+    fn layer_of_new(d: &DesignerPanel, before: usize) -> Vec<(String, Option<String>)> {
+        d.form.controls[before..].iter().map(|c| (c.id.clone(), d.form.layer_of(&c.id).map(str::to_owned))).collect()
+    }
+
+    /// AC38 (R70) — with the real shortcuts: copy on one tab, select another, paste.
+    #[test]
+    fn copy_on_one_layer_and_paste_on_another_lands_in_the_active_one() {
+        let mut r = Rig::new(fixture());
+        r.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-1".into())]);
+        r.settle(2);
+        r.d.selected_ids = vec!["L1-Panel".into()]; // the Panel takes its child
+        r.cmd_key(egui::Key::C);
+        assert!(r.clipboard.is_some(), "Cmd+C filled the clipboard");
+
+        // Layer-1 -> Layer-2.
+        r.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-2".into())]);
+        r.settle(2);
+        let before = r.d.form.controls.len();
+        r.cmd_key(egui::Key::V);
+        let made = layer_of_new(&r.d, before);
+        assert_eq!(made.len(), 2, "the Panel and its child: {made:?}");
+        assert!(made.iter().all(|(_, l)| l.as_deref() == Some("Layer-2")), "both in Layer-2: {made:?}");
+        let panel = r.d.form.controls[before..].iter().find(|c| c.control_type == ControlType::Panel).unwrap();
+        assert_eq!(panel.layer.as_deref(), Some("Layer-2"), "the root names the layer");
+        assert!(r.d.form.controls[before..].iter().any(|c| c.parent.as_deref() == Some(panel.id.as_str()) && c.layer.is_none()), "the child follows its container");
+        assert!(r.d.form.controls[before..].iter().all(|c| !["L1-Panel", "L1-Child"].contains(&c.id.as_str())), "with names of their own");
+
+        // Layer-2 -> Form.
+        r.d.apply_tab_actions(vec![TabAction::SelectForm]);
+        r.settle(2);
+        let before = r.d.form.controls.len();
+        r.cmd_key(egui::Key::V);
+        let made = layer_of_new(&r.d, before);
+        assert!(made.iter().all(|(_, l)| l.is_none()), "on Form they name no layer: {made:?}");
+
+        // Form -> Layer-1.
+        r.d.selected_ids = vec!["Base-Btn".into()];
+        r.cmd_key(egui::Key::C);
+        r.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-1".into())]);
+        r.settle(2);
+        let before = r.d.form.controls.len();
+        r.cmd_key(egui::Key::V);
+        let made = layer_of_new(&r.d, before);
+        assert_eq!(made.len(), 1);
+        assert_eq!(made[0].1.as_deref(), Some("Layer-1"), "Form to a layer: {made:?}");
+        assert!(r.d.selected_ids.contains(&made[0].0), "and the copy is selected, in the active tab");
+    }
+
+    /// AC38 — cut moves a control to the active tab, one undo step each way, and
+    /// duplicate stays where it is.
+    #[test]
+    fn cut_and_paste_moves_across_tabs_and_duplicate_stays_put() {
+        let mut r = Rig::new(fixture());
+        r.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-1".into())]);
+        r.settle(2);
+        r.d.selected_ids = vec!["L1-Btn".into()];
+        r.cmd_key(egui::Key::X);
+        assert!(r.d.form.find_control("L1-Btn").is_none(), "cut removed it");
+        r.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-2".into())]);
+        r.settle(2);
+        let before = r.d.form.controls.len();
+        r.cmd_key(egui::Key::V);
+        assert_eq!(layer_of_new(&r.d, before)[0].1.as_deref(), Some("Layer-2"));
+
+        r.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-1".into())]);
+        r.settle(2);
+        r.d.selected_ids = vec!["L1-Panel".into()];
+        let before = r.d.form.controls.len();
+        r.cmd_key(egui::Key::D);
+        let made = layer_of_new(&r.d, before);
+        assert!(made.iter().all(|(_, l)| l.as_deref() == Some("Layer-1")), "a duplicate stays in its layer: {made:?}");
+    }
+
+    /// AC38 — between two designers (two forms), the copy lands in the target's active tab.
+    #[test]
+    fn a_copy_from_one_form_pastes_into_the_active_tab_of_another() {
+        let mut source = Rig::new(fixture());
+        source.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-1".into())]);
+        source.settle(2);
+        source.d.selected_ids = vec!["L1-Btn".into()];
+        source.cmd_key(egui::Key::C);
+
+        let mut target = Rig::new(form_with_layers(3));
+        target.clipboard = source.clipboard.take();
+        target.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-3".into())]);
+        target.settle(2);
+        target.cmd_key(egui::Key::V);
+        let c = target.d.form.controls.last().expect("pasted");
+        assert_eq!(c.layer.as_deref(), Some("Layer-3"), "the active layer of the OTHER form");
+    }
+}
+
+/// AC39 (R71) — the AI agents work with layers: the operations parse, validate
+/// against the form each earlier one leaves, apply as ONE undo step, and every
+/// refusal leaves the form exactly as it was.
+mod agent {
+    use super::*;
+    use crate::agent::{parse_change_set, AgentChangeSet, AgentOp};
+
+    fn cs(json: &str) -> AgentChangeSet {
+        parse_change_set(&format!("```json\n{json}\n```")).expect("the change-set parses")
+    }
+
+    /// A form with a Button and a Panel (with a child) on the base, one layer
+    /// `Overlay` holding a Label that has a handler, and a Timer.
+    fn fixture() -> Form {
+        let mut f = Form::new("F", "F", 800, 600);
+        f.add_layer().expect("a layer");
+        f.rename_layer("Layer-1", "Overlay").expect("renamed");
+        f.controls.push(Control::new("SAVE", ControlType::Button, 20, 20));
+        let mut p = Control::new("BOX", ControlType::Panel, 200, 20);
+        p.rect.w = 200;
+        p.rect.h = 120;
+        f.controls.push(p);
+        let mut c = Control::new("INNER", ControlType::Button, 210, 40);
+        c.parent = Some("BOX".into());
+        f.controls.push(c);
+        let mut l = Control::new("NOTE", ControlType::Label, 20, 200);
+        l.layer = Some("Overlay".into());
+        l.events.push(cobolt_forms::model::EventBinding {
+            event: "onClick".into(),
+            paragraph: "NOTE--ONCLICK".into(),
+            code: "       PROCEDURE DIVISION.\n           CONTINUE.".into(),
+        });
+        f.controls.push(l);
+        f.controls.push(Control::new("TMR", ControlType::Timer, 0, 0));
+        f
+    }
+
+    /// Every layer operation reads from the JSON an agent writes, with the names
+    /// the contract teaches — and `layer` on a `deploy_control` too.
+    #[test]
+    fn the_layer_operations_parse_from_the_json_the_contract_teaches() {
+        let set = cs(r##"{"operations":[
+            {"op":"add_layer","name":"Help"},
+            {"op":"add_layer"},
+            {"op":"rename_layer","name":"Help","new_name":"Tips"},
+            {"op":"move_layer","name":"Tips","position":1},
+            {"op":"set_layer_property","layer":"Tips","key":"Transparency","value":40},
+            {"op":"move_to_layer","control_ids":["SAVE"],"layer":"Tips"},
+            {"op":"delete_layer","name":"Tips"},
+            {"op":"deploy_control","control_type":"Label","id":"L1","layer":"Tips","properties":{}}
+        ]}"##);
+        assert_eq!(set.operations.len(), 8);
+        assert!(matches!(&set.operations[0], AgentOp::AddLayer { name: Some(n) } if n == "Help"));
+        assert!(matches!(&set.operations[1], AgentOp::AddLayer { name: None }));
+        assert!(matches!(&set.operations[2], AgentOp::RenameLayer { name, new_name } if name == "Help" && new_name == "Tips"));
+        assert!(matches!(&set.operations[3], AgentOp::MoveLayer { position: 1, .. }));
+        assert!(matches!(&set.operations[4], AgentOp::SetLayerProperty { key, .. } if key == "Transparency"));
+        assert!(matches!(&set.operations[5], AgentOp::MoveToLayer { control_ids, .. } if control_ids == &["SAVE"]));
+        assert!(matches!(&set.operations[6], AgentOp::DeleteLayer { .. }));
+        assert!(matches!(&set.operations[7], AgentOp::DeployControl { layer: Some(l), .. } if l == "Tips"));
+    }
+
+    /// R71 — the agent SEES the layers: the stack, what each holds, each control's
+    /// layer, the reserved names, and the keys it may set.
+    #[test]
+    fn the_context_tells_the_agent_about_the_layers() {
+        let ctx = crate::agent::build_context(&fixture());
+        assert!(ctx.contains("LAYERS"), "a LAYERS section");
+        assert!(ctx.contains("1. Overlay  controls=1"), "the layer and what it holds:\n{ctx}");
+        assert!(ctx.contains("NOTE (Label)") && ctx.contains("layer=Overlay"), "the Label's layer is stated");
+        let save = ctx.lines().find(|l| l.contains("SAVE (Button)")).expect("SAVE is listed");
+        assert!(!save.contains("layer="), "a base control states no layer: {save}");
+        assert!(ctx.contains("Non-Visuals"), "the reserved tab is named");
+        assert!(ctx.contains("BackgroundColor") && ctx.contains("set_layer_property"), "the property keys are given");
+
+        let none = crate::agent::build_context(&Form::new("G", "G", 400, 300));
+        assert!(none.contains("(none"), "a form with no layers says so: the agent must not fake one with a Panel");
+    }
+
+    /// R71 — one change-set builds a layer, fills it and styles it, each operation
+    /// judged against the form the earlier ones leave; the lot is ONE undo step.
+    #[test]
+    fn one_change_set_adds_fills_and_styles_a_layer_and_undoes_as_one_step() {
+        let mut d = DesignerPanel::new(fixture());
+        let before = saved(&d);
+        let set = cs(r##"{"operations":[
+            {"op":"add_layer","name":"Help"},
+            {"op":"deploy_control","control_type":"Label","id":"HINT","layer":"Help","properties":{"X":40,"Y":40}},
+            {"op":"deploy_control","control_type":"Timer","id":"TICK","properties":{}},
+            {"op":"set_layer_property","layer":"Help","key":"BackgroundColor","value":"#10203080"},
+            {"op":"move_to_layer","control_ids":["SAVE"],"layer":"Help"},
+            {"op":"move_layer","name":"Help","position":1}
+        ]}"##);
+        let status = crate::agent::validate(&set, &d.form);
+        assert!(status.iter().all(Option::is_none), "all six are valid: {status:?}");
+        let applied = d.apply_agent_change_set(&set);
+        assert!(applied > 0, "the change-set applied ({applied})");
+
+        let names: Vec<&str> = d.form.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Help", "Overlay"], "Help went to position 1, nearest Form");
+        assert_eq!(d.form.layers[0].backdrop.color, "#10203080");
+        assert_eq!(d.form.layer_of("HINT"), Some("Help"), "a control deployed with a layer lands in it");
+        assert_eq!(d.form.layer_of("SAVE"), Some("Help"), "an existing control was moved in");
+        assert_eq!(d.form.find_control("TICK").unwrap().layer, None, "a non-visual control names no layer");
+        assert_eq!(d.undo_stack.len(), 1, "the whole change-set is one undo step");
+
+        d.undo();
+        assert_eq!(saved(&d), before, "one undo gives back the form exactly");
+        d.redo();
+        assert_eq!(d.form.layer_of("HINT"), Some("Help"), "and redo does it again");
+    }
+
+    /// R71 — a non-visual control lives on `Non-Visuals` by itself; naming a layer
+    /// for one is refused with the reason, so the agent does not believe it is there.
+    #[test]
+    fn a_non_visual_control_takes_no_layer_and_the_agent_is_told() {
+        let form = fixture();
+        let set = cs(r##"{"operations":[
+            {"op":"deploy_control","control_type":"Timer","id":"T2","layer":"Overlay","properties":{}},
+            {"op":"deploy_control","control_type":"Timer","id":"T3","properties":{}}
+        ]}"##);
+        let status = crate::agent::validate(&set, &form);
+        assert!(status[0].as_deref().unwrap().contains("Non-Visuals"), "{:?}", status[0]);
+        assert!(status[1].is_none());
+        let mut d = DesignerPanel::new(form);
+        d.apply_agent_change_set(&set);
+        assert!(d.form.find_control("T2").is_none(), "the refused Timer was not created");
+        assert_eq!(d.form.find_control("T3").map(|c| c.layer.clone()), Some(None), "the other lands on Non-Visuals");
+    }
+
+    /// R71 — a layer can be renamed and then named by its new name in the same
+    /// change-set; the controls that name it follow.
+    #[test]
+    fn a_rename_is_visible_to_the_operations_after_it() {
+        let mut d = DesignerPanel::new(fixture());
+        let set = cs(r##"{"operations":[
+            {"op":"rename_layer","name":"Overlay","new_name":"Banner"},
+            {"op":"set_layer_property","layer":"Banner","key":"Transparency","value":25},
+            {"op":"deploy_control","control_type":"Label","id":"TITLE","layer":"Banner","properties":{}}
+        ]}"##);
+        assert!(crate::agent::validate(&set, &d.form).iter().all(Option::is_none));
+        d.apply_agent_change_set(&set);
+        assert_eq!(d.form.layers[0].name, "Banner");
+        assert_eq!(d.form.layers[0].backdrop.transparency, 25);
+        assert_eq!(d.form.layer_of("NOTE"), Some("Banner"), "the control that named Overlay follows");
+        assert_eq!(d.form.layer_of("TITLE"), Some("Banner"));
+        d.undo();
+        assert_eq!(d.form.layers[0].name, "Overlay");
+        assert_eq!(d.form.layer_of("NOTE"), Some("Overlay"));
+        assert!(d.form.find_control("TITLE").is_none());
+    }
+
+    /// R64/R71 — deleting a layer takes its controls AND their handlers, as one
+    /// undo step that gives all of it back.
+    #[test]
+    fn delete_layer_takes_its_controls_and_handlers_and_one_undo_returns_them() {
+        let mut d = DesignerPanel::new(fixture());
+        let before = saved(&d);
+        d.apply_agent_change_set(&cs(r##"{"operations":[{"op":"delete_layer","name":"Overlay"}]}"##));
+        assert!(d.form.layers.is_empty());
+        assert!(d.form.find_control("NOTE").is_none(), "the Label went with its layer");
+        assert!(d.form.find_control("SAVE").is_some(), "a control on the base is untouched");
+        assert_eq!(d.undo_stack.len(), 1);
+        d.undo();
+        assert_eq!(saved(&d), before, "layer, control and its handler are back exactly");
+        assert!(d.form.find_control("NOTE").unwrap().events.iter().any(|e| e.has_code()));
+    }
+
+    /// R71 — moving to `Form` sends a control back to the base; a container takes
+    /// its children; a child alone, a non-visual control and an unknown layer are
+    /// refused with a reason the agent can act on.
+    #[test]
+    fn move_to_layer_follows_the_rules_of_the_designer() {
+        let form = fixture();
+        let set = cs(r##"{"operations":[
+            {"op":"move_to_layer","control_ids":["NOTE"],"layer":"Form"},
+            {"op":"move_to_layer","control_ids":["BOX"],"layer":"Overlay"},
+            {"op":"move_to_layer","control_ids":["INNER"],"layer":"Overlay"},
+            {"op":"move_to_layer","control_ids":["TMR"],"layer":"Overlay"},
+            {"op":"move_to_layer","control_ids":["SAVE"],"layer":"Nowhere"},
+            {"op":"move_to_layer","control_ids":["GHOST"],"layer":"Overlay"}
+        ]}"##);
+        let status = crate::agent::validate(&set, &form);
+        assert!(status[0].is_none(), "back to the base is fine");
+        assert!(status[1].is_none(), "a container is fine");
+        assert!(status[2].as_deref().unwrap().contains("BOX"), "a child names its container: {:?}", status[2]);
+        assert!(status[3].as_deref().unwrap().contains("no layer"), "{:?}", status[3]);
+        assert!(status[4].as_deref().unwrap().contains("Overlay"), "the missing layer lists the real ones: {:?}", status[4]);
+        assert!(status[5].as_deref().unwrap().contains("GHOST"), "{:?}", status[5]);
+
+        let mut d = DesignerPanel::new(form);
+        d.apply_agent_change_set(&set);
+        assert_eq!(d.form.layer_of("NOTE"), None, "NOTE is back on the base");
+        assert_eq!(d.form.layer_of("BOX"), Some("Overlay"));
+        assert_eq!(d.form.layer_of("INNER"), Some("Overlay"), "the child followed its Panel");
+    }
+
+    /// R71 — every refusal leaves the form exactly as it was, and says why.
+    #[test]
+    fn a_refused_layer_operation_changes_nothing_and_says_why() {
+        let mut f = fixture();
+        while f.layers.len() < cobolt_forms::model::MAX_LAYERS {
+            f.add_layer().expect("a layer");
+        }
+        let mut d = DesignerPanel::new(f);
+        let before = saved(&d);
+        let set = cs(r##"{"operations":[
+            {"op":"add_layer","name":"Past-The-Limit"},
+            {"op":"rename_layer","name":"Overlay","new_name":"Form"},
+            {"op":"rename_layer","name":"Overlay","new_name":"non-visuals"},
+            {"op":"rename_layer","name":"Overlay","new_name":"SAVE"},
+            {"op":"rename_layer","name":"Overlay","new_name":"has space"},
+            {"op":"move_layer","name":"Overlay","position":0},
+            {"op":"move_layer","name":"Overlay","position":999},
+            {"op":"set_layer_property","layer":"Overlay","key":"Visible","value":false},
+            {"op":"set_layer_property","layer":"Overlay","key":"Transparency","value":400},
+            {"op":"set_layer_property","layer":"Overlay","key":"CornerRadius","value":8},
+            {"op":"delete_layer","name":"Nowhere"}
+        ]}"##);
+        let status = crate::agent::validate(&set, &d.form);
+        for (i, s) in status.iter().enumerate() {
+            assert!(s.is_some(), "operation {i} must be refused");
+        }
+        assert!(status[0].as_deref().unwrap().contains("at most"), "{:?}", status[0]);
+        assert!(status[7].as_deref().unwrap().contains("Visible"), "{:?}", status[7]);
+        assert_eq!(d.apply_agent_change_set(&set), 0, "nothing applied");
+        assert_eq!(saved(&d), before, "the form is byte-for-byte what it was");
+        assert!(d.undo_stack.is_empty(), "and no undo step was made");
+        assert!(d.last_change_outcome.contains("NOT applied"), "the agent is told: {}", d.last_change_outcome);
+    }
+
+    /// R71 — a layer name is a control name: it cannot take one in use, in
+    /// either direction, even inside one change-set.
+    #[test]
+    fn layer_and_control_names_share_one_namespace_for_agents_too() {
+        let form = fixture();
+        let set = cs(r##"{"operations":[
+            {"op":"add_layer","name":"SAVE"},
+            {"op":"add_layer","name":"Help"},
+            {"op":"add_layer","name":"help"},
+            {"op":"deploy_control","control_type":"Label","id":"Help","properties":{}},
+            {"op":"deploy_control","control_type":"Label","id":"B2","layer":"Nowhere","properties":{}}
+        ]}"##);
+        let status = crate::agent::validate(&set, &form);
+        assert!(status[0].is_some(), "a layer cannot be named after a control");
+        assert!(status[1].is_none(), "Help is free");
+        assert!(status[2].is_some(), "…and then it is not, whatever the letter case");
+        assert!(status[4].as_deref().unwrap().contains("Overlay"), "a deploy into a missing layer lists the real ones");
+    }
+
+    /// Two layers with controls between base controls, so that a deletion planned
+    /// against the wrong list would take the wrong ones: order is SAVE (base), NOTE
+    /// (Overlay), BOX, INNER (child of BOX), OLD-LBL (Old), TMR.
+    fn interleaved() -> Form {
+        let mut f = Form::new("F", "F", 800, 600);
+        f.add_layer().expect("a layer");
+        f.rename_layer("Layer-1", "Overlay").expect("renamed");
+        f.add_layer().expect("a layer");
+        f.rename_layer("Layer-1", "Old").expect("renamed");
+        let handler = |p: &str| cobolt_forms::model::EventBinding {
+            event: "onClick".into(),
+            paragraph: p.into(),
+            code: "       PROCEDURE DIVISION.\n           CONTINUE.".into(),
+        };
+        f.controls.push(Control::new("SAVE", ControlType::Button, 20, 20));
+        let mut note = Control::new("NOTE", ControlType::Label, 20, 200);
+        note.layer = Some("Overlay".into());
+        note.events.push(handler("NOTE--ONCLICK"));
+        f.controls.push(note);
+        let mut p = Control::new("BOX", ControlType::Panel, 200, 20);
+        p.rect.w = 200;
+        p.rect.h = 120;
+        f.controls.push(p);
+        let mut c = Control::new("INNER", ControlType::Button, 210, 40);
+        c.parent = Some("BOX".into());
+        f.controls.push(c);
+        let mut old = Control::new("OLD-LBL", ControlType::Label, 20, 300);
+        old.layer = Some("Old".into());
+        old.events.push(handler("OLD-LBL--ONCLICK"));
+        f.controls.push(old);
+        f.controls.push(Control::new("TMR", ControlType::Timer, 0, 0));
+        f
+    }
+
+    /// AC39 (R71) — the whole scenario in ONE change-set: add a layer, rename it, set
+    /// its colour, create a button in it, send a second control to it, re-stack it and
+    /// delete another layer. Validated, applied as one undo step, undone as one.
+    #[test]
+    fn the_whole_ac39_scenario_is_one_change_and_one_undo() {
+        let mut d = DesignerPanel::new(interleaved());
+        let before = saved(&d);
+        let set = cs(r##"{"operations":[
+            {"op":"add_layer","name":"Help"},
+            {"op":"rename_layer","name":"Help","new_name":"Banner"},
+            {"op":"set_layer_property","layer":"Banner","key":"BackgroundColor","value":"#203040"},
+            {"op":"deploy_control","control_type":"Button","id":"GO","layer":"Banner","properties":{"X":30,"Y":30}},
+            {"op":"move_to_layer","control_ids":["SAVE"],"layer":"Banner"},
+            {"op":"move_layer","name":"Banner","position":1},
+            {"op":"delete_layer","name":"Old"}
+        ]}"##);
+        let status = crate::agent::validate(&set, &d.form);
+        assert!(status.iter().all(Option::is_none), "all seven are valid: {status:?}");
+
+        d.apply_agent_change_set(&set);
+        let names: Vec<&str> = d.form.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Banner", "Overlay"], "Old is gone, Banner went to position 1");
+        assert_eq!(d.form.layers[0].backdrop.color, "#203040");
+        assert_eq!(d.form.layer_of("GO"), Some("Banner"));
+        assert_eq!(d.form.layer_of("SAVE"), Some("Banner"));
+        assert!(d.form.find_control("OLD-LBL").is_none(), "the deleted layer took its control");
+        for kept in ["NOTE", "BOX", "INNER", "TMR"] {
+            assert!(d.form.find_control(kept).is_some(), "{kept} is untouched");
+        }
+        assert_eq!(d.undo_stack.len(), 1, "one undo step for the whole change-set");
+
+        d.undo();
+        assert_eq!(saved(&d), before, "one undo gives back the form exactly — layers, controls, handlers, order");
+        assert!(d.form.find_control("OLD-LBL").unwrap().events.iter().any(|e| e.has_code()));
+        d.redo();
+        assert!(d.form.find_control("OLD-LBL").is_none());
+        assert_eq!(d.form.layer_of("GO"), Some("Banner"));
+    }
+
+    /// R71 — two deletions in one change-set each take their own controls: the second
+    /// is not planned against positions the first has already moved.
+    #[test]
+    fn two_deleted_layers_take_the_right_controls_and_one_undo_returns_all() {
+        let mut d = DesignerPanel::new(interleaved());
+        let before = saved(&d);
+        d.apply_agent_change_set(&cs(
+            r##"{"operations":[{"op":"delete_layer","name":"Overlay"},{"op":"delete_layer","name":"Old"}]}"##,
+        ));
+        assert!(d.form.layers.is_empty());
+        let left: Vec<&str> = d.form.controls.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(left, ["SAVE", "BOX", "INNER", "TMR"], "exactly the two layers' controls went");
+        assert_eq!(d.undo_stack.len(), 1);
+        d.undo();
+        assert_eq!(saved(&d), before, "and they come back in their places");
+    }
+
+    /// R71 — a control the change-set moved out of a layer is no longer in it when the
+    /// layer is deleted; one deleted from a layer the change-set added is not a leftover.
+    #[test]
+    fn a_control_sent_out_of_a_layer_survives_the_deletion_of_that_layer() {
+        let mut f = interleaved();
+        let mut second = Control::new("NOTE2", ControlType::Label, 20, 240);
+        second.layer = Some("Overlay".into());
+        f.controls.push(second);
+        let mut d = DesignerPanel::new(f);
+        d.apply_agent_change_set(&cs(
+            r##"{"operations":[
+                {"op":"move_to_layer","control_ids":["NOTE"],"layer":"Form"},
+                {"op":"delete_layer","name":"Overlay"}
+            ]}"##,
+        ));
+        assert_eq!(d.form.layer_of("NOTE"), None, "NOTE was sent to the base first, so it stays");
+        assert!(d.form.find_control("NOTE").is_some());
+        assert!(d.form.find_control("NOTE2").is_none(), "NOTE2 was still in Overlay when it went");
+        assert_eq!(d.undo_stack.len(), 1);
+    }
+
+    /// R71 — a change-set that puts controls into a layer and deletes that same layer
+    /// contradicts itself: it is refused with the reason, whichever way the controls
+    /// got there; deleting ANOTHER layer in the same change-set is fine.
+    #[test]
+    fn deleting_a_layer_the_same_change_set_fills_is_refused() {
+        let form = interleaved();
+        let by_deploy = cs(r##"{"operations":[
+            {"op":"deploy_control","control_type":"Label","id":"N","layer":"Overlay","properties":{}},
+            {"op":"delete_layer","name":"Overlay"}]}"##);
+        let by_move = cs(r##"{"operations":[
+            {"op":"move_to_layer","control_ids":["SAVE"],"layer":"Overlay"},
+            {"op":"delete_layer","name":"Overlay"}]}"##);
+        let by_container = cs(r##"{"operations":[
+            {"op":"move_to_layer","control_ids":["BOX"],"layer":"Old"},
+            {"op":"deploy_control","control_type":"Label","id":"KID","parent":"BOX","properties":{}},
+            {"op":"delete_layer","name":"Old"}]}"##);
+        let by_rename = cs(r##"{"operations":[
+            {"op":"deploy_control","control_type":"Label","id":"N","layer":"Overlay","properties":{}},
+            {"op":"rename_layer","name":"Overlay","new_name":"Renamed"},
+            {"op":"delete_layer","name":"Renamed"}]}"##);
+        for (name, set, at) in [("deploy", by_deploy, 1), ("move", by_move, 1), ("container", by_container, 2), ("rename", by_rename, 2)] {
+            let status = crate::agent::validate(&set, &form);
+            let why = status[at].as_deref().unwrap_or_else(|| panic!("{name}: the deletion must be refused"));
+            assert!(why.contains("also puts controls"), "{name}: {why}");
+        }
+        let other = cs(r##"{"operations":[
+            {"op":"deploy_control","control_type":"Label","id":"N","layer":"Overlay","properties":{}},
+            {"op":"delete_layer","name":"Old"}]}"##);
+        assert!(crate::agent::validate(&other, &form).iter().all(Option::is_none), "another layer may go");
+    }
+
+    /// R71 — a redeploy (an id of the same type already on the form) updates the control
+    /// where it stands, and moves it only when it names a layer; validation and apply
+    /// agree on which, so a later deletion takes what is really in the layer.
+    #[test]
+    fn a_redeploy_stays_in_its_layer_unless_it_names_another() {
+        let mut d = DesignerPanel::new(interleaved());
+        // No layer named: NOTE stays in Overlay, so deleting Overlay in the same change-set takes it.
+        d.apply_agent_change_set(&cs(r##"{"operations":[
+            {"op":"deploy_control","control_type":"Label","id":"NOTE","properties":{"Caption":"again"}},
+            {"op":"delete_layer","name":"Overlay"}]}"##));
+        assert!(d.form.find_control("NOTE").is_none(), "NOTE never left Overlay");
+        d.undo();
+
+        // A layer named: SAVE (a base Button) is moved; `Form` brings NOTE back to the base.
+        d.apply_agent_change_set(&cs(r##"{"operations":[
+            {"op":"deploy_control","control_type":"Button","id":"SAVE","layer":"Overlay","properties":{}},
+            {"op":"deploy_control","control_type":"Label","id":"NOTE","layer":"Form","properties":{}}]}"##));
+        assert_eq!(d.form.layer_of("SAVE"), Some("Overlay"));
+        assert_eq!(d.form.layer_of("NOTE"), None);
+        assert_eq!(d.form.controls.len(), 6, "no second control was made");
+        assert_eq!(d.undo_stack.len(), 1, "the first change-set was undone; this one is a single step");
+    }
+
+    /// R71 — a control deployed with no `layer` lands on the base, and a deploy of a
+    /// control that already exists keeps its layer (a redeploy is not a move).
+    #[test]
+    fn a_deploy_without_a_layer_lands_on_the_base() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_layer("Overlay"); // the designer's active tab must NOT leak into an agent's deploy
+        d.apply_agent_change_set(&cs(
+            r##"{"operations":[{"op":"deploy_control","control_type":"Button","id":"PLAIN","properties":{}}]}"##,
+        ));
+        assert_eq!(d.form.layer_of("PLAIN"), None, "no `layer` means the base, whichever tab is open");
+    }
+
+    /// R71 — the preview row and the headline carry identifiers only, in the
+    /// language of the IDE, and the lint gate leaves a valid layer change alone.
+    #[test]
+    fn the_preview_and_the_lint_know_the_layer_operations() {
+        let set = cs(r##"{"operations":[
+            {"op":"add_layer","name":"Help"},
+            {"op":"move_to_layer","control_ids":["SAVE","BOX"],"layer":"Help"}
+        ]}"##);
+        assert_eq!(crate::agent::layer_op_label(&set.operations[0]), "add_layer Help");
+        assert_eq!(crate::agent::layer_op_label(&set.operations[1]), "move_to_layer SAVE,BOX -> Help");
+        let ledger = crate::agent::outcome_ledger(&set, &[None, None]);
+        assert!(ledger.contains("applied: add_layer Help"), "{ledger}");
+        let shown = "```json\n{\"operations\":[{\"op\":\"add_layer\",\"name\":\"Help\"}]}\n```";
+        assert!(
+            crate::agent::lint_change_set_submission("Form Designer Agent", shown).is_none(),
+            "a valid layer operation is not a lint defect"
+        );
+        let bad = "```json\n{\"operations\":[{\"op\":\"add_layer\",\"name\":\"Form\"}]}\n```";
+        assert!(
+            crate::agent::lint_change_set_submission("Form Designer Agent", bad).is_some(),
+            "a reserved name is caught before a model is asked to review it"
         );
     }
 }

@@ -445,6 +445,25 @@ fn tab_walks_the_base_first_then_each_layer_from_the_lowest_up_091() {
 }
 
 #[test]
+fn tab_walks_each_tab_by_its_own_numbers_even_when_they_repeat_091() {
+    // R69: each tab is numbered from 1 on its own, so the same numbers appear in the
+    // base and in every layer. The walk is the base, then each layer upward, each by
+    // its own numbers — a repeated number is not a tie across tabs.
+    let controls = [
+        textbox("L2-A", Some("Layer-2"), 1, 150),
+        textbox("L1-B", Some("Layer-1"), 2, 100),
+        textbox("BASE-B", None, 2, 50),
+        textbox("L1-A", Some("Layer-1"), 1, 90),
+        textbox("BASE-A", None, 1, 10),
+        textbox("L2-B", Some("Layer-2"), 2, 160),
+    ];
+    let layers = || vec![layer("Layer-1", "#00000000"), layer("Layer-2", "#00000000")];
+    let walk = tab_walk(&controls, layers(), &Shown(&["Layer-1", "Layer-2"]), 7);
+    eprintln!("\n  Tab walk, every tab numbered 1, 2: {walk:?}");
+    assert_eq!(walk, ["BASE-A", "BASE-B", "L1-A", "L1-B", "L2-A", "L2-B", "BASE-A"]);
+}
+
+#[test]
 fn tab_skips_the_controls_of_a_hidden_layer_091() {
     let controls = [
         textbox("L1-TB", Some("Layer-1"), 0, 100),

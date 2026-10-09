@@ -1,7 +1,7 @@
 # Tasks — Form layers and the Non-Visuals tab (spec 091)
 
 - **Spec:** ./spec.md  **Plan:** ./plan.md  **Date:** 2026-10-09
-- **Status:** done — T1–T30; see T29 for the two suites not re-run in the final round
+- **Status:** T1–T37 done (see T29 for the two suites not re-run in the first final round); the follow-up T31–T37 is done at 1.90.41
 - **Branch:** `features-form-layers` (worktree `.claude/worktrees/form-layers`). Feature ⇒ `features` line, one `z` bump and one CHANGELOG entry per commit. Merge to `main` and push only when asked, never 09:00–18:00 São Paulo Mon–Fri.
 - Every verify line assumes `CARGO_TARGET_DIR=/Users/emersonlopes/Documents/PowerRustCOBOL/target CARGO_INCREMENTAL=0`, one crate at a time, test executables in `target/debug/deps` deleted between crates.
 
@@ -152,6 +152,36 @@
 - [x] **T30 — Close the spec**
   - `spec.md` has every AC ticked and Status `implemented`; `CHANGELOG.md` carries one entry per slice (1.90.35–1.90.39), the last with the AC15 numbers.
   - Nothing is pushed. Q31's default and IDE Check's missing receiver check were **accepted by the operator on 2026-10-09** (recorded in the spec). Still open: the unrelated `leaderboard_prototype` example (task_7698cf21) and the two suites above.
+
+## Follow-up — the operator's list of 2026-10-09, after the first merge (R66–R71)
+
+- [x] **T31 — The tab bar as the mock-up** (R66; AC34)
+  - Files: `panels/layer_tabs.rs` (shape, colours, strip, rules), its tests, and a picture test that renders the bar with `cobolt_forms::raster`.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layer_tabs` and `layers_091::look`; the picture is written to the temp folder for a human look.
+
+- [x] **T32 — The eye** (R67; AC35)
+  - Files: `panels/layer_tabs.rs` (the eye, open and closed, painted from shapes), the `+` and ✕ kept.
+  - Verify: `layers_091::look` (the two drawings differ; the click still toggles).
+
+- [x] **T33 — The Objects list follows the tab** (R68; AC36)
+  - Files: `panels/objects_list.rs`, `app.rs`.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::objects`.
+
+- [x] **T34 — A tab order for each tab** (R69; AC37)
+  - Files: `panels/tab_order.rs`, `panels/designer.rs` (`add_control`, paste, `move_selected_to_layer`, the list and Visual Tab Order).
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::tab_order`; the engine's own order is unchanged (`cobolt-forms` suite).
+
+- [x] **T35 — Copy here, paste there** (R70; AC38)
+  - Files: `panels/designer.rs`, tests only if nothing needs fixing.
+  - Verify: `layers_091::clipboard`, with the real keyboard shortcuts across a tab switch and between two designers.
+
+- [x] **T36 — The agents work with layers** (R71; AC39)
+  - Files: `agent.rs` (`AgentOp`, `validate_planned`, headlines, context), `panels/designer.rs` (apply; `plan_delete_controls`, `plan_move_to_layer` over the change-set's own layer table), `agent_lint.rs`, `app.rs` + `i18n.rs` (preview row), the prompts (`cobolt-agents/src/specialist.rs`, `tool_exec.rs` contract, the two DEFAULT reviewer/designer prompts in `llm.rs` — never the `LEGACY_*` ones), `grace_host.rs` (summary lines, extraction preamble), `cobolt-compiler/src/lib.rs` (System KB), `assets/knowledge/chunked.data`.
+  - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::agent` (16), `layer_summary_tests`, `the_shipped_form_prompts_…`, the freshness test.
+  - Found while testing: a `delete_layer` after another operation planned its deletions against positions the earlier one had already moved, and a redeploy of an existing control was treated by validation as a move; both fixed (deletions are one combined step at the end of the batch; a redeploy moves only when it names a layer).
+
+- [x] **T37 — Guide, CHANGELOG, gate and commit**
+  - `docs/developers-guide-en.md` (the tab bar's new look, the eye, the Objects list, per-tab order, agents), CHANGELOG, `z` bump, the IDE unit suite and `cobolt-forms` if it was touched, then one commit on `features-form-layers`. Merge to `main` only when asked.
 
 ## Coverage: every acceptance criterion has a task whose verify line proves it
 

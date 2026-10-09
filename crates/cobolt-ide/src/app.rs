@@ -1739,6 +1739,16 @@ fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, C
             format!("{} {block}", tr.agent_op_form_structure),
             Color32::from_rgb(150, 200, 190),
         ),
+        // Spec 091 — a layer operation, by its identifiers.
+        AgentOp::AddLayer { .. }
+        | AgentOp::RenameLayer { .. }
+        | AgentOp::DeleteLayer { .. }
+        | AgentOp::MoveLayer { .. }
+        | AgentOp::SetLayerProperty { .. }
+        | AgentOp::MoveToLayer { .. } => (
+            format!("{} {}", tr.agent_op_layer, crate::agent::layer_op_label(op)),
+            Color32::from_rgb(230, 170, 120),
+        ),
         AgentOp::Message { message } => (message.clone(), Color32::from_rgb(150, 150, 150)),
     }
 }
@@ -19323,7 +19333,9 @@ impl CoboltApp {
                 sidebar_header(ui, tr.sidebar_sec_objects, |_| {});
                 let picked = sidebar_body(ui, h.objects, |ui| {
                     let d = &self.designers[idx].1;
-                    crate::panels::objects_list::show(ui, &d.form, &d.selected_ids, h.objects, tr)
+                    // Spec 091 R68 — only the active tab's controls, the ones the canvas can reach.
+                    let members = d.active_tab_ids();
+                    crate::panels::objects_list::show(ui, &d.form, members.as_ref(), &d.selected_ids, h.objects, tr)
                 });
                 sidebar_grip(ui, h.body, &mut split, 1);
 

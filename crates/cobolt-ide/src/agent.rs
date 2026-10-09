@@ -46,6 +46,12 @@ pub enum AgentOp {
         parent: Option<String>,
         #[serde(default)]
         properties: serde_json::Map<String, serde_json::Value>,
+        /// The layer to create it in (spec 091): a layer's name, or `Form` for the
+        /// base. Omit for the base. A control inside a container follows its
+        /// container, so `layer` and `parent` together are refused; a non-visual
+        /// control belongs to no layer.
+        #[serde(default, skip_serializing_if = "Option::is_none", alias = "Layer")]
+        layer: Option<String>,
     },
     /// Set one property (any key) on an existing control.
     SetProperty {
@@ -67,6 +73,43 @@ pub enum AgentOp {
     /// (`DECIMAL-POINT IS COMMA` lives here and nowhere else) or declare the
     /// form-level GLOBAL working-storage its handlers share.
     SetFormStructure { block: String, code: String },
+    /// Add a transparent layer above the form and the layers already there (spec 091
+    /// R71). `name` is optional: leave it out for `Layer-1`, `Layer-2`… A form
+    /// holds at most 64 layers.
+    AddLayer {
+        #[serde(default)]
+        name: Option<String>,
+    },
+    /// Rename a layer; every control that names it and every `OLD::Visible` in the
+    /// form's code follow.
+    RenameLayer {
+        name: String,
+        #[serde(alias = "to", alias = "newName")]
+        new_name: String,
+    },
+    /// Delete a layer **with every control on it and their event handlers**. The
+    /// designer undoes it, with the rest of the change-set, as one step. Refused in a
+    /// change-set that also puts controls into that same layer.
+    DeleteLayer { name: String },
+    /// Put a layer at another place in the stack: `position` counts the layers
+    /// above the form from 1, the one nearest `Form` being 1 and the one on top
+    /// being the last.
+    MoveLayer { name: String, position: usize },
+    /// Set one of a layer's background properties: `Transparency`,
+    /// `BackgroundColor`, `BackgroundGradientEnabled`,
+    /// `BackgroundGradientStartColor`, `BackgroundGradientEndColor`,
+    /// `BackgroundGradientDirection`, `BackgroundImage`, `BackgroundImageMode`.
+    SetLayerProperty {
+        layer: String,
+        key: String,
+        value: serde_json::Value,
+    },
+    /// Send existing controls to a layer (`Form` for the base). A container takes
+    /// what is inside it; a control inside a container cannot be sent on its own.
+    MoveToLayer {
+        control_ids: Vec<String>,
+        layer: String,
+    },
     /// Return a conversational message to the user.
     Message { message: String },
 }
@@ -91,7 +134,27 @@ fn op_headline(op: &AgentOp) -> String {
         }
         AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
         AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
+        AgentOp::AddLayer { .. }
+        | AgentOp::RenameLayer { .. }
+        | AgentOp::DeleteLayer { .. }
+        | AgentOp::MoveLayer { .. }
+        | AgentOp::SetLayerProperty { .. }
+        | AgentOp::MoveToLayer { .. } => layer_op_label(op),
         AgentOp::Message { .. } => "message".to_owned(),
+    }
+}
+
+/// One line naming a layer operation, with identifiers only (the same rule as
+/// [`op_headline`]): used for the headline, the validation label and the preview.
+pub(crate) fn layer_op_label(op: &AgentOp) -> String {
+    match op {
+        AgentOp::AddLayer { name } => format!("add_layer {}", name.as_deref().unwrap_or("(auto name)")),
+        AgentOp::RenameLayer { name, new_name } => format!("rename_layer {name} -> {new_name}"),
+        AgentOp::DeleteLayer { name } => format!("delete_layer {name}"),
+        AgentOp::MoveLayer { name, position } => format!("move_layer {name} to {position}"),
+        AgentOp::SetLayerProperty { layer, key, .. } => format!("set_layer_property {layer}.{key}"),
+        AgentOp::MoveToLayer { control_ids, layer } => format!("move_to_layer {} -> {layer}", control_ids.join(",")),
+        _ => String::new(),
     }
 }
 
@@ -409,16 +472,132 @@ use std::collections::HashMap;
 /// (R9). Controls introduced by an earlier `deploy_control` in the same change-set
 /// count as valid targets for later ops.
 pub fn validate(cs: &AgentChangeSet, form: &Form) -> Vec<Option<String>> {
+    validate_planned(cs, form).0
+}
+
+/// [`validate`], and with it what every valid `delete_layer` takes: for each
+/// operation, the ids (upper-cased) of the controls of the form that its deletion
+/// removes — judged against the form the operations before it leave, so a control
+/// an earlier operation sent elsewhere is not among them. Empty for every other
+/// operation. The apply path deletes exactly these.
+pub(crate) fn validate_planned(cs: &AgentChangeSet, form: &Form) -> (Vec<Option<String>>, Vec<Vec<String>>) {
     let mut known: HashMap<String, ControlType> = form
         .controls
         .iter()
         .map(|c| (c.id.to_ascii_uppercase(), c.control_type.clone()))
         .collect();
 
-    cs.operations
-        .iter()
-        .map(|op| validate_op(op, &mut known, &form.name))
-        .collect()
+    let mut layers = LayerInv::from_form(form);
+    let mut status = Vec::with_capacity(cs.operations.len());
+    let mut deletions = Vec::with_capacity(cs.operations.len());
+    for op in &cs.operations {
+        status.push(validate_op(op, &mut known, &form.name, &mut layers));
+        deletions.push(layers.doomed.take().unwrap_or_default());
+    }
+    (status, deletions)
+}
+
+/// What validation knows of the form's layers while a change-set runs through it
+/// (spec 091 R71): the stack, which layer each control is in and which container,
+/// moved along by every layer operation so a later one is judged against the form
+/// the earlier ones leave — as `known` does for the controls.
+struct LayerInv {
+    /// The layers in stack order, nearest `Form` first, as the form spells them.
+    layers: Vec<String>,
+    /// Upper-cased control id → the layer that control itself names (`None`: the
+    /// base). Only a root control names one.
+    ctrl_layer: HashMap<String, Option<String>>,
+    /// Upper-cased control id → its container's upper-cased id.
+    ctrl_parent: HashMap<String, String>,
+    /// Upper-cased names of the layers this change-set has put controls into (by a
+    /// `deploy_control`, a `move_to_layer` or a rename): deleting one of them would
+    /// delete what the same change-set has just placed, which no agent means.
+    touched: std::collections::HashSet<String>,
+    /// What the `delete_layer` just validated takes (upper-cased ids), read out
+    /// by [`validate_planned`] after each operation.
+    doomed: Option<Vec<String>>,
+}
+
+impl LayerInv {
+    fn from_form(form: &Form) -> Self {
+        let layers: Vec<String> = form.layers.iter().map(|l| l.name.clone()).collect();
+        let canon = |name: &str| layers.iter().find(|l| l.eq_ignore_ascii_case(name)).cloned();
+        let ctrl_layer = form
+            .controls
+            .iter()
+            .map(|c| (c.id.to_ascii_uppercase(), c.layer.as_deref().and_then(canon)))
+            .collect();
+        let ctrl_parent = form
+            .controls
+            .iter()
+            .filter_map(|c| c.parent.as_ref().map(|p| (c.id.to_ascii_uppercase(), p.to_ascii_uppercase())))
+            .collect();
+        Self { layers, ctrl_layer, ctrl_parent, touched: Default::default(), doomed: None }
+    }
+
+    fn find(&self, name: &str) -> Option<usize> {
+        self.layers.iter().position(|l| l.eq_ignore_ascii_case(name.trim()))
+    }
+
+    /// The error for a layer that is not there, naming the ones that are.
+    fn missing(&self, name: &str) -> String {
+        if self.layers.is_empty() {
+            format!("No layer named '{name}': the form has no layers (add one with `add_layer`).")
+        } else {
+            format!("No layer named '{name}'. The layers are: {}.", self.layers.join(", "))
+        }
+    }
+
+    /// Note that this change-set has put a control into `layer` (`None`: the base).
+    fn touch(&mut self, layer: Option<&str>) {
+        if let Some(l) = layer {
+            self.touched.insert(l.to_ascii_uppercase());
+        }
+    }
+
+    /// The layer a control is drawn in: its own, or its container's.
+    fn effective_layer(&self, id_upper: &str) -> Option<String> {
+        let mut cur = id_upper.to_owned();
+        for _ in 0..64 {
+            match self.ctrl_parent.get(&cur) {
+                Some(p) => cur = p.clone(),
+                None => break,
+            }
+        }
+        self.ctrl_layer.get(&cur).cloned().flatten()
+    }
+
+    /// Whether `name` is already a control's or a layer's (one namespace, R4).
+    fn name_taken(&self, name: &str, known: &HashMap<String, ControlType>) -> bool {
+        known.contains_key(&name.trim().to_ascii_uppercase()) || self.find(name).is_some()
+    }
+
+    fn next_free_name(&self, known: &HashMap<String, ControlType>) -> String {
+        (1..)
+            .map(|n| format!("Layer-{n}"))
+            .find(|n| !self.name_taken(n, known))
+            .expect("an unbounded range has a free name")
+    }
+}
+
+/// `receiver::member` references in handler code that name a layer but a property
+/// a layer does not have (`LAYER-1::Colour`). A layer's properties are the ones of
+/// [`cobolt_forms::model::LAYER_PROPS`]; a method on one is an error as well.
+fn unknown_layer_ref(code: &str, inv: &LayerInv) -> Option<String> {
+    for r in scan_member_refs(code) {
+        if inv.find(&r.recv).is_none() {
+            continue;
+        }
+        if r.is_call || !cobolt_forms::model::layer_prop(&r.member) {
+            return Some(format!(
+                "Code references '{}::{}', but a layer has no such property. A layer's properties are: {}.",
+                r.recv,
+                r.member,
+                cobolt_forms::model::LAYER_PROPS.join(", ")
+            ));
+        }
+    }
+    None
 }
 
 /// The operations `cs` would NOT apply to `form`, each named with its reason.
@@ -652,11 +831,31 @@ pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
         AgentOp::DeployControl {
             control_type,
             properties,
+            layer,
+            parent,
+            parent_id,
             ..
         } => {
             let ct = ControlType::from_str(control_type);
             if matches!(ct, ControlType::Custom { .. }) {
                 return Some(format!("Unknown control type '{control_type}'."));
+            }
+            // Spec 091 — which layer a new control is created in.
+            if let Some(layer) = layer.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+                if ct.is_non_visual() {
+                    return Some(format!(
+                        "A {control_type} belongs to no layer — it lives on the Non-Visuals tab. \
+                         Leave `layer` out (it was '{layer}')."
+                    ));
+                }
+                let has_parent = parent.as_deref().or(parent_id.as_deref()).is_some_and(|p| !p.trim().is_empty())
+                    || properties.keys().any(|k| k.eq_ignore_ascii_case("parent") || k.eq_ignore_ascii_case("parent_id"));
+                if has_parent {
+                    return Some(format!(
+                        "A control inside a container follows its container's layer: give `layer` \
+                         ('{layer}') or a parent, not both."
+                    ));
+                }
             }
             // Property keys, if any, must be valid for the new control's type.
             properties.keys().find_map(|key| {
@@ -717,7 +916,90 @@ pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
             }
             None
         }
-        AgentOp::SetProperty { .. } | AgentOp::Message { .. } => None,
+        AgentOp::AddLayer { name } => name.as_deref().and_then(layer_name_error),
+        AgentOp::RenameLayer { new_name, .. } => layer_name_error(new_name),
+        AgentOp::MoveLayer { position, .. } => (*position == 0)
+            .then(|| "`position` counts the layers from 1: 1 is the layer nearest Form.".to_string()),
+        AgentOp::SetLayerProperty { key, value, .. } => layer_property_error(key, value),
+        AgentOp::MoveToLayer { control_ids, .. } => control_ids
+            .iter()
+            .all(|id| id.trim().is_empty())
+            .then(|| "`control_ids` names no control.".to_string()),
+        AgentOp::DeleteLayer { .. } | AgentOp::SetProperty { .. } | AgentOp::Message { .. } => None,
+    }
+}
+
+/// Why `name` cannot name a layer (spec 091 R6), or `None` when it can.
+fn layer_name_error(name: &str) -> Option<String> {
+    let name = name.trim();
+    (!cobolt_forms::model::is_valid_layer_name(name)).then(|| {
+        format!(
+            "'{name}' is not a layer name: it must be a COBOL-style name — letters, digits and \
+             hyphens, starting with a letter, not ending in a hyphen — and not `Form` or `Non-Visuals`."
+        )
+    })
+}
+
+/// The layer properties an agent may set: a layer's background (spec 091 R15).
+/// `Visible` is the running program's and the designer's, never saved; `Name` is
+/// renamed with `rename_layer`.
+const LAYER_BACKDROP_KEYS: [&str; 8] = [
+    "Transparency",
+    "BackgroundColor",
+    "BackgroundGradientEnabled",
+    "BackgroundGradientStartColor",
+    "BackgroundGradientEndColor",
+    "BackgroundGradientDirection",
+    "BackgroundImage",
+    "BackgroundImageMode",
+];
+
+/// Why `key` = `value` cannot be written to a layer, or `None` when it can.
+fn layer_property_error(key: &str, value: &serde_json::Value) -> Option<String> {
+    let k = key.trim();
+    if k.eq_ignore_ascii_case("Visible") {
+        return Some(
+            "`Visible` is a layer's state at run time (SET LAYER-NAME::Visible TO TRUE) and a \
+             design aid; it is never saved, so it cannot be set here."
+                .into(),
+        );
+    }
+    if k.eq_ignore_ascii_case("Name") {
+        return Some("A layer is renamed with `rename_layer`, not by setting `Name`.".into());
+    }
+    let Some(canon) = LAYER_BACKDROP_KEYS.iter().find(|p| p.eq_ignore_ascii_case(k)) else {
+        return Some(format!(
+            "A layer has no property '{key}'. Its properties are: {}.",
+            LAYER_BACKDROP_KEYS.join(", ")
+        ));
+    };
+    let text = match value {
+        serde_json::Value::String(t) => t.trim().to_owned(),
+        other => other.to_string(),
+    };
+    match *canon {
+        "Transparency" => text
+            .parse::<f64>()
+            .ok()
+            .filter(|v| (0.0..=100.0).contains(v))
+            .is_none()
+            .then(|| format!("Transparency is a number from 0 to 100, not '{text}'.")),
+        "BackgroundGradientEnabled" => (!matches!(text.to_ascii_lowercase().as_str(), "true" | "false" | "1" | "0"))
+            .then(|| format!("BackgroundGradientEnabled is true or false, not '{text}'.")),
+        "BackgroundColor" | "BackgroundGradientStartColor" | "BackgroundGradientEndColor" => {
+            let hex = text.strip_prefix('#').unwrap_or(&text);
+            (!(matches!(hex.len(), 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit())))
+                .then(|| format!("{canon} is a colour as `#RRGGBB` or `#RRGGBBAA`, not '{text}'."))
+        }
+        "BackgroundGradientDirection" => (![
+            "North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest",
+        ]
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(&text)))
+        .then(|| format!("BackgroundGradientDirection is one of North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWest, not '{text}'.")),
+        "BackgroundImageMode" => (!cobolt_forms::model::BgImageMode::all().iter().any(|m| m.eq_ignore_ascii_case(&text)))
+            .then(|| format!("BackgroundImageMode is one of {}, not '{text}'.", cobolt_forms::model::BgImageMode::all().join(", "))),
+        _ => None,
     }
 }
 
@@ -738,6 +1020,12 @@ fn op_ref(op: &AgentOp) -> String {
         } => format!("generate_event_handler {control_id}.{event}"),
         AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
         AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
+        AgentOp::AddLayer { .. }
+        | AgentOp::RenameLayer { .. }
+        | AgentOp::DeleteLayer { .. }
+        | AgentOp::MoveLayer { .. }
+        | AgentOp::SetLayerProperty { .. }
+        | AgentOp::MoveToLayer { .. } => layer_op_label(op),
         AgentOp::Message { .. } => "message".into(),
     }
 }
@@ -849,17 +1137,198 @@ pub fn lint_change_set_submission(agent: &str, submission: &str) -> Option<Strin
     (!errors.is_empty()).then(|| errors.join("\n"))
 }
 
-fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name: &str) -> Option<String> {
+fn validate_op(
+    op: &AgentOp,
+    known: &mut HashMap<String, ControlType>,
+    form_name: &str,
+    inv: &mut LayerInv,
+) -> Option<String> {
     match op {
         AgentOp::DeployControl {
-            control_type, id, ..
+            control_type,
+            id,
+            layer,
+            parent,
+            parent_id,
+            properties,
         } => {
             if let Some(error) = op_form_free_error(op) {
                 return Some(error);
             }
+            // The layer it is created in must exist (spec 091 R71).
+            let target = match layer.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+                None => None,
+                Some(l) if l.eq_ignore_ascii_case(cobolt_forms::model::BASE_LAYER_NAME) => None,
+                Some(l) => match inv.find(l) {
+                    Some(i) => Some(inv.layers[i].clone()),
+                    None => return Some(inv.missing(l)),
+                },
+            };
             if let Some(id) = id {
-                known.insert(id.to_ascii_uppercase(), ControlType::from_str(control_type));
+                let up = id.to_ascii_uppercase();
+                let ct = ControlType::from_str(control_type);
+                // The id of a control of the same type is a REDEPLOY: it updates the
+                // control where it stands, and moves it only when a layer is named.
+                let redeploy = known.get(&up).is_some_and(|t| *t == ct);
+                let named = layer.as_deref().is_some_and(|l| !l.trim().is_empty());
+                known.insert(up.clone(), ct);
+                let container = parent
+                    .as_deref()
+                    .or(parent_id.as_deref())
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        properties
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case("parent") || k.eq_ignore_ascii_case("parent_id"))
+                            .and_then(|(_, v)| v.as_str().map(str::to_owned))
+                    })
+                    .filter(|p| !p.trim().is_empty());
+                if redeploy {
+                    // A control inside a container follows the container.
+                    if named && !inv.ctrl_parent.contains_key(&up) {
+                        inv.touch(target.as_deref());
+                        inv.ctrl_layer.insert(up, target);
+                    }
+                } else if let Some(c) = container {
+                    // Created inside a container: it is in that container's layer.
+                    let c = c.to_ascii_uppercase();
+                    let there = inv.effective_layer(&c);
+                    inv.touch(there.as_deref());
+                    inv.ctrl_parent.insert(up.clone(), c);
+                    inv.ctrl_layer.insert(up, None);
+                } else {
+                    inv.touch(target.as_deref());
+                    inv.ctrl_layer.insert(up, target);
+                }
             }
+            None
+        }
+        AgentOp::AddLayer { name } => {
+            if let Some(error) = op_form_free_error(op) {
+                return Some(error);
+            }
+            if inv.layers.len() >= cobolt_forms::model::MAX_LAYERS {
+                return Some(format!(
+                    "A form holds at most {} layers above Form.",
+                    cobolt_forms::model::MAX_LAYERS
+                ));
+            }
+            let chosen = match name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+                Some(n) if inv.name_taken(n, known) => {
+                    return Some(format!("'{n}' is already the name of a control or a layer."))
+                }
+                Some(n) => n.to_owned(),
+                None => inv.next_free_name(known),
+            };
+            inv.layers.push(chosen);
+            None
+        }
+        AgentOp::RenameLayer { name, new_name } => {
+            if let Some(error) = op_form_free_error(op) {
+                return Some(error);
+            }
+            let Some(i) = inv.find(name) else {
+                return Some(inv.missing(name));
+            };
+            let new = new_name.trim();
+            // A change of letter case alone is a rename; anything else must be free.
+            if !new.eq_ignore_ascii_case(&inv.layers[i]) && inv.name_taken(new, known) {
+                return Some(format!("'{new}' is already the name of a control or a layer."));
+            }
+            let old = inv.layers[i].clone();
+            inv.layers[i] = new.to_owned();
+            if inv.touched.remove(&old.to_ascii_uppercase()) {
+                inv.touched.insert(new.to_ascii_uppercase());
+            }
+            for layer in inv.ctrl_layer.values_mut() {
+                if layer.as_deref().is_some_and(|l| l.eq_ignore_ascii_case(&old)) {
+                    *layer = Some(new.to_owned());
+                }
+            }
+            None
+        }
+        AgentOp::DeleteLayer { name } => {
+            let Some(i) = inv.find(name) else {
+                return Some(inv.missing(name));
+            };
+            let gone = inv.layers[i].clone();
+            if inv.touched.contains(&gone.to_ascii_uppercase()) {
+                return Some(format!(
+                    "This change-set also puts controls into '{gone}', and deleting a layer deletes the \
+                     controls on it. Leave one of the two out."
+                ));
+            }
+            let mut doomed: Vec<String> = inv
+                .ctrl_layer
+                .keys()
+                .filter(|id| inv.effective_layer(id).is_some_and(|l| l.eq_ignore_ascii_case(&gone)))
+                .cloned()
+                .collect();
+            doomed.sort();
+            for id in &doomed {
+                known.remove(id);
+                inv.ctrl_layer.remove(id);
+                inv.ctrl_parent.remove(id);
+            }
+            inv.layers.remove(i);
+            inv.doomed = Some(doomed);
+            None
+        }
+        AgentOp::MoveLayer { name, position } => {
+            if let Some(error) = op_form_free_error(op) {
+                return Some(error);
+            }
+            let Some(i) = inv.find(name) else {
+                return Some(inv.missing(name));
+            };
+            if *position > inv.layers.len() {
+                return Some(format!(
+                    "The form has {} layer(s), so `position` is 1 to {}.",
+                    inv.layers.len(),
+                    inv.layers.len()
+                ));
+            }
+            let layer = inv.layers.remove(i);
+            inv.layers.insert(position - 1, layer);
+            None
+        }
+        AgentOp::SetLayerProperty { layer, .. } => {
+            if let Some(error) = op_form_free_error(op) {
+                return Some(error);
+            }
+            inv.find(layer).is_none().then(|| inv.missing(layer))
+        }
+        AgentOp::MoveToLayer { control_ids, layer } => {
+            if let Some(error) = op_form_free_error(op) {
+                return Some(error);
+            }
+            let target = if layer.trim().eq_ignore_ascii_case(cobolt_forms::model::BASE_LAYER_NAME) {
+                None
+            } else {
+                match inv.find(layer) {
+                    Some(i) => Some(inv.layers[i].clone()),
+                    None => return Some(inv.missing(layer)),
+                }
+            };
+            for id in control_ids.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let up = id.to_ascii_uppercase();
+                match known.get(&up) {
+                    None => return Some(format!("No control named '{id}'.")),
+                    Some(ct) if ct.is_non_visual() => {
+                        return Some(format!("'{id}' is a {} — it belongs to no layer.", ct.as_str()))
+                    }
+                    _ => {}
+                }
+                if let Some(parent) = inv.ctrl_parent.get(&up) {
+                    return Some(format!(
+                        "'{id}' is inside '{parent}', so it follows that container's layer: send '{parent}' instead."
+                    ));
+                }
+            }
+            for id in control_ids.iter().map(|s| s.trim().to_ascii_uppercase()).filter(|s| !s.is_empty()) {
+                inv.ctrl_layer.insert(id, target.clone());
+            }
+            inv.touch(target.as_deref());
             None
         }
         AgentOp::SetProperty {
@@ -920,9 +1389,11 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
             };
             base.or_else(|| op_form_free_error(op))
                 .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
+                .or_else(|| unknown_layer_ref(code, inv))
         }
         AgentOp::CreateProcedure { name: _, code } => op_form_free_error(op)
-            .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg)),
+            .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
+            .or_else(|| unknown_layer_ref(code, inv)),
         AgentOp::SetFormStructure { .. } => op_form_free_error(op),
         AgentOp::Message { .. } => None,
     }
@@ -2029,6 +2500,37 @@ pub fn build_context(form: &Form) -> String {
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
     out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart, RadarChart\n\n");
 
+    // Layers (spec 091 R71). Always stated, even for a form with none, so an
+    // agent knows the feature exists and does not fake a layer with a Panel.
+    out.push_str("LAYERS (a layer is a transparent plane above the form; the last one listed is on top):\n");
+    if form.layers.is_empty() {
+        out.push_str("  (none — the form has only its base, 'Form', and the 'Non-Visuals' tab)\n");
+    }
+    for (i, l) in form.layers.iter().enumerate() {
+        let on_it = form
+            .controls
+            .iter()
+            .filter(|c| c.layer.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&l.name)))
+            .count();
+        out.push_str(&format!(
+            "  {}. {}  controls={}  BackgroundColor={:?}  Transparency={}\n",
+            i + 1,
+            l.name,
+            on_it,
+            l.backdrop.color,
+            l.backdrop.transparency
+        ));
+    }
+    out.push_str(
+        "  Layer operations: 'add_layer', 'rename_layer', 'delete_layer' (removes its controls and handlers; not in a change-set that also puts controls into that layer), 'move_layer', 'set_layer_property', 'move_to_layer'; 'deploy_control' accepts a \"layer\" name. \
+         A control with no layer is on the base ('Form'). 'Form' and 'Non-Visuals' are reserved names and are not layers: non-visual controls (Timer, AgentObject, RestClient, SqlDatabase, IndexedFile…) always live on 'Non-Visuals' and never take a layer. \
+         Children of a container follow the container; send the container, not the child. In the CONTROLS list below, 'layer=NAME' marks a control that is not on the base.\n",
+    );
+    out.push_str(&format!(
+        "  'set_layer_property' keys: {}. A new layer has a fully transparent BackgroundColor, so it shows what is below it.\n\n",
+        LAYER_BACKDROP_KEYS.join(", ")
+    ));
+
     out.push_str("CONTROLS:\n");
     if form.controls.is_empty() {
         out.push_str("  (none)\n");
@@ -2039,6 +2541,9 @@ pub fn build_context(form: &Form) -> String {
             "  {} ({}) @({},{}) {}x{}",
             c.id, ty, c.rect.x, c.rect.y, c.rect.w, c.rect.h
         );
+        if let Some(layer) = c.layer.as_deref() {
+            line.push_str(&format!("  layer={layer}"));
+        }
         let nd = non_default_props(c);
         if !nd.is_empty() {
             line.push_str("  ");
@@ -3431,6 +3936,7 @@ mod tests {
                     id: Some("B1".into()),
                     parent_id: None,
                     parent: None,
+                    layer: None,
                     properties: Default::default(),
                 },
                 // error: unsupported control type
@@ -3439,6 +3945,7 @@ mod tests {
                     id: None,
                     parent_id: None,
                     parent: None,
+                    layer: None,
                     properties: Default::default(),
                 },
                 // error: unknown control id
@@ -3980,6 +4487,7 @@ mod tests {
                     id: Some("TXT-1".into()),
                     parent_id: None,
                     parent: None,
+                    layer: None,
                     properties: serde_json::Map::new(),
                 },
                 AgentOp::GenerateEventHandler {
@@ -4182,6 +4690,7 @@ mod outcome_ledger_tests {
                     id: Some("BTN-OK".to_owned()),
                     parent_id: None,
                     parent: None,
+                    layer: None,
                     properties: serde_json::Map::new(),
                 },
                 AgentOp::SetProperty {

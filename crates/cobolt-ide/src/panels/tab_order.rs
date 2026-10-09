@@ -31,14 +31,23 @@ use crate::theme::Theme;
 /// orders them: by `TabOrder`, and among equal numbers by the order the form is
 /// painted (container before its children, siblings by z-order).
 pub fn tab_sequence(form: &Form) -> Vec<String> {
+    tab_sequence_in(form, None)
+}
+
+/// [`tab_sequence`] for one **tab** of the form (spec 091 R69): each tab has its own
+/// tab order, numbered from 1 on its own, so the editors list and renumber the
+/// controls the designer's pointer can reach — `members`, the active tab's — and
+/// leave every other tab's numbers alone. `None` is the whole form (a form with no
+/// layers). At run time Tab walks the base and then each layer upward, each by its
+/// own numbers, so this is also the order Tab will follow within that tab.
+pub fn tab_sequence_in(form: &Form, members: Option<&std::collections::HashSet<String>>) -> Vec<String> {
     let order = cobolt_forms::containers::render_order(&form.controls);
     let mut ranked: Vec<(u32, usize, String)> = order
         .iter()
         .enumerate()
         .filter_map(|(sequence, &idx)| {
             let c = &form.controls[idx];
-            c.control_type
-                .takes_tab_order()
+            (c.control_type.takes_tab_order() && members.is_none_or(|m| m.contains(&c.id)))
                 .then(|| (c.tab_order, sequence, c.id.clone()))
         })
         .collect();
@@ -69,9 +78,9 @@ pub struct VisualTabOrder {
 }
 
 impl VisualTabOrder {
-    pub fn start(form: &Form) -> Self {
+    pub fn start(form: &Form, members: Option<&std::collections::HashSet<String>>) -> Self {
         Self {
-            order: tab_sequence(form),
+            order: tab_sequence_in(form, members),
             picked: 0,
         }
     }
@@ -187,8 +196,8 @@ pub struct TabOrderModal {
 }
 
 impl TabOrderModal {
-    pub fn new(form: &Form) -> Self {
-        let rows = tab_sequence(form)
+    pub fn new(form: &Form, members: Option<&std::collections::HashSet<String>>) -> Self {
+        let rows = tab_sequence_in(form, members)
             .into_iter()
             .filter_map(|id| form.find_control(&id).map(row_for))
             .collect();
@@ -477,7 +486,7 @@ mod tests {
             ("C", ControlType::TextBox, 3),
             ("D", ControlType::TextBox, 4),
         ]);
-        let mut v = VisualTabOrder::start(&form);
+        let mut v = VisualTabOrder::start(&form, None);
         assert!(v.click("C"));
         assert!(v.click("A"));
         assert_eq!(v.order, ["C", "A", "B", "D"]);
@@ -499,7 +508,7 @@ mod tests {
             ("B", ControlType::TextBox, 2),
             ("C", ControlType::TextBox, 3),
         ]);
-        let mut m = TabOrderModal::new(&form);
+        let mut m = TabOrderModal::new(&form, None);
         m.move_row(0, 2);
         assert_eq!(m.order(), ["B", "C", "A"]);
         assert_eq!(m.selected_id(), Some("A"));

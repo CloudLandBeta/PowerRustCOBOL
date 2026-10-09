@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Objects list — every control already placed on the form being designed.
+//! Objects list — every control already placed on the tab being designed.
 //!
 //! The middle section of the Form Designer's left sidebar. The canvas can only
 //! select what the pointer can reach, so a control sitting underneath another
@@ -83,6 +83,20 @@ pub fn object_rows(form: &Form) -> Vec<ObjectRow> {
     rows
 }
 
+/// [`object_rows`] for the controls of one **tab** (spec 091 R68): `members` is
+/// the set the designer's pointer can reach — the active layer's, the base's, or
+/// the cards on `Non-Visuals` — and `None` means every control (a form with no
+/// layers and no non-visual control). A row then always names a control the
+/// canvas can reach, so clicking it never selects what the tab hides. A container
+/// and its children belong to one tab, so the indentation is untouched.
+pub fn object_rows_in(form: &Form, members: Option<&std::collections::HashSet<String>>) -> Vec<ObjectRow> {
+    let mut rows = object_rows(form);
+    if let Some(members) = members {
+        rows.retain(|r| members.contains(&r.id));
+    }
+    rows
+}
+
 /// Draw the list. Returns the id the developer clicked, if any.
 ///
 /// `selected` is the designer's current selection, so the row highlight and the
@@ -90,11 +104,12 @@ pub fn object_rows(form: &Form) -> Vec<ObjectRow> {
 pub fn show(
     ui: &mut Ui,
     form: &Form,
+    members: Option<&std::collections::HashSet<String>>,
     selected: &[String],
     max_height: f32,
     tr: &crate::i18n::Tr,
 ) -> Option<String> {
-    let rows = object_rows(form);
+    let rows = object_rows_in(form, members);
     if rows.is_empty() {
         ui.label(
             RichText::new(tr.objects_empty)

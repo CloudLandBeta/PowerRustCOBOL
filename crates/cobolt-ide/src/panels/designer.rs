@@ -3569,7 +3569,7 @@ impl DesignerPanel {
 
     pub fn apply_agent_change_set(&mut self, cs: &crate::agent::AgentChangeSet) -> usize {
         use crate::agent::AgentOp;
-        let status = crate::agent::validate(cs, &self.form);
+        let (status, deletions) = crate::agent::validate_planned(cs, &self.form);
         // The account is taken HERE, from the verdicts this function already
         // has, so every caller gets it without asking and none can skip it.
         self.last_change_outcome = crate::agent::outcome_ledger(cs, &status);
@@ -3590,8 +3590,13 @@ impl DesignerPanel {
         // Ids of the controls this change-set genuinely CREATES, in order — the
         // ones that pulse once when they appear.
         let mut spawned: Vec<String> = Vec::new();
+        // Spec 091 R71 — the layer table as the change-set leaves it so far: each
+        // layer operation snapshots from it, so they chain (and undo in reverse).
+        let mut layers_sim: Vec<cobolt_forms::Layer> = self.form.layers.clone();
+        // Controls a deleted layer takes, to say which procedures still name them.
+        let mut layer_deleted: Vec<String> = Vec::new();
 
-        for (op, err) in cs.operations.iter().zip(status.iter()) {
+        for (op_index, (op, err)) in cs.operations.iter().zip(status.iter()).enumerate() {
             if err.is_some() {
                 continue; // R9 — invalid ops are shown in the preview, never applied
             }
@@ -3602,6 +3607,7 @@ impl DesignerPanel {
                     parent_id,
                     parent,
                     properties,
+                    layer,
                 } => {
                     let ct = ControlType::from_str(control_type);
                     // A deploy that names a control ALREADY on the form is a
@@ -3617,10 +3623,24 @@ impl DesignerPanel {
                         .filter(|s| !s.is_empty())
                         .and_then(|s| self.redeploy_target(s, &ct, &deployed, &cmds))
                     {
+                        // Spec 091 R71 — a redeploy keeps the control where it stands, and
+                        // moves it only when it names a layer (`Form`: the base).
+                        let named = layer.as_deref().map(str::trim).filter(|l| !l.is_empty());
+                        let moved_to: Option<Option<String>> = named.map(|l| {
+                            layers_sim
+                                .iter()
+                                .find(|x| x.name.eq_ignore_ascii_case(l))
+                                .map(|x| x.name.clone())
+                        });
                         match cid {
                             RedeployTarget::Pending(i) => {
                                 if let Some(Cmd::AddControl { ctrl, .. }) = cmds.get_mut(i) {
                                     apply_deploy_properties(ctrl, properties);
+                                    if let Some(target) = moved_to {
+                                        if ctrl.parent.is_none() && !ctrl.control_type.is_non_visual() {
+                                            ctrl.layer = target;
+                                        }
+                                    }
                                 }
                             }
                             RedeployTarget::OnForm(cid) => {
@@ -3636,6 +3656,13 @@ impl DesignerPanel {
                                         old,
                                         new: pv,
                                     });
+                                }
+                                if let Some(layer_name) = named {
+                                    cmds.extend(self.plan_move_to_layer(
+                                        std::slice::from_ref(&cid),
+                                        layer_name,
+                                        &layers_sim,
+                                    ));
                                 }
                             }
                         }
@@ -3685,6 +3712,18 @@ impl DesignerPanel {
                         }
                     } else if let Some(existing_parent) = c.parent.clone() {
                         apply_agent_parent_target(&self.form, &mut c, &existing_parent);
+                    }
+                    // Spec 091 R71 — the layer it is created in. A control inside a
+                    // container follows the container, and a non-visual one is on
+                    // `Non-Visuals`: neither names a layer.
+                    if c.parent.is_none() && !c.control_type.is_non_visual() {
+                        c.layer = layer
+                            .as_deref()
+                            .map(str::trim)
+                            .and_then(|l| layers_sim.iter().find(|x| x.name.eq_ignore_ascii_case(l)))
+                            .map(|x| x.name.clone());
+                    } else {
+                        c.layer = None;
                     }
                     cmds.push(Cmd::AddControl {
                         index: self.form.controls.len() + added,
@@ -3786,6 +3825,90 @@ impl DesignerPanel {
                         new: crate::llm::normalize_comments(code),
                     });
                 }
+                AgentOp::AddLayer { name } => {
+                    let taken = |n: &str| {
+                        layers_sim.iter().any(|l| l.name.eq_ignore_ascii_case(n))
+                            || reserved.iter().any(|r| r.eq_ignore_ascii_case(n))
+                    };
+                    let chosen = match name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+                        Some(n) => n.to_owned(),
+                        None => (1..).map(|i| format!("Layer-{i}")).find(|n| !taken(n)).unwrap_or_default(),
+                    };
+                    let before = layers_sim.clone();
+                    layers_sim.push(cobolt_forms::Layer::new(chosen));
+                    cmds.push(Cmd::SetLayers { before, after: layers_sim.clone() });
+                }
+                AgentOp::RenameLayer { name, new_name } => {
+                    if let Some(l) = layers_sim.iter_mut().find(|l| l.name.eq_ignore_ascii_case(name)) {
+                        let old = l.name.clone();
+                        let new = new_name.trim().to_owned();
+                        l.name = new.clone();
+                        cmds.push(Cmd::RenameLayer { old, new });
+                    }
+                }
+                AgentOp::DeleteLayer { name } => {
+                    if let Some(i) = layers_sim.iter().position(|l| l.name.eq_ignore_ascii_case(name)) {
+                        let before = layers_sim.clone();
+                        layers_sim.remove(i);
+                        cmds.push(Cmd::SetLayers { before, after: layers_sim.clone() });
+                        // What it takes was settled against the form the operations
+                        // before it leave (`validate_planned`); the controls go in ONE
+                        // deletion at the end of the batch, so no index shifts under
+                        // another operation's.
+                        for id in deletions.get(op_index).into_iter().flatten() {
+                            if let Some(c) = self.form.controls.iter().find(|c| c.id.eq_ignore_ascii_case(id)) {
+                                layer_deleted.push(c.id.clone());
+                            }
+                        }
+                    }
+                }
+                AgentOp::MoveLayer { name, position } => {
+                    if let Some(i) = layers_sim.iter().position(|l| l.name.eq_ignore_ascii_case(name)) {
+                        let before = layers_sim.clone();
+                        let layer = layers_sim.remove(i);
+                        let at = position.saturating_sub(1).min(layers_sim.len());
+                        layers_sim.insert(at, layer);
+                        cmds.push(Cmd::SetLayers { before, after: layers_sim.clone() });
+                    }
+                }
+                AgentOp::SetLayerProperty { layer, key, value } => {
+                    if let Some(i) = layers_sim.iter().position(|l| l.name.eq_ignore_ascii_case(layer)) {
+                        let text = match value {
+                            serde_json::Value::String(t) => t.clone(),
+                            other => other.to_string(),
+                        };
+                        let (k, v) = (key.trim().to_owned(), text);
+                        let updated = layers_sim[i].with_live(std::iter::once((&k, &v)));
+                        if updated != layers_sim[i] {
+                            let before = layers_sim.clone();
+                            layers_sim[i] = updated;
+                            cmds.push(Cmd::SetLayers { before, after: layers_sim.clone() });
+                        }
+                    }
+                }
+                AgentOp::MoveToLayer { control_ids, layer } => {
+                    let target = layers_sim
+                        .iter()
+                        .find(|l| l.name.eq_ignore_ascii_case(layer.trim()))
+                        .map(|l| l.name.clone());
+                    let mut existing: Vec<String> = Vec::new();
+                    for id in control_ids.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                        // A control this change-set deploys is not on the form yet:
+                        // its pending command is changed in place.
+                        if let Some(&i) = deployed.get(&id.to_ascii_uppercase()) {
+                            if let Some(Cmd::AddControl { ctrl, .. }) = cmds.get_mut(i) {
+                                if ctrl.parent.is_none() && !ctrl.control_type.is_non_visual() {
+                                    ctrl.layer = target.clone();
+                                }
+                            }
+                        } else {
+                            existing.push(id.to_owned());
+                        }
+                    }
+                    if !existing.is_empty() {
+                        cmds.extend(self.plan_move_to_layer(&existing, layer.trim(), &layers_sim));
+                    }
+                }
                 AgentOp::Message { .. } => {
                     // Handled during chat history building.
                 }
@@ -3798,6 +3921,11 @@ impl DesignerPanel {
             // the carry + nudge moves into the SAME batch so undo and the move
             // animation treat each container-and-children motion as one.
             cmds.extend(self.plan_container_and_overlap_moves(cs, &status));
+            // Spec 091 R71 — the controls of every deleted layer, last of all: nothing
+            // in the batch shifts a control's place before they go.
+            if !layer_deleted.is_empty() {
+                cmds.extend(self.plan_delete_controls(&layer_deleted));
+            }
 
             // Snapshot positions BEFORE applying so we can animate the moves
             // (spec 035, R1). If an animation is already running, use each
@@ -3813,6 +3941,12 @@ impl DesignerPanel {
             }
 
             self.apply(Cmd::Batch { cmds });
+            if !layer_deleted.is_empty() {
+                self.selected_ids.retain(|id| !layer_deleted.contains(id));
+                self.report_orphaned_procedures();
+                self.report_procedures_still_referring(&layer_deleted);
+            }
+            self.retain_selection_in_active_tab();
 
             let anims = diff_moves(&before, &self.form);
             if !anims.is_empty() {
@@ -4687,6 +4821,33 @@ impl DesignerPanel {
         )
     }
 
+    /// The layer control `id` is drawn in — its own, or its container's (R8) — by the
+    /// name the form defines it under, or `None` for the base. A name the form does
+    /// not define counts as the base (R40).
+    fn effective_layer(&self, id: &str) -> Option<String> {
+        self.form
+            .layer_of(id)
+            .and_then(|n| self.form.layer_index(n))
+            .map(|i| self.form.layers[i].name.clone())
+    }
+
+    /// The highest `TabOrder` among the controls of one tab — `layer`, or the base
+    /// for `None` — that take part in the order (spec 091 R69).
+    fn tab_order_max_in(&self, layer: Option<&str>) -> u32 {
+        self.form
+            .controls
+            .iter()
+            .filter(|c| c.control_type.takes_tab_order())
+            .filter(|c| match (self.effective_layer(&c.id), layer) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+                _ => false,
+            })
+            .map(|c| c.tab_order)
+            .max()
+            .unwrap_or(0)
+    }
+
     /// The layer a **root** control created or placed now belongs to: the active
     /// layer's name, or `None` on `Form` and on `Non-Visuals` (spec 091 R28, R47).
     /// A name the form does not define counts as none (R40).
@@ -4834,7 +4995,9 @@ impl DesignerPanel {
         // …and the next place in the tab order, so Tab visits controls in the
         // order they were placed until the developer says otherwise. Every
         // designed control used to arrive as 0.
-        let max_tab = self.form.controls.iter().map(|c| c.tab_order).max().unwrap_or(0);
+        // Spec 091 R69 — each tab has its own order: the next number in the tab the
+        // control joins, whatever the other tabs hold.
+        let max_tab = self.tab_order_max_in(ctrl.layer.as_deref());
         ctrl.tab_order = max_tab + 1;
         // Controls whose control intrinsically shows a text label get a Caption.
         let has_caption = matches!(
@@ -5515,6 +5678,17 @@ impl DesignerPanel {
             }
         }
 
+        // Spec 091 R69 — what is pasted takes the next places in the TARGET tab's
+        // order, in the order it had where it was copied from: a number from another
+        // tab means nothing here, and a copy keeping the original's would tie with it.
+        {
+            let base = self.tab_order_max_in(paste_layer.as_deref());
+            let mut ranked: Vec<usize> = (0..pasted.len()).filter(|&i| pasted[i].control_type.takes_tab_order()).collect();
+            ranked.sort_by_key(|&i| (pasted[i].tab_order, i));
+            for (rank, i) in ranked.into_iter().enumerate() {
+                pasted[i].tab_order = base + rank as u32 + 1;
+            }
+        }
         let selected_ids: Vec<String> = pasted.iter().map(|ctrl| ctrl.id.clone()).collect();
         // Spec 091 R48 — pasting (or duplicating) non-visual controls brings the
         // `Non-Visuals` tab up, so the cards are on screen. A paste with any
@@ -7258,7 +7432,9 @@ impl DesignerPanel {
         // that the mode would swallow.
         self.tab_order_modal = None;
         self.format_painter = FormatPainter::Idle;
-        self.tab_order_visual = Some(super::tab_order::VisualTabOrder::start(&self.form));
+        // Spec 091 R69 — the numbers of the ACTIVE tab: each tab has its own order.
+        let members = self.active_tab_ids();
+        self.tab_order_visual = Some(super::tab_order::VisualTabOrder::start(&self.form, members.as_ref()));
     }
 
     /// Open the Tab Order list. A Visual Tab Order session in progress is
@@ -7267,7 +7443,8 @@ impl DesignerPanel {
         if let Some(visual) = self.tab_order_visual.take() {
             self.apply_tab_order(&visual.order);
         }
-        let mut modal = super::tab_order::TabOrderModal::new(&self.form);
+        let members = self.active_tab_ids();
+        let mut modal = super::tab_order::TabOrderModal::new(&self.form, members.as_ref());
         modal.select_id(self.selected_ids.first().map(String::as_str));
         self.tab_order_modal = Some(modal);
     }
@@ -10116,17 +10293,50 @@ impl DesignerPanel {
     /// one stays, and is reported (GOLDEN RULE: user code is sacred). `Form` is the
     /// active tab afterwards (Q27).
     pub(crate) fn delete_layer_now(&mut self, name: &str) {
-        let Some(layer_index) = self.form.layer_index(name) else {
+        let layers = self.form.layers.clone();
+        let Some((cmd, deleted_ids)) = self.plan_delete_layer(name, &layers) else {
             return;
         };
-        let layer_name = self.form.layers[layer_index].name.clone();
-        let mut indices: Vec<usize> = self
+        let layer_name = layers[layers.iter().position(|l| l.name.eq_ignore_ascii_case(name)).unwrap_or(0)].name.clone();
+        self.apply(cmd);
+
+        self.selected_ids.clear();
+        self.tabs.forget(&layer_name);
+        self.report_orphaned_procedures();
+        self.report_procedures_still_referring(&deleted_ids);
+    }
+
+    /// The single command that deletes layer `name` (see [`Self::delete_layer_now`]),
+    /// and the ids of the controls it takes — **planned**, not applied. `layers` is the
+    /// layer table as the caller holds it, which is the form's own for the designer and
+    /// the running table of a change-set for an agent that added or re-stacked layers
+    /// before deleting one. `None` when there is no such layer.
+    fn plan_delete_layer(&self, name: &str, layers: &[cobolt_forms::Layer]) -> Option<(Cmd, Vec<String>)> {
+        let layer_index = layers.iter().position(|l| l.name.eq_ignore_ascii_case(name))?;
+        let layer_name = layers[layer_index].name.clone();
+        let deleted_ids: Vec<String> = self
             .form
             .controls
             .iter()
-            .enumerate()
-            .filter(|(_, c)| self.form.layer_of(&c.id).is_some_and(|n| n.eq_ignore_ascii_case(&layer_name)))
-            .map(|(i, _)| i)
+            .filter(|c| self.form.layer_of(&c.id).is_some_and(|n| n.eq_ignore_ascii_case(&layer_name)))
+            .map(|c| c.id.clone())
+            .collect();
+        let mut cmds = self.plan_delete_controls(&deleted_ids);
+        let before = layers.to_vec();
+        let mut after = before.clone();
+        after.remove(layer_index);
+        cmds.push(Cmd::SetLayers { before, after });
+        Some((Cmd::Batch { cmds }, deleted_ids))
+    }
+
+    /// The commands that delete the controls `ids` (spec 091 R64): one `DeleteControl`
+    /// each, the highest index first so none shifts under the next, then the data
+    /// bindings as a real deletion would leave them (`recycle_control` prunes them and
+    /// its reverse does not restore them). Planned against the form as it stands.
+    fn plan_delete_controls(&self, ids: &[String]) -> Vec<Cmd> {
+        let mut indices: Vec<usize> = ids
+            .iter()
+            .filter_map(|id| self.form.controls.iter().position(|c| c.id.eq_ignore_ascii_case(id)))
             .collect();
         indices.sort_unstable();
         indices.dedup();
@@ -10147,9 +10357,7 @@ impl DesignerPanel {
             probe.data_bindings
         };
 
-        let deleted_ids: Vec<String> = indices.iter().map(|&i| self.form.controls[i].id.clone()).collect();
         let mut cmds: Vec<Cmd> = Vec::new();
-        // From the highest index down, so none shifts under the next.
         for idx in indices.into_iter().rev() {
             cmds.push(Cmd::DeleteControl {
                 index: idx,
@@ -10158,16 +10366,7 @@ impl DesignerPanel {
             });
         }
         cmds.push(Cmd::SetDataBindings { before: before_bindings, after: after_bindings });
-        let before = self.form.layers.clone();
-        let mut after = before.clone();
-        after.remove(layer_index);
-        cmds.push(Cmd::SetLayers { before, after });
-        self.apply(Cmd::Batch { cmds });
-
-        self.selected_ids.clear();
-        self.tabs.forget(&layer_name);
-        self.report_orphaned_procedures();
-        self.report_procedures_still_referring(&deleted_ids);
+        cmds
     }
 
     fn show_user_control_create_dialog(
@@ -13456,17 +13655,40 @@ impl DesignerPanel {
     /// the move gives them back. The moved controls leave the selection, which is
     /// the active tab's (R44).
     pub(crate) fn move_selected_to_layer(&mut self, layer: &str) {
+        let ids = self.selected_ids.clone();
+        let cmds = self.plan_move_to_layer(&ids, layer, &self.form.layers);
+        if cmds.is_empty() {
+            return;
+        }
+        self.apply(Cmd::Batch { cmds });
+        self.retain_selection_in_active_tab();
+    }
+
+    /// The commands that send `ids` to `layer` — planned, not applied (the body of
+    /// [`Self::move_selected_to_layer`], which an agent's change-set shares).
+    ///
+    /// `layers` is the table the target is looked up in: the form's own for the
+    /// designer, and for a change-set the table as its earlier operations leave it —
+    /// so a control can be sent to a layer the same change-set has just added.
+    pub(crate) fn plan_move_to_layer(
+        &self,
+        ids: &[String],
+        layer: &str,
+        layers: &[cobolt_forms::Layer],
+    ) -> Vec<Cmd> {
         let target: Option<String> = if layer.eq_ignore_ascii_case(cobolt_forms::model::BASE_LAYER_NAME) {
             None
         } else {
-            match self.form.layer_index(layer) {
-                Some(i) => Some(self.form.layers[i].name.clone()),
-                None => return,
+            match layers.iter().find(|l| l.name.eq_ignore_ascii_case(layer)) {
+                Some(l) => Some(l.name.clone()),
+                None => return Vec::new(),
             }
         };
         let mut cmds: Vec<Cmd> = Vec::new();
-        let roots: Vec<String> = self
-            .selected_ids
+        // Spec 091 R69 — the moved controls take the next places in the target tab's
+        // order (counted before anything moves, so they are not in it yet).
+        let mut next_tab_order = self.tab_order_max_in(target.as_deref());
+        let mut roots: Vec<String> = ids
             .iter()
             .filter(|id| {
                 self.form
@@ -13475,27 +13697,49 @@ impl DesignerPanel {
             })
             .cloned()
             .collect();
+        // They keep the order they had among themselves (R69).
+        roots.sort_by_key(|id| self.form.find_control(id).map_or(0, |c| c.tab_order));
         for id in roots {
             let Some(c) = self.form.find_control(&id) else { continue };
             let current = c
                 .layer
                 .as_deref()
-                .and_then(|n| self.form.layer_index(n))
-                .map(|i| self.form.layers[i].name.clone());
+                .and_then(|n| layers.iter().find(|l| l.name.eq_ignore_ascii_case(n)))
+                .map(|l| l.name.clone());
             if current == target {
                 continue;
             }
             cmds.push(Cmd::SetControlLayer { id: id.clone(), old: c.layer.clone(), new: target.clone() });
-            if target.is_some() {
-                // The control and everything inside it (spec 091 R21).
-                let mut group = vec![id.clone()];
-                if let Some(i) = self.form.controls.iter().position(|x| x.id == id) {
-                    group.extend(
-                        super::containers::collect_descendants(&self.form.controls, i)
-                            .into_iter()
-                            .map(|d| self.form.controls[d].id.clone()),
-                    );
+            // The control and everything inside it.
+            let mut group = vec![id.clone()];
+            if let Some(i) = self.form.controls.iter().position(|x| x.id == id) {
+                group.extend(
+                    super::containers::collect_descendants(&self.form.controls, i)
+                        .into_iter()
+                        .map(|d| self.form.controls[d].id.clone()),
+                );
+            }
+            // Their places in the target tab's order (spec 091 R69).
+            let mut by_order: Vec<&String> = group.iter().collect();
+            by_order.sort_by_key(|m| self.form.find_control(m).map_or(0, |c| c.tab_order));
+            for member in by_order {
+                let Some(m) = self.form.find_control(member) else { continue };
+                if !m.control_type.takes_tab_order() {
+                    continue;
                 }
+                next_tab_order += 1;
+                if m.tab_order != next_tab_order {
+                    cmds.push(Cmd::SetProperty {
+                        id: member.clone(),
+                        key: "TabOrder".into(),
+                        old: Some(PropValue::Int(m.tab_order as i64)),
+                        new: PropValue::Int(next_tab_order as i64),
+                    });
+                }
+            }
+            if target.is_some() {
+                // Only the base is laid out: into a layer the group loses its Dock and its
+                // Anchor goes back to the default (spec 091 R21).
                 for member in group {
                     let Some(m) = self.form.find_control(&member) else { continue };
                     for (key, default) in [
@@ -13516,11 +13760,7 @@ impl DesignerPanel {
                 }
             }
         }
-        if cmds.is_empty() {
-            return;
-        }
-        self.apply(Cmd::Batch { cmds });
-        self.retain_selection_in_active_tab();
+        cmds
     }
 
     /// Set one of a layer's backdrop properties from the inspector (spec 091 R15,
@@ -19791,6 +20031,7 @@ mod text_align_tests {
                 id: Some(id.into()),
                 parent_id: None,
                 parent: None,
+                layer: None,
                 properties: props,
             }
         };
@@ -19831,6 +20072,7 @@ mod text_align_tests {
                 id: Some(id.into()),
                 parent_id: None,
                 parent: None,
+                layer: None,
                 properties: props,
             }
         };
@@ -19858,6 +20100,7 @@ mod text_align_tests {
                 id: Some("TXT-1".into()),
                 parent_id: None,
                 parent: None,
+                layer: None,
                 properties: serde_json::Map::new(),
             }],
             note: None,
@@ -19888,6 +20131,7 @@ mod text_align_tests {
                     id: Some("SAVE".into()),
                     parent_id: None,
                     parent: None,
+                    layer: None,
                     properties: props,
                 },
                 AgentOp::SetProperty {
@@ -19970,6 +20214,7 @@ mod text_align_tests {
             id: Some(id.into()),
             parent_id: None,
             parent: None,
+            layer: None,
             properties: serde_json::json!({ "X": x, "Y": y, "Width": 150 })
                 .as_object()
                 .cloned()
@@ -20324,6 +20569,7 @@ mod text_align_tests {
                     id: Some("B".into()),
                     parent_id: None,
                     parent: None,
+                    layer: None,
                     properties: serde_json::Map::new(),
                 },
                 // one invalid op — must be counted as an error and skipped on approve
@@ -20924,6 +21170,7 @@ mod text_align_tests {
                 id: Some("Button-1".into()),
                 parent_id: None,
                 parent: None,
+                layer: None,
                 properties: props,
             }],
             note: None,
@@ -23399,6 +23646,7 @@ mod spawn_anim_tests {
             id: Some(id.into()),
             parent_id: None,
             parent: None,
+            layer: None,
             properties: Default::default(),
         }
     }
@@ -23940,6 +24188,7 @@ mod change_outcome_ubiquity_tests {
                 id: Some("BTN-OK".to_owned()),
                 parent_id: None,
                 parent: None,
+                layer: None,
                 properties: serde_json::Map::new(),
             }],
             note: None,
@@ -23988,6 +24237,7 @@ mod change_outcome_ubiquity_tests {
                 id: Some("BTN-ONE".to_owned()),
                 parent_id: None,
                 parent: None,
+                layer: None,
                 properties: serde_json::Map::new(),
             }],
             note: None,
@@ -24001,6 +24251,7 @@ mod change_outcome_ubiquity_tests {
                 id: Some("BTN-TWO".to_owned()),
                 parent_id: None,
                 parent: None,
+                layer: None,
                 properties: serde_json::Map::new(),
             }],
             note: None,
