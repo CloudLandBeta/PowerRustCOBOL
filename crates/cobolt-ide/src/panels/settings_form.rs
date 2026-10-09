@@ -37,7 +37,6 @@ pub struct SettingsDraft {
     pub main: String,
     pub copyright: String,
     pub destination_folder: String,
-    pub debug_compilation: bool,
     // ── License ──
     pub license_model: String,
     pub license_text: String,
@@ -137,7 +136,6 @@ impl SettingsDraft {
             main: p.project.main.clone(),
             copyright: p.project.copyright.clone(),
             destination_folder: p.project.destination_folder.clone(),
-            debug_compilation: p.project.debug_compilation,
             license_model: p.project.license_model.clone(),
             // A project that names a license but carries no text (older projects,
             // or one whose text was never filled in) gets the canonical text, so
@@ -235,7 +233,6 @@ impl SettingsDraft {
         p.project.main = self.main.clone();
         p.project.copyright = self.copyright.clone();
         p.project.destination_folder = self.destination_folder.clone();
-        p.project.debug_compilation = self.debug_compilation;
         p.project.license_model = self.license_model.clone();
         p.project.license_text = self.license_text.clone();
         p.ide.theme = self.theme_id.clone();
@@ -816,28 +813,6 @@ impl SettingsForm {
                                     egui::TextEdit::singleline(&mut self.draft.destination_folder)
                                         .desired_width(w),
                                 );
-                            });
-                        });
-
-                        // Debug Compilation
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.lbl_debug_compilation).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                ui.checkbox(&mut self.draft.debug_compilation, "");
                             });
                         });
 

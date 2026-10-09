@@ -692,12 +692,6 @@ struct ProjectMeta {
     main: String,
     #[serde(default)]
     destination_folder: String,
-    #[serde(default = "default_debug_compilation")]
-    debug_compilation: bool,
-}
-
-fn default_debug_compilation() -> bool {
-    true
 }
 
 /// Where a build installs the deliverable when the project does not choose.
@@ -1533,6 +1527,21 @@ pub struct BuildOptions {
     /// with the same generator and the same file rule
     /// (`cobolt_codegen::project`), from its designers' live state.
     pub regenerate_forms: bool,
+    /// Build the unoptimised binary the debugger attaches to, instead of the
+    /// optimised one a developer ships. `false` — the default — is the
+    /// optimised build: **Build** and **Run** ask for it, **Debug** asks for
+    /// this one.
+    ///
+    /// It is the *build* that chooses, never the project: this used to be a
+    /// `debug_compilation` property of the manifest, on by default, so a
+    /// project's Build button quietly produced the slow binary — every crate
+    /// of it, the interpreter and the render engine included, compiled without
+    /// optimisation — and that is the file people then ran from a command line.
+    ///
+    /// A debug build never replaces the optimised one. It is installed as
+    /// `bin/<name>-debug` and left out of the destination folder, so building
+    /// to debug cannot leave a slow binary where the deliverable belongs.
+    pub debug: bool,
 }
 
 impl Default for BuildOptions {
@@ -1544,6 +1553,7 @@ impl Default for BuildOptions {
             target: None,
             full: false,
             regenerate_forms: true,
+            debug: false,
         }
     }
 }
@@ -1623,7 +1633,6 @@ pub fn build_single_file(
             version: "1.0.0".into(),
             main,
             destination_folder: String::new(),
-            debug_compilation: true,
         },
         files: ProjectFiles::default(),
         forms: FormsConfig::default(),
@@ -1637,6 +1646,17 @@ pub fn build_single_file(
         sql_connections: Vec::new(),
     };
     build_core(proj, project_dir, opts, false)
+}
+
+/// The file a build installs in `bin/`.
+///
+/// A debug build is installed under its own name, so it can never stand in for
+/// the optimised program: the file that is slow to run is then also the one
+/// whose name says so.
+fn installed_binary_name(bin_name: &str, debug: bool) -> String {
+    let suffix = if debug { "-debug" } else { "" };
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    format!("{bin_name}{suffix}{extension}")
 }
 
 /// The generated crate/binary name from the project name. Cargo package
@@ -2548,13 +2568,13 @@ fn build_core(
     let main_rs = bake_indexed_engine(main_rs, &proj.ide.indexed_engine);
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
-    // ── 10. Run cargo build --release ─────────────────────────────────────────
+    // ── 10. Run cargo build --release (cargo build, for a debug build) ────────
     // Stream cargo's stderr so the progress bar advances per crate compiled and
     // shows the crate currently building.
     report(0.60, "Compiling…");
     use std::io::{BufRead as _, BufReader, Read as _};
     let mut base_args = vec!["build"];
-    if !proj.project.debug_compilation {
+    if !opts.debug {
         base_args.push("--release");
     }
     // `--message-format=json` puts machine-readable diagnostics on **stdout**
@@ -2689,13 +2709,9 @@ fn build_core(
         bin_name.clone()
     };
 
-    let profile_dir = if proj.project.debug_compilation {
-        "debug"
-    } else {
-        "release"
-    };
+    let profile_dir = if opts.debug { "debug" } else { "release" };
     let src_bin = build_dir.join("target").join(profile_dir).join(&exe_name);
-    let dst_bin = bin_dir.join(&exe_name);
+    let dst_bin = bin_dir.join(installed_binary_name(&bin_name, opts.debug));
     // Rename-into-place, never copy-over: overwriting the previous binary in
     // place got the very next launch SIGKILLed by macOS (see
     // `install_executable`). Also sets 0o755 on Unix.
@@ -2785,20 +2801,26 @@ fn build_core(
 
     // Copy project binary to destination folder (rename-into-place — see
     // `install_executable` for why a plain copy is a SIGKILL trap on macOS).
+    //
+    // Only an optimised build is delivered: a debug build is the developer's
+    // own iteration binary, and putting it here would replace the program they
+    // hand over with an unoptimised one.
     let dest_bin = dest_path.join(&exe_name);
-    if let Err(e) = install_executable(&dst_bin, &dest_bin) {
-        log(&format!(
-            "⚠️  Failed to copy binary to destination folder: {e}"
-        ));
-    } else {
-        // Make executable on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(&dest_bin) {
-                let mut perms = meta.permissions();
-                perms.set_mode(0o755);
-                let _ = std::fs::set_permissions(&dest_bin, perms);
+    if !opts.debug {
+        if let Err(e) = install_executable(&dst_bin, &dest_bin) {
+            log(&format!(
+                "⚠️  Failed to copy binary to destination folder: {e}"
+            ));
+        } else {
+            // Make executable on Unix
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&dest_bin) {
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o755);
+                    let _ = std::fs::set_permissions(&dest_bin, perms);
+                }
             }
         }
     }
@@ -5508,10 +5530,18 @@ change belongs in the form or in Common Code, never in `generated/`.
 
 `name`, `version`, `main` (the entry program), `copyright`, `license_model` and
 `license_text`, `destination_folder` (where a build installs the deliverable —
-`dist/` when unset), `debug_compilation`, and `built_with_version`, which
+`dist/` when unset), and `built_with_version`, which
 records the PowerRustCOBOL that last **fully** built the project. Opening a
 project last fully built by an older PowerRustCOBOL — or never fully built —
 makes the next **Build** a full one.
+
+How a project is compiled is chosen by the button, not by a setting.
+**Build** makes the optimised binary — the one to run from a command line and to
+ship — and installs it in `bin/` and in the destination folder. **Debug** makes
+an unoptimised binary for the debugger, installs it as `bin/<name>-debug`, and
+never touches the destination folder, so debugging cannot replace the program
+you deliver. An older project file may still carry a `debug_compilation` line;
+it is ignored.
 
 ## `[forms]` — form defaults and the main form
 
@@ -9600,7 +9630,6 @@ function_prefix = "sales-"
                 version: "1.0.0".into(),
                 main: main.into(),
                 destination_folder: String::new(),
-                debug_compilation: true,
             },
             files: ProjectFiles {
                 sources: sources.into_iter().map(String::from).collect(),
@@ -10762,6 +10791,9 @@ function_prefix = "sales-"
         let opts = BuildOptions {
             verbose: false,
             workspace_root: Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf),
+            // The unoptimised build, as this test has always used: it counts
+            // crates recompiled, which does not depend on the profile.
+            debug: true,
             ..Default::default()
         };
 
@@ -10801,6 +10833,91 @@ function_prefix = "sales-"
 
         let _ = fs::remove_dir_all(&dir);
         remove_build_staging("rebuildme");
+    }
+
+    // ── Build profile: the button chooses, not the project ────────────────────
+
+    /// A debug build is installed under its own name, an optimised one under
+    /// the program's — so the slow file is the one that says so.
+    #[test]
+    fn a_debug_build_is_installed_under_its_own_name() {
+        let ext = if cfg!(windows) { ".exe" } else { "" };
+        assert_eq!(installed_binary_name("crm", false), format!("crm{ext}"));
+        assert_eq!(installed_binary_name("crm", true), format!("crm-debug{ext}"));
+    }
+
+    /// Optimised unless asked otherwise — the default a Build button, the CLI
+    /// and the coding-agent tool all rely on — and a project file written when
+    /// `debug_compilation` was a setting still loads: the line is ignored, and
+    /// the project is built optimised like any other.
+    #[test]
+    fn a_build_is_optimised_by_default_and_an_old_manifest_still_loads() {
+        assert!(!BuildOptions::default().debug, "the default build must be the optimised one");
+        let old = "[project]\nname = \"Old\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\n\
+                   debug_compilation = true\n";
+        let proj: CoboltProject = toml::from_str(old).expect("an older project file must still load");
+        assert_eq!(proj.project.name, "Old");
+    }
+
+    /// **The point of the change, measured.** Build the same program both ways
+    /// and look at what each leaves behind: the optimised build is in `bin/`
+    /// and in the destination folder; the debug build is `bin/<name>-debug`,
+    /// built by the other cargo profile, and leaves the optimised program —
+    /// and the destination folder's copy of it — exactly as it found them.
+    #[test]
+    fn a_debug_build_never_replaces_the_optimised_one() {
+        let cobol = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PROFILEPROBE.
+       PROCEDURE DIVISION.
+           DISPLAY \"probe\".
+           STOP RUN.
+";
+        let _heavy = heavy_build_guard();
+        // Canonical, because the compiler reports canonical paths (`/private/var`
+        // for a temp folder on macOS) and the paths below are compared with them.
+        let dir = temp_dir("profile").canonicalize().unwrap();
+        let src = dir.join("profileprobe.cbl");
+        fs::write(&src, cobol).unwrap();
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf);
+        let build = |debug: bool| {
+            let opts = BuildOptions { verbose: false, workspace_root: workspace_root.clone(), debug, ..Default::default() };
+            build_single_file(&src, &opts).unwrap_or_else(|e| panic!("the build (debug = {debug}) failed: {e}"))
+        };
+        let stamp = |p: &Path| {
+            let m = fs::metadata(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+            (m.len(), m.modified().unwrap())
+        };
+        let run = |p: &Path| String::from_utf8_lossy(&std::process::Command::new(p).output().unwrap().stdout).into_owned();
+
+        // ── Optimised: bin/, the destination folder, and cargo's release profile.
+        let release = build(false);
+        let optimised = dir.join("bin").join(installed_binary_name("profileprobe", false));
+        let delivered = dir.join("dist").join(installed_binary_name("profileprobe", false));
+        assert_eq!(release.binary_path, optimised);
+        assert!(release.build_dir.join("target/release").join(installed_binary_name("profileprobe", false)).is_file(),
+            "the optimised build must come from cargo's release profile");
+        assert!(delivered.is_file(), "the optimised build is delivered to the destination folder");
+        assert!(run(&optimised).contains("probe"), "the optimised binary must run");
+        let (optimised_before, delivered_before) = (stamp(&optimised), stamp(&delivered));
+
+        // ── Debug: its own file, cargo's debug profile, nothing else touched.
+        let debug = build(true);
+        let debug_bin = dir.join("bin").join(installed_binary_name("profileprobe", true));
+        assert_eq!(debug.binary_path, debug_bin);
+        assert!(debug.build_dir.join("target/debug").join(installed_binary_name("profileprobe", false)).is_file(),
+            "the debug build must come from cargo's debug profile");
+        assert!(run(&debug_bin).contains("probe"), "the debug binary must run");
+        assert_eq!(stamp(&optimised), optimised_before, "a debug build must not touch bin/<name>");
+        assert_eq!(stamp(&delivered), delivered_before, "a debug build must not touch the destination folder's binary");
+
+        println!(
+            "profile build: optimised {} bytes (release profile, delivered); debug {} bytes (debug profile, bin/ only)",
+            optimised_before.0,
+            stamp(&debug_bin).0
+        );
+        let _ = fs::remove_dir_all(&dir);
+        remove_build_staging("profileprobe");
     }
 
     // ── Type coverage (spec 041 T12) ──────────────────────────────────────────

@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.23] — 2026-10-08
+
+### Fixed
+- **The Build button made the slow binary.** Whether a project compiled
+  optimised was a project setting, *Debug Compilation*, switched on for every new
+  project — so Build installed an unoptimised program in `bin/` and in the
+  destination folder, and that is the file people then ran from a command line.
+  Measured on the PowerAnalytics example (a 43,000-row data set), that binary
+  started in 3.0 s against 1.0 s optimised, and applying a filter and switching
+  pages took 12.5 s against 2.2 s, while Run Form — which runs on the IDE's
+  optimised runtime — was as fast as the optimised build. The button decides now:
+  **Build**, and `rcrun build`, make the optimised binary; **Debug** makes the
+  unoptimised one the debugger attaches to. The setting is gone — Project Settings
+  no longer shows it, and the window title no longer carries a Debug or Release
+  mode — and a `debug_compilation` line in an older project file is ignored.
+  The coding-agent `build` tool builds optimised too.
+
+### Changed
+- **Debug, in a project, builds the application and debugs that** — as a program
+  with `EXEC RUST` always did. The first Debug compiles everything; later ones
+  recompile what changed. A debug build is installed as `bin/<name>-debug` and is
+  never copied to the destination folder, so debugging cannot replace the program
+  you hand over. A form with no project is still debugged on `rcrun run-form
+  --debug`. Run Form is unchanged for a program without `EXEC RUST`, and where it
+  does build (a program with a block) it now builds optimised.
+- `rcrun build --debug` builds the unoptimised binary.
+
 ## [PowerRustCOBOL 1.90.22] — 2026-10-08
 
 ### Added

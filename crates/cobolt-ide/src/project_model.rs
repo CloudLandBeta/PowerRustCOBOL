@@ -618,10 +618,6 @@ fn default_inspector_dump_path() -> String {
         .to_string()
 }
 
-fn default_debug_compilation() -> bool {
-    true
-}
-
 impl Default for IdeSettings {
     fn default() -> Self {
         Self {
@@ -671,9 +667,6 @@ pub struct ProjectMeta {
     /// Empty means [`DEFAULT_DESTINATION_FOLDER`].
     #[serde(default)]
     pub destination_folder: String,
-    /// Is this a debug or release compilation
-    #[serde(default = "default_debug_compilation")]
-    pub debug_compilation: bool,
     /// The PowerRustCOBOL version that last ran a FULL build of this project.
     ///
     /// Empty for a project that has never had one — including every project
@@ -855,7 +848,6 @@ impl CoboltProject {
                 license_model: String::new(),
                 license_text: String::new(),
                 destination_folder,
-                debug_compilation: true,
                 // Never fully built yet — the first full build stamps it.
                 built_with_version: String::new(),
             },

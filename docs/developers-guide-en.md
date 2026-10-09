@@ -13371,6 +13371,7 @@ is.
 | `run-form`     | `--debug`                          | Debugger control over stdin/stdout (`@DBG` lines)                                                                                                                                                                               |
 | `run-form`     | `--designer`                       | Run the named form even when it is not the main one. The IDE passes this for **Run Form**; a shipped application never does. It announces itself on stderr, so a designer run cannot be mistaken for how the application starts. |
 | `build`        | `--full`, `--clean`                | Discard every cached artefact and rebuild from scratch                                                                                                                                                                          |
+| `build`        | `--debug`                          | Build the unoptimised binary the debugger attaches to, installed as `bin/<name>-debug` and never copied to the destination folder. Without it the binary is optimised — see **Build and Debug: which binary you get**         |
 | `build`        | `--quiet`, `-q`                    | Report only the outcome, not the progress                                                                                                                                                                                       |
 | `package`      | `--output <path.zip>`              | Override the output archive path                                                                                                                                                                                                |
 | `mcp`          | `--project <file\|folder>`         | The project the coding-agent tools act on — its project file, or the folder holding it. Without it, the project in Claude Code's folder (`CLAUDE_PROJECT_DIR`, else the current folder), searched upward. See **Working with a coding agent** |
@@ -13521,6 +13522,45 @@ flowchart LR
 - **`dist/`** is reserved for a future "bundle everything needed to run on a
   machine without PowerRustCOBOL" feature (binary + assets + any libraries +
   launcher). For now, ship `bin/` and the copied assets.
+
+### Build and Debug: which binary you get
+
+The button you press decides how your application is compiled. A project has no
+setting for it.
+
+| You press | You get | Where it is installed |
+|---|---|---|
+| **Build**, or `rcrun build` | The **optimised** binary — the one to run from a command line and to hand over | `bin/<name>`, and the destination folder |
+| **Debug**, or `rcrun build --debug` | The **unoptimised** binary, built so the debugger can attach to it | `bin/<name>-debug` — and nowhere else |
+| **Run Form** | No build. The form runs on the IDE's own optimised runtime, and its window is the one you designed | — |
+
+One thing makes Run Form build after all: the program contains `EXEC RUST`,
+whose blocks only exist in a built application. The application is then built —
+optimised — and run. A form with no blocks never waits for a build.
+
+**Debug builds first.** In a project, pressing **Debug** on a form compiles the
+application without optimisation, starts it, and attaches the debugger to it,
+paused at line 1. The first debug build compiles everything and takes a while;
+the next ones recompile only what changed. A form that does not belong to a
+project has nothing to build, so its Debug still runs on the IDE's runtime.
+
+> ⚠️ **Caveat — an unoptimised program is slow, and that is the point of its
+> name.** Debug exists to be stepped through, not to be fast. Measured on the
+> PowerAnalytics example (a 43,000-row data set loaded into the program's own
+> database), the same application started in 1.0 s optimised against 3.0 s
+> unoptimised, and applying a filter and switching pages took 2.2 s against
+> 12.5 s. If a built program feels slow, check which file you are running:
+> `bin/<name>-debug` is the debug build, `bin/<name>` and the destination
+> folder's copy are the optimised one.
+
+> **Note — a debug build never replaces the optimised one.** It has its own name
+> in `bin/` and is not copied to the destination folder, so debugging cannot
+> leave a slow program where the one you hand over belongs.
+
+> **Note — older projects.** Earlier versions kept a *Debug Compilation* setting
+> in the project, switched on for new projects, so the Build button quietly
+> produced the slow binary. The setting is gone. A `debug_compilation` line in an
+> older project file is ignored, and the next Build is optimised.
 
 ### Full builds and the recorded version
 

@@ -26,7 +26,6 @@ const MANIFEST: &str = r#"[project]
 name = "Crm"
 version = "1.0.0"
 main = "src/deployed.cbl"
-debug_compilation = true
 
 [[sql-connections]]
 name = "SALES"
@@ -103,7 +102,9 @@ fn a_built_binary_reads_its_sql_connections_file() {
     // Build resolves the project folder, symlinks and all (`/var` is
     // `/private/var` on macOS), and so must the expected paths.
     let project = project.canonicalize().unwrap();
-    let opts = BuildOptions { verbose: false, workspace_root: Some(workspace_root()), ..Default::default() };
+    // The unoptimised build: these tests prove behaviour, not speed, and a
+    // release build of the whole application would be minutes of compiling.
+    let opts = BuildOptions { verbose: false, workspace_root: Some(workspace_root()), debug: true, ..Default::default() };
 
     // ── Build: the starting file, beside the binary and in the hand-over ────
     let t = Instant::now();
@@ -206,7 +207,9 @@ fn ac2_ac7_ac9_agree_in_a_built_binary() {
     std::fs::create_dir_all(project.join("src")).unwrap();
     let project = project.canonicalize().unwrap();
     let esql = workspace_root().join("tests/cobol/esql");
-    let opts = BuildOptions { verbose: false, workspace_root: Some(workspace_root()), ..Default::default() };
+    // The unoptimised build: these tests prove behaviour, not speed, and a
+    // release build of the whole application would be minutes of compiling.
+    let opts = BuildOptions { verbose: false, workspace_root: Some(workspace_root()), debug: true, ..Default::default() };
     let expected: [(&str, [&str; 2]); 3] = [
         ("ac2_host_structure.cbl", ["rows: inserted 3; hostile text matched 00001", "PASS 002 FAIL 000"]),
         ("ac7_cursors.cbl", ["rows: inserted 10000 in fetched 010000 in updated in place 003333 in", "PASS 004 FAIL 000"]),
@@ -219,7 +222,7 @@ fn ac2_ac7_ac9_agree_in_a_built_binary() {
         std::fs::write(
             project.join("esqlparity.project.toml"),
             format!(
-                "[project]\nname = \"Esqlparity\"\nversion = \"1.0.0\"\nmain = \"src/{name}\"\ndebug_compilation = true\n\n\
+                "[project]\nname = \"Esqlparity\"\nversion = \"1.0.0\"\nmain = \"src/{name}\"\n\n\
                  [[sql-connections]]\nname = \"SALES\"\npath = \"data/sales.db\"\ncreate-if-missing = true\n"
             ),
         )

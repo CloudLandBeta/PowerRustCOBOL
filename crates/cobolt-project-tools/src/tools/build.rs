@@ -120,6 +120,8 @@ fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf
             // agent saved (a host with unsaved edits refuses before this), so
             // the forms' COBOL is regenerated from them first.
             regenerate_forms: true,
+            // The agent's build is the one a developer ships: optimised.
+            debug: false,
         };
         let started = Instant::now();
         let result = (shared.builder)(&manifest, &opts);

@@ -22,6 +22,8 @@
 //!
 //! ```text
 //! --quiet          Suppress progress output
+//! --debug          Build the unoptimised binary the debugger attaches to
+//!                  (bin/<name>-debug); without it the binary is optimised
 //! ```
 //!
 //! ## `rcrun package` flags
@@ -481,6 +483,7 @@ fn cmd_help() {
         "  rcrun build   <file.cbl>             Compile a console program → bin/<name> (native binary)\n",
         "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",
         "         [--quiet]                       Suppress build progress output\n",
+        "         [--debug]                       Unoptimised build for the debugger (bin/<name>-debug)\n",
         "  rcrun package [cobolt.toml]           Package project into a zip archive\n",
         "         [--output <path.zip>]           Override the output archive path\n",
         "  rcrun mcp     [--project <path>]      Serve the coding-agent tools (MCP) over stdio\n",
@@ -509,14 +512,19 @@ fn cmd_help() {
 /// Usage:
 ///   `rcrun build [cobolt.toml] [--quiet]`   — project build
 ///   `rcrun build prog.cbl [--quiet]`        — standalone console program
+///
+/// The binary is optimised unless `--debug` asks for the unoptimised one the
+/// debugger attaches to (installed as `bin/<name>-debug`).
 fn cmd_build(args: &[String]) {
     let mut target: Option<std::path::PathBuf> = None;
     let mut quiet = false;
     let mut full = false;
+    let mut debug = false;
 
     for arg in args {
         match arg.as_str() {
             "--quiet" | "-q" => quiet = true,
+            "--debug" => debug = true,
             // Discard every cached artefact first. The answer to "it behaves
             // oddly since I updated PowerRustCOBOL": the generated sources are
             // rewritten every build, but cargo's own artefacts survive, so an
@@ -526,6 +534,7 @@ fn cmd_build(args: &[String]) {
             other => {
                 eprintln!("rcrun build: unknown flag '{other}'");
                 eprintln!("  --full (or --clean)  discard cached artefacts and rebuild everything");
+                eprintln!("  --debug              build the unoptimised binary the debugger attaches to");
                 eprintln!("  --quiet (or -q)      only report the outcome");
                 process::exit(2);
             }
@@ -541,6 +550,7 @@ fn cmd_build(args: &[String]) {
         full,
         // Every form's generated COBOL is rebuilt from its `.cfrm` first.
         regenerate_forms: true,
+        debug,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));

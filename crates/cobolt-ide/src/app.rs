@@ -287,6 +287,19 @@ enum BuildThenLaunch {
     Debug(Box<Form>),
 }
 
+/// Whether Run Form or Debug has to build the application first, rather than
+/// hand the form to `rcrun run-form`.
+///
+/// A program with `EXEC RUST` always does: its blocks are native code the
+/// interpreter has no registry for. **Debug** does too whenever there is a
+/// project to build, because the debugger attaches to the unoptimised build.
+/// **Run** of a program without a block keeps the interpreter, which is the
+/// optimised fast path already. A form with no project has nothing to build,
+/// so its Debug stays on `rcrun run-form --debug`.
+fn run_needs_a_build(debug: bool, has_blocks: bool, has_project: bool) -> bool {
+    has_blocks || (debug && has_project)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum StaleBuildIntent {
     /// The IDE toolbar's Run.
@@ -2910,6 +2923,17 @@ impl CoboltApp {
             }
         });
         let cbl_path = self.generated_cbl_path(form_path);
+        // Every Debug builds the application now, not only a program with a
+        // block, so only a program with one gets the line about blocks.
+        let has_blocks = std::fs::read_to_string(&cbl_path)
+            .map(|src| !crate::exec_rust_run::block_line_ranges(&src).is_empty())
+            .unwrap_or(false);
+        let notice = if has_blocks {
+            "Debugging the built application — EXEC RUST blocks run for real, \
+             and a block is one step. Paused at line 1."
+        } else {
+            "Debugging the debug build of the application. Paused at line 1."
+        };
         match crate::form_runtime::ExternalFormRun::spawn_built(
             binary,
             form_path.to_path_buf(),
@@ -2918,14 +2942,7 @@ impl CoboltApp {
             self.built_app_env(form_path),
         ) {
             Ok(run) => {
-                self.attach_debug_session(
-                    &run,
-                    &form,
-                    form_path,
-                    &cbl_path,
-                    "Debugging the built application — EXEC RUST blocks run for real, \
-                     and a block is one step. Paused at line 1.",
-                );
+                self.attach_debug_session(&run, &form, form_path, &cbl_path, notice);
                 self.external_runs.push(run);
                 self.set_element_status(form_path, ElementStatus::Tested);
             }
@@ -3253,20 +3270,33 @@ impl CoboltApp {
         // `rcrun build`. The IDE stays idle while the form runs.
         let cbl_path = self.generated_cbl_path(&form_path);
 
-        // …unless the program contains `EXEC RUST` (spec 041 T13). A block is
-        // compiled into the built binary, so the interpreter `rcrun run-form`
-        // uses has nothing to call; running it anyway would fail loudly at the
-        // first block, which is correct but useless. Build first and run what
-        // the build produced. Programs without a block never reach this and
-        // keep the fast path exactly as it was.
+        // …unless a build has to come first, in two cases.
         //
-        // The question covers EVERY form in the project, not just this one: an
-        // application opens child forms (051), each runs its own program, and
-        // all of them share one compiled block registry. Asking only about the
-        // form being run took the interpreter path for a block in a child
-        // form's handler, and it failed at the button click instead of at Run.
+        // The program contains `EXEC RUST` (spec 041 T13). A block is compiled
+        // into the built binary, so the interpreter `rcrun run-form` uses has
+        // nothing to call; running it anyway would fail loudly at the first
+        // block, which is correct but useless. Build first and run what the
+        // build produced.
+        //
+        // The developer pressed Debug, in a project. Debug is the unoptimised
+        // build of the application, so it is built and the debugger attached
+        // to that — Run keeps the optimised interpreter, which is already the
+        // fast path. A form with no project has nothing to build and is still
+        // debugged through `rcrun run-form --debug`.
+        //
+        // Run of a program without a block never reaches this and keeps the
+        // fast path exactly as it was.
+        //
+        // The block question covers EVERY form in the project, not just this
+        // one: an application opens child forms (051), each runs its own
+        // program, and all of them share one compiled block registry. Asking
+        // only about the form being run took the interpreter path for a block
+        // in a child form's handler, and it failed at the button click instead
+        // of at Run.
         let run_cbl_paths = self.run_program_paths(&form_path);
-        if crate::exec_rust_run::any_has_blocks(run_cbl_paths.iter().map(PathBuf::as_path)) {
+        let has_blocks =
+            crate::exec_rust_run::any_has_blocks(run_cbl_paths.iter().map(PathBuf::as_path));
+        if run_needs_a_build(debug, has_blocks, self.cobolt_project.is_some()) {
             let tr = self.lang.tr();
             // Debug takes the SAME route as Run: build, then attach the
             // debugger to what the build produced.
@@ -3293,16 +3323,27 @@ impl CoboltApp {
                 );
                 return;
             }
-            let building = if debug {
-                tr.status_exec_rust_building_debug.to_owned()
-            } else {
-                tr.status_exec_rust_building.to_owned()
+            let building = match (debug, has_blocks) {
+                (true, true) => tr.status_exec_rust_building_debug.to_owned(),
+                (true, false) => tr.status_debug_building.to_owned(),
+                (false, _) => tr.status_exec_rust_building.to_owned(),
             };
             // `do_build_binary` clears the run output and may refuse (no
             // project, forms with errors), so the notice goes in afterwards and
             // the pending intent is only recorded once a build really started.
-            self.do_build_binary();
-            if self.pending_build_rx.is_some() {
+            // Run gets the optimised build, Debug the unoptimised one.
+            //
+            // "Started" means THIS call started one. A build already running
+            // refuses a second, and its receiver would otherwise pass for ours:
+            // the launch would attach to whatever that other build produced —
+            // Debug to an optimised binary, or Run to a debug one.
+            let build_was_running = self.pending_build_rx.is_some();
+            if debug {
+                self.do_build_binary_for_debug();
+            } else {
+                self.do_build_binary();
+            }
+            if !build_was_running && self.pending_build_rx.is_some() {
                 self.output.push_status(building);
                 self.pending_build_then_run = Some((form_path.clone(), intent));
                 // A build started by Run Form belongs to THAT form's designer
@@ -5223,7 +5264,15 @@ impl CoboltApp {
     /// Progress lines are forwarded to the Output panel.
     /// An ordinary, incremental build.
     fn do_build_binary(&mut self) {
-        self.do_build_binary_with(false);
+        self.do_build_binary_with(false, false);
+    }
+
+    /// The build Debug asks for: the same project, compiled without
+    /// optimisation so the debugger can attach to it, and installed beside the
+    /// optimised program under its own name (`bin/<name>-debug`) rather than
+    /// over it.
+    fn do_build_binary_for_debug(&mut self) {
+        self.do_build_binary_with(false, true);
     }
 
     /// The Build button (toolbar and the File menu item).
@@ -5241,7 +5290,7 @@ impl CoboltApp {
     /// just gave.
     fn do_build_binary_button(&mut self) {
         let full = self.build_is_stale();
-        self.do_build_binary_with(full);
+        self.do_build_binary_with(full, false);
     }
 
     /// Build, optionally discarding every cached artefact first.
@@ -5252,7 +5301,11 @@ impl CoboltApp {
     /// objects produced by an older version against newly generated code. It is
     /// also the only build that stamps [`ProjectMeta::built_with_version`],
     /// because it is the only one that can promise nothing older survived.
-    fn do_build_binary_with(&mut self, full: bool) {
+    ///
+    /// `debug` picks the profile — the optimised binary a developer ships when
+    /// `false`, the unoptimised one the debugger attaches to when `true`. The
+    /// button decides it; a project no longer carries a setting for it.
+    fn do_build_binary_with(&mut self, full: bool, debug: bool) {
         // One build at a time. Every build of a project stages into the same
         // `cobolt-build-<binary>` folder of the build cache, and a full build's first act
         // is to throw that folder away — so a second build started while one is
@@ -5372,6 +5425,7 @@ impl CoboltApp {
                 // generator and file rule the compiler uses, but from the open
                 // designers' LIVE state, which the compiler cannot see.
                 regenerate_forms: false,
+                debug,
             };
             let result = build_project(&manifest, &opts).map_err(|e| e.to_string());
             let _ = tx.send(result);
@@ -12358,7 +12412,7 @@ impl CoboltApp {
             // The full build stamps the project on success; the developer
             // presses Run again once it finishes. Starting the run
             // automatically would race the build they just asked for.
-            self.do_build_binary_with(true);
+            self.do_build_binary_with(true, false);
             // Claim the modal host only AFTER the call, and only when a build
             // really started: do_build_binary_with resets the host to "main
             // window" as part of its fresh-build state, so a claim made
@@ -15275,24 +15329,12 @@ impl eframe::App for CoboltApp {
         let shot_bg = self.current_theme().bg_panel.to_opaque();
         self.doc_shots.poll(ctx, self.debug.doc_screenshots, shot_bg);
 
-        // Update window title to reflect the current project's build mode.
+        // Window title: the product and its version, which the operator reads to
+        // confirm they are running fresh code. It carried a Debug/Release mode
+        // while a project setting chose the build; the button chooses now, so
+        // there is no mode of the project to show.
         {
-            let mode_suffix = self
-                .cobolt_project
-                .as_ref()
-                .map(|p| {
-                    if p.project.debug_compilation {
-                        tr.title_debug_mode
-                    } else {
-                        tr.title_release_mode
-                    }
-                })
-                .unwrap_or("");
-            let title = if mode_suffix.is_empty() {
-                format!("{} {VERSION}", crate::theme::brand_name())
-            } else {
-                format!("{} {VERSION} — {mode_suffix}", crate::theme::brand_name())
-            };
+            let title = format!("{} {VERSION}", crate::theme::brand_name());
             // Only touch the OS window when the title actually changes.
             if title != self.last_window_title {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -23143,5 +23185,29 @@ mod chart_databinding_tests {
         let names = cobolt_forms::paint::chart_series_names(form.find_control("CHART-1").unwrap(), 2);
         assert_eq!(names, ["S-AMOUNT", "S-COST"], "the preview's legend names the bound fields");
         println!("052 T13: bound chart -> LabelField S-MONTH, ValueFields S-AMOUNT,S-COST, legend {names:?}");
+    }
+}
+
+#[cfg(test)]
+mod build_profile_tests {
+    use super::run_needs_a_build;
+
+    /// Run keeps the optimised interpreter unless a block forces a build;
+    /// Debug builds the unoptimised application whenever there is a project.
+    #[test]
+    fn run_form_builds_only_for_a_block_and_debug_builds_in_a_project() {
+        // (debug, has_blocks, has_project) -> builds first?
+        let table = [
+            ((false, false, true), false, "Run, no block: the optimised interpreter, no build"),
+            ((false, false, false), false, "Run of a lone form: the interpreter"),
+            ((false, true, true), true, "Run with EXEC RUST: built first, as before"),
+            ((true, false, true), true, "Debug in a project: the debug build, even with no block"),
+            ((true, true, true), true, "Debug with EXEC RUST: the debug build"),
+            ((true, false, false), false, "Debug of a lone form: nothing to build, `rcrun run-form --debug`"),
+        ];
+        for ((debug, blocks, project), want, why) in table {
+            assert_eq!(run_needs_a_build(debug, blocks, project), want, "{why}");
+        }
+        println!("run/debug routing: {} cases (Run -> interpreter unless a block; Debug -> debug build in a project)", table.len());
     }
 }

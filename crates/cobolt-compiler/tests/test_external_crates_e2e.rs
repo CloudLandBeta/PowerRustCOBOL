@@ -178,9 +178,12 @@ fn external_crates_build_run_manifest_and_determinism() {
     vendor(&project, "serde", SERDE_VERSION);
     let vendor_ms = t.elapsed().as_millis();
 
+    // The unoptimised build: this test proves behaviour, not speed, and a
+    // release build of the whole application would be minutes of compiling.
     let opts = BuildOptions {
         verbose: false,
         workspace_root: Some(workspace_root()),
+        debug: true,
         ..Default::default()
     };
 
@@ -319,9 +322,12 @@ fn external_crates_alias_build_and_run() {
     vendor(&project, "egui", ALIAS_EGUI_VERSION);
     let vendor_ms = t.elapsed().as_millis();
 
+    // The unoptimised build: this test proves behaviour, not speed, and a
+    // release build of the whole application would be minutes of compiling.
     let opts = BuildOptions {
         verbose: false,
         workspace_root: Some(workspace_root()),
+        debug: true,
         ..Default::default()
     };
 

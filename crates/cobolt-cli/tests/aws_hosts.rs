@@ -109,7 +109,7 @@ fn project(tag: &str) -> Project {
     let routes: String = ["lambda", "fake", "bedrock-kb", "agentcore", "s3tables", "dataprocessing", "hosted"].map(server).concat();
     let listed = |dir: &str, ext: &str| forms.iter().map(|f| format!("\"{dir}/{f}.{ext}\"")).collect::<Vec<_>>().join(", ");
     let manifest = format!(
-        "[project]\nname = \"AwsHosts\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\ndebug_compilation = true\n\n\
+        "[project]\nname = \"AwsHosts\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\n\n\
          [files]\nsources = [\"src/main.cbl\"]\nforms = [{}]\ngenerated = [{}]\n\n\
          [[integrations.aws_connections]]\nid = \"aws-hosts\"\nname = \"Demo\"\nprofile = \"demo\"\nregion = \"eu-west-1\"\n\
          routes_override = '''\n{routes}'''\n",
@@ -288,7 +288,9 @@ fn the_demos_pass_under_run_form_and_as_embedded_child_forms() {
 fn the_demos_pass_in_a_built_binary_and_leave_no_server_behind() {
     let p = project("bin");
     let ws = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
-    let opts = cobolt_compiler::BuildOptions { verbose: false, workspace_root: Some(ws), ..Default::default() };
+    // The unoptimised build: this test proves behaviour, not speed, and a
+    // release build of the whole application would be minutes of compiling.
+    let opts = cobolt_compiler::BuildOptions { verbose: false, workspace_root: Some(ws), debug: true, ..Default::default() };
     let t = std::time::Instant::now();
     let built = cobolt_compiler::build_project(&p.root.join("awshosts.project.toml"), &opts)
         .unwrap_or_else(|e| panic!("the build failed: {e}"));

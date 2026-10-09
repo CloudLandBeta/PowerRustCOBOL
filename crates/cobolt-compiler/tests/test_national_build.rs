@@ -35,7 +35,9 @@ fn national_programs_agree_in_a_built_binary() {
     std::fs::create_dir_all(project.join("src")).unwrap();
     let project = project.canonicalize().unwrap();
     let tests = workspace_root().join("tests/cobol");
-    let opts = BuildOptions { verbose: false, workspace_root: Some(workspace_root()), ..Default::default() };
+    // The unoptimised build: this test proves behaviour, not speed, and a
+    // release build of the whole application would be minutes of compiling.
+    let opts = BuildOptions { verbose: false, workspace_root: Some(workspace_root()), debug: true, ..Default::default() };
     let expected: [(&str, &str, &[&str]); 4] = [
         (
             "national",
@@ -56,7 +58,7 @@ fn national_programs_agree_in_a_built_binary() {
         // One project, its main program swapped: the build folder is reused.
         std::fs::write(
             project.join("natparity.project.toml"),
-            format!("[project]\nname = \"Natparity\"\nversion = \"1.0.0\"\nmain = \"src/{name}\"\ndebug_compilation = true\n"),
+            format!("[project]\nname = \"Natparity\"\nversion = \"1.0.0\"\nmain = \"src/{name}\"\n"),
         )
         .unwrap();
         let t = Instant::now();

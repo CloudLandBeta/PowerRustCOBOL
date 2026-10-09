@@ -10,7 +10,6 @@ copyright = ""
 license_model = ""
 license_text = ""
 destination_folder = "dist"
-debug_compilation = true
 built_with_version = ""
 
 [files]
