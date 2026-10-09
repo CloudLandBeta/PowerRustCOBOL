@@ -8,6 +8,30 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+> **Note — the fix number ran twice again, 1.90.22 to 1.90.24.** Four fixes
+> made in parallel sessions — an undeclared `FILE STATUS`, a `CALL` to a program
+> that does not exist, text selected in the event editor dragging a toolbox
+> control, and expand icons showing through overlays — were numbered 1.90.22 to
+> 1.90.24 while `main` was using the same numbers for the Spec 091 drafts and
+> the Build/Debug fix. Each of those three numbers therefore names two or three
+> entries below, `main`'s first. Both records are kept and nothing has been
+> renumbered, as before; 1.90.25 carries the version forward past them all.
+
+## [PowerRustCOBOL 1.90.25] — 2026-10-08
+
+### Changed
+- **Four fixes from other sessions merged into `main`:**
+  - A `FILE STATUS` item that is not declared is a compile error (1.90.22).
+  - A `CALL` to a procedure that does not exist is a compile error (1.90.22).
+  - Selecting text in the COBOL event editor no longer drags a control out of
+    the toolbox (1.90.23).
+  - Expand icons no longer show through overlays, and everything inside an
+    expanded card grows with it (1.90.24).
+
+  The four had been numbered 1.90.22 to 1.90.24 while `main` already used those
+  numbers (see the note above), so this entry only moves the version on: the
+  window title now shows a build that has all of them.
+
 ## [PowerRustCOBOL 1.90.24] — 2026-10-08
 
 ### Added
