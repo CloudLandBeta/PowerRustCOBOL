@@ -847,3 +847,16 @@ fn tab_skips_what_an_opaque_layer_hides_from_the_keyboard_too_091() {
     // One focusable control: Tab leaves the focus on it, so it is announced once.
     assert_eq!(walk, ["L1-TB"], "only the opaque layer's own control ever takes the focus");
 }
+
+#[test]
+fn a_responsive_form_s_laid_out_state_still_hides_a_hidden_layer_091() {
+    // `LaidOutState` wraps the live state on a responsive form. Left on the
+    // trait's default it answered "shown" for every layer.
+    use cobolt_forms::layout::apply::LaidOutState;
+    let hidden = Shown(&[]);
+    let wrapped = LaidOutState { inner: &hidden };
+    assert!(!wrapped.layer_visible("Layer-1"), "hidden stays hidden through the wrapper");
+    let shown = Shown(&["Layer-1"]);
+    let wrapped = LaidOutState { inner: &shown };
+    assert!(wrapped.layer_visible("layer-1") && !wrapped.layer_visible("Layer-2"));
+}

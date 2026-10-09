@@ -17,6 +17,15 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.34] — 2026-10-09
+
+### Fixed
+- **Spec 091 — a layer of a responsive form started shown.** `LaidOutState`, which
+  wraps the live state on a responsive form, did not pass the engine's "is this
+  layer shown?" question on, so the trait's default — shown — answered for every
+  layer there, where every other form starts them hidden. Found by reading the
+  list of states that implement the question; pinned by a test.
+
 ## [PowerRustCOBOL 1.90.33] — 2026-10-09
 
 ### Added

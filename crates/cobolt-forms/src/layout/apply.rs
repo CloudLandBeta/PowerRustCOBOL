@@ -205,6 +205,13 @@ impl FormState for LaidOutState<'_> {
     fn enabled(&self, base: &Control) -> bool {
         self.inner.enabled(base)
     }
+    /// A layer is not laid out (spec 091 R21), so the layout has no word on
+    /// whether it is shown: the live state's answer stands. Without this the
+    /// trait's default — "shown" — would answer for every layer of a responsive
+    /// form, and a layer would start visible there.
+    fn layer_visible(&self, name: &str) -> bool {
+        self.inner.layer_visible(name)
+    }
     fn transform(&self, base: &Control) -> RenderTransform {
         self.inner.transform(base)
     }
