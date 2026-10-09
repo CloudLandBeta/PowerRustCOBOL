@@ -17,6 +17,36 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.37] — 2026-10-09
+
+### Added
+- **Spec 091, slice 5 — layer operations and the inspector.** The `+` adds a
+  layer, `Layer-1`, `Layer-2`… on top of the stack and selects it; the 65th
+  is refused with a message. A layer is renamed by a
+  double-click on its tab — followed into the controls that name it and the
+  code that writes `OLD::Visible` — and refused, with a message and nothing
+  changed, when the name is not a name, is `Form` or `Non-Visuals` in any
+  letter case, or belongs to a control or another layer. Dragging a tab among
+  the layer tabs re-stacks the layers; it never goes before `Form`, and the
+  `Form` and `Non-Visuals` tabs do not move. Each is one undo step that redoes.
+  With a layer's tab active and no control selected the inspector shows the
+  layer: its name and the form's own background properties — colour, gradient,
+  image and mode, transparency — and nothing else: no corner radius, no window
+  property, no `Visible`, no Events or Procs. A control has a `Layer` row, and the
+  context menu a "Move to layer" entry; sending controls to a layer is one undo
+  step, takes a container's contents with it, leaves a child alone, ignores a
+  non-visual control, and into a layer resets `Dock` and `Anchor` (undo gives
+  them back). A control in a layer is offered no Dock, Anchor or layout and the
+  anchor pins do not show. A non-visual control's inspector has no geometry. A
+  form that holds a name twice, or a control naming a layer it does not define,
+  opens whole and says so in the Output panel; nothing is repaired. A generated
+  or pasted control name is never a layer's name.
+  Fixed on the way: a tab dragged by a quick flick was grabbed where egui decided
+  it was a drag rather than where the pointer went down, so it dropped short.
+  22 new tests, the guards of each removed in turn to see one fail; 7 new strings
+  in six languages. The IDE unit suite is 1432 passed and one red, the translation
+  guard that was red before.
+
 ## [PowerRustCOBOL 1.90.36] — 2026-10-09
 
 ### Added

@@ -7150,6 +7150,9 @@ impl CoboltApp {
                 }
                 let mut dp = DesignerPanel::new(form);
                 dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+                // Spec 091 R5, R40 — a form that holds a name twice, or a layer it
+                // does not define, says so in the Output panel; nothing is repaired.
+                dp.report_load_problems();
                 if let Some(closed) = self.closed_handler_marks.remove(&path) {
                     dp.restore_handler_marks(closed.marks);
                 }
@@ -19456,6 +19459,11 @@ impl CoboltApp {
                 // Spec 091 R30, R57 — the form's Width and Height are read only
                 // while a layer or the Non-Visuals tab is active.
                 d.properties.form_size_locked = !d.form_resizable();
+                // …and with a layer's tab active (and no control selected) the pane
+                // shows that layer.
+                d.properties.layer_view = d.tabs.active_layer().and_then(|name| {
+                    d.form.layers.iter().find(|l| l.name.eq_ignore_ascii_case(name)).cloned()
+                });
                 let sel_ctrl = match &over {
                     Some(c) => Some(c),
                     None => sel_id.as_deref().and_then(|id| d.form.find_control(id)),
@@ -19610,6 +19618,24 @@ impl CoboltApp {
         }
         if let Some((old, new)) = inspector_action.rename_control {
             self.designers[idx].1.rename_control(&old, &new);
+        }
+        // Spec 091 R31 — the `Layer` row sends the selection to another layer.
+        if let Some(target) = inspector_action.move_to_layer.take() {
+            self.designers[idx].1.move_selected_to_layer(&target);
+        }
+        // Spec 091 — the active layer's name and backdrop, edited in the inspector.
+        {
+            let d = &mut self.designers[idx].1;
+            if let Some(layer) = d.tabs.active_layer().map(str::to_owned) {
+                if let Some(to) = inspector_action.rename_layer.take() {
+                    d.apply_tab_actions(vec![crate::panels::layer_tabs::TabAction::Rename { layer: layer.clone(), to }]);
+                }
+                // A rename above may have changed the layer's name; the tab follows it.
+                let layer = d.tabs.active_layer().map(str::to_owned).unwrap_or(layer);
+                for (key, value) in std::mem::take(&mut inspector_action.layer_props) {
+                    d.set_layer_prop(&layer, &key, &value);
+                }
+            }
         }
         // Kick off a repaint immediately so the animation loop starts on the next frame.
         if preview_triggered {
@@ -19822,7 +19848,7 @@ impl CoboltApp {
         // What the designer has to say, said in the IDE's current language
         // (spec 091 R58).
         for notice in std::mem::take(&mut self.designers[idx].1.notices) {
-            self.output.push_status(notice.text(tr).to_owned());
+            self.output.push_status(notice.text(tr));
         }
         if let Some(def) = designer_result.user_control_created {
             self.add_user_control_def(def);

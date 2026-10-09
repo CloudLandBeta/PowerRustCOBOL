@@ -561,7 +561,12 @@ impl LayerTabs {
             }
             // Re-stacking by dragging the tab (R26).
             if body.drag_started() {
-                if let Some(p) = body.interact_pointer_pos() {
+                // Where the pointer went DOWN on the tab, not where it is when egui
+                // decides this is a drag: those differ by the drag threshold, and
+                // a quick flick would otherwise drop the tab short of where it was
+                // taken.
+                let down = ui.input(|i| i.pointer.press_origin()).or_else(|| body.interact_pointer_pos());
+                if let Some(p) = down {
                     self.drag = Some(TabDrag { from: index, grab: p.x - rect.min.x, moved: false });
                 }
             }

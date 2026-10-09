@@ -137,6 +137,45 @@ impl Rig {
     }
 }
 
+/// The text an inspector pane draws for `ctrl` (or the form) on its first frame:
+/// the widgets' labels from the accessibility tree, and the text painted straight
+/// onto the canvas, as the tab strip's is.
+fn pane_text(
+    panel: &mut crate::panels::properties::PropertiesPanel,
+    form: &Form,
+    ctrl: Option<&Control>,
+) -> Vec<String> {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let tr = crate::i18n::current_tr(&ctx);
+    let mut input = egui::RawInput::default();
+    input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 2400.0)));
+    let mut out = ctx.run_ui(input, |root| {
+        egui::CentralPanel::default().show_inside(root, |ui| {
+            let _ = panel.show(ui, form, ctrl, &[], &tr);
+        });
+    });
+    out.textures_delta.clear();
+    let update = out.platform_output.accesskit_update.expect("the first frame reports every node");
+    let mut text: Vec<String> = update
+        .nodes
+        .iter()
+        .flat_map(|(_, n)| [n.label().map(str::to_owned), n.value().map(str::to_owned)])
+        .flatten()
+        .collect();
+    fn painted(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| painted(s, out)),
+            _ => {}
+        }
+    }
+    for clipped in &out.shapes {
+        painted(&clipped.shape, &mut text);
+    }
+    text
+}
+
 // ── T11: the bar, and what it does ───────────────────────────────────────────
 
 mod bar {
@@ -1075,5 +1114,631 @@ mod selection {
         // …and the inspector is the control's own: its Properties, Events and Procs.
         let primary = r.d.selected_ids[0].clone();
         assert!(r.d.form.find_control(&primary).is_some_and(|c| c.control_type == ControlType::Timer));
+    }
+}
+
+// ── T17: add, rename and re-stack a layer, each one undo step ────────────────
+
+mod ops {
+    use super::*;
+    use cobolt_forms::model::MAX_LAYERS;
+
+    fn names(d: &DesignerPanel) -> Vec<String> {
+        d.form.layers.iter().map(|l| l.name.clone()).collect()
+    }
+
+    /// The `+`: a layer on top, named, selected, one undo step; undo and redo.
+    #[test]
+    fn the_plus_adds_a_layer_selects_it_and_is_one_undo_step() {
+        let mut d = DesignerPanel::new(form_with_layers(0));
+        d.apply_tab_actions(vec![TabAction::Add]);
+        assert_eq!(names(&d), ["Layer-1"]);
+        assert_eq!(d.tabs.active(), &ActiveTab::Layer("Layer-1".into()), "the new layer is selected (Q30)");
+        assert!(d.tabs.is_shown("Layer-1"), "…and, selected, shown (R60)");
+        assert!(d.dirty, "adding is an edit");
+        assert_eq!(d.undo_stack.len(), 1, "one undo step");
+
+        d.apply_tab_actions(vec![TabAction::Add]);
+        assert_eq!(names(&d), ["Layer-1", "Layer-2"], "the next one is above the first");
+        assert!(!d.tabs.is_shown("Layer-1"), "and selecting it hid the other (R61)");
+
+        d.undo();
+        d.tabs.reconcile(&d.form);
+        assert_eq!(names(&d), ["Layer-1"], "undo removes the second");
+        assert_eq!(d.tabs.active(), &ActiveTab::Form, "the tab that was selected is gone, so Form is");
+        d.undo();
+        d.tabs.reconcile(&d.form);
+        assert!(d.form.layers.is_empty());
+        assert_eq!(d.tabs.active(), &ActiveTab::Form, "a tab that points at nothing falls back to Form");
+        d.redo();
+        assert_eq!(names(&d), ["Layer-1"], "redo brings it back");
+    }
+
+    /// AC3 (R7) — the 64th layer is added; the 65th is refused, with a message.
+    #[test]
+    fn the_sixty_fourth_layer_is_added_and_the_sixty_fifth_refused() {
+        let mut d = DesignerPanel::new(form_with_layers(0));
+        for _ in 0..MAX_LAYERS {
+            d.apply_tab_actions(vec![TabAction::Add]);
+        }
+        assert_eq!(d.form.layers.len(), 64, "the 64th is added");
+        assert_eq!(d.undo_stack.len(), 64);
+        d.apply_tab_actions(vec![TabAction::Add]);
+        assert_eq!(d.form.layers.len(), 64, "the 65th is refused");
+        assert_eq!(d.undo_stack.len(), 64, "and is no undo step");
+        assert_eq!(d.notices, vec![DesignerNotice::LayerLimit]);
+        for lang in crate::i18n::Language::ALL {
+            let text = DesignerNotice::LayerLimit.text(&lang.tr());
+            assert!(text.contains("64") && !text.contains("{}"), "{lang:?}: the limit is filled in: {text}");
+        }
+    }
+
+    /// AC11 (R23) — adding 64 layers through the bar changes neither the bar nor the room.
+    #[test]
+    fn adding_sixty_four_layers_does_not_change_the_bar_or_the_window() {
+        let mut r = Rig::new(form_with_layers(0));
+        r.settle(4);
+        let (bar, used) = (r.d.tab_bar_rect, r.used);
+        for _ in 0..MAX_LAYERS {
+            r.d.apply_tab_actions(vec![TabAction::Add]);
+        }
+        r.settle(6);
+        assert_eq!(r.d.form.layers.len(), 64);
+        assert_eq!((r.d.tab_bar_rect, r.used), (bar, used), "the same strip and the same room");
+    }
+
+    /// The `+` is a real button on the bar.
+    #[test]
+    fn clicking_the_plus_adds_a_layer() {
+        let mut r = Rig::new(form_with_layers(0));
+        r.settle(3);
+        let plus = r.slot_rect(Slot::Add).center();
+        r.click(plus);
+        assert_eq!(names(&r.d), ["Layer-1"]);
+        assert_eq!(r.d.tabs.active(), &ActiveTab::Layer("Layer-1".into()));
+    }
+
+    /// AC2 (R4–R6) — a rename that would collide, or is not a name, is refused.
+    #[test]
+    fn a_name_that_is_reserved_in_use_or_not_a_name_is_refused() {
+        let mut form = form_with_layers(2);
+        form.controls.push(Control::new("Button-1", ControlType::Button, 10, 10));
+        let mut d = DesignerPanel::new(form);
+        let before = saved(&d);
+        for bad in ["Form", "form", "FORM", "Non-Visuals", "non-visuals", "NON-VISUALS", "Button-1", "button-1", "Layer-2", "1abc", "a b", "", "   "] {
+            d.notices.clear();
+            d.apply_tab_actions(vec![TabAction::Rename { layer: "Layer-1".into(), to: bad.into() }]);
+            assert_eq!(names(&d), ["Layer-1", "Layer-2"], "{bad:?} is refused");
+            assert_eq!(d.notices, vec![DesignerNotice::LayerNameRefused], "{bad:?}: with a message");
+        }
+        assert!(d.undo_stack.is_empty() && !d.dirty, "no refusal is an undo step or an edit");
+        assert_eq!(saved(&d), before);
+    }
+
+    /// R26, R32 — a rename follows into the controls and the code, retargets the
+    /// tab, and undo and redo put it all back.
+    #[test]
+    fn a_rename_follows_into_controls_and_code_and_is_undoable() {
+        let mut form = form_with_layers(2);
+        let mut b = Control::new("Button-1", ControlType::Button, 10, 10);
+        b.layer = Some("Layer-1".into());
+        let mut ev = cobolt_forms::EventBinding::new("onClick", "BUTTON-1--ONCLICK");
+        ev.code = "SET LAYER-1::Visible TO TRUE.".into();
+        b.events.push(ev);
+        form.controls.push(b);
+        let mut d = DesignerPanel::new(form);
+        d.tabs.select_layer("Layer-1");
+
+        d.apply_tab_actions(vec![TabAction::Rename { layer: "Layer-1".into(), to: "Detail".into() }]);
+        assert_eq!(names(&d), ["Detail", "Layer-2"]);
+        let b = d.form.find_control("Button-1").unwrap();
+        assert_eq!(b.layer.as_deref(), Some("Detail"), "the control that named it follows");
+        assert!(b.events[0].code.to_ascii_uppercase().contains("DETAIL::VISIBLE"), "and so does the code: {}", b.events[0].code);
+        assert_eq!(d.tabs.active(), &ActiveTab::Layer("Detail".into()), "the active tab follows the new name");
+        assert!(d.tabs.is_shown("Detail"));
+        assert_eq!(d.undo_stack.len(), 1);
+
+        d.undo();
+        assert_eq!(names(&d), ["Layer-1", "Layer-2"]);
+        let b = d.form.find_control("Button-1").unwrap();
+        assert_eq!(b.layer.as_deref(), Some("Layer-1"));
+        assert!(b.events[0].code.to_ascii_uppercase().contains("LAYER-1::VISIBLE"));
+        assert_eq!(d.tabs.active(), &ActiveTab::Layer("Layer-1".into()));
+        d.redo();
+        assert_eq!(names(&d), ["Detail", "Layer-2"]);
+        assert_eq!(d.tabs.active(), &ActiveTab::Layer("Detail".into()));
+
+        // A change of letter case alone is a rename.
+        d.apply_tab_actions(vec![TabAction::Rename { layer: "Detail".into(), to: "detail".into() }]);
+        assert_eq!(names(&d), ["detail", "Layer-2"]);
+    }
+
+    /// R11, R26 — a tab dropped among the layers re-stacks them, one undo step.
+    #[test]
+    fn dropping_a_tab_restacks_the_layers_and_changes_the_paint_order() {
+        let mut d = DesignerPanel::new(form_with_layers(3));
+        let rank = |d: &DesignerPanel, n: &str| d.form.layer_rank(Some(n));
+        assert!(rank(&d, "Layer-1") < rank(&d, "Layer-3"), "Layer-3 is above Layer-1");
+
+        d.apply_tab_actions(vec![TabAction::Move { from: 0, to: 2 }]);
+        assert_eq!(names(&d), ["Layer-2", "Layer-3", "Layer-1"]);
+        assert!(rank(&d, "Layer-1") > rank(&d, "Layer-3"), "Layer-1 now paints above Layer-3");
+        assert_eq!(d.undo_stack.len(), 1);
+        d.undo();
+        assert_eq!(names(&d), ["Layer-1", "Layer-2", "Layer-3"]);
+        d.redo();
+        assert_eq!(names(&d), ["Layer-2", "Layer-3", "Layer-1"]);
+
+        // Out of range, or to the same place: nothing happens, no step.
+        let steps = d.undo_stack.len();
+        d.apply_tab_actions(vec![TabAction::Move { from: 9, to: 0 }, TabAction::Move { from: 1, to: 1 }]);
+        assert_eq!(d.undo_stack.len(), steps);
+    }
+
+    /// The same, with the pointer: dragging a layer tab to the right of the others.
+    #[test]
+    fn dragging_a_layer_tab_with_the_pointer_restacks_and_form_cannot_be_dragged() {
+        let mut r = Rig::new(form_with_layers(3));
+        r.settle(3);
+        let grab = |r: &Rig, i: usize| layer_tab_parts(r.slot_rect(Slot::Layer(i))).label.center();
+
+        // Layer-1 dragged well past Layer-3.
+        let from = grab(&r, 0);
+        r.drag(from, from + Vec2::new(400.0, 0.0));
+        assert_eq!(names(&r.d), ["Layer-2", "Layer-3", "Layer-1"], "dropped past the others, it is the top layer");
+
+        // Layer-1 (now last) dragged far to the left: no further than the layer nearest Form.
+        let from = grab(&r, 2);
+        r.drag(from, from - Vec2::new(1500.0, 0.0));
+        assert_eq!(names(&r.d), ["Layer-1", "Layer-2", "Layer-3"], "never before Form: it lands next to it");
+
+        // The Form tab and the Non-Visuals tab cannot be dragged.
+        let steps = r.d.undo_stack.len();
+        for slot in [Slot::Form, Slot::NonVisuals] {
+            let c = r.slot_rect(slot).center();
+            r.drag(c, c + Vec2::new(300.0, 0.0));
+        }
+        assert_eq!(names(&r.d), ["Layer-1", "Layer-2", "Layer-3"]);
+        assert_eq!(r.d.undo_stack.len(), steps, "no step");
+    }
+}
+
+// ── T18: a layer's own properties in the inspector ───────────────────────────
+
+mod layer_props {
+    use super::*;
+    use crate::panels::properties::PropertiesPanel;
+    use cobolt_forms::model::LAYER_TRANSPARENT_COLOR;
+
+    fn backdrop(d: &DesignerPanel, name: &str) -> cobolt_forms::model::MenuPaneBackground {
+        d.form.layers[d.form.layer_index(name).unwrap()].backdrop.clone()
+    }
+
+    /// AC8 (R15) — a new layer is fully transparent, so adding one changes nothing drawn.
+    #[test]
+    fn a_new_layer_is_fully_transparent() {
+        let mut d = DesignerPanel::new(form_with_layers(0));
+        d.apply_tab_actions(vec![TabAction::Add]);
+        assert_eq!(backdrop(&d, "Layer-1").color, LAYER_TRANSPARENT_COLOR);
+    }
+
+    /// AC8, R32 — every backdrop property takes the value written, as one undo step.
+    #[test]
+    fn each_backdrop_property_is_one_undo_step() {
+        let mut d = DesignerPanel::new(form_with_layers(1));
+        let cases: [(&str, &str); 8] = [
+            ("BackgroundColor", "#336699"),
+            ("BackgroundGradientEnabled", "true"),
+            ("BackgroundGradientStartColor", "#112233"),
+            ("BackgroundGradientEndColor", "#445566"),
+            ("BackgroundGradientDirection", "East"),
+            ("Transparency", "35"),
+            ("BackgroundImage", "assets/clouds.png"),
+            ("BackgroundImageMode", "Tile"),
+        ];
+        let before = backdrop(&d, "Layer-1");
+        for (i, (key, value)) in cases.iter().enumerate() {
+            d.set_layer_prop("Layer-1", key, value);
+            assert_eq!(d.undo_stack.len(), i + 1, "{key}: one step");
+        }
+        let after = backdrop(&d, "Layer-1");
+        assert_eq!(
+            (after.color.as_str(), after.gradient_enabled, after.gradient_start_color.as_str(), after.gradient_end_color.as_str()),
+            ("#336699", true, "#112233", "#445566")
+        );
+        assert_eq!((after.gradient_direction.as_str(), after.transparency, after.image.as_str()), ("East", 35, "assets/clouds.png"));
+        assert_eq!(after.image_mode.as_str(), "Tile");
+        assert!(d.dirty);
+
+        // A value the layer already has is no step.
+        d.set_layer_prop("Layer-1", "Transparency", "35");
+        assert_eq!(d.undo_stack.len(), cases.len());
+        // Undo walks them back one at a time to the transparent layer it began as.
+        for _ in 0..cases.len() {
+            d.undo();
+        }
+        assert_eq!(backdrop(&d, "Layer-1"), before);
+        d.redo();
+        assert_eq!(backdrop(&d, "Layer-1").color, "#336699");
+    }
+
+    /// R35, R16 — `Visible`, `Name`, and what a layer does not have are not designed here.
+    #[test]
+    fn name_visible_and_unknown_properties_are_not_written_as_backdrop() {
+        let mut d = DesignerPanel::new(form_with_layers(1));
+        for key in ["Visible", "Name", "CornerRadius", "Title", "Colour"] {
+            d.set_layer_prop("Layer-1", key, "x");
+        }
+        assert!(d.undo_stack.is_empty() && !d.dirty, "nothing was written");
+        assert_eq!(d.form.layers[0].name, "Layer-1");
+        // An unknown layer is no layer.
+        d.set_layer_prop("Layer-9", "Transparency", "10");
+        assert!(d.undo_stack.is_empty());
+    }
+
+    fn inspector_text(layer: Option<cobolt_forms::Layer>) -> Vec<String> {
+        let mut panel = PropertiesPanel::new();
+        panel.layer_view = layer;
+        pane_text(&mut panel, &Form::new("F", "F", 1200, 800), None)
+    }
+
+    /// AC8 (R15, R16), Q9 — with a layer in view the pane is the layer's: its name
+    /// and its background, with no corner radius, no window property, no `Visible`,
+    /// and no Events or Procs tab.
+    #[test]
+    fn the_inspector_of_a_layer_shows_its_name_and_background_only() {
+        let tr = crate::i18n::Language::English.tr();
+        let layer = cobolt_forms::Layer::new("Detail");
+        let with = inspector_text(Some(layer));
+        let has = |t: &[String], s: &str| t.iter().any(|x| x.contains(s));
+
+        for (what, label) in [
+            ("its name", tr.lbl_name),
+            ("the colour", tr.lbl_back_color),
+            ("the gradient", tr.lbl_gradient),
+            ("the transparency", tr.lbl_transparency),
+            ("the image", tr.lbl_image_path),
+            ("the image mode", tr.lbl_img_mode),
+        ] {
+            assert!(has(&with, label), "the layer pane shows {what} ({label:?}): {with:?}");
+        }
+        assert!(has(&with, "Detail"), "and the layer's name");
+        assert!(has(&with, "SET Detail::Visible TO TRUE"), "and says how a program shows it");
+        for (what, label) in [
+            ("a corner radius", tr.lbl_corner_radius),
+            ("a window title", tr.lbl_title),
+            ("a start position", tr.lbl_start_position),
+            ("the Events tab", tr.tab_events),
+            ("the Procs tab", tr.tab_procs),
+        ] {
+            assert!(!has(&with, label), "the layer pane has no {what} ({label:?})");
+        }
+        assert!(!with.iter().any(|t| t.eq_ignore_ascii_case("Visible") || t.starts_with("Visible")), "and no Visible row");
+
+        // Control: with no layer in view the same pane is the form's, tabs included.
+        let without = inspector_text(None);
+        assert!(has(&without, tr.tab_events) && has(&without, tr.lbl_title), "the form's pane keeps its tabs and window rows");
+    }
+}
+
+// ── T19: a control's layer, and sending controls to another ──────────────────
+
+mod move_to_layer {
+    use super::*;
+    use crate::panels::properties::PropertiesPanel;
+
+    fn layered() -> Form {
+        let mut f = form_with_layers(2);
+        // A docked, anchored Button in the base, and a Panel with a docked child.
+        let mut b = Control::new("Button-1", ControlType::Button, 20, 20);
+        b.set_prop("Dock", PropValue::String("Left".into()));
+        b.set_prop("Anchor", PropValue::String("Top,Right".into()));
+        f.controls.push(b);
+        let mut p = Control::new("Panel-1", ControlType::Panel, 200, 20);
+        p.rect.w = 200;
+        p.rect.h = 120;
+        f.controls.push(p);
+        let mut c = Control::new("Child-1", ControlType::Button, 210, 40);
+        c.parent = Some("Panel-1".into());
+        c.set_prop("Dock", PropValue::String("Top".into()));
+        f.controls.push(c);
+        f.controls.push(Control::new("Timer-1", ControlType::Timer, 0, 0));
+        f
+    }
+
+    fn prop(d: &DesignerPanel, id: &str, key: &str) -> Option<String> {
+        d.form.find_control(id).and_then(|c| c.get_prop(key)).map(|v| v.as_str().to_owned())
+    }
+
+    /// AC10 (R21, Q7) — into a layer a control loses its Dock and its Anchor
+    /// returns to the default; undo gives both back.
+    #[test]
+    fn moving_a_docked_control_into_a_layer_resets_dock_and_anchor_and_undo_restores_them() {
+        let mut d = DesignerPanel::new(layered());
+        d.selected_ids = vec!["Button-1".into()];
+        d.move_selected_to_layer("Layer-1");
+        let b = d.form.find_control("Button-1").unwrap();
+        assert_eq!(b.layer.as_deref(), Some("Layer-1"));
+        assert_eq!(prop(&d, "Button-1", "Dock").as_deref(), Some("None"), "Dock becomes None");
+        assert_eq!(prop(&d, "Button-1", "Anchor").as_deref(), Some("Top,Left"), "Anchor becomes the default");
+        assert_eq!(d.undo_stack.len(), 1, "one undo step");
+
+        d.undo();
+        let b = d.form.find_control("Button-1").unwrap();
+        assert_eq!(b.layer, None);
+        assert_eq!(prop(&d, "Button-1", "Dock").as_deref(), Some("Left"), "undo gives the Dock back");
+        assert_eq!(prop(&d, "Button-1", "Anchor").as_deref(), Some("Top,Right"), "…and the Anchor");
+        d.redo();
+        assert_eq!(prop(&d, "Button-1", "Dock").as_deref(), Some("None"));
+    }
+
+    /// AC4 (R8) — a Panel takes what is inside it; a child cannot be moved alone.
+    #[test]
+    fn a_container_takes_its_children_and_a_child_cannot_move_alone() {
+        let mut d = DesignerPanel::new(layered());
+        d.selected_ids = vec!["Child-1".into()];
+        d.move_selected_to_layer("Layer-2");
+        assert!(d.undo_stack.is_empty(), "a child cannot be moved on its own");
+        assert_eq!(d.form.layer_of("Child-1"), None);
+
+        d.selected_ids = vec!["Panel-1".into()];
+        d.move_selected_to_layer("Layer-2");
+        assert_eq!(d.form.layer_of("Panel-1"), Some("Layer-2"));
+        assert_eq!(d.form.layer_of("Child-1"), Some("Layer-2"), "the child went with the Panel");
+        assert_eq!(d.form.find_control("Child-1").unwrap().layer, None, "…and names no layer of its own");
+        assert_eq!(prop(&d, "Child-1", "Dock").as_deref(), Some("None"), "its Dock went too: only the base is laid out");
+        d.undo();
+        assert_eq!(d.form.layer_of("Child-1"), None);
+        assert_eq!(prop(&d, "Child-1", "Dock").as_deref(), Some("Top"));
+    }
+
+    /// R31, R44 — layer to layer, layer to base; the moved controls leave the
+    /// selection; a non-visual control is never moved; the same layer is no step.
+    #[test]
+    fn controls_move_between_layers_and_leave_the_selection() {
+        let mut d = DesignerPanel::new(layered());
+        d.tabs.select_form();
+        d.selected_ids = vec!["Button-1".into(), "Panel-1".into(), "Timer-1".into()];
+        d.move_selected_to_layer("Layer-1");
+        assert_eq!(d.form.layer_of("Button-1"), Some("Layer-1"));
+        assert_eq!(d.form.layer_of("Panel-1"), Some("Layer-1"));
+        assert_eq!(d.form.find_control("Timer-1").unwrap().layer, None, "a Timer belongs to no layer");
+        assert_eq!(d.undo_stack.len(), 1, "one step for the lot");
+        assert!(!d.selected_ids.contains(&"Button-1".to_string()), "the moved controls left the Form tab's selection");
+
+        // Layer-1 → Layer-2, then back to Form.
+        d.tabs.select_layer("Layer-1");
+        d.selected_ids = vec!["Button-1".into()];
+        d.move_selected_to_layer("layer-2");
+        assert_eq!(d.form.layer_of("Button-1"), Some("Layer-2"), "a layer name in any letter case");
+        d.tabs.select_layer("Layer-2");
+        d.selected_ids = vec!["Button-1".into()];
+        d.move_selected_to_layer("Form");
+        assert_eq!(d.form.layer_of("Button-1"), None);
+
+        // Nothing to do, nothing recorded.
+        let steps = d.undo_stack.len();
+        d.tabs.select_form();
+        d.selected_ids = vec!["Button-1".into()];
+        d.move_selected_to_layer("Form");
+        d.move_selected_to_layer("Layer-9");
+        assert_eq!(d.undo_stack.len(), steps);
+    }
+
+    /// R21, R3, R47 — the inspector: a `Layer` row for a visual control, none for
+    /// a non-visual one, none on a form with no layers; a layer control has no
+    /// Dock, Anchor or layout rows.
+    #[test]
+    fn the_inspector_offers_layer_to_visual_controls_and_no_layout_to_layer_controls() {
+        let tr = crate::i18n::Language::English.tr();
+        let has = |t: &[String], s: &str| t.iter().any(|x| x.contains(s));
+        let mut form = layered();
+        form.responsive = true; // layout rows exist only on a responsive form
+        let mut in_layer = form.clone();
+        in_layer.set_control_layer("Button-1", Some("Layer-1")).unwrap();
+
+        let base_button = pane_text(&mut PropertiesPanel::new(), &form, form.find_control("Button-1"));
+        assert!(has(&base_button, tr.lbl_layer), "a visual control has a Layer row");
+        assert!(has(&base_button, "Form"), "…showing the base's name");
+        assert!(has(&base_button, tr.lbl_dock), "and, in the base, a Dock row");
+
+        let layer_button = pane_text(&mut PropertiesPanel::new(), &in_layer, in_layer.find_control("Button-1"));
+        assert!(has(&layer_button, tr.lbl_layer) && has(&layer_button, "Layer-1"));
+        assert!(!has(&layer_button, tr.lbl_dock), "a layer control is offered no Dock");
+        assert!(!has(&layer_button, tr.lbl_anchor), "…no Anchor");
+        assert!(has(&layer_button, tr.layer_layout_hint), "…and is told why");
+        assert!(has(&layer_button, "Width") && has(&layer_button, "Height"), "X, Y, Width and Height stay");
+
+        let timer = pane_text(&mut PropertiesPanel::new(), &form, form.find_control("Timer-1"));
+        assert!(!has(&timer, tr.lbl_layer), "a non-visual control has no Layer (R47)");
+
+        let none = {
+            let mut f = layered();
+            f.layers.clear();
+            pane_text(&mut PropertiesPanel::new(), &f, f.find_control("Button-1"))
+        };
+        assert!(!has(&none, tr.lbl_layer), "a form with no layers has nothing to choose");
+    }
+}
+
+// ── T20: the cards — inspector, delete, collisions ───────────────────────────
+
+mod non_visual {
+    use super::*;
+    use crate::panels::properties::PropertiesPanel;
+
+    /// A Timer with a handler, and a common procedure that mentions only it.
+    fn with_handler() -> Form {
+        let mut f = form_with_layers(1);
+        let mut t = Control::new("Timer-1", ControlType::Timer, 10, 10);
+        let mut ev = cobolt_forms::EventBinding::new("onTick", "TIMER-1--ONTICK");
+        ev.code = "DISPLAY \"tick\".".into();
+        t.events.push(ev);
+        f.controls.push(t);
+        f.controls.push(Control::new("Timer-2", ControlType::Timer, 10, 10));
+        f.user_procedures.push(cobolt_forms::model::UserProcedure {
+            name: "RESTART-IT".into(),
+            code: "MOVE 1 TO Timer-1::Interval.".into(),
+        });
+        f
+    }
+
+    fn key(k: egui::Key) -> Event {
+        Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }
+    }
+
+    /// R49, R52, R47 — a card's inspector has Properties, Events and Procs, and no
+    /// X, Y, Width, Height, Z order or Layer.
+    #[test]
+    fn a_card_s_inspector_has_no_geometry_and_no_layer() {
+        let tr = crate::i18n::Language::English.tr();
+        let has = |t: &[String], s: &str| t.iter().any(|x| x.contains(s));
+        let form = with_handler();
+        let timer = pane_text(&mut PropertiesPanel::new(), &form, form.find_control("Timer-1"));
+        assert!(has(&timer, tr.tab_events) && has(&timer, tr.tab_procs), "the tabs are the control's own");
+        for what in ["Width", "Height", "Z order"] {
+            assert!(!has(&timer, what), "a card has no {what}: {timer:?}");
+        }
+        assert!(!has(&timer, tr.sec_geometry), "…and no Geometry section");
+        assert!(!has(&timer, tr.lbl_layer), "…and no Layer");
+        // Control: a visual control keeps all of it.
+        let mut with_button = form.clone();
+        with_button.controls.push(Control::new("Button-1", ControlType::Button, 5, 5));
+        let button = pane_text(&mut PropertiesPanel::new(), &with_button, with_button.find_control("Button-1"));
+        assert!(has(&button, "Width") && has(&button, "Z order") && has(&button, tr.lbl_layer));
+    }
+
+    /// AC25 (R53) — Delete on a selected card goes the way any control's Delete
+    /// goes: the usual confirmation for one with code, the control and its code
+    /// gone together, in the recycle bin, one undo step that brings both back.
+    #[test]
+    fn delete_on_a_card_asks_removes_the_control_and_its_code_and_undoes_in_one_step() {
+        let mut r = Rig::new(with_handler());
+        r.select_tab(TabAction::SelectNonVisuals);
+        let card = r.card_centre("Timer-1");
+        r.click(card);
+        assert_eq!(r.d.selected_ids, vec!["Timer-1".to_string()]);
+
+        r.frame(vec![key(egui::Key::Delete)]);
+        assert!(r.d.pending_delete.is_some(), "a control that carries code asks for the usual confirmation");
+        assert!(r.d.form.find_control("Timer-1").is_some(), "…and nothing is removed before the answer");
+
+        // Confirm, as the dialog's button does.
+        let ids = r.d.pending_delete.take().unwrap().control_ids;
+        r.d.delete_ids_now(&ids);
+        assert!(r.d.form.find_control("Timer-1").is_none(), "the card is gone");
+        assert!(
+            r.d.form.deleted_code.iter().any(|d| d.control_id == "Timer-1"),
+            "its handler went to the form's recycle bin with it"
+        );
+        assert_eq!(r.d.undo_stack.len(), 1, "one undo step");
+        assert!(r.d.form.find_control("Timer-2").is_some(), "the other card stays");
+
+        // A common procedure that only mentions the control stays — and is reported.
+        assert!(r.d.form.user_procedures.iter().any(|p| p.name == "RESTART-IT"), "the procedure is kept");
+        assert!(
+            r.d.orphan_notices.iter().any(|n| n.contains("RESTART-IT") && n.contains("KEPT")),
+            "…and the developer is told: {:?}",
+            r.d.orphan_notices
+        );
+
+        r.d.undo();
+        let back = r.d.form.find_control("Timer-1").expect("undo brings the control back");
+        assert!(back.events[0].has_code(), "…with its handler");
+        assert!(!r.d.form.deleted_code.iter().any(|d| d.control_id == "Timer-1"), "and empties the bin of it");
+    }
+
+    /// A card with no code is deleted at once.
+    #[test]
+    fn delete_on_a_card_without_code_removes_it_at_once() {
+        let mut d = DesignerPanel::new(with_handler());
+        d.tabs.select_non_visuals();
+        d.selected_ids = vec!["Timer-2".into()];
+        d.delete_selected();
+        assert!(d.pending_delete.is_none());
+        assert!(d.form.find_control("Timer-2").is_none());
+        assert_eq!(d.undo_stack.len(), 1);
+        // The cards close the gap: only Timer-1 is left in the grid.
+        assert_eq!(d.non_visuals_view().len(), 1);
+    }
+
+    /// AC2 (R5) — a name a layer has is never given to a control, and a control
+    /// cannot be renamed to a layer's name.
+    #[test]
+    fn a_pasted_control_skips_a_layers_name_and_a_rename_to_one_is_refused() {
+        let mut form = form_with_layers(0);
+        form.controls.push(Control::new("Timer-1", ControlType::Timer, 5, 5));
+        form.add_layer().unwrap();
+        form.rename_layer("Layer-1", "Timer-2").unwrap();
+        let mut d = DesignerPanel::new(form);
+        d.selected_ids = vec!["Timer-1".into()];
+        let mut clip = None;
+        d.copy_selected(&mut clip);
+        d.paste_from_clipboard(&clip);
+        let ids: Vec<&str> = d.form.controls.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["Timer-1", "Timer-3"], "Timer-2 is a layer, so the copy is Timer-3");
+
+        assert!(!d.rename_control("Timer-3", "timer-2"), "a rename to a layer's name is refused");
+        assert!(!d.rename_control("Timer-3", "Timer-1"), "…and to another control's");
+        assert!(d.rename_control("Timer-3", "Ticker"), "a free name is fine");
+    }
+}
+
+// ── T21: what a file can carry is reported, not repaired ─────────────────────
+
+mod load_report {
+    use super::*;
+
+    /// AC2, AC13 (R5, R40) — a form that holds a name twice, and a control that
+    /// names a layer it does not define, opens with every control kept, says so
+    /// once for each, and is not changed.
+    #[test]
+    fn a_form_with_a_collision_and_an_undefined_layer_opens_whole_and_says_so() {
+        let mut form = form_with_layers(0);
+        form.add_layer().unwrap();
+        form.rename_layer("Layer-1", "Detail").unwrap();
+        form.controls.push(Control::new("detail", ControlType::Button, 10, 10)); // a layer's name, in lower case
+        let mut ghost = Control::new("Ghost-Ref", ControlType::Button, 100, 10);
+        ghost.layer = Some("Ghost".into());
+        form.controls.push(ghost);
+        // Through the file, as it would arrive.
+        let xml = cobolt_forms::form_to_string(&form).unwrap();
+        let loaded = cobolt_forms::load_form_from_str(&xml).unwrap();
+        assert_eq!(loaded.controls.len(), 2, "both controls came back");
+
+        let mut d = DesignerPanel::new(loaded);
+        let before = saved(&d);
+        d.report_load_problems();
+        assert_eq!(
+            d.notices,
+            vec![
+                DesignerNotice::NameCollision("Detail".into()),
+                DesignerNotice::UnknownLayer { control: "Ghost-Ref".into(), layer: "Ghost".into() },
+            ]
+        );
+        assert_eq!(d.form.controls.len(), 2, "nothing was deleted");
+        assert_eq!(saved(&d), before, "…and nothing was repaired");
+        assert!(!d.dirty && d.undo_stack.is_empty());
+
+        // The control with the unknown layer is on Form, where it is shown.
+        d.tabs.select_form();
+        assert!(d.active_tab_ids().unwrap().contains("Ghost-Ref"));
+
+        for lang in crate::i18n::Language::ALL {
+            for notice in &d.notices {
+                let text = notice.text(&lang.tr());
+                assert!(!text.contains("{}") && text.contains("Detail") | text.contains("Ghost"), "{lang:?}: {text}");
+            }
+        }
+    }
+
+    /// A form the designer wrote says nothing.
+    #[test]
+    fn a_clean_form_says_nothing() {
+        let mut form = form_with_layers(2);
+        form.controls.push(Control::new("Button-1", ControlType::Button, 10, 10));
+        let mut d = DesignerPanel::new(form);
+        d.report_load_problems();
+        assert!(d.notices.is_empty());
     }
 }

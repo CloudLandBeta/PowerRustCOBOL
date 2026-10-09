@@ -1,7 +1,7 @@
 # Tasks — Form layers and the Non-Visuals tab (spec 091)
 
 - **Spec:** ./spec.md  **Plan:** ./plan.md  **Date:** 2026-10-09
-- **Status:** in progress — T1–T16 done (slice 4 committed); T17 onward to do
+- **Status:** in progress — T1–T22 done (slices 4 and 5 committed); T23 onward to do
 - **Branch:** `features-form-layers` (worktree `.claude/worktrees/form-layers`). Feature ⇒ `features` line, one `z` bump and one CHANGELOG entry per commit. Merge to `main` and push only when asked, never 09:00–18:00 São Paulo Mon–Fri.
 - Every verify line assumes `CARGO_TARGET_DIR=/Users/emersonlopes/Documents/PowerRustCOBOL/target CARGO_INCREMENTAL=0`, one crate at a time, test executables in `target/debug/deps` deleted between crates.
 
@@ -82,32 +82,32 @@
 
 ## Slice 5 — layer operations and the inspector
 
-- [ ] **T17 — Add, rename, re-stack, with undo** (R7, R26, R32, R6; AC2 UI, AC3, AC11 re-stack, AC30 `+`)
+- [x] **T17 — Add, rename, re-stack, with undo** (R7, R26, R32, R6; AC2 UI, AC3, AC11 re-stack, AC30 `+`)
   - Files: `designer.rs` (`Cmd::SetLayers { before, after }`, precedent `SetBreakpoints`), `layer_tabs.rs` (actions), `i18n.rs` if a key is missing.
   - `+` adds `Layer-N` and **selects it** (Q30); refused at the 65th with `layer_limit_reached`; rename refused with `layer_name_refused` (reserved, collision, bad characters) and `tabs` retargeted on success; drag re-stack through `Form::move_layer`; each is one undo step and redoes.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::ops` — 64 added, 65th refused, window size unchanged; `Form`/`Non-Visuals` cannot be dragged or dropped to; undo/redo restores names, order and `tabs`.
 
-- [ ] **T18 — A layer's own properties in the inspector** (R15, R16, R24; AC8 UI)
+- [x] **T18 — A layer's own properties in the inspector** (R15, R16, R24; AC8 UI)
   - Files: `panels/properties.rs`, `designer.rs` (a `layer_props` channel apart from `set_property`, which ignores unknown ids).
   - Layer view when a layer tab is active: Name, background colour, gradient, image + mode, Transparency; no `CornerRadius`, no window property, no `Visible` row; a new layer is fully transparent; edits are undo steps.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::layer_props`.
 
-- [ ] **T19 — A control's `Layer`, and moving controls between layers** (R3, R8, R21, R31, R44; AC4, AC10, AC17 move)
+- [x] **T19 — A control's `Layer`, and moving controls between layers** (R3, R8, R21, R31, R44; AC4, AC10, AC17 move)
   - Files: `designer.rs` (`apply_structural_prop`, `property_names_for` — `Layer` is a struct field, not in `properties`), `panels/properties.rs`, the control context menu.
   - Inspector `Layer` choice and "Move to layer" as one undo step; Dock → `None` and Anchor → default when moving from the base, restored by undo; Dock/Anchor/layout rows hidden for layer controls; children follow their container and cannot be moved alone; the list never offers `Non-Visuals`; moved controls leave the selection.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::move_to_layer`.
 
-- [ ] **T20 — Non-visual controls: inspector, delete, paste, duplicate** (R5, R47, R48, R53, R54; AC2 collisions, AC20, AC21 paste/duplicate, AC25)
+- [x] **T20 — Non-visual controls: inspector, delete, paste, duplicate** (R5, R47, R48, R53, R54; AC2 collisions, AC20, AC21 paste/duplicate, AC25)
   - Files: `designer.rs`, `panels/properties.rs`.
   - No `Layer` row and no `X`/`Y`/`Width`/`Height` for a non-visual control; Delete / Backspace / context-menu Delete go through `DeleteControl` (confirmation when it carries code, recycle bin, one undo step), and a procedure that only mentions the control stays and is reported; paste and duplicate of a non-visual control select `Non-Visuals`; a colliding name gets the next free one.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::non_visual` — delete then undo brings back the control and its handler; the Output panel carries the report.
 
-- [ ] **T21 — The problems a file can carry are reported, not repaired** (R5, R40; AC2 load, AC13)
+- [x] **T21 — The problems a file can carry are reported, not repaired** (R5, R40; AC2 load, AC13)
   - Files: `app.rs` / the form-open path, `cobolt-forms/src/model.rs` (`name_collisions`, `unknown_layer_refs` already exist).
   - A `.cfrm` with a name collision or an undefined layer opens with every control kept (the latter drawn in the base) and one Output line per problem.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::load_report`; `cargo test -p cobolt-forms --features render --test layers_model_091`.
 
-- [ ] **T22 — Slice 5 gate and commit**
+- [x] **T22 — Slice 5 gate and commit**
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide --tests`; `cargo test -p cobolt-forms --features render`. Bump `z`, CHANGELOG, commit.
 
 ## Slice 6 — deleting a layer
