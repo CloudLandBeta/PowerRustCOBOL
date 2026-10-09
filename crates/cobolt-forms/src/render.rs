@@ -426,6 +426,144 @@ fn layer_ranks(controls: &[Control], layers: &[crate::model::Layer]) -> Vec<usiz
         .collect()
 }
 
+/// Whether a layer's background hides everything beneath it wherever it is
+/// (spec 091 R20, Q8b): fully opaque — `Transparency` 0 and a colour, or the
+/// gradient that replaces it, with full alpha. A background with any
+/// transparency, or an image whose pixels the engine does not inspect, lets
+/// events through and does not shield: a dimming scrim that must also block
+/// needs a control over it, as a `Panel` does.
+fn layer_is_opaque(layer: &crate::model::Layer) -> bool {
+    let b = &layer.backdrop;
+    if b.transparency != 0 {
+        return false;
+    }
+    let alpha = |hex: &str| crate::paint::parse_hex(hex).map_or(0, |c| c.a());
+    if b.gradient_enabled {
+        alpha(&b.gradient_start_color) == 255 && alpha(&b.gradient_end_color) == 255
+    } else {
+        alpha(&b.color) == 255
+    }
+}
+
+/// The rank of the highest SHOWN layer whose background is opaque, or 0: every
+/// control below it is shielded from the keyboard focus as from the pointer.
+fn opaque_shield_rank(input: &RenderInput<'_>) -> usize {
+    input
+        .backdrop
+        .layers
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, l)| input.state.layer_visible(&l.name) && layer_is_opaque(l))
+        .map_or(0, |(i, _)| i + 1)
+}
+
+/// The highest layer that holds the pointer at `p` (spec 091 R17–R20), or 0 when
+/// no layer does — the base then answers, as it always has.
+///
+/// A layer holds a point when it is shown and either a control of it has a
+/// PAINTED part there (`paints_at`) — then the event belongs to that control and
+/// does not fall through, whether or not a handler is bound (R19) — or its
+/// background is opaque (R20). A background that is transparent, or that lets
+/// something through, holds nothing: the event passes to the layer below (R18).
+/// A layer's background is never the target of an event itself (R20): it only
+/// keeps the layers beneath it from getting one.
+///
+/// Everything below the answer is shielded; the layer itself and anything above
+/// it are not (a layer above that holds nothing at `p` does not shield).
+fn pointer_claim(
+    ctx: &egui::Context,
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    ranks: &[usize],
+    out: &RenderOutput,
+    backdrop_rect: Rect,
+    p: egui::Pos2,
+) -> usize {
+    let layers = &input.backdrop.layers;
+    for rank in (1..=layers.len()).rev() {
+        let layer = &layers[rank - 1];
+        if !input.state.layer_visible(&layer.name) {
+            continue;
+        }
+        let holds_by_control = controls.iter().enumerate().any(|(i, c)| {
+            ranks.get(i).copied() == Some(rank)
+                && !c.control_type.is_non_visual()
+                && out
+                    .control_rects
+                    .get(&c.id)
+                    .filter(|r| r.contains(p))
+                    .is_some_and(|r| owns_pointer_at(ctx, c, *r, out.caption_rects.get(&c.id).copied(), p))
+        });
+        if holds_by_control || (layer_is_opaque(layer) && backdrop_rect.contains(p)) {
+            return rank;
+        }
+    }
+    0
+}
+
+/// Whether the pointer at `p`, inside `rect`, is `ctrl`'s to answer (spec 091
+/// R19): the control has a handler bound to a press — its events fire over its
+/// whole rectangle — or it paints something at `p`. A Label with no background
+/// of its own paints its TEXT and nothing else, so a click beside the text is
+/// not its click, however big its rectangle is (R18).
+fn owns_pointer_at(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    rect: Rect,
+    caption: Option<Rect>,
+    p: egui::Pos2,
+) -> bool {
+    if binds_a_press(ctrl) {
+        return rect.contains(p);
+    }
+    match ctrl.control_type {
+        ControlType::Label
+            if face_see_through(ctrl) || crate::paint::user_background_color(ctrl).is_none() =>
+        {
+            caption.is_some_and(|text| text.contains(p))
+        }
+        _ => paints_at(ctx, ctrl, rect, caption, p),
+    }
+}
+
+/// The part of `screen` a passive control of a layer must keep out of the
+/// widgets below it (spec 091 R19): where it owns the pointer, as a rectangle
+/// egui can register. `None` where nothing worth a widget is painted — a
+/// see-through Panel's border, a picture's transparent pixels: those are
+/// answered pointwise by [`owns_pointer_at`], not by a blocker.
+fn pointer_region(ctrl: &Control, screen: Rect, caption: Option<Rect>) -> Option<Rect> {
+    if binds_a_press(ctrl) {
+        return Some(screen);
+    }
+    match ctrl.control_type {
+        ControlType::Label
+            if face_see_through(ctrl) || crate::paint::user_background_color(ctrl).is_none() =>
+        {
+            caption
+        }
+        ControlType::Panel | ControlType::GroupBox | ControlType::PictureBox if face_see_through(ctrl) => None,
+        _ => Some(screen),
+    }
+}
+
+/// The events a pointer press, release, wheel or movement produces for a
+/// control — what a shielded control must not report (spec 091 R19, R20).
+const POINTER_EVENTS: [&str; 12] = [
+    "onClick",
+    "onDoubleClick",
+    "onDblClick",
+    "onMouseDown",
+    "onMouseUp",
+    "onRightClick",
+    "onMiddleClick",
+    "onContextMenu",
+    "onMouseMove",
+    "onMouseWheel",
+    "onHoverEnter",
+    "onHoverLeave",
+];
+
 /// Paint one layer's own background into the form's rectangle (spec 091 R15):
 /// colour, gradient and image, over what the layers below drew.
 ///
@@ -2735,6 +2873,32 @@ fn render_form_inner(
             draw_expand_icons(interactive.then_some(&*ui), &clipped, input, &mut out, &only);
         }};
     }
+    // Spec 091 R19, R20 — what takes the pointer over from the layers below it,
+    // registered with egui so the widgets under it neither react nor take the
+    // focus. A frameless window moves by its face, and these ARE a face now:
+    // they are kept to hand a drag to the same window-drag decision below.
+    let mut face_areas: Vec<egui::Response> = Vec::new();
+    // A layer's background, and — when it is opaque — the shield over what is
+    // below it (R20). A macro, because it runs at the two places a layer's turn
+    // comes, and borrows `ui` and `face_areas`.
+    macro_rules! show_layer {
+        ($layer:expr) => {{
+            let layer: &crate::model::Layer = $layer;
+            if input.state.layer_visible(&layer.name) {
+                paint_layer_backdrop(&painter, backdrop_rect, layer, window);
+                if interactive && layer_is_opaque(layer) {
+                    let shield = ui.interact(
+                        backdrop_rect,
+                        rt_id_in(scope, &format!("layer-background.{}", layer.name)),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if draggable {
+                        face_areas.push(shield);
+                    }
+                }
+            }
+        }};
+    }
     for &idx in &order {
         // Entering a higher layer: finish the one below, then paint the
         // backgrounds of every layer up to this one — a layer with no control of
@@ -2744,9 +2908,7 @@ fn render_form_inner(
             if r > group {
                 finish_group!(group);
                 for layer in &input.backdrop.layers[group..r] {
-                    if input.state.layer_visible(&layer.name) {
-                        paint_layer_backdrop(&painter, backdrop_rect, layer, window);
-                    }
+                    show_layer!(layer);
                 }
                 group = r;
             }
@@ -3031,6 +3193,10 @@ fn render_form_inner(
         }
 
         if interactive {
+            // Whether THIS control is in a layer, for the arms that claim less
+            // there (a Label claims its text only — spec 091 R18).
+            let in_a_layer = ranks.get(idx).copied().unwrap_or(0) > 0;
+            ui.data_mut(|d| d.insert_temp(drawn_in_a_layer_id(scope), in_a_layer));
             // Live, editable widget: faces via `draw_control`, plus the interaction
             // (text edit, slider drag, combo popup, â¦) ported from the run path.
             render_interactive(
@@ -3048,6 +3214,28 @@ fn render_form_inner(
                 &mut out,
                 &mut open_combos,
             );
+            // Spec 091 R19 — a control of a layer that has no mouse behaviour of
+            // its own and paints something (a Label's text, a Panel, a picture)
+            // still owns the pointer where it paints: what is below must not
+            // react through it. Registered after the control, so it sits over the
+            // layers below and under whatever the control holds. A control that
+            // reacts to the mouse is its own such widget already.
+            if ranks.get(idx).copied().unwrap_or(0) > 0
+                && !live.control_type.is_non_visual()
+                && passive_to_the_mouse(&live)
+            {
+                let region = pointer_region(&live, screen, out.caption_rects.get(&live.id).copied());
+                if let Some(region) = region.map(|r| r.intersect(clip)).filter(|r| r.is_positive()) {
+                    let block = ui.interact(
+                        region,
+                        rt_id_in(scope, &format!("layer-block.{}", live.id)),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if draggable {
+                        face_areas.push(block);
+                    }
+                }
+            }
 
         } else {
             // Static: the one true face renderer (charts, images, glass, rounding).
@@ -3088,9 +3276,7 @@ fn render_form_inner(
     // asked of the layers themselves, not of the controls' ranks.
     if !input.backdrop.layers.is_empty() {
         for layer in &input.backdrop.layers[group..] {
-            if input.state.layer_visible(&layer.name) {
-                paint_layer_backdrop(&painter, backdrop_rect, layer, window);
-            }
+            show_layer!(layer);
         }
     }
     if interactive {
@@ -3105,6 +3291,14 @@ fn render_form_inner(
         .and_then(|area| area.interact_pointer_pos())
     {
         out.window_drag = !window_drag_blocked(ui.ctx(), controls, &out, p);
+    }
+    // A layer's opaque background, or a passive control of a layer, took that
+    // drag from the window's own area: the window still moves by its face, on
+    // the same rule — a press on a painted part keeps its own (spec 091).
+    for area in face_areas.iter().filter(|a| a.drag_started()) {
+        if let Some(p) = area.interact_pointer_pos() {
+            out.window_drag = !window_drag_blocked(ui.ctx(), controls, &out, p);
+        }
     }
 
     // ââ Second pass: open ComboBox dropdowns float above everything. ââââââââââ
@@ -3238,6 +3432,40 @@ fn render_form_inner(
             ui.data_mut(|d| d.remove::<bool>(had_focus));
         }
     }
+
+    // ── Spec 091 R17–R20: the layers hold the pointer. A control with a painted
+    // part under the pointer, or an opaque background, takes the event; the
+    // layers below it get nothing — not a handler run, not a state change. What
+    // the layer's own controls and the layers above report is left alone.
+    //
+    // Settled HERE, once every control's rectangle is known: a control below a
+    // layer is drawn before the layer's controls are, so the claim cannot be
+    // read while it draws. The blockers registered in the loop keep egui from
+    // lighting, pressing or focusing the widgets below; this keeps their
+    // answers out of the output.
+    if interactive && !input.backdrop.layers.is_empty() {
+        if let Some(p) = ui.input(|i| i.pointer.interact_pos()) {
+            let claim = pointer_claim(ui.ctx(), input, controls, &ranks, &out, backdrop_rect, p);
+            if claim > 0 {
+                let shielded = |id: &str| rank_by_id.get(id).copied().unwrap_or(0) < claim;
+                let acted = ui.input(|i| {
+                    i.events.iter().any(|e| {
+                        matches!(e, egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. })
+                    })
+                });
+                if acted {
+                    // A press, a release, a wheel turn: nothing of a shielded
+                    // control reaches the host this frame.
+                    out.events.retain(|e| !shielded(&e.ctrl_id));
+                    out.prop_updates.retain(|(id, _, _)| !shielded(id));
+                } else {
+                    // Mere movement: the hover and move events only.
+                    out.events
+                        .retain(|e| !(shielded(&e.ctrl_id) && POINTER_EVENTS.contains(&e.event.as_str())));
+                }
+            }
+        }
+    }
     out
 }
 
@@ -3253,6 +3481,13 @@ fn dropdown_needs_a_window(panel: Rect, window: Rect, embedded: bool, see_throug
 /// Where this frame records that its surface is a frameless, draggable window.
 fn window_draggable_id(scope: Option<egui::Id>) -> egui::Id {
     rt_id_in(scope, "form").with("window-draggable")
+}
+
+/// Where the control loop records, for the control it is about to draw, whether
+/// it sits in a layer (spec 091). The control arms read it where a layer changes
+/// what they must claim: a Label of a layer claims its text and nothing more.
+fn drawn_in_a_layer_id(scope: Option<egui::Id>) -> egui::Id {
+    rt_id_in(scope, "form").with("drawn-in-a-layer")
 }
 
 /// A face that paints nothing: `Transparency` 100, or a background colour with
@@ -3335,7 +3570,6 @@ fn window_drag_blocked(ctx: &egui::Context, controls: &[Control], out: &RenderOu
         let Some(rect) = out.control_rects.get(&ctrl.id).filter(|r| r.contains(p)) else {
             return false;
         };
-        let see_through = face_see_through(ctrl);
         // A control with no mouse behaviour of its own and no press handler:
         // nothing happens if the press stays with it, so it moves the window
         // instead — anywhere on it but a Label's text, which selects.
@@ -3343,28 +3577,47 @@ fn window_drag_blocked(ctx: &egui::Context, controls: &[Control], out: &RenderOu
             return ctrl.control_type == ControlType::Label
                 && out.caption_rects.get(&ctrl.id).is_some_and(|text| text.contains(p));
         }
-        match ctrl.control_type {
-            ControlType::Label if see_through => {
-                out.caption_rects.get(&ctrl.id).is_some_and(|text| text.contains(p))
-            }
-            ControlType::Panel | ControlType::GroupBox if see_through => {
-                // The border, and a GroupBox's caption along the top edge.
-                let border = ctrl.get_prop("BorderWidth").map_or(1.0, |v| v.as_i64() as f32).max(1.0) + 2.0;
-                let caption = if ctrl.control_type == ControlType::GroupBox {
-                    crate::paint::ctrl_font_size(ctrl) * 1.6
-                } else {
-                    0.0
-                };
-                let open = Rect::from_min_max(
-                    pos2(rect.min.x + border, rect.min.y + border.max(caption)),
-                    pos2(rect.max.x - border, rect.max.y - border),
-                );
-                !open.contains(p)
-            }
-            ControlType::PictureBox => crate::paint::picturebox_paints_at(ctx, ctrl, *rect, p),
-            _ => true,
-        }
+        paints_at(ctx, ctrl, *rect, out.caption_rects.get(&ctrl.id).copied(), p)
     })
+}
+
+/// Whether `p`, a point inside `rect` — the control's rectangle on screen —
+/// lies on a part of `ctrl` that paints something (`caption` is where a Label's
+/// text lies). A see-through Label paints its text, a see-through Panel or
+/// GroupBox its border and caption, a PictureBox its picture's opaque pixels;
+/// every other control paints over its whole rectangle.
+///
+/// The ONE answer to "is there something here", asked by the window drag (a
+/// press on a painted part keeps its own) and by the layers (an event at a
+/// painted part belongs to its control and does not fall through, spec 091
+/// R17–R19). The policies differ; the geometry must not.
+fn paints_at(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    rect: Rect,
+    caption: Option<Rect>,
+    p: egui::Pos2,
+) -> bool {
+    let see_through = face_see_through(ctrl);
+    match ctrl.control_type {
+        ControlType::Label if see_through => caption.is_some_and(|text| text.contains(p)),
+        ControlType::Panel | ControlType::GroupBox if see_through => {
+            // The border, and a GroupBox's caption along the top edge.
+            let border = ctrl.get_prop("BorderWidth").map_or(1.0, |v| v.as_i64() as f32).max(1.0) + 2.0;
+            let caption = if ctrl.control_type == ControlType::GroupBox {
+                crate::paint::ctrl_font_size(ctrl) * 1.6
+            } else {
+                0.0
+            };
+            let open = Rect::from_min_max(
+                pos2(rect.min.x + border, rect.min.y + border.max(caption)),
+                pos2(rect.max.x - border, rect.max.y - border),
+            );
+            !open.contains(p)
+        }
+        ControlType::PictureBox => crate::paint::picturebox_paints_at(ctx, ctrl, rect, p),
+        _ => true,
+    }
 }
 
 /// One ComboBox whose dropdown is open, held over for the second pass.
@@ -3448,9 +3701,15 @@ fn collect_tab_targets(
     let mut targets = Vec::new();
     let mut sequence = 0usize;
     let ranks = layer_ranks(controls, &input.backdrop.layers);
+    // An opaque layer holds the focus as it holds the pointer (spec 091 Q10,
+    // R20): what is under it cannot be seen or clicked, so Tab skips it.
+    let shield = opaque_shield_rank(input);
     for &idx in order {
         let base = &controls[idx];
         if !visible_in(input, base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
+            continue;
+        }
+        if ranks.get(idx).copied().unwrap_or(0) < shield {
             continue;
         }
         if input.state.enabled(base)
@@ -14050,9 +14309,15 @@ fn render_interactive(
                     // controls in their designed order.
                     // On a frameless window a see-through Label claims only its
                     // text, so a drag beside it moves the window.
+                    //
+                    // A Label of a LAYER is in the same case (spec 091 R18): what
+                    // it does not paint belongs to the layers below it.
                     let draggable = ui
                         .data(|d| d.get_temp::<bool>(window_draggable_id(scope)))
-                        .unwrap_or(false);
+                        .unwrap_or(false)
+                        || ui
+                            .data(|d| d.get_temp::<bool>(drawn_in_a_layer_id(scope)))
+                            .unwrap_or(false);
                     // …and so does any Label nobody listens to a press on: its
                     // background has no behaviour of its own, its text does
                     // (it selects).

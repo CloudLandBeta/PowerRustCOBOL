@@ -17,6 +17,23 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.32] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2d — the layers hold the pointer.** A click goes to the
+  highest shown layer that owns the point: a control with a handler bound to a
+  press (it answers over its whole rectangle), or one that paints something
+  there (a Label with no background of its own paints its text only), or an
+  opaque background. Everything below it gets nothing — no handler run, no state
+  change — whether or not the control above has a handler; a click on a part a
+  layer does not paint passes to the layer below, and a translucent background
+  does not shield. Tab skips what an opaque layer covers. egui gets a blocker
+  over what a layer owns, so the widgets under it neither light, press nor take
+  the focus, and a frameless window still moves by its face on the same rule.
+  The painted-part test is now one function shared by the window drag and the
+  layers. A form with no layers behaves exactly as before. 10 new tests,
+  mutation-checked: with the gate off, five of them fail.
+
 ## [PowerRustCOBOL 1.90.31] — 2026-10-09
 
 ### Added

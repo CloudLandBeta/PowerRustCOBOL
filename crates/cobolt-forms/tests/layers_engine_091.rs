@@ -594,3 +594,256 @@ fn a_form_with_layers_and_no_control_still_paints_the_layers_091() {
         assert!(backdrop_at(&hidden, RED).is_none() && backdrop_at(&hidden, blue).is_some(), "{path:?}");
     }
 }
+
+// ── The layers hold the pointer (R17–R20, AC9) ───────────────────────────────
+
+fn bound(mut c: Control, event: &str) -> Control {
+    c.events.push(cobolt_forms::model::EventBinding {
+        event: event.into(),
+        paragraph: format!("{}-{}", c.id, event),
+        code: "DISPLAY \"x\"".into(),
+    });
+    c
+}
+
+fn button_at(id: &str, layer: Option<&str>, r: (i32, i32, i32, i32), handler: bool) -> Control {
+    let mut c = Control::new(id, ControlType::Button, r.0, r.1);
+    c.rect = cobolt_forms::model::Rect::new(r.0, r.1, r.2, r.3);
+    c.layer = layer.map(str::to_owned);
+    if handler { bound(c, "onClick") } else { c }
+}
+
+/// The base button every scenario clicks, and the point it is clicked at.
+const BASE_BTN: (i32, i32, i32, i32) = (300, 200, 120, 40);
+const CLICK: (f32, f32) = (360.0, 220.0);
+
+/// Click at `p`, the way a user does — a few frames to let the form settle, the
+/// pointer moves, the button goes down, the button goes up — and report every
+/// event the form raised as `(control, event)`.
+fn click_at(
+    controls: &[Control],
+    layers: Vec<Layer>,
+    state: &dyn FormState,
+    p: (f32, f32),
+) -> Vec<(String, String)> {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(egui::FontDefinitions::default());
+    let active = ActiveTabs::new();
+    let at = pos2(p.0, p.1);
+    let button = |pressed: bool| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    let frames: Vec<Vec<egui::Event>> = vec![
+        vec![],
+        vec![],
+        vec![],
+        vec![egui::Event::PointerMoved(at)],
+        vec![egui::Event::PointerMoved(at), button(true)],
+        vec![egui::Event::PointerMoved(at), button(false)],
+        vec![],
+    ];
+    let mut seen = Vec::new();
+    for (i, events) in frames.into_iter().enumerate() {
+        let mut raw = egui::RawInput::default();
+        raw.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(FORM.0, FORM.1)));
+        raw.focused = true;
+        raw.time = Some(i as f64 * 0.05);
+        raw.events = events;
+        ctx.run_ui(raw, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(FORM.0, FORM.1));
+                    let inp = RenderInput {
+                        controls,
+                        state,
+                        form_size: Vec2::new(FORM.0, FORM.1),
+                        glass: false,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop { paint: false, layers: layers.clone(), ..Default::default() },
+                    };
+                    let out = render_form(ui, &inp);
+                    for e in out.events {
+                        seen.push((e.ctrl_id, e.event));
+                    }
+                });
+        })
+        .textures_delta
+        .clear();
+    }
+    seen
+}
+
+fn clicks(seen: &[(String, String)]) -> Vec<&str> {
+    seen.iter().filter(|(_, e)| e == "onClick").map(|(c, _)| c.as_str()).collect()
+}
+
+fn two_layers() -> Vec<Layer> {
+    vec![layer("Layer-1", "#00000000"), layer("Layer-2", "#00000000")]
+}
+
+#[test]
+fn a_click_on_the_empty_area_of_a_layer_reaches_the_button_below_091() {
+    // R18: a layer with a Label whose text is far from the button, and nothing
+    // else — a click over the base button lands on nothing the layer paints.
+    let mut note = Control::new("NOTE", ControlType::Label, 10, 10);
+    note.rect = cobolt_forms::model::Rect::new(10, 10, 200, 24);
+    note.layer = Some("Layer-1".into());
+    let controls = [button_at("BASE-BTN", None, BASE_BTN, true), note];
+    let seen = click_at(&controls, two_layers(), &Shown(&["Layer-1", "Layer-2"]), CLICK);
+    assert_eq!(clicks(&seen), ["BASE-BTN"], "{seen:?}");
+
+    // The control case: no layers at all.
+    let alone = click_at(&[button_at("BASE-BTN", None, BASE_BTN, true)], Vec::new(), &DesignedState, CLICK);
+    assert_eq!(clicks(&alone), ["BASE-BTN"], "{alone:?}");
+}
+
+#[test]
+fn a_click_on_a_layer_button_runs_only_its_handler_091() {
+    let controls = [
+        button_at("BASE-BTN", None, BASE_BTN, true),
+        button_at("LAYER-BTN", Some("Layer-1"), BASE_BTN, true),
+    ];
+    let seen = click_at(&controls, two_layers(), &Shown(&["Layer-1", "Layer-2"]), CLICK);
+    assert_eq!(clicks(&seen), ["LAYER-BTN"], "R19: the control painted above takes the click: {seen:?}");
+}
+
+#[test]
+fn a_click_on_a_layer_control_with_no_handler_runs_nothing_and_not_the_one_below_091() {
+    let controls = [
+        button_at("BASE-BTN", None, BASE_BTN, true),
+        button_at("LAYER-BTN", Some("Layer-1"), BASE_BTN, false),
+    ];
+    let seen = click_at(&controls, two_layers(), &Shown(&["Layer-1", "Layer-2"]), CLICK);
+    assert!(clicks(&seen).is_empty(), "R19: discarded, not passed down: {seen:?}");
+}
+
+#[test]
+fn a_passive_control_of_a_layer_keeps_the_click_where_it_paints_091() {
+    // A Panel with a face, no handler, over the base button.
+    let mut card = Control::new("CARD", ControlType::Panel, 280, 180, );
+    card.rect = cobolt_forms::model::Rect::new(280, 180, 200, 100);
+    card.layer = Some("Layer-1".into());
+    card.set_prop("BackgroundColor", PropValue::String("#3060C0FF".into()));
+    let controls = [button_at("BASE-BTN", None, BASE_BTN, true), card];
+    let seen = click_at(&controls, two_layers(), &Shown(&["Layer-1", "Layer-2"]), CLICK);
+    assert!(clicks(&seen).is_empty(), "R19: a painted Panel owns the click: {seen:?}");
+
+    // Beside the card the base button is still reachable.
+    let beside = click_at(
+        &[button_at("BASE-BTN", None, (10, 10, 120, 40), true), {
+            let mut c = Control::new("CARD", ControlType::Panel, 280, 180);
+            c.rect = cobolt_forms::model::Rect::new(280, 180, 200, 100);
+            c.layer = Some("Layer-1".into());
+            c.set_prop("BackgroundColor", PropValue::String("#3060C0FF".into()));
+            c
+        }],
+        two_layers(),
+        &Shown(&["Layer-1", "Layer-2"]),
+        (60.0, 30.0),
+    );
+    assert_eq!(clicks(&beside), ["BASE-BTN"], "{beside:?}");
+}
+
+#[test]
+fn a_click_beside_a_transparent_label_s_text_reaches_the_button_091() {
+    // The label's rectangle covers the button; only its text (top-left) paints.
+    let mut note = label("NOTE", "TXT", Some("Layer-1"), 0);
+    note.rect = cobolt_forms::model::Rect::new(280, 180, 200, 100);
+    let controls = [button_at("BASE-BTN", None, BASE_BTN, true), note];
+    let seen = click_at(&controls, two_layers(), &Shown(&["Layer-1", "Layer-2"]), CLICK);
+    assert_eq!(clicks(&seen), ["BASE-BTN"], "R18: the Label paints its text only: {seen:?}");
+}
+
+#[test]
+fn an_opaque_layer_background_shields_what_is_below_and_a_translucent_one_does_not_091() {
+    let base_btn = || button_at("BASE-BTN", None, BASE_BTN, true);
+    // Opaque: nothing below it gets the click, and the background itself is
+    // never the target of an event (no handler can be bound to it).
+    let opaque = vec![layer("Layer-1", "#FFFFFFFF")];
+    let seen = click_at(&[base_btn()], opaque.clone(), &Shown(&["Layer-1"]), CLICK);
+    assert!(seen.iter().all(|(_, e)| e != "onClick"), "R20: shielded: {seen:?}");
+    assert!(seen.iter().all(|(c, _)| c != "Layer-1"), "no event names the background: {seen:?}");
+
+    // …but a control of that layer, painted above the background, still gets
+    // its own click.
+    let over = button_at("LAYER-BTN", Some("Layer-1"), BASE_BTN, true);
+    let seen = click_at(&[base_btn(), over], opaque, &Shown(&["Layer-1"]), CLICK);
+    assert_eq!(clicks(&seen), ["LAYER-BTN"], "{seen:?}");
+
+    // The same background with a little transparency lets the event through.
+    let mut see_through = layer("Layer-1", "#FFFFFFFF");
+    see_through.backdrop.transparency = 30;
+    let seen = click_at(&[base_btn()], vec![see_through], &Shown(&["Layer-1"]), CLICK);
+    assert_eq!(clicks(&seen), ["BASE-BTN"], "Q8b: translucent does not shield: {seen:?}");
+
+    // A colour with alpha below 255 lets it through too.
+    let seen = click_at(&[base_btn()], vec![layer("Layer-1", "#FFFFFF80")], &Shown(&["Layer-1"]), CLICK);
+    assert_eq!(clicks(&seen), ["BASE-BTN"], "{seen:?}");
+}
+
+#[test]
+fn a_hidden_layer_holds_nothing_091() {
+    let controls = [
+        button_at("BASE-BTN", None, BASE_BTN, true),
+        button_at("LAYER-BTN", Some("Layer-1"), BASE_BTN, true),
+    ];
+    let hidden = click_at(&controls, vec![layer("Layer-1", "#FFFFFFFF")], &Shown(&[]), CLICK);
+    assert_eq!(clicks(&hidden), ["BASE-BTN"], "R12: a hidden layer takes no event, opaque or not: {hidden:?}");
+}
+
+#[test]
+fn the_same_rules_hold_with_three_layers_091() {
+    let layers = || {
+        vec![
+            layer("Layer-1", "#00000000"),
+            layer("Layer-2", "#00000000"),
+            layer("Layer-3", "#00000000"),
+        ]
+    };
+    let all = Shown(&["Layer-1", "Layer-2", "Layer-3"]);
+    // A button in each of Layer-1 and Layer-3 over the base's; Layer-2 holds
+    // nothing there. The highest painted control takes it.
+    let controls = [
+        button_at("BASE-BTN", None, BASE_BTN, true),
+        button_at("L1-BTN", Some("Layer-1"), BASE_BTN, true),
+        button_at("L3-BTN", Some("Layer-3"), BASE_BTN, true),
+    ];
+    assert_eq!(clicks(&click_at(&controls, layers(), &all, CLICK)), ["L3-BTN"]);
+    // Layer-3 hidden: Layer-1's button is the highest painted one.
+    assert_eq!(
+        clicks(&click_at(&controls, layers(), &Shown(&["Layer-1", "Layer-2"]), CLICK)),
+        ["L1-BTN"]
+    );
+    // An opaque Layer-2 shields Layer-1 and the base from the click, but not
+    // Layer-3's button above it.
+    let mut opaque_mid = layers();
+    opaque_mid[1] = layer("Layer-2", "#101010FF");
+    assert_eq!(clicks(&click_at(&controls, opaque_mid.clone(), &all, CLICK)), ["L3-BTN"]);
+    assert_eq!(
+        clicks(&click_at(&controls, opaque_mid, &Shown(&["Layer-1", "Layer-2"]), CLICK)),
+        Vec::<&str>::new(),
+        "R20: with Layer-3 hidden the opaque Layer-2 shields both below it"
+    );
+}
+
+#[test]
+fn tab_skips_what_an_opaque_layer_hides_from_the_keyboard_too_091() {
+    let controls = [
+        textbox("BASE-1", None, 1, 10),
+        textbox("BASE-2", None, 2, 50),
+        textbox("L1-TB", Some("Layer-1"), 1, 100),
+    ];
+    // Translucent: the base is still on the walk.
+    let walk = tab_walk(&controls, vec![layer("Layer-1", "#00000000")], &Shown(&["Layer-1"]), 4);
+    assert_eq!(walk, ["BASE-1", "BASE-2", "L1-TB", "BASE-1"]);
+    // Opaque: what is under it can be neither seen nor clicked, so Tab never
+    // goes there (Q10).
+    let walk = tab_walk(&controls, vec![layer("Layer-1", "#202020FF")], &Shown(&["Layer-1"]), 3);
+    // One focusable control: Tab leaves the focus on it, so it is announced once.
+    assert_eq!(walk, ["L1-TB"], "only the opaque layer's own control ever takes the focus");
+}
