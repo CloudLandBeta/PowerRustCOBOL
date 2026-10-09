@@ -457,3 +457,140 @@ fn tab_skips_the_controls_of_a_hidden_layer_091() {
     eprintln!("\n  Tab walk, Layer-1 hidden: {walk:?}");
     assert_eq!(walk, ["BASE-1", "BASE-2", "L2-TB", "BASE-1"], "Layer-1's box is never reached");
 }
+
+// ── A layer is cut at the form's edge (R13, R14, AC7 straight-edge half) ─────
+
+/// Every shape a frame paints with the clip it was painted under: what the
+/// screen actually shows of a shape is its bounds INSIDE that clip.
+fn painted_with_clip(
+    controls: &[Control],
+    layers: Vec<Layer>,
+    path: Path,
+    screen: (f32, f32),
+) -> Vec<(Shape, Rect)> {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(egui::FontDefinitions::default());
+    let active = ActiveTabs::new();
+    let mut raw = egui::RawInput::default();
+    raw.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(screen.0, screen.1)));
+    let mut full = ctx.run_ui(raw, |root_ui| {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show_inside(root_ui, |ui| {
+                let inp = RenderInput {
+                    controls,
+                    state: &DesignedState,
+                    form_size: Vec2::new(FORM.0, FORM.1),
+                    glass: false,
+                    mode: match path {
+                        Path::Run => RenderMode::Interactive,
+                        _ => RenderMode::Static,
+                    },
+                    active_tabs: &active,
+                    backdrop: Backdrop { paint: false, layers: layers.clone(), ..Default::default() },
+                };
+                match path {
+                    Path::Run | Path::Static => {
+                        let _ = render_form(ui, &inp);
+                    }
+                    Path::Canvas => {
+                        let painter = ui.painter().clone();
+                        let _ = render_faces(&painter, pos2(0.0, 0.0), &inp);
+                    }
+                }
+            });
+    });
+    full.textures_delta.clear();
+    fn walk(s: &Shape, clip: Rect, out: &mut Vec<(Shape, Rect)>) {
+        match s {
+            Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, out)),
+            other => out.push((other.clone(), clip)),
+        }
+    }
+    let mut out = Vec::new();
+    for cs in &full.shapes {
+        walk(&cs.shape, cs.clip_rect, &mut out);
+    }
+    out
+}
+
+/// The furthest right any shape of the frame reaches ONCE CLIPPED.
+fn furthest_right(shapes: &[(Shape, Rect)]) -> f32 {
+    shapes
+        .iter()
+        .filter_map(|(s, clip)| {
+            let b = s.visual_bounding_rect();
+            (b.is_finite() && b.is_positive()).then(|| b.intersect(*clip).max.x)
+        })
+        .filter(|x| x.is_finite())
+        .fold(f32::MIN, f32::max)
+}
+
+fn straddling(ct: &ControlType, layer: Option<&str>) -> Control {
+    let mut c = Control::new("STRADDLE", ct.clone(), 500, 100);
+    c.rect = cobolt_forms::model::Rect::new(500, 100, 200, 120);
+    c.layer = layer.map(str::to_owned);
+    c
+}
+
+#[test]
+fn a_layer_control_of_every_type_is_cut_at_the_form_s_edge_091() {
+    // The screen is bigger than the form, so the base — which may use the room a
+    // bigger window offers — can show a control past the form's edge, and the
+    // layer must not.
+    let screen = (900.0, 600.0);
+    let edge = FORM.0 + 0.5;
+    let types: Vec<ControlType> = ControlType::ALL.to_vec();
+    assert!(types.len() >= 40, "the whole catalogue: {}", types.len());
+    let mut base_bleeds = 0usize;
+    let mut leaks: Vec<String> = Vec::new();
+    for ct in &types {
+        for path in PATHS {
+            let layered = painted_with_clip(
+                &[straddling(ct, Some("Layer-1"))],
+                vec![Layer::new("Layer-1")],
+                path,
+                screen,
+            );
+            let x = furthest_right(&layered);
+            if x > edge {
+                leaks.push(format!("{} on {path:?}: reaches x = {x:.1}", ct.as_str()));
+            }
+        }
+        // The same control in the base, on the canvas: the proof the check can
+        // see a bleed at all.
+        let base = painted_with_clip(&[straddling(ct, None)], Vec::new(), Path::Canvas, screen);
+        if furthest_right(&base) > edge {
+            base_bleeds += 1;
+        }
+    }
+    eprintln!(
+        "\n  {} control types x 3 paths in a layer: {} reach past x = {} ({base_bleeds} of the same types DO in the base)\n",
+        types.len(),
+        leaks.len(),
+        FORM.0
+    );
+    assert!(
+        base_bleeds >= 20,
+        "the check must be able to see a bleed: only {base_bleeds} types painted past the edge in the base"
+    );
+    assert!(leaks.is_empty(), "a layer paints outside the form's rectangle:\n  {}", leaks.join("\n  "));
+}
+
+#[test]
+fn a_form_with_layers_and_no_control_still_paints_the_layers_091() {
+    // Found by the rounded-window harness: the "are there layers?" switch was
+    // read from the controls' ranks, which are empty when there are no controls.
+    let layers = vec![layer("Layer-1", "#FF0000FF"), layer("Layer-2", "#0000FFFF")];
+    let blue = Color32::from_rgba_premultiplied(0, 0, 255, 255);
+    for path in PATHS {
+        let s = paint(&[], layers.clone(), &DesignedState, path);
+        let (r, b) = (
+            backdrop_at(&s, RED).unwrap_or_else(|| panic!("{path:?}: Layer-1's background")),
+            backdrop_at(&s, blue).unwrap_or_else(|| panic!("{path:?}: Layer-2's background")),
+        );
+        assert!(r < b, "{path:?}: Layer-2 paints above Layer-1 ({r} then {b})");
+        let hidden = paint(&[], layers.clone(), &Shown(&["Layer-2"]), path);
+        assert!(backdrop_at(&hidden, RED).is_none() && backdrop_at(&hidden, blue).is_some(), "{path:?}");
+    }
+}

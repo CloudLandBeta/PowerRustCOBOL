@@ -17,6 +17,21 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.30] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2b — a layer is cut at the form's edge.** A control in a
+  layer is clipped to the form's rectangle, on the canvas and at run time, and so
+  are the captions, tab strips and icons that are painted over it. All 62 control
+  types on three paint paths stay inside the form's edge in a layer, where 60 of
+  the same types reach past it in the base. A layer's own background stops at a
+  rounded window's arc, and the types that stay inside the arc in a layer are the
+  base's. Seven types that cannot clip themselves (`DataGrid`, `FileDropZone`,
+  `Maps`, `TabControl`, `ToolBar`, `Viewer`, `Custom`) still paint past a rounded
+  window's arc, in a layer as in the base: measured, listed, and asked as Q31.
+  Fixed on the way: a form with layers and no controls at all painted none of
+  its layers.
+
 ## [PowerRustCOBOL 1.90.29] — 2026-10-09
 
 ### Added

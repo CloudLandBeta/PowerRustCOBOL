@@ -2723,9 +2723,16 @@ fn render_form_inner(
                     &only,
                 );
             }
-            draw_deferred_groupbox_captions(&painter, input, &out, &only);
-            draw_deferred_tabcontrol_tabs(&painter, input, &out, &only);
-            draw_expand_icons(interactive.then_some(&*ui), &painter, input, &mut out, &only);
+            // A layer's captions, tab strips and icons are cut at the form's edge
+            // like the controls they belong to (R14).
+            let clipped = if g > 0 {
+                painter.with_clip_rect(painter.clip_rect().intersect(form_rect))
+            } else {
+                painter.clone()
+            };
+            draw_deferred_groupbox_captions(&clipped, input, &out, &only);
+            draw_deferred_tabcontrol_tabs(&clipped, input, &out, &only);
+            draw_expand_icons(interactive.then_some(&*ui), &clipped, input, &mut out, &only);
         }};
     }
     for &idx in &order {
@@ -2744,6 +2751,14 @@ fn render_form_inner(
                 group = r;
             }
         }
+        // A layer is the form's own rectangle and nothing more (spec 091 R13,
+        // R14): a control in one is clipped to it, where a base control may use
+        // the room a bigger window offers (`content_rect`, below). Shadowed for
+        // this control only, so every clip derived from it follows.
+        let content_rect = match ranks.get(idx) {
+            Some(&r) if r > 0 => form_rect,
+            _ => content_rect,
+        };
         let base = &controls[idx];
         if base
             .id
@@ -3069,8 +3084,9 @@ fn render_form_inner(
     // (Spec 091: with layers this runs once per layer, as each one is finished.)
     finish_group!(group);
     // Layers above the last one that held a control: their backgrounds still
-    // draw, in stack order (R9, R15).
-    if !ranks.is_empty() {
+    // draw, in stack order (R9, R15) — also when no control holds any layer, so
+    // asked of the layers themselves, not of the controls' ranks.
+    if !input.backdrop.layers.is_empty() {
         for layer in &input.backdrop.layers[group..] {
             if input.state.layer_visible(&layer.name) {
                 paint_layer_backdrop(&painter, backdrop_rect, layer, window);
@@ -4004,9 +4020,15 @@ pub fn render_faces(
             let only = |c: &Control| {
                 ranks.is_empty() || rank_by_id.get(c.id.as_str()).copied().unwrap_or(0) == g
             };
-            draw_deferred_groupbox_captions(painter, input, &out, &only);
-            draw_deferred_tabcontrol_tabs(painter, input, &out, &only);
-            draw_expand_icons(None, painter, input, &mut out, &only);
+            // Cut at the form's edge for a layer, as its controls are (R14).
+            let clipped = if g > 0 {
+                painter.with_clip_rect(painter.clip_rect().intersect(form_rect))
+            } else {
+                painter.clone()
+            };
+            draw_deferred_groupbox_captions(&clipped, input, &out, &only);
+            draw_deferred_tabcontrol_tabs(&clipped, input, &out, &only);
+            draw_expand_icons(None, &clipped, input, &mut out, &only);
         }};
     }
     for &idx in &order {
@@ -4063,6 +4085,12 @@ pub fn render_faces(
                 Vec2::new(cm.w as f32, cm.h as f32),
             )),
             None => painter.clip_rect(),
+        };
+        // A layer is the form's rectangle and nothing more (spec 091 R13, R14):
+        // what it holds is cut at the form's edge, on the canvas as at run time.
+        let clip = match ranks.get(idx) {
+            Some(&r) if r > 0 => clip.intersect(form_rect),
+            _ => clip,
         };
         // The drop shadow may fall into the container's padding, as in
         // `render_form` (`paint::ShadowBoundsScope`).
@@ -4130,8 +4158,8 @@ pub fn render_faces(
     }
     finish_group!(group);
     // Layers above the last one that held a control still draw their
-    // backgrounds, in stack order.
-    if !ranks.is_empty() {
+    // backgrounds, in stack order — also when no control holds any layer.
+    if !input.backdrop.layers.is_empty() {
         for layer in &input.backdrop.layers[group..] {
             if input.state.layer_visible(&layer.name) {
                 paint_layer_backdrop(painter, form_rect, layer, window);
