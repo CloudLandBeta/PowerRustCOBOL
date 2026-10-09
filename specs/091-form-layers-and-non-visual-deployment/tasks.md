@@ -151,7 +151,7 @@
 
 - [x] **T30 — Close the spec**
   - `spec.md` has every AC ticked and Status `implemented`; `CHANGELOG.md` carries one entry per slice (1.90.35–1.90.39), the last with the AC15 numbers.
-  - Nothing is pushed. The open items stay with the operator — Q31's default, IDE Check's receiver check, the unrelated `leaderboard_prototype` example (task_7698cf21) — and the two suites above.
+  - Nothing is pushed. Q31's default and IDE Check's missing receiver check were **accepted by the operator on 2026-10-09** (recorded in the spec). Still open: the unrelated `leaderboard_prototype` example (task_7698cf21) and the two suites above.
 
 ## Coverage: every acceptance criterion has a task whose verify line proves it
 

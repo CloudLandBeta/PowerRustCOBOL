@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.40] — 2026-10-09
+
+### Changed
+- **Spec 091 — two limitations accepted.** The operator accepted, as they stand,
+  that seven control types (DataGrid, FileDropZone, Maps, TabControl, ToolBar,
+  Viewer and custom plug-in controls) may paint past a rounded window's arc in a
+  layer, as they do in the base (Q31), and that IDE Check does not read
+  `LAYER-NAME::property` — Build and Run Form do (R37). The spec records both as
+  settled; the Developer's Guide already lists them. Documents only.
+
 ## [PowerRustCOBOL 1.90.39] — 2026-10-09
 
 ### Added
