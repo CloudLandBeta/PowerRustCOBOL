@@ -243,6 +243,11 @@ pub struct DiskIndexedFile {
     /// The suffix is now this counter, allocated when the entry **joins**, so a
     /// set iterates in join order (container version 2).
     next_alt_seq: u64,
+    /// Join sequences the next `WRITE` gives its duplicates-alternate entries
+    /// instead of fresh ones, one per alternate. Set only by
+    /// [`write_disk_container_in_join_order`], so a `STORAGE IS MEMORY` file
+    /// saved here keeps the order its duplicates joined their sets.
+    forced_seqs: Option<Vec<u64>>,
 
 
     // Transaction undo log (since the last COMMIT/OPEN) for ROLLBACK, plus a
@@ -341,6 +346,42 @@ pub(crate) fn read_disk_container(
     Ok(records)
 }
 
+/// For each alternate key WITH DUPLICATES, the primary keys of the
+/// `PRCIDXD1` container at `path` in that alternate's order — duplicates in
+/// the order they joined their set. Empty for an alternate without
+/// duplicates, whose order the value alone decides. How a `STORAGE IS MEMORY`
+/// open recovers the join order [`read_disk_container`] cannot carry.
+pub(crate) fn read_disk_container_join_order(
+    path: &Path,
+    record_len: usize,
+    primary: &KeySpec,
+    alternates: &[KeySpec],
+) -> Result<Vec<Vec<Bytes>>, &'static str> {
+    let mut out = vec![Vec::new(); alternates.len()];
+    if alternates.iter().all(|ks| !ks.duplicates) {
+        return Ok(out);
+    }
+    let mut f = DiskIndexedFile::new(path, record_len, primary.clone(), alternates.to_vec());
+    f.set_strict_metadata(false);
+    let st = f.open(OpenMode::Input);
+    if st != status::OK {
+        return Err(st);
+    }
+    for (i, ks) in alternates.iter().enumerate() {
+        if !ks.duplicates {
+            continue;
+        }
+        f.set_key_of_reference(i + 1);
+        f.cursor = None;
+        f.resume_key = None;
+        while let (Some(rec), _) = f.read_seq(ReadDir::Next) {
+            out[i].push(primary.key_of(&rec));
+        }
+    }
+    f.close();
+    Ok(out)
+}
+
 /// Write `records` as a complete `PRCIDXD1` container at `path`, replacing
 /// whatever is there — how a file changes storage mode without losing a record.
 ///
@@ -357,6 +398,34 @@ pub(crate) fn write_disk_container(
     compressing: bool,
     records: &[Bytes],
 ) -> std::io::Result<()> {
+    write_disk_container_in_join_order(
+        path,
+        record_len,
+        primary,
+        alternates,
+        key_names,
+        compressing,
+        records,
+        None,
+    )
+}
+
+/// [`write_disk_container`], with `alt_seqs[n][i]` the join sequence record
+/// `n`'s entry in alternate `i` takes. Duplicates of an alternate value come
+/// back in ascending sequence, so a caller that kept the order its entries
+/// joined their sets keeps it across the save — written in primary-key order,
+/// a record's write position says nothing about when it joined a set.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_disk_container_in_join_order(
+    path: &Path,
+    record_len: usize,
+    primary: &KeySpec,
+    alternates: &[KeySpec],
+    key_names: &[Option<String>],
+    compressing: bool,
+    records: &[Bytes],
+    alt_seqs: Option<&[Vec<u64>]>,
+) -> std::io::Result<()> {
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".convert");
     let tmp = PathBuf::from(tmp);
@@ -370,7 +439,8 @@ pub(crate) fn write_disk_container(
     if st != status::OK {
         return Err(fail("OPEN OUTPUT", st));
     }
-    for rec in records {
+    for (n, rec) in records.iter().enumerate() {
+        f.forced_seqs = alt_seqs.map(|s| s[n].clone());
         let st = f.write(rec);
         if st != status::OK {
             f.close();
@@ -417,6 +487,7 @@ impl DiskIndexedFile {
             free_list_head: 0,
             record_count: 0,
             next_alt_seq: 0,
+            forced_seqs: None,
             data_tail: 0,
             primary_root: 0,
             alt_roots: vec![0; n],
@@ -1960,9 +2031,19 @@ impl DiskIndexedFile {
         let pkey = Self::extract(&self.primary, rec);
         self.primary_root = self.bt_insert(self.primary_root, &pkey, recid)?;
         let alts = self.alternates.clone();
+        let forced = self.forced_seqs.take();
         for (i, ks) in alts.iter().enumerate() {
-            // A fresh sequence: this entry is joining its duplicate set now.
-            let seq = if ks.duplicates { self.next_seq() } else { 0 };
+            // A fresh sequence: this entry is joining its duplicate set now —
+            // unless the caller carries the sequence it joined with elsewhere.
+            let seq = match (&forced, ks.duplicates) {
+                (_, false) => 0,
+                (Some(f), true) => {
+                    let s = f[i];
+                    self.next_alt_seq = self.next_alt_seq.max(s + 1);
+                    s
+                }
+                (None, true) => self.next_seq(),
+            };
             let k = Self::alt_tree_key(ks, rec, seq);
             self.alt_roots[i] = self.bt_insert(self.alt_roots[i], &k, recid)?;
         }

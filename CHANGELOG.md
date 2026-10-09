@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.3] — 2026-10-08
+
+### Fixed
+- **`STORAGE IS MEMORY` returns duplicates in the order they were written.**
+  Records sharing an alternate key value (`WITH DUPLICATES`) came back from
+  `READ NEXT` in primary-key order; COBOL-85 says written order, which the
+  PRCIDXD1 and redb engines already gave. The three duplicates in
+  `tests/cobol/fileio/split-keys.cbl` (amounts 100, 300, 150) read back as
+  100 150 300 in memory only; that check now asserts the exact order again,
+  on every engine.
+  - A random `READ` and a `START` on a duplicated value find the first record
+    written with it.
+  - A `REWRITE` that moves a record into a duplicate set puts it at the end;
+    one that leaves the value alone keeps its place. `DELETE` closes the gap,
+    and `ROLLBACK` puts a record back where it was.
+  - The order survives `CLOSE` and `OPEN` (`WITH PERSISTENCE`): the PRCIDXD1
+    container records it, so a `STORAGE IS DISK` program reading the same file
+    sees it too. The container format is unchanged.
+
 ## [PowerRustCOBOL 1.90.2] — 2026-10-07
 
 ### Added
