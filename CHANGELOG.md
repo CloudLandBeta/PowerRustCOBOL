@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.24] — 2026-10-08
+
+### Added
+- **Spec 091 — the fixed `Non-Visuals` tab (draft).** A tab to the left of `Form`
+  that holds every non-visual control — a `Timer`, an `AgentObject`, a
+  `SqlDatabase` and the rest — in a grid of five columns, same types together in
+  A–Z order, each control in its own cell. A non-visual control dragged from the
+  toolbox selects the tab by itself; one already in a form is placed in the grid
+  when the form opens, without the file changing; selecting one and pressing
+  Delete removes it with its own event code. Thirteen requirements (R46–R58),
+  nine acceptance criteria and thirteen open questions, each with its default.
+  Requirements only — no code yet.
+
 ## [PowerRustCOBOL 1.90.23] — 2026-10-08
 
 ### Fixed
