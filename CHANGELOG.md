@@ -17,6 +17,25 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.27] — 2026-10-09
+
+### Changed
+- **Spec 091 — approved, with the operator's answers applied.** While `Non-Visuals`
+  is the active tab the toolbox's visual entries are disabled, and so is pasting a
+  visual control; a visual press on `Form` or a layer stays on that tab and
+  creates the control there. A layer's `Visible` is for run time and for editing
+  in the designer: it is never saved, every layer starts hidden, one a program
+  shows stays shown until the program hides it, and selecting a tab or ticking a
+  box neither marks the form modified nor makes an undo step. R25, R28, R35, R58,
+  R59 and R61 are rewritten, Q2, Q15, Q25, Q26 and Q28 are settled, Q29 and Q30
+  are new. Reading the code corrected three claims in the spec: the delete
+  confirmation has no "Preserve in Recycle" choice (every deleted control is
+  recycled), only 18 of the 97 example forms equal their own file when saved
+  (AC1 now compares against what saved before the change), and the codegen
+  goldens live in `crates/cobolt-codegen/tests/golden/`. New test
+  `every_example_form_saves_unchanged_091` records that baseline and can dump
+  every saved form for a before/after `diff`.
+
 ## [PowerRustCOBOL 1.90.26] — 2026-10-09
 
 ### Changed
