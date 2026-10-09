@@ -84,6 +84,9 @@ pub const OBSOLETE_SCALING_STYLE: i64 = 0;
 pub const SCALING_RESIZE: i64 = 1;
 pub const SCALING_REPOSITION: i64 = 2;
 pub const SCALING_FONT: i64 = 4;
+/// Spec 090 — the smallest factor an expanded card's contents are zoomed by, so a
+/// card expanded into a sliver never shrinks them to nothing.
+pub const MIN_ZOOM: f32 = 0.1;
 /// Every flag at once: the largest value the property takes.
 pub const SCALING_STYLE_MAX: i64 = SCALING_RESIZE | SCALING_REPOSITION | SCALING_FONT;
 /// The smallest surface a responsive form lays out for (R18).

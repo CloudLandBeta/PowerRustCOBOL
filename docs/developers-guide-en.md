@@ -3281,14 +3281,18 @@ Your program drives it too, with or without the icon:
 ```
 
 `Expand()` and `Collapse()` are shorthand for writing `Expanded` 1 and 0. While a
-card is expanded **everything inside it grows with it**, at every depth: each
-control keeps the same share of the card — its position and its size are the
-designed ones times how much the card has grown, in each direction — whatever its
-`Anchor` says, so a label, a bar, a chart and a panel with controls of its own
-all spread over the new room together. (`Dock` and the `LayoutMode` of a
-container inside the card still do their own layout.) Text keeps its font size;
-only the room around it grows. Collapse the card and its contents go back to
-their anchors.
+card is expanded **everything inside it grows with it**, at every depth, **text
+included**, and by **one factor** in both directions, so nothing is stretched out
+of shape: the factor is the smaller of how much wider and how much taller the card
+has become — the largest at which the whole of its contents still fits. Each
+control keeps its place in the card at that factor — position, size and font size
+— whatever its `Anchor` says, so a label, a bar, a chart and a panel with
+controls of its own all grow together, as a picture zooms. Where the card's shape
+differs from what the contents were designed for, the grown block is **centred**:
+the room that is left over goes evenly to the two sides (or to the top and
+bottom). `Dock` and the `LayoutMode` of a container inside the card still do their
+own layout, and a control whose `ScaleFont` is off keeps its font size. Collapse
+the card and its contents go back to their anchors.
 
 > **Note.** "The room of its siblings" is the whole client area of the card's
 > container: for a card in a Grid, the grid's tracks and gaps together; for a card

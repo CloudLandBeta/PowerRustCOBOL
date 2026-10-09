@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.42] — 2026-10-09
+
+### Fixed
+- **An expanded card's contents were stretched, and their text did not grow.**
+  1.90.24 scaled each control by the card's two ratios separately — so a card
+  whose shape differs from the one it was designed in showed its donut and its
+  labels distorted — and left every font as designed. Everything inside an
+  expanded card, at every depth, now grows by ONE factor, the smaller of the two
+  ratios, in position, size and font size; the grown block sits in the middle of
+  the card, the leftover room split evenly on the two sides, as the operator's
+  mock-up shows. A control with `ScaleFont` off keeps its font size.
+
 ## [PowerRustCOBOL 1.90.41] — 2026-10-09
 
 ### Added
