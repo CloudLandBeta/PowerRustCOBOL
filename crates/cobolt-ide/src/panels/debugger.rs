@@ -2775,6 +2775,11 @@ impl DebuggerPanel {
             .max_height(pane_h)
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
+                // A `horizontal` row is never shorter than `interact_size.y`, and the
+                // IDE sets that to 30 for its buttons and fields: a 12 pt code line
+                // (15 px) was given twice its height, so the listing read as double
+                // spaced. The rows size themselves from the code font instead.
+                ui.spacing_mut().interact_size.y = line_h;
                 let current = self.current_line;
                 let bps = &self.breakpoints;
                 let vars = &self.vars;
@@ -5433,5 +5438,76 @@ mod selection_and_elision_tests {
     #[test]
     fn the_tooltip_cap_is_a_hundred_characters() {
         assert_eq!(TIP_VALUE_CHARS, 100);
+    }
+}
+
+/// The listing's rows are as tall as its code font asks, whatever the IDE-wide
+/// `interact_size` says (operator, 2026-10-09: the lines of the code shown while
+/// debugging were twice as far apart as they should be).
+#[cfg(test)]
+mod listing_row_pitch_tests {
+    use super::*;
+
+    /// A listing of `n` statements, every line a different word so each one is
+    /// found by its own text.
+    fn source(n: usize) -> String {
+        (1..=n).map(|i| format!("    MOVE LINE{i:03} TO WS-X\n")).collect()
+    }
+
+    /// The distance between two consecutive code lines as painted, in points, with
+    /// the IDE's `interact_size.y` of `interact` and the code font at `pt`.
+    fn pitch(interact: f32, pt: f32) -> f32 {
+        let ctx = egui::Context::default();
+        let mut style = (*ctx.global_style()).clone();
+        style.spacing.interact_size.y = interact;
+        ctx.set_global_style(style);
+        let mut p = DebuggerPanel::new();
+        p.set_source("/p/generated/x.cbl".to_owned(), &source(12), &HashSet::new());
+        p.code_font_pt = pt;
+        let tr = crate::i18n::current_tr(&ctx);
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 700.0)));
+        input.max_texture_side = Some(8192);
+        let mut ys: Vec<f32> = Vec::new();
+        for _ in 0..3 {
+            ys.clear();
+            let mut out = ctx.run_ui(input.clone(), |root| {
+                egui::CentralPanel::default().show_inside(root, |ui| {
+                    p.code_viewer(ui, false, 860.0, &tr);
+                });
+            });
+            out.textures_delta.clear();
+            fn lines(shape: &egui::Shape, ys: &mut Vec<f32>) {
+                match shape {
+                    egui::Shape::Text(t) if t.galley.text().contains("LINE") => ys.push(t.pos.y),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| lines(s, ys)),
+                    _ => {}
+                }
+            }
+            for c in &out.shapes {
+                lines(&c.shape, &mut ys);
+            }
+        }
+        assert!(ys.len() >= 8, "the listing painted its lines: {ys:?}");
+        ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        (ys[7] - ys[0]) / 7.0
+    }
+
+    #[test]
+    fn a_code_row_is_as_tall_as_the_code_font_not_as_the_ide_wide_minimum() {
+        let line_h = (12.0_f32 + 3.0).max(14.0);
+        let tight = pitch(30.0, 12.0);
+        let unconstrained = pitch(0.0, 12.0);
+        println!("row pitch at 12 pt: {tight:.1} px with interact_size.y = 30, {unconstrained:.1} px with none (line height {line_h})");
+        assert!((tight - unconstrained).abs() < 0.6, "the IDE's 30 px control height no longer sets the row: {tight} vs {unconstrained}");
+        assert!(tight < 20.0, "a 12 pt code row is about {line_h} px, not twice that: {tight}");
+    }
+
+    #[test]
+    fn the_rows_follow_the_font_size() {
+        let small = pitch(30.0, 8.0);
+        let big = pitch(30.0, 22.0);
+        println!("row pitch: {small:.1} px at 8 pt, {big:.1} px at 22 pt");
+        assert!(big > small + 8.0, "A+ still makes the rows taller: {small} -> {big}");
     }
 }

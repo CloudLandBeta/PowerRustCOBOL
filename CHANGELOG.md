@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.46] — 2026-10-09
+
+### Fixed
+- **The code shown while debugging was double spaced.** Each row of the debugger's
+  source listing is a `horizontal` row, which is never shorter than the IDE-wide
+  control height (`interact_size.y`, 30 px); at the default 12 pt a line of code needs
+  15, so every line took twice its height. The listing now sets its own row height
+  from the code font (`A−` / `A+` still change it), halving the distance between
+  lines at 12 pt.
+
 ## [PowerRustCOBOL 1.90.45] — 2026-10-09
 
 ### Fixed

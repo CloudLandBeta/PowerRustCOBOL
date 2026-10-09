@@ -13909,6 +13909,9 @@ Select a Generated Code item and press **Debug** to start a session. You get:
   effect on the very next statement; you do not restart to change your mind.
 - **step** controls and **continue** (F5 / F10 while debugging),
 - a **variable watch** panel,
+- the **source listing**: the generated program, one row per line, each row as
+  tall as the code font — the **A−** and **A+** buttons in the debugger toolbar
+  change the font and the row height together — with the stopped line banded,
 - **Only my code**, on by default: stepping runs straight through the generated
   scaffolding — the event loop above all — and stops only in handlers and
   procedures you wrote. Turn it off in the debugger toolbar when you want to
