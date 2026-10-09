@@ -17,6 +17,36 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.42] — 2026-10-09
+
+### Changed
+- **PowerAnalytics uses a layer.** The two dropdown lists (`SM-DROP`, the search with
+  check boxes, and `LV-DROP`, Níveis 2 e 3) and the `SCRIM` that closes them on a
+  click outside — the only objects the program shows and hides that sit at the top
+  level of the form — now live on a new layer, `POPUPS`, which starts hidden. Opening
+  a list runs `SET POPUPS::Visible TO TRUE` and closing it `FALSE`; which of the two
+  lists shows is still `Show`/`Hide`. The page cards stay where they are: they sit
+  inside page panels, and a control inside a container follows the container.
+  A layer is not laid out, so the popups lose their `Anchor` and `Flex`; a new
+  procedure, `SIZE-POPUPS` (called at the end of `SET-FILT-HEIGHT`, which already
+  runs on every resize and breakpoint change), positions and sizes them and
+  everything inside them from the window's width, side by side or, on *Compact*, one
+  above the other. Checked through the integration's tools on a fresh `rcrun`:
+  `check` and `validate` clean; `run_form` reads `POPUPS::Visible` false at start,
+  true after opening either list, false after the scrim click, after "Fechar
+  níveis", and when one list replaces the other; the geometry the code computes
+  equals the designed one at 1440 (`GRP-N3::X` 727, `LST-N3::Width` 675,
+  `BTN-SM-OK::X` 1294, `LBL-SM-INFO::Width` 1098) and gives 452 / 205 at 500 wide and
+  stacked lists (`GRP-N3::Y` 645, `LST-N3::Height` 151) on *Compact*.
+- The all-examples round-trip guard (`every_example_form_saves_unchanged_091`) now
+  expects a form that declares layers to keep them, and still forbids one that does
+  not from gaining any: 97 forms, 18 byte-identical, 1 with layers.
+- The example's README describes the layer and its limits (no responsive layout, no
+  font scaling inside a layer) and asks for IDE/`rcrun` 1.90.33 or newer.
+- The standing rule "never drive the application" now says how to work with the IDE:
+  through the PowerRustCOBOL AI integration with Claude Code (`CLAUDE.md`, the `fix`
+  skill).
+
 ## [PowerRustCOBOL 1.90.41] — 2026-10-09
 
 ### Added

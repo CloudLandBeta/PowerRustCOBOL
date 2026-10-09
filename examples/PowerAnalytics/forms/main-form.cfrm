@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="MAIN-FORM" title="PowerAnalytics - Fundos de investimento" width="1440" height="900" background="#EAF2FA14" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" main-form="true" title-visible="false" corner-radius="15" index-base="1" window-effects="false" start-position="Center" responsive="true">
+  <Layer name="POPUPS" color="#00000000"/>
   <FormLayout FontScaling="Fluid" MaxFontScale="1.3" MinFormHeight="520" MinFormWidth="360"/>
   <Breakpoints>
     <Breakpoint name="Compact" min-width="0" font-factor="1">
@@ -565,7 +566,7 @@
            CALL "SM-REFRESH"
            COMPUTE WS-N = SM-DROP::Y + SM-DROP::Height
            MOVE WS-N TO SCRIM::Y
-           INVOKE SCRIM::Show()
+           SET POPUPS::Visible TO TRUE
            INVOKE SM-DROP::Show()
            INVOKE SCRIM::BringToFront()
            INVOKE SM-DROP::BringToFront()
@@ -576,7 +577,7 @@
            IF WS-SM NOT = SPACE
                MOVE SPACE TO WS-SM
                INVOKE SM-DROP::Hide()
-               INVOKE SCRIM::Hide()
+               SET POPUPS::Visible TO FALSE
            END-IF
 ]]></Event>
     <Event name="SM-REFRESH" paragraph="SM-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2621,6 +2622,104 @@
                MOVE 1 TO PG-DASH::VScroll
                MOVE 1 TO PG-DATA::VScroll
            END-IF
+           CALL "SIZE-POPUPS"
+]]></Event>
+    <Event name="SIZE-POPUPS" paragraph="SIZE-POPUPS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FW PIC 9(5).
+       01 WS-PW PIC 9(5).
+       01 WS-PY PIC 9(5).
+       01 WS-PH PIC 9(5).
+       01 WS-GW PIC 9(5).
+       01 WS-GH PIC 9(5).
+       01 WS-X2 PIC 9(5).
+       01 WS-Y2 PIC 9(5).
+       01 WS-X3 PIC 9(5).
+       01 WS-Y3 PIC 9(5).
+       01 WS-BY PIC 9(5).
+       01 WS-T  PIC 9(5).
+       PROCEDURE DIVISION.
+      *> The popups live on layer POPUPS, and a layer is not laid out: they
+      *> keep the size they are given. Size them from the window here, every
+      *> time the window or its breakpoint changes (SET-FILT-HEIGHT calls this).
+           MOVE me::Width TO WS-FW
+           COMPUTE WS-PW = WS-FW - 48
+           MOVE 0 TO SCRIM::X
+           MOVE WS-FW TO SCRIM::Width
+
+      *> LV-DROP (Níveis 2 e 3): padding 14, gap 14, two lists side by side,
+      *> or one above the other on a Compact window.
+           MOVE 24 TO LV-DROP::X
+           MOVE WS-PW TO LV-DROP::Width
+           MOVE LV-DROP::Y TO WS-PY
+           MOVE LV-DROP::Height TO WS-PH
+           COMPUTE WS-Y2 = WS-PY + 14
+           MOVE 38 TO WS-X2
+           IF WS-BP = "Compact"
+               COMPUTE WS-GW = WS-PW - 28
+               COMPUTE WS-GH = (WS-PH - 42) / 2
+               MOVE 38 TO WS-X3
+               COMPUTE WS-Y3 = WS-Y2 + WS-GH + 14
+           ELSE
+               COMPUTE WS-GW = (WS-PW - 42) / 2
+               COMPUTE WS-GH = WS-PH - 28
+               COMPUTE WS-X3 = WS-X2 + WS-GW + 14
+               MOVE WS-Y2 TO WS-Y3
+           END-IF
+           MOVE WS-X2 TO GRP-N2::X
+           MOVE WS-Y2 TO GRP-N2::Y
+           MOVE WS-GW TO GRP-N2::Width
+           MOVE WS-GH TO GRP-N2::Height
+           MOVE WS-X2 TO LBL-F-N2::X
+           MOVE WS-Y2 TO LBL-F-N2::Y
+           MOVE WS-GW TO LBL-F-N2::Width
+           MOVE WS-X2 TO LST-N2::X
+           COMPUTE WS-T = WS-Y2 + 18
+           MOVE WS-T TO LST-N2::Y
+           MOVE WS-GW TO LST-N2::Width
+           COMPUTE WS-T = WS-GH - 18
+           MOVE WS-T TO LST-N2::Height
+           MOVE WS-X3 TO GRP-N3::X
+           MOVE WS-Y3 TO GRP-N3::Y
+           MOVE WS-GW TO GRP-N3::Width
+           MOVE WS-GH TO GRP-N3::Height
+           MOVE WS-X3 TO LBL-F-N3::X
+           MOVE WS-Y3 TO LBL-F-N3::Y
+           MOVE WS-GW TO LBL-F-N3::Width
+           MOVE WS-X3 TO LST-N3::X
+           COMPUTE WS-T = WS-Y3 + 18
+           MOVE WS-T TO LST-N3::Y
+           MOVE WS-GW TO LST-N3::Width
+           COMPUTE WS-T = WS-GH - 18
+           MOVE WS-T TO LST-N3::Height
+
+      *> SM-DROP (busca com caixas de seleção): title, list, then the info
+      *> line and the two buttons along the bottom edge.
+           MOVE 24 TO SM-DROP::X
+           MOVE WS-PW TO SM-DROP::Width
+           MOVE SM-DROP::Y TO WS-PY
+           COMPUTE WS-BY = WS-PY + 258
+           MOVE 46 TO LBL-SM-T::X
+           COMPUTE WS-T = WS-PY + 10
+           MOVE WS-T TO LBL-SM-T::Y
+           COMPUTE WS-T = WS-PW - 44
+           MOVE WS-T TO LBL-SM-T::Width
+           MOVE 38 TO LST-SM::X
+           COMPUTE WS-T = WS-PY + 36
+           MOVE WS-T TO LST-SM::Y
+           COMPUTE WS-T = WS-PW - 28
+           MOVE WS-T TO LST-SM::Width
+           MOVE 46 TO LBL-SM-INFO::X
+           MOVE WS-BY TO LBL-SM-INFO::Y
+           COMPUTE WS-T = WS-PW - 294
+           MOVE WS-T TO LBL-SM-INFO::Width
+           COMPUTE WS-T = WS-PW - 236
+           MOVE WS-T TO BTN-SM-CLR::X
+           MOVE WS-BY TO BTN-SM-CLR::Y
+           COMPUTE WS-T = WS-PW - 98
+           MOVE WS-T TO BTN-SM-OK::X
+           MOVE WS-BY TO BTN-SM-OK::Y
 ]]></Event>
     <Event name="CLOSE-LEVELS" paragraph="CLOSE-LEVELS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -2628,7 +2727,7 @@
            IF WS-LEVELS-OPEN = 1
                MOVE 0 TO WS-LEVELS-OPEN
                INVOKE LV-DROP::Hide()
-               INVOKE SCRIM::Hide()
+               SET POPUPS::Visible TO FALSE
                MOVE "Níveis 2 e 3" TO BTN-LEVELS::Caption
            END-IF
 ]]></Event>
@@ -3680,7 +3779,7 @@
                CALL "SET-FILT-HEIGHT"
                COMPUTE WS-N = LV-DROP::Y + LV-DROP::Height
                MOVE WS-N TO SCRIM::Y
-               INVOKE SCRIM::Show()
+               SET POPUPS::Visible TO TRUE
                INVOKE LV-DROP::Show()
                INVOKE SCRIM::BringToFront()
                INVOKE LV-DROP::BringToFront()
@@ -8294,7 +8393,7 @@ Data de referência:string</Property>
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LV-DROP" type="GroupBox" x="24" y="192" w="1392" h="196" tab-order="197" z-order="196" visible="false" enabled="true">
+  <Control id="LV-DROP" type="GroupBox" x="24" y="192" w="1392" h="196" tab-order="197" z-order="196" visible="false" enabled="true" layer="POPUPS">
     <Property name="BackgroundColor">#F4F8FF</Property>
     <Property name="Transparency">0</Property>
     <Property name="BorderStyle">Single</Property>
@@ -8312,7 +8411,6 @@ Data de referência:string</Property>
     <Property name="LayoutMode">Flex</Property>
     <Property name="Gap">14</Property>
     <Property name="Padding">14</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -8339,7 +8437,6 @@ Data de referência:string</Property>
     <Property name="FlexGrow">1</Property>
     <Property name="FlexBasis">0</Property>
     <Property name="MinWidth">150</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8365,7 +8462,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8390,7 +8486,6 @@ Data de referência:string</Property>
     <Property name="CornerRadius">12</Property>
     <Property name="FontSize">12</Property>
     <Property name="ShowCheckBoxes">true</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ActiveItemColor">#1F4E9A</Property>
     <Property name="ActiveItemTextColor">#FFFFFF</Property>
     <Property name="SelectedItemsColor">#CFE0F7</Property>
@@ -8414,7 +8509,6 @@ Data de referência:string</Property>
     <Property name="FlexGrow">1</Property>
     <Property name="FlexBasis">0</Property>
     <Property name="MinWidth">150</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8440,7 +8534,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8465,7 +8558,6 @@ Data de referência:string</Property>
     <Property name="CornerRadius">12</Property>
     <Property name="FontSize">12</Property>
     <Property name="ShowCheckBoxes">true</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ActiveItemColor">#1F4E9A</Property>
     <Property name="ActiveItemTextColor">#FFFFFF</Property>
     <Property name="SelectedItemsColor">#CFE0F7</Property>
@@ -8482,7 +8574,7 @@ Data de referência:string</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
   </Control>
-  <Control id="SM-DROP" type="GroupBox" x="24" y="192" w="1392" h="300" tab-order="204" z-order="203" visible="false" enabled="true">
+  <Control id="SM-DROP" type="GroupBox" x="24" y="192" w="1392" h="300" tab-order="204" z-order="203" visible="false" enabled="true" layer="POPUPS">
     <Property name="BackgroundColor">#F4F8FF</Property>
     <Property name="Transparency">0</Property>
     <Property name="BorderStyle">Single</Property>
@@ -8497,7 +8589,6 @@ Data de referência:string</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
     <Property name="BorderColor">#C4D3EA</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -8526,7 +8617,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8551,7 +8641,6 @@ Data de referência:string</Property>
     <Property name="CornerRadius">12</Property>
     <Property name="FontSize">12</Property>
     <Property name="ShowCheckBoxes">true</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ActiveItemColor">#1F4E9A</Property>
     <Property name="ActiveItemTextColor">#FFFFFF</Property>
     <Property name="SelectedItemsColor">#CFE0F7</Property>
@@ -8587,7 +8676,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Bottom,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8611,7 +8699,6 @@ Data de referência:string</Property>
     <Property name="Bold">true</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">14</Property>
-    <Property name="Anchor">Bottom,Right</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="Transparency">10</Property>
@@ -8640,7 +8727,6 @@ Data de referência:string</Property>
     <Property name="Bold">true</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">14</Property>
-    <Property name="Anchor">Bottom,Right</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="Transparency">10</Property>
@@ -8663,11 +8749,10 @@ Data de referência:string</Property>
 
 ]]></Event>
   </Control>
-  <Control id="SCRIM" type="Panel" x="0" y="492" w="1440" h="1000" tab-order="210" z-order="209" visible="false" enabled="true">
+  <Control id="SCRIM" type="Panel" x="0" y="492" w="1440" h="1000" tab-order="210" z-order="209" visible="true" enabled="true" layer="POPUPS">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="HideBackground">true</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
