@@ -178,6 +178,11 @@ condition, and inline in a `DISPLAY`. Methods **chain**:
 | `Split(sep)` | text | ✅ | The **first** field |
 | `Split(sep)(n)` | text | ✅ | The *n*-th field, 1-based. The subscript is only accepted on a data-item receiver |
 
+A data item answers **only** the methods above. Any other name after one
+(`WS-TEXT::Contains("x")`, `WS-TEXT::Value`) is an error — at Check and Build, and
+at run time for a name only known then — instead of the empty string it used to
+give. A control, a layer and an `OBJECT REFERENCE` keep the members of their own.
+
 | Receiver | Status | Notes |
 |---|:--:|---|
 | Data item (`PIC X`, group, `01`/`77`) | ✅ | The ordinary case |

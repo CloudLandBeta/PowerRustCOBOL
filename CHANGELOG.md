@@ -17,6 +17,30 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.47] — 2026-10-09
+
+### Fixed
+- **An unknown method on a data item is an error, not an empty string.**
+  `WS-TEXT::Contains("x")`, `WS-TEXT::Reverse()`, `WS-TEXT::Value` — any name a
+  data item does not have — evaluated to nothing and let the program carry on with
+  it, so a misspelt method silently emptied whatever received the result. A data
+  item answers exactly `Trim`, `UpperCase` (`ToUpperCase`, `Upper`), `LowerCase`
+  (`ToLowerCase`, `Lower`), `Replace`, `Len` (`Length`, also without parentheses)
+  and `Split`, and every other name after one is now refused: Check and Build
+  report *a data item has no method or property 'X'* and list what it does answer
+  (a chain such as `WS-TEXT::Trim()::Foo()`, a table occurrence, a slice and
+  `INVOKE WS-TEXT::Foo()` included), and a name that only turns up at run time
+  stops the program with the same message. A control, a layer, a name the form
+  owns and an `OBJECT REFERENCE` keep the members of their own. The list lives in
+  one place (`cobolt_ast::methods::DATA_ITEM_METHODS`), which the analyser and the
+  evaluator both read.
+
+### Added
+- **Worked examples of every data-item method.** The Developer's Guide has a new
+  *Value methods of a data item* section with two examples of each method and
+  property, and `tests/cobol/string-ops/test-data-item-methods.cbl` runs them
+  (32 cases in 16 forms, all passing) under a Rust test.
+
 ## [PowerRustCOBOL 1.90.46] — 2026-10-09
 
 ### Fixed

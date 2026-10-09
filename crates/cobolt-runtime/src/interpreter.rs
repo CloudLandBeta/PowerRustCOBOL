@@ -6017,6 +6017,9 @@ impl Interpreter {
                         }
                     }
                 }
+                if self.is_value_item(object) && !cobolt_ast::methods::is_data_item_method(method) {
+                    return Err(Self::no_such_value_method(object, method));
+                }
                 let result = self.exec_method(object, method, &vals);
                 if let Some(dest) = returning {
                     // RETURNING into a member chain (`… RETURNING B::Caption`)
@@ -14891,6 +14894,50 @@ impl Interpreter {
         })
     }
 
+    /// Whether `name` is an ordinary DATA ITEM as a receiver: declared in the
+    /// program, and neither an object of the same name (a control, a layer, a
+    /// toolbar button — the object wins, as it always has) nor an `OBJECT
+    /// REFERENCE`, whose handle answers the methods of its own class.
+    fn is_value_item(&self, name: &str) -> bool {
+        let n = name.trim();
+        self.env.contains(n)
+            && !self.objects.contains(n)
+            && !self.object_refs.contains_key(&n.to_ascii_uppercase())
+    }
+
+    /// The data item a member chain starts from, when it starts from one:
+    /// `WS-TEXT` in `WS-TEXT::Trim()::Len()`, `T(i)::Trim()` and
+    /// `WS-TEXT(3:5)::Upper()`. `None` for a chain rooted in a control or any
+    /// other object, which is that object's own business.
+    fn value_item_root(&self, recv: &Expr) -> Option<String> {
+        let mut cur = recv;
+        loop {
+            match cur {
+                Expr::Member { recv, .. } => cur = recv,
+                Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => cur = base,
+                Expr::Identifier(n, _) => return self.is_value_item(n).then(|| n.clone()),
+                Expr::Qualified { name, .. } => return self.is_value_item(name).then(|| name.clone()),
+                _ => return None,
+            }
+        }
+    }
+
+    /// The error for a method or property a data item does not have. A data
+    /// item answers only [`cobolt_ast::methods::DATA_ITEM_METHODS`]; any other
+    /// name used to come out as an empty string and the program carried on
+    /// with it (operator, 2026-10-09).
+    fn no_such_value_method(root: &str, method: &str) -> RuntimeError {
+        RuntimeError::General {
+            message: format!(
+                "'{}::{}': a data item has no method or property '{}'. A data item answers: {}.",
+                root.trim(),
+                method.trim(),
+                method.trim(),
+                cobolt_ast::methods::DATA_ITEM_METHODS_TEXT
+            ),
+        }
+    }
+
     /// Whether `obj` names a LAYER — an object the host seeded under a layer's
     /// name, class `Layer` (spec 091 R33).
     fn is_layer(&self, obj: &str) -> bool {
@@ -15269,7 +15316,14 @@ impl Interpreter {
                         let len = elem.len();
                         return Ok(CobolValue::from_str(&elem, len));
                     }
-                    _ => {}
+                    // Not a value method. On a control's chain that is the
+                    // control's own member, resolved below; on a data item it is
+                    // a mistake, and said so.
+                    _ => {
+                        if let Some(root) = self.value_item_root(recv) {
+                            return Err(Self::no_such_value_method(&root, member));
+                        }
+                    }
                 }
             }
         }

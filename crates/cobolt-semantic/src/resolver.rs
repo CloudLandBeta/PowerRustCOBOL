@@ -494,6 +494,7 @@ impl<'a> ResolveCtx<'a> {
                 // The comma form defaults omitted trailing parameters (R21)
                 // and is exempt.
                 self.check_receiver(object, *span, &format!("INVOKE {}::{}()", object.trim(), method.trim()));
+                self.check_data_item_method(object, method, *span);
                 if !comma_form {
                     self.check_open_form_signature(method, args, *span);
                 }
@@ -751,6 +752,72 @@ impl<'a> ResolveCtx<'a> {
         }
     }
 
+    /// Whether `name` is an ordinary data item that is not also a control of the
+    /// form: not an `OBJECT REFERENCE` or a `POINTER`, which are handles to
+    /// something that has methods of its own, and not a name the form's own
+    /// objects share (the control wins, as in [`Self::check_receiver`]).
+    fn is_value_item(&self, name: &str) -> bool {
+        let Some(info) = self.symbols.data_item(name) else {
+            return false;
+        };
+        if matches!(info.usage, cobolt_ast::data::Usage::ObjectReference | cobolt_ast::data::Usage::Pointer) {
+            return false;
+        }
+        let upper = name.trim().to_ascii_uppercase();
+        !self.known_objects.is_some_and(|known| known.contains(&upper))
+    }
+
+    /// A DATA ITEM answers a closed set of value methods —
+    /// [`cobolt_ast::methods::DATA_ITEM_METHODS`]. Any other name after a data
+    /// item (`WS-TEXT::Contains("x")`, `WS-TEXT::Value`) used to evaluate to an
+    /// empty string and let the program carry on with it; it is an error, naming
+    /// the item and what it does answer (operator, 2026-10-09).
+    fn check_data_item_method(&mut self, root: &str, method: &str, span: cobolt_lexer::Span) {
+        if !self.is_value_item(root) || cobolt_ast::methods::is_data_item_method(method) {
+            return;
+        }
+        self.error(
+            format!(
+                "'{}::{}': a data item has no method or property '{}'. A data item answers: {}.",
+                root.trim(),
+                method.trim(),
+                method.trim(),
+                cobolt_ast::methods::DATA_ITEM_METHODS_TEXT
+            ),
+            span,
+        );
+    }
+
+    /// [`Self::check_data_item_method`] for a member chain: every link after a
+    /// data item is a value method (`WS-TEXT::Trim()::Len()`), so the first
+    /// one that is not is reported. A chain rooted anywhere else — a control, a
+    /// layer, `me` — is the object's own business and is not touched.
+    fn check_data_item_chain(&mut self, expr: &Expr) {
+        let mut links: Vec<(&str, cobolt_lexer::Span)> = Vec::new();
+        let mut cur = expr;
+        while let Expr::Member { recv, member, span, .. } = cur {
+            links.push((member.as_str(), *span));
+            cur = recv;
+        }
+        fn root_name(e: &Expr) -> Option<&str> {
+            match e {
+                Expr::Identifier(n, _) => Some(n),
+                Expr::Qualified { name, .. } => Some(name),
+                Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => root_name(base),
+                _ => None,
+            }
+        }
+        let Some(root) = root_name(cur) else {
+            return;
+        };
+        for (method, span) in links.into_iter().rev() {
+            if !cobolt_ast::methods::is_data_item_method(method) {
+                self.check_data_item_method(root, method, span);
+                return;
+            }
+        }
+    }
+
     /// A layer has a fixed set of properties and no methods (spec 091 R33, Q9):
     /// `LAYER-NAME::Visible` is checked, `LAYER-NAME::Colour` is an error at
     /// build time, where it would otherwise be refused when it ran. Only a
@@ -947,6 +1014,7 @@ impl<'a> ResolveCtx<'a> {
             // R33 universal-surface check first.
             Expr::Member { args, .. } => {
                 self.check_member_root(expr);
+                self.check_data_item_chain(expr);
                 self.check_form_receiver_property(expr);
                 for a in args {
                     self.resolve_expr(a);

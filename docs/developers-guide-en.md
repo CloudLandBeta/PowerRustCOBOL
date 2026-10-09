@@ -8071,6 +8071,103 @@ extensions. Highlights a working COBOL programmer will rely on:
 > organisation is implemented** — see
 > [Addressing records by number](#addressing-records-by-number-organization-is-relative).
 
+### Value methods of a data item
+
+A `PIC X` field — or a group, a table occurrence, a reference-modified slice —
+can be asked questions about its **value** with the same `::` you use on a
+control. This is a PowerRustCOBOL convenience, not standard COBOL: it replaces a
+scratch field and an `INSPECT` or `FUNCTION` for the everyday text jobs. Use it
+wherever an expression is allowed — `MOVE`, `COMPUTE`, `IF`, `DISPLAY`, `STRING`
+— and **chain** the calls: `WS-NAME::Trim()::UpperCase()`.
+
+A data item answers **these and nothing else**:
+
+| Method | Gives | What it does |
+|--------|-------|--------------|
+| `Trim()` | text | Takes the blanks off both ends. |
+| `UpperCase()` · `ToUpperCase()` · `Upper()` | text | Capital letters. Three spellings of one method. |
+| `LowerCase()` · `ToLowerCase()` · `Lower()` | text | Small letters. Three spellings of one method. |
+| `Replace(from, to)` | text | Every occurrence of `from` becomes `to`. |
+| `Len()` · `Length()` · `Length` | number | The **declared length of the field** — a `PIC X(20)` holding `hello` answers 20. `Length` also reads without the parentheses. |
+| `Split(sep)` | text | The piece before the first `sep`. |
+| `Split(sep)(n)` | text | The *n*-th piece, counting from 1. |
+
+Two examples of each, with what they give:
+
+```cobol
+       01 WS-A    PIC X(20).
+       01 WS-CSV  PIC X(30).
+       01 WS-OUT  PIC X(40).
+       01 WS-N    PIC 9(4).
+
+      *> Trim()
+           MOVE "   Hello   " TO WS-A
+           MOVE WS-A::Trim() TO WS-OUT              *> Hello
+           MOVE "  a b  " TO WS-A
+           MOVE WS-A::Trim() TO WS-OUT              *> a b   (the inner blank stays)
+
+      *> UpperCase() · ToUpperCase() · Upper()
+           MOVE "abc def" TO WS-A
+           MOVE WS-A::UpperCase() TO WS-OUT         *> ABC DEF
+           MOVE "cobol-85" TO WS-A
+           MOVE WS-A::ToUpperCase() TO WS-OUT       *> COBOL-85
+           MOVE "a1b2" TO WS-A
+           MOVE WS-A::Upper() TO WS-OUT             *> A1B2
+
+      *> LowerCase() · ToLowerCase() · Lower()
+           MOVE "MiXeD 123" TO WS-A
+           MOVE WS-A::LowerCase() TO WS-OUT         *> mixed 123
+           MOVE "COBOL-85" TO WS-A
+           MOVE WS-A::ToLowerCase() TO WS-OUT       *> cobol-85
+           MOVE "HELLO" TO WS-A
+           MOVE WS-A::Lower() TO WS-OUT             *> hello
+
+      *> Replace(from, to)
+           MOVE "Hello World" TO WS-A
+           MOVE WS-A::Replace("World" "COBOL") TO WS-OUT   *> Hello COBOL
+           MOVE "a-b-c" TO WS-A
+           MOVE WS-A::Replace("-" " ") TO WS-OUT           *> a b c
+
+      *> Len() · Length() · Length  — the field's length, not its content's
+           COMPUTE WS-N = WS-A::Len()               *> 20   (PIC X(20))
+           COMPUTE WS-N = WS-CSV::Length()          *> 30   (PIC X(30))
+           COMPUTE WS-N = WS-A::Length              *> 20   (no parentheses)
+           MOVE "  hi  " TO WS-A
+           COMPUTE WS-N = WS-A::Trim()::Len()       *> 2    (the content's length)
+
+      *> Split(sep) and Split(sep)(n)
+           MOVE "2024-10-09" TO WS-CSV
+           MOVE WS-CSV::Split("-") TO WS-OUT        *> 2024
+           MOVE WS-CSV::Split("-")(3) TO WS-OUT     *> 09
+           MOVE "a-b-c" TO WS-CSV
+           MOVE WS-CSV::Split("-")(2) TO WS-OUT     *> b
+```
+
+They also work on a slice and a table occurrence — `WS-A(5:3)::UpperCase()`,
+`WS-ROW(2)::Trim()` — and inside a condition: `IF WS-A::Trim() = "yes"`.
+
+> **Notes.**
+> - The results keep the field's **padding**. `Upper`, `Lower` and `Replace` give
+>   back the whole padded field, and the last piece of a `Split` carries the
+>   blanks that follow it; wrap the call in `::Trim()` when the blanks matter.
+> - The methods are **read only**: `MOVE x TO WS-A::UpperCase()` is refused,
+>   because a method's result is not a place to put something. Use
+>   `MOVE WS-A::UpperCase() TO WS-A` to change the field itself.
+> - A literal cannot be the receiver (`"a-b-c"::Split("-")` is a syntax error);
+>   put it in a data item first.
+
+> **⚠️ Caveat — any other name after a data item is an error.** `WS-A::Contains("x")`,
+> `WS-A::Reverse()`, `WS-A::Value` and `WS-A::Size` do not exist, and they used
+> to give an empty string without a word, so a typing mistake went on to corrupt
+> whatever received it. They are now refused: Check and Build report *a data item
+> has no method or property 'CONTAINS'* and list the names in the table above,
+> and a name that only appears at run time stops the program with the same
+> message. For anything the table does not cover, use the standard tools:
+> reference modification `WS-A(start:length)`, `INSPECT`, `STRING` / `UNSTRING`,
+> and the intrinsic functions (`FUNCTION REVERSE`, `FUNCTION TRIM`,
+> `FUNCTION LENGTH` …). A control, a layer and an `OBJECT REFERENCE` keep the
+> members of their own.
+
 ### Writing it the way the standard lets you
 
 COBOL-85 allows several spellings that a PowerCOBOL or isCOBOL developer will

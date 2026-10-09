@@ -12,6 +12,35 @@
 //! so `ME::SetProperty(…)` on the line after `MOVE A TO B` is the next
 //! statement, not a second receiver of the MOVE.
 
+/// The methods of an ordinary DATA ITEM's value — `WS-TEXT::Trim()`,
+/// `WS-CSV::Split(",")(2)` — in the spellings the evaluator accepts. A data item
+/// has no others: the runtime and the analyser both ask this list, so a name
+/// that is not on it is an error rather than an expression that quietly comes
+/// out empty.
+pub const DATA_ITEM_METHODS: &[&str] = &[
+    "Trim",
+    "UpperCase",
+    "ToUpperCase",
+    "Upper",
+    "LowerCase",
+    "ToLowerCase",
+    "Lower",
+    "Replace",
+    "Len",
+    "Length",
+    "Split",
+];
+
+/// `true` if `name` is a value method a data item answers (see
+/// [`DATA_ITEM_METHODS`]); case does not matter.
+pub fn is_data_item_method(name: &str) -> bool {
+    DATA_ITEM_METHODS.iter().any(|m| m.eq_ignore_ascii_case(name.trim()))
+}
+
+/// What a data item does answer, as the sentence an error ends with.
+pub const DATA_ITEM_METHODS_TEXT: &str = "Trim, UpperCase (ToUpperCase, Upper), \
+LowerCase (ToLowerCase, Lower), Replace, Len (Length) and Split";
+
 /// `true` if `name` is a recognised control/collection method. A `GET-`/`SET-`
 /// prefix is always a method (explicit accessor, spec 010).
 pub fn is_known_method(name: &str) -> bool {
