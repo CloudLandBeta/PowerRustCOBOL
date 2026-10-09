@@ -933,6 +933,13 @@ fn nudge_step(grid_px: i32, snap_on: bool, fine: bool) -> i32 {
     }
 }
 
+/// The size of the window that confirms a layer's deletion (spec 091 R63): its
+/// own, so that no language and no frame changes it.
+const LAYER_DELETE_W: f32 = 440.0;
+const LAYER_DELETE_H: f32 = 200.0;
+/// The body of that window: constant, and scrolled if a text is ever longer.
+const LAYER_DELETE_BODY_H: f32 = 80.0;
+
 /// How far the pointer must travel before a press counts as a DRAG.
 ///
 /// Without it, the smallest tremor between press and release is a one-pixel
@@ -1116,6 +1123,13 @@ enum Cmd {
         key: String,
         old: String,
         new: String,
+    },
+    /// The form's data bindings as a whole. Deleting a control prunes the bindings
+    /// that named it and that deletion's undo does not put back, so a deletion that
+    /// has to be undone exactly (a layer's, spec 091 R65) carries the table.
+    SetDataBindings {
+        before: Vec<cobolt_forms::DataBindingDef>,
+        after: Vec<cobolt_forms::DataBindingDef>,
     },
     /// Spec 091 R31, R32 — a root control sent to another layer (`None` is the
     /// base). Dock and Anchor go in the same step as their own [`Cmd::SetProperty`]
@@ -2655,6 +2669,9 @@ pub struct DesignerPanel {
     /// Set when the user tries to close a dirty designer — shows the Save/Discard/Cancel dialog.
     pub close_confirm: bool,
     pending_delete: Option<DeleteConfirmation>,
+    /// Spec 091 R63 — the layer whose red ✕ was clicked, while the confirmation
+    /// window asks. Nothing is deleted until the developer confirms.
+    pending_layer_delete: Option<String>,
     create_user_control: Option<UserControlCreateDialog>,
 
     /// Format-painter (copy-style) state.
@@ -3006,6 +3023,7 @@ impl DesignerPanel {
             close_requested: false,
             close_confirm: false,
             pending_delete: None,
+            pending_layer_delete: None,
             create_user_control: None,
             toolbox: ToolboxPanel::new(),
             properties: PropertiesPanel::new(),
@@ -4220,6 +4238,9 @@ impl DesignerPanel {
             Cmd::SetLayers { after, .. } => {
                 self.form.layers = after.clone();
             }
+            Cmd::SetDataBindings { after, .. } => {
+                self.form.data_bindings = after.clone();
+            }
             Cmd::SetControlLayer { id, new, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) {
                     c.layer = new.clone();
@@ -4431,6 +4452,9 @@ impl DesignerPanel {
             }
             Cmd::SetLayers { before, .. } => {
                 self.form.layers = before.clone();
+            }
+            Cmd::SetDataBindings { before, .. } => {
+                self.form.data_bindings = before.clone();
             }
             Cmd::SetControlLayer { id, old, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) {
@@ -4960,8 +4984,12 @@ impl DesignerPanel {
             });
         }
         self.selected_ids.clear();
-        // A control deletion can leave a form-level procedure addressing nothing
-        // that exists — and it can break the form outright.
+        self.report_orphaned_procedures();
+    }
+
+    /// A control deletion can leave a form-level procedure addressing nothing
+    /// that exists — and it can break the form outright. See below.
+    fn report_orphaned_procedures(&mut self) {
         //
         // It is **reported, never removed** (operator, 2026-08-05: "treat user
         // code as sacred"). Deleting a control takes that control's own handler
@@ -9885,6 +9913,7 @@ impl DesignerPanel {
 
         // ── Deletion confirmation (spec 020) ─────────────────────────────────
         self.show_delete_confirmation(ui);
+        self.show_layer_delete_confirmation(ui);
 
         // ── User Control creation (spec 020) ─────────────────────────────────
         result.user_control_created = self.show_user_control_create_dialog(ui, user_controls);
@@ -9910,6 +9939,7 @@ impl DesignerPanel {
     /// Run-Form Inspector) so they cannot cover it.
     pub fn has_blocking_modal(&self) -> bool {
         self.pending_delete.is_some()
+            || self.pending_layer_delete.is_some()
             || self.ai_error_modal.is_some()
             || self.close_confirm
             || self
@@ -9958,6 +9988,153 @@ impl DesignerPanel {
             self.pending_delete = None;
             self.delete_ids_now(&pending.control_ids);
         }
+    }
+
+    /// How many controls, and how many event handlers with code, deleting layer
+    /// `name` takes with it (spec 091 R63): every control drawn in the layer, a
+    /// container's contents included (R8).
+    pub(crate) fn layer_delete_summary(&self, name: &str) -> (usize, usize) {
+        let mut controls = 0;
+        let mut handlers = 0;
+        for c in &self.form.controls {
+            if self.form.layer_of(&c.id).is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                controls += 1;
+                handlers += c.events.iter().filter(|e| e.has_code()).count();
+            }
+        }
+        (controls, handlers)
+    }
+
+    /// The window the red ✕ opens (spec 091 R63): the layer's name, how many
+    /// controls and event handlers go with it, and two buttons. Modal, and of one
+    /// size it owns — it is neither resizable nor sized by its text, so no language
+    /// and no frame changes it (§6, the window-resize rule).
+    fn show_layer_delete_confirmation(&mut self, ui: &mut Ui) {
+        let Some(name) = self.pending_layer_delete.clone() else {
+            return;
+        };
+        // The layer may be gone — an undo while the question was up: nothing to ask.
+        let Some(i) = self.form.layer_index(&name) else {
+            self.pending_layer_delete = None;
+            return;
+        };
+        let name = self.form.layers[i].name.clone();
+        let (controls, handlers) = self.layer_delete_summary(&name);
+        let tr = crate::i18n::current_tr(ui.ctx());
+        let message = tr
+            .layer_delete_body
+            .replacen("{}", &name, 1)
+            .replacen("{}", &controls.to_string(), 1)
+            .replacen("{}", &handlers.to_string(), 1);
+        let mut cancel = false;
+        let mut confirm = false;
+        let win_id = egui::Id::new("designer_layer_delete_confirm");
+        crate::app::raise_modal_layer(ui.ctx(), win_id);
+        egui::Window::new(tr.layer_delete_title)
+            .id(win_id)
+            .order(egui::Order::Foreground)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size(Vec2::new(LAYER_DELETE_W, LAYER_DELETE_H))
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ui.ctx(), |ui| {
+                // `fixed_size` bounds only the space OFFERED: on a window that
+                // cannot be resized egui takes the content's own size as the
+                // window's. So the content is pinned — a width from the stored
+                // number, and a body of one constant height that scrolls rather
+                // than grows — and no language, no layer name and no frame can
+                // change the window (the window-resize rule, spec 091 §6).
+                let margin = ui.style().spacing.window_margin.sum().x;
+                let stroke = 2.0 * ui.style().visuals.window_stroke.width;
+                ui.set_width(LAYER_DELETE_W - margin - stroke);
+                egui::ScrollArea::vertical()
+                    .id_salt("layer_delete_body")
+                    .max_height(LAYER_DELETE_BODY_H)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.add(egui::Label::new(message).wrap());
+                    });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.delete_confirm_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+        if cancel {
+            self.pending_layer_delete = None;
+        }
+        if confirm {
+            self.pending_layer_delete = None;
+            self.delete_layer_now(&name);
+        }
+    }
+
+    /// Delete layer `name`, every control in it — a container's contents too — and
+    /// every event handler bound to them, as **one** undo step (spec 091 R64, R65).
+    ///
+    /// Every control leaves by the path a single control takes — the form's recycle
+    /// bin keeps its handlers — so undoing the step brings back the layer at its
+    /// place in the stack with its backdrop, each control with its properties,
+    /// `ZOrder` and container link, and each handler. The data bindings that named
+    /// a control are pruned by a deletion and not restored by its undo, so the table
+    /// is part of the step. A procedure bound to none of the controls but mentioning
+    /// one stays, and is reported (GOLDEN RULE: user code is sacred). `Form` is the
+    /// active tab afterwards (Q27).
+    pub(crate) fn delete_layer_now(&mut self, name: &str) {
+        let Some(layer_index) = self.form.layer_index(name) else {
+            return;
+        };
+        let layer_name = self.form.layers[layer_index].name.clone();
+        let mut indices: Vec<usize> = self
+            .form
+            .controls
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| self.form.layer_of(&c.id).is_some_and(|n| n.eq_ignore_ascii_case(&layer_name)))
+            .map(|(i, _)| i)
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // What the bindings look like once these controls are gone: the table a
+        // real deletion would leave, found on a copy.
+        let before_bindings = self.form.data_bindings.clone();
+        let after_bindings = {
+            let mut probe = self.form.clone();
+            for &i in &indices {
+                let id = self.form.controls[i].id.clone();
+                probe.recycle_control(&id, "probe");
+            }
+            probe.data_bindings
+        };
+
+        let mut cmds: Vec<Cmd> = Vec::new();
+        // From the highest index down, so none shifts under the next.
+        for idx in indices.into_iter().rev() {
+            cmds.push(Cmd::DeleteControl {
+                index: idx,
+                ctrl: self.form.controls[idx].clone(),
+                deleted_at: format!("layer-delete-{secs}-{idx}"),
+            });
+        }
+        cmds.push(Cmd::SetDataBindings { before: before_bindings, after: after_bindings });
+        let before = self.form.layers.clone();
+        let mut after = before.clone();
+        after.remove(layer_index);
+        cmds.push(Cmd::SetLayers { before, after });
+        self.apply(Cmd::Batch { cmds });
+
+        self.selected_ids.clear();
+        self.tabs.forget(&layer_name);
+        self.report_orphaned_procedures();
     }
 
     fn show_user_control_create_dialog(
@@ -13354,8 +13531,8 @@ impl DesignerPanel {
     /// designer shows and nothing the form saves, so none of them marks the form
     /// modified or makes an undo step. Returns whether the selection changed.
     ///
-    /// Adding, renaming and re-stacking a layer are undoable commands (T17);
-    /// deleting one asks first and is T23, T24.
+    /// Adding, renaming and re-stacking a layer are undoable commands; deleting
+    /// one asks first ([`Self::show_layer_delete_confirmation`]).
     pub(crate) fn apply_tab_actions(&mut self, actions: Vec<super::layer_tabs::TabAction>) -> bool {
         use super::layer_tabs::TabAction;
         if actions.is_empty() {
@@ -13374,8 +13551,15 @@ impl DesignerPanel {
                 TabAction::Add => self.add_layer_by_bar(),
                 TabAction::Rename { layer, to } => self.rename_layer_by_bar(&layer, &to),
                 TabAction::Move { from, to } => self.move_layer_by_bar(from, to),
-                // The ✕ asks first, and the deletion is its own task (T23, T24).
-                TabAction::RequestDelete(_) => {}
+                // The ✕ selects the layer — as selecting its tab does (R60, R61) — and
+                // then asks (R63). Nothing is deleted until the developer confirms.
+                TabAction::RequestDelete(name) => {
+                    if let Some(i) = self.form.layer_index(&name) {
+                        let name = self.form.layers[i].name.clone();
+                        self.tabs.select_layer(&name);
+                        self.pending_layer_delete = Some(name);
+                    }
+                }
             }
         }
         // A new tab, or a box that took the active layer off the canvas: what the

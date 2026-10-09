@@ -1,7 +1,7 @@
 # Tasks — Form layers and the Non-Visuals tab (spec 091)
 
 - **Spec:** ./spec.md  **Plan:** ./plan.md  **Date:** 2026-10-09
-- **Status:** in progress — T1–T22 done (slices 4 and 5 committed); T23 onward to do
+- **Status:** in progress — T1–T25 done (slices 4, 5 and 6 committed); T26 onward to do
 - **Branch:** `features-form-layers` (worktree `.claude/worktrees/form-layers`). Feature ⇒ `features` line, one `z` bump and one CHANGELOG entry per commit. Merge to `main` and push only when asked, never 09:00–18:00 São Paulo Mon–Fri.
 - Every verify line assumes `CARGO_TARGET_DIR=/Users/emersonlopes/Documents/PowerRustCOBOL/target CARGO_INCREMENTAL=0`, one crate at a time, test executables in `target/debug/deps` deleted between crates.
 
@@ -112,17 +112,17 @@
 
 ## Slice 6 — deleting a layer
 
-- [ ] **T23 — The confirmation window** (R27, R63; AC31)
+- [x] **T23 — The confirmation window** (R27, R63; AC31)
   - Files: `designer.rs` (`pending_layer_delete`, added to `has_blocking_modal`), `layer_tabs.rs`; keys `layer_delete_title`/`layer_delete_body` exist.
   - The ✕ calls `tabs.select_layer` (R60/R61) and opens a modal that names the layer and counts controls (children included) and handlers (`ctrl.events` with `has_code()`) — also for an empty layer (0 and 0). Fixed-size on the `error_window` pattern: no `available_width()`, no self-resize. Cancel leaves everything and the layer active; nothing behind reacts.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::delete_modal` — the window's size is identical before and after its text is set in each of `Language::ALL`, and over several frames.
 
-- [ ] **T24 — The deletion, and its undo** (R64, R65; AC32, AC33)
+- [x] **T24 — The deletion, and its undo** (R64, R65; AC32, AC33)
   - Files: `designer.rs` (one `Batch` of `DeleteControl` for every control, children included, then `SetLayers`; a snapshot of `data_bindings`, which `recycle_control` prunes and its reverse does not restore).
   - `Form` is active afterwards (Q27); a procedure bound to none of them but mentioning one stays and is reported; the next generation has no layer.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide layers_091::delete_layer` — one undo gives back layer, position, properties, controls (name, properties, `ZOrder`, container link), handlers, bindings, and the regenerated COBOL equals the pre-delete text; the undo stack grew by exactly one step.
 
-- [ ] **T25 — Slice 6 gate and commit**
+- [x] **T25 — Slice 6 gate and commit**
   - Verify: as T22.
 
 ## Slice 7 — documentation, knowledge base, measurement

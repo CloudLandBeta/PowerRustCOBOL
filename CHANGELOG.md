@@ -17,6 +17,32 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.38] — 2026-10-09
+
+### Added
+- **Spec 091, slice 6 — deleting a layer.** The red ✕ on a layer's tab selects
+  the layer, turns the others off, and opens a confirmation window that names it
+  and says how many controls and how many event handlers go with it — also for
+  a layer with nothing in it, where both numbers read zero. Nothing behind the
+  window reacts while it is up. Cancel leaves the layer, its controls and its
+  handlers as they were and its tab active. Delete removes the layer, every
+  control in it — a container's contents too — and the handler of each, as one
+  undo step: the controls leave through the path a single control takes, so the
+  form's recycle bin keeps their handlers; the data bindings that named them go
+  with the step, which the deletion of a single control does not restore; `Form`
+  is the active tab afterwards. A common procedure that only mentions one of the
+  deleted controls stays and is reported in the Output panel. One Undo brings
+  back the layer at its place with its backdrop, each control with its rectangle,
+  `ZOrder`, container and layer, each handler and each binding, so the saved
+  form and the generated COBOL are exactly what they were; one Redo deletes it
+  all again.
+  The window is 440 × 157 px in all six languages, and a layer name of 160
+  characters does not change it: `fixed_size` bounds only what is offered, so its
+  body is pinned to a constant height that scrolls rather than grows (removing the
+  pin makes the same test fail: 167 px against 107).
+  7 new tests, the guards of each removed in turn to see one fail. The IDE unit
+  suite is 1439 passed and one red, the translation guard that was red before.
+
 ## [PowerRustCOBOL 1.90.37] — 2026-10-09
 
 ### Added

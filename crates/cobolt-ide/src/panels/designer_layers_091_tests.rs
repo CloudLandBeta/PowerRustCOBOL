@@ -47,6 +47,9 @@ struct Rig {
     /// The modifier keys held down: egui reads them from a `ModifiersChanged`
     /// event, not from the events that carry them.
     mods: egui::Modifiers,
+    /// Every accessibility node egui has reported so far (after `ctx.enable_accesskit()`):
+    /// where a button is, found by its label rather than by guessing.
+    nodes: std::collections::HashMap<egui::accesskit::NodeId, egui::accesskit::Node>,
 }
 
 impl Rig {
@@ -57,6 +60,7 @@ impl Rig {
             d: DesignerPanel::new(form),
             used: Vec2::ZERO,
             mods: egui::Modifiers::NONE,
+            nodes: Default::default(),
         }
     }
 
@@ -77,8 +81,20 @@ impl Rig {
             });
         });
         out.textures_delta.clear();
+        if let Some(update) = out.platform_output.accesskit_update.take() {
+            self.nodes.extend(update.nodes);
+        }
         self.used = used;
         result
+    }
+
+    /// The middle of the button labelled `label`, from the accessibility tree.
+    fn button_centre(&self, label: &str) -> Option<Pos2> {
+        self.nodes
+            .values()
+            .find(|n| n.role() == egui::accesskit::Role::Button && n.label() == Some(label))
+            .and_then(|n| n.bounds())
+            .map(|b| Pos2::new(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
     }
 
     fn settle(&mut self, frames: usize) {
@@ -1740,5 +1756,245 @@ mod load_report {
         let mut d = DesignerPanel::new(form);
         d.report_load_problems();
         assert!(d.notices.is_empty());
+    }
+}
+
+// ── T23, T24: deleting a layer ───────────────────────────────────────────────
+
+mod delete_layer {
+    use super::*;
+    use cobolt_forms::{BindingSourceDescriptor, BindingTargetDescriptor, DataBindingDef};
+
+    fn handler(event: &str, para: &str, code: &str) -> cobolt_forms::EventBinding {
+        let mut ev = cobolt_forms::EventBinding::new(event, para);
+        ev.code = code.into();
+        ev
+    }
+
+    /// Three layers. `Layer-2` holds a Panel with a child, a Button, a ListBox bound to
+    /// data, and a Label with no handler; `Layer-1` and the base hold one Button each,
+    /// and the base a procedure that mentions one of `Layer-2`'s controls.
+    fn fixture() -> Form {
+        let mut f = form_with_layers(3);
+        let mut push = |id: &str, ct: ControlType, x: i32, layer: Option<&str>, parent: Option<&str>, z: i32| {
+            let mut c = Control::new(id, ct, x, 20);
+            c.layer = layer.map(str::to_owned);
+            c.parent = parent.map(str::to_owned);
+            c.z_order = z;
+            f.controls.push(c);
+        };
+        push("Base-Btn", ControlType::Button, 10, None, None, 1);
+        push("L1-Btn", ControlType::Button, 20, Some("Layer-1"), None, 2);
+        push("L2-Panel", ControlType::Panel, 30, Some("Layer-2"), None, 3);
+        push("L2-Child", ControlType::Button, 40, None, Some("L2-Panel"), 4);
+        push("L2-Btn", ControlType::Button, 50, Some("Layer-2"), None, 5);
+        push("L2-Label", ControlType::Label, 60, Some("Layer-2"), None, 6);
+        push("L2-List", ControlType::ListBox, 70, Some("Layer-2"), None, 7);
+        push("L3-Btn", ControlType::Button, 80, Some("Layer-3"), None, 8);
+        f.find_control_mut("L2-Btn").unwrap().events.push(handler("onClick", "L2-BTN--ONCLICK", "DISPLAY \"two\"."));
+        f.find_control_mut("L2-Child").unwrap().events.push(handler("onClick", "L2-CHILD--ONCLICK", "DISPLAY \"child\"."));
+        f.find_control_mut("L2-Child").unwrap().events.push(handler("onFocus", "L2-CHILD--ONFOCUS", ""));
+        f.find_control_mut("L1-Btn").unwrap().events.push(handler("onClick", "L1-BTN--ONCLICK", "DISPLAY \"one\"."));
+        f.user_procedures.push(cobolt_forms::model::UserProcedure {
+            name: "SHOW-IT".into(),
+            code: "SET L2-Btn::Visible TO TRUE.".into(),
+        });
+        f.data_bindings.push(DataBindingDef::new(
+            "b1",
+            "B",
+            BindingSourceDescriptor::IndexedFile {
+                definition_path: "x.cidx".into(),
+                record_name: "R".into(),
+                fields: Vec::new(),
+                key_field: None,
+                writable: false,
+            },
+            BindingTargetDescriptor::ListBox { control_id: "L2-List".into() },
+        ));
+        f
+    }
+
+    /// AC31 (R63) — the ✕ selects the layer, turns the others off and asks, naming
+    /// the layer and the counts; also for a layer with nothing in it.
+    #[test]
+    fn the_cross_selects_the_layer_and_asks_with_the_counts() {
+        let mut d = DesignerPanel::new(fixture());
+        d.tabs.select_form();
+        d.tabs.set_shown("Layer-1", true);
+        d.tabs.set_shown("Layer-3", true);
+
+        d.apply_tab_actions(vec![TabAction::RequestDelete("Layer-2".into())]);
+        assert_eq!(d.pending_layer_delete.as_deref(), Some("Layer-2"), "the question is up");
+        assert_eq!(d.tabs.active(), &ActiveTab::Layer("Layer-2".into()), "the layer is the active tab");
+        assert!(d.tabs.is_shown("Layer-2") && !d.tabs.is_shown("Layer-1") && !d.tabs.is_shown("Layer-3"), "the others are off (R61)");
+        assert!(d.has_blocking_modal(), "nothing behind it reacts");
+        assert_eq!(d.form.layers.len(), 3, "and nothing is deleted yet");
+        // Panel, its child, Button, Label, ListBox = 5; two handlers with code (the third has none).
+        assert_eq!(d.layer_delete_summary("Layer-2"), (5, 2));
+
+        let mut empty = DesignerPanel::new(form_with_layers(1));
+        empty.apply_tab_actions(vec![TabAction::RequestDelete("Layer-1".into())]);
+        assert_eq!(empty.pending_layer_delete.as_deref(), Some("Layer-1"), "asked even for an empty layer");
+        assert_eq!(empty.layer_delete_summary("Layer-1"), (0, 0), "both numbers read zero");
+    }
+
+    /// AC31 — the window is one size in every language and on every frame, and its
+    /// text fits inside it; cancelling leaves it all as it was.
+    #[test]
+    fn the_confirmation_window_is_one_size_in_every_language_and_cancel_changes_nothing() {
+        let mut sizes: Vec<(String, egui::Vec2)> = Vec::new();
+        for lang in crate::i18n::Language::ALL {
+            let mut r = Rig::new(fixture());
+            crate::i18n::set_language(&r.ctx, *lang);
+            let before = saved(&r.d);
+            r.d.apply_tab_actions(vec![TabAction::RequestDelete("Layer-2".into())]);
+            let win_id = egui::Id::new("designer_layer_delete_confirm");
+            let mut seen: Vec<egui::Vec2> = Vec::new();
+            for _ in 0..6 {
+                r.frame(vec![]);
+                let rect = r.ctx.memory(|m| m.area_rect(win_id)).expect("the window is open");
+                seen.push(rect.size());
+            }
+            assert!(seen.windows(2).all(|w| w[0] == w[1]), "{lang:?}: no frame changes it: {seen:?}");
+            sizes.push((format!("{lang:?}"), seen[0]));
+
+            // Cancel (the question goes away) and nothing is touched.
+            r.d.pending_layer_delete = None;
+            r.settle(2);
+            assert_eq!(saved(&r.d), before, "{lang:?}: cancelling deletes nothing");
+            assert_eq!(r.d.tabs.active(), &ActiveTab::Layer("Layer-2".into()), "{lang:?}: and the layer stays active");
+            assert!(r.d.undo_stack.is_empty());
+        }
+        let first = sizes[0].1;
+        println!("  AC31: the window is {first:?} in {} languages", sizes.len());
+        assert!(sizes.iter().all(|(_, s)| *s == first), "the same size in every language: {sizes:?}");
+
+        // …and for a layer with a name far longer than the window is wide.
+        let mut r = Rig::new(fixture());
+        let long = "X".repeat(160);
+        r.d.rename_layer_by_bar("Layer-2", &long);
+        assert_eq!(r.d.form.layers[1].name, long, "the long name is a layer's name");
+        r.d.apply_tab_actions(vec![TabAction::RequestDelete(long.clone())]);
+        r.settle(4);
+        let win = r.ctx.memory(|m| m.area_rect(egui::Id::new("designer_layer_delete_confirm"))).unwrap();
+        assert_eq!(win.size(), first, "a 160-character name does not change the window: {:?} against {first:?}", win.size());
+    }
+
+    /// AC32 (R64) — confirming deletes the layer, its controls (a Panel's contents
+    /// too) and the handlers bound to them; a procedure that only mentions one
+    /// stays and is reported; Form is active; the other layers' state is as it was.
+    #[test]
+    fn confirming_deletes_the_layer_its_controls_and_their_handlers_and_keeps_the_procedures() {
+        let mut d = DesignerPanel::new(fixture());
+        d.apply_tab_actions(vec![TabAction::RequestDelete("Layer-2".into())]);
+        d.delete_layer_now("Layer-2");
+        d.pending_layer_delete = None;
+
+        let layers: Vec<&str> = d.form.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(layers, ["Layer-1", "Layer-3"], "the layer is gone, the others keep their order");
+        for gone in ["L2-Panel", "L2-Child", "L2-Btn", "L2-Label", "L2-List"] {
+            assert!(d.form.find_control(gone).is_none(), "{gone} went with the layer");
+        }
+        for stays in ["Base-Btn", "L1-Btn", "L3-Btn"] {
+            assert!(d.form.find_control(stays).is_some(), "{stays} is another tab's and stays");
+        }
+        assert!(d.form.deleted_code.iter().any(|c| c.control_id == "L2-Btn"), "its handler is in the recycle bin");
+        assert!(d.form.deleted_code.iter().any(|c| c.control_id == "L2-Child"), "…and so is the child's");
+        assert!(d.form.data_bindings.is_empty(), "the binding that named the ListBox is pruned");
+        // The procedure that only mentions a deleted control is kept — and reported.
+        assert!(d.form.user_procedures.iter().any(|p| p.name == "SHOW-IT"), "SHOW-IT is kept");
+        assert!(d.orphan_notices.iter().any(|n| n.contains("SHOW-IT") && n.contains("KEPT")), "{:?}", d.orphan_notices);
+        assert_eq!(d.tabs.active(), &ActiveTab::Form, "Form is the active tab afterwards");
+        assert!(d.selected_ids.is_empty());
+        // The next generation has no layer and no deleted control.
+        let cbl = cobolt_codegen::generate(&d.form);
+        assert!(!cbl.contains("L2-BTN") && !cbl.to_ascii_uppercase().contains("L2-BTN--ONCLICK"), "the handler is not generated any more");
+    }
+
+    /// AC33 (R65) — one Undo brings back everything, so the COBOL generated is what
+    /// it was; one Redo deletes it again; the stack grew by one step.
+    #[test]
+    fn one_undo_brings_everything_back_and_one_redo_deletes_it_again() {
+        let mut d = DesignerPanel::new(fixture());
+        let form_before = d.form.clone();
+        let cobol_before = cobolt_codegen::generate(&d.form);
+        let saved_before = saved(&d);
+
+        d.delete_layer_now("Layer-2");
+        assert_eq!(d.undo_stack.len(), 1, "one step for the whole deletion");
+
+        d.undo();
+        d.tabs.reconcile(&d.form);
+        assert_eq!(d.form.layers, form_before.layers, "the layer is back at its place, with its backdrop");
+        for before in &form_before.controls {
+            let after = d.form.find_control(&before.id).unwrap_or_else(|| panic!("{} is back", before.id));
+            assert_eq!(after.rect, before.rect, "{}: rect", before.id);
+            assert_eq!(after.z_order, before.z_order, "{}: ZOrder", before.id);
+            assert_eq!((&after.parent, &after.layer), (&before.parent, &before.layer), "{}: container and layer", before.id);
+            assert_eq!(after.events.len(), before.events.len(), "{}: handlers", before.id);
+            assert!(
+                after.events.iter().zip(&before.events).all(|(a, b)| a.code == b.code),
+                "{}: handler code is as it was",
+                before.id
+            );
+        }
+        assert_eq!(d.form.controls.len(), form_before.controls.len());
+        assert_eq!(d.form.data_bindings, form_before.data_bindings, "the binding is back too");
+        assert!(d.form.deleted_code.is_empty(), "and the recycle bin holds none of it");
+        assert_eq!(saved(&d), saved_before, "the saved form is what it was");
+        assert_eq!(cobolt_codegen::generate(&d.form), cobol_before, "so is the generated COBOL");
+
+        d.redo();
+        assert_eq!(d.form.layers.len(), 2);
+        assert!(d.form.find_control("L2-Btn").is_none() && d.form.data_bindings.is_empty());
+        assert_eq!(d.undo_stack.len(), 1);
+    }
+
+    /// The window's buttons are real: Cancel keeps everything, Delete deletes.
+    #[test]
+    fn the_windows_buttons_cancel_and_delete() {
+        let tr = crate::i18n::Language::English.tr();
+        for press_delete in [false, true] {
+            let mut r = Rig::new(fixture());
+            r.ctx.enable_accesskit();
+            r.settle(2);
+            r.d.apply_tab_actions(vec![TabAction::RequestDelete("Layer-2".into())]);
+            r.settle(3);
+            let label = if press_delete { tr.delete_confirm_ok } else { tr.delete_confirm_cancel };
+            let at = r.button_centre(label).unwrap_or_else(|| panic!("a {label:?} button is on the window"));
+            r.click(at);
+            assert!(r.d.pending_layer_delete.is_none(), "{label}: the question is closed");
+            if press_delete {
+                assert_eq!(r.d.form.layers.len(), 2, "Delete deleted the layer");
+                assert_eq!(r.d.undo_stack.len(), 1);
+                assert_eq!(r.d.tabs.active(), &ActiveTab::Form);
+            } else {
+                assert_eq!(r.d.form.layers.len(), 3, "Cancel left it");
+                assert!(r.d.undo_stack.is_empty());
+                assert_eq!(r.d.tabs.active(), &ActiveTab::Layer("Layer-2".into()), "…and its tab active");
+            }
+        }
+    }
+
+    /// The red ✕ on the bar is a real button: a click selects the layer and asks.
+    #[test]
+    fn clicking_the_red_cross_on_a_tab_asks() {
+        let mut r = Rig::new(fixture());
+        r.settle(3);
+        let cross = layer_tab_parts(r.slot_rect(Slot::Layer(1))).cross.center();
+        r.click(cross);
+        assert_eq!(r.d.pending_layer_delete.as_deref(), Some("Layer-2"));
+        assert_eq!(r.d.tabs.active(), &ActiveTab::Layer("Layer-2".into()));
+        assert_eq!(r.d.form.layers.len(), 3, "and nothing is deleted until the developer confirms");
+    }
+
+    /// A layer that vanishes under the question (an undo) leaves nothing to ask.
+    #[test]
+    fn a_layer_that_vanishes_under_the_question_closes_it() {
+        let mut r = Rig::new(fixture());
+        r.d.apply_tab_actions(vec![TabAction::RequestDelete("Layer-2".into())]);
+        r.d.form.layers.remove(1);
+        r.settle(2);
+        assert!(r.d.pending_layer_delete.is_none(), "nothing left to ask about");
     }
 }
