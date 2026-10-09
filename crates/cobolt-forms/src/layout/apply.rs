@@ -136,10 +136,18 @@ pub fn prepare_with_rail(
 /// model's unit), marked [`LAID_OUT`], and with the effective font size where
 /// it differs from the designed one.
 pub fn laid_out_controls(controls: &[Control], layout: &LayoutOutput) -> Vec<Control> {
+    // A control in a layer was not laid out (spec 091 R21): it is not marked, so
+    // what a laid-out control is spared — an `AutoSize` measurement, say — is
+    // still done for it.
+    let layered = crate::layout::layered_flags(controls);
     controls
         .iter()
-        .map(|c| {
+        .zip(layered)
+        .map(|(c, in_layer)| {
             let mut c = c.clone();
+            if in_layer {
+                return c;
+            }
             if let Some(r) = layout.rects.get(&c.id) {
                 c.rect = Rect::new(
                     r.x.round() as i32,
@@ -196,6 +204,13 @@ impl FormState for LaidOutState<'_> {
     }
     fn enabled(&self, base: &Control) -> bool {
         self.inner.enabled(base)
+    }
+    /// A layer is not laid out (spec 091 R21), so the layout has no word on
+    /// whether it is shown: the live state's answer stands. Without this the
+    /// trait's default — "shown" — would answer for every layer of a responsive
+    /// form, and a layer would start visible there.
+    fn layer_visible(&self, name: &str) -> bool {
+        self.inner.layer_visible(name)
     }
     fn transform(&self, base: &Control) -> RenderTransform {
         self.inner.transform(base)

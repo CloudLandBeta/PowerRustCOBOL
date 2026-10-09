@@ -526,6 +526,7 @@ impl FormHost {
                 transparency: form.transparency.clamp(0, 100) as u8,
                 bg_image: form.background_image.clone(),
                 bg_mode: form.bg_image_mode,
+                layers: form.layers.clone(),
                 use_theme_background: form.use_theme_background,
                 modal_overlay_style: form.modal_overlay_style,
                 form_size: egui::vec2(fw, fh),
@@ -791,6 +792,11 @@ pub(crate) struct FormBody {
     pub(crate) transparency: u8,
     pub(crate) bg_image: String,
     pub(crate) bg_mode: cobolt_forms::model::BgImageMode,
+    /// The form's layers as DESIGNED, nearest the base first (spec 091). Whether
+    /// a layer is shown, and what a program has written over its backdrop, lives
+    /// in `state` under the layer's name; [`Self::live_layers`] puts the two
+    /// together for each frame's backdrop.
+    pub(crate) layers: Vec<cobolt_forms::Layer>,
     /// The form's `UseThemeBackground` opt-in — the pack's background art
     /// replaces the form's own image when the active theme provides one.
     pub(crate) use_theme_background: bool,
@@ -2658,6 +2664,27 @@ impl FormBody {
         }
     }
 
+    /// The form's layers as they paint THIS frame (spec 091 R33, R34): each as
+    /// designed, with what a running program has written over its backdrop —
+    /// `LAYER::Transparency`, `::BackgroundColor`, the gradient, the picture —
+    /// taken from the layer's entry in `state`, where every write lands. A
+    /// layer nobody wrote to is the design, untouched.
+    pub(crate) fn live_layers(&self) -> Vec<cobolt_forms::Layer> {
+        self.layers
+            .iter()
+            .map(|layer| {
+                match self
+                    .state
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(&layer.name))
+                {
+                    Some((_, s)) => layer.with_live(s.props.iter()),
+                    None => layer.clone(),
+                }
+            })
+            .collect()
+    }
+
     /// The form's background, resolved once and shared by the live render and
     /// by the static face the window effects animate — so an entrance reveals
     /// the form WITH its gradient / background image instead of jumping to it
@@ -2707,6 +2734,10 @@ impl FormBody {
         };
         cobolt_forms::render::Backdrop {
             paint: true,
+            // The form's layers, with what a program has written over each one's
+            // backdrop (spec 091 R33, R34). Whether one is SHOWN is the state's
+            // answer, `LiveState::layer_visible`, asked by the engine itself.
+            layers: self.live_layers(),
             color_hex,
             transparency: self.transparency,
             gradient_enabled: self.bg_gradient_enabled && !see_through,
@@ -4963,10 +4994,8 @@ impl FormHost {
         let mut flat: Vec<cobolt_forms::Control> = Vec::new();
         crate::flatten_controls(&form.controls, &mut flat);
         flat.sort_by_key(|c| c.z_order);
-        let mut state: HashMap<String, CtrlState> = HashMap::new();
-        for c in &flat {
-            state.insert(c.id.clone(), CtrlState::from_control(c));
-        }
+        // One entry per control, and one per layer — hidden (spec 091 R35).
+        let mut state: HashMap<String, CtrlState> = crate::state::initial_state(&flat, &form.layers);
         // With diagnostics on, say what this EMBEDDED form is before its
         // interpreter starts — the root form has had this since 049 R27 and a
         // pane occupant had nothing at all.
@@ -5131,6 +5160,7 @@ impl FormHost {
             transparency: form.transparency.clamp(0, 100) as u8,
             bg_image: form.background_image.clone(),
             bg_mode: form.bg_image_mode,
+            layers: form.layers.clone(),
             use_theme_background: form.use_theme_background,
             modal_overlay_style: form.modal_overlay_style,
             form_size: egui::vec2(fw, fh),
@@ -6802,6 +6832,10 @@ impl FormHost {
                             // pane's translucent controls — a visible change
                             // nobody asked for.
                             paint: true,
+                            // The pane's layers: this backdrop paints nothing of its
+                            // own, but the engine draws each layer's background
+                            // between the layers' controls, so it needs them.
+                            layers: backdrop.layers.clone(),
                             color_hex: "#00000000".into(),
                             transparency: 100,
                             gradient_enabled: false,
@@ -10763,6 +10797,7 @@ mod parity {
             transparency: 0,
             bg_image: String::new(),
             bg_mode: cobolt_forms::model::BgImageMode::default(),
+            layers: Vec::new(),
             use_theme_background: false,
             modal_overlay_style: cobolt_forms::model::ModalOverlayStyle::default(),
             form_size: egui::vec2(320.0, 200.0),

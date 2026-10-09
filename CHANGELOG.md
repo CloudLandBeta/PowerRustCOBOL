@@ -17,6 +17,160 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.35] — 2026-10-09
+
+### Changed
+- **Spec 091 — the plan and the task list.** `specs/091-form-layers-and-non-visual-deployment/`
+  gains `plan.md` (what slices 0–3 delivered, and what slices 4–7 still hold) and
+  `tasks.md` (30 ordered tasks, each with its files, requirements and verify
+  command; T1–T10 done, and a table that ties every acceptance criterion, AC1 to
+  AC33, to the tasks that prove it). Documents only — no code changed. The
+  designer's tab bar (slice 4) is not in this commit and not yet on screen.
+
+## [PowerRustCOBOL 1.90.34] — 2026-10-09
+
+### Fixed
+- **Spec 091 — a layer of a responsive form started shown.** `LaidOutState`, which
+  wraps the live state on a responsive form, did not pass the engine's "is this
+  layer shown?" question on, so the trait's default — shown — answered for every
+  layer there, where every other form starts them hidden. Found by reading the
+  list of states that implement the question; pinned by a test.
+
+## [PowerRustCOBOL 1.90.33] — 2026-10-09
+
+### Added
+- **Spec 091, slice 3 — a program can show and hide a layer, on every host.**
+  `SET LAYER-1::Visible TO TRUE` shows a layer and it stays shown until the
+  program hides it; every layer starts hidden. A layer answers `Visible`,
+  `Transparency`, `BackgroundColor`, the gradient properties and
+  `BackgroundImage` / `BackgroundImageMode`, through `MOVE`/`SET`,
+  `CALL "COBOL-SET-PROPERTY"` and `INVOKE … "SetProperty"`; its `Name` is read
+  only, and anything else — an unknown property, any method — is refused out
+  loud. What a program writes over a layer's backdrop is painted the next frame.
+  The same COBOL program gives the same eight readings under `rcrun run-form`,
+  as an embedded child in a shell's ContentPane, and in a built binary compiled
+  from this checkout. Build and Run Form reject `LAYER-9::Visible` (no such
+  object), `LAYER-1::Colour` (not a property of a layer) and `Non-Visuals::Visible`
+  (not an object at all). The editor offers a layer and its properties. All
+  three hosts build their state with one function, so "every layer starts hidden"
+  is one rule. 19 new tests (one builds a real binary, run with `--ignored`);
+  the forms, form-host, semantic, runtime, compiler and CLI suites are green,
+  and the IDE suite's only red is the translation guard that was red before.
+
+## [PowerRustCOBOL 1.90.32] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2d — the layers hold the pointer.** A click goes to the
+  highest shown layer that owns the point: a control with a handler bound to a
+  press (it answers over its whole rectangle), or one that paints something
+  there (a Label with no background of its own paints its text only), or an
+  opaque background. Everything below it gets nothing — no handler run, no state
+  change — whether or not the control above has a handler; a click on a part a
+  layer does not paint passes to the layer below, and a translucent background
+  does not shield. Tab skips what an opaque layer covers. egui gets a blocker
+  over what a layer owns, so the widgets under it neither light, press nor take
+  the focus, and a frameless window still moves by its face on the same rule.
+  The painted-part test is now one function shared by the window drag and the
+  layers. A form with no layers behaves exactly as before. 10 new tests,
+  mutation-checked: with the gate off, five of them fail.
+
+## [PowerRustCOBOL 1.90.31] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2c — only the base is laid out.** The responsive layout
+  engine leaves a layer's controls, and everything inside a container in a layer,
+  out of the tree: they keep their designed rectangle and their designed font,
+  take no room from the base's docks, move with none of its anchors, are not
+  marked laid out (so `AutoSize` still measures them), and never raise the form's
+  smallest size. A control that names a layer the form does not define is drawn
+  with the base but is not laid out either. A form with no layers lays out exactly
+  as before. 5 new tests, one with a negative control that shows the same control
+  in the base does raise the smallest size.
+
+## [PowerRustCOBOL 1.90.30] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2b — a layer is cut at the form's edge.** A control in a
+  layer is clipped to the form's rectangle, on the canvas and at run time, and so
+  are the captions, tab strips and icons that are painted over it. All 62 control
+  types on three paint paths stay inside the form's edge in a layer, where 60 of
+  the same types reach past it in the base. A layer's own background stops at a
+  rounded window's arc, and the types that stay inside the arc in a layer are the
+  base's. Seven types that cannot clip themselves (`DataGrid`, `FileDropZone`,
+  `Maps`, `TabControl`, `ToolBar`, `Viewer`, `Custom`) still paint past a rounded
+  window's arc, in a layer as in the base: measured, listed, and asked as Q31.
+  Fixed on the way: a form with layers and no controls at all painted none of
+  its layers.
+
+## [PowerRustCOBOL 1.90.29] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2a — the render engine draws layers (no designer or run-time
+  state yet).** On every path that paints a form — the running form, the static
+  form and the designer canvas — the controls of a layer paint above those of
+  every layer below it, whatever their `ZOrder`; a layer's own background paints
+  between its neighbours (also for a layer with no control); a hidden layer
+  paints nothing and its controls take no focus; and the passes that paint over
+  controls (group captions, tab strips, expand icons, the corner mask) run once
+  per layer, so a base caption never lands above a layer. Tab walks the base
+  first, then each layer upward. A new layer is fully transparent and a form
+  with no layers draws exactly what it drew. `FormState::layer_visible` is the
+  question the engine asks, `Backdrop::layers` carries the stack; the hosts and
+  the designer state that answers it come with the next slices. 11 new tests;
+  the `cobolt-forms` and form-host suites are 1,646 passed, 0 failed.
+
+## [PowerRustCOBOL 1.90.28] — 2026-10-09
+
+### Added
+- **Spec 091, slice 1 — the layer model and its file format (no designer, painter or
+  run time yet).** A form can now hold layers: `Form.layers` (a name and a
+  backdrop each, in stack order), `Control.layer` (none = the base), the names a
+  layer may take (`Form` and `Non-Visuals` reserved in any case, one namespace
+  with the controls, at most 64), add / rename / re-stack / move-to-layer, and a
+  control inside a container follows its container. The `.cfrm` records
+  `<Layer name=… …/>` and a `layer` attribute only when a form uses them, never a
+  `Visible`, so every layer starts hidden. `containers::render_order_in` draws the
+  base, then each layer upward, `ZOrder` only within a layer. The `Non-Visuals`
+  grid is a pure function: five columns, types A–Z by English name, names A–Z,
+  nothing stored. A form that uses none of this saves exactly as before: all 97
+  example forms diff clean against their pre-change save. 24 new tests; the whole
+  `cobolt-forms` suite is 1,440 passed, 0 failed.
+
+## [PowerRustCOBOL 1.90.27] — 2026-10-09
+
+### Changed
+- **Spec 091 — approved, with the operator's answers applied.** While `Non-Visuals`
+  is the active tab the toolbox's visual entries are disabled, and so is pasting a
+  visual control; a visual press on `Form` or a layer stays on that tab and
+  creates the control there. A layer's `Visible` is for run time and for editing
+  in the designer: it is never saved, every layer starts hidden, one a program
+  shows stays shown until the program hides it, and selecting a tab or ticking a
+  box neither marks the form modified nor makes an undo step. R25, R28, R35, R58,
+  R59 and R61 are rewritten, Q2, Q15, Q25, Q26 and Q28 are settled, Q29 and Q30
+  are new. Reading the code corrected three claims in the spec: the delete
+  confirmation has no "Preserve in Recycle" choice (every deleted control is
+  recycled), only 18 of the 97 example forms equal their own file when saved
+  (AC1 now compares against what saved before the change), and the codegen
+  goldens live in `crates/cobolt-codegen/tests/golden/`. New test
+  `every_example_form_saves_unchanged_091` records that baseline and can dump
+  every saved form for a before/after `diff`.
+
+## [PowerRustCOBOL 1.90.26] — 2026-10-09
+
+### Changed
+- **Spec 091 — which tab a click selects, and how a layer is deleted (draft).**
+  Six rules from the operator, now requirements R59–R65, with six acceptance
+  criteria (AC28–AC33). A click on a control in the toolbox selects `Non-Visuals`
+  for a non-visual control and `Form` for any other. Selecting a layer draws
+  `Form` and that layer on top of it, turns the layer on if it was off, and turns
+  every other layer off; the visibility box on a tab changes that layer only and
+  never the selected tab. The red ✕ selects the layer and asks in a modal window;
+  confirming deletes the layer, its controls and their event handlers as one undo
+  step. Four older requirements (R25, R27, R28, R58) and two criteria are
+  rewritten to match, three questions are settled (Q2b, Q15, Q22) and four are
+  new (Q25–Q28), the first of which — a toolbox control can no longer be created
+  in a layer — needs the operator's answer. Requirements only — no code yet.
+
 ## [PowerRustCOBOL 1.90.25] — 2026-10-08
 
 ### Changed

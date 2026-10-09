@@ -5990,6 +5990,33 @@ impl Interpreter {
                         }
                     }
                 }
+                // A layer has no methods (spec 091 Q9): `SetProperty` and
+                // `GetProperty` reach its properties, under the same rule as a
+                // direct write, and anything else is refused out loud.
+                if self.is_layer(object) {
+                    let m = method.trim().to_ascii_uppercase();
+                    match m.as_str() {
+                        "SETPROPERTY" => {
+                            let prop = vals
+                                .first()
+                                .map(|v| v.as_display_string().trim().to_owned())
+                                .unwrap_or_default();
+                            self.check_layer_write(object, &prop)?;
+                        }
+                        "GETPROPERTY" => {}
+                        _ => {
+                            return Err(RuntimeError::General {
+                                message: format!(
+                                    "'{}::{}' is not available on a layer: a layer has no \
+                                     methods, only the properties {}",
+                                    object.trim(),
+                                    method.trim(),
+                                    cobolt_forms::model::LAYER_PROPS.join(", ")
+                                ),
+                            });
+                        }
+                    }
+                }
                 let result = self.exec_method(object, method, &vals);
                 if let Some(dest) = returning {
                     // RETURNING into a member chain (`… RETURNING B::Caption`)
@@ -11260,6 +11287,7 @@ impl Interpreter {
                 let prop_t = prop.trim().to_owned();
                 let val_t = val.trim().to_owned();
                 self.check_button_write(&obj_t, &prop_t)?;
+                self.check_layer_write(&obj_t, &prop_t)?;
                 self.objects.set_property(&obj_t, &prop_t, val_t.clone());
                 // GUI mode: notify the UI thread so the form window updates.
                 if let Some(tx) = &self.state_tx {
@@ -14863,6 +14891,33 @@ impl Interpreter {
         })
     }
 
+    /// Whether `obj` names a LAYER — an object the host seeded under a layer's
+    /// name, class `Layer` (spec 091 R33).
+    fn is_layer(&self, obj: &str) -> bool {
+        self.objects
+            .get(obj.trim())
+            .map(|o| o.class == "Layer")
+            .unwrap_or(false)
+    }
+
+    /// Refuse a COBOL write to a layer property that is not a layer's to have.
+    ///
+    /// A layer answers `Visible`, `Transparency` and its backdrop's properties
+    /// (`cobolt_forms::model::LAYER_PROPS`) and nothing else; its `Name` is read
+    /// only. A refused write is a runtime ERROR rather than a silent no-op, as a
+    /// toolbar button's is — the build catches a misspelt name first, and this
+    /// is the net for one it could not see (a name built at run time).
+    ///
+    /// Anything that is not a layer passes straight through.
+    fn check_layer_write(&self, obj: &str, prop: &str) -> Result<(), RuntimeError> {
+        if !self.is_layer(obj) || cobolt_forms::model::layer_writable(prop) {
+            return Ok(());
+        }
+        Err(RuntimeError::General {
+            message: cobolt_forms::model::layer_refusal(obj, prop),
+        })
+    }
+
     /// Read a control property as a string (`""` when unset).
     fn obj_get(&self, obj: &str, prop: &str) -> String {
         let prop = self.canonical_prop_name(obj, prop);
@@ -15342,6 +15397,12 @@ impl Interpreter {
                 if self.is_toolbar_button(&root) {
                     let prop = single_prop_key(&path).unwrap_or_else(|| path_display(&path));
                     self.check_button_write(&root, &prop)?;
+                }
+                // A layer takes its backdrop's properties and `Visible`, and
+                // refuses the rest the same way (spec 091 R33).
+                if self.is_layer(&root) {
+                    let prop = single_prop_key(&path).unwrap_or_else(|| path_display(&path));
+                    self.check_layer_write(&root, &prop)?;
                 }
                 self.set_member_indexed(&root, &path, v, instance);
                 Ok(())

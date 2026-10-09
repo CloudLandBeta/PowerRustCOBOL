@@ -178,6 +178,7 @@ fn form_backdrop(form: &Form, image: Option<(egui::TextureId, Vec2)>, window: Ve
         image_extent: None,
         draggable: false,
         window: None,
+        layers: form.layers.clone(),
     }
 }
 

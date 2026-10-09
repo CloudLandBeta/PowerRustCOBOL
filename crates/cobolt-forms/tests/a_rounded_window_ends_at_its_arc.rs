@@ -42,6 +42,11 @@ thread_local! {
     /// The form theme the next render paints with ("" = Liquid Glass). Every
     /// theme has its own face painters, and each must take the window's arc.
     static THEME: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+    /// A layer above the base (spec 091): when set, the form carries it, and the
+    /// control under test sits IN it. Every measurement below then asks the same
+    /// question of a layer that it asks of the base.
+    static LAYER: std::cell::RefCell<Option<cobolt_forms::model::Layer>> =
+        const { std::cell::RefCell::new(None) };
 }
 const W: f32 = 600.0;
 const H: f32 = 400.0;
@@ -76,6 +81,7 @@ fn backdrop(back: Back, tex: Option<(egui::TextureId, Vec2)>, rounded: bool) -> 
     let mut b = Backdrop {
         color_hex: "#E0E4ECFF".into(),
         window_size: Some(Vec2::new(W, H)),
+        layers: LAYER.with(|l| l.borrow().iter().cloned().collect()),
         window: if rounded {
             window_arc(Rect::from_min_size(Pos2::ZERO, Vec2::new(W, H)), R as u32)
         } else {
@@ -361,6 +367,7 @@ fn scene(child: Option<&ControlType>, shadow: bool, dressed: bool) -> Vec<Contro
     let Some(ct) = child else { return Vec::new() };
     let mut c = Control::new("C", ct.clone(), 0, 0);
     c.rect = if OVERHANG.get() { MRect::new(-8, -8, 168, 128) } else { MRect::new(0, 0, 160, 120) };
+    c.layer = LAYER.with(|l| l.borrow().as_ref().map(|l| l.name.clone()));
     c.set_prop("ShadowEnabled", PropValue::Bool(shadow));
     if dressed {
         c.set_prop("BackgroundColor", PropValue::String("#3060C0FF".into()));
@@ -555,4 +562,101 @@ fn the_pieces_of_a_shell_window_meet_its_arc() {
         assert_eq!(out, 0, "{what}: the shell's pieces paint past the window's arc");
         assert_eq!(inside, want, "{what}: the shell's pieces leave a gap inside the window's arc");
     }
+}
+
+// ── 4. a LAYER in a rounded window (spec 091 R14) ───────────────────────────
+//
+// A layer covers the form and is cut by the same window: its own background
+// stops at the arc, and what it holds is held to the arc by the same machinery
+// the base's controls are — a top-level control of a layer is a top-level
+// control of the window.
+
+fn layer_with(back: Back) -> cobolt_forms::model::Layer {
+    let mut l = cobolt_forms::model::Layer::new("Layer-1");
+    l.backdrop.color = "#2060C0FF".into();
+    if let Back::Gradient = back {
+        l.backdrop.gradient_enabled = true;
+        l.backdrop.gradient_start_color = "#FF8000FF".into();
+        l.backdrop.gradient_end_color = "#0080FFFF".into();
+    }
+    l
+}
+
+#[test]
+fn a_layer_s_background_stops_at_a_rounded_window_s_arc() {
+    for back in [Back::Colour, Back::Gradient] {
+        for s in [Surface::Canvas, Surface::Preview, Surface::Run] {
+            LAYER.with(|l| *l.borrow_mut() = Some(layer_with(back)));
+            // What the layer adds: the frame with the layer, less the frame without.
+            let with = shapes(&[], s, GlassStyle::Classic, Back::Colour, true).0;
+            LAYER.with(|l| *l.borrow_mut() = None);
+            let without = shapes(&[], s, GlassStyle::Classic, Back::Colour, true).0;
+            assert!(with.len() > without.len(), "{back:?} {s:?}: the layer must paint its background");
+            let mine = &with[without.len()..];
+            let mut flags = BTreeSet::new();
+            let (out, inside) = outside_and_inside(mine, &mut flags);
+            println!(
+                "LAYER-BACKDROP {back:<9?} {s:<8?} {out:>3} px past the arc, {inside:>5} px inside it",
+                back = back
+            );
+            assert_eq!(out, 0, "{back:?} {s:?}: a layer's background paints past the window's arc");
+            assert!(inside > 0, "{back:?} {s:?}: and it must paint inside it (the measure is live)");
+        }
+    }
+}
+
+/// The same measurement as part 2, with the control in a layer: the types that
+/// stay inside the arc are the SAME ones, for the same reason — a layer's
+/// control is a top-level control of the window. The seven that cannot clip
+/// themselves (`DataGrid`, `FileDropZone`, `Maps`, `TabControl`, `ToolBar`,
+/// `Viewer`, `Custom`) paint past a window's arc in a layer exactly as they do
+/// in the base: cutting arbitrary shapes at an arc needs the shapes tessellated
+/// and clipped, which this engine does not do (spec 091 Q31).
+#[test]
+fn every_control_type_in_a_layer_meets_a_rounded_window_like_one_in_the_base() {
+    LAYER.with(|l| *l.borrow_mut() = Some(layer_with(Back::Colour)));
+    let mut inside = BTreeSet::new();
+    let mut past: Vec<String> = Vec::new();
+    for ct in ControlType::ALL.iter() {
+        let name = format!("{ct:?}");
+        let mut total = 0;
+        let mut painted = 0;
+        for overhang in [false, true] {
+            OVERHANG.set(overhang);
+            for s in [Surface::Canvas, Surface::Run] {
+                for dressed in [false, true] {
+                    let (b, n, _) = bleed(ct, s, false, GlassStyle::Classic, dressed);
+                    total += b;
+                    painted += n;
+                }
+            }
+        }
+        OVERHANG.set(false);
+        if painted == 0 || total == 0 {
+            inside.insert(name);
+        } else {
+            past.push(name);
+        }
+    }
+    LAYER.with(|l| *l.borrow_mut() = None);
+    println!("LAYER-WINDOW stay inside the arc: {} types; paint past it: {past:?}", inside.len());
+    // The base's own allow-list, less the one content exception part 2 names.
+    const CONTENT_PAST_A_FLUSH_WINDOW_ARC: [&str; 1] = ["TreeView"];
+    let listed: BTreeSet<String> = ControlType::ALL
+        .iter()
+        .filter(|ct| self_clipping_type(ct))
+        .map(|ct| format!("{ct:?}"))
+        .filter(|n| !CONTENT_PAST_A_FLUSH_WINDOW_ARC.contains(&n.as_str()))
+        .collect();
+    // A type that paints nothing at all counts as inside; keep only the types
+    // the base list names, or that paint nothing in either place.
+    let missing: Vec<_> = inside.iter().filter(|n| !listed.contains(*n)).collect();
+    let stale: Vec<_> = listed.iter().filter(|n| !inside.contains(*n)).collect();
+    assert!(
+        stale.is_empty(),
+        "types the base keeps inside a rounded window's arc must stay inside it in a layer too: {stale:?}"
+    );
+    // `missing` are types that paint nothing (non-visual cards on the run
+    // surface, for one) — they cannot bleed, so they are not a failure.
+    println!("LAYER-WINDOW inside but not on the base list (paint nothing): {missing:?}");
 }

@@ -72,6 +72,35 @@ impl CtrlState {
     }
 }
 
+/// The state a running form starts with: one entry per designed control, and one
+/// per LAYER, **hidden** (spec 091 R35).
+///
+/// A layer's entry is keyed by the layer's name — the one namespace layers and
+/// controls share (R4) — and holds its backdrop properties beside `visible`, so
+/// a program's write to `LAYER-NAME::Visible` lands exactly where a write to a
+/// control's does and the engine asks the same map (`LiveState::layer_visible`).
+/// Every host that builds the map calls THIS, so a layer cannot start shown in
+/// one of them and hidden in the rest.
+pub fn initial_state(
+    flat: &[cobolt_forms::Control],
+    layers: &[cobolt_forms::Layer],
+) -> HashMap<String, CtrlState> {
+    let mut state: HashMap<String, CtrlState> =
+        flat.iter().map(|c| (c.id.clone(), CtrlState::from_control(c))).collect();
+    for layer in layers {
+        let mut entry = CtrlState {
+            props: HashMap::new(),
+            visible: false,
+            enabled: true,
+        };
+        for (key, value) in layer.runtime_props() {
+            entry.props.insert(key, value);
+        }
+        state.insert(layer.name.clone(), entry);
+    }
+    state
+}
+
 /// The mutable state entry for a DRAWN control id, created when missing.
 /// Repeating-group instances (`group.group-N.member`) never exist in the
 /// initial map — it is seeded from the designed controls only — so a card
@@ -165,6 +194,16 @@ impl<'a> cobolt_forms::render::FormState for LiveState<'a> {
     }
     fn enabled(&self, base: &cobolt_forms::Control) -> bool {
         self.entry(base).map(|s| s.enabled).unwrap_or(true)
+    }
+    /// Spec 091 R12, R35 — a layer is shown when its entry says so, and an entry
+    /// is seeded hidden: a layer nobody has shown is not shown. A name with no
+    /// entry is hidden too, rather than guessed visible.
+    fn layer_visible(&self, name: &str) -> bool {
+        self.state
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, s)| s.visible)
+            .unwrap_or(false)
     }
     fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
         self.anim.transform(base)
@@ -266,5 +305,55 @@ mod tests {
         // default (not the derived all-false one).
         let bare = state_entry_mut(&mut state, &controls, "NOWHERE-9");
         assert!(bare.visible && bare.enabled);
+    }
+}
+
+#[cfg(test)]
+mod tests_091 {
+    use super::*;
+    use cobolt_forms::{Control, ControlType, Layer};
+    use cobolt_forms::render::FormState;
+
+    fn live(state: &HashMap<String, CtrlState>) -> LiveState<'_> {
+        // `LiveState` borrows a runtime clock it never reads here.
+        let anim: &'static cobolt_forms::anim::AnimRuntime =
+            Box::leak(Box::new(cobolt_forms::anim::AnimRuntime::new(100.0, 100.0)));
+        LiveState { viewer_docs: None, state, anim, hidden: None, special_names: "" }
+    }
+
+    /// 091 R35 — every layer starts hidden, in every host, because every host
+    /// builds its state with this one function.
+    #[test]
+    fn every_layer_starts_hidden_and_a_control_starts_as_designed() {
+        let flat = vec![Control::new("BTN-1", ControlType::Button, 0, 0)];
+        let layers = vec![Layer::new("Layer-1"), Layer::new("Layer-2")];
+        let state = initial_state(&flat, &layers);
+        assert_eq!(state.len(), 3, "one entry per control and per layer");
+        let st = live(&state);
+        assert!(!st.layer_visible("Layer-1") && !st.layer_visible("Layer-2"));
+        assert!(!state["Layer-1"].visible, "the entry itself says hidden");
+        assert!(state["BTN-1"].visible, "a control is as designed");
+        // A name no entry holds is hidden too, not guessed visible.
+        assert!(!st.layer_visible("Nobody"));
+    }
+
+    /// 091 R33–R35 — a program's `SET LAYER-1::Visible TO TRUE` arrives upper-cased
+    /// and is stored as every control's `Visible` is; the layer then stays shown
+    /// until the program hides it, whatever else is written.
+    #[test]
+    fn a_write_shows_a_layer_and_it_stays_shown_until_hidden() {
+        let flat = vec![Control::new("BTN-1", ControlType::Button, 0, 0)];
+        let layers = vec![Layer::new("Layer-1")];
+        let mut state = initial_state(&flat, &layers);
+        let key = state.keys().find(|k| k.eq_ignore_ascii_case("LAYER-1")).cloned().unwrap();
+        state.get_mut(&key).unwrap().set("VISIBLE", "true".into());
+        assert!(live(&state).layer_visible("LAYER-1"), "case-insensitive, as every id is");
+        assert!(live(&state).layer_visible("layer-1"));
+        // Writes elsewhere do not hide it.
+        state.get_mut("BTN-1").unwrap().set("CAPTION", "x".into());
+        state.get_mut(&key).unwrap().set("TRANSPARENCY", "30".into());
+        assert!(live(&state).layer_visible("Layer-1"));
+        state.get_mut(&key).unwrap().set("Visible", "0".into());
+        assert!(!live(&state).layer_visible("Layer-1"));
     }
 }

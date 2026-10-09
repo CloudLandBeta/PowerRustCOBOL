@@ -60,6 +60,18 @@ pub trait FormState {
     fn enabled(&self, _base: &Control) -> bool {
         true
     }
+    /// Spec 091 R12 — whether the layer called `name` is shown. A hidden layer
+    /// paints nothing (neither its background nor its controls), and none of its
+    /// controls sees the pointer or takes the focus. `name` is the layer's own
+    /// spelling in [`Backdrop::layers`].
+    ///
+    /// Default: shown, so a state source that knows no layers — a test — draws
+    /// them all. A running form's state overrides it and starts every layer
+    /// HIDDEN (R35); the designer's answers from the tab selection and the
+    /// visibility boxes (R25, R60).
+    fn layer_visible(&self, _name: &str) -> bool {
+        true
+    }
     /// Per-control animation transform (preview/designer entrance effects): a
     /// pixel shift, a scale about the control centre, and an extra alpha on top
     /// of container opacity. Default = identity (no animation).
@@ -298,6 +310,17 @@ pub struct Backdrop {
     /// of a rounded Panel is to its parent's. The host makes the window
     /// see-through, so what lies outside the arc is the desktop.
     pub window: Option<crate::paint::ContainerClip>,
+    /// The layers stacked above the base, nearest it first (spec 091 R9): the
+    /// form's [`Form::layers`](crate::model::Form::layers). Empty — the default —
+    /// is a form with no layers, and then nothing here changes a pixel or an
+    /// event. The engine draws each layer's own background between the controls
+    /// of the layer below and its own, and asks [`FormState::layer_visible`]
+    /// whether to draw it at all.
+    ///
+    /// Carried here rather than as a field of [`RenderInput`], which about a
+    /// hundred callers build literally and which has no `Default`; every host
+    /// that builds a backdrop from a form states the layers with it.
+    pub layers: Vec<crate::model::Layer>,
 }
 
 impl Backdrop {
@@ -336,8 +359,245 @@ impl Default for Backdrop {
             image_extent: None,
             draggable: false,
             window: None,
+            layers: Vec::new(),
         }
     }
+}
+
+// ── 091 Layers: which layer a control is in, and whether it is shown ─────────
+
+/// The layer of `base` for the visibility question: its own declared layer if it
+/// sits at the root of the form. A control inside a container is asked about
+/// through its ancestors — `containers::is_visible` walks up to the root, which
+/// carries the layer (R8) — so it answers `true` here.
+fn layer_shown(input: &RenderInput<'_>, base: &Control) -> bool {
+    if base.parent.is_some() {
+        return true;
+    }
+    let Some(declared) = base.layer.as_deref() else {
+        return true;
+    };
+    // A name the form does not define is shown with the base (R40).
+    match input
+        .backdrop
+        .layers
+        .iter()
+        .find(|l| l.name.eq_ignore_ascii_case(declared))
+    {
+        Some(layer) => input.state.layer_visible(&layer.name),
+        None => true,
+    }
+}
+
+/// Whether `base` is shown: the state's own answer (COBOL may hide a control)
+/// AND its layer being shown (R12). The ONE question every visibility check in
+/// this file asks, so a hidden layer drops out of the paint, the pointer and the
+/// focus together.
+fn visible_in(input: &RenderInput<'_>, base: &Control) -> bool {
+    input.state.visible(base) && layer_shown(input, base)
+}
+
+/// Every control's place in the layer stack, as `controls[i]`'s rank: 0 for the
+/// base, then 1 for the layer nearest it. A container's children are in their
+/// container's layer (R8). Empty when the form has no layers, which is what
+/// lets every caller skip the layer work outright.
+fn layer_ranks(controls: &[Control], layers: &[crate::model::Layer]) -> Vec<usize> {
+    if layers.is_empty() {
+        return Vec::new();
+    }
+    let by_id: HashMap<&str, usize> = controls
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.id.as_str(), i))
+        .collect();
+    controls
+        .iter()
+        .map(|c| {
+            // A hand-edited file can hold a parent cycle: stop after one lap.
+            let mut cur = c;
+            for _ in 0..=controls.len() {
+                match cur.parent.as_deref().and_then(|p| by_id.get(p)) {
+                    Some(&i) => cur = &controls[i],
+                    None => break,
+                }
+            }
+            crate::model::layer_rank_in(layers, cur.layer.as_deref())
+        })
+        .collect()
+}
+
+/// Whether a layer's background hides everything beneath it wherever it is
+/// (spec 091 R20, Q8b): fully opaque — `Transparency` 0 and a colour, or the
+/// gradient that replaces it, with full alpha. A background with any
+/// transparency, or an image whose pixels the engine does not inspect, lets
+/// events through and does not shield: a dimming scrim that must also block
+/// needs a control over it, as a `Panel` does.
+fn layer_is_opaque(layer: &crate::model::Layer) -> bool {
+    let b = &layer.backdrop;
+    if b.transparency != 0 {
+        return false;
+    }
+    let alpha = |hex: &str| crate::paint::parse_hex(hex).map_or(0, |c| c.a());
+    if b.gradient_enabled {
+        alpha(&b.gradient_start_color) == 255 && alpha(&b.gradient_end_color) == 255
+    } else {
+        alpha(&b.color) == 255
+    }
+}
+
+/// The rank of the highest SHOWN layer whose background is opaque, or 0: every
+/// control below it is shielded from the keyboard focus as from the pointer.
+fn opaque_shield_rank(input: &RenderInput<'_>) -> usize {
+    input
+        .backdrop
+        .layers
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, l)| input.state.layer_visible(&l.name) && layer_is_opaque(l))
+        .map_or(0, |(i, _)| i + 1)
+}
+
+/// The highest layer that holds the pointer at `p` (spec 091 R17–R20), or 0 when
+/// no layer does — the base then answers, as it always has.
+///
+/// A layer holds a point when it is shown and either a control of it has a
+/// PAINTED part there (`paints_at`) — then the event belongs to that control and
+/// does not fall through, whether or not a handler is bound (R19) — or its
+/// background is opaque (R20). A background that is transparent, or that lets
+/// something through, holds nothing: the event passes to the layer below (R18).
+/// A layer's background is never the target of an event itself (R20): it only
+/// keeps the layers beneath it from getting one.
+///
+/// Everything below the answer is shielded; the layer itself and anything above
+/// it are not (a layer above that holds nothing at `p` does not shield).
+fn pointer_claim(
+    ctx: &egui::Context,
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    ranks: &[usize],
+    out: &RenderOutput,
+    backdrop_rect: Rect,
+    p: egui::Pos2,
+) -> usize {
+    let layers = &input.backdrop.layers;
+    for rank in (1..=layers.len()).rev() {
+        let layer = &layers[rank - 1];
+        if !input.state.layer_visible(&layer.name) {
+            continue;
+        }
+        let holds_by_control = controls.iter().enumerate().any(|(i, c)| {
+            ranks.get(i).copied() == Some(rank)
+                && !c.control_type.is_non_visual()
+                && out
+                    .control_rects
+                    .get(&c.id)
+                    .filter(|r| r.contains(p))
+                    .is_some_and(|r| owns_pointer_at(ctx, c, *r, out.caption_rects.get(&c.id).copied(), p))
+        });
+        if holds_by_control || (layer_is_opaque(layer) && backdrop_rect.contains(p)) {
+            return rank;
+        }
+    }
+    0
+}
+
+/// Whether the pointer at `p`, inside `rect`, is `ctrl`'s to answer (spec 091
+/// R19): the control has a handler bound to a press — its events fire over its
+/// whole rectangle — or it paints something at `p`. A Label with no background
+/// of its own paints its TEXT and nothing else, so a click beside the text is
+/// not its click, however big its rectangle is (R18).
+fn owns_pointer_at(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    rect: Rect,
+    caption: Option<Rect>,
+    p: egui::Pos2,
+) -> bool {
+    if binds_a_press(ctrl) {
+        return rect.contains(p);
+    }
+    match ctrl.control_type {
+        ControlType::Label
+            if face_see_through(ctrl) || crate::paint::user_background_color(ctrl).is_none() =>
+        {
+            caption.is_some_and(|text| text.contains(p))
+        }
+        _ => paints_at(ctx, ctrl, rect, caption, p),
+    }
+}
+
+/// The part of `screen` a passive control of a layer must keep out of the
+/// widgets below it (spec 091 R19): where it owns the pointer, as a rectangle
+/// egui can register. `None` where nothing worth a widget is painted — a
+/// see-through Panel's border, a picture's transparent pixels: those are
+/// answered pointwise by [`owns_pointer_at`], not by a blocker.
+fn pointer_region(ctrl: &Control, screen: Rect, caption: Option<Rect>) -> Option<Rect> {
+    if binds_a_press(ctrl) {
+        return Some(screen);
+    }
+    match ctrl.control_type {
+        ControlType::Label
+            if face_see_through(ctrl) || crate::paint::user_background_color(ctrl).is_none() =>
+        {
+            caption
+        }
+        ControlType::Panel | ControlType::GroupBox | ControlType::PictureBox if face_see_through(ctrl) => None,
+        _ => Some(screen),
+    }
+}
+
+/// The events a pointer press, release, wheel or movement produces for a
+/// control — what a shielded control must not report (spec 091 R19, R20).
+const POINTER_EVENTS: [&str; 12] = [
+    "onClick",
+    "onDoubleClick",
+    "onDblClick",
+    "onMouseDown",
+    "onMouseUp",
+    "onRightClick",
+    "onMiddleClick",
+    "onContextMenu",
+    "onMouseMove",
+    "onMouseWheel",
+    "onHoverEnter",
+    "onHoverLeave",
+];
+
+/// Paint one layer's own background into the form's rectangle (spec 091 R15):
+/// colour, gradient and image, over what the layers below drew.
+///
+/// Not [`paint_backdrop`]'s own colour: that resolves an unset or fully
+/// transparent colour (`#00000000`) to the form's default navy, which is right
+/// for a form that must be a visible window and exactly wrong for a new layer,
+/// which must change nothing that is drawn. A layer's colour is what it says,
+/// alpha included.
+fn paint_layer_backdrop(
+    painter: &egui::Painter,
+    rect: Rect,
+    layer: &crate::model::Layer,
+    window: Option<crate::paint::ContainerClip>,
+) {
+    let b = &layer.backdrop;
+    let image = (!b.image.trim().is_empty())
+        .then(|| crate::paint::picturebox_texture(painter.ctx(), b.image.trim()))
+        .flatten()
+        .map(|t| (t.id(), t.size_vec2()));
+    let backdrop = Backdrop {
+        paint: true,
+        color_hex: b.color.clone(),
+        transparency: b.transparency,
+        gradient_enabled: b.gradient_enabled,
+        gradient_start_hex: b.gradient_start_color.clone(),
+        gradient_end_hex: b.gradient_end_color.clone(),
+        gradient_direction: b.gradient_direction.clone(),
+        image,
+        image_mode: b.image_mode,
+        window,
+        ..Backdrop::default()
+    };
+    let bg = backdrop_gradient_color(&b.color, b.transparency);
+    paint_backdrop_over(painter, rect, &backdrop, bg);
 }
 
 /// A rounded window as the clip its backdrop and top-level controls are cut
@@ -510,6 +770,20 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
         &backdrop.color_hex,
         backdrop.transparency,
     );
+    paint_backdrop_over(painter, rect, backdrop, bg)
+}
+
+/// [`paint_backdrop`] with the flat colour already resolved: everything after
+/// "what colour is it" — the fill, the gradient, the theme art, the image and
+/// its modes — is ONE implementation, shared with a layer's own background
+/// (`paint_layer_backdrop`), whose colour must not go through the form's
+/// "unset means navy" rule.
+fn paint_backdrop_over(
+    painter: &egui::Painter,
+    rect: Rect,
+    backdrop: &Backdrop,
+    bg: Color32,
+) -> BackdropPaint {
     // Somebody else owns this rectangle (see `Backdrop::behind`). Report what
     // is behind so a translucent control can resolve against it, and paint
     // nothing over it — not even "transparent", which an unset colour is NOT:
@@ -1165,6 +1439,10 @@ fn mask_container_notches(
     // enabled), collected by the render loop. It cannot be recomputed here: the
     // animation transform only exists inside that loop.
     alphas: &HashMap<String, f32>,
+    // Which controls this pass is for — see `draw_expand_icons`. Only the BASE
+    // is masked: the mask repaints the form's own backdrop in a corner notch,
+    // which would erase what the layers below a layer's control show there.
+    only: &dyn Fn(&Control) -> bool,
 ) {
     // `controls` is the EFFECTIVE (post-`expand_repeating_groups`) list the render
     // loop drew from â NOT `input.controls`. The notch-mask guardian
@@ -1175,9 +1453,12 @@ fn mask_container_notches(
     // mask nothing and the card content bleeds past the container arc (spec 015/024
     // repeating groups Ã the spec 017 notch mask).
     for (idx, base) in controls.iter().enumerate() {
+        if !only(base) {
+            continue;
+        }
         // Which control types can need a mask is `notch_mask_rounding`'s to
         // decide — this loop only skips what is not on screen.
-        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
+        if !visible_in(input, base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
             continue;
         }
         let live = input.state.live(base);
@@ -1250,6 +1531,10 @@ fn draw_expand_icons(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
     out: &mut RenderOutput,
+    // Which controls this pass is for: a form with layers paints the passes once
+    // per layer, in stack order, so a card's icon never lands above a layer
+    // drawn over it (spec 091). Without layers: every control, once.
+    only: &dyn Fn(&Control) -> bool,
 ) {
     let clicked_at = ui.and_then(|ui| {
         ui.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None })
@@ -1259,12 +1544,15 @@ fn draw_expand_icons(
     // An icon is left out while a later control that is not part of the card
     // covers it, and with it goes the click (operator, 2026-10-08: the icons of
     // the cards behind a dropdown showed on top of it).
-    let order = containers::render_order(input.controls);
+    let order = containers::render_order_in(input.controls, &input.backdrop.layers);
     let position = |idx: usize| order.iter().position(|&i| i == idx).unwrap_or(usize::MAX);
     for (idx, base) in input.controls.iter().enumerate() {
+        if !only(base) {
+            continue;
+        }
         if !matches!(base.control_type, ControlType::Panel | ControlType::GroupBox)
-            || !input.state.visible(base)
-            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| input.state.visible(c))
+            || !visible_in(input, base)
+            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
         {
             continue;
         }
@@ -1284,7 +1572,7 @@ fn draw_expand_icons(
         let here = position(idx);
         let covered = order.iter().skip(here.saturating_add(1)).any(|&j| {
             let over = &input.controls[j];
-            input.state.visible(over)
+            visible_in(input, over)
                 && !crate::containers::is_descendant(input.controls, j, idx)
                 && !crate::paint::paints_no_card(&input.state.live(over))
                 && out.control_rects.get(&over.id).is_some_and(|r| r.intersects(hit))
@@ -1307,13 +1595,14 @@ fn draw_deferred_groupbox_captions(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
     out: &RenderOutput,
+    only: &dyn Fn(&Control) -> bool,
 ) {
     for (idx, base) in input.controls.iter().enumerate() {
-        if !matches!(base.control_type, ControlType::GroupBox) {
+        if !matches!(base.control_type, ControlType::GroupBox) || !only(base) {
             continue;
         }
-        if !input.state.visible(base)
-            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| input.state.visible(c))
+        if !visible_in(input, base)
+            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
         {
             continue;
         }
@@ -1416,13 +1705,14 @@ fn draw_deferred_tabcontrol_tabs(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
     out: &RenderOutput,
+    only: &dyn Fn(&Control) -> bool,
 ) {
     for (idx, base) in input.controls.iter().enumerate() {
-        if !matches!(base.control_type, ControlType::TabControl) {
+        if !matches!(base.control_type, ControlType::TabControl) || !only(base) {
             continue;
         }
-        if !input.state.visible(base)
-            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| input.state.visible(c))
+        if !visible_in(input, base)
+            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
         {
             continue;
         }
@@ -2447,8 +2737,28 @@ fn render_form_inner(
     let controls: &[Control] = expanded.as_deref().unwrap_or(input.controls);
     // Ordered by the LIVE z-order (same indices: `live_controls` maps
     // `input.controls` one to one), so a run-time ZOrder change reorders.
-    let order = containers::render_order(expanded.as_deref().unwrap_or(&live_controls));
+    //
+    // Layer-major (spec 091 R9, R10): the base, then each layer upward, `z_order`
+    // only inside a layer. A form with no layers gets exactly the order it had.
+    let order = containers::render_order_in(
+        expanded.as_deref().unwrap_or(&live_controls),
+        &input.backdrop.layers,
+    );
     let interactive = input.mode == RenderMode::Interactive;
+    // Each control's layer rank, by index and by id (EMPTY without layers, which
+    // is what lets every layer step below be skipped outright), and the rank of
+    // the layer whose controls are being drawn now.
+    let ranks = layer_ranks(controls, &input.backdrop.layers);
+    let rank_by_id: HashMap<&str, usize> = if ranks.is_empty() {
+        HashMap::new()
+    } else {
+        controls
+            .iter()
+            .zip(&ranks)
+            .map(|(c, &r)| (c.id.as_str(), r))
+            .collect()
+    };
+    let mut group = 0usize;
 
     // ── Spec 058 R5/R5.1 — hand the paint whatever the host has already
     // decoded, before a single control is drawn.
@@ -2511,7 +2821,106 @@ fn render_form_inner(
     } else {
         None
     };
+    // 091 — what runs over a layer's controls once they are all drawn: the passes
+    // that paint ON TOP of controls (the notch mask, group captions, tab strips,
+    // expand icons). Run at the end of each layer, they sit under the next
+    // layer's background and controls instead of over them. A macro, because the
+    // body borrows `out` and `ui` and a closure could not hold them across the
+    // loop.
+    macro_rules! finish_group {
+        ($g:expr) => {{
+            let g: usize = $g;
+            let only = |c: &Control| {
+                ranks.is_empty() || rank_by_id.get(c.id.as_str()).copied().unwrap_or(0) == g
+            };
+            // Only the base is masked: the mask repaints the FORM's backdrop in a
+            // corner notch, which is wrong for a layer, whose controls clip
+            // themselves to the arc instead (R14).
+            if g == 0 {
+                mask_container_notches(
+                    &painter,
+                    input,
+                    controls,
+                    &out,
+                    backdrop_img,
+                    backdrop_img_tile,
+                    backdrop_img_alpha,
+                    notch_bg,
+                    backdrop_gradient.map(|(start, end)| {
+                        // The same base the flat fill resolves against — one answer to
+                        // "what is behind this form", so a gradient backdrop's notches
+                        // cannot drift from a solid one's.
+                        (
+                            backdrop_rect,
+                            crate::paint::composite_premultiplied_over(start, behind),
+                            crate::paint::composite_premultiplied_over(end, behind),
+                            input.backdrop.gradient_direction.as_str(),
+                        )
+                    }),
+                    &control_alphas,
+                    &only,
+                );
+            }
+            // A layer's captions, tab strips and icons are cut at the form's edge
+            // like the controls they belong to (R14).
+            let clipped = if g > 0 {
+                painter.with_clip_rect(painter.clip_rect().intersect(form_rect))
+            } else {
+                painter.clone()
+            };
+            draw_deferred_groupbox_captions(&clipped, input, &out, &only);
+            draw_deferred_tabcontrol_tabs(&clipped, input, &out, &only);
+            draw_expand_icons(interactive.then_some(&*ui), &clipped, input, &mut out, &only);
+        }};
+    }
+    // Spec 091 R19, R20 — what takes the pointer over from the layers below it,
+    // registered with egui so the widgets under it neither react nor take the
+    // focus. A frameless window moves by its face, and these ARE a face now:
+    // they are kept to hand a drag to the same window-drag decision below.
+    let mut face_areas: Vec<egui::Response> = Vec::new();
+    // A layer's background, and — when it is opaque — the shield over what is
+    // below it (R20). A macro, because it runs at the two places a layer's turn
+    // comes, and borrows `ui` and `face_areas`.
+    macro_rules! show_layer {
+        ($layer:expr) => {{
+            let layer: &crate::model::Layer = $layer;
+            if input.state.layer_visible(&layer.name) {
+                paint_layer_backdrop(&painter, backdrop_rect, layer, window);
+                if interactive && layer_is_opaque(layer) {
+                    let shield = ui.interact(
+                        backdrop_rect,
+                        rt_id_in(scope, &format!("layer-background.{}", layer.name)),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if draggable {
+                        face_areas.push(shield);
+                    }
+                }
+            }
+        }};
+    }
     for &idx in &order {
+        // Entering a higher layer: finish the one below, then paint the
+        // backgrounds of every layer up to this one — a layer with no control of
+        // its own still draws its background, in its place in the stack (R9, R15).
+        if !ranks.is_empty() {
+            let r = ranks[idx].max(group);
+            if r > group {
+                finish_group!(group);
+                for layer in &input.backdrop.layers[group..r] {
+                    show_layer!(layer);
+                }
+                group = r;
+            }
+        }
+        // A layer is the form's own rectangle and nothing more (spec 091 R13,
+        // R14): a control in one is clipped to it, where a base control may use
+        // the room a bigger window offers (`content_rect`, below). Shadowed for
+        // this control only, so every clip derived from it follows.
+        let content_rect = match ranks.get(idx) {
+            Some(&r) if r > 0 => form_rect,
+            _ => content_rect,
+        };
         let base = &controls[idx];
         if base
             .id
@@ -2528,10 +2937,10 @@ fn render_form_inner(
             visible_enabled_events(scope, ui, input, controls, idx, &mut out);
 
         }
-        if !input.state.visible(base) {
+        if !visible_in(input, base) {
             continue;
         }
-        if !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
+        if !containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
             continue;
         }
 
@@ -2784,6 +3193,10 @@ fn render_form_inner(
         }
 
         if interactive {
+            // Whether THIS control is in a layer, for the arms that claim less
+            // there (a Label claims its text only — spec 091 R18).
+            let in_a_layer = ranks.get(idx).copied().unwrap_or(0) > 0;
+            ui.data_mut(|d| d.insert_temp(drawn_in_a_layer_id(scope), in_a_layer));
             // Live, editable widget: faces via `draw_control`, plus the interaction
             // (text edit, slider drag, combo popup, â¦) ported from the run path.
             render_interactive(
@@ -2801,6 +3214,28 @@ fn render_form_inner(
                 &mut out,
                 &mut open_combos,
             );
+            // Spec 091 R19 — a control of a layer that has no mouse behaviour of
+            // its own and paints something (a Label's text, a Panel, a picture)
+            // still owns the pointer where it paints: what is below must not
+            // react through it. Registered after the control, so it sits over the
+            // layers below and under whatever the control holds. A control that
+            // reacts to the mouse is its own such widget already.
+            if ranks.get(idx).copied().unwrap_or(0) > 0
+                && !live.control_type.is_non_visual()
+                && passive_to_the_mouse(&live)
+            {
+                let region = pointer_region(&live, screen, out.caption_rects.get(&live.id).copied());
+                if let Some(region) = region.map(|r| r.intersect(clip)).filter(|r| r.is_positive()) {
+                    let block = ui.interact(
+                        region,
+                        rt_id_in(scope, &format!("layer-block.{}", live.id)),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if draggable {
+                        face_areas.push(block);
+                    }
+                }
+            }
 
         } else {
             // Static: the one true face renderer (charts, images, glass, rounding).
@@ -2834,31 +3269,16 @@ fn render_form_inner(
 
     // ââ Corner-notch masks: cut any child content that bled past a rounded
     // container's arc by repainting the backdrop in its corner notches (spec 017).
-    mask_container_notches(
-        &painter,
-        input,
-        controls,
-        &out,
-        backdrop_img,
-        backdrop_img_tile,
-        backdrop_img_alpha,
-        notch_bg,
-        backdrop_gradient.map(|(start, end)| {
-            // The same base the flat fill resolves against — one answer to
-            // "what is behind this form", so a gradient backdrop's notches
-            // cannot drift from a solid one's.
-            (
-                backdrop_rect,
-                crate::paint::composite_premultiplied_over(start, behind),
-                crate::paint::composite_premultiplied_over(end, behind),
-                input.backdrop.gradient_direction.as_str(),
-            )
-        }),
-        &control_alphas,
-    );
-    draw_deferred_groupbox_captions(&painter, input, &out);
-    draw_deferred_tabcontrol_tabs(&painter, input, &out);
-    draw_expand_icons(interactive.then_some(&*ui), &painter, input, &mut out);
+    // (Spec 091: with layers this runs once per layer, as each one is finished.)
+    finish_group!(group);
+    // Layers above the last one that held a control: their backgrounds still
+    // draw, in stack order (R9, R15) — also when no control holds any layer, so
+    // asked of the layers themselves, not of the controls' ranks.
+    if !input.backdrop.layers.is_empty() {
+        for layer in &input.backdrop.layers[group..] {
+            show_layer!(layer);
+        }
+    }
     if interactive {
         paint_focus_ring(ui, &painter, input, controls, &tab_targets, &out);
     }
@@ -2871,6 +3291,14 @@ fn render_form_inner(
         .and_then(|area| area.interact_pointer_pos())
     {
         out.window_drag = !window_drag_blocked(ui.ctx(), controls, &out, p);
+    }
+    // A layer's opaque background, or a passive control of a layer, took that
+    // drag from the window's own area: the window still moves by its face, on
+    // the same rule — a press on a painted part keeps its own (spec 091).
+    for area in face_areas.iter().filter(|a| a.drag_started()) {
+        if let Some(p) = area.interact_pointer_pos() {
+            out.window_drag = !window_drag_blocked(ui.ctx(), controls, &out, p);
+        }
     }
 
     // ââ Second pass: open ComboBox dropdowns float above everything. ââââââââââ
@@ -3004,6 +3432,40 @@ fn render_form_inner(
             ui.data_mut(|d| d.remove::<bool>(had_focus));
         }
     }
+
+    // ── Spec 091 R17–R20: the layers hold the pointer. A control with a painted
+    // part under the pointer, or an opaque background, takes the event; the
+    // layers below it get nothing — not a handler run, not a state change. What
+    // the layer's own controls and the layers above report is left alone.
+    //
+    // Settled HERE, once every control's rectangle is known: a control below a
+    // layer is drawn before the layer's controls are, so the claim cannot be
+    // read while it draws. The blockers registered in the loop keep egui from
+    // lighting, pressing or focusing the widgets below; this keeps their
+    // answers out of the output.
+    if interactive && !input.backdrop.layers.is_empty() {
+        if let Some(p) = ui.input(|i| i.pointer.interact_pos()) {
+            let claim = pointer_claim(ui.ctx(), input, controls, &ranks, &out, backdrop_rect, p);
+            if claim > 0 {
+                let shielded = |id: &str| rank_by_id.get(id).copied().unwrap_or(0) < claim;
+                let acted = ui.input(|i| {
+                    i.events.iter().any(|e| {
+                        matches!(e, egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. })
+                    })
+                });
+                if acted {
+                    // A press, a release, a wheel turn: nothing of a shielded
+                    // control reaches the host this frame.
+                    out.events.retain(|e| !shielded(&e.ctrl_id));
+                    out.prop_updates.retain(|(id, _, _)| !shielded(id));
+                } else {
+                    // Mere movement: the hover and move events only.
+                    out.events
+                        .retain(|e| !(shielded(&e.ctrl_id) && POINTER_EVENTS.contains(&e.event.as_str())));
+                }
+            }
+        }
+    }
     out
 }
 
@@ -3019,6 +3481,13 @@ fn dropdown_needs_a_window(panel: Rect, window: Rect, embedded: bool, see_throug
 /// Where this frame records that its surface is a frameless, draggable window.
 fn window_draggable_id(scope: Option<egui::Id>) -> egui::Id {
     rt_id_in(scope, "form").with("window-draggable")
+}
+
+/// Where the control loop records, for the control it is about to draw, whether
+/// it sits in a layer (spec 091). The control arms read it where a layer changes
+/// what they must claim: a Label of a layer claims its text and nothing more.
+fn drawn_in_a_layer_id(scope: Option<egui::Id>) -> egui::Id {
+    rt_id_in(scope, "form").with("drawn-in-a-layer")
 }
 
 /// A face that paints nothing: `Transparency` 100, or a background colour with
@@ -3101,7 +3570,6 @@ fn window_drag_blocked(ctx: &egui::Context, controls: &[Control], out: &RenderOu
         let Some(rect) = out.control_rects.get(&ctrl.id).filter(|r| r.contains(p)) else {
             return false;
         };
-        let see_through = face_see_through(ctrl);
         // A control with no mouse behaviour of its own and no press handler:
         // nothing happens if the press stays with it, so it moves the window
         // instead — anywhere on it but a Label's text, which selects.
@@ -3109,28 +3577,47 @@ fn window_drag_blocked(ctx: &egui::Context, controls: &[Control], out: &RenderOu
             return ctrl.control_type == ControlType::Label
                 && out.caption_rects.get(&ctrl.id).is_some_and(|text| text.contains(p));
         }
-        match ctrl.control_type {
-            ControlType::Label if see_through => {
-                out.caption_rects.get(&ctrl.id).is_some_and(|text| text.contains(p))
-            }
-            ControlType::Panel | ControlType::GroupBox if see_through => {
-                // The border, and a GroupBox's caption along the top edge.
-                let border = ctrl.get_prop("BorderWidth").map_or(1.0, |v| v.as_i64() as f32).max(1.0) + 2.0;
-                let caption = if ctrl.control_type == ControlType::GroupBox {
-                    crate::paint::ctrl_font_size(ctrl) * 1.6
-                } else {
-                    0.0
-                };
-                let open = Rect::from_min_max(
-                    pos2(rect.min.x + border, rect.min.y + border.max(caption)),
-                    pos2(rect.max.x - border, rect.max.y - border),
-                );
-                !open.contains(p)
-            }
-            ControlType::PictureBox => crate::paint::picturebox_paints_at(ctx, ctrl, *rect, p),
-            _ => true,
-        }
+        paints_at(ctx, ctrl, *rect, out.caption_rects.get(&ctrl.id).copied(), p)
     })
+}
+
+/// Whether `p`, a point inside `rect` — the control's rectangle on screen —
+/// lies on a part of `ctrl` that paints something (`caption` is where a Label's
+/// text lies). A see-through Label paints its text, a see-through Panel or
+/// GroupBox its border and caption, a PictureBox its picture's opaque pixels;
+/// every other control paints over its whole rectangle.
+///
+/// The ONE answer to "is there something here", asked by the window drag (a
+/// press on a painted part keeps its own) and by the layers (an event at a
+/// painted part belongs to its control and does not fall through, spec 091
+/// R17–R19). The policies differ; the geometry must not.
+fn paints_at(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    rect: Rect,
+    caption: Option<Rect>,
+    p: egui::Pos2,
+) -> bool {
+    let see_through = face_see_through(ctrl);
+    match ctrl.control_type {
+        ControlType::Label if see_through => caption.is_some_and(|text| text.contains(p)),
+        ControlType::Panel | ControlType::GroupBox if see_through => {
+            // The border, and a GroupBox's caption along the top edge.
+            let border = ctrl.get_prop("BorderWidth").map_or(1.0, |v| v.as_i64() as f32).max(1.0) + 2.0;
+            let caption = if ctrl.control_type == ControlType::GroupBox {
+                crate::paint::ctrl_font_size(ctrl) * 1.6
+            } else {
+                0.0
+            };
+            let open = Rect::from_min_max(
+                pos2(rect.min.x + border, rect.min.y + border.max(caption)),
+                pos2(rect.max.x - border, rect.max.y - border),
+            );
+            !open.contains(p)
+        }
+        ControlType::PictureBox => crate::paint::picturebox_paints_at(ctx, ctrl, rect, p),
+        _ => true,
+    }
 }
 
 /// One ComboBox whose dropdown is open, held over for the second pass.
@@ -3181,6 +3668,9 @@ fn combo_keyboard_id(scope: Option<egui::Id>, id: &str) -> egui::Id {
 
 #[derive(Clone)]
 struct TabTarget {
+    /// The layer the control is in (spec 091 Q10): Tab walks the base first, then
+    /// each layer from the lowest up. 0 without layers.
+    layer: usize,
     tab_order: u32,
     sequence: usize,
     focus_id: egui::Id,
@@ -3210,9 +3700,16 @@ fn collect_tab_targets(
 
     let mut targets = Vec::new();
     let mut sequence = 0usize;
+    let ranks = layer_ranks(controls, &input.backdrop.layers);
+    // An opaque layer holds the focus as it holds the pointer (spec 091 Q10,
+    // R20): what is under it cannot be seen or clicked, so Tab skips it.
+    let shield = opaque_shield_rank(input);
     for &idx in order {
         let base = &controls[idx];
-        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
+        if !visible_in(input, base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
+            continue;
+        }
+        if ranks.get(idx).copied().unwrap_or(0) < shield {
             continue;
         }
         if input.state.enabled(base)
@@ -3220,6 +3717,7 @@ fn collect_tab_targets(
             let live = input.state.live(base);
             let is_label = base.control_type == ControlType::Label;
             targets.push(TabTarget {
+                layer: ranks.get(idx).copied().unwrap_or(0),
                 tab_order: base.tab_order,
                 sequence,
                 focus_id: if is_label {
@@ -3279,7 +3777,7 @@ fn collect_default_button_target(
     let mut sequence = 0usize;
     for &idx in order {
         let base = &controls[idx];
-        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
+        if !visible_in(input, base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
             continue;
         }
         if input.state.enabled(base)
@@ -3315,8 +3813,8 @@ fn focused_control_is_input(
         None => return false,
     };
     controls.iter().enumerate().any(|(idx, base)| {
-        input.state.visible(base)
-            && containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c))
+        visible_in(input, base)
+            && containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c))
             && input.state.enabled(base)
             && containers::is_enabled(controls, idx, &|c| input.state.enabled(c))
             && is_enter_input_control(&base.control_type)
@@ -3622,7 +4120,7 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
     if targets.is_empty() {
         return step;
     }
-    targets.sort_by_key(|t| (t.tab_order, t.sequence));
+    targets.sort_by_key(|t| (t.layer, t.tab_order, t.sequence));
     let position = |id: egui::Id| targets.iter().position(|t| t.focus_id == id);
     // Where the operator actually is wins over where the last Tab left them:
     // a click into another field has moved them, and Tab goes on from there.
@@ -3753,17 +4251,65 @@ pub fn render_faces(
 ) -> RenderOutput {
     let mut out = RenderOutput::default();
     let controls = input.controls;
-    let order = containers::render_order(controls);
+    // Layer-major, as `render_form` draws (spec 091 R9, R10): both surfaces ask
+    // the same ordering function.
+    let order = containers::render_order_in(controls, &input.backdrop.layers);
     // A rounded window: its top-level controls are cut to its arc.
     let window = input.backdrop.window;
+    // The canvas does not paint the form's own background — the designer does,
+    // before it calls this — but a layer's background belongs BETWEEN the
+    // layers' controls, so this paints those, over the form's own extent.
+    let form_rect = Rect::from_min_size(origin, input.form_size);
+    let ranks = layer_ranks(controls, &input.backdrop.layers);
+    let rank_by_id: HashMap<&str, usize> = if ranks.is_empty() {
+        HashMap::new()
+    } else {
+        controls
+            .iter()
+            .zip(&ranks)
+            .map(|(c, &r)| (c.id.as_str(), r))
+            .collect()
+    };
+    let mut group = 0usize;
+    // The passes that paint on top of a layer's controls, run as each layer ends
+    // (see `render_form`'s `finish_group!`).
+    macro_rules! finish_group {
+        ($g:expr) => {{
+            let g: usize = $g;
+            let only = |c: &Control| {
+                ranks.is_empty() || rank_by_id.get(c.id.as_str()).copied().unwrap_or(0) == g
+            };
+            // Cut at the form's edge for a layer, as its controls are (R14).
+            let clipped = if g > 0 {
+                painter.with_clip_rect(painter.clip_rect().intersect(form_rect))
+            } else {
+                painter.clone()
+            };
+            draw_deferred_groupbox_captions(&clipped, input, &out, &only);
+            draw_deferred_tabcontrol_tabs(&clipped, input, &out, &only);
+            draw_expand_icons(None, &clipped, input, &mut out, &only);
+        }};
+    }
     for &idx in &order {
+        if !ranks.is_empty() {
+            let r = ranks[idx].max(group);
+            if r > group {
+                finish_group!(group);
+                for layer in &input.backdrop.layers[group..r] {
+                    if input.state.layer_visible(&layer.name) {
+                        paint_layer_backdrop(painter, form_rect, layer, window);
+                    }
+                }
+                group = r;
+            }
+        }
         let base = &controls[idx];
-        if !input.state.visible(base) {
+        if !visible_in(input, base) {
             continue;
         }
         // The canvas draws what the DESIGN hides, and what is inside it — the
         // state decides, not the designed flag (`containers::is_shown_when`).
-        if !containers::is_shown_when(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
+        if !containers::is_shown_when(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
             continue;
         }
 
@@ -3798,6 +4344,12 @@ pub fn render_faces(
                 Vec2::new(cm.w as f32, cm.h as f32),
             )),
             None => painter.clip_rect(),
+        };
+        // A layer is the form's rectangle and nothing more (spec 091 R13, R14):
+        // what it holds is cut at the form's edge, on the canvas as at run time.
+        let clip = match ranks.get(idx) {
+            Some(&r) if r > 0 => clip.intersect(form_rect),
+            _ => clip,
         };
         // The drop shadow may fall into the container's padding, as in
         // `render_form` (`paint::ShadowBoundsScope`).
@@ -3863,9 +4415,16 @@ pub fn render_faces(
         );
 
     }
-    draw_deferred_groupbox_captions(painter, input, &out);
-    draw_deferred_tabcontrol_tabs(painter, input, &out);
-    draw_expand_icons(None, painter, input, &mut out);
+    finish_group!(group);
+    // Layers above the last one that held a control still draw their
+    // backgrounds, in stack order — also when no control holds any layer.
+    if !input.backdrop.layers.is_empty() {
+        for layer in &input.backdrop.layers[group..] {
+            if input.state.layer_visible(&layer.name) {
+                paint_layer_backdrop(painter, form_rect, layer, window);
+            }
+        }
+    }
     out
 }
 
@@ -4593,7 +5152,7 @@ fn visible_enabled_events(
         return;
     }
     let visible =
-        input.state.visible(base) && containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c));
+        visible_in(input, base) && containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c));
     let enabled = input.state.enabled(base)
             && containers::is_enabled(controls, idx, &|c| input.state.enabled(c));
     let mem = rt_id_in(scope, &base.id).with("vis-en");
@@ -13750,9 +14309,15 @@ fn render_interactive(
                     // controls in their designed order.
                     // On a frameless window a see-through Label claims only its
                     // text, so a drag beside it moves the window.
+                    //
+                    // A Label of a LAYER is in the same case (spec 091 R18): what
+                    // it does not paint belongs to the layers below it.
                     let draggable = ui
                         .data(|d| d.get_temp::<bool>(window_draggable_id(scope)))
-                        .unwrap_or(false);
+                        .unwrap_or(false)
+                        || ui
+                            .data(|d| d.get_temp::<bool>(drawn_in_a_layer_id(scope)))
+                            .unwrap_or(false);
                     // …and so does any Label nobody listens to a press on: its
                     // background has no behaviour of its own, its text does
                     // (it selects).
@@ -21479,6 +22044,7 @@ mod tests {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27016,6 +27582,7 @@ mod shape_dump {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27090,6 +27657,7 @@ mod shape_dump {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27168,6 +27736,7 @@ mod shape_dump {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27246,6 +27815,7 @@ mod shape_dump {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27472,6 +28042,7 @@ mod shape_dump {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27660,6 +28231,7 @@ mod shape_dump {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -28182,6 +28754,7 @@ mod maps_corner_tests {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -28688,6 +29261,7 @@ mod notch_ambient_tests {
                             image_extent: None,
                             draggable: false,
                             window: None,
+                            layers: Vec::new(),
                         },
                     };
                     let _ = render_form(ui, &rin);

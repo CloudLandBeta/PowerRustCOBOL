@@ -103,6 +103,9 @@ pub fn validate_text(
                 // No form context here: receivers are checked by Run Form
                 // and Build (1.80.142), not by this lint yet.
                 known_objects: None,
+                // …nor are a layer's properties (spec 091 R37), for the same
+                // reason: no form is in view.
+                known_layers: None,
                 // Inside a project, a literal CALL must name a program, a
                 // paragraph or a Common Code procedure of it (2026-10-08);
                 // `None` — a path outside any project — checks nothing.

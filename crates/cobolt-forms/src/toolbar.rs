@@ -1827,5 +1827,21 @@ pub fn object_names(form: &crate::model::Form) -> std::collections::HashSet<Stri
     let mut out = std::collections::HashSet::new();
     out.insert(form.name.trim().to_ascii_uppercase());
     walk(&form.controls, &mut out);
+    // A layer is an object a program addresses by name — `LAYER-NAME::Visible`
+    // (spec 091 R33, R37). `Non-Visuals` is not one (R55): it is a tab of the
+    // designer, so `Non-Visuals::Visible` is an unknown reference and fails the
+    // build, as an unknown control does.
+    for layer in &form.layers {
+        out.insert(layer.name.trim().to_ascii_uppercase());
+    }
     out
+}
+
+/// The names of the form's layers, upper-cased — the receivers whose PROPERTIES
+/// the analyser checks as well as their existence (spec 091 R37).
+pub fn layer_names(form: &crate::model::Form) -> std::collections::HashSet<String> {
+    form.layers
+        .iter()
+        .map(|l| l.name.trim().to_ascii_uppercase())
+        .collect()
 }

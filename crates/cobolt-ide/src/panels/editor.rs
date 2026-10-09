@@ -1151,6 +1151,23 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
     }
     collect_toolbar_buttons(&form.controls, &mut list);
 
+    // Layers (spec 091 R33): a program addresses each by its name, with a fixed
+    // set of properties and no methods. Offering them while the developer types
+    // `LAYER-1::` — and knowing them to the handler gate — is what makes a
+    // misspelt `LAYER-1::Colour` an error in the editor rather than a refusal
+    // when the form runs.
+    for layer in &form.layers {
+        list.push(KnownControl {
+            id: layer.name.clone(),
+            ctrl_type: "Layer".to_string(),
+            properties: cobolt_forms::model::LAYER_PROPS
+                .iter()
+                .map(|p| (*p).to_string())
+                .collect(),
+            extra_methods: Vec::new(),
+        });
+    }
+
     // The form receivers. This was one entry under the id `self` — a name no
     // COBOL line ever types — carrying a hand-written surface (`OpenForm`,
     // `Alert`, `Minimize`, `TitleBar`, `border`, `icon`) that the runtime does
@@ -7076,5 +7093,30 @@ mod national_editor_tests {
         ] {
             assert!(labels(pfx).iter().any(|l| l == want), "{pfx} offers {want}: {:?}", labels(pfx));
         }
+    }
+}
+
+#[cfg(test)]
+mod layer_known_controls_091 {
+    use super::build_known_controls;
+    use cobolt_forms::{Form, Layer};
+
+    /// Spec 091 R33 — IntelliSense and the handler gate know a layer by its name,
+    /// with the properties a program can read and write and no methods.
+    #[test]
+    fn a_layer_is_a_known_control_with_its_properties_and_no_methods() {
+        let mut form = Form::new("F", "F", 640, 480);
+        form.layers = vec![Layer::new("Layer-1"), Layer::new("Scrim")];
+        let known = build_known_controls(&form);
+        let layer = known.iter().find(|k| k.id == "Scrim").expect("a layer is known by its name");
+        assert_eq!(layer.ctrl_type, "Layer");
+        assert!(layer.extra_methods.is_empty(), "a layer has no methods");
+        for p in ["Visible", "Transparency", "BackgroundColor", "BackgroundImageMode"] {
+            assert!(layer.properties.iter().any(|x| x == p), "{p} is offered: {:?}", layer.properties);
+        }
+        assert!(known.iter().any(|k| k.id == "Layer-1"));
+        // A form with no layers offers none.
+        let none = build_known_controls(&Form::new("F", "F", 640, 480));
+        assert!(none.iter().all(|k| k.ctrl_type != "Layer"));
     }
 }

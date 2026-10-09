@@ -380,6 +380,8 @@ pub fn cmd_run_form(args: &[String]) {
         &program,
         &cobolt_semantic::AnalyzeOptions {
             known_objects: Some(cobolt_forms::toolbar::object_names(&form)),
+            // A layer's properties are checked too (spec 091 R37).
+            known_layers: Some(cobolt_forms::toolbar::layer_names(&form)),
             known_programs: cobolt_compiler::common_code_names(&cbl_path),
             ..Default::default()
         },
@@ -415,10 +417,9 @@ pub fn cmd_run_form(args: &[String]) {
     flatten_controls(&form.controls, &mut flat);
     flat.sort_by_key(|c| c.z_order);
 
-    let mut state: HashMap<String, CtrlState> = HashMap::new();
-    for c in &flat {
-        state.insert(c.id.clone(), CtrlState::from_control(c));
-    }
+    // One entry per control, and one per layer — hidden (spec 091 R35).
+    let mut state: HashMap<String, CtrlState> =
+        cobolt_form_host::state::initial_state(&flat, &form.layers);
 
     // Seed the interpreter's visual-object registry with every control's
     // designed properties, so property references and method getters return

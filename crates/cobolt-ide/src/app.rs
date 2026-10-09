@@ -17225,6 +17225,9 @@ impl CoboltApp {
             };
             cobolt_forms::render::Backdrop {
                 paint: true,
+                // Spec 091, slice 4: the preview's layers come with the
+                // designer's own shown/hidden state.
+                layers: Vec::new(),
                 color_hex: d.form.background_color.clone(),
                 transparency: d.form.transparency.min(100) as u8,
                 gradient_enabled: d.form.background_gradient_enabled,
