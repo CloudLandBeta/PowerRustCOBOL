@@ -1468,6 +1468,7 @@ pub struct Tr {
     pub layer_layout_hint: &'static str,
     pub layer_load_collision: &'static str,
     pub layer_load_unknown: &'static str,
+    pub proc_still_refers: &'static str,
     pub hint_layer_runtime: &'static str,
     pub cat_charts: &'static str,
     /// Spec 078: the AWS controls' toolbox category — the brand, in every language.
@@ -3324,6 +3325,7 @@ const EN: Tr = Tr {
     layer_layout_hint: "A control in a layer keeps the position and size you give it. Dock, Anchor and layouts belong to Form.",
     layer_load_collision: "The name '{}' is used by more than one control or layer. Nothing was changed — rename one of them.",
     layer_load_unknown: "Control '{}' names the layer '{}', which this form does not define. It is shown on Form.",
+    proc_still_refers: "Procedure {} still refers to {}, which was deleted. It was kept — fix the reference, or the form will not build.",
     hint_layer_runtime: "A layer starts hidden when the program runs. Show it with SET {}::Visible TO TRUE.",
     cat_charts:    "Charts",
     cat_aws: "AWS",
@@ -4990,6 +4992,7 @@ const ES: Tr = Tr {
     layer_layout_hint: "Un control en una capa conserva la posición y el tamaño que le dé. Dock, Anchor y los diseños pertenecen a Form.",
     layer_load_collision: "El nombre '{}' lo usan varios controles o capas. No se cambió nada: cambie el nombre de uno de ellos.",
     layer_load_unknown: "El control '{}' nombra la capa '{}', que este formulario no define. Se muestra en Form.",
+    proc_still_refers: "El procedimiento {} aún hace referencia a {}, que se eliminó. Se conservó: corrija la referencia o el formulario no se compilará.",
     hint_layer_runtime: "Una capa comienza oculta cuando se ejecuta el programa. Muéstrela con SET {}::Visible TO TRUE.",
     cat_charts:    "Gráficas",
     cat_aws: "AWS",
@@ -6656,6 +6659,7 @@ const PT: Tr = Tr {
     layer_layout_hint: "Um controle em uma camada mantém a posição e o tamanho que você der. Dock, Anchor e layouts pertencem a Form.",
     layer_load_collision: "O nome '{}' é usado por mais de um controle ou camada. Nada foi alterado: renomeie um deles.",
     layer_load_unknown: "O controle '{}' cita a camada '{}', que este formulário não define. Ele aparece em Form.",
+    proc_still_refers: "O procedimento {} ainda se refere a {}, que foi excluído. Ele foi mantido: corrija a referência ou o formulário não será compilado.",
     hint_layer_runtime: "Uma camada começa oculta quando o programa é executado. Mostre-a com SET {}::Visible TO TRUE.",
     cat_charts:    "Gráficos",
     cat_aws: "AWS",
@@ -8321,6 +8325,7 @@ const JA: Tr = Tr {
     layer_layout_hint: "レイヤー内のコントロールは、指定した位置とサイズのままです。Dock、Anchor、レイアウトは Form のものです。",
     layer_load_collision: "名前 '{}' が複数のコントロールまたはレイヤーで使われています。何も変更していません。いずれかの名前を変更してください。",
     layer_load_unknown: "コントロール '{}' は、このフォームに定義されていないレイヤー '{}' を指定しています。Form に表示されます。",
+    proc_still_refers: "プロシージャ {} は、削除された {} をまだ参照しています。プロシージャは残してあります。参照を修正しないと、フォームをビルドできません。",
     hint_layer_runtime: "レイヤーはプログラムの実行時には非表示で始まります。表示するには SET {}::Visible TO TRUE を使います。",
     cat_charts:    "チャート",
     cat_aws: "AWS",
@@ -9993,6 +9998,7 @@ const ZH: Tr = Tr {
     layer_layout_hint: "图层中的控件保持您设定的位置和大小。Dock、Anchor 和布局属于 Form。",
     layer_load_collision: "名称“{}”被多个控件或图层使用。未做任何更改,请重命名其中之一。",
     layer_load_unknown: "控件“{}”指定了此窗体未定义的图层“{}”,它显示在 Form 上。",
+    proc_still_refers: "过程 {} 仍引用已删除的 {}。该过程已保留,请修正引用,否则窗体无法生成。",
     hint_layer_runtime: "程序运行时,图层初始为隐藏。使用 SET {}::Visible TO TRUE 显示它。",
     cat_charts: "图表",
     cat_aws: "AWS",
@@ -11660,6 +11666,7 @@ const FR: Tr = Tr {
     layer_layout_hint: "Un contrôle dans un calque garde la position et la taille que vous lui donnez. Dock, Anchor et les mises en page appartiennent à Form.",
     layer_load_collision: "Le nom « {} » est utilisé par plusieurs contrôles ou calques. Rien n'a été modifié : renommez l'un d'eux.",
     layer_load_unknown: "Le contrôle « {} » désigne le calque « {} », que ce formulaire ne définit pas. Il est affiché sur Form.",
+    proc_still_refers: "La procédure {} fait encore référence à {}, qui a été supprimé. Elle a été conservée : corrigez la référence, sinon le formulaire ne se générera pas.",
     hint_layer_runtime: "Un calque démarre masqué à l'exécution du programme. Affichez-le avec SET {}::Visible TO TRUE.",
     cat_charts:    "Diagrammes",
     cat_aws: "AWS",
@@ -12849,6 +12856,7 @@ mod layer_strings_091 {
                 ("layer_layout_hint", t.layer_layout_hint),
                 ("layer_load_collision", t.layer_load_collision),
                 ("layer_load_unknown", t.layer_load_unknown),
+                ("proc_still_refers", t.proc_still_refers),
                 ("hint_layer_runtime", t.hint_layer_runtime),
             ]
         };
@@ -12873,6 +12881,6 @@ mod layer_strings_091 {
                 checked += 1;
             }
         }
-        println!("i18n 091: {checked} layer strings checked (22 keys × {} languages)", Language::ALL.len());
+        println!("i18n 091: {checked} layer strings checked (23 keys × {} languages)", Language::ALL.len());
     }
 }

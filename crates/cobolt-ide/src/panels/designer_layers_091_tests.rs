@@ -1799,6 +1799,11 @@ mod delete_layer {
             name: "SHOW-IT".into(),
             code: "SET L2-Btn::Visible TO TRUE.".into(),
         });
+        // …and one that also addresses a control that stays.
+        f.user_procedures.push(cobolt_forms::model::UserProcedure {
+            name: "SHOW-BOTH".into(),
+            code: "SET L2-Btn::Visible TO TRUE. SET Base-Btn::Visible TO TRUE.".into(),
+        });
         f.data_bindings.push(DataBindingDef::new(
             "b1",
             "B",
@@ -1904,6 +1909,21 @@ mod delete_layer {
         // The procedure that only mentions a deleted control is kept — and reported.
         assert!(d.form.user_procedures.iter().any(|p| p.name == "SHOW-IT"), "SHOW-IT is kept");
         assert!(d.orphan_notices.iter().any(|n| n.contains("SHOW-IT") && n.contains("KEPT")), "{:?}", d.orphan_notices);
+        // One that also addresses a control that stays is kept too, and named.
+        assert!(d.form.user_procedures.iter().any(|p| p.name == "SHOW-BOTH"), "SHOW-BOTH is kept");
+        assert!(
+            d.notices.contains(&DesignerNotice::ProcedureStillRefers { procedure: "SHOW-BOTH".into(), control: "L2-Btn".into() }),
+            "the Output panel names it: {:?}",
+            d.notices
+        );
+        assert!(
+            !d.notices.iter().any(|n| matches!(n, DesignerNotice::ProcedureStillRefers { procedure, .. } if procedure == "SHOW-IT")),
+            "SHOW-IT, which addresses nothing that exists, has the stronger report and not this one"
+        );
+        for lang in crate::i18n::Language::ALL {
+            let text = DesignerNotice::ProcedureStillRefers { procedure: "SHOW-BOTH".into(), control: "L2-Btn".into() }.text(&lang.tr());
+            assert!(text.contains("SHOW-BOTH") && text.contains("L2-Btn") && !text.contains("{}"), "{lang:?}: {text}");
+        }
         assert_eq!(d.tabs.active(), &ActiveTab::Form, "Form is the active tab afterwards");
         assert!(d.selected_ids.is_empty());
         // The next generation has no layer and no deleted control.
@@ -1996,5 +2016,137 @@ mod delete_layer {
         r.d.form.layers.remove(1);
         r.settle(2);
         assert!(r.d.pending_layer_delete.is_none(), "nothing left to ask about");
+    }
+}
+
+// ── T28: what layers cost (AC15) ─────────────────────────────────────────────
+
+/// A measurement, not a check: 3,200 controls in the base against the same 3,200
+/// spread over 64 layers of 50, the designer's frame and its hit-test timed. Run
+/// with `cargo test -p cobolt-ide --release --bin cobolt-ide layers_091::bench --
+/// --ignored --nocapture` — a debug build reports the same ratios, slower.
+mod bench {
+    use super::*;
+    use std::time::Instant;
+
+    const LAYERS: usize = 64;
+    const PER_LAYER: usize = 50;
+    const FRAMES: usize = 12;
+    const HITS: usize = 4000;
+
+    fn button(id: String, x: i32, y: i32, layer: Option<&str>) -> Control {
+        let mut c = Control::new(id, ControlType::Button, x, y);
+        c.rect.w = 40;
+        c.rect.h = 14;
+        c.layer = layer.map(str::to_owned);
+        c
+    }
+
+    /// 3,200 buttons in the base.
+    fn all_in_the_base() -> Form {
+        let mut f = Form::new("F", "F", 1200, 800);
+        for i in 0..LAYERS * PER_LAYER {
+            f.controls.push(button(format!("B-{i}"), (i % 64) as i32 * 18, (i / 64) as i32 * 15, None));
+        }
+        f
+    }
+
+    /// The same 3,200, 50 to a layer, in 64 layers.
+    fn spread_over_layers() -> Form {
+        let mut f = form_with_layers(LAYERS);
+        for l in 0..LAYERS {
+            let name = format!("Layer-{}", l + 1);
+            for j in 0..PER_LAYER {
+                f.controls.push(button(format!("L{l}-{j}"), (j % 25) as i32 * 46, (j / 25) as i32 * 16 + l as i32 * 3, Some(&name)));
+            }
+        }
+        f
+    }
+
+    struct Timing {
+        frame_avg_ms: f64,
+        frame_max_ms: f64,
+        hit_avg_us: f64,
+    }
+
+    fn measure(rig: &mut Rig) -> Timing {
+        rig.settle(3); // warm-up: textures, fonts, caches
+        let mut frames = Vec::with_capacity(FRAMES);
+        for _ in 0..FRAMES {
+            let t = Instant::now();
+            rig.frame(vec![]);
+            frames.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        // Pseudo-random points over the form, the same sequence for every case.
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let points: Vec<(i32, i32)> = (0..HITS).map(|_| ((next() % 1200) as i32, (next() % 800) as i32)).collect();
+        let t = Instant::now();
+        let mut found = 0usize;
+        for &(x, y) in &points {
+            if rig.d.hit_top_id(x, y).is_some() {
+                found += 1;
+            }
+        }
+        let hit_total = t.elapsed().as_secs_f64() * 1e6;
+        std::hint::black_box(found);
+        Timing {
+            frame_avg_ms: frames.iter().sum::<f64>() / frames.len() as f64,
+            frame_max_ms: frames.iter().cloned().fold(0.0, f64::max),
+            hit_avg_us: hit_total / HITS as f64,
+        }
+    }
+
+    #[test]
+    #[ignore = "a measurement: run with --release -- --ignored --nocapture"]
+    fn sixty_four_layers_of_fifty_controls_against_three_thousand_two_hundred_in_the_base() {
+        let mut base = Rig::new(all_in_the_base());
+        base.d.tabs.select_form();
+        let t_base = measure(&mut base);
+
+        // All 64 layers shown over an empty `Form`, the active tab `Form`: the whole
+        // 3,200 are drawn; the pointer asks about the base.
+        let mut shown = Rig::new(spread_over_layers());
+        for l in 0..LAYERS {
+            shown.d.tabs.set_shown(&format!("Layer-{}", l + 1), true);
+        }
+        shown.d.tabs.select_form();
+        let t_shown = measure(&mut shown);
+
+        // One layer being edited, as the designer is used: it alone is drawn, and the
+        // pointer asks about its 50.
+        let mut one = Rig::new(spread_over_layers());
+        one.d.apply_tab_actions(vec![TabAction::SelectLayer("Layer-32".into())]);
+        let t_one = measure(&mut one);
+
+        println!("  AC15 — what 64 layers cost, {FRAMES} frames and {HITS} hit-tests each");
+        println!("  {:<46} {:>9} {:>12} {:>12} {:>12}", "case", "controls", "frame avg ms", "frame max ms", "hit avg us");
+        for (case, n, t) in [
+            ("3,200 controls in the base (Form active)", 3200, &t_base),
+            ("64 layers x 50, all shown (Form active)", 3200, &t_shown),
+            ("64 layers x 50, Layer-32 active (edited alone)", 50, &t_one),
+        ] {
+            println!("  {case:<46} {n:>9} {:>12.2} {:>12.2} {:>12.2}", t.frame_avg_ms, t.frame_max_ms, t.hit_avg_us);
+        }
+        println!(
+            "  all 64 shown against the base: frame x{:.2}; one layer edited against the base: frame x{:.2}, hit-test x{:.3}",
+            t_shown.frame_avg_ms / t_base.frame_avg_ms,
+            t_one.frame_avg_ms / t_base.frame_avg_ms,
+            t_one.hit_avg_us / t_base.hit_avg_us,
+        );
+        // A guard, not a budget: the first measurement was x4.47 (the expand-icon pass
+        // ordered every control once per layer), and 3 is far enough above the x1.0
+        // that was measured after the fix to be steady under noise and below that.
+        assert!(
+            t_shown.frame_avg_ms < 3.0 * t_base.frame_avg_ms,
+            "64 layers must not cost three times what the same controls cost in the base: {:.1} ms against {:.1} ms",
+            t_shown.frame_avg_ms,
+            t_base.frame_avg_ms
+        );
     }
 }

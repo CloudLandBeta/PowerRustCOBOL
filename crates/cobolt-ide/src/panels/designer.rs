@@ -852,6 +852,9 @@ pub(crate) enum DesignerNotice {
     /// A form opened with a control naming a layer it does not define (R40): the
     /// control is kept and shown on `Form`.
     UnknownLayer { control: String, layer: String },
+    /// A common procedure still names a control that has just been deleted (R53,
+    /// R64). The procedure is kept — user code is sacred — and this says which.
+    ProcedureStillRefers { procedure: String, control: String },
 }
 
 impl DesignerNotice {
@@ -864,6 +867,10 @@ impl DesignerNotice {
             }
             DesignerNotice::LayerNameRefused => tr.layer_name_refused.to_owned(),
             DesignerNotice::NameCollision(name) => tr.layer_load_collision.replacen("{}", name, 1),
+            DesignerNotice::ProcedureStillRefers { procedure, control } => tr
+                .proc_still_refers
+                .replacen("{}", procedure, 1)
+                .replacen("{}", control, 1),
             DesignerNotice::UnknownLayer { control, layer } => tr
                 .layer_load_unknown
                 .replacen("{}", control, 1)
@@ -4985,6 +4992,30 @@ impl DesignerPanel {
         }
         self.selected_ids.clear();
         self.report_orphaned_procedures();
+        self.report_procedures_still_referring(ids);
+    }
+
+    /// Tell the developer which common procedures still refer to a control that was
+    /// just deleted (spec 091 R53, R64). They are **kept** — a procedure is code the
+    /// developer wrote, separate from the control, and no deletion earns the right to
+    /// remove it. The ones left addressing *nothing* that exists are reported by
+    /// [`Self::report_orphaned_procedures`] in stronger words; this covers the rest.
+    fn report_procedures_still_referring(&mut self, deleted: &[String]) {
+        let orphaned: std::collections::HashSet<usize> =
+            self.form.orphaned_user_procedures().into_iter().collect();
+        let mut found: Vec<(String, String)> = Vec::new();
+        for (i, p) in self.form.user_procedures.iter().enumerate() {
+            if orphaned.contains(&i) {
+                continue;
+            }
+            let refs = cobolt_forms::model::control_refs_in_code(&p.code);
+            if let Some(hit) = deleted.iter().find(|d| refs.contains(&d.to_ascii_uppercase())) {
+                found.push((p.name.clone(), hit.clone()));
+            }
+        }
+        for (procedure, control) in found {
+            self.notify(DesignerNotice::ProcedureStillRefers { procedure, control });
+        }
     }
 
     /// A control deletion can leave a form-level procedure addressing nothing
@@ -10116,6 +10147,7 @@ impl DesignerPanel {
             probe.data_bindings
         };
 
+        let deleted_ids: Vec<String> = indices.iter().map(|&i| self.form.controls[i].id.clone()).collect();
         let mut cmds: Vec<Cmd> = Vec::new();
         // From the highest index down, so none shifts under the next.
         for idx in indices.into_iter().rev() {
@@ -10135,6 +10167,7 @@ impl DesignerPanel {
         self.selected_ids.clear();
         self.tabs.forget(&layer_name);
         self.report_orphaned_procedures();
+        self.report_procedures_still_referring(&deleted_ids);
     }
 
     fn show_user_control_create_dialog(

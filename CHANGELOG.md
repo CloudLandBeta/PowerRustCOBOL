@@ -17,6 +17,45 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.39] — 2026-10-09
+
+### Added
+- **Spec 091, slice 7 — the knowledge base, the guide, and what layers cost.**
+  The System Knowledge Base describes layers: `LAYER-NAME::Visible` and the
+  other nine properties, the rules for painting, the mouse, layout and names,
+  the `Non-Visuals` tab, and everything the designer's tab bar does; the
+  prebuilt store (`assets/knowledge/chunked.data`, 2,869 records) is rebuilt and
+  its freshness test is red against the old store and green against the new.
+  The Developer's Guide gains "Layers and the Non-Visuals tab" (§7), "Showing and
+  hiding a layer" (§11), a paragraph on the shell (§22) and a caveat (§23), with
+  COBOL examples, a diagram of the click's road through the layers, and four
+  screenshot placeholders.
+  Deleting a control — one, or a layer's — now names, in the Output panel, each
+  common procedure that **still refers** to it. The procedure is kept; before,
+  only one left referring to nothing that exists was reported.
+
+### Fixed
+- **A form with layers drew 4.5 times slower than the same controls without.**
+  Measured for this spec's AC15 (release build, 3,200 controls): all 64 layers of
+  50 shown, 625 ms a frame against 140 ms in the base — and 384 ms to edit one
+  layer alone, 50 controls on screen. The pass that paints expand icons ordered
+  every control of the form before it looked for a card with an icon, and with
+  layers it runs once per layer: 65 times 5.5 ms. It now orders them when the
+  first card with an icon turns up. After: 129 ms in the base, 159 ms with all 64
+  layers shown (x1.24), and **23 ms** to edit one layer alone — (x0.18). The
+  designer's hit-test is 5.1–5.4 ms in all three cases, the cost it had in the
+  base before layers. `layers_091::bench` (ignored; `--release -- --ignored
+  --nocapture`) prints the table and fails if 64 layers ever cost three times the
+  base again.
+
+### Tests
+- The final gate, one crate at a time: forms 1,474 passed; form-host 195;
+  semantic 118; codegen 79; project-tools 62; runtime lib 422; IDE unit suite
+  1,439 passed and one red, the translation guard that was red before; the seven
+  IDE integration test files green. **Not re-run:** `cobolt-compiler` and
+  `cobolt-cli`, whose build filled the disk; nothing in them changed since their
+  last green runs but documentation text (see the spec's `tasks.md`, T29).
+
 ## [PowerRustCOBOL 1.90.38] — 2026-10-09
 
 ### Added

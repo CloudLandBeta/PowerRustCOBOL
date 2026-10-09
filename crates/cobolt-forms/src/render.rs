@@ -1544,8 +1544,12 @@ fn draw_expand_icons(
     // An icon is left out while a later control that is not part of the card
     // covers it, and with it goes the click (operator, 2026-10-08: the icons of
     // the cards behind a dropdown showed on top of it).
-    let order = containers::render_order_in(input.controls, &input.backdrop.layers);
-    let position = |idx: usize| order.iter().position(|&i| i == idx).unwrap_or(usize::MAX);
+    //
+    // The paint order is asked for when the FIRST card with an icon turns up, not
+    // before: this pass runs once per layer, and ordering every control of a form
+    // for each of 64 layers that hold no card at all was 357 ms of a 384 ms frame
+    // (spec 091 AC15, measured).
+    let mut order_cache: Option<Vec<usize>> = None;
     for (idx, base) in input.controls.iter().enumerate() {
         if !only(base) {
             continue;
@@ -1569,7 +1573,9 @@ fn draw_expand_icons(
             * input.state.transform(base).alpha
             * if enabled { 1.0 } else { 0.45 };
         let hit = crate::paint::expand_icon_rect(&live, screen);
-        let here = position(idx);
+        let order = order_cache
+            .get_or_insert_with(|| containers::render_order_in(input.controls, &input.backdrop.layers));
+        let here = order.iter().position(|&i| i == idx).unwrap_or(usize::MAX);
         let covered = order.iter().skip(here.saturating_add(1)).any(|&j| {
             let over = &input.controls[j];
             visible_in(input, over)

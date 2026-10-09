@@ -1,7 +1,7 @@
 # Tasks — Form layers and the Non-Visuals tab (spec 091)
 
 - **Spec:** ./spec.md  **Plan:** ./plan.md  **Date:** 2026-10-09
-- **Status:** in progress — T1–T25 done (slices 4, 5 and 6 committed); T26 onward to do
+- **Status:** done — T1–T30; see T29 for the two suites not re-run in the final round
 - **Branch:** `features-form-layers` (worktree `.claude/worktrees/form-layers`). Feature ⇒ `features` line, one `z` bump and one CHANGELOG entry per commit. Merge to `main` and push only when asked, never 09:00–18:00 São Paulo Mon–Fri.
 - Every verify line assumes `CARGO_TARGET_DIR=/Users/emersonlopes/Documents/PowerRustCOBOL/target CARGO_INCREMENTAL=0`, one crate at a time, test executables in `target/debug/deps` deleted between crates.
 
@@ -127,30 +127,31 @@
 
 ## Slice 7 — documentation, knowledge base, measurement
 
-- [ ] **T26 — System KB** (steering `tech.md`: behaviours, controls, properties, methods change ⇒ KB in the same change)
+- [x] **T26 — System KB** (steering `tech.md`: behaviours, controls, properties, methods change ⇒ KB in the same change)
   - Files: `cobolt-compiler/src/lib.rs` (the property/method/event tables and `CFRM_PROSE`: `Layer` object, its properties, the `Layer` control property, `Non-Visuals`), `assets/knowledge/chunked.data`.
   - Run: `cargo run -p cobolt-ide --example build_chunked_kb` (needs the `multilingual-e5-small` model).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation` green; `git diff --stat assets/knowledge/chunked.data` shows it changed.
 
-- [ ] **T27 — Developer's Guide** (GOLDEN RULE #3; audience: Fujitsu PowerCOBOL / isCOBOL developers)
+- [x] **T27 — Developer's Guide** (GOLDEN RULE #3; audience: Fujitsu PowerCOBOL / isCOBOL developers)
   - Files: `docs/developers-guide-en.md` only — §7 (the designer's tab bar and the Non-Visuals tab), §11 (the controls' common properties: `Layer`), §22 (layers at run time: `LAYER-1::Visible`, starts hidden, stays shown). COBOL examples and prose, no Rust; a mermaid diagram of the pointer's path through layers; `📷 Screenshot needed — <name>.png` placeholders; Notes and ⚠️ Caveats (Q31's seven types, `Visible` never saved, IDE Check does not run the receiver check).
   - Then delete every `docs/developers-guide-<lang>.md` the change invalidates (GOLDEN RULE #8) — `ls docs/developers-guide-*` first — and never the English one.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide docs_embed` — the two guards go red on a deleted translation, which is the intended signal; no other docs test regresses.
 
-- [ ] **T28 — The cost of layers, measured** (AC15; GOLDEN RULE #7)
-  - Files: `cobolt-forms/tests/` (an `--ignored` bench) or `cobolt-bench`, whichever the existing frame benches use.
-  - 64 layers × 50 controls against the same 3,200 in the base: frame time and hit-test time, printed in one summary block with the cases named.
-  - Verify: `cargo test -p cobolt-forms --features render --release --test layers_bench_091 -- --ignored --nocapture`; the numbers go in the CHANGELOG entry; a budget is set by the plan, not invented here.
+- [x] **T28 — The cost of layers, measured** (AC15; GOLDEN RULE #7)
+  - Files: `cobolt-ide/src/panels/designer_layers_091_tests.rs` (`layers_091::bench`, an `--ignored` measurement). It lives with the designer tests because the hit-test it times is the designer's own (`hit_top_id`), which the forms crate does not have.
+  - 64 layers × 50 controls against the same 3,200 in the base: the designer's frame time and hit-test time, printed in one summary block with the cases named.
+  - Verify: `cargo test -p cobolt-ide --release --bin cobolt-ide layers_091::bench -- --ignored --nocapture`; the numbers go in the CHANGELOG entry; no budget is invented — a regression guard is only set once numbers exist.
 
 ## Finalize
 
-- [ ] **T29 — Whole-suite run and the foreign-code sweep** (all AC)
-  - Verify, one crate at a time: `cargo test -p cobolt-forms --features render`; `-p cobolt-form-host`; `-p cobolt-semantic`; `-p cobolt-codegen`; `-p cobolt-project-tools`; `-p cobolt-runtime --lib` and the nearest test files; `-p cobolt-compiler`; `-p cobolt-cli`; `cargo test -p cobolt-ide --bin cobolt-ide --tests`. Read every `test result:` line, `--no-fail-fast`. Known and not ours: the translation guard, live-network and `libsqlite3-sys` failures.
-  - Sweep the tree for untracked non-Rust program source (CLAUDE.md, PRIME DIRECTIVE) before the final commit; move, never delete.
+- [x] **T29 — Whole-suite run and the foreign-code sweep** (all AC)
+  - Run, one crate at a time, at the end: `cobolt-forms --features render` 1,474 passed / 0 failed; `cobolt-form-host` 195 / 0; `cobolt-semantic` 118 / 0; `cobolt-codegen` 79 / 0; `cobolt-project-tools` 62 / 0; `cobolt-runtime --lib` 422 / 0; `cobolt-ide --bin` 1,439 passed / 1 failed — the translation guard `every_document_ships_in_every_language`, red before this work; the seven IDE integration test files (11 tests) green after slice 4.
+  - **Not re-run in the final round:** `cobolt-compiler` and `cobolt-cli` (and the runtime's integration files). Their build re-compiles third-party crates under another feature set and filled the disk (18 GB of `target/debug/deps`; the run was stopped at 0.9 GB free). Nothing in them changed since their last green runs (compiler 162, cli with `aws_hosts` and `layers_hosts_091`, at slice 3) except documentation constants in `cobolt-compiler/src/lib.rs`, which the IDE suite's `prebuilt_chunked_kb_matches_the_published_documentation` and the whole `cobolt-ide` run exercise. They should be run once on a machine with room.
+  - The foreign-code sweep (untracked `.py` `.sh` `.js` … and shebang files) found nothing before any commit.
 
-- [ ] **T30 — Close the spec**
-  - Files: `spec.md` (every AC ticked, Status → implemented), this file, `CHANGELOG.md` (one entry for 091 as a whole with the AC15 numbers), `version.rs` (the commit's own `z`).
-  - Stop there: no merge to `main`, no push, no forum post (rules #1, #4b, #5). The operator decides; the open items stay listed — Q31's default, IDE Check's receiver check, and the unrelated `leaderboard_prototype` example (task_7698cf21).
+- [x] **T30 — Close the spec**
+  - `spec.md` has every AC ticked and Status `implemented`; `CHANGELOG.md` carries one entry per slice (1.90.35–1.90.39), the last with the AC15 numbers.
+  - Nothing is pushed. The open items stay with the operator — Q31's default, IDE Check's receiver check, the unrelated `leaderboard_prototype` example (task_7698cf21) — and the two suites above.
 
 ## Coverage: every acceptance criterion has a task whose verify line proves it
 

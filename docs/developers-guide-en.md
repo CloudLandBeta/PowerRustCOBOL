@@ -2387,6 +2387,152 @@ form's width/height to the chosen profile.
 > caption are inked against the card they sit on, so they stay legible on a
 > light form theme as readily as on a dark one.
 
+### Layers and the Non-Visuals tab
+
+A form is one flat sheet. When a screen needs more than one — a help overlay
+above a data-entry page, a "please wait" curtain, a wizard whose steps share a
+frame — you stacked Panels on top of each other and showed and hid them by
+hand. A **layer** is that, built in: a whole transparent sheet that lies above
+the form, with its own name, its own background and its own controls, which your
+COBOL shows and hides with one statement (§11). A form can have up to **64**
+layers above its **base** — the form as it has always been, called `Form`. A
+form with no layers is exactly the form you had before; nothing about layers is
+written to its file.
+
+Under the canvas of **every** form runs a **tab bar**:
+
+📷 **Screenshot needed — `layers-tab-bar.png`.** Open a form, click **+** twice,
+select `Layer-1`, put a Button on it, and capture the strip under the canvas
+with the canvas above it: `Non-Visuals`, `Form`, `Layer-1` (blue, selected, with
+its box and red ✕), `Layer-2` and the `+`.
+
+| Tab | What it is |
+|-----|------------|
+| **Non-Visuals** | A fixed tab at the far left, always there. Every non-visual control — Timer, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, WebSearch, Snackbar and the AWS controls — lives here and nowhere else. |
+| **Form** | The base. It cannot be moved, renamed or deleted, and it has no visibility box: the base is always shown. |
+| **Layer-1, Layer-2 …** | One tab per layer, left to right from the layer nearest `Form` to the one on top. Each has a **visibility box** and a red **✕**. |
+| **+** | Adds a layer. |
+
+The **active** tab is drawn blue with white text and all the others white with
+blue text, whatever IDE theme you use. You edit **one tab at a time**:
+
+- **The pointer sees only the active tab.** Click, Ctrl-click, drag, the
+  rubber-band lasso, the context menu, and **Select All** (⌘A / Ctrl+A) reach the
+  controls of the active tab alone; the controls of the other tabs are drawn, if
+  their layer is shown, but behave as if they were not there — a click on one is
+  a click on empty canvas. A control you create, paste or duplicate lands in the
+  active tab.
+- **Selecting a layer shows it.** The `Form` is always drawn, and the layer you
+  select is drawn above it, turned on if its box was off. Every *other* layer is
+  turned off, because you are editing this one; tick any box afterwards to see
+  more at once, and nothing hides it again until you select another layer.
+- **The visibility box never changes the tab.** Ticking or unticking a box — the
+  active layer's own or another's — only shows or hides that layer. A layer whose
+  box is off is not drawn, and its controls cannot be reached until you tick it.
+- **Choosing a tab and ticking a box are not edits.** The form is not marked
+  modified, there is no undo step, and the saved file is the same whatever you
+  left showing. Layers start **hidden** when the program runs (§11).
+- **The form can be resized only from `Form`.** On a layer or on `Non-Visuals`
+  there are no resize grips and the form's **Width**, **Height**, **Target** and
+  **Orientation** rows are read only.
+
+| To … | Do this |
+|------|---------|
+| Add a layer | Click **+**. The new layer is named `Layer-1`, `Layer-2` …, is fully transparent, and is selected. The 65th is refused with a message. |
+| Rename a layer | Double-click its tab, type, press Enter. Every control that names it and every `OLD::Visible` in your handlers and procedures follows. A name is refused — and nothing changes — if it is not a COBOL-style name, is `Form` or `Non-Visuals` in any letter case, or is already used by a control or another layer: layers and controls share **one** set of names. |
+| Re-stack layers | Drag a layer tab and drop it among the others. A layer paints above the layers before it. A tab never goes to the left of `Form`. |
+| Move controls to a layer | Select them and choose the **Layer** row in the Properties pane, or right-click → **Move to layer**. A container takes everything inside it; a control inside a container cannot be moved on its own. Into a layer, a control loses its **Dock** and its **Anchor** returns to the default (Undo gives them back). |
+| Delete a layer | Click its red **✕**. The layer is selected and a window tells you its name and how many controls and event handlers go with it. **Delete** removes the layer, every control on it and the handler of each; **Cancel** leaves everything. One **Undo** brings it all back. |
+
+📷 **Screenshot needed — `layer-delete-confirmation.png`.** Select a layer that
+holds a few controls with handlers, click its red ✕, and capture the
+confirmation window.
+
+Every one of these is a single undo step. Deleting a layer follows the same road
+as deleting one control: its handlers go to the form's recycle bin, and a
+**common procedure** that still *refers* to one of the deleted controls is **not**
+deleted — it stays, and the Output panel tells you which one, so you can fix the
+reference (the form will not build until you do).
+
+**The pointer, at run time.** A click goes to the nearest layer first. Where a
+layer has no control with a painted part at that point, the click falls through
+to the layer below, down to `Form`; where it hits a control, that control gets
+it — and if the control has no handler the click is simply dropped, it does not
+fall further. A layer's own background never runs a handler. If the layer's
+background is **opaque** at that point, nothing below it receives the click.
+
+```mermaid
+flowchart TD
+    CLICK["Click at a point of the form"] --> TOP["Take the top shown layer"]
+    TOP --> HIT{"A control of this layer<br/>paints at that point?"}
+    HIT -- "yes" --> RUN["That control gets the click:<br/>its handler runs, or the click is dropped"]
+    HIT -- "no" --> OPAQUE{"Is the layer's background<br/>opaque there?"}
+    OPAQUE -- "yes" --> STOP["The click stops here —<br/>nothing below receives it"]
+    OPAQUE -- "no" --> NEXT{"Another layer below?"}
+    NEXT -- "yes" --> TOP2["Take it, and ask again"] --> HIT
+    NEXT -- "no" --> FORM["Form: its controls, then its own background"]
+```
+
+With a layer selected and no control chosen, the **Properties pane** shows the
+layer: its **Name** and the background properties a form has — colour, gradient,
+image and mode, transparency — and nothing else. A layer has no corner radius
+(its corners are the form's), no window properties and no events of its own.
+
+**Painting and layout.** Every control of a layer paints above every control of
+the layers below it, whatever their `ZOrder`; `ZOrder`, **Bring to Front** and
+**Send to Back** order only the controls that share a layer and a container. Only
+`Form` is laid out: a control in a layer keeps the `X`, `Y`, `Width` and `Height`
+you designed, and its Properties pane offers no Dock, Anchor or layout. A layer
+covers exactly the form — it never changes the form's size — and whatever a layer
+control paints outside the form is cut at the form's edge.
+
+**The Non-Visuals tab.** Controls that paint nothing at run time have no place on
+the form, so they sit on their own tab, as **cards**:
+
+📷 **Screenshot needed — `non-visuals-tab.png`.** Add a Timer, two RestClients
+and a SqlDatabase, select `Non-Visuals`, and capture the grid of cards.
+
+- The cards fill a grid of **five columns**, row by row, grouped by type in A–Z
+  order (by the type's English name, so the order is the same in every IDE
+  language) and A–Z by name inside a type. The grid decides each card's place:
+  you select a card with a click, Ctrl-click, the lasso or Select All, but you do
+  not drag it, and it has no resize knobs. When there are more rows than fit, the
+  tab scrolls; the form and the window do not grow.
+- Press a non-visual control in the **Toolbox** and the tab opens for you, so you
+  see where it lands. While `Non-Visuals` is active the visual entries of the
+  Toolbox are greyed out — choose `Form` or a layer first — and a paste that holds
+  any visual control is refused.
+- A card's Properties pane is the control's own — Properties, Events and Procs —
+  without position and size, which the grid owns. Press **Delete** (or use the
+  context menu) to remove a card by the same road as any control, with the same
+  confirmation when it carries code and the same single undo step.
+- A form that already has non-visual controls shows them in the grid when it is
+  opened. Their `X` and `Y` in the file are untouched.
+
+> **Notes.**
+> - Layers are for *structure you show and hide*. For one-off emphasis a
+>   `Panel` is still the right tool, and a Panel *inside* a layer is fine.
+> - Coming from PowerCOBOL: there is no equivalent of a layer in its forms; the
+>   nearest habit is a full-form Panel you show and hide. The difference is that
+>   a layer also carries its own background and takes the mouse by the rules
+>   above.
+> - A form with layers opens, saves and builds as before for everything else:
+>   forms without layers are unchanged, byte for byte.
+>
+> **⚠️ Caveats.**
+> - A `.cfrm` that names a layer it does not define keeps the control, shows it
+>   on `Form` and tells you in the Output panel; a file that holds one name twice
+>   is reported and left exactly as it is — nothing is repaired by deleting.
+> - On a form with a large **Corner radius**, seven control types cannot be cut
+>   to the rounded corner and may paint a little past it, in a layer as on `Form`:
+>   DataGrid, FileDropZone, Maps, TabControl, ToolBar, Viewer and custom plug-in
+>   controls. Everything else stays inside the arc.
+> - A layer's **background image** is not treated as opaque for the mouse (its
+>   pixels are not inspected): to block clicks from reaching what is below, put an
+>   opaque Panel over the image.
+> - IDE **Check** does not look inside `LAYER-NAME::property` references; a
+>   misspelt layer or property is reported when you Build or Run Form.
+
 ### Control animations
 
 A control can carry any number of **animations**, edited in the **Animations**
@@ -6970,6 +7116,50 @@ interchangeable; pick whichever reads best for the line you are writing.
 > every control is seeded with the values from its properties pane, so
 > `Txt-Name::GetText()` (or `Txt-Name::Text`) returns the text you typed at
 > design time even before the first setter runs.
+
+### Showing and hiding a layer
+
+A layer (§7) is addressed from COBOL by its name, exactly as a control is, and
+`Visible` is its main property. **Every layer starts hidden** when the program
+runs — whatever the designer was left showing — and **stays as you set it** until
+you set it again:
+
+```cobol
+      *> onClick of BTN-HELP, a button on Form
+           SET HELP-LAYER::Visible TO TRUE.
+
+      *> onClick of BTN-CLOSE-HELP, a button ON the layer
+           SET HELP-LAYER::Visible TO FALSE.
+```
+
+A layer's other properties are its background, and you change them the same way:
+
+```cobol
+           MOVE "#10203080" TO HELP-LAYER::BackgroundColor.
+           MOVE 40          TO HELP-LAYER::Transparency.
+           MOVE "assets/paper.png" TO HELP-LAYER::BackgroundImage.
+           MOVE "Tile"      TO HELP-LAYER::BackgroundImageMode.
+           MOVE HELP-LAYER::Visible TO WS-STATE.   *> reads "true" or "false"
+```
+
+| Property | Meaning |
+|----------|---------|
+| `Name` | The layer's name. Read only — a layer is renamed in the designer, where every reference follows. |
+| `Visible` | Shown or hidden. Reads `true` / `false`. Starts hidden. |
+| `Transparency` | 0–100. A new layer is fully transparent in colour, so showing it changes nothing until you give it one. |
+| `BackgroundColor` | `#RRGGBB` or `#RRGGBBAA`. |
+| `BackgroundGradientEnabled`, `BackgroundGradientStartColor`, `BackgroundGradientEndColor`, `BackgroundGradientDirection` | A gradient behind the layer's controls. |
+| `BackgroundImage`, `BackgroundImageMode` | An image, and how it fits (`Fill`, `Fit`, `Stretch`, `Center`, `Tile`). |
+
+A layer has no methods and no events, no corner radius and no window property;
+asking for anything else is an **error at Build and at Run Form**, never
+silently ignored — `HELP-LAYER::Colour` and `NO-SUCH-LAYER::Visible` stop the
+build, as an unknown control does. `Non-Visuals` is a tab of the designer and not
+an object: `Non-Visuals::Visible` fails the same way.
+
+A control on a layer is reached by its name like any other — `MOVE "Done" TO
+BTN-CLOSE-HELP::Caption` — whichever layer it is on. The result is the same in a
+form run from the IDE, a form embedded as a child, and a built binary.
 
 ### Member-access chains and collections
 
@@ -14378,6 +14568,10 @@ menu pane, a breadcrumb, and a content area where forms are loaded in place.
 Think of an ERP whose main menu lists subsystems (CRM, HR, Sales); entering
 one mounts its menu and loads its screens into the same window.
 
+A form with **layers** (§7) behaves in a shell as it does in a window: when it
+is loaded into the content area its layers cover the area the form occupies, and
+`SET LAYER-NAME::Visible TO TRUE` shows one there too.
+
 ### Turning the shell on
 
 Place a **SideMenu** control on your **main form**. That is the whole switch:
@@ -15115,6 +15309,11 @@ A consolidated list so you are never surprised:
 - **Generated code is read-only.** Edit forms or Common Code, never `generated/`.
 - **`dist/` is reserved**, not yet populated by tooling.
 - **Secrets** must not be embedded in shipped forms.
+- **Layers.** A layer's controls are not laid out (no Dock, Anchor or flex, grid
+  or flow), `Visible` is a state of the running program and of the designer
+  and is never saved, and seven control types may paint past the rounded corner
+  of a window in a layer, as they do in the base (§7). IDE Check does not read
+  `LAYER-NAME::property`; Build and Run Form do.
 - **Form Theme / procedural styles.** The Appearance "Theme" dropdown selects
   Classic / Enhanced / Neumorphic Light / Neumorphic Dark (procedural relief
   with full gradient, blur, distance, rim controls). Asset-pack selection is project / toml driven; some
