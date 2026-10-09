@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.31] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2c — only the base is laid out.** The responsive layout
+  engine leaves a layer's controls, and everything inside a container in a layer,
+  out of the tree: they keep their designed rectangle and their designed font,
+  take no room from the base's docks, move with none of its anchors, are not
+  marked laid out (so `AutoSize` still measures them), and never raise the form's
+  smallest size. A control that names a layer the form does not define is drawn
+  with the base but is not laid out either. A form with no layers lays out exactly
+  as before. 5 new tests, one with a negative control that shows the same control
+  in the base does raise the smallest size.
+
 ## [PowerRustCOBOL 1.90.30] — 2026-10-09
 
 ### Added

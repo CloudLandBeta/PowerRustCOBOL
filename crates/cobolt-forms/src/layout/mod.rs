@@ -262,11 +262,55 @@ pub(crate) struct Tree {
     kids: HashMap<Option<String>, Vec<usize>>,
 }
 
+/// Spec 091 R21 — for each control, whether it sits in a layer. Only the base has
+/// layout behaviour (`Dock`, `Anchor` and the flex, grid and flow layouts): a
+/// control in a layer keeps its designed rectangle, and so does everything
+/// inside a container in a layer (R8) — the answer is the outermost container's
+/// `layer`.
+///
+/// A name other than `Form` counts as a layer here whether or not the form
+/// defines it. A control that names an undefined layer is DRAWN with the base
+/// (R40) but keeps the rectangle it was designed at, which is the safer thing to
+/// do with a control whose layer is lost than to dock it into a layout it was
+/// never designed for.
+pub(crate) fn layered_flags(controls: &[Control]) -> Vec<bool> {
+    if controls.iter().all(|c| c.layer.is_none()) {
+        return vec![false; controls.len()];
+    }
+    let by_id: HashMap<&str, usize> = controls
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.id.as_str(), i))
+        .collect();
+    controls
+        .iter()
+        .map(|c| {
+            // A hand-edited file can hold a parent cycle: stop after one lap.
+            let mut cur = c;
+            for _ in 0..=controls.len() {
+                match cur.parent.as_deref().and_then(|p| by_id.get(p)) {
+                    Some(&i) => cur = &controls[i],
+                    None => break,
+                }
+            }
+            cur.layer
+                .as_deref()
+                .is_some_and(|l| !l.eq_ignore_ascii_case(crate::model::BASE_LAYER_NAME))
+        })
+        .collect()
+}
+
 impl Tree {
     pub(crate) fn new(controls: &[Control]) -> Tree {
         let ids: HashSet<&str> = controls.iter().map(|c| c.id.as_str()).collect();
+        let layered = layered_flags(controls);
         let mut kids: HashMap<Option<String>, Vec<usize>> = HashMap::new();
         for (i, c) in controls.iter().enumerate() {
+            // A control in a layer is not laid out at all — and, being left out
+            // of the tree, neither is anything inside it (R21).
+            if layered[i] {
+                continue;
+            }
             // A parent that does not exist puts the control at form level, as
             // the engine's render order does.
             let key = c.parent.clone().filter(|p| ids.contains(p.as_str()));
@@ -464,9 +508,14 @@ pub(crate) fn lay_out(
         laid_out_size,
         ..Default::default()
     };
-    for c in input.controls {
-        out.font_sizes
-            .insert(c.id.clone(), fonts::effective_size(c, font_factor));
+    // A control in a layer is laid out nowhere, so its text is not scaled with a
+    // layout either: it keeps its designed size, as its rectangle does (R21).
+    let layered = layered_flags(input.controls);
+    for (c, &in_layer) in input.controls.iter().zip(&layered) {
+        if !in_layer {
+            out.font_sizes
+                .insert(c.id.clone(), fonts::effective_size(c, font_factor));
+        }
     }
     let mode = props::layout_mode(&form);
     let content = place_children(input, tree, None, &form, mode, designed_client, client, false, &mut out);
