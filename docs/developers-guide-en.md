@@ -1968,7 +1968,10 @@ is scaled and placed.
 
 The runtime surfaces only add live behaviour (press feedback, focus, text input,
 slider drag), and the designer adds its editor overlay (selection handles,
-badges, drop hints) on top.
+badges, drop hints) on top. A badge — the yellow ▶ that marks a control with
+animations, the ARRAY tag of a repeating group — belongs to the control it
+marks: a control drawn in front of that corner, such as a panel on a layer
+above, hides the badge along with the part of the control it covers.
 
 #### The magnifier
 
@@ -2416,6 +2419,12 @@ a closed eye) and the `+`.
 | **Form** | The base. It cannot be moved, renamed or deleted, and it has no eye: the base is always shown. |
 | **Layer-1, Layer-2 …** | One tab per layer, left to right from the layer nearest `Form` to the one on top. Each has an **eye** — open when the layer is shown, closed when it is hidden — and a red **✕**. |
 | **+** | Adds a layer. |
+
+When the layers outgrow the strip, `Non-Visuals` stays where it is, a **◀** and a
+**▶** appear at the right, and the other tabs run on beneath them. Press an arrow
+to move the tabs one step, or **swipe sideways** over the strip — two fingers on a
+trackpad, or the mouse wheel — to glide them along. The strip stops at the first
+tab and the last, and neither gesture selects a tab or changes the form.
 
 The tabs are slanted and touch one another, and they sit on a dark strip with a
 thin white rule above it. The **active** tab is drawn blue with white text and
@@ -3281,14 +3290,18 @@ Your program drives it too, with or without the icon:
 ```
 
 `Expand()` and `Collapse()` are shorthand for writing `Expanded` 1 and 0. While a
-card is expanded **everything inside it grows with it**, at every depth: each
-control keeps the same share of the card — its position and its size are the
-designed ones times how much the card has grown, in each direction — whatever its
-`Anchor` says, so a label, a bar, a chart and a panel with controls of its own
-all spread over the new room together. (`Dock` and the `LayoutMode` of a
-container inside the card still do their own layout.) Text keeps its font size;
-only the room around it grows. Collapse the card and its contents go back to
-their anchors.
+card is expanded **everything inside it grows with it**, at every depth, **text
+included**, and by **one factor** in both directions, so nothing is stretched out
+of shape: the factor is the smaller of how much wider and how much taller the card
+has become — the largest at which the whole of its contents still fits. Each
+control keeps its place in the card at that factor — position, size and font size
+— whatever its `Anchor` says, so a label, a bar, a chart and a panel with
+controls of its own all grow together, as a picture zooms. Where the card's shape
+differs from what the contents were designed for, the grown block is **centred**:
+the room that is left over goes evenly to the two sides (or to the top and
+bottom). `Dock` and the `LayoutMode` of a container inside the card still do their
+own layout, and a control whose `ScaleFont` is off keeps its font size. Collapse
+the card and its contents go back to their anchors.
 
 > **Note.** "The room of its siblings" is the whole client area of the card's
 > container: for a card in a Grid, the grid's tracks and gaps together; for a card

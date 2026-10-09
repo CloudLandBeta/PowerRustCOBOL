@@ -88,6 +88,12 @@ struct TabDrag {
 }
 
 impl LayerTabs {
+    /// How far the scrollable tabs are shifted left, for the tests that press the arrows.
+    #[cfg(test)]
+    pub(crate) fn scrolled(&self) -> f32 {
+        self.scroll
+    }
+
     pub fn active(&self) -> &ActiveTab {
         &self.active
     }
@@ -485,7 +491,22 @@ impl LayerTabs {
         paint_strip(&painter, bar);
         let font = tab_font();
         let layers: Vec<&str> = form.layers.iter().map(|l| l.name.as_str()).collect();
-        let layout = layout_for(ui.ctx(), form, tr, bar.width(), self.scroll);
+        let mut layout = layout_for(ui.ctx(), form, tr, bar.width(), self.scroll);
+        // A swipe sideways over the strip — or the wheel, which only turns up and
+        // down — moves the tabs as the arrows do. egui spreads one gesture over
+        // several frames, which is what makes the tabs glide; it is taken from
+        // the input so nothing under the strip scrolls with it.
+        if layout.overflow && ui.rect_contains_pointer(bar) {
+            let swipe = ui.input_mut(|i| {
+                let d = i.smooth_scroll_delta;
+                i.smooth_scroll_delta = egui::Vec2::ZERO;
+                if d.x != 0.0 { d.x } else { d.y }
+            });
+            if swipe != 0.0 {
+                self.scroll = (self.scroll - swipe).clamp(0.0, layout.max_scroll);
+                layout = layout_for(ui.ctx(), form, tr, bar.width(), self.scroll);
+            }
+        }
         let at = |p: &Placed| placed_rect(bar, p);
         let (clip_l, clip_r) = layout.clip;
         let tabs_clip = Rect::from_min_max(
@@ -549,7 +570,7 @@ impl LayerTabs {
                 }
                 Slot::Add => {
                     let resp = ui
-                        .interact(rect, ui.id().with("layer-add"), Sense::click())
+                        .interact(visible_part(&tp, rect), ui.id().with("layer-add"), Sense::click())
                         .on_hover_text(tr.layer_tab_add_hint);
                     let c = rect.center();
                     // Plain white, outside any tab (R66); heavier under the pointer.
@@ -617,7 +638,7 @@ impl LayerTabs {
         // Rename in place (R26): a double-click turns the label into a field.
         let renaming = matches!(&self.rename, Some((n, _)) if n.eq_ignore_ascii_case(name));
         let body = ui.interact(
-            rect.shrink2(vec2(SLANT * 0.5, 0.0)),
+            visible_part(painter, rect.shrink2(vec2(SLANT * 0.5, 0.0))),
             ui.id().with(("layer-tab", index)),
             Sense::click_and_drag(),
         );
@@ -685,7 +706,7 @@ impl LayerTabs {
         // The eye (R25, R67): open while the layer is shown, closed while it is hidden.
         let shown = self.is_shown(name);
         let box_resp = ui
-            .interact(box_r.expand(2.0), ui.id().with(("layer-box", index)), Sense::click())
+            .interact(visible_part(painter, box_r.expand(2.0)), ui.id().with(("layer-box", index)), Sense::click())
             .on_hover_text(tr.layer_tab_visible_hint);
         paint_eye(painter, box_r, shown, if active { Color32::WHITE } else { EYE_INK }, box_resp.hovered());
         if box_resp.clicked() {
@@ -693,7 +714,7 @@ impl LayerTabs {
         }
 
         // The red ✕ (R23, R63).
-        let hover = ui.interact(cross_r.expand(3.0), ui.id().with(("layer-cross", index)), Sense::click());
+        let hover = ui.interact(visible_part(painter, cross_r.expand(3.0)), ui.id().with(("layer-cross", index)), Sense::click());
         let c = cross_r.center();
         let d = CROSS * 0.5 - 1.5;
         // Red on the active tab's blue reads at barely 1.2:1, so there the ✕ sits
@@ -729,7 +750,15 @@ fn tab_face(
     painter.add(Shape::convex_polygon(shape, face, Stroke::new(1.0, EDGE)));
     painter.text(rect.center(), Align2::CENTER_CENTER, label, font.clone(), ink);
     // The click target is the tab less the lean its neighbours overlap.
-    ui.interact(rect.shrink2(vec2(SLANT * 0.5, 0.0)), id, Sense::click()).on_hover_text(hint)
+    ui.interact(visible_part(painter, rect.shrink2(vec2(SLANT * 0.5, 0.0))), id, Sense::click()).on_hover_text(hint)
+}
+
+/// The part of a tab's click area the painter shows. A tab the strip cuts off —
+/// scrolled out at the left, run on under the ◀ ▶ at the right — is clipped when
+/// it is painted but not when it is hit-tested, so its whole area took presses that
+/// belong to what is drawn over it: the arrows, and the pinned `Non-Visuals` tab.
+fn visible_part(painter: &egui::Painter, area: Rect) -> Rect {
+    area.intersect(painter.clip_rect())
 }
 
 #[cfg(test)]

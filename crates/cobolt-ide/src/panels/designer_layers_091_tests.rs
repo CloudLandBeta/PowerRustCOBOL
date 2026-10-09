@@ -13,7 +13,7 @@
 
 use super::*;
 use crate::llm::LlmConfig;
-use crate::panels::layer_tabs::{layer_tab_parts, layout_for, placed_rect, ActiveTab, Slot, TabAction, BAR_H};
+use crate::panels::layer_tabs::{layer_tab_parts, layout_for, placed_rect, ActiveTab, Slot, TabAction, ARROW_W, BAR_H};
 use egui::{Event, PointerButton};
 
 const SCREEN: Vec2 = Vec2::new(1400.0, 1000.0);
@@ -52,6 +52,11 @@ struct Rig {
     nodes: std::collections::HashMap<egui::accesskit::NodeId, egui::accesskit::Node>,
     /// The clipboard the designer's Cmd+C / Cmd+X / Cmd+V use, kept between frames.
     clipboard: Option<DesignerClipboard>,
+    /// Asked for by the tests that need it: count, after each frame, the yellow
+    /// animation badges the canvas painted. Off otherwise, so no other test pays
+    /// for a walk of the shapes.
+    count_badges: bool,
+    badges: usize,
 }
 
 impl Rig {
@@ -64,6 +69,8 @@ impl Rig {
             mods: egui::Modifiers::NONE,
             nodes: Default::default(),
             clipboard: None,
+            count_badges: false,
+            badges: 0,
         }
     }
 
@@ -87,6 +94,19 @@ impl Rig {
         out.textures_delta.clear();
         if let Some(update) = out.platform_output.accesskit_update.take() {
             self.nodes.extend(update.nodes);
+        }
+        if self.count_badges {
+            fn walk(shape: &egui::Shape, n: &mut usize) {
+                match shape {
+                    egui::Shape::Circle(c) if c.fill == ANIM_BADGE_FILL => *n += 1,
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, n)),
+                    _ => {}
+                }
+            }
+            self.badges = 0;
+            for clipped in &out.shapes {
+                walk(&clipped.shape, &mut self.badges);
+            }
         }
         self.used = used;
         result
@@ -236,6 +256,94 @@ mod bar {
             many.frame(vec![]);
             assert_eq!((many.d.tab_bar_rect, many.used), settled, "frame {frame}: nothing creeps");
         }
+    }
+
+    /// The middle of the ◀ (`0`) or ▶ (`1`) the bar shows when its tabs do not fit.
+    fn arrow_centre(r: &Rig, i: usize) -> Pos2 {
+        let bar = r.d.tab_bar_rect.expect("the bar was drawn");
+        Pos2::new(bar.max.x - ARROW_W * (2 - i) as f32 + ARROW_W * 0.5, bar.center().y)
+    }
+
+    /// The arrows sit over the end of the strip, where the tabs that do not fit
+    /// are cut off by the painter — but their own click areas are not cut, so they
+    /// took the press the arrow was meant to get (operator, 2026-10-09: "navigation
+    /// buttons are not working").
+    #[test]
+    fn the_scroll_arrows_move_the_tabs_and_change_nothing_else() {
+        let mut r = Rig::new(form_with_layers(64));
+        r.settle(4);
+        let before = saved(&r.d);
+        let active = r.d.tabs.active().clone();
+        assert_eq!(r.d.tabs.scrolled(), 0.0);
+
+        r.click(arrow_centre(&r, 1));
+        let one = r.d.tabs.scrolled();
+        assert!(one > 0.0, "▶ scrolls the tabs left");
+        r.click(arrow_centre(&r, 1));
+        let two = r.d.tabs.scrolled();
+        assert!(two > one, "and again");
+        r.click(arrow_centre(&r, 0));
+        assert!(r.d.tabs.scrolled() < two, "◀ brings them back");
+        assert_eq!(r.d.tabs.active(), &active, "pressing an arrow selects no tab");
+        assert_eq!(saved(&r.d), before, "and edits nothing");
+    }
+
+    /// A two-finger swipe sideways, `dx` points, with the pointer at `at`.
+    fn swipe(r: &mut Rig, at: Pos2, dx: f32) {
+        r.frame(vec![Event::PointerMoved(at)]);
+        r.frame(vec![Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: Vec2::new(dx, 0.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+    }
+
+    /// Operator, 2026-10-09: a swipe left or right over the strip moves the tabs,
+    /// smoothly — the gesture is spread over several frames, not one jump.
+    #[test]
+    fn a_swipe_over_the_strip_glides_the_tabs_along() {
+        let mut r = Rig::new(form_with_layers(64));
+        r.settle(4);
+        let bar = r.d.tab_bar_rect.expect("drawn");
+        let before = saved(&r.d);
+        let active = r.d.tabs.active().clone();
+
+        // Swiping LEFT drags the tabs left: the strip scrolls on.
+        swipe(&mut r, bar.center(), -300.0);
+        let first = r.d.tabs.scrolled();
+        assert!(first > 0.0, "the tabs move on the frame the swipe arrives");
+        r.settle(40);
+        let after = r.d.tabs.scrolled();
+        assert!(after > first, "and keep gliding on the frames after it: {first} then {after}");
+        assert!((after - 300.0).abs() < 1.0, "to where the swipe asked, no further: {after}");
+
+        // Swiping RIGHT brings them back, and past the start they stop.
+        swipe(&mut r, bar.center(), 500.0);
+        r.settle(60);
+        assert_eq!(r.d.tabs.scrolled(), 0.0, "held at the first tab");
+        assert_eq!(r.d.tabs.active(), &active, "a swipe selects no tab");
+        assert_eq!(saved(&r.d), before, "and edits nothing");
+    }
+
+    #[test]
+    fn a_swipe_elsewhere_leaves_the_tabs_where_they_are() {
+        let mut r = Rig::new(form_with_layers(64));
+        r.settle(4);
+        let bar = r.d.tab_bar_rect.expect("drawn");
+        swipe(&mut r, Pos2::new(bar.center().x, bar.min.y - 200.0), -300.0);
+        r.settle(40);
+        assert_eq!(r.d.tabs.scrolled(), 0.0, "the pointer was over the canvas, not the strip");
+    }
+
+    #[test]
+    fn a_strip_whose_tabs_all_fit_does_not_scroll() {
+        let mut r = Rig::new(form_with_layers(2));
+        r.settle(4);
+        let bar = r.d.tab_bar_rect.expect("drawn");
+        swipe(&mut r, bar.center(), -300.0);
+        r.settle(40);
+        assert_eq!(r.d.tabs.scrolled(), 0.0);
     }
 
     #[test]
@@ -3106,5 +3214,137 @@ mod agent {
             crate::agent::lint_change_set_submission("Form Designer Agent", bad).is_some(),
             "a reserved name is caught before a model is asked to review it"
         );
+    }
+}
+
+// ── The yellow animation badges stay behind what is drawn in front ──────────
+
+mod badges {
+    use super::*;
+
+    fn animated(id: &str, x: i32, y: i32) -> Control {
+        let mut c = Control::new(id, ControlType::Button, x, y);
+        c.rect.w = 80;
+        c.rect.h = 30;
+        c.add_animation(cobolt_forms::model::AnimationDef::new("anim1"));
+        c
+    }
+
+    fn panel_on(id: &str, layer: Option<&str>, x: i32, y: i32) -> Control {
+        let mut c = Control::new(id, ControlType::Panel, x, y);
+        c.rect.w = 200;
+        c.rect.h = 100;
+        c.layer = layer.map(str::to_owned);
+        c
+    }
+
+    /// A rig that counts badges, settled on a form whose base holds the animated
+    /// button `BTN-A` at (100, 100) — its badge sits at (178, 102) — and `more`.
+    fn rig(layers: usize, more: Vec<Control>) -> Rig {
+        rig_after(layers, vec![], more)
+    }
+
+    /// [`rig`] with `first` ahead of the button in the file.
+    fn rig_after(layers: usize, first: Vec<Control>, more: Vec<Control>) -> Rig {
+        let mut f = form_with_layers(layers);
+        f.controls.extend(first);
+        f.controls.push(animated("BTN-A", 100, 100));
+        f.controls.extend(more);
+        let mut r = Rig::new(f);
+        r.count_badges = true;
+        for n in 1..=layers {
+            r.d.tabs.set_shown(&format!("Layer-{n}"), true);
+        }
+        r.settle(4);
+        r
+    }
+
+    #[test]
+    fn an_uncovered_badge_is_painted() {
+        let r = rig(0, vec![]);
+        assert_eq!(r.badges, 1, "the button's animation badge is on the canvas");
+    }
+
+    /// The report: the controls of a layer are drawn in front of the base, and
+    /// the badges of the base's controls showed through them.
+    #[test]
+    fn a_layer_in_front_of_a_control_hides_its_badge() {
+        let r = rig(1, vec![panel_on("PNL-FRONT", Some("Layer-1"), 50, 60)]);
+        assert_eq!(r.badges, 0, "the panel of Layer-1 covers the corner the badge sits on");
+    }
+
+    /// A layer is in front of the base wherever its controls sit in the file:
+    /// the order the badges are tested in is the one the engine paints in.
+    #[test]
+    fn a_layer_is_in_front_of_the_base_whatever_the_file_order() {
+        let r = rig_after(1, vec![panel_on("PNL-FRONT", Some("Layer-1"), 50, 60)], vec![]);
+        assert_eq!(r.badges, 0);
+    }
+
+    /// …and the other way about: a base control that comes later in the file is
+    /// still BEHIND a layer's, so it does not hide the layer's badge.
+    #[test]
+    fn a_base_control_never_hides_a_layers_badge() {
+        let mut f = form_with_layers(1);
+        let mut b = animated("BTN-L", 100, 100);
+        b.layer = Some("Layer-1".into());
+        f.controls.push(b);
+        f.controls.push(panel_on("PNL-BASE", None, 50, 60));
+        let mut r = Rig::new(f);
+        r.count_badges = true;
+        r.d.tabs.set_shown("Layer-1", true);
+        r.settle(4);
+        assert_eq!(r.badges, 1, "the button of Layer-1 is in front of the base panel");
+    }
+
+    #[test]
+    fn a_layer_that_is_not_shown_hides_nothing() {
+        let mut r = rig(1, vec![panel_on("PNL-FRONT", Some("Layer-1"), 50, 60)]);
+        r.d.tabs.set_shown("Layer-1", false);
+        r.d.tabs.select_form();
+        r.settle(3);
+        assert_eq!(r.badges, 1, "nothing of Layer-1 is drawn, so nothing covers the badge");
+    }
+
+    #[test]
+    fn a_layer_beside_the_badge_hides_nothing() {
+        let r = rig(1, vec![panel_on("PNL-FRONT", Some("Layer-1"), 400, 300)]);
+        assert_eq!(r.badges, 1, "the panel is elsewhere");
+    }
+
+    /// The same on the base alone: a control after it in the tree order.
+    #[test]
+    fn a_later_sibling_over_the_corner_hides_it() {
+        let r = rig(0, vec![panel_on("PNL-FRONT", None, 50, 60)]);
+        assert_eq!(r.badges, 0);
+    }
+
+    /// A panel that paints nothing of its own does not cover what is behind it.
+    #[test]
+    fn a_panel_with_no_background_hides_nothing() {
+        let mut p = panel_on("PNL-FRONT", Some("Layer-1"), 50, 60);
+        p.set_prop("HideBackground".to_string(), PropValue::Bool(true));
+        let r = rig(1, vec![p]);
+        assert_eq!(r.badges, 1);
+    }
+
+    /// What is inside the control is part of it, not in front of it.
+    #[test]
+    fn a_control_inside_the_animated_one_does_not_hide_its_badge() {
+        let mut host = Control::new("PNL-HOST", ControlType::Panel, 100, 100);
+        host.rect.w = 200;
+        host.rect.h = 100;
+        host.add_animation(cobolt_forms::model::AnimationDef::new("anim1"));
+        let mut inner = Control::new("BTN-IN", ControlType::Button, 0, 0);
+        inner.rect.w = 400;
+        inner.rect.h = 300;
+        inner.parent = Some("PNL-HOST".into());
+        let mut f = form_with_layers(0);
+        f.controls.push(host);
+        f.controls.push(inner);
+        let mut r = Rig::new(f);
+        r.count_badges = true;
+        r.settle(4);
+        assert_eq!(r.badges, 1, "the host's own badge stays, whatever it contains");
     }
 }

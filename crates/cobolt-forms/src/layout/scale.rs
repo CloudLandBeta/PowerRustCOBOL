@@ -73,6 +73,30 @@ pub fn place(designed: LRect, designed_parent: LRect, parent: LRect, style: i64,
     LRect::new(parent.x + x, parent.y + y, w, h)
 }
 
+/// Spec 090 — place a control inside an expanded card: `designed` inside
+/// `designed_parent`, everything at ONE factor `zoom`, in both directions, so
+/// nothing is distorted; the whole scaled block sits in the middle of `parent`,
+/// with the room that is left over split evenly on the two sides of the
+/// direction the aspect ratio does not fill.
+pub fn place_zoomed(designed: LRect, designed_parent: LRect, parent: LRect, zoom: f32, width: Limits, height: Limits) -> LRect {
+    let (ox, oy) = (
+        (parent.w - designed_parent.w * zoom) / 2.0,
+        (parent.h - designed_parent.h * zoom) / 2.0,
+    );
+    LRect::new(
+        parent.x + ox + (designed.x - designed_parent.x) * zoom,
+        parent.y + oy + (designed.y - designed_parent.y) * zoom,
+        clamp(designed.w * zoom, width),
+        clamp(designed.h * zoom, height),
+    )
+}
+
+/// How much an expanded card has grown: the smaller of its two ratios, which is
+/// the largest factor at which its contents still fit without distortion.
+pub fn zoom_of(designed_client: LRect, client: LRect) -> f32 {
+    ratio(designed_client.w, client.w).min(ratio(designed_client.h, client.h)).max(defaults::MIN_ZOOM)
+}
+
 /// The designed rectangle that [`place`] lays out to `target`.
 pub fn designed_rect(target: LRect, designed_parent: LRect, parent: LRect, style: i64) -> LRect {
     let rx = ratio(designed_parent.w, parent.w);

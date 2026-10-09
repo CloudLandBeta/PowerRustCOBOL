@@ -518,7 +518,7 @@ pub(crate) fn lay_out(
         }
     }
     let mode = props::layout_mode(&form);
-    let content = place_children(input, tree, None, &form, mode, designed_client, client, false, &mut out);
+    let content = place_children(input, tree, None, &form, mode, designed_client, client, None, &mut out);
     // A flex, grid or flow form is as tall as its content when that is
     // taller than the window, as a document is (R53): it lays out again at
     // that height and the surface scrolls. Its width stays the window's.
@@ -527,7 +527,7 @@ pub(crate) fn lay_out(
         if need > out.laid_out_size.1 + defaults::EPSILON {
             out.laid_out_size.1 = need;
             let client = LRect::new(0.0, 0.0, out.laid_out_size.0, need).deflate(pad);
-            place_children(input, tree, None, &form, mode, designed_client, client, false, &mut out);
+            place_children(input, tree, None, &form, mode, designed_client, client, None, &mut out);
         }
     }
     out
@@ -544,7 +544,7 @@ fn place_children(
     mode: LayoutMode,
     designed_client: LRect,
     client: LRect,
-    proportional: bool,
+    zoom: Option<f32>,
     out: &mut LayoutOutput,
 ) -> Option<(f32, f32)> {
     let kids = tree.children(parent);
@@ -566,11 +566,16 @@ fn place_children(
     let mut content: Option<(f32, f32)> = None;
     for set in page_sets(input.controls, parent, &visual) {
         let tracks = set.first().is_none_or(|&i| shown_page(input.controls, parent, &input.controls[i]));
-        if let Some((w, h)) = place_set(input, parent, src, mode, &set, designed_client, client, tracks, proportional, out) {
+        if let Some((w, h)) = place_set(input, parent, src, mode, &set, designed_client, client, tracks, zoom, out) {
             let (cw, ch) = content.unwrap_or((0.0, 0.0));
             content = Some((cw.max(w), ch.max(h)));
         }
         expand(input, &set, client, out);
+    }
+    if let Some(z) = zoom {
+        for &i in &visual {
+            zoom_font(&input.controls[i], z, out);
+        }
     }
 
     for &i in &visual {
@@ -594,10 +599,17 @@ fn place_children(
                     gaps: (0.0, 0.0),
                 },
             );
-            // Everything inside an expanded card grows with it: its contents
-            // — and theirs — are scaled with the card, not left to their anchors.
-            let stretched = proportional || (props::expanded(c) && !out.expanded_away.contains(&c.id));
-            place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, stretched, out);
+            // Everything inside an expanded card grows with it — its contents,
+            // theirs, and their text — by ONE factor, so nothing is distorted
+            // (spec 090): the card's own, unless an ancestor already set one.
+            let zoom_here = zoom.or_else(|| {
+                (props::expanded(c) && !out.expanded_away.contains(&c.id)).then(|| {
+                    let z = scale::zoom_of(dclient, lclient);
+                    zoom_font(c, z, out);
+                    z
+                })
+            });
+            place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, zoom_here, out);
         } else if c.control_type == ControlType::Splitter {
             carry_splitter(input, tree, c, designed_rect(input, c), laid, out);
         } else {
@@ -606,6 +618,28 @@ fn place_children(
         }
     }
     content
+}
+
+/// Spec 090 — the text of a control inside an expanded card grows with the
+/// card, by the same factor as its box: the size it would have had, times
+/// `zoom`, within the control's own `MaxFontSize` / `MinFontSize` and the
+/// engine's bounds. A control that opted out of font scaling (`ScaleFont` off)
+/// keeps its size. Written from the unscaled size every time, so laying out
+/// twice does not scale twice.
+fn zoom_font(c: &Control, zoom: f32, out: &mut LayoutOutput) {
+    if !c.flag("ScaleFont") || fonts::designed_size_opt(c).is_none() {
+        return;
+    }
+    let mut size = fonts::effective_size(c, out.font_factor) * zoom;
+    let (lo, hi) = (c.number("MinFontSize"), c.number("MaxFontSize"));
+    if hi > 0.0 && size > hi {
+        size = hi;
+    }
+    if lo > 0.0 && size < lo {
+        size = lo;
+    }
+    out.font_sizes
+        .insert(c.id.clone(), size.clamp(defaults::FONT_SIZE_MIN, defaults::FONT_SIZE_MAX));
 }
 
 /// Spec 090 — the Panel or GroupBox of one sibling set that is expanded takes
@@ -638,22 +672,15 @@ fn place_set(
     designed_client: LRect,
     client: LRect,
     tracks: bool,
-    proportional: bool,
+    zoom: Option<f32>,
     out: &mut LayoutOutput,
 ) -> Option<(f32, f32)> {
     // A flex, grid or flow container places its children itself (R50).
     let content = (mode != LayoutMode::Absolute).then(|| place_items(input, parent, src, mode, visual, client, tracks, out));
     // Spec 081 — on a scaling form, every control the developer did not
     // anchor or dock on purpose follows the window ratio.
-    //
-    // Inside an expanded card (spec 090) every control does — position and size
-    // — whatever its anchor says, so that all of the card's contents grow with it.
-    let scaling = if proportional {
-        defaults::SCALING_RESIZE | defaults::SCALING_REPOSITION
-    } else {
-        scale::style(&FormBag(input.form_props))
-    };
-    let scaled = |c: &Control| scaling != 0 && (proportional || !scale::opted_out(c));
+    let scaling = scale::style(&FormBag(input.form_props));
+    let scaled = |c: &Control| scaling != 0 && !scale::opted_out(c);
 
     // Docked controls first, in z-order, each taking an edge of what remains
     // (R12); every other control is anchored against the FULL client rect
@@ -684,6 +711,21 @@ fn place_set(
         let c = &input.controls[i];
         // Placed above, by its dock or its flex/grid/flow parent.
         if content.is_some() || docked.iter().any(|(d, _)| *d == i) {
+            continue;
+        }
+        // Inside an expanded card (spec 090) every control follows the card's
+        // zoom, whatever its anchor says.
+        if let Some(z) = zoom {
+            let r = scale::place_zoomed(
+                designed_rect(input, c),
+                designed_client,
+                client,
+                z,
+                props::width_limits(c),
+                props::height_limits(c),
+            );
+            out.rects.insert(c.id.clone(), r);
+            out.placement.insert(c.id.clone(), Placement::Designed);
             continue;
         }
         if scaled(c) {
@@ -848,7 +890,7 @@ fn carry_splitter(
                 gaps: (0.0, 0.0),
             },
         );
-        place_children(input, tree, Some(&pane.id), pane, mode, dclient, lclient, false, out);
+        place_children(input, tree, Some(&pane.id), pane, mode, dclient, lclient, None, out);
     }
 }
 
@@ -1061,11 +1103,11 @@ mod tests {
         away.sort_unstable();
         assert_eq!(away, ["A", "C", "D"], "its three siblings give their room up");
         let g = &open.containers["B"];
-        let (rx, ry) = (g.client.w / g.designed_client.w, g.client.h / g.designed_client.h);
+        let z = scale::zoom_of(g.designed_client, g.client);
         let after = r(&open, "IN");
         assert!(
-            (after.2 - 60.0 * rx).abs() < 1.0 && (after.3 - 20.0 * ry).abs() < 1.0,
-            "what is inside B follows its size, share for share: {after:?} for x{rx} y{ry}"
+            (after.2 - 60.0 * z).abs() < 1.0 && (after.3 - 20.0 * z).abs() < 1.0,
+            "what is inside B grows with it, by one factor in both directions: {after:?} for x{z}"
         );
 
         let two = solve_at(&build(&["A", "D"]), (800.0, 600.0), (800.0, 600.0));
@@ -1074,11 +1116,15 @@ mod tests {
     }
 
     /// Spec 090 — what is inside an expanded card grows WITH it, whatever each
-    /// control's anchor says: position and size, at every depth (operator,
+    /// control's anchor says, at every depth, text included (operator,
     /// 2026-10-08: "some elements resize when their container expands, others
-    /// don't"). A card of 100 × 100 holds, at the default top-left anchor, a label
-    /// and a panel with a label inside it; expanded to 800 × 600 they all follow
-    /// the card's 8 × 6. The same card collapsed keeps them anchored.
+    /// don't", then "fonts were supposed to grow to keep the window ratio ...
+    /// center horizontally/vertically when you can't apply the same aspect
+    /// ratio, do not distort the elements"). A card of 100 × 100 holds, at the
+    /// default top-left anchor, a label and a panel with a label inside it;
+    /// expanded to 800 × 600 they all grow by ONE factor — the smaller of 8 and
+    /// 6 — and the scaled block sits in the middle of the card, the leftover
+    /// width split on both sides.
     #[test]
     fn everything_inside_an_expanded_card_grows_with_it() {
         let s = |v: &str| PropValue::String(v.into());
@@ -1094,35 +1140,53 @@ mod tests {
             b.set_prop("Expanded", PropValue::Bool(expanded));
             let mut label = ctrl("L", ControlType::Label, (110, 20, 40, 10), Some("B")); // top-left anchored
             label.set_prop("Anchor", s("Top,Left"));
+            label.set_prop("FontSize", PropValue::Int(10));
             let mut inner = ctrl("P", ControlType::Panel, (150, 50, 40, 40), Some("B"));
             inner.set_prop("BorderStyle", s("None"));
             let mut deep = ctrl("Q", ControlType::Label, (160, 60, 20, 10), Some("P"));
             deep.set_prop("Anchor", s("Top,Left"));
-            vec![grid.clone(), card("A", 0, 0), b, card("C", 0, 100), card("D", 100, 100), label, inner, deep]
+            deep.set_prop("FontSize", PropValue::Int(8));
+            // …and one that asked to keep its text as designed.
+            let mut fixed = ctrl("F", ControlType::Label, (110, 80, 30, 10), Some("B"));
+            fixed.set_prop("FontSize", PropValue::Int(9));
+            fixed.set_prop("ScaleFont", PropValue::Bool(false));
+            vec![grid.clone(), card("A", 0, 0), b, card("C", 0, 100), card("D", 100, 100), label, inner, deep, fixed]
         };
         let shut = solve_at(&build(false), (800.0, 600.0), (800.0, 600.0));
         let open = solve_at(&build(true), (800.0, 600.0), (800.0, 600.0));
         let near = |got: f32, want: f32| (got - want).abs() <= 1.0;
         let l0 = r(&shut, "L");
         assert_eq!((l0.2, l0.3), (40.0, 10.0), "collapsed, the anchored label keeps its size: {l0:?}");
+        assert_eq!(shut.font_sizes["L"], 10.0, "…and its text");
 
-        // The card's contents: each at its share of the card's client.
+        // ONE factor, in both directions: nothing is distorted.
         let b = &open.containers["B"];
-        let (rx, ry) = (b.client.w / b.designed_client.w, b.client.h / b.designed_client.h);
-        assert!(rx > 5.0 && ry > 4.0, "the card really grew: x{rx} y{ry}");
+        let z = scale::zoom_of(b.designed_client, b.client);
+        assert!(z > 5.0, "the card really grew: x{z}");
+        assert!(
+            (b.client.w / b.designed_client.w - b.client.h / b.designed_client.h).abs() > 1.0,
+            "the card's two ratios differ, so only one factor can keep the aspect"
+        );
+        // The scaled block is centred: the leftover is split on both sides.
+        let (cx, cy) = (
+            b.client.x + (b.client.w - b.designed_client.w * z) / 2.0,
+            b.client.y + (b.client.h - b.designed_client.h * z) / 2.0,
+        );
         let l = r(&open, "L");
-        let want = (b.client.x + (110.0 - b.designed_client.x) * rx, b.client.y + (20.0 - b.designed_client.y) * ry);
-        assert!(near(l.0, want.0) && near(l.1, want.1), "the label sits at its share of the card: {l:?}, want {want:?}");
-        assert!(near(l.2, 40.0 * rx) && near(l.3, 10.0 * ry), "…and is that much bigger: {l:?} (x{rx}, y{ry})");
+        let want = (cx + (110.0 - b.designed_client.x) * z, cy + (20.0 - b.designed_client.y) * z);
+        assert!(near(l.0, want.0) && near(l.1, want.1), "the label sits at its share of the centred block: {l:?}, want {want:?}");
+        assert!(near(l.2, 40.0 * z) && near(l.3, 10.0 * z), "…at the card's factor in both directions: {l:?} (x{z})");
         let p = r(&open, "P");
-        assert!(near(p.2, 40.0 * rx) && near(p.3, 40.0 * ry), "the panel inside grows too: {p:?}");
+        assert!(near(p.2, 40.0 * z) && near(p.3, 40.0 * z), "the panel inside grows by the same factor: {p:?}");
 
         // …and what is inside THAT panel, a level deeper.
-        let inner = &open.containers["P"];
-        let (px, py) = (inner.client.w / inner.designed_client.w, inner.client.h / inner.designed_client.h);
         let q = r(&open, "Q");
-        assert!(near(q.2, 20.0 * px) && near(q.3, 10.0 * py), "a level deeper still follows: {q:?} (x{px}, y{py})");
-        assert!(px > 5.0 && py > 4.0, "…and that panel's own ratio is the card's: x{px} y{py}");
+        assert!(near(q.2, 20.0 * z) && near(q.3, 10.0 * z), "a level deeper still follows: {q:?}");
+
+        // The text grows with the boxes; a control that opted out keeps its own.
+        assert!(near(open.font_sizes["L"], 10.0 * z), "the label's text: {} for x{z}", open.font_sizes["L"]);
+        assert!(near(open.font_sizes["Q"], 8.0 * z), "…and the one a level deeper: {}", open.font_sizes["Q"]);
+        assert_eq!(open.font_sizes["F"], 9.0, "a control with ScaleFont off keeps its size");
     }
 
     /// Only a Panel or a GroupBox expands; a control of any other type carrying
