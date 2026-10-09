@@ -17,6 +17,23 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.44] — 2026-10-09
+
+### Fixed
+- **PowerAnalytics: the donuts and the histograms have colours, and each popup is a layer.**
+  The slices, the bar and line series and the legend dots drew from a palette of ten
+  blues and greys; they now share one palette of ten distinct colours (blue, amber,
+  cyan, violet, green, rose, orange, slate, lime, grey), the largest category taking
+  the first — so a category is the same colour in every chart — and the five PL
+  brackets each have a colour of their own. The two drop-downs, `LV-DROP` (levels 2
+  and 3) and `SM-DROP` (the name and category search), each moved into a layer of
+  its own (`POPUP-LEVELS`, `POPUP-SEARCH`), with a transparent scrim in the same
+  layer (`SCRIM-LV`, `SCRIM-SM`, replacing the shared `SCRIM`) that closes the list on
+  a click outside; the program shows and hides them with
+  `SET POPUP-LEVELS::Visible TO TRUE`. A layer is never laid out, so
+  `SET-FILT-HEIGHT` now writes the place and size of each popup and of what is in it
+  whenever the window changes size.
+
 ## [PowerRustCOBOL 1.90.43] — 2026-10-09
 
 ### Fixed

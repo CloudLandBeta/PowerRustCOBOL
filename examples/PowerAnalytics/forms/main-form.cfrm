@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="MAIN-FORM" title="PowerAnalytics - Fundos de investimento" width="1440" height="900" background="#EAF2FA14" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" main-form="true" title-visible="false" corner-radius="15" index-base="1" window-effects="false" start-position="Center" responsive="true">
+  <Layer name="POPUP-LEVELS" color="#00000000"/>
+  <Layer name="POPUP-SEARCH" color="#00000000"/>
   <FormLayout FontScaling="Fluid" MaxFontScale="1.3" MinFormHeight="520" MinFormWidth="360"/>
   <Breakpoints>
     <Breakpoint name="Compact" min-width="0" font-factor="1">
@@ -13,9 +15,6 @@
       <Override control="LBL-BAR-U" property="Visible">0</Override>
       <Override control="LBL-ACUM" property="Visible">0</Override>
       <Override control="LBL-LIN-T" property="FontSize">14</Override>
-      <Override control="LV-DROP" property="FlexDirection">Column</Override>
-      <Override control="GRP-N2" property="MinWidth">0</Override>
-      <Override control="GRP-N3" property="MinWidth">0</Override>
       <Override control="GRP-NOME" property="MinWidth">0</Override>
       <Override control="GRP-CAT" property="MinWidth">0</Override>
       <Override control="GRP-PER" property="MinWidth">0</Override>
@@ -192,15 +191,15 @@
        01 WS-ELAPSED      GLOBAL PIC S9(9) VALUE 0.
        01 WS-STAGE        GLOBAL PIC 99 VALUE 0.
        01 WS-COLOR-DATA   GLOBAL.
-          05 FILLER PIC X(7) VALUE "#394670".
-          05 FILLER PIC X(7) VALUE "#22C3D6".
           05 FILLER PIC X(7) VALUE "#3E7BE8".
-          05 FILLER PIC X(7) VALUE "#8EDCE8".
-          05 FILLER PIC X(7) VALUE "#5F7FB8".
-          05 FILLER PIC X(7) VALUE "#B7CDF2".
-          05 FILLER PIC X(7) VALUE "#1B2A59".
-          05 FILLER PIC X(7) VALUE "#1297AB".
-          05 FILLER PIC X(7) VALUE "#6FA2F0".
+          05 FILLER PIC X(7) VALUE "#F5A524".
+          05 FILLER PIC X(7) VALUE "#22C3D6".
+          05 FILLER PIC X(7) VALUE "#8B5CF6".
+          05 FILLER PIC X(7) VALUE "#2FBF71".
+          05 FILLER PIC X(7) VALUE "#F0527A".
+          05 FILLER PIC X(7) VALUE "#FF7A45".
+          05 FILLER PIC X(7) VALUE "#394670".
+          05 FILLER PIC X(7) VALUE "#B5D334".
           05 FILLER PIC X(7) VALUE "#C9D3E6".
        01 WS-COLOR-TAB    REDEFINES WS-COLOR-DATA GLOBAL.
           05 WS-COLOR PIC X(7) OCCURS 10.
@@ -563,20 +562,14 @@
            END-IF
            CALL "SET-FILT-HEIGHT"
            CALL "SM-REFRESH"
-           COMPUTE WS-N = SM-DROP::Y + SM-DROP::Height
-           MOVE WS-N TO SCRIM::Y
-           INVOKE SCRIM::Show()
-           INVOKE SM-DROP::Show()
-           INVOKE SCRIM::BringToFront()
-           INVOKE SM-DROP::BringToFront()
+           SET POPUP-SEARCH::Visible TO TRUE
 ]]></Event>
     <Event name="SM-CLOSE" paragraph="SM-CLOSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            IF WS-SM NOT = SPACE
                MOVE SPACE TO WS-SM
-               INVOKE SM-DROP::Hide()
-               INVOKE SCRIM::Hide()
+               SET POPUP-SEARCH::Visible TO FALSE
            END-IF
 ]]></Event>
     <Event name="SM-REFRESH" paragraph="SM-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2584,6 +2577,14 @@
        01 WS-H2 PIC 9(4).
        01 WS-Y1 PIC 9(4).
        01 WS-FWID PIC 9(5).
+       01 WS-PW PIC 9(5).
+       01 WS-CW PIC 9(5).
+       01 WS-CH PIC 9(5).
+       01 WS-GX2 PIC 9(5).
+       01 WS-GY2 PIC 9(5).
+       01 WS-GX3 PIC 9(5).
+       01 WS-GY3 PIC 9(5).
+       01 WS-T PIC 9(5).
        PROCEDURE DIVISION.
            MOVE me::Breakpoint TO WS-BP
            MOVE me::Width TO WS-FWID
@@ -2611,9 +2612,84 @@
            END-EVALUATE
            MOVE WS-H1 TO FILT::Height
            COMPUTE WS-Y1 = 24 + 64 + 20 + WS-H1 + 8
+           COMPUTE WS-PW = WS-FWID - 48
+           IF WS-BP = "Compact"
+               COMPUTE WS-CW = WS-PW - 28
+               COMPUTE WS-CH = (WS-H2 - 28 - 14) / 2
+               MOVE 38 TO WS-GX2
+               COMPUTE WS-GY2 = WS-Y1 + 14
+               MOVE 38 TO WS-GX3
+               COMPUTE WS-GY3 = WS-Y1 + 14 + WS-CH + 14
+           ELSE
+               COMPUTE WS-CW = (WS-PW - 28 - 14) / 2
+               COMPUTE WS-CH = WS-H2 - 28
+               MOVE 38 TO WS-GX2
+               COMPUTE WS-GY2 = WS-Y1 + 14
+               COMPUTE WS-GX3 = 38 + WS-CW + 14
+               MOVE WS-GY2 TO WS-GY3
+           END-IF
+           MOVE 24 TO LV-DROP::X
            MOVE WS-Y1 TO LV-DROP::Y
+           MOVE WS-PW TO LV-DROP::Width
            MOVE WS-H2 TO LV-DROP::Height
+           MOVE WS-GX2 TO GRP-N2::X
+           MOVE WS-GY2 TO GRP-N2::Y
+           MOVE WS-CW TO GRP-N2::Width
+           MOVE WS-CH TO GRP-N2::Height
+           MOVE WS-GX2 TO LBL-F-N2::X
+           MOVE WS-GY2 TO LBL-F-N2::Y
+           MOVE WS-CW TO LBL-F-N2::Width
+           MOVE WS-GX2 TO LST-N2::X
+           COMPUTE WS-T = WS-GY2 + 18
+           MOVE WS-T TO LST-N2::Y
+           MOVE WS-CW TO LST-N2::Width
+           COMPUTE WS-T = WS-CH - 18
+           MOVE WS-T TO LST-N2::Height
+           MOVE WS-GX3 TO GRP-N3::X
+           MOVE WS-GY3 TO GRP-N3::Y
+           MOVE WS-CW TO GRP-N3::Width
+           MOVE WS-CH TO GRP-N3::Height
+           MOVE WS-GX3 TO LBL-F-N3::X
+           MOVE WS-GY3 TO LBL-F-N3::Y
+           MOVE WS-CW TO LBL-F-N3::Width
+           MOVE WS-GX3 TO LST-N3::X
+           COMPUTE WS-T = WS-GY3 + 18
+           MOVE WS-T TO LST-N3::Y
+           MOVE WS-CW TO LST-N3::Width
+           COMPUTE WS-T = WS-CH - 18
+           MOVE WS-T TO LST-N3::Height
+           COMPUTE WS-T = WS-Y1 + WS-H2
+           MOVE WS-T TO SCRIM-LV::Y
+           MOVE WS-FWID TO SCRIM-LV::Width
+           MOVE 24 TO SM-DROP::X
            MOVE WS-Y1 TO SM-DROP::Y
+           MOVE WS-PW TO SM-DROP::Width
+           MOVE 46 TO LBL-SM-T::X
+           COMPUTE WS-T = WS-Y1 + 10
+           MOVE WS-T TO LBL-SM-T::Y
+           COMPUTE WS-T = WS-PW - 44
+           MOVE WS-T TO LBL-SM-T::Width
+           MOVE 38 TO LST-SM::X
+           COMPUTE WS-T = WS-Y1 + 36
+           MOVE WS-T TO LST-SM::Y
+           COMPUTE WS-T = WS-PW - 28
+           MOVE WS-T TO LST-SM::Width
+           MOVE 46 TO LBL-SM-INFO::X
+           COMPUTE WS-T = WS-Y1 + 258
+           MOVE WS-T TO LBL-SM-INFO::Y
+           COMPUTE WS-T = WS-PW - 44 - 250
+           MOVE WS-T TO LBL-SM-INFO::Width
+           COMPUTE WS-T = WS-PW - 236
+           MOVE WS-T TO BTN-SM-CLR::X
+           COMPUTE WS-T = WS-Y1 + 258
+           MOVE WS-T TO BTN-SM-CLR::Y
+           COMPUTE WS-T = WS-PW - 98
+           MOVE WS-T TO BTN-SM-OK::X
+           COMPUTE WS-T = WS-Y1 + 258
+           MOVE WS-T TO BTN-SM-OK::Y
+           COMPUTE WS-T = WS-Y1 + 300
+           MOVE WS-T TO SCRIM-SM::Y
+           MOVE WS-FWID TO SCRIM-SM::Width
            IF WS-BP = "Expanded"
                MOVE 0 TO PG-DASH::VScroll
                MOVE 0 TO PG-DATA::VScroll
@@ -2627,8 +2703,7 @@
        PROCEDURE DIVISION.
            IF WS-LEVELS-OPEN = 1
                MOVE 0 TO WS-LEVELS-OPEN
-               INVOKE LV-DROP::Hide()
-               INVOKE SCRIM::Hide()
+               SET POPUP-LEVELS::Visible TO FALSE
                MOVE "Níveis 2 e 3" TO BTN-LEVELS::Caption
            END-IF
 ]]></Event>
@@ -3678,12 +3753,7 @@
                CALL "SM-CLOSE"
                MOVE 1 TO WS-LEVELS-OPEN
                CALL "SET-FILT-HEIGHT"
-               COMPUTE WS-N = LV-DROP::Y + LV-DROP::Height
-               MOVE WS-N TO SCRIM::Y
-               INVOKE SCRIM::Show()
-               INVOKE LV-DROP::Show()
-               INVOKE SCRIM::BringToFront()
-               INVOKE LV-DROP::BringToFront()
+               SET POPUP-LEVELS::Visible TO TRUE
                MOVE "Fechar níveis" TO BTN-LEVELS::Caption
            ELSE
                CALL "CLOSE-LEVELS"
@@ -4257,7 +4327,7 @@
     <Property name="ShowLegend">true</Property>
     <Property name="BarCornerRadius">5</Property>
     <Property name="ShowGridLines">false</Property>
-    <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8</Property>
+    <Property name="SeriesColors">#3E7BE8,#F5A524,#22C3D6</Property>
     <Property name="AnimateValues">true</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -4966,7 +5036,7 @@
     <Property name="ShowLabels">false</Property>
     <Property name="ShowGridLines">false</Property>
     <Property name="InnerRadius">66</Property>
-    <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8,#8EDCE8,#5F7FB8,#B7CDF2,#1B2A59,#1297AB,#6FA2F0,#C9D3E6</Property>
+    <Property name="SeriesColors">#3E7BE8,#F5A524,#22C3D6,#8B5CF6,#2FBF71,#F0527A,#FF7A45,#394670,#B5D334,#C9D3E6</Property>
     <Property name="AnimateValues">true</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -5812,7 +5882,7 @@
     <Property name="ShowLabels">false</Property>
     <Property name="ShowGridLines">false</Property>
     <Property name="InnerRadius">64</Property>
-    <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8,#8EDCE8,#5F7FB8,#B7CDF2,#1B2A59,#1297AB,#6FA2F0,#C9D3E6</Property>
+    <Property name="SeriesColors">#3E7BE8,#F5A524,#22C3D6,#8B5CF6,#2FBF71,#F0527A,#FF7A45,#394670,#B5D334,#C9D3E6</Property>
     <Property name="AnimateValues">true</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -6659,7 +6729,7 @@
     <Property name="ShowGridLines">false</Property>
     <Property name="ShowPoints">true</Property>
     <Property name="PointRadius">3</Property>
-    <Property name="SeriesColors">#394670,#22C3D6,#3E7BE8</Property>
+    <Property name="SeriesColors">#3E7BE8,#F5A524,#22C3D6</Property>
     <Property name="AnimateValues">true</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -6826,7 +6896,7 @@
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100</Property>
     <Property name="Value">0</Property>
-    <Property name="Color">#9DB5D8</Property>
+    <Property name="Color">#2FBF71</Property>
     <Property name="BarHeight">8</Property>
     <Property name="ShowThumb">false</Property>
     <Property name="Unit">%</Property>
@@ -6930,7 +7000,7 @@
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100</Property>
     <Property name="Value">0</Property>
-    <Property name="Color">#5B7DB1</Property>
+    <Property name="Color">#22C3D6</Property>
     <Property name="BarHeight">8</Property>
     <Property name="ShowThumb">false</Property>
     <Property name="Unit">%</Property>
@@ -7138,7 +7208,7 @@
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100</Property>
     <Property name="Value">0</Property>
-    <Property name="Color">#22C3D6</Property>
+    <Property name="Color">#8B5CF6</Property>
     <Property name="BarHeight">8</Property>
     <Property name="ShowThumb">false</Property>
     <Property name="Unit">%</Property>
@@ -7242,7 +7312,7 @@
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100</Property>
     <Property name="Value">0</Property>
-    <Property name="Color">#394670</Property>
+    <Property name="Color">#F0527A</Property>
     <Property name="BarHeight">8</Property>
     <Property name="ShowThumb">false</Property>
     <Property name="Unit">%</Property>
@@ -8294,7 +8364,7 @@ Data de referência:string</Property>
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LV-DROP" type="GroupBox" x="24" y="192" w="1392" h="196" tab-order="197" z-order="196" visible="false" enabled="true">
+  <Control id="LV-DROP" type="GroupBox" x="24" y="192" w="1392" h="196" tab-order="197" z-order="196" visible="true" enabled="true" layer="POPUP-LEVELS">
     <Property name="BackgroundColor">#F4F8FF</Property>
     <Property name="Transparency">0</Property>
     <Property name="BorderStyle">Single</Property>
@@ -8309,10 +8379,6 @@ Data de referência:string</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
     <Property name="BorderColor">#C4D3EA</Property>
-    <Property name="LayoutMode">Flex</Property>
-    <Property name="Gap">14</Property>
-    <Property name="Padding">14</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -8336,10 +8402,6 @@ Data de referência:string</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="HideBackground">true</Property>
-    <Property name="FlexGrow">1</Property>
-    <Property name="FlexBasis">0</Property>
-    <Property name="MinWidth">150</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8365,7 +8427,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8390,7 +8451,6 @@ Data de referência:string</Property>
     <Property name="CornerRadius">12</Property>
     <Property name="FontSize">12</Property>
     <Property name="ShowCheckBoxes">true</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ActiveItemColor">#1F4E9A</Property>
     <Property name="ActiveItemTextColor">#FFFFFF</Property>
     <Property name="SelectedItemsColor">#CFE0F7</Property>
@@ -8411,10 +8471,6 @@ Data de referência:string</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="HideBackground">true</Property>
-    <Property name="FlexGrow">1</Property>
-    <Property name="FlexBasis">0</Property>
-    <Property name="MinWidth">150</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8440,7 +8496,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8465,7 +8520,6 @@ Data de referência:string</Property>
     <Property name="CornerRadius">12</Property>
     <Property name="FontSize">12</Property>
     <Property name="ShowCheckBoxes">true</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ActiveItemColor">#1F4E9A</Property>
     <Property name="ActiveItemTextColor">#FFFFFF</Property>
     <Property name="SelectedItemsColor">#CFE0F7</Property>
@@ -8482,7 +8536,7 @@ Data de referência:string</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
   </Control>
-  <Control id="SM-DROP" type="GroupBox" x="24" y="192" w="1392" h="300" tab-order="204" z-order="203" visible="false" enabled="true">
+  <Control id="SM-DROP" type="GroupBox" x="24" y="192" w="1392" h="300" tab-order="204" z-order="203" visible="true" enabled="true" layer="POPUP-SEARCH">
     <Property name="BackgroundColor">#F4F8FF</Property>
     <Property name="Transparency">0</Property>
     <Property name="BorderStyle">Single</Property>
@@ -8497,7 +8551,6 @@ Data de referência:string</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
     <Property name="BorderColor">#C4D3EA</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -8526,7 +8579,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8551,7 +8603,6 @@ Data de referência:string</Property>
     <Property name="CornerRadius">12</Property>
     <Property name="FontSize">12</Property>
     <Property name="ShowCheckBoxes">true</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ActiveItemColor">#1F4E9A</Property>
     <Property name="ActiveItemTextColor">#FFFFFF</Property>
     <Property name="SelectedItemsColor">#CFE0F7</Property>
@@ -8587,7 +8638,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Bottom,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8611,7 +8661,6 @@ Data de referência:string</Property>
     <Property name="Bold">true</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">14</Property>
-    <Property name="Anchor">Bottom,Right</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="Transparency">10</Property>
@@ -8640,7 +8689,6 @@ Data de referência:string</Property>
     <Property name="Bold">true</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">14</Property>
-    <Property name="Anchor">Bottom,Right</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="Transparency">10</Property>
@@ -8663,11 +8711,10 @@ Data de referência:string</Property>
 
 ]]></Event>
   </Control>
-  <Control id="SCRIM" type="Panel" x="0" y="492" w="1440" h="1000" tab-order="210" z-order="209" visible="false" enabled="true">
+  <Control id="SCRIM-SM" type="Panel" x="0" y="492" w="1440" h="1000" tab-order="210" z-order="209" visible="true" enabled="true" layer="POPUP-SEARCH">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="HideBackground">true</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8683,10 +8730,35 @@ Data de referência:string</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
-    <Event name="onClick" paragraph="SCRIM--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="onClick" paragraph="SCRIM-SM--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "SM-CLOSE"
+
+]]></Event>
+  </Control>
+  <Control id="SCRIM-LV" type="Panel" x="0" y="388" w="1440" h="1000" tab-order="213" z-order="212" visible="true" enabled="true" layer="POPUP-LEVELS">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">0</Property>
+    <Event name="onClick" paragraph="SCRIM-LV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
            CALL "CLOSE-LEVELS"
 
 ]]></Event>
