@@ -679,6 +679,15 @@ pub struct InspectorAction {
     /// `(old_id, new_id)` — set when the user renames the selected control in the
     /// Identity header. The caller renames it throughout the form.
     pub rename_control: Option<(String, String)>,
+    /// Spec 091 — the active layer's backdrop properties the developer edited, as
+    /// `(property, value)` in the names of [`cobolt_forms::model::LAYER_PROPS`]. The
+    /// caller applies each to the layer the tab bar has active, as one undo step.
+    pub layer_props: Vec<(String, String)>,
+    /// Spec 091 — the new name typed on the layer's `Name` row.
+    pub rename_layer: Option<String>,
+    /// Spec 091 R31 — the layer the selected controls were sent to from the `Layer`
+    /// row: a layer's name, or `Form` (the base).
+    pub move_to_layer: Option<String>,
 }
 
 /// Which pass of the type-specific properties is being drawn — see
@@ -3572,6 +3581,15 @@ pub struct PropertiesPanel {
     /// selected control (lower-case keys): their rows carry a marker and a
     /// "reset to base" button. Empty while the design itself is viewed.
     pub overridden: std::collections::HashSet<String>,
+    /// Spec 091 R30, R57 — set by the designer each frame: while a layer or the
+    /// `Non-Visuals` tab is active the form cannot be resized, so the form's
+    /// `Width` and `Height` rows are read only.
+    pub form_size_locked: bool,
+    /// Spec 091 — set by the designer each frame: the layer the tab bar has active,
+    /// when one is. With no control selected the pane then shows the layer — its
+    /// name and its backdrop — instead of the form, since a layer has the form's
+    /// background properties and nothing else (R15, R16, R24).
+    pub layer_view: Option<cobolt_forms::Layer>,
     hints: HintState,
     text_bufs: std::collections::HashMap<String, String>,
     form_bufs: std::collections::HashMap<String, String>,
@@ -3667,6 +3685,8 @@ impl PropertiesPanel {
     pub fn new() -> Self {
         Self {
             overridden: Default::default(),
+            form_size_locked: false,
+            layer_view: None,
             hints: Default::default(),
             text_bufs: Default::default(),
             form_bufs: Default::default(),
@@ -3810,13 +3830,19 @@ impl PropertiesPanel {
         if !self.property_split.is_finite() || self.property_split <= 0.0 {
             self.property_split = auto_split;
         }
+        // A layer has no events and no procedures of its own (spec 091 Q9): with
+        // one in view and no control selected, there is one page and no tabs.
+        let layer_view = ctrl.is_none().then(|| self.layer_view.clone()).flatten();
         // The tabs stay put above the rows, however far the rows scroll.
-        self.show_tabs(ui, tr);
+        if layer_view.is_none() {
+            self.show_tabs(ui, tr);
+        }
         // …and so does the search of the Properties and Events tabs: it
         // narrows the rows to a name, a word of their explanation, their
         // section or their purpose (operator, 2026-10-04).
         let lang = crate::i18n::current_language(ui.ctx());
-        match self.active_tab {
+        let shown_tab = if layer_view.is_some() { InspectorTab::Visuals } else { self.active_tab };
+        match shown_tab {
             InspectorTab::Visuals => {
                 search_box(ui, &mut self.property_filter, tr.prop_search_hint, tr.search_clear);
                 begin_row_search(&self.property_filter, lang);
@@ -3827,7 +3853,7 @@ impl PropertiesPanel {
             }
             _ => {}
         }
-        let no_match = if self.active_tab == InspectorTab::Events { tr.event_search_none } else { tr.prop_search_none };
+        let no_match = if shown_tab == InspectorTab::Events { tr.event_search_none } else { tr.prop_search_none };
         OVERRIDDEN.with(|o| *o.borrow_mut() = self.overridden.clone());
         RESET_LABEL.with(|l| *l.borrow_mut() = tr.prop_reset_to_base.to_owned());
         ScrollArea::vertical()
@@ -3851,6 +3877,8 @@ impl PropertiesPanel {
                         }
                         _ => self.show_control(ui, form, ctrl, indexed_files, &mut action, tr),
                     }
+                } else if let Some(layer) = &layer_view {
+                    self.show_layer(ui, layer, &mut action, tr);
                 } else {
                     self.show_form(ui, form, &mut action, tr);
                 }
@@ -3971,7 +3999,12 @@ impl PropertiesPanel {
         match self.active_tab {
             InspectorTab::Visuals => {
                 // ── Geometry ──────────────────────────────────────────────────────────
-                self.show_geometry_grid(ui, ctrl, &id, action, tr);
+                // A non-visual control has none (spec 091 R49, R52): it is a card on
+                // the `Non-Visuals` tab, whose cell and size the grid decides, so
+                // there is no X, Y, Width, Height or Z order to set.
+                if !ctrl.control_type.is_non_visual() {
+                    self.show_geometry_grid(ui, form, ctrl, &id, action, tr);
+                }
                 if ctrl.get_prop("CornerRadius").is_some() {
                     // CornerRadius rounds a Shape only when it is a Rectangle
                     // (circles/triangles have no corners to round).
@@ -4172,6 +4205,15 @@ impl PropertiesPanel {
             ui.label(RichText::new(text).small().italics().color(Color32::GRAY));
             ui.add_space(4.0);
         };
+        // Spec 091 R21 — only the base is laid out: a control in a layer keeps its
+        // designed rectangle, so it is offered no Dock, Anchor or layout mode.
+        let in_layer = form
+            .layer_of(&ctrl.id)
+            .is_some_and(|n| form.layer_index(n).is_some());
+        if in_layer {
+            hint(ui, tr.layer_layout_hint);
+            return;
+        }
         if !form.lays_out() {
             hint(ui, tr.layout_off_hint);
             return;
@@ -4496,6 +4538,7 @@ impl PropertiesPanel {
     fn show_geometry_grid(
         &mut self,
         ui: &mut Ui,
+        form: &Form,
         ctrl: &Control,
         id: &str,
         action: &mut InspectorAction,
@@ -4573,6 +4616,33 @@ impl PropertiesPanel {
             }
             ui.label(RichText::new("(z-order)").small().color(Color32::GRAY));
         });
+        // Spec 091 R3, R31 — the layer a control is in. Every control but a
+        // non-visual one (R47) names one; a control inside a container follows its
+        // container (R8), so its row shows the container's layer and takes no input.
+        if !ctrl.control_type.is_non_visual() && !form.layers.is_empty() {
+            let current = form
+                .layer_of(&ctrl.id)
+                .and_then(|n| form.layers.iter().find(|l| l.name.eq_ignore_ascii_case(n)))
+                .map_or(cobolt_forms::model::BASE_LAYER_NAME, |l| l.name.as_str());
+            let inside = ctrl.parent.is_some();
+            property_row_keyed(ui, tr.lbl_layer, Some("Layer"), |ui| {
+                if inside {
+                    ui.disable();
+                }
+                egui::ComboBox::from_id_salt(("control_layer", id))
+                    .selected_text(current)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        let choices = std::iter::once(cobolt_forms::model::BASE_LAYER_NAME)
+                            .chain(form.layers.iter().map(|l| l.name.as_str()));
+                        for choice in choices {
+                            if ui.selectable_label(choice.eq_ignore_ascii_case(current), choice).clicked() {
+                                action.move_to_layer = Some(choice.to_owned());
+                            }
+                        }
+                    });
+            });
+        }
         // Locked: the canvas position lock (spec 056 R34 — this was the boolean
         // `Anchor`, which now carries the parent edges a responsive control
         // follows). When on, the control can't be moved by dragging it with the
@@ -10723,10 +10793,14 @@ impl PropertiesPanel {
                 action.form_props.push(("Y".into(), y.to_string()));
             }
         });
+        let size_locked = self.form_size_locked;
         let mut w = form.width as i64;
         property_row_keyed(ui, tr.lbl_width, Some("Width"), |ui| {
             if ui
-                .add(DragValue::new(&mut w).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)))
+                .add_enabled(
+                    !size_locked,
+                    DragValue::new(&mut w).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)),
+                )
                 .changed()
             {
                 action.form_props.push(("Width".into(), w.to_string()));
@@ -10735,7 +10809,10 @@ impl PropertiesPanel {
         let mut h = form.height as i64;
         property_row_keyed(ui, tr.lbl_height, Some("Height"), |ui| {
             if ui
-                .add(DragValue::new(&mut h).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)))
+                .add_enabled(
+                    !size_locked,
+                    DragValue::new(&mut h).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)),
+                )
                 .changed()
             {
                 action.form_props.push(("Height".into(), h.to_string()));
@@ -10825,7 +10902,146 @@ impl PropertiesPanel {
         }
     }
 
+    /// The inspector of a layer (spec 091 R15, R16, R24): its `Name` and the
+    /// form's own background properties, with the same meaning and ranges — and
+    /// nothing else. No `CornerRadius` and no window property (R16), no `Visible`
+    /// (a state of the running program and a design aid, never saved — R35), and no
+    /// events or procedures (Q9).
+    fn show_layer(&mut self, ui: &mut Ui, layer: &cobolt_forms::Layer, action: &mut InspectorAction, tr: &Tr) {
+        self.property_split = self.property_split.clamp(72.0, ui.available_width().max(72.0));
+        ui.data_mut(|d| d.insert_temp(property_split_id(), self.property_split));
+        let b = &layer.backdrop;
+        section_header(ui, tr.sec_layer);
+
+        // Name: renamed throughout the form on commit, so every reference follows.
+        let name_key = "layer-Name".to_owned();
+        let name_wid = egui::Id::new(&name_key);
+        let buf = self.form_bufs.entry(name_key).or_insert(layer.name.clone());
+        if *buf != layer.name && !ui.memory(|m| m.has_focus(name_wid)) {
+            *buf = layer.name.clone();
+        }
+        property_row_keyed(ui, tr.lbl_name, Some("Name"), |ui| {
+            if ui
+                .add(egui::TextEdit::singleline(buf).id(name_wid).desired_width(ui.available_width()))
+                .lost_focus()
+                && *buf != layer.name
+            {
+                action.rename_layer = Some(buf.clone());
+            }
+        });
+
+        section_header(ui, tr.sec_appearance);
+        property_row_keyed(ui, tr.lbl_back_color, Some("BackgroundColor"), |ui| {
+            let mut color = hex_to_color32(&b.color);
+            if color_edit_button_closing(ui, &mut color).changed() {
+                action.layer_props.push(("BackgroundColor".into(), color32_to_hex(color)));
+            }
+            ui.label(RichText::new(color32_to_hex(color)).monospace().small().color(Color32::GRAY));
+        });
+        property_row_keyed(ui, tr.lbl_gradient, Some("BackgroundGradientEnabled"), |ui| {
+            let mut enabled = b.gradient_enabled;
+            if ui.checkbox(&mut enabled, "").changed() {
+                action.layer_props.push(("BackgroundGradientEnabled".into(), enabled.to_string()));
+            }
+        });
+        if b.gradient_enabled {
+            for (label, key, current) in [
+                (tr.lbl_gradient_start, "BackgroundGradientStartColor", &b.gradient_start_color),
+                (tr.lbl_gradient_end, "BackgroundGradientEndColor", &b.gradient_end_color),
+            ] {
+                property_row_keyed(ui, label, Some(key), |ui| {
+                    let mut color = hex_to_color32(current);
+                    if color_edit_button_closing(ui, &mut color).changed() {
+                        action.layer_props.push((key.into(), color32_to_hex(color)));
+                    }
+                    ui.label(RichText::new(color32_to_hex(color)).monospace().small().color(Color32::GRAY));
+                });
+            }
+            property_row_keyed(ui, tr.lbl_gradient_direction, Some("BackgroundGradientDirection"), |ui| {
+                let current = b.gradient_direction.as_str();
+                egui::ComboBox::from_id_salt("layer_background_gradient_direction")
+                    .selected_text(current)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for direction in ["North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest"] {
+                            if ui.selectable_label(current == direction, direction).clicked() {
+                                action.layer_props.push(("BackgroundGradientDirection".into(), direction.into()));
+                            }
+                        }
+                    });
+            });
+        }
+        property_row_keyed(ui, tr.lbl_transparency, Some("Transparency"), |ui| {
+            let mut trans = b.transparency as i64;
+            if ui.add(DragValue::new(&mut trans).speed(1).range(0..=100).suffix("%")).changed() {
+                action.layer_props.push(("Transparency".into(), trans.to_string()));
+            }
+        });
+
+        // Background image: a path, and a button to browse for one.
+        {
+            let vp = ui.ctx().viewport_id();
+            let buf_key = format!("layer-BgImage:{vp:?}");
+            let wid = egui::Id::new(&buf_key);
+            let buf = self.form_bufs.entry(buf_key).or_insert(b.image.clone());
+            if *buf != b.image && !ui.memory(|m| m.has_focus(wid)) {
+                *buf = b.image.clone();
+            }
+            property_row_keyed(ui, tr.lbl_image_path, Some("BackgroundImage"), |ui| {
+                let pick_k = format!("layer-BgImage-pick:{vp:?}");
+                if ui.button("📂").on_hover_text(tr.tip_browse_image).clicked() {
+                    crate::file_dialog::open_file(
+                        ui.ctx(),
+                        &pick_k,
+                        "Images",
+                        &["png", "jpg", "jpeg", "bmp", "gif", "ico", "webp", "svg"],
+                    );
+                }
+                if crate::file_dialog::is_open(&pick_k) {
+                    ui.ctx().request_repaint();
+                }
+                if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
+                    let path_str = store_asset_path(&p);
+                    *buf = path_str.clone();
+                    action.layer_props.push(("BackgroundImage".into(), path_str));
+                }
+                if ui
+                    .add(egui::TextEdit::singleline(buf).id(wid).hint_text("/path/to/image.png").desired_width(ui.available_width()))
+                    .lost_focus()
+                    && *buf != b.image
+                {
+                    action.layer_props.push(("BackgroundImage".into(), buf.clone()));
+                }
+            });
+        }
+        property_row_keyed(ui, tr.lbl_img_mode, Some("BackgroundImageMode"), |ui| {
+            let cur_mode = b.image_mode.as_str();
+            egui::ComboBox::from_id_salt("layer_bgimage_mode")
+                .selected_text(cur_mode)
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for &opt in BgImageMode::all() {
+                        if ui.selectable_label(cur_mode == opt, opt).clicked() {
+                            action.layer_props.push(("BackgroundImageMode".into(), opt.to_owned()));
+                        }
+                    }
+                });
+        });
+        if !search_hides_extras() {
+            ui.label(
+                RichText::new(tr.hint_layer_runtime.replacen("{}", &layer.name, 1))
+                    .small()
+                    .color(crate::contrast::ink(Color32::GRAY))
+                    .italics(),
+            );
+        }
+    }
+
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
+        // The rows that change the form's size — Width and Height (below, in the
+        // geometry section), the target device and the orientation — are read only
+        // while a layer or `Non-Visuals` is the active tab (spec 091 R30, R57).
+        let size_locked = self.form_size_locked;
         self.property_split = self
             .property_split
             .clamp(72.0, ui.available_width().max(72.0));
@@ -10876,6 +11092,9 @@ impl PropertiesPanel {
                 section_header(ui, tr.sec_target);
                 property_row_keyed(ui, tr.lbl_target_label, Some("Target"), |ui| {
                     use super::designer::TARGET_PRESETS;
+                    if size_locked {
+                        ui.disable();
+                    }
 
                     let cur = form.target.as_str();
                     // Show current selection + dimensions hint
@@ -10975,6 +11194,9 @@ impl PropertiesPanel {
                         });
                 });
                 property_row_keyed(ui, tr.lbl_orientation, Some("Orientation"), |ui| {
+                    if size_locked {
+                        ui.disable();
+                    }
                     let portrait = form.width <= form.height;
                     ui.horizontal(|ui| {
                         // Icons, not words — a tall and a wide device outline;

@@ -33,6 +33,7 @@ pub mod indexed_grid;
 pub mod import_keys_modal;
 pub mod indexed_new_dialog;
 pub mod indexed_properties;
+pub mod layer_tabs;
 pub mod leaderboard_modal;
 pub mod md_render;
 pub mod model_search;

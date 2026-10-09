@@ -5002,6 +5002,17 @@ Without the clause, `.` is the decimal point and `,` groups digits, the usual wa
 - A group, a `REDEFINES` and a record see the storage bytes; a national `RECORD KEY` orders by code point; a LINE SEQUENTIAL file holds the characters as UTF-8 text. A `.cidx` field may be `PIC N(n)` or `PIC U(n)`.
 - A form property is text: `MOVE TXT-NAME::Text TO WS-NAME` (`PIC N(40)`) and `MOVE WS-NAME TO LBL-OUT::Caption` keep every character.
 - Check refuses: arithmetic on a national or UTF-8 item; `USAGE NATIONAL` without `PIC N`, `USAGE UTF-8` without `PIC U`; `BYTE-LENGTH` other than on a single `PIC U`; a VALUE longer than the item; national numeric (`PIC 9 USAGE NATIONAL`) and national-edited pictures, which are not supported yet.
+
+## Layers — planes stacked above the form
+A form may carry up to 64 **layers** above its base; the base is called `Form`. A layer has a name, a backdrop and the controls placed on it. It covers exactly the form's rectangle, is painted above the base and above the layers under it, and **is hidden at run time until the program shows it**.
+
+- **A layer is an object**, addressed like a control: `SET LAYER-1::Visible TO TRUE.` shows it and `SET LAYER-1::Visible TO FALSE.` hides it. It stays as the program left it, and reading `Visible` before any write gives false. The state the designer was left showing is never saved: every layer starts hidden in every host (`rcrun run-form`, a form embedded as a child, a compiled binary).
+- **A layer has exactly these properties**: `Name` (read only), `Visible`, `Transparency` (0–100), `BackgroundColor`, `BackgroundGradientEnabled`, `BackgroundGradientStartColor`, `BackgroundGradientEndColor`, `BackgroundGradientDirection`, `BackgroundImage` and `BackgroundImageMode`. They take `MOVE`/`SET`, `CALL "COBOL-SET-PROPERTY"` and `INVOKE … "SetProperty"`, and a write shows on the next frame. Booleans read as `true`/`false`. A layer has no methods, no events, no `CornerRadius` and no window property: anything else is refused as an error at build time and at run time, never ignored.
+- **A control in a layer is addressed by its name exactly as one on `Form`** (`MY-BOX::Text`), whichever layer it is on. Control names and layer names share ONE namespace, compared without regard to letter case; `Form` and `Non-Visuals` are not layer names.
+- **Painting and the mouse**: every control of a layer paints above every control of the layers below it, whatever their `ZOrder`. A mouse event goes to the nearest control with a painted part at that point; a transparent area of a layer lets it fall through to the layer below; an opaque layer background holds it (nothing below receives it); a layer's background never runs a handler, and a control with no handler discards the event instead of passing it on.
+- **Layout**: only `Form` is laid out. A control in a layer keeps its designed `X`, `Y`, `Width` and `Height`; `Dock`, `Anchor` and the flex, grid and flow layouts do not apply to it. What it paints outside the form is cut at the form's edge.
+- **Non-visual controls** (Timer, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, WebSearch, Snackbar and the AWS controls) belong to no layer and paint nothing at run time. `Non-Visuals` is a tab of the designer, not an object: `Non-Visuals::Visible` is an unknown reference and fails the build.
+- A layer name that does not exist, or a property a layer does not have (`LAYER-1::Colour`), is reported when the form is built or run, as an unknown control is.
 "##;
     docs.push(("rustcobol_extensions.md", rc_ext.to_string()));
 
@@ -5016,6 +5027,16 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 - Tab-order management for keyboard navigation: **Visual Tab Order** (toggle it, click the controls in the order Tab should visit them — each shows its number — and toggle it off to finish) and the **Tab Order list** (drag a row or use ▲ ▼, selecting a row selects the control; Apply or Cancel). A newly placed control takes the next number.
 - Keyboard focus ring: while the operator moves through a running form with Tab, Shift+Tab or Enter-as-Tab, the focused control carries a border in the project's focus-ring colour (Settings → Appearance → Keyboard focus ring; `[forms] focus-ring-color` in cobolt.toml, empty = a default blue), optionally pulsing slowly (`focus-ring-pulse`); `focus-ring = false` (the row's own checkbox) turns it off entirely. It goes the moment the focus leaves the control or the pointer is pressed. The same in Run Form and in a built application.
 - Container hierarchies (e.g. Panels, TabControls) establishing parent-child ownership.
+
+## Layers and the Non-Visuals tab (Form Designer)
+- A **tab bar** sits directly under the form canvas on every form: `Non-Visuals` (fixed, at the far left), `Form` (the base), one tab per layer in stack order from the layer nearest `Form`, and a `+`. Exactly one tab is active — blue face and white text; the others are white with blue text, on every IDE theme. Each layer tab carries a visibility box and a red ✕.
+- **Choosing a tab or ticking a box is not an edit**: the form is not marked modified, no undo step is made, and the saved file does not change. Selecting a layer shows `Form` with that layer on top, turns the layer on, and turns every other layer off (the developer may tick any box back); a box never changes the selected tab; a layer whose box is off cannot be reached.
+- **The pointer sees only the active tab**: click, Ctrl-click, drag, the rubber-band lasso, hover, double-click, the context menu and Select All (Cmd+A / Ctrl+A) reach the controls of the active tab alone, and the controls of the other tabs are treated as absent. A control created, pasted, duplicated or deployed from the toolbox lands in the active tab.
+- **`Non-Visuals`** holds every non-visual control as a card, in a grid of five columns filled row by row, types A–Z by English name and then names A–Z; the grid decides each cell, a card is selected but never moved or resized, and it scrolls when long. Pressing a non-visual control in the toolbox selects `Non-Visuals` at once; while it is active the visual toolbox entries are greyed and a paste holding any visual control is refused.
+- **The form is resizable only from `Form`**: on a layer tab or on `Non-Visuals` there are no resize grips and `Width`, `Height`, the target device and the orientation are read only.
+- **The `+`** adds a layer named `Layer-1`, `Layer-2`… on top of the stack and selects it (at most 64; the 65th is refused). **Double-clicking a tab renames the layer** throughout the form, including code that writes `OLD::Visible`; a name that is not a COBOL word, is `Form` or `Non-Visuals` in any letter case, or belongs to a control or another layer is refused. **Dragging a tab** among the layer tabs re-stacks the layers; `Form` and `Non-Visuals` do not move. Each is one undo step.
+- With a layer's tab active and no control selected the Properties pane shows the layer: `Name` and the form's background properties (colour, gradient, image and mode, transparency) and nothing else. A control has a `Layer` row (`Form` or a layer) and the context menu a "Move to layer" entry; sending controls to a layer is one undo step, takes a container's contents with it and resets `Dock` and `Anchor` (undo restores them). A control in a layer is offered no Dock, Anchor or layout.
+- **The red ✕** selects the layer and opens a confirmation window naming it with the number of controls and event handlers it would take. Confirming deletes the layer, every control in it and the handler of each as ONE undo step, and `Form` becomes the active tab; a common procedure that still refers to a deleted control is kept, and the Output panel names it. One Undo restores everything exactly.
 
 ## Predefined Form Styles
 - The form's visual style is the form-level `GlassStyle` property. Its only accepted values are the exact strings `"Classic"`, `"Enhanced"`, `"Neumorphic Light"`, and `"Neumorphic Dark"`.
@@ -5253,6 +5274,13 @@ A form holds a **flat list** of controls; nesting is derived from each control's
   the page it belongs to, counting from 1 like `SelectedTab`.
 - **`z_order`** — higher is drawn on top; 0 is bottommost; negatives are legal.
 - **`tab_order`** — the keyboard traversal sequence.
+
+A control may also name a **layer** (`layer="Layer-1"` in the `.cfrm`, only on
+a root control — a child follows its container). Layers stack above the form
+and only the base, `Form`, is laid out: a control in a layer keeps its designed
+rectangle and ignores `Dock`, `Anchor` and the flex, grid and flow modes. A form
+without layers writes none of this, and a `.cfrm` that names a layer it does not
+define keeps the control, shows it on `Form` and reports the problem.
 
 A form that is **not responsive** (the default for every form that existed
 before 1.80) keeps exactly this: a control does not resize with its container.

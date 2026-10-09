@@ -7150,6 +7150,9 @@ impl CoboltApp {
                 }
                 let mut dp = DesignerPanel::new(form);
                 dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+                // Spec 091 R5, R40 — a form that holds a name twice, or a layer it
+                // does not define, says so in the Output panel; nothing is repaired.
+                dp.report_load_problems();
                 if let Some(closed) = self.closed_handler_marks.remove(&path) {
                     dp.restore_handler_marks(closed.marks);
                 }
@@ -17225,9 +17228,11 @@ impl CoboltApp {
             };
             cobolt_forms::render::Backdrop {
                 paint: true,
-                // Spec 091, slice 4: the preview's layers come with the
-                // designer's own shown/hidden state.
-                layers: Vec::new(),
+                // Spec 091: the preview shows the form with every layer over it —
+                // it is a look at the whole design, as the snapshot is, not a run
+                // (where every layer starts hidden, R35). `PreviewState` leaves
+                // `layer_visible` at its default, shown.
+                layers: d.form.layers.clone(),
                 color_hex: d.form.background_color.clone(),
                 transparency: d.form.transparency.min(100) as u8,
                 gradient_enabled: d.form.background_gradient_enabled,
@@ -19306,6 +19311,9 @@ impl CoboltApp {
                 let mut tb = sidebar_body(ui, h.toolbox, |ui| {
                     let d = &mut self.designers[idx].1;
                     let magnifier = d.magnifier_on.then_some(d.magnifier_feed.as_ref());
+                    // Spec 091 R58, R59 — while `Non-Visuals` is the active tab the
+                    // visual entries are greyed and take no press.
+                    d.toolbox.visual_disabled = d.tabs.is_non_visuals();
                     d.toolbox.show(ui, tr, &user_controls, false, h.toolbox, magnifier)
                 });
                 tb.toggle_collapse |= collapse_clicked;
@@ -19331,6 +19339,13 @@ impl CoboltApp {
             },
         );
         let (forms_list_action, toolbox_action, picked_object) = left_resp.inner;
+
+        // Spec 091 R59 — the press on a toolbox control chooses the tab it will be
+        // created in, before anything is placed. The sidebar is drawn before the
+        // canvas, so the canvas below already shows the tab it chose.
+        if let Some(ct) = &toolbox_action.pressed {
+            self.designers[idx].1.on_toolbox_press(ct);
+        }
 
         // Clicking a name in the Objects list selects that control, exactly as
         // clicking it on the canvas would. The sidebar is drawn before both the
@@ -19441,6 +19456,14 @@ impl CoboltApp {
                 // marks) the control as that breakpoint sees it.
                 let over = sel_id.as_deref().and_then(|id| d.overridden_control(id));
                 d.properties.overridden = sel_id.as_deref().map(|id| d.overridden_keys(id)).unwrap_or_default();
+                // Spec 091 R30, R57 — the form's Width and Height are read only
+                // while a layer or the Non-Visuals tab is active.
+                d.properties.form_size_locked = !d.form_resizable();
+                // …and with a layer's tab active (and no control selected) the pane
+                // shows that layer.
+                d.properties.layer_view = d.tabs.active_layer().and_then(|name| {
+                    d.form.layers.iter().find(|l| l.name.eq_ignore_ascii_case(name)).cloned()
+                });
                 let sel_ctrl = match &over {
                     Some(c) => Some(c),
                     None => sel_id.as_deref().and_then(|id| d.form.find_control(id)),
@@ -19596,6 +19619,24 @@ impl CoboltApp {
         if let Some((old, new)) = inspector_action.rename_control {
             self.designers[idx].1.rename_control(&old, &new);
         }
+        // Spec 091 R31 — the `Layer` row sends the selection to another layer.
+        if let Some(target) = inspector_action.move_to_layer.take() {
+            self.designers[idx].1.move_selected_to_layer(&target);
+        }
+        // Spec 091 — the active layer's name and backdrop, edited in the inspector.
+        {
+            let d = &mut self.designers[idx].1;
+            if let Some(layer) = d.tabs.active_layer().map(str::to_owned) {
+                if let Some(to) = inspector_action.rename_layer.take() {
+                    d.apply_tab_actions(vec![crate::panels::layer_tabs::TabAction::Rename { layer: layer.clone(), to }]);
+                }
+                // A rename above may have changed the layer's name; the tab follows it.
+                let layer = d.tabs.active_layer().map(str::to_owned).unwrap_or(layer);
+                for (key, value) in std::mem::take(&mut inspector_action.layer_props) {
+                    d.set_layer_prop(&layer, &key, &value);
+                }
+            }
+        }
         // Kick off a repaint immediately so the animation loop starts on the next frame.
         if preview_triggered {
             ctx.request_repaint();
@@ -19689,6 +19730,8 @@ impl CoboltApp {
         if let Some(ct) = toolbox_action.dragged_type {
             let cx = (self.designers[idx].1.form.width / 2) as i32;
             let cy = (self.designers[idx].1.form.height / 2) as i32;
+            // A click that came with its press in one frame (R59): the tab first.
+            self.designers[idx].1.on_toolbox_press(&ct);
             self.designers[idx].1.add_control(ct, cx, cy);
         }
         if let Some(name) = toolbox_action.dragged_user_control {
@@ -19802,6 +19845,11 @@ impl CoboltApp {
                 )
             })
             .inner;
+        // What the designer has to say, said in the IDE's current language
+        // (spec 091 R58).
+        for notice in std::mem::take(&mut self.designers[idx].1.notices) {
+            self.output.push_status(notice.text(tr));
+        }
         if let Some(def) = designer_result.user_control_created {
             self.add_user_control_def(def);
         }

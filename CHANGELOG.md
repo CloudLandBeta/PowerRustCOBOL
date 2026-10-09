@@ -17,6 +17,138 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.39] — 2026-10-09
+
+### Added
+- **Spec 091, slice 7 — the knowledge base, the guide, and what layers cost.**
+  The System Knowledge Base describes layers: `LAYER-NAME::Visible` and the
+  other nine properties, the rules for painting, the mouse, layout and names,
+  the `Non-Visuals` tab, and everything the designer's tab bar does; the
+  prebuilt store (`assets/knowledge/chunked.data`, 2,869 records) is rebuilt and
+  its freshness test is red against the old store and green against the new.
+  The Developer's Guide gains "Layers and the Non-Visuals tab" (§7), "Showing and
+  hiding a layer" (§11), a paragraph on the shell (§22) and a caveat (§23), with
+  COBOL examples, a diagram of the click's road through the layers, and four
+  screenshot placeholders.
+  Deleting a control — one, or a layer's — now names, in the Output panel, each
+  common procedure that **still refers** to it. The procedure is kept; before,
+  only one left referring to nothing that exists was reported.
+
+### Fixed
+- **A form with layers drew 4.5 times slower than the same controls without.**
+  Measured for this spec's AC15 (release build, 3,200 controls): all 64 layers of
+  50 shown, 625 ms a frame against 140 ms in the base — and 384 ms to edit one
+  layer alone, 50 controls on screen. The pass that paints expand icons ordered
+  every control of the form before it looked for a card with an icon, and with
+  layers it runs once per layer: 65 times 5.5 ms. It now orders them when the
+  first card with an icon turns up. After: 129 ms in the base, 159 ms with all 64
+  layers shown (x1.24), and **23 ms** to edit one layer alone — (x0.18). The
+  designer's hit-test is 5.1–5.4 ms in all three cases, the cost it had in the
+  base before layers. `layers_091::bench` (ignored; `--release -- --ignored
+  --nocapture`) prints the table and fails if 64 layers ever cost three times the
+  base again.
+
+### Tests
+- The final gate, one crate at a time: forms 1,474 passed; form-host 195;
+  semantic 118; codegen 79; project-tools 62; runtime lib 422; IDE unit suite
+  1,439 passed and one red, the translation guard that was red before; the seven
+  IDE integration test files green. **Not re-run:** `cobolt-compiler` and
+  `cobolt-cli`, whose build filled the disk; nothing in them changed since their
+  last green runs but documentation text (see the spec's `tasks.md`, T29).
+
+## [PowerRustCOBOL 1.90.38] — 2026-10-09
+
+### Added
+- **Spec 091, slice 6 — deleting a layer.** The red ✕ on a layer's tab selects
+  the layer, turns the others off, and opens a confirmation window that names it
+  and says how many controls and how many event handlers go with it — also for
+  a layer with nothing in it, where both numbers read zero. Nothing behind the
+  window reacts while it is up. Cancel leaves the layer, its controls and its
+  handlers as they were and its tab active. Delete removes the layer, every
+  control in it — a container's contents too — and the handler of each, as one
+  undo step: the controls leave through the path a single control takes, so the
+  form's recycle bin keeps their handlers; the data bindings that named them go
+  with the step, which the deletion of a single control does not restore; `Form`
+  is the active tab afterwards. A common procedure that only mentions one of the
+  deleted controls stays and is reported in the Output panel. One Undo brings
+  back the layer at its place with its backdrop, each control with its rectangle,
+  `ZOrder`, container and layer, each handler and each binding, so the saved
+  form and the generated COBOL are exactly what they were; one Redo deletes it
+  all again.
+  The window is 440 × 157 px in all six languages, and a layer name of 160
+  characters does not change it: `fixed_size` bounds only what is offered, so its
+  body is pinned to a constant height that scrolls rather than grows (removing the
+  pin makes the same test fail: 167 px against 107).
+  7 new tests, the guards of each removed in turn to see one fail. The IDE unit
+  suite is 1439 passed and one red, the translation guard that was red before.
+
+## [PowerRustCOBOL 1.90.37] — 2026-10-09
+
+### Added
+- **Spec 091, slice 5 — layer operations and the inspector.** The `+` adds a
+  layer, `Layer-1`, `Layer-2`… on top of the stack and selects it; the 65th
+  is refused with a message. A layer is renamed by a
+  double-click on its tab — followed into the controls that name it and the
+  code that writes `OLD::Visible` — and refused, with a message and nothing
+  changed, when the name is not a name, is `Form` or `Non-Visuals` in any
+  letter case, or belongs to a control or another layer. Dragging a tab among
+  the layer tabs re-stacks the layers; it never goes before `Form`, and the
+  `Form` and `Non-Visuals` tabs do not move. Each is one undo step that redoes.
+  With a layer's tab active and no control selected the inspector shows the
+  layer: its name and the form's own background properties — colour, gradient,
+  image and mode, transparency — and nothing else: no corner radius, no window
+  property, no `Visible`, no Events or Procs. A control has a `Layer` row, and the
+  context menu a "Move to layer" entry; sending controls to a layer is one undo
+  step, takes a container's contents with it, leaves a child alone, ignores a
+  non-visual control, and into a layer resets `Dock` and `Anchor` (undo gives
+  them back). A control in a layer is offered no Dock, Anchor or layout and the
+  anchor pins do not show. A non-visual control's inspector has no geometry. A
+  form that holds a name twice, or a control naming a layer it does not define,
+  opens whole and says so in the Output panel; nothing is repaired. A generated
+  or pasted control name is never a layer's name.
+  Fixed on the way: a tab dragged by a quick flick was grabbed where egui decided
+  it was a drag rather than where the pointer went down, so it dropped short.
+  22 new tests, the guards of each removed in turn to see one fail; 7 new strings
+  in six languages. The IDE unit suite is 1432 passed and one red, the translation
+  guard that was red before.
+
+## [PowerRustCOBOL 1.90.36] — 2026-10-09
+
+### Added
+- **Spec 091, slice 4 — the designer's tab bar and the `Non-Visuals` tab.** A strip
+  32 px high sits directly under the canvas of every form: `Non-Visuals`, `Form`,
+  one tab per layer with its visibility box and red ✕, and a `+`. The active tab is
+  blue with white text and the others white with blue text, on every IDE theme.
+  Choosing a tab or ticking a box is not an edit — the form is not marked modified,
+  no undo step is made and the saved file does not change. Selecting a layer shows
+  it over `Form` and hides the other layers (the developer may tick them back); a
+  box never changes the tab; a layer whose box is off cannot be reached. The pointer,
+  the rubber-band lasso, Ctrl-click, Select All and the drop target all see only
+  the active tab's controls. `Non-Visuals` shows a grid of five columns of cards,
+  types A–Z then names A–Z, scrolling when it is long; a card is selected but never
+  moved, has no resize knobs and is not nudged by the arrow keys. While a layer or
+  `Non-Visuals` is active the form cannot be resized: no grips, and `Width`,
+  `Height`, the target device and the orientation are read only. A press on a
+  non-visual toolbox control selects `Non-Visuals` at once; while that tab is active
+  the visual entries are greyed and take no press, click or drag, and a paste
+  holding any visual control is refused whole, each with a message in the Output
+  panel. A new, pasted or deployed control lands in the active tab — in the active
+  layer, on `Form`, or as a card — a child follows its container and an undo of its
+  drop restores its layer, and only the active tab's containers can adopt a drop.
+  The IDE preview draws the form with all its layers. A generated control name
+  never equals a layer's name.
+  **Not yet:** the `+`, the ✕, the rename by double-click and the drag to re-stack
+  are drawn and answer the pointer, but add, delete, rename and re-stack arrive in
+  the next two slices; so do the layer inspector and "move to layer".
+  47 new tests — the guards of the bar, resizing, toolbox, placement and
+  selection were each removed in turn to see a test fail: the tab bar
+  (6), the pointer, resizing and knobs per tab (5), the toolbox and paste rules (5
+  in the designer, 3 on the widget), placement and containers (7), selection, the
+  lasso, Select All and the grid across all six languages (8), the bar's own rules
+  (12) and the strings (1). The IDE unit suite is 1410 passed and one red, the
+  translation guard that was red before; the forms suite is 1474 passed, 0 failed;
+  the seven IDE integration test files are green.
+
 ## [PowerRustCOBOL 1.90.35] — 2026-10-09
 
 ### Changed

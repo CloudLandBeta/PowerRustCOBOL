@@ -10,5 +10,5 @@
 
 pub use cobolt_forms::containers::{
     clip_rect, collect_descendants, is_shown_when, is_visible, render_order, resolve_drop_target,
-    DropTarget,
+    resolve_drop_target_in, DropTarget,
 };

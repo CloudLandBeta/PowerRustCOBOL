@@ -800,10 +800,27 @@ use cobolt_forms::paint::{draw_animator, live_control, scale_rect_about_center, 
 /// animation preview (supplied per control via `anim`).
 struct DesignerState<'a> {
     anim: &'a std::collections::HashMap<String, cobolt_forms::render::RenderTransform>,
+    /// Spec 091 — the tab bar's state, when the canvas is the form's own: which
+    /// tab is active decides which controls are drawn, and which layers the
+    /// designer is showing. `None` — a test, the preview — draws every control.
+    tabs: Option<&'a super::layer_tabs::TabView>,
 }
 impl cobolt_forms::render::FormState for DesignerState<'_> {
-    fn visible(&self, _base: &cobolt_forms::Control) -> bool {
-        true
+    /// The canvas draws what the DESIGN hides — a hidden control must stay
+    /// selectable — but not across tabs: a non-visual control lives in the
+    /// `Non-Visuals` tab and nowhere else (R47), and while that tab is active
+    /// nothing else is drawn (R56).
+    fn visible(&self, base: &cobolt_forms::Control) -> bool {
+        match self.tabs {
+            None => true,
+            Some(t) if t.is_non_visuals() => base.control_type.is_non_visual(),
+            Some(_) => !base.control_type.is_non_visual(),
+        }
+    }
+    /// Spec 091 R12, R25, R60 — a layer is drawn while the designer is showing
+    /// it: its box ticked, or selected. Not what the program starts with (R35).
+    fn layer_visible(&self, name: &str) -> bool {
+        self.tabs.is_none_or(|t| t.is_shown(name))
     }
     fn enabled(&self, _base: &cobolt_forms::Control) -> bool {
         true
@@ -813,6 +830,52 @@ impl cobolt_forms::render::FormState for DesignerState<'_> {
             .get(&base.id)
             .copied()
             .unwrap_or(cobolt_forms::render::RenderTransform::IDENTITY)
+    }
+}
+
+/// Something the designer tells the developer in the Output panel (spec 091). A
+/// key, not a sentence: the designer has no language, and the shell that drains
+/// the queue does — it turns each into the IDE's current-language text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DesignerNotice {
+    /// A visual control reached the canvas while `Non-Visuals` was active (R58).
+    VisualControlRefused,
+    /// A paste holding a visual control was refused on `Non-Visuals` (R58, Q29).
+    PasteRefused,
+    /// A form holds [`cobolt_forms::model::MAX_LAYERS`] layers above the base (R7).
+    LayerLimit,
+    /// A layer name was refused: not a name, `Form` or `Non-Visuals`, or in use (R6).
+    LayerNameRefused,
+    /// A form opened holding two controls or layers with one name (R5). Kept as it
+    /// is; never repaired by deleting anything.
+    NameCollision(String),
+    /// A form opened with a control naming a layer it does not define (R40): the
+    /// control is kept and shown on `Form`.
+    UnknownLayer { control: String, layer: String },
+    /// A common procedure still names a control that has just been deleted (R53,
+    /// R64). The procedure is kept — user code is sacred — and this says which.
+    ProcedureStillRefers { procedure: String, control: String },
+}
+
+impl DesignerNotice {
+    pub(crate) fn text(&self, tr: &crate::i18n::Tr) -> String {
+        match self {
+            DesignerNotice::VisualControlRefused => tr.toolbox_visual_disabled_hint.to_owned(),
+            DesignerNotice::PasteRefused => tr.layer_paste_refused.to_owned(),
+            DesignerNotice::LayerLimit => {
+                tr.layer_limit_reached.replacen("{}", &cobolt_forms::model::MAX_LAYERS.to_string(), 1)
+            }
+            DesignerNotice::LayerNameRefused => tr.layer_name_refused.to_owned(),
+            DesignerNotice::NameCollision(name) => tr.layer_load_collision.replacen("{}", name, 1),
+            DesignerNotice::ProcedureStillRefers { procedure, control } => tr
+                .proc_still_refers
+                .replacen("{}", procedure, 1)
+                .replacen("{}", control, 1),
+            DesignerNotice::UnknownLayer { control, layer } => tr
+                .layer_load_unknown
+                .replacen("{}", control, 1)
+                .replacen("{}", layer, 1),
+        }
     }
 }
 
@@ -876,6 +939,13 @@ fn nudge_step(grid_px: i32, snap_on: bool, fine: bool) -> i32 {
         grid_px
     }
 }
+
+/// The size of the window that confirms a layer's deletion (spec 091 R63): its
+/// own, so that no language and no frame changes it.
+const LAYER_DELETE_W: f32 = 440.0;
+const LAYER_DELETE_H: f32 = 200.0;
+/// The body of that window: constant, and scrolled if a text is ever longer.
+const LAYER_DELETE_BODY_H: f32 = 80.0;
 
 /// How far the pointer must travel before a press counts as a DRAG.
 ///
@@ -1020,6 +1090,11 @@ enum Cmd {
         old_tab: Option<u32>,
         new_parent: Option<String>,
         new_tab: Option<u32>,
+        /// Spec 091 R8 — a control names a layer only as a root: a child follows
+        /// its container. Leaving a container makes the control a root of the
+        /// layer it was in; entering one makes it a child, with none of its own.
+        old_layer: Option<String>,
+        new_layer: Option<String>,
     },
     /// Rename a control's id (updates all references form-wide).
     Rename {
@@ -1053,6 +1128,37 @@ enum Cmd {
     /// in the form should be possible to undo").
     SetFormProp {
         key: String,
+        old: String,
+        new: String,
+    },
+    /// The form's data bindings as a whole. Deleting a control prunes the bindings
+    /// that named it and that deletion's undo does not put back, so a deletion that
+    /// has to be undone exactly (a layer's, spec 091 R65) carries the table.
+    SetDataBindings {
+        before: Vec<cobolt_forms::DataBindingDef>,
+        after: Vec<cobolt_forms::DataBindingDef>,
+    },
+    /// Spec 091 R31, R32 — a root control sent to another layer (`None` is the
+    /// base). Dock and Anchor go in the same step as their own [`Cmd::SetProperty`]
+    /// entries of a [`Cmd::Batch`], so undoing the move gives them back (R21).
+    SetControlLayer {
+        id: String,
+        old: Option<String>,
+        new: Option<String>,
+    },
+    /// Spec 091 R32 — the whole table of layers, backdrops included: adding one,
+    /// re-stacking them, and (later) editing a layer's own properties are each one
+    /// step that swaps the table. Renaming is not here: it rewrites the controls
+    /// that name the layer and the code that mentions it, so it has a command of
+    /// its own, [`Cmd::RenameLayer`].
+    SetLayers {
+        before: Vec<cobolt_forms::Layer>,
+        after: Vec<cobolt_forms::Layer>,
+    },
+    /// Spec 091 R26, R32 — rename a layer throughout the form, as [`Cmd::Rename`]
+    /// does a control: the layer, every control that names it and the code that
+    /// writes `OLD::Visible`. The tab bar follows the new name.
+    RenameLayer {
         old: String,
         new: String,
     },
@@ -2505,6 +2611,21 @@ pub struct DesignerPanel {
     /// All currently selected control IDs (first = primary selection).
     pub selected_ids: Vec<String>,
 
+    /// Spec 091 — the tab bar under the canvas: which tab is active (`Form`, a
+    /// layer, or `Non-Visuals`) and which layers the designer is showing. Design
+    /// state only: never saved, never an undo step, never marks the form modified
+    /// (R25, R32, Q26).
+    pub(crate) tabs: super::layer_tabs::LayerTabs,
+    /// Where the tab bar was drawn last frame (R23) — the bar's own strip, which
+    /// the canvas's hit tests must not reach into, and what a test measures.
+    pub(crate) tab_bar_rect: Option<egui::Rect>,
+    /// Where the form's top-left corner was on screen last frame: what a test
+    /// aims a pointer with, and nothing else reads.
+    pub(crate) canvas_origin: Option<Pos2>,
+    /// What the designer has to tell the developer, waiting for the shell to put
+    /// it in the Output panel (it drains this every frame).
+    pub(crate) notices: Vec<DesignerNotice>,
+
     /// A control that the mouse-DOWN of a modifier-click just added to the
     /// selection, so the mouse-UP does not immediately toggle it back out.
     ///
@@ -2555,6 +2676,9 @@ pub struct DesignerPanel {
     /// Set when the user tries to close a dirty designer — shows the Save/Discard/Cancel dialog.
     pub close_confirm: bool,
     pending_delete: Option<DeleteConfirmation>,
+    /// Spec 091 R63 — the layer whose red ✕ was clicked, while the confirmation
+    /// window asks. Nothing is deleted until the developer confirms.
+    pending_layer_delete: Option<String>,
     create_user_control: Option<UserControlCreateDialog>,
 
     /// Format-painter (copy-style) state.
@@ -2887,6 +3011,10 @@ impl DesignerPanel {
             form,
             cfrm_dir: None,
             selected_ids: Vec::new(),
+            tabs: Default::default(),
+            tab_bar_rect: None,
+            canvas_origin: None,
+            notices: Vec::new(),
             modifier_added_on_press: None,
             active_tabs: std::collections::HashMap::new(),
             scroll_offsets: std::collections::HashMap::new(),
@@ -2902,6 +3030,7 @@ impl DesignerPanel {
             close_requested: false,
             close_confirm: false,
             pending_delete: None,
+            pending_layer_delete: None,
             create_user_control: None,
             toolbox: ToolboxPanel::new(),
             properties: PropertiesPanel::new(),
@@ -4077,11 +4206,13 @@ impl DesignerPanel {
                 id,
                 new_parent,
                 new_tab,
+                new_layer,
                 ..
             } => {
                 if let Some(c) = self.form.find_control_mut(id) {
                     c.parent = new_parent.clone();
                     c.tab = *new_tab;
+                    c.layer = new_layer.clone();
                 }
             }
             Cmd::Rename { old, new } => {
@@ -4110,6 +4241,23 @@ impl DesignerPanel {
             Cmd::SetBreakpoints { after, .. } => {
                 self.form.breakpoints = after.clone();
                 self.dirty = true;
+            }
+            Cmd::SetLayers { after, .. } => {
+                self.form.layers = after.clone();
+            }
+            Cmd::SetDataBindings { after, .. } => {
+                self.form.data_bindings = after.clone();
+            }
+            Cmd::SetControlLayer { id, new, .. } => {
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.layer = new.clone();
+                }
+            }
+            Cmd::RenameLayer { old, new } => {
+                // Refused up front (`rename_layer_by_bar`), so this cannot fail on
+                // a first run; a redo meets the same form it was made on.
+                let _ = self.form.rename_layer(old, new);
+                self.tabs.retarget(old, new);
             }
             Cmd::SetFormStructure { block, new, .. } => {
                 if let Some(slot) = crate::agent::form_structure_field(&mut self.form, block) {
@@ -4238,11 +4386,13 @@ impl DesignerPanel {
                 id,
                 old_parent,
                 old_tab,
+                old_layer,
                 ..
             } => {
                 if let Some(c) = self.form.find_control_mut(id) {
                     c.parent = old_parent.clone();
                     c.tab = *old_tab;
+                    c.layer = old_layer.clone();
                 }
             }
             Cmd::Rename { old, new } => {
@@ -4306,6 +4456,21 @@ impl DesignerPanel {
             Cmd::SetBreakpoints { before, .. } => {
                 self.form.breakpoints = before.clone();
                 self.dirty = true;
+            }
+            Cmd::SetLayers { before, .. } => {
+                self.form.layers = before.clone();
+            }
+            Cmd::SetDataBindings { before, .. } => {
+                self.form.data_bindings = before.clone();
+            }
+            Cmd::SetControlLayer { id, old, .. } => {
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.layer = old.clone();
+                }
+            }
+            Cmd::RenameLayer { old, new } => {
+                let _ = self.form.rename_layer(new, old);
+                self.tabs.retarget(new, old);
             }
             Cmd::SetFormStructure { block, old, .. } => {
                 if let Some(slot) = crate::agent::form_structure_field(&mut self.form, block) {
@@ -4433,7 +4598,17 @@ impl DesignerPanel {
         }
         let mut max_n = 0u32;
         scan(&self.form.controls, prefix, &mut max_n);
-        format!("{prefix}-{}", max_n + 1)
+        self.name_free_of_layers(prefix, max_n + 1)
+    }
+
+    /// `<prefix>-<n>`, or the next number up if a layer already has that name:
+    /// layers and controls share one namespace (spec 091 R4–R6), so a generated
+    /// control name is never one a layer is called.
+    fn name_free_of_layers(&self, prefix: &str, mut n: u32) -> String {
+        while self.form.layer_index(&format!("{prefix}-{n}")).is_some() {
+            n += 1;
+        }
+        format!("{prefix}-{n}")
     }
 
     fn next_unique_id_reserved(&self, ct: &ControlType, reserved: &HashSet<String>) -> String {
@@ -4453,7 +4628,7 @@ impl DesignerPanel {
                 }
             }
         }
-        format!("{prefix}-{}", max_n + 1)
+        self.name_free_of_layers(prefix, max_n + 1)
     }
 
     /// Re-parent `id` after a move so it belongs to whatever container its body
@@ -4466,19 +4641,22 @@ impl DesignerPanel {
         };
         let r = self.form.controls[idx].rect;
         let (px, py) = (r.x + r.w / 2, r.y + r.h / 2);
-        let target = super::containers::resolve_drop_target(
-            &self.form.controls,
-            px,
-            py,
-            idx,
-            &self.active_tabs,
-        );
+        let target = self.drop_target_for(idx, px, py);
         let (new_parent, new_tab) = match target {
             super::containers::DropTarget::Form => (None, None),
             super::containers::DropTarget::Into { container, tab } => (Some(container), tab),
         };
+        // Spec 091 R8 — a root control names the layer it is in, a child names none
+        // (it follows its container): dropped into a container it stops naming
+        // one, dropped out onto the bare form it becomes a root of the active tab.
+        // Non-visual controls belong to no layer at all (R47).
+        let new_layer = if new_parent.is_some() || self.form.controls[idx].control_type.is_non_visual() {
+            None
+        } else {
+            self.new_root_layer()
+        };
         let c = &self.form.controls[idx];
-        if c.parent == new_parent && c.tab == new_tab {
+        if c.parent == new_parent && c.tab == new_tab && c.layer == new_layer {
             return;
         }
         let cmd = Cmd::Reparent {
@@ -4487,20 +4665,52 @@ impl DesignerPanel {
             old_tab: c.tab,
             new_parent,
             new_tab,
+            old_layer: c.layer.clone(),
+            new_layer,
         };
         self.apply(cmd);
+    }
+
+    /// Where control `idx`, centred at `(px, py)`, would be parented if dropped
+    /// there. Only the controls of the **active tab** can adopt it (spec 091 R8,
+    /// R44): a control being dragged in `Layer 1` is never taken into a `Panel`
+    /// of the base or of another layer, which it cannot see.
+    fn drop_target_for(&self, idx: usize, px: i32, py: i32) -> super::containers::DropTarget {
+        let members = self.active_tab_ids();
+        super::containers::resolve_drop_target_in(
+            &self.form.controls,
+            px,
+            py,
+            idx,
+            &self.active_tabs,
+            &|i| members.as_ref().is_none_or(|m| m.contains(&self.form.controls[i].id)),
+        )
+    }
+
+    /// The layer a **root** control created or placed now belongs to: the active
+    /// layer's name, or `None` on `Form` and on `Non-Visuals` (spec 091 R28, R47).
+    /// A name the form does not define counts as none (R40).
+    pub(crate) fn new_root_layer(&self) -> Option<String> {
+        self.tabs
+            .active_layer()
+            .and_then(|name| self.form.layers.iter().find(|l| l.name.eq_ignore_ascii_case(name)))
+            .map(|l| l.name.clone())
     }
 
     /// If `(cx, cy)` lands on a `TabControl`'s tab strip, return that control's id
     /// and the clicked tab index (spec 012). The geometry mirrors the strip drawn
     /// in `cobolt_forms::paint::draw_control`.
     fn tab_strip_hit(&self, cx: i32, cy: i32) -> Option<(String, u32)> {
+        // Spec 091 R44 — a TabControl of another tab is inactive.
+        let members = self.active_tab_ids();
         for &idx in super::containers::render_order(&self.form.controls)
             .iter()
             .rev()
         {
             let c = &self.form.controls[idx];
-            if c.control_type != ControlType::TabControl {
+            if c.control_type != ControlType::TabControl
+                || !members.as_ref().is_none_or(|m| m.contains(&c.id))
+            {
                 continue;
             }
             // The canvas shows a hidden control so it can still be
@@ -4540,12 +4750,26 @@ impl DesignerPanel {
     /// rail open (operator, 2026-08-24). `rail_view` preserves ids, order and
     /// length, so the index-keyed container queries below read the same list.
     fn hit_top_id(&self, cx: i32, cy: i32) -> Option<String> {
+        // Spec 091 R44 — only the active tab's controls are there to be hit; the
+        // rest are inactive. `Non-Visuals` hit-tests the grid it draws.
+        if self.tabs.is_non_visuals() {
+            return self
+                .non_visuals_view()
+                .iter()
+                .rev()
+                .find(|c| control_contains_point(c, cx, cy))
+                .map(|c| c.id.clone());
+        }
+        let members = self.active_tab_ids();
         let view = match (&self.canvas_laid, self.canvas_is_laid_out()) {
             (Some(laid), true) => Some(laid.clone()),
             _ => self.rail_view_controls(&self.form.controls),
         };
         let controls: &[Control] = view.as_deref().unwrap_or(&self.form.controls);
         for &idx in super::containers::render_order(controls).iter().rev() {
+            if !members.as_ref().is_none_or(|m| m.contains(&controls[idx].id)) {
+                continue;
+            }
             // Hit-testing on the CANVAS: a control the design hides is
             // still selectable there, so only the tab question applies.
             if !super::containers::is_shown_when(controls, idx, &self.active_tabs, &|_| true) {
@@ -4564,10 +4788,24 @@ impl DesignerPanel {
     }
 
     pub fn add_control(&mut self, ct: ControlType, x: i32, y: i32) {
+        // `Non-Visuals` takes non-visual controls only (spec 091 R58). The toolbox
+        // disables its visual entries there, so a visual control reaching this
+        // point came some other way; it is refused, never rerouted to another tab.
+        if self.tabs.is_non_visuals() && !ct.is_non_visual() {
+            self.notify(DesignerNotice::VisualControlRefused);
+            return;
+        }
         let id = self.next_unique_id(&ct);
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
+        // Spec 091 R28 — a new control is created in the active tab: in the active
+        // layer when one is selected, on `Form` otherwise. A non-visual control
+        // names no layer (R47): its tab is `Non-Visuals`, and the `.cfrm` records
+        // nothing about it.
+        if !ct.is_non_visual() {
+            ctrl.layer = self.new_root_layer();
+        }
         // Spec 078 — an AWS control dropped in a project with exactly one AWS
         // connection takes it, in the same undo step as the drop.
         if ct.as_str().starts_with("Aws") {
@@ -4753,8 +4991,36 @@ impl DesignerPanel {
             });
         }
         self.selected_ids.clear();
-        // A control deletion can leave a form-level procedure addressing nothing
-        // that exists — and it can break the form outright.
+        self.report_orphaned_procedures();
+        self.report_procedures_still_referring(ids);
+    }
+
+    /// Tell the developer which common procedures still refer to a control that was
+    /// just deleted (spec 091 R53, R64). They are **kept** — a procedure is code the
+    /// developer wrote, separate from the control, and no deletion earns the right to
+    /// remove it. The ones left addressing *nothing* that exists are reported by
+    /// [`Self::report_orphaned_procedures`] in stronger words; this covers the rest.
+    fn report_procedures_still_referring(&mut self, deleted: &[String]) {
+        let orphaned: std::collections::HashSet<usize> =
+            self.form.orphaned_user_procedures().into_iter().collect();
+        let mut found: Vec<(String, String)> = Vec::new();
+        for (i, p) in self.form.user_procedures.iter().enumerate() {
+            if orphaned.contains(&i) {
+                continue;
+            }
+            let refs = cobolt_forms::model::control_refs_in_code(&p.code);
+            if let Some(hit) = deleted.iter().find(|d| refs.contains(&d.to_ascii_uppercase())) {
+                found.push((p.name.clone(), hit.clone()));
+            }
+        }
+        for (procedure, control) in found {
+            self.notify(DesignerNotice::ProcedureStillRefers { procedure, control });
+        }
+    }
+
+    /// A control deletion can leave a form-level procedure addressing nothing
+    /// that exists — and it can break the form outright. See below.
+    fn report_orphaned_procedures(&mut self) {
         //
         // It is **reported, never removed** (operator, 2026-08-05: "treat user
         // code as sacred"). Deleting a control takes that control's own handler
@@ -5014,6 +5280,11 @@ impl DesignerPanel {
         let Some(root_entry) = def.controls.first() else {
             return;
         };
+        // A user control is a visual one: `Non-Visuals` takes none (spec 091 R58).
+        if self.tabs.is_non_visuals() {
+            self.notify(DesignerNotice::VisualControlRefused);
+            return;
+        }
 
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
@@ -5132,8 +5403,12 @@ impl DesignerPanel {
                 .as_ref()
                 .and_then(|parent| id_map.get(parent).cloned());
         }
+        // The group's root goes in the active tab (spec 091 R28); the rest follow
+        // it by their `parent` (R8).
+        let layer = self.new_root_layer();
         if let Some(root) = deployed.first_mut() {
             root.parent = None;
+            root.layer = layer;
         }
 
         let selected_ids: Vec<String> = deployed.iter().map(|ctrl| ctrl.id.clone()).collect();
@@ -5149,6 +5424,13 @@ impl DesignerPanel {
             return;
         };
         if clipboard.controls.is_empty() {
+            return;
+        }
+        // Spec 091 R58, Q29 — `Non-Visuals` takes non-visual controls only. A
+        // clipboard holding any visual control is refused whole: pasting part of
+        // what the developer copied would be a surprise of its own.
+        if self.tabs.is_non_visuals() && clipboard.controls.iter().any(|c| !c.control_type.is_non_visual()) {
+            self.notify(DesignerNotice::PasteRefused);
             return;
         }
 
@@ -5198,11 +5480,20 @@ impl DesignerPanel {
         }
         let mut paragraph_map = HashMap::new();
         let mut reserved_paragraphs = self.existing_procedure_names();
+        let paste_layer = self.new_root_layer();
         for ctrl in &mut pasted {
             ctrl.parent = ctrl
                 .parent
                 .as_ref()
                 .and_then(|old_parent| id_map.get(old_parent).cloned());
+            // Spec 091 R28, R8 — what is pasted lands in the active tab: a root
+            // control takes the active layer (none on `Form`, and none for a
+            // non-visual one), a child follows its container.
+            ctrl.layer = if ctrl.parent.is_none() && !ctrl.control_type.is_non_visual() {
+                paste_layer.clone()
+            } else {
+                None
+            };
             remap_control_reference_props(ctrl, &id_map);
             if same_form {
                 ctrl.events.clear();
@@ -5225,11 +5516,20 @@ impl DesignerPanel {
         }
 
         let selected_ids: Vec<String> = pasted.iter().map(|ctrl| ctrl.id.clone()).collect();
+        // Spec 091 R48 — pasting (or duplicating) non-visual controls brings the
+        // `Non-Visuals` tab up, so the cards are on screen. A paste with any
+        // visual control in it stays on the tab it was made on, and selects what
+        // is reachable there (R44).
+        let only_non_visual = pasted.iter().all(|c| c.control_type.is_non_visual());
         for ctrl in pasted {
             let index = self.form.controls.len();
             self.apply(Cmd::AddControl { index, ctrl });
         }
         self.selected_ids = selected_ids;
+        if only_non_visual {
+            self.tabs.select_non_visuals();
+        }
+        self.retain_selection_in_active_tab();
     }
 
     fn existing_procedure_names(&self) -> HashSet<String> {
@@ -8165,6 +8465,20 @@ impl DesignerPanel {
         ui.set_style(original_style);
         self.show_global_ai_error_modal(ui.ctx());
 
+        // Spec 091 R23 — the tab bar directly under the canvas: `Non-Visuals`,
+        // `Form`, one tab per layer and the `+`. It exists on every form, with or
+        // without layers, at a height of its own (`BAR_H`) that nothing it holds
+        // can change, and it is registered here — after the AI pane, before the
+        // canvas — so it sits between them and the canvas takes what is left.
+        self.tabs.reconcile(&self.form);
+        let bar = egui::Panel::bottom(self.ai_pane_id().with("layer-tabs"))
+            .exact_size(super::layer_tabs::BAR_H)
+            .frame(egui::Frame::NONE)
+            .show_separator_line(false)
+            .show(ui, |ui| self.tabs.show_bar(ui, &self.form, &tr));
+        self.tab_bar_rect = Some(bar.response.rect);
+        selection_changed |= self.apply_tab_actions(bar.inner);
+
         // The canvas is registered after the AI pane, so egui's hit test lets it
         // win the few pixels around the pane's resize handle — grabbing the pane
         // edge could scroll the canvas or drag a form control. Reserve a thin
@@ -8189,6 +8503,7 @@ impl DesignerPanel {
                 let (resp, painter) =
                     ui.allocate_painter(Vec2::new(canvas_w, canvas_h), Sense::click_and_drag());
                 let origin = resp.rect.min;
+                self.canvas_origin = Some(origin);
                 // 089 — the magnifier copies what this pass paints; note where
                 // it starts. Nothing is copied while the magnifier is off.
                 let magnifier_start = self
@@ -8538,7 +8853,8 @@ impl DesignerPanel {
 
                 // Show pointer cursor when hovering over any control on the canvas.
                 if let Some((cx, cy)) = ptr_canvas {
-                    let over_ctrl = self.form.controls.iter().any(|c| c.rect.contains(cx, cy));
+                    // Only the active tab's controls are there to be pointed at (R44).
+                    let over_ctrl = self.hit_top_id(cx, cy).is_some();
                     if over_ctrl {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     }
@@ -8685,7 +9001,12 @@ impl DesignerPanel {
                 // 056 R29 — a responsive form viewed at another size is laid
                 // out for it, exactly as the running form would be; at its own
                 // size the canvas paints the design, as before.
-                let designer_st = DesignerState { anim: &anim_tf };
+                // Spec 091 — which tab is active decides what is drawn: the base and
+                // its layers on `Form` and the layer tabs, only the grid of
+                // non-visual cards on `Non-Visuals` (R47, R56); and which layers the
+                // designer is showing (R60).
+                let tab_view = self.tabs.view();
+                let designer_st = DesignerState { anim: &anim_tf, tabs: Some(&tab_view) };
                 let laid = self
                     .canvas_is_laid_out()
                     .then(|| self.canvas_prepare(ui.ctx(), animated_controls.as_deref().unwrap_or(&self.form.controls), &designer_st));
@@ -8694,6 +9015,13 @@ impl DesignerPanel {
                 let laid_st = cobolt_forms::layout::apply::LaidOutState { inner: &designer_st };
                 let controls_for_render: &[cobolt_forms::model::Control] =
                     laid.as_ref().map(|p| p.controls.as_slice()).unwrap_or(controls_for_render);
+                // The `Non-Visuals` tab draws its cards at the cells of the grid
+                // (R49–R51), derived each frame and stored nowhere: a copy of the
+                // non-visual controls with their rectangles set to their cells.
+                let nv_view: Option<Vec<cobolt_forms::model::Control>> =
+                    self.tabs.is_non_visuals().then(|| self.non_visuals_view());
+                let controls_for_render: &[cobolt_forms::model::Control] =
+                    nv_view.as_deref().unwrap_or(controls_for_render);
                 let control_rects = {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     let input = cobolt_forms::render::RenderInput {
@@ -8705,6 +9033,9 @@ impl DesignerPanel {
                         active_tabs: &active_tabs,
                         backdrop: cobolt_forms::render::Backdrop {
                             window: window_arc,
+                            // The form's layers: each paints its own background
+                            // between its neighbours' controls, while shown (R15).
+                            layers: self.form.layers.clone(),
                             ..Default::default()
                         },
                     };
@@ -9091,7 +9422,11 @@ impl DesignerPanel {
                     DragState::ResizingForm { edge, .. } => Some(edge),
                     _ => self.press_form_edge,
                 };
-                draw_form_resize_grips(&painter, resp.rect, active_form_edge, self.glass_mode);
+                // Only on `Form`: while a layer or `Non-Visuals` is active the form
+                // is not resizable at all (spec 091 R30, R57).
+                if self.form_resizable() {
+                    draw_form_resize_grips(&painter, resp.rect, active_form_edge, self.glass_mode);
+                }
 
                 // 049 — the two draggable seams on a selected sidebar. Drawn
                 // HERE, with the selection border and the resize handles: a
@@ -9112,7 +9447,9 @@ impl DesignerPanel {
                 // control borders"). The model rect is still the fallback for
                 // a control the render pass reported no rect for.
                 let glass = self.glass_mode;
-                if let Some(sid) = self.selected_ids.first().cloned() {
+                // No knobs on `Non-Visuals` (spec 091 R52): a card is neither moved
+                // nor resized — the grid decides its cell and its size.
+                if let Some(sid) = self.selected_ids.first().cloned().filter(|_| self.controls_movable()) {
                     let painted = control_rects.get(&sid).map(|r| {
                         cobolt_forms::model::Rect::new(
                             (r.min.x - origin.x).round() as i32,
@@ -9175,6 +9512,11 @@ impl DesignerPanel {
                 // structure.
                 self.paint_container_overlay(&painter, origin);
                 // Draw secondary selection highlight boxes
+                let card_cells: HashMap<String, cobolt_forms::model::Rect> = if self.tabs.is_non_visuals() {
+                    self.non_visuals_view().into_iter().map(|c| (c.id, c.rect)).collect()
+                } else {
+                    HashMap::new()
+                };
                 for sid in self.selected_ids.iter().skip(1) {
                     if let Some(ctrl) = self.form.find_control(sid) {
                         // Same reason as the primary border above: a Line's box
@@ -9182,7 +9524,9 @@ impl DesignerPanel {
                         if ctrl.control_type == ControlType::Line {
                             continue;
                         }
-                        let r = ctrl.rect;
+                        // On `Non-Visuals` a card is where its cell is, not where
+                        // the control's own `X` and `Y` say.
+                        let r = card_cells.get(sid).copied().unwrap_or(ctrl.rect);
                         let rect = egui::Rect::from_min_size(
                             origin + Vec2::new(r.x as f32, r.y as f32),
                             Vec2::new(r.w as f32, r.h as f32),
@@ -9316,6 +9660,28 @@ impl DesignerPanel {
                     if ui.button("-1 Backward").clicked() {
                         self.send_backward();
                         ui.close();
+                    }
+                    // Spec 091 R31 — send the selection to another layer.
+                    if !self.form.layers.is_empty() {
+                        let movable = self.selected_ids.iter().any(|id| {
+                            self.form
+                                .find_control(id)
+                                .is_some_and(|c| c.parent.is_none() && !c.control_type.is_non_visual())
+                        });
+                        ui.add_enabled_ui(movable, |ui| {
+                            ui.menu_button(tr.ctx_move_to_layer, |ui| {
+                                let choices: Vec<String> = std::iter::once(cobolt_forms::model::BASE_LAYER_NAME.to_owned())
+                                    .chain(self.form.layers.iter().map(|l| l.name.clone()))
+                                    .collect();
+                                for choice in choices {
+                                    if ui.button(&choice).clicked() {
+                                        self.move_selected_to_layer(&choice);
+                                        selection_changed = true;
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        });
                     }
                     ui.separator();
                     // Play animations
@@ -9515,8 +9881,10 @@ impl DesignerPanel {
             self.redo();
         }
         if no_text_focus && ctx.input(|i| i.key_pressed(egui::Key::A) && i.modifiers.command) {
-            // Select all — but only when not editing a property textbox etc.
-            self.selected_ids = self.form.controls.iter().map(|c| c.id.clone()).collect();
+            // Select all — but only when not editing a property textbox etc. —
+            // and only the controls of the active tab (spec 091 R45): the base's
+            // on `Form`, a layer's on its tab, the cards on `Non-Visuals`.
+            self.selected_ids = self.active_tab_rects().into_iter().map(|(id, _)| id).collect();
             selection_changed = true;
         }
         if no_text_focus
@@ -9547,7 +9915,9 @@ impl DesignerPanel {
         // shortcut above, because an arrow inside a property field belongs to
         // the caret. Opposite keys in the same frame cancel, which is what the
         // arithmetic already says.
-        if no_text_focus && !self.selected_ids.is_empty() {
+        // …and not on `Non-Visuals`: a card sits where the grid puts it, so there is
+        // nothing to nudge (spec 091 R52).
+        if no_text_focus && !self.selected_ids.is_empty() && self.controls_movable() {
             let (dx, dy) = ctx.input(|i| {
                 let step = nudge_step(
                     self.form.grid_size as i32,
@@ -9574,6 +9944,7 @@ impl DesignerPanel {
 
         // ── Deletion confirmation (spec 020) ─────────────────────────────────
         self.show_delete_confirmation(ui);
+        self.show_layer_delete_confirmation(ui);
 
         // ── User Control creation (spec 020) ─────────────────────────────────
         result.user_control_created = self.show_user_control_create_dialog(ui, user_controls);
@@ -9599,6 +9970,7 @@ impl DesignerPanel {
     /// Run-Form Inspector) so they cannot cover it.
     pub fn has_blocking_modal(&self) -> bool {
         self.pending_delete.is_some()
+            || self.pending_layer_delete.is_some()
             || self.ai_error_modal.is_some()
             || self.close_confirm
             || self
@@ -9647,6 +10019,155 @@ impl DesignerPanel {
             self.pending_delete = None;
             self.delete_ids_now(&pending.control_ids);
         }
+    }
+
+    /// How many controls, and how many event handlers with code, deleting layer
+    /// `name` takes with it (spec 091 R63): every control drawn in the layer, a
+    /// container's contents included (R8).
+    pub(crate) fn layer_delete_summary(&self, name: &str) -> (usize, usize) {
+        let mut controls = 0;
+        let mut handlers = 0;
+        for c in &self.form.controls {
+            if self.form.layer_of(&c.id).is_some_and(|n| n.eq_ignore_ascii_case(name)) {
+                controls += 1;
+                handlers += c.events.iter().filter(|e| e.has_code()).count();
+            }
+        }
+        (controls, handlers)
+    }
+
+    /// The window the red ✕ opens (spec 091 R63): the layer's name, how many
+    /// controls and event handlers go with it, and two buttons. Modal, and of one
+    /// size it owns — it is neither resizable nor sized by its text, so no language
+    /// and no frame changes it (§6, the window-resize rule).
+    fn show_layer_delete_confirmation(&mut self, ui: &mut Ui) {
+        let Some(name) = self.pending_layer_delete.clone() else {
+            return;
+        };
+        // The layer may be gone — an undo while the question was up: nothing to ask.
+        let Some(i) = self.form.layer_index(&name) else {
+            self.pending_layer_delete = None;
+            return;
+        };
+        let name = self.form.layers[i].name.clone();
+        let (controls, handlers) = self.layer_delete_summary(&name);
+        let tr = crate::i18n::current_tr(ui.ctx());
+        let message = tr
+            .layer_delete_body
+            .replacen("{}", &name, 1)
+            .replacen("{}", &controls.to_string(), 1)
+            .replacen("{}", &handlers.to_string(), 1);
+        let mut cancel = false;
+        let mut confirm = false;
+        let win_id = egui::Id::new("designer_layer_delete_confirm");
+        crate::app::raise_modal_layer(ui.ctx(), win_id);
+        egui::Window::new(tr.layer_delete_title)
+            .id(win_id)
+            .order(egui::Order::Foreground)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size(Vec2::new(LAYER_DELETE_W, LAYER_DELETE_H))
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ui.ctx(), |ui| {
+                // `fixed_size` bounds only the space OFFERED: on a window that
+                // cannot be resized egui takes the content's own size as the
+                // window's. So the content is pinned — a width from the stored
+                // number, and a body of one constant height that scrolls rather
+                // than grows — and no language, no layer name and no frame can
+                // change the window (the window-resize rule, spec 091 §6).
+                let margin = ui.style().spacing.window_margin.sum().x;
+                let stroke = 2.0 * ui.style().visuals.window_stroke.width;
+                ui.set_width(LAYER_DELETE_W - margin - stroke);
+                egui::ScrollArea::vertical()
+                    .id_salt("layer_delete_body")
+                    .max_height(LAYER_DELETE_BODY_H)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.add(egui::Label::new(message).wrap());
+                    });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.delete_confirm_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+        if cancel {
+            self.pending_layer_delete = None;
+        }
+        if confirm {
+            self.pending_layer_delete = None;
+            self.delete_layer_now(&name);
+        }
+    }
+
+    /// Delete layer `name`, every control in it — a container's contents too — and
+    /// every event handler bound to them, as **one** undo step (spec 091 R64, R65).
+    ///
+    /// Every control leaves by the path a single control takes — the form's recycle
+    /// bin keeps its handlers — so undoing the step brings back the layer at its
+    /// place in the stack with its backdrop, each control with its properties,
+    /// `ZOrder` and container link, and each handler. The data bindings that named
+    /// a control are pruned by a deletion and not restored by its undo, so the table
+    /// is part of the step. A procedure bound to none of the controls but mentioning
+    /// one stays, and is reported (GOLDEN RULE: user code is sacred). `Form` is the
+    /// active tab afterwards (Q27).
+    pub(crate) fn delete_layer_now(&mut self, name: &str) {
+        let Some(layer_index) = self.form.layer_index(name) else {
+            return;
+        };
+        let layer_name = self.form.layers[layer_index].name.clone();
+        let mut indices: Vec<usize> = self
+            .form
+            .controls
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| self.form.layer_of(&c.id).is_some_and(|n| n.eq_ignore_ascii_case(&layer_name)))
+            .map(|(i, _)| i)
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        // What the bindings look like once these controls are gone: the table a
+        // real deletion would leave, found on a copy.
+        let before_bindings = self.form.data_bindings.clone();
+        let after_bindings = {
+            let mut probe = self.form.clone();
+            for &i in &indices {
+                let id = self.form.controls[i].id.clone();
+                probe.recycle_control(&id, "probe");
+            }
+            probe.data_bindings
+        };
+
+        let deleted_ids: Vec<String> = indices.iter().map(|&i| self.form.controls[i].id.clone()).collect();
+        let mut cmds: Vec<Cmd> = Vec::new();
+        // From the highest index down, so none shifts under the next.
+        for idx in indices.into_iter().rev() {
+            cmds.push(Cmd::DeleteControl {
+                index: idx,
+                ctrl: self.form.controls[idx].clone(),
+                deleted_at: format!("layer-delete-{secs}-{idx}"),
+            });
+        }
+        cmds.push(Cmd::SetDataBindings { before: before_bindings, after: after_bindings });
+        let before = self.form.layers.clone();
+        let mut after = before.clone();
+        after.remove(layer_index);
+        cmds.push(Cmd::SetLayers { before, after });
+        self.apply(Cmd::Batch { cmds });
+
+        self.selected_ids.clear();
+        self.tabs.forget(&layer_name);
+        self.report_orphaned_procedures();
+        self.report_procedures_still_referring(&deleted_ids);
     }
 
     fn show_user_control_create_dialog(
@@ -12427,6 +12948,10 @@ impl DesignerPanel {
         if c.control_type.is_non_visual() || c.is_splitter_pane() || c.is_side_menu_footer() {
             return None;
         }
+        // Spec 091 R21 — a control in a layer has no Dock or Anchor to show.
+        if self.in_layer(&id) {
+            return None;
+        }
         let parent_mode = match c.parent.as_deref().and_then(|p| self.form.find_control(p)) {
             Some(p) => props::layout_mode(p),
             None => props::layout_mode(&props::FormBag(&self.form.layout)),
@@ -12787,10 +13312,369 @@ impl DesignerPanel {
     /// size, or the designed size.
     pub(crate) fn canvas_size(&self) -> (f32, f32) {
         let designed = (self.form.width as f32, self.form.height as f32);
+        // The `Non-Visuals` grid is as wide as five cells and as tall as its rows
+        // need; the canvas scrolls over what does not fit, and the FORM is not
+        // changed (R49, Q16).
+        if self.tabs.is_non_visuals() {
+            let n = self.form.controls.iter().filter(|c| c.control_type.is_non_visual()).count();
+            let w = (2 * cobolt_forms::nv_grid::MARGIN
+                + cobolt_forms::nv_grid::COLUMNS as i32 * cobolt_forms::nv_grid::CELL_W
+                + (cobolt_forms::nv_grid::COLUMNS as i32 - 1) * cobolt_forms::nv_grid::GAP) as f32;
+            let h = cobolt_forms::nv_grid::content_height(n) as f32;
+            return (designed.0.max(w), designed.1.max(h));
+        }
         match self.view_size {
             Some(v) if self.form.lays_out() => v,
             _ => designed,
         }
+    }
+
+    /// The ids of the controls in the active tab (spec 091 R44), or `None` when
+    /// every control is — the common case: the `Form` tab of a form with no
+    /// layers and no non-visual control. A control is in `Non-Visuals` if it is
+    /// non-visual (R47), in a layer if it — or the container it is in (R8) — names
+    /// that layer, and on `Form` otherwise: a name the form does not define
+    /// counts as the base (R40).
+    pub(crate) fn active_tab_ids(&self) -> Option<std::collections::HashSet<String>> {
+        use super::layer_tabs::ActiveTab;
+        let controls = &self.form.controls;
+        let any_non_visual = controls.iter().any(|c| c.control_type.is_non_visual());
+        if matches!(self.tabs.active(), ActiveTab::Form) && self.form.layers.is_empty() && !any_non_visual {
+            return None;
+        }
+        let by_id: HashMap<&str, &Control> = controls.iter().map(|c| (c.id.as_str(), c)).collect();
+        // The layer a control is declared in: its outermost container's (R8).
+        fn root_layer<'a>(
+            by_id: &HashMap<&str, &'a Control>,
+            c: &'a Control,
+            laps: usize,
+        ) -> Option<&'a str> {
+            let mut cur = c;
+            for _ in 0..=laps {
+                match cur.parent.as_deref().and_then(|p| by_id.get(p)) {
+                    Some(parent) => cur = parent,
+                    None => break,
+                }
+            }
+            cur.layer.as_deref()
+        }
+        let laps = controls.len();
+        Some(
+            controls
+                .iter()
+                .filter(|c| {
+                    let non_visual = c.control_type.is_non_visual();
+                    match self.tabs.active() {
+                        ActiveTab::NonVisuals => non_visual,
+                        ActiveTab::Form => {
+                            !non_visual
+                                && root_layer(&by_id, c, laps).is_none_or(|l| self.form.layer_index(l).is_none())
+                        }
+                        // A layer whose box is off is not drawn (R12, R62), so its
+                        // controls cannot be reached either: the developer ticks the
+                        // box to edit it again (Q2b).
+                        ActiveTab::Layer(name) => {
+                            self.tabs.is_shown(name)
+                                && !non_visual
+                                && root_layer(&by_id, c, laps).is_some_and(|l| l.eq_ignore_ascii_case(name))
+                        }
+                    }
+                })
+                .map(|c| c.id.clone())
+                .collect(),
+        )
+    }
+
+    /// Every control of the active tab with the rectangle the canvas shows it at:
+    /// its own on `Form` and the layer tabs, its cell on `Non-Visuals`. What the
+    /// lasso and Select All choose from (R44, R45).
+    pub(crate) fn active_tab_rects(&self) -> Vec<(String, cobolt_forms::Rect)> {
+        if self.tabs.is_non_visuals() {
+            return self.non_visuals_view().into_iter().map(|c| (c.id, c.rect)).collect();
+        }
+        let members = self.active_tab_ids();
+        self.form
+            .controls
+            .iter()
+            .filter(|c| members.as_ref().is_none_or(|m| m.contains(&c.id)))
+            .map(|c| (c.id.clone(), c.rect))
+            .collect()
+    }
+
+    /// The `+` (spec 091 R26, R7, Q30): a transparent layer on top of the stack,
+    /// named `Layer-N`, selected at once. One undo step. Refused with a message at
+    /// the 65th.
+    fn add_layer_by_bar(&mut self) {
+        if self.form.layers.len() >= cobolt_forms::model::MAX_LAYERS {
+            self.notify(DesignerNotice::LayerLimit);
+            return;
+        }
+        let name = self.form.next_layer_name();
+        let before = self.form.layers.clone();
+        let mut after = before.clone();
+        after.push(cobolt_forms::Layer::new(name.clone()));
+        self.apply(Cmd::SetLayers { before, after });
+        self.tabs.select_layer(&name);
+    }
+
+    /// A name typed on a layer tab (R26, R6, R4, R5): refused — with a message, and
+    /// with nothing changed — unless it is a valid control name, is neither `Form`
+    /// nor `Non-Visuals` in any letter case, and no control or other layer has it.
+    /// A change of letter case alone is a rename.
+    fn rename_layer_by_bar(&mut self, layer: &str, to: &str) {
+        let to = to.trim();
+        let Some(idx) = self.form.layer_index(layer) else {
+            return;
+        };
+        let current = self.form.layers[idx].name.clone();
+        let valid = cobolt_forms::model::is_valid_layer_name(to);
+        let free = to.eq_ignore_ascii_case(&current) || !self.form.name_in_use(to);
+        if !valid || !free {
+            self.notify(DesignerNotice::LayerNameRefused);
+            return;
+        }
+        if to == current {
+            return;
+        }
+        self.apply(Cmd::RenameLayer { old: current, new: to.to_owned() });
+    }
+
+    /// Whether control `id` is drawn in a layer the form defines — its own, or its
+    /// container's (R8). A name the form does not define counts as the base (R40).
+    pub(crate) fn in_layer(&self, id: &str) -> bool {
+        self.form.layer_of(id).is_some_and(|n| self.form.layer_index(n).is_some())
+    }
+
+    /// Send the selected controls to `layer` — a layer's name, or `Form` for the
+    /// base (spec 091 R31). One undo step for the lot.
+    ///
+    /// Only **root** controls move: a control inside a container follows its
+    /// container (R8), and moving the container takes everything inside it. A
+    /// non-visual control belongs to no layer (R47) and stays. Into a layer, a
+    /// moved control — and what is inside it — loses its `Dock` and its `Anchor`
+    /// goes back to the default, because only the base is laid out (R21); undoing
+    /// the move gives them back. The moved controls leave the selection, which is
+    /// the active tab's (R44).
+    pub(crate) fn move_selected_to_layer(&mut self, layer: &str) {
+        let target: Option<String> = if layer.eq_ignore_ascii_case(cobolt_forms::model::BASE_LAYER_NAME) {
+            None
+        } else {
+            match self.form.layer_index(layer) {
+                Some(i) => Some(self.form.layers[i].name.clone()),
+                None => return,
+            }
+        };
+        let mut cmds: Vec<Cmd> = Vec::new();
+        let roots: Vec<String> = self
+            .selected_ids
+            .iter()
+            .filter(|id| {
+                self.form
+                    .find_control(id)
+                    .is_some_and(|c| c.parent.is_none() && !c.control_type.is_non_visual())
+            })
+            .cloned()
+            .collect();
+        for id in roots {
+            let Some(c) = self.form.find_control(&id) else { continue };
+            let current = c
+                .layer
+                .as_deref()
+                .and_then(|n| self.form.layer_index(n))
+                .map(|i| self.form.layers[i].name.clone());
+            if current == target {
+                continue;
+            }
+            cmds.push(Cmd::SetControlLayer { id: id.clone(), old: c.layer.clone(), new: target.clone() });
+            if target.is_some() {
+                // The control and everything inside it (spec 091 R21).
+                let mut group = vec![id.clone()];
+                if let Some(i) = self.form.controls.iter().position(|x| x.id == id) {
+                    group.extend(
+                        super::containers::collect_descendants(&self.form.controls, i)
+                            .into_iter()
+                            .map(|d| self.form.controls[d].id.clone()),
+                    );
+                }
+                for member in group {
+                    let Some(m) = self.form.find_control(&member) else { continue };
+                    for (key, default) in [
+                        ("Dock", cobolt_forms::layout::defaults::DOCK),
+                        ("Anchor", cobolt_forms::layout::defaults::ANCHOR),
+                    ] {
+                        if let Some(old) = m.get_prop(key) {
+                            if old.as_str() != default {
+                                cmds.push(Cmd::SetProperty {
+                                    id: member.clone(),
+                                    key: key.into(),
+                                    old: Some(old.clone()),
+                                    new: PropValue::String(default.into()),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if cmds.is_empty() {
+            return;
+        }
+        self.apply(Cmd::Batch { cmds });
+        self.retain_selection_in_active_tab();
+    }
+
+    /// Set one of a layer's backdrop properties from the inspector (spec 091 R15,
+    /// R32), by the names of [`cobolt_forms::model::LAYER_PROPS`]. One undo step; a
+    /// value the layer already has makes none. `Name` is a rename and `Visible` is
+    /// not a designed property (R35): neither is written here.
+    pub(crate) fn set_layer_prop(&mut self, layer: &str, key: &str, value: &str) {
+        let Some(i) = self.form.layer_index(layer) else {
+            return;
+        };
+        if !cobolt_forms::model::layer_writable(key) || key.trim().eq_ignore_ascii_case("Visible") {
+            return;
+        }
+        let (key, value) = (key.to_owned(), value.to_owned());
+        let updated = self.form.layers[i].with_live(std::iter::once((&key, &value)));
+        if updated == self.form.layers[i] {
+            return;
+        }
+        let before = self.form.layers.clone();
+        let mut after = before.clone();
+        after[i] = updated;
+        self.apply(Cmd::SetLayers { before, after });
+    }
+
+    /// A layer tab dropped at another place among the layers (R11, R26). One undo
+    /// step; the paint order follows, since a layer paints above those before it.
+    fn move_layer_by_bar(&mut self, from: usize, to: usize) {
+        let n = self.form.layers.len();
+        if from >= n || to >= n || from == to {
+            return;
+        }
+        let before = self.form.layers.clone();
+        let mut after = before.clone();
+        let layer = after.remove(from);
+        after.insert(to, layer);
+        self.apply(Cmd::SetLayers { before, after });
+    }
+
+    /// Apply what the developer did on the tab bar (spec 091 R24, R25, R60–R62).
+    /// Choosing a tab and ticking a box are **not edits**: they change what the
+    /// designer shows and nothing the form saves, so none of them marks the form
+    /// modified or makes an undo step. Returns whether the selection changed.
+    ///
+    /// Adding, renaming and re-stacking a layer are undoable commands; deleting
+    /// one asks first ([`Self::show_layer_delete_confirmation`]).
+    pub(crate) fn apply_tab_actions(&mut self, actions: Vec<super::layer_tabs::TabAction>) -> bool {
+        use super::layer_tabs::TabAction;
+        if actions.is_empty() {
+            return false;
+        }
+        for action in actions {
+            match action {
+                TabAction::SelectNonVisuals => self.tabs.select_non_visuals(),
+                TabAction::SelectForm => self.tabs.select_form(),
+                TabAction::SelectLayer(name) => self.tabs.select_layer(&name),
+                // The box never changes the tab (R62), whichever layer's it is.
+                TabAction::ToggleShown(name) => {
+                    let on = !self.tabs.is_shown(&name);
+                    self.tabs.set_shown(&name, on);
+                }
+                TabAction::Add => self.add_layer_by_bar(),
+                TabAction::Rename { layer, to } => self.rename_layer_by_bar(&layer, &to),
+                TabAction::Move { from, to } => self.move_layer_by_bar(from, to),
+                // The ✕ selects the layer — as selecting its tab does (R60, R61) — and
+                // then asks (R63). Nothing is deleted until the developer confirms.
+                TabAction::RequestDelete(name) => {
+                    if let Some(i) = self.form.layer_index(&name) {
+                        let name = self.form.layers[i].name.clone();
+                        self.tabs.select_layer(&name);
+                        self.pending_layer_delete = Some(name);
+                    }
+                }
+            }
+        }
+        // A new tab, or a box that took the active layer off the canvas: what the
+        // developer can no longer reach leaves the selection (R44, Q2b).
+        self.retain_selection_in_active_tab()
+    }
+
+    /// Queue a message for the Output panel.
+    pub(crate) fn notify(&mut self, notice: DesignerNotice) {
+        self.notices.push(notice);
+    }
+
+    /// What a form that has just been opened says about itself (spec 091 R5, R40):
+    /// a name two controls or layers share, and a control that names a layer the
+    /// form does not define. Both are **reported and left as they are** — nothing is
+    /// deleted or repaired (GOLDEN RULE: user code is sacred); a control with an
+    /// unknown layer is shown on `Form`.
+    pub(crate) fn report_load_problems(&mut self) {
+        for name in self.form.name_collisions() {
+            self.notify(DesignerNotice::NameCollision(name));
+        }
+        for (control, layer) in self.form.unknown_layer_refs() {
+            self.notify(DesignerNotice::UnknownLayer { control, layer });
+        }
+    }
+
+    /// The pointer went down on a toolbox control (spec 091 R59). A non-visual
+    /// one makes `Non-Visuals` the active tab, from any tab, **before** the control
+    /// is placed — so the tab that receives it is on screen when it appears. A
+    /// visual one changes nothing: it is created in the tab that is active. No
+    /// layer's `Visible` is touched either way (R61).
+    pub(crate) fn on_toolbox_press(&mut self, ct: &ControlType) {
+        if ct.is_non_visual() && !self.tabs.is_non_visuals() {
+            self.tabs.select_non_visuals();
+            self.retain_selection_in_active_tab();
+        }
+    }
+
+    /// Whether the form can be resized in the designer (spec 091 R30, R57): only
+    /// while the base is the active tab. On a layer — which covers exactly the
+    /// form's rectangle (R13) — and on `Non-Visuals` there are no grips, and the
+    /// inspector's `Width` and `Height` are read only.
+    pub(crate) fn form_resizable(&self) -> bool {
+        self.tabs.is_form()
+    }
+
+    /// Whether the pointer can move and resize the active tab's controls with
+    /// knobs and drags: everywhere but `Non-Visuals`, where the grid decides a
+    /// card's cell and size (R52). A card can still be selected.
+    pub(crate) fn controls_movable(&self) -> bool {
+        !self.tabs.is_non_visuals()
+    }
+
+    /// Controls that are not in the active tab leave the selection (R44): the
+    /// pointer treats the other tabs' controls as absent, so a selection must not
+    /// keep one the developer can no longer reach. Returns whether it changed.
+    pub(crate) fn retain_selection_in_active_tab(&mut self) -> bool {
+        let Some(members) = self.active_tab_ids() else {
+            return false;
+        };
+        let before = self.selected_ids.len();
+        self.selected_ids.retain(|id| members.contains(id));
+        self.selected_ids.len() != before
+    }
+
+    /// The `Non-Visuals` tab's view of the form (spec 091 R49–R52): the form's
+    /// non-visual controls, copied, each with its rectangle set to its cell in the
+    /// grid. Derived from their types and names every time — nothing is stored, the
+    /// `.cfrm` keeps the `X` and `Y` it has (R54) — and what the tab draws, hit
+    /// tests and selects from.
+    pub(crate) fn non_visuals_view(&self) -> Vec<Control> {
+        let cells = cobolt_forms::nv_grid::non_visual_grid(&self.form);
+        cells
+            .into_iter()
+            .filter_map(|cell| {
+                let mut c = self.form.find_control(&cell.id)?.clone();
+                c.rect = cell.rect;
+                // A card sits in its own cell, never inside a container.
+                c.parent = None;
+                Some(c)
+            })
+            .collect()
     }
 
     /// Whether the canvas lays the form out rather than painting its design:
@@ -12898,11 +13782,15 @@ impl DesignerPanel {
     fn splitter_division_at(&self, px: i32, py: i32) -> Option<String> {
         let view = self.rail_view_controls(&self.form.controls);
         let controls: &[Control] = view.as_deref().unwrap_or(&self.form.controls);
+        // Spec 091 R44 — a splitter of another tab is inactive: its division is not there to grab.
+        let members = self.active_tab_ids();
         let mut hit = None;
         for c in controls {
             // `Visible` is for the running form: the canvas draws a splitter the
             // design hides, so its division has to be there to grab too.
-            if c.control_type != ControlType::Splitter {
+            if c.control_type != ControlType::Splitter
+                || !members.as_ref().is_none_or(|m| m.contains(&c.id))
+            {
                 continue;
             }
             let g = cobolt_forms::splitter::geometry(c, c.rect);
@@ -13469,13 +14357,7 @@ impl DesignerPanel {
             return;
         };
         let r = self.form.controls[idx].rect;
-        let target = super::containers::resolve_drop_target(
-            &self.form.controls,
-            r.x + r.w / 2,
-            r.y + r.h / 2,
-            idx,
-            &self.active_tabs,
-        );
+        let target = self.drop_target_for(idx, r.x + r.w / 2, r.y + r.h / 2);
         let super::containers::DropTarget::Into { container, .. } = target else {
             return;
         };
@@ -13629,7 +14511,7 @@ impl DesignerPanel {
         // Check if pointer is currently over a resize handle (for cursor feedback).
         // The grab zones sit on the rect the knobs were DRAWN on (see
         // `sel_handle_rect`), so a knob is grabbable exactly where it appears.
-        let handle_hover = if selected_line.is_some() {
+        let handle_hover = if selected_line.is_some() || !self.controls_movable() {
             None
         } else {
             self.selected_ids.first().and_then(|sid| {
@@ -13677,7 +14559,7 @@ impl DesignerPanel {
 
         // Detect hovering the form's own resize border (only when not over a
         // control's resize handle — control handles take priority).
-        let form_edge_hover = if handle_hover.is_none() {
+        let form_edge_hover = if handle_hover.is_none() && self.form_resizable() {
             {
                 let (w, h) = self.canvas_size();
                 detect_form_edge(px, py, w, h)
@@ -13864,13 +14746,22 @@ impl DesignerPanel {
                                         .map(|c| (sid.clone(), c.rect.x, c.rect.y))
                                 })
                                 .collect();
-                            self.capture_drag_laid();
-                            self.drag = DragState::MovingControls {
-                                primary_id: id,
-                                origins,
-                                start_x: px,
-                                start_y: py,
-                            };
+                            // A card is selected by the press and never moved: the grid
+                            // decides its cell (spec 091 R52). The press is then the
+                            // whole gesture — as an anchor pin's is — or the frame on
+                            // which egui reports the drag would start a rubber band
+                            // from wherever the pointer has got to.
+                            if self.controls_movable() {
+                                self.capture_drag_laid();
+                                self.drag = DragState::MovingControls {
+                                    primary_id: id,
+                                    origins,
+                                    start_x: px,
+                                    start_y: py,
+                                };
+                            } else {
+                                self.pin_consumed = true;
+                            }
                         } else {
                             // Started drag on empty canvas — begin rubber-band
                             self.drag = DragState::RubberBand {
@@ -14216,17 +15107,15 @@ impl DesignerPanel {
                         if !ctrl_held {
                             self.selected_ids.clear();
                         }
+                        // The lasso reaches only the active tab's controls (R44),
+                        // however many others its rectangle covers.
                         let new_sel: Vec<String> = self
-                            .form
-                            .controls
-                            .iter()
-                            .filter(|c| {
-                                c.rect.x < max_x
-                                    && c.rect.x + c.rect.w > min_x
-                                    && c.rect.y < max_y
-                                    && c.rect.y + c.rect.h > min_y
+                            .active_tab_rects()
+                            .into_iter()
+                            .filter(|(_, r)| {
+                                r.x < max_x && r.x + r.w > min_x && r.y < max_y && r.y + r.h > min_y
                             })
-                            .map(|c| c.id.clone())
+                            .map(|(id, _)| id)
                             .collect();
                         for id in new_sel {
                             if !self.selected_ids.contains(&id) {
@@ -23357,7 +24246,7 @@ mod responsive_canvas_tests_056 {
     #[test]
     fn the_canvas_scales_a_form_with_an_obsolete_scaling_style_081() {
         let ctx = egui::Context::default();
-        let st = DesignerState { anim: &Default::default() };
+        let st = DesignerState { anim: &Default::default(), tabs: None };
         let mut f = Form::new("F", "F", 400, 300);
         f.layout.insert("ObsoleteScalingStyle".into(), PropValue::Int(3));
         let mut b = Control::new("BTN", ControlType::Button, 0, 0);
@@ -23403,7 +24292,7 @@ mod responsive_canvas_tests_056 {
         p.set_prop("Anchor", PropValue::String("".into()));
         d.form.controls.push(p);
         let ctx = egui::Context::default();
-        let st = DesignerState { anim: &Default::default() };
+        let st = DesignerState { anim: &Default::default(), tabs: None };
         for (id, view, expect) in [("BTN", 600.0, 310), ("P", 800.0, 105)] {
             let mut d2 = DesignerPanel::new(d.form.clone());
             d2.view_size = Some((view, 300.0));
@@ -23479,7 +24368,7 @@ mod responsive_canvas_tests_056 {
     #[test]
     fn a_drop_inside_a_flex_or_grid_parent_reorders_or_places_in_a_cell() {
         let ctx = egui::Context::default();
-        let st = DesignerState { anim: &Default::default() };
+        let st = DesignerState { anim: &Default::default(), tabs: None };
         let setup = |mode: &str, tracks: Option<(&str, &str)>| {
             let mut f = Form::new("F", "F", 400, 300);
             f.responsive = true;
@@ -23594,7 +24483,7 @@ mod responsive_canvas_tests_056 {
         let ctx = egui::Context::default();
         ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
         let anim = Default::default();
-        let st = DesignerState { anim: &anim };
+        let st = DesignerState { anim: &anim, tabs: None };
         let mut rects = std::collections::HashMap::new();
         for _ in 0..2 {
             let mut full = ctx.run_ui(
@@ -23638,7 +24527,7 @@ mod responsive_canvas_tests_056 {
         let mut d = responsive();
         d.view_size = Some((600.0, 400.0));
         let ctx = egui::Context::default();
-        let st = DesignerState { anim: &Default::default() };
+        let st = DesignerState { anim: &Default::default(), tabs: None };
         let p = d.canvas_prepare(&ctx, &d.form.controls.clone(), &st);
         let btn = p.controls.iter().find(|c| c.id == "BTN").unwrap().rect;
         assert_eq!((btn.x, btn.y), (500, 20));
@@ -23893,3 +24782,10 @@ mod event_editor_drag_tests {
         assert_eq!(over, 1, "released over the event editor, nothing is placed behind the window");
     }
 }
+
+// Spec 091 — the designer's tab bar, the `Non-Visuals` tab and the layer
+// operations. In a file of their own: they are many, and they read the
+// designer's private state as the other test modules here do.
+#[cfg(test)]
+#[path = "designer_layers_091_tests.rs"]
+mod layers_091;
