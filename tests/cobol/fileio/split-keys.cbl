@@ -92,15 +92,16 @@
                DISPLAY "FAIL READ by ORD-KEY: " WS-FS " " ORD-AMOUNT
            END-IF
       *>   5. START on the Fujitsu key, named by its first field, then every
-      *>      duplicate. Which three, not their order: the engines differ on
-      *>      the order of duplicates (written order on disk and redb, primary
-      *>      key order in memory), and that is not what this test is about.
+      *>      duplicate, in the order they were written (COBOL-85) on every
+      *>      engine: 100 300 150, not the primary-key order 100 150 300.
            MOVE "ANA" TO ORD-CUSTOMER
            MOVE 20261001 TO ORD-DATE
            START ORDERS KEY IS = ORD-CUSTOMER
            MOVE 0 TO WS-N
            MOVE 0 TO WS-SUM
            MOVE 0 TO WS-EOF
+           MOVE SPACES TO WS-SEEN
+           MOVE 1 TO WS-PTR
            PERFORM UNTIL WS-EOF = 1
                READ ORDERS NEXT
                    AT END MOVE 1 TO WS-EOF
@@ -109,16 +110,20 @@
                    IF ORD-CUSTOMER = "ANA" AND ORD-DATE = 20261001
                        ADD 1 TO WS-N
                        ADD ORD-AMOUNT TO WS-SUM
+                       MOVE ORD-AMOUNT TO WS-AMT
+                       STRING FUNCTION TRIM(WS-AMT) " " DELIMITED BY SIZE
+                           INTO WS-SEEN WITH POINTER WS-PTR
                    ELSE
                        MOVE 1 TO WS-EOF
                    END-IF
                END-IF
            END-PERFORM
-           IF WS-N = 3 AND WS-SUM = 550
+           IF WS-N = 3 AND WS-SUM = 550 AND WS-SEEN = "100 300 150"
                ADD 1 TO WS-PASS
            ELSE
                ADD 1 TO WS-FAIL
-               DISPLAY "FAIL START on ORD-CUSTOMER: " WS-N " records, " WS-SUM
+               DISPLAY "FAIL START on ORD-CUSTOMER: " WS-N " records, ["
+                   WS-SEEN "]"
            END-IF
       *>   6. START on the Micro Focus alternate, by its key name.
            MOVE 20261002 TO ORD-DATE

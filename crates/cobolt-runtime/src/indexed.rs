@@ -22,7 +22,7 @@
 //! releases all locks. The store is a single run unit, so locks are bookkeeping
 //! that also enforces "REWRITE/DELETE need a prior READ" in sequential access.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 pub type Bytes = Vec<u8>;
@@ -387,9 +387,10 @@ impl KeySpec {
 
 #[derive(Clone)]
 enum Journal {
-    Insert(Bytes),        // primary key inserted
-    Update(Bytes, Bytes), // primary key, previous record bytes
-    Delete(Bytes, Bytes), // primary key, previous record bytes
+    Insert(Bytes), // primary key inserted
+    // primary key, previous record bytes, its alternate join sequences
+    Update(Bytes, Bytes, Vec<u64>),
+    Delete(Bytes, Bytes, Vec<u64>),
 }
 
 /// One indexed file.
@@ -401,8 +402,15 @@ pub struct IndexedFile {
 
     /// Primary key → record bytes (ordered for sequential access).
     records: BTreeMap<Bytes, Bytes>,
-    /// Per alternate key: alt-key value → set of primary keys (ordered).
-    alt_index: Vec<BTreeMap<Bytes, BTreeSet<Bytes>>>,
+    /// Per alternate key: alt-key value → join sequence → primary key.
+    ///
+    /// COBOL-85 returns records sharing an alternate value in the order they
+    /// were written, so a duplicate set is ordered by when each entry JOINED
+    /// it — a WRITE, or a REWRITE that moved the record into it — not by
+    /// primary key. Same rule as the DISK engine's join sequence.
+    alt_index: Vec<BTreeMap<Bytes, BTreeMap<u64, Bytes>>>,
+    /// Next join sequence, shared by every alternate.
+    next_seq: u64,
 
     open: Option<OpenMode>,
     /// Key of reference: 0 = primary, 1..=N = alternates[idx-1].
@@ -449,6 +457,7 @@ impl IndexedFile {
             alternates,
             records: BTreeMap::new(),
             alt_index: vec![BTreeMap::new(); n_alt],
+            next_seq: 0,
             open: None,
             kor: 0,
             cursor: None,
@@ -589,7 +598,15 @@ impl IndexedFile {
                                 let pkey = self.primary.extract(&rec);
                                 self.records.insert(pkey, rec);
                             }
-                            self.rebuild_alt_index();
+                            match crate::indexed_disk::read_disk_container_join_order(
+                                &self.path,
+                                self.record_len,
+                                &self.primary,
+                                &self.alternates,
+                            ) {
+                                Ok(order) => self.rebuild_alt_index_in_join_order(&order),
+                                Err(st) => return st,
+                            }
                         }
                         Err(st) => return st,
                     }
@@ -821,16 +838,25 @@ impl IndexedFile {
             }
             let ak = ks.extract(&rec);
             if let Some(set) = self.alt_index[i].get(&ak) {
-                if set.iter().any(|p| *p != pkey) {
+                if set.values().any(|p| *p != pkey) {
                     return status::DUP_KEY;
                 }
             }
         }
-        self.index_remove(&pkey, &old);
+        // An entry whose alternate value is unchanged keeps its place in its
+        // duplicate set; one the REWRITE moves joins its new set at the end.
+        let old_seqs = self.index_remove(&pkey, &old);
+        let mut seqs = old_seqs.clone();
+        for i in 0..self.alternates.len() {
+            let ks = &self.alternates[i];
+            if ks.extract(&old) != ks.extract(&rec) {
+                seqs[i] = self.alloc_seq();
+            }
+        }
         self.records.insert(pkey.clone(), rec.clone());
-        self.index_insert(&pkey, &rec);
+        self.index_insert_at(&pkey, &rec, &seqs);
         self.locks.remove(&pkey);
-        self.journal.push(Journal::Update(pkey, old));
+        self.journal.push(Journal::Update(pkey, old, old_seqs));
         status::OK
     }
 
@@ -852,12 +878,12 @@ impl IndexedFile {
             Some(r) => r,
             None => return status::NOT_FOUND,
         };
-        self.index_remove(&pkey, &old);
+        let seqs = self.index_remove(&pkey, &old);
         self.locks.remove(&pkey);
         if self.current.as_ref() == Some(&pkey) {
             self.current = None;
         }
-        self.journal.push(Journal::Delete(pkey, old));
+        self.journal.push(Journal::Delete(pkey, old, seqs));
         status::OK
     }
 
@@ -884,16 +910,17 @@ impl IndexedFile {
                         self.index_remove(&pkey, &old);
                     }
                 }
-                Journal::Update(pkey, old) => {
+                // Restored where it was in each duplicate set, not at the end.
+                Journal::Update(pkey, old, seqs) => {
                     if let Some(cur) = self.records.get(&pkey).cloned() {
                         self.index_remove(&pkey, &cur);
                     }
                     self.records.insert(pkey.clone(), old.clone());
-                    self.index_insert(&pkey, &old);
+                    self.index_insert_at(&pkey, &old, &seqs);
                 }
-                Journal::Delete(pkey, old) => {
+                Journal::Delete(pkey, old, seqs) => {
                     self.records.insert(pkey.clone(), old.clone());
-                    self.index_insert(&pkey, &old);
+                    self.index_insert_at(&pkey, &old, &seqs);
                 }
             }
         }
@@ -924,7 +951,7 @@ impl IndexedFile {
             let k = pad(key, self.alternates[idx].len);
             self.alt_index[idx]
                 .get(&k)
-                .and_then(|set| set.iter().next().cloned())
+                .and_then(|set| set.values().next().cloned())
         }
     }
 
@@ -944,7 +971,7 @@ impl IndexedFile {
             let idx = self.kor - 1;
             self.alt_index[idx]
                 .values()
-                .flat_map(|set| set.iter().cloned())
+                .flat_map(|set| set.values().cloned())
                 .collect()
         }
     }
@@ -962,36 +989,109 @@ impl IndexedFile {
             let map = &self.alt_index[self.kor - 1];
             select_by_prefix(map, op, &lo, &hi, n)
                 .and_then(|ak| map.get(ak))
-                .and_then(|set| set.iter().next().cloned())
+                .and_then(|set| set.values().next().cloned())
         }
     }
 
+    fn alloc_seq(&mut self) -> u64 {
+        let s = self.next_seq;
+        self.next_seq += 1;
+        s
+    }
+
+    /// Index a record whose entries are joining their duplicate sets now.
     fn index_insert(&mut self, pkey: &[u8], rec: &[u8]) {
+        let seqs: Vec<u64> = (0..self.alternates.len())
+            .map(|_| self.alloc_seq())
+            .collect();
+        self.index_insert_at(pkey, rec, &seqs);
+    }
+
+    /// Index a record with the join sequence each alternate entry keeps.
+    fn index_insert_at(&mut self, pkey: &[u8], rec: &[u8], seqs: &[u64]) {
         for (i, ks) in self.alternates.iter().enumerate() {
             let ak = ks.extract(rec);
             self.alt_index[i]
                 .entry(ak)
                 .or_default()
-                .insert(pkey.to_vec());
+                .insert(seqs[i], pkey.to_vec());
         }
     }
 
-    fn index_remove(&mut self, pkey: &[u8], rec: &[u8]) {
+    /// Unindex a record; returns the join sequence each entry had.
+    fn index_remove(&mut self, pkey: &[u8], rec: &[u8]) -> Vec<u64> {
+        let mut seqs = Vec::with_capacity(self.alternates.len());
         for (i, ks) in self.alternates.iter().enumerate() {
             let ak = ks.extract(rec);
+            let mut seq = 0;
             if let Some(set) = self.alt_index[i].get_mut(&ak) {
-                set.remove(pkey);
+                if let Some(s) = set
+                    .iter()
+                    .find(|(_, p)| p.as_slice() == pkey)
+                    .map(|(s, _)| *s)
+                {
+                    set.remove(&s);
+                    seq = s;
+                }
                 if set.is_empty() {
                     self.alt_index[i].remove(&ak);
                 }
             }
+            seqs.push(seq);
         }
+        seqs
+    }
+
+    /// Every record's join sequence per alternate, in primary-key order —
+    /// aligned with [`Self::records_in_key_order`], for the save.
+    fn join_seqs_in_key_order(&self) -> Vec<Vec<u64>> {
+        let by_pkey: Vec<HashMap<&Bytes, u64>> = self
+            .alt_index
+            .iter()
+            .map(|m| {
+                m.values()
+                    .flat_map(|set| set.iter().map(|(s, p)| (p, *s)))
+                    .collect()
+            })
+            .collect();
+        self.records
+            .keys()
+            .map(|p| {
+                by_pkey
+                    .iter()
+                    .map(|m| m.get(p).copied().unwrap_or(0))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Rebuild the alternate indexes from a container that recorded, per
+    /// duplicates alternate, its primary keys in join order (see
+    /// [`crate::indexed_disk::read_disk_container_join_order`]).
+    fn rebuild_alt_index_in_join_order(&mut self, order: &[Vec<Bytes>]) {
+        self.rebuild_alt_index();
+        for (i, keys) in order.iter().enumerate() {
+            if keys.is_empty() {
+                continue;
+            }
+            let mut m: BTreeMap<Bytes, BTreeMap<u64, Bytes>> = BTreeMap::new();
+            for (n, pkey) in keys.iter().enumerate() {
+                if let Some(rec) = self.records.get(pkey) {
+                    m.entry(self.alternates[i].extract(rec))
+                        .or_default()
+                        .insert(n as u64, pkey.clone());
+                }
+            }
+            self.alt_index[i] = m;
+        }
+        self.next_seq = self.next_seq.max(self.records.len() as u64);
     }
 
     fn rebuild_alt_index(&mut self) {
         for m in &mut self.alt_index {
             m.clear();
         }
+        self.next_seq = 0;
         let snapshot: Vec<(Bytes, Bytes)> = self
             .records
             .iter()
@@ -1211,7 +1311,7 @@ impl IndexedFile {
     /// first time it is saved — so an outside reader (a driver, a report
     /// tool, PowerChat) has a single container to understand.
     fn save(&self) -> std::io::Result<()> {
-        crate::indexed_disk::write_disk_container(
+        crate::indexed_disk::write_disk_container_in_join_order(
             &self.path,
             self.record_len,
             &self.primary,
@@ -1219,6 +1319,7 @@ impl IndexedFile {
             &self.key_names,
             self.compressing,
             &self.records_in_key_order(),
+            Some(&self.join_seqs_in_key_order()),
         )
     }
 
@@ -1691,6 +1792,112 @@ mod tests {
         assert_eq!(s, status::OK);
         assert!(r.is_some());
         f.close();
+    }
+
+    /// The primary keys READ NEXT / PREVIOUS delivers from the current position.
+    fn ids(f: &mut IndexedFile, dir: ReadDir) -> Vec<String> {
+        let mut out = Vec::new();
+        while let (Some(r), status::OK) = f.read_seq(dir) {
+            out.push(
+                String::from_utf8_lossy(&r[..5])
+                    .trim_start_matches('0')
+                    .to_string(),
+            );
+        }
+        out
+    }
+
+    /// COBOL-85: records sharing an alternate value come back in the order
+    /// they were WRITTEN, not in primary-key order — the order the DISK and
+    /// redb engines already kept. Found by tests/cobol/fileio/split-keys.cbl.
+    #[test]
+    fn duplicates_of_an_alternate_come_back_in_write_order() {
+        let p = tmp("duporder");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile(p.clone(), true);
+        f.open(OpenMode::Output);
+        for (id, name) in [("5", "ANA"), ("1", "BEA"), ("9", "ANA"), ("3", "ANA")] {
+            assert_eq!(f.write(&rec(id, name)), status::OK);
+        }
+        f.close();
+
+        let mut f = newfile(p.clone(), true);
+        f.open(OpenMode::Io);
+        f.set_key_of_reference(1);
+        assert_eq!(ids(&mut f, ReadDir::Next), ["5", "9", "3", "1"]);
+        f.reset_cursor();
+        assert_eq!(ids(&mut f, ReadDir::Previous), ["1", "3", "9", "5"]);
+        // A random READ and a START on the value find the FIRST one written.
+        assert_eq!(&f.read_key(b"ANA").0.unwrap()[..5], b"00005");
+        assert_eq!(f.start(StartOp::Eq, b"ANA"), status::OK);
+        assert_eq!(ids(&mut f, ReadDir::Next), ["5", "9", "3", "1"]);
+
+        // A REWRITE that keeps the value keeps the record's place…
+        f.set_key_of_reference(0);
+        f.read_key(b"00005");
+        assert_eq!(f.rewrite(&rec("5", "ANA"), Some(b"00005")), status::OK);
+        // …one that moves it into a set joins that set at the end.
+        f.read_key(b"00001");
+        assert_eq!(f.rewrite(&rec("1", "ANA"), Some(b"00001")), status::OK);
+        f.set_key_of_reference(1);
+        f.reset_cursor();
+        assert_eq!(ids(&mut f, ReadDir::Next), ["5", "9", "3", "1"]);
+        // DELETE closes the gap; ROLLBACK puts the record back where it was.
+        f.commit();
+        f.set_key_of_reference(0);
+        assert_eq!(f.delete(Some(b"00009")), status::OK);
+        f.set_key_of_reference(1);
+        f.reset_cursor();
+        assert_eq!(ids(&mut f, ReadDir::Next), ["5", "3", "1"]);
+        f.rollback();
+        f.set_key_of_reference(1);
+        assert_eq!(ids(&mut f, ReadDir::Next), ["5", "9", "3", "1"]);
+        // An undone REWRITE that moved a record restores its old place too.
+        f.set_key_of_reference(0);
+        f.read_key(b"00005");
+        assert_eq!(f.rewrite(&rec("5", "ZED"), Some(b"00005")), status::OK);
+        assert_eq!(f.rewrite(&rec("5", "ANA"), Some(b"00005")), status::OK);
+        f.rollback();
+        f.set_key_of_reference(1);
+        assert_eq!(ids(&mut f, ReadDir::Next), ["5", "9", "3", "1"]);
+
+        // Move 5 to the end of the set, then save: the order survives CLOSE.
+        f.set_key_of_reference(0);
+        f.read_key(b"00005");
+        assert_eq!(f.rewrite(&rec("5", "ZED"), Some(b"00005")), status::OK);
+        assert_eq!(f.rewrite(&rec("5", "ANA"), Some(b"00005")), status::OK);
+        assert_eq!(f.close(), status::OK);
+
+        let mut f = newfile(p.clone(), true);
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        f.set_key_of_reference(1);
+        assert_eq!(ids(&mut f, ReadDir::Next), ["9", "3", "1", "5"]);
+        // A record written after the reload still joins at the end.
+        assert_eq!(f.write(&rec("2", "ANA")), status::OK);
+        f.reset_cursor();
+        assert_eq!(ids(&mut f, ReadDir::Next), ["9", "3", "1", "5", "2"]);
+        f.close();
+
+        // The saved container is the DISK engine's, and it reads the same order.
+        let mut d = crate::indexed_disk::DiskIndexedFile::new(
+            &p,
+            15,
+            f.primary.clone(),
+            f.alternates.clone(),
+        );
+        assert_eq!(d.open(OpenMode::Input), status::OK);
+        d.set_key_of_reference(1);
+        let mut got = Vec::new();
+        while let (Some(r), status::OK) = d.read_seq(ReadDir::Next) {
+            got.push(
+                String::from_utf8_lossy(&r[..5])
+                    .trim_start_matches('0')
+                    .to_string(),
+            );
+        }
+        assert_eq!(got, ["9", "3", "1", "5", "2"]);
+        d.close();
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]
