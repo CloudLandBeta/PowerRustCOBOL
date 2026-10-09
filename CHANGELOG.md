@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.90.22] — 2026-10-08
+
+### Added
+- **Spec 091 — Form Layers and Non-visual deployment (draft).** The spec is
+  named and recorded so the specification can continue. What it holds so far is
+  *form layers*: transparent planes stacked above the form, each with its own
+  controls, shown or hidden in the designer and from COBOL by name, with a tab
+  strip under the canvas, and a form without layers unchanged. The non-visual
+  deployment part is still to be written. Requirements only — no code yet.
+
 ## [PowerRustCOBOL 1.90.21] — 2026-10-08
 
 ### Fixed
