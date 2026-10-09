@@ -1968,7 +1968,10 @@ is scaled and placed.
 
 The runtime surfaces only add live behaviour (press feedback, focus, text input,
 slider drag), and the designer adds its editor overlay (selection handles,
-badges, drop hints) on top.
+badges, drop hints) on top. A badge — the yellow ▶ that marks a control with
+animations, the ARRAY tag of a repeating group — belongs to the control it
+marks: a control drawn in front of that corner, such as a panel on a layer
+above, hides the badge along with the part of the control it covers.
 
 #### The magnifier
 
@@ -2416,6 +2419,12 @@ a closed eye) and the `+`.
 | **Form** | The base. It cannot be moved, renamed or deleted, and it has no eye: the base is always shown. |
 | **Layer-1, Layer-2 …** | One tab per layer, left to right from the layer nearest `Form` to the one on top. Each has an **eye** — open when the layer is shown, closed when it is hidden — and a red **✕**. |
 | **+** | Adds a layer. |
+
+When the layers outgrow the strip, `Non-Visuals` stays where it is, a **◀** and a
+**▶** appear at the right, and the other tabs run on beneath them. Press an arrow
+to move the tabs one step, or **swipe sideways** over the strip — two fingers on a
+trackpad, or the mouse wheel — to glide them along. The strip stops at the first
+tab and the last, and neither gesture selects a tab or changes the form.
 
 The tabs are slanted and touch one another, and they sit on a dark strip with a
 thin white rule above it. The **active** tab is drawn blue with white text and

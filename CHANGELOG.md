@@ -17,6 +17,32 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.43] — 2026-10-09
+
+### Fixed
+- **The yellow animation badges showed through the layers.** The designer lays
+  the editor badges — the yellow ▶ of a control that has animations, the ARRAY tag
+  of a repeating group — over the faces once they are all painted, and chose which
+  ones by the order of the controls in the form, not the order the layers are
+  painted in. A control in front of a badge's corner, such as a panel or a popup on
+  a layer, therefore did not hide it, and the badges of the controls behind an
+  overlay were drawn on top of it. A badge is now left out while a control drawn
+  after its own control, outside it, with a face of its own, covers the place it
+  sits; the order is the engine's (the base first, then each layer upward), and a
+  hidden layer, a non-visual control or a panel with its background hidden covers
+  nothing.
+- **The layer tab bar's ◀ ▶ arrows did nothing.** The tabs the strip cannot fit
+  are cut off where the arrows start, but only when they are painted: their click
+  areas still ran on underneath, and a tab drawn after the arrows took the press
+  the arrow was meant to get (and a tab scrolled out at the left took the pinned
+  `Non-Visuals` tab's). A tab's click areas — its body, eye and ✕, and the `+` —
+  are now cut to what the strip shows.
+- **A scrolling tab strip answers a sideways swipe.** Two fingers on a
+  trackpad, or the mouse wheel, over the layer tab bar glide the tabs left and right
+  over several frames instead of in a jump, in addition to the arrows; the strip stops at the first
+  and the last tab, the gesture is taken from the input so nothing under it
+  scrolls too, and a strip whose tabs all fit does not move.
+
 ## [PowerRustCOBOL 1.90.42] — 2026-10-09
 
 ### Fixed

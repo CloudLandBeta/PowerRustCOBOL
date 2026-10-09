@@ -805,6 +805,33 @@ struct DesignerState<'a> {
     /// designer is showing. `None` — a test, the preview — draws every control.
     tabs: Option<&'a super::layer_tabs::TabView>,
 }
+/// The fill of the yellow animation badge the designer lays over a control that
+/// has animations.
+const ANIM_BADGE_FILL: Color32 = Color32::from_rgba_premultiplied(255, 180, 0, 180);
+
+/// Whether the editor badge of the control at `render_order[pos]`, centred on
+/// `badge`, is hidden by a control drawn after it: one that is not inside the
+/// control, paints a face of its own (a non-visual control, or a Panel or
+/// GroupBox with `HideBackground`, paints none) and lies over the badge.
+fn badge_is_covered(
+    controls: &[Control],
+    render_order: &[usize],
+    pos: usize,
+    badge: egui::Pos2,
+    control_rects: &std::collections::HashMap<String, egui::Rect>,
+) -> bool {
+    let owner = render_order[pos];
+    render_order.iter().skip(pos + 1).any(|&j| {
+        let over = &controls[j];
+        let faceless = over.control_type.is_non_visual()
+            || (matches!(over.control_type, ControlType::Panel | ControlType::GroupBox)
+                && over.get_prop("HideBackground").is_some_and(|v| v.as_bool()));
+        !faceless
+            && !cobolt_forms::containers::is_descendant(controls, j, owner)
+            && control_rects.get(&over.id).is_some_and(|r| r.contains(badge))
+    })
+}
+
 impl cobolt_forms::render::FormState for DesignerState<'_> {
     /// The canvas draws what the DESIGN hides — a hidden control must stay
     /// selectable — but not across tabs: a non-visual control lives in the
@@ -9083,8 +9110,11 @@ impl DesignerPanel {
 
                 // Build render list in container tree order — parents before
                 // children, siblings by z_order — so nested controls paint on top
-                // of their container (spec 012).
-                let render_order: Vec<usize> = super::containers::render_order(&self.form.controls);
+                // of their container (spec 012) — and, spec 091 R9, the base first
+                // and each layer above it after: the order the engine paints in,
+                // which the badges below are laid over.
+                let render_order: Vec<usize> =
+                    cobolt_forms::containers::render_order_in(&self.form.controls, &self.form.layers);
                 // Active tab per TabControl for design-time visibility. The
                 // interactive selection lives in `self.active_tabs`; an entry is
                 // absent until the user clicks a tab, in which case `is_visible`
@@ -9298,10 +9328,20 @@ impl DesignerPanel {
                 }
 
                 // ── Editor badges on top of the faces ───────────────────────────
-                for &idx in &render_order {
+                //
+                // They are painted after every face, so a badge whose corner a
+                // control drawn LATER covers would show through it — the yellow
+                // animation marks of the controls behind an overlay bled over
+                // the overlay (operator, 2026-10-09). A badge is left out while
+                // a later control that paints a face, and is not part of its
+                // control, lies over the place it sits.
+                for (pos, &idx) in render_order.iter().enumerate() {
                     let ctrl = &self.form.controls[idx];
                     let Some(crect) = control_rects.get(&ctrl.id) else {
                         continue;
+                    };
+                    let covered = |at: egui::Pos2| {
+                        badge_is_covered(&self.form.controls, &render_order, pos, at, &control_rects)
                     };
                     // Repeating-group ARRAY marker at the GroupBox top-right (spec 015).
                     if matches!(ctrl.control_type, ControlType::GroupBox)
@@ -9315,30 +9355,26 @@ impl DesignerPanel {
                             egui::pos2(crect.max.x - bw - 3.0, crect.min.y + 3.0),
                             Vec2::new(bw, bh),
                         );
-                        painter.rect_filled(
-                            brect,
-                            3.0,
-                            Color32::from_rgba_premultiplied(60, 120, 230, 230),
-                        );
-                        painter.text(
-                            brect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "▦ ARRAY",
-                            egui::FontId::proportional(9.0),
-                            Color32::WHITE,
-                        );
+                        if !covered(brect.center()) {
+                            painter.rect_filled(
+                                brect,
+                                3.0,
+                                Color32::from_rgba_premultiplied(60, 120, 230, 230),
+                            );
+                            painter.text(
+                                brect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "▦ ARRAY",
+                                egui::FontId::proportional(9.0),
+                                Color32::WHITE,
+                            );
+                        }
                     }
                     // Animation badge tooltip — hover to see the animation list.
-                    if !ctrl.animations.is_empty() {
-                        let badge_rect = egui::Rect::from_center_size(
-                            egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0),
-                            Vec2::splat(12.0),
-                        );
-                        painter.circle_filled(
-                            badge_rect.center(),
-                            5.0,
-                            Color32::from_rgba_premultiplied(255, 180, 0, 180),
-                        );
+                    let badge_centre = egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0);
+                    if !ctrl.animations.is_empty() && !covered(badge_centre) {
+                        let badge_rect = egui::Rect::from_center_size(badge_centre, Vec2::splat(12.0));
+                        painter.circle_filled(badge_rect.center(), 5.0, ANIM_BADGE_FILL);
                         painter.text(
                             badge_rect.center(),
                             egui::Align2::CENTER_CENTER,
