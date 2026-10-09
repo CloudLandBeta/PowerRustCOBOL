@@ -132,7 +132,51 @@ fn attr_pairs(e: &BytesStart) -> Result<AttrPairs, FormError> {
 fn parse_menu_pane_background(
     e: &BytesStart,
 ) -> Result<crate::model::MenuPaneBackground, FormError> {
-    let mut mp = crate::model::MenuPaneBackground::default();
+    parse_backdrop_attrs(e, crate::model::MenuPaneBackground::default())
+}
+
+/// Write the backdrop attributes `<MenuPaneBackground/>` and `<Layer/>` share:
+/// the colour always, the rest only when it differs from "none". The order is
+/// the reader's — and, for the MenuPane, exactly what was written before this
+/// was shared.
+fn push_backdrop_attrs(e: &mut BytesStart, mp: &crate::model::MenuPaneBackground) {
+    e.push_attribute(("color", mp.color.as_str()));
+    if mp.gradient_enabled {
+        e.push_attribute(("gradient-enabled", "true"));
+        e.push_attribute(("gradient-start", mp.gradient_start_color.as_str()));
+        e.push_attribute(("gradient-end", mp.gradient_end_color.as_str()));
+        e.push_attribute(("gradient-direction", mp.gradient_direction.as_str()));
+    }
+    if mp.transparency != 0 {
+        let t = mp.transparency.to_string();
+        e.push_attribute(("transparency", t.as_str()));
+    }
+    if !mp.image.is_empty() {
+        e.push_attribute(("image", mp.image.as_str()));
+        e.push_attribute(("image-mode", mp.image_mode.as_str()));
+    }
+}
+
+/// Parse a `<Layer name="…" …/>` element (spec 091 R39). The backdrop
+/// attributes are the shell MenuPane's, and an absent one keeps what a new layer
+/// has — fully transparent, so a hand-trimmed `<Layer name="X"/>` still loads and
+/// still changes nothing that is drawn. There is no `visible`: whether a layer is
+/// shown is never saved (R35).
+fn parse_layer(e: &BytesStart) -> Result<crate::model::Layer, FormError> {
+    let name = get_attr(e, b"name")?.unwrap_or_default();
+    let base = crate::model::Layer::new(name.clone()).backdrop;
+    Ok(crate::model::Layer {
+        name,
+        backdrop: parse_backdrop_attrs(e, base)?,
+    })
+}
+
+/// The backdrop attributes shared by `<MenuPaneBackground/>` and `<Layer/>`,
+/// read over `mp`: what the element does not say stays as `mp` has it.
+fn parse_backdrop_attrs(
+    e: &BytesStart,
+    mut mp: crate::model::MenuPaneBackground,
+) -> Result<crate::model::MenuPaneBackground, FormError> {
     if let Some(v) = get_attr(e, b"color")? {
         mp.color = v;
     }
@@ -247,6 +291,8 @@ enum OwnedEvent {
     // 049 R39 — the shell MenuPane's background, a self-closing attribute
     // element on the main form.
     MenuPaneBackground(crate::model::MenuPaneBackground),
+    // 091 R39 — `<Layer name=… …/>`: one layer above the base, in stack order.
+    Layer(crate::model::Layer),
     PropertyStart(String), // property name
     ChildrenStart,
     WorkingStorageStart,                 // <working-storage>
@@ -464,6 +510,7 @@ fn next_owned<R: std::io::BufRead>(
                 b"MenuPaneBackground" => {
                     Ok(OwnedEvent::MenuPaneBackground(parse_menu_pane_background(e)?))
                 }
+                b"Layer" => Ok(OwnedEvent::Layer(parse_layer(e)?)),
                 b"Children" => Ok(OwnedEvent::ChildrenStart),
                 b"working-storage" => Ok(OwnedEvent::WorkingStorageStart),
                 b"special-names" => Ok(OwnedEvent::SpecialNamesStart),
@@ -496,6 +543,7 @@ fn next_owned<R: std::io::BufRead>(
             b"MenuPaneBackground" => {
                 Ok(OwnedEvent::MenuPaneBackground(parse_menu_pane_background(&e)?))
             }
+            b"Layer" => Ok(OwnedEvent::Layer(parse_layer(&e)?)),
             b"FormLayout" => Ok(OwnedEvent::FormLayout(attr_pairs(e)?)),
             b"Breakpoints" => Ok(OwnedEvent::BreakpointsEmpty),
             b"Animation" => {
@@ -1086,6 +1134,14 @@ fn parse_form_body<R: std::io::BufRead>(
                 form.menu_pane_background = Some(mp);
             }
 
+            // ── <Layer …/> (091 R39) — in stack order, nearest the base first.
+            // A layer with no name is not a layer; nothing of it is kept.
+            OwnedEvent::Layer(layer) => {
+                if !layer.name.is_empty() {
+                    form.layers.push(layer);
+                }
+            }
+
             // ── 056 <FormLayout …/> and <Breakpoints> ─────────────────────────
             OwnedEvent::FormLayout(attrs) => {
                 for (k, v) in attrs {
@@ -1364,6 +1420,7 @@ fn parse_control<R: std::io::BufRead>(
     let mut enabled = true;
     let mut parent: Option<String> = None;
     let mut tab: Option<u32> = None;
+    let mut layer: Option<String> = None;
 
     for (key, val) in attrs {
         match key.as_slice() {
@@ -1380,6 +1437,10 @@ fn parse_control<R: std::io::BufRead>(
             // Container membership (spec 012). Empty `parent` = direct form child.
             b"parent" => parent = if val.is_empty() { None } else { Some(val) },
             b"tab" => tab = val.parse().ok(),
+            // Layer membership (spec 091 R39). Absent or empty = the base. The
+            // name is kept as written even when the form defines no such layer
+            // (R40): the control is shown in the base and reported, never dropped.
+            b"layer" => layer = if val.is_empty() { None } else { Some(val) },
             _ => {}
         }
     }
@@ -1398,6 +1459,7 @@ fn parse_control<R: std::io::BufRead>(
     ctrl.enabled = enabled;
     ctrl.parent = parent;
     ctrl.tab = tab;
+    ctrl.layer = layer;
     // Clear default properties/events set by Control::new — the file is authoritative.
     ctrl.properties.clear();
     ctrl.events.clear();
@@ -1785,21 +1847,17 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         // so every pre-049 form keeps its exact on-disk shape.
         if let Some(mp) = &form.menu_pane_background {
             let mut e = BytesStart::new("MenuPaneBackground");
-            e.push_attribute(("color", mp.color.as_str()));
-            if mp.gradient_enabled {
-                e.push_attribute(("gradient-enabled", "true"));
-                e.push_attribute(("gradient-start", mp.gradient_start_color.as_str()));
-                e.push_attribute(("gradient-end", mp.gradient_end_color.as_str()));
-                e.push_attribute(("gradient-direction", mp.gradient_direction.as_str()));
-            }
-            if mp.transparency != 0 {
-                let t = mp.transparency.to_string();
-                e.push_attribute(("transparency", t.as_str()));
-            }
-            if !mp.image.is_empty() {
-                e.push_attribute(("image", mp.image.as_str()));
-                e.push_attribute(("image-mode", mp.image_mode.as_str()));
-            }
+            push_backdrop_attrs(&mut e, mp);
+            w.write_event(Event::Empty(e))?;
+        }
+
+        // ── <Layer …/> (091 R39) — additive: one per layer, in stack order,
+        // written only when the form has layers. Deliberately no `visible`: a
+        // save writes every layer hidden by writing nothing (R35).
+        for layer in &form.layers {
+            let mut e = BytesStart::new("Layer");
+            e.push_attribute(("name", layer.name.as_str()));
+            push_backdrop_attrs(&mut e, &layer.backdrop);
             w.write_event(Event::Empty(e))?;
         }
 
@@ -2001,6 +2059,11 @@ fn write_control<W: std::io::Write>(w: &mut Writer<W>, ctrl: &Control) -> Result
     }
     if let Some(t) = ctrl.tab {
         elem.push_attribute(("tab", t.to_string().as_str()));
+    }
+    // Layer membership (spec 091 R39): written only when set, so a form with no
+    // layers keeps its exact on-disk shape (R2).
+    if let Some(l) = &ctrl.layer {
+        elem.push_attribute(("layer", l.as_str()));
     }
     w.write_event(Event::Start(elem))?;
 

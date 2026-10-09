@@ -4131,6 +4131,14 @@ pub struct Control {
     /// For a control whose `parent` is a `TabControl`: which tab page it belongs
     /// to, counting from 1 like `SelectedTab`. `None` otherwise.
     pub tab: Option<u32>,
+    /// The layer this control sits in (spec 091 R3): the name of one of
+    /// [`Form::layers`]. `None` — the default — is the base, the form as it was
+    /// before layers; the `.cfrm` writes the attribute only when it is set, so
+    /// a form with no layers is unchanged. Only a control with no `parent`
+    /// carries a meaningful value: a control inside a container belongs to its
+    /// container's layer (R8), read through [`Form::layer_of`]. A non-visual
+    /// control has none (R47).
+    pub layer: Option<String>,
 }
 
 /// Default `BackgroundColor` assigned to every new control. The glass renderer
@@ -6423,6 +6431,7 @@ impl Control {
             animations: Vec::new(),
             parent: None,
             tab: None,
+            layer: None,
         }
     }
 
@@ -7886,6 +7895,287 @@ impl Default for MenuPaneBackground {
     }
 }
 
+// ── 091 Form layers ──────────────────────────────────────────────────────
+
+/// The name of the base: the form as it exists without layers (spec 091 R1,
+/// R6). No layer may carry it, in any letter case, and a control whose
+/// [`Control::layer`] is `None` belongs to it.
+pub const BASE_LAYER_NAME: &str = "Form";
+
+/// The designer's fixed tab for the non-visual controls (spec 091 R46). It is
+/// not a layer — a program cannot address it (R55) — and no layer may carry its
+/// name (R6).
+pub const NON_VISUALS_TAB_NAME: &str = "Non-Visuals";
+
+/// A form holds at most this many layers above the base (spec 091 R7, Q5).
+pub const MAX_LAYERS: usize = 64;
+
+/// A new layer's colour: fully transparent, so adding a layer changes nothing
+/// that is drawn (spec 091 R15).
+pub const LAYER_TRANSPARENT_COLOR: &str = "#00000000";
+
+/// A plane stacked above the form's base (spec 091): its own name and its own
+/// backdrop, holding the controls that name it in [`Control::layer`].
+///
+/// The backdrop is the model-side backdrop shape the shell's MenuPane already
+/// uses — the form's own background fields in one struct, so `paint_backdrop`
+/// renders a layer exactly as it renders a form.
+///
+/// There is deliberately **no `Visible` here**. Whether a layer is shown is a
+/// state of the running form and of the designer's canvas, never saved: every
+/// layer starts hidden (R35), and what the designer was left showing is not an
+/// edit (R25, Q26; operator, 2026-10-09).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Layer {
+    /// A COBOL-addressable name, drawn from the same namespace as control names
+    /// (R4, R6): `LAYER-NAME::Visible`.
+    pub name: String,
+    pub backdrop: MenuPaneBackground,
+}
+
+impl Layer {
+    /// A new layer: fully transparent (R15), every other backdrop field at the
+    /// form-background default.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            backdrop: MenuPaneBackground {
+                color: LAYER_TRANSPARENT_COLOR.into(),
+                ..MenuPaneBackground::default()
+            },
+        }
+    }
+}
+
+/// Why a layer operation was refused (spec 091 R5–R8, R47). The designer turns
+/// each into a message in the IDE's language; nothing here is user-facing text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerError {
+    /// [`MAX_LAYERS`] layers already sit above the base (R7).
+    TooMany,
+    /// Not a layer name: see [`is_valid_layer_name`] (R6).
+    InvalidName,
+    /// A control or another layer already has the name, in any letter case
+    /// (R4, R5).
+    NameTaken,
+    /// No layer has that name.
+    NoSuchLayer,
+    /// No control has that id.
+    NoSuchControl,
+    /// A control inside a container follows its container (R8).
+    InsideContainer,
+    /// A non-visual control belongs to no layer (R47).
+    NonVisual,
+    /// A position outside the stack.
+    BadPosition,
+}
+
+/// Whether `name` may name a layer (spec 091 R6): a valid control name, and not
+/// `Form` or `Non-Visuals` in any letter case.
+pub fn is_valid_layer_name(name: &str) -> bool {
+    is_valid_control_id(name)
+        && !name.eq_ignore_ascii_case(BASE_LAYER_NAME)
+        && !name.eq_ignore_ascii_case(NON_VISUALS_TAB_NAME)
+}
+
+/// [`Form::layer_rank`] for a bare stack — what the painters and the hit-test
+/// hold, which have the layers but not the form.
+pub fn layer_rank_in(layers: &[Layer], name: Option<&str>) -> usize {
+    name.and_then(|n| layers.iter().position(|l| l.name.eq_ignore_ascii_case(n)))
+        .map_or(0, |i| i + 1)
+}
+
+impl Form {
+    /// Position in [`Form::layers`] of the layer called `name`, ignoring letter
+    /// case.
+    pub fn layer_index(&self, name: &str) -> Option<usize> {
+        self.layers
+            .iter()
+            .position(|l| l.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Place in the stack of the layer called `name`: 0 for the base — for
+    /// `None`, for `Form`, and for a name this form does not define, which R40
+    /// keeps in the base rather than dropping — then 1 for the layer nearest
+    /// the base, and so on up.
+    pub fn layer_rank(&self, name: Option<&str>) -> usize {
+        layer_rank_in(&self.layers, name)
+    }
+
+    /// The layer name the control `id` is declared in: its own
+    /// [`Control::layer`], or — for a control inside a container — the
+    /// outermost container's (R8). `None` is the base. The name is as written in
+    /// the file, so it may name a layer the form does not define
+    /// ([`Form::unknown_layer_refs`]); read its place through
+    /// [`Form::layer_rank`].
+    pub fn layer_of(&self, id: &str) -> Option<&str> {
+        let by_id = |id: &str| self.controls.iter().find(|c| c.id.eq_ignore_ascii_case(id));
+        let mut cur = by_id(id)?;
+        // A hand-edited file can hold a parent cycle: stop after one lap.
+        for _ in 0..=self.controls.len() {
+            match cur.parent.as_deref().and_then(by_id) {
+                Some(parent) => cur = parent,
+                None => break,
+            }
+        }
+        cur.layer.as_deref()
+    }
+
+    /// Whether a control or a layer already has `name`, ignoring letter case —
+    /// the one namespace of R4.
+    pub fn name_in_use(&self, name: &str) -> bool {
+        fn in_controls(controls: &[Control], name: &str) -> bool {
+            controls
+                .iter()
+                .any(|c| c.id.eq_ignore_ascii_case(name) || in_controls(&c.children, name))
+        }
+        self.layer_index(name).is_some() || in_controls(&self.controls, name)
+    }
+
+    /// Every name two or more of the form's controls and layers share, ignoring
+    /// letter case, spelled as first met — layers first, then controls (R5). A
+    /// form the designer wrote has none; a hand-edited `.cfrm` may, and it is
+    /// reported and left as it is, never repaired by deleting.
+    pub fn name_collisions(&self) -> Vec<String> {
+        fn collect<'a>(controls: &'a [Control], out: &mut Vec<&'a str>) {
+            for c in controls {
+                out.push(c.id.as_str());
+                collect(&c.children, out);
+            }
+        }
+        let mut names: Vec<&str> = self.layers.iter().map(|l| l.name.as_str()).collect();
+        collect(&self.controls, &mut names);
+        let mut counts: IndexMap<String, (&str, usize)> = IndexMap::new();
+        for name in names {
+            counts
+                .entry(name.to_ascii_lowercase())
+                .or_insert((name, 0))
+                .1 += 1;
+        }
+        counts
+            .into_values()
+            .filter(|(_, n)| *n > 1)
+            .map(|(name, _)| name.to_owned())
+            .collect()
+    }
+
+    /// Controls that name a layer this form does not define, as
+    /// `(control id, layer name)` (R40). Such a control is kept and shown in the
+    /// base; the caller reports it.
+    pub fn unknown_layer_refs(&self) -> Vec<(String, String)> {
+        self.controls
+            .iter()
+            .filter_map(|c| {
+                let layer = c.layer.as_deref()?;
+                let known =
+                    layer.eq_ignore_ascii_case(BASE_LAYER_NAME) || self.layer_index(layer).is_some();
+                (!known).then(|| (c.id.clone(), layer.to_owned()))
+            })
+            .collect()
+    }
+
+    /// The first free layer name: `Layer-1`, `Layer-2`… (R6).
+    pub fn next_layer_name(&self) -> String {
+        (1..)
+            .map(|n| format!("Layer-{n}"))
+            .find(|name| !self.name_in_use(name))
+            .expect("an unbounded range has a free name")
+    }
+
+    /// Add a transparent layer on top of the stack and return its name (R6,
+    /// R7, R15).
+    pub fn add_layer(&mut self) -> Result<String, LayerError> {
+        if self.layers.len() >= MAX_LAYERS {
+            return Err(LayerError::TooMany);
+        }
+        let name = self.next_layer_name();
+        self.layers.push(Layer::new(name.clone()));
+        Ok(name)
+    }
+
+    /// Rename a layer throughout the form: the layer itself, every control that
+    /// names it, and the references in handler and procedure code
+    /// (`OLD::Visible`). Refused when `new` is not a layer name (R6) or is taken
+    /// by a control or another layer (R4, R5); a change of letter case alone is
+    /// allowed.
+    pub fn rename_layer(&mut self, old: &str, new: &str) -> Result<(), LayerError> {
+        let new = new.trim();
+        let idx = self.layer_index(old).ok_or(LayerError::NoSuchLayer)?;
+        if !is_valid_layer_name(new) {
+            return Err(LayerError::InvalidName);
+        }
+        let old_name = self.layers[idx].name.clone();
+        if !new.eq_ignore_ascii_case(&old_name) && self.name_in_use(new) {
+            return Err(LayerError::NameTaken);
+        }
+        self.layers[idx].name = new.to_owned();
+        for ctrl in &mut self.controls {
+            if ctrl
+                .layer
+                .as_deref()
+                .is_some_and(|l| l.eq_ignore_ascii_case(&old_name))
+            {
+                ctrl.layer = Some(new.to_owned());
+            }
+            for ev in &mut ctrl.events {
+                rename_control_refs_in_code(&mut ev.code, &old_name, new);
+            }
+        }
+        for ev in &mut self.form_events {
+            rename_control_refs_in_code(&mut ev.code, &old_name, new);
+        }
+        for up in &mut self.user_procedures {
+            rename_control_refs_in_code(&mut up.code, &old_name, new);
+        }
+        Ok(())
+    }
+
+    /// Move the layer at `from` to position `to` in the stack (R11): positions
+    /// count layers above the base, 0 nearest it. The base never moves.
+    pub fn move_layer(&mut self, from: usize, to: usize) -> Result<(), LayerError> {
+        let n = self.layers.len();
+        if from >= n || to >= n {
+            return Err(LayerError::BadPosition);
+        }
+        let layer = self.layers.remove(from);
+        self.layers.insert(to, layer);
+        Ok(())
+    }
+
+    /// Put the control `id` in `layer` (`None`, or `Form`, is the base) — the
+    /// model half of R31. A control inside a container cannot move on its own
+    /// (R8); moving a container moves everything inside it, whose own layer
+    /// names are cleared so none contradicts the container's. A non-visual
+    /// control belongs to no layer (R47). Dock, Anchor and the undo step are the
+    /// designer's: they are properties and history, not model structure.
+    pub fn set_control_layer(&mut self, id: &str, layer: Option<&str>) -> Result<(), LayerError> {
+        let target = match layer {
+            None => None,
+            Some(n) if n.eq_ignore_ascii_case(BASE_LAYER_NAME) => None,
+            Some(n) => {
+                let i = self.layer_index(n).ok_or(LayerError::NoSuchLayer)?;
+                Some(self.layers[i].name.clone())
+            }
+        };
+        let i = self
+            .controls
+            .iter()
+            .position(|c| c.id.eq_ignore_ascii_case(id))
+            .ok_or(LayerError::NoSuchControl)?;
+        if self.controls[i].parent.is_some() {
+            return Err(LayerError::InsideContainer);
+        }
+        if target.is_some() && self.controls[i].control_type.is_non_visual() {
+            return Err(LayerError::NonVisual);
+        }
+        for d in crate::containers::collect_descendants(&self.controls, i) {
+            self.controls[d].layer = None;
+        }
+        self.controls[i].layer = target;
+        Ok(())
+    }
+}
+
 /// Where a form's window opens on screen (operator, 2026-07-31). `Form::x` /
 /// `Form::y` are the design-time coordinates; whether they are ever USED
 /// depends on this.
@@ -8037,6 +8327,10 @@ pub struct Form {
     /// How the background image is scaled / tiled.
     pub bg_image_mode: BgImageMode,
     pub controls: Vec<Control>,
+    /// The layers stacked above the base, nearest the base first (spec 091 R1,
+    /// R9). Empty for every form that predates layers, and then the form writes
+    /// nothing about them (R2). A control names its layer in [`Control::layer`].
+    pub layers: Vec<Layer>,
     /// Form-level data bindings. Missing in old `.cfrm` files means no bindings.
     pub data_bindings: Vec<DataBindingDef>,
     /// Form-level animations (e.g. form entrance effect).
@@ -8235,6 +8529,7 @@ impl Form {
             background_image: String::new(),
             bg_image_mode: BgImageMode::Stretch,
             controls: Vec::new(),
+            layers: Vec::new(),
             data_bindings: Vec::new(),
             animations: Vec::new(),
             grid_size: 8,
@@ -8753,8 +9048,8 @@ impl Form {
     /// `LabelFor` associations, the control's own event handler ids + paragraph
     /// names, data-binding target/source references, and control references in
     /// handler / procedure code (`Old::…` / `Old(i)…`). Returns `false` (no
-    /// change) when `new` is empty, unchanged, invalid, or already taken
-    /// (case-insensitive).
+    /// change) when `new` is empty, unchanged, invalid, or already taken —
+    /// by a control or by a layer (case-insensitive).
     pub fn rename_control(&mut self, old: &str, new: &str) -> bool {
         let new = new.trim();
         if new.is_empty()
@@ -8764,6 +9059,8 @@ impl Form {
                 .controls
                 .iter()
                 .any(|c| c.id.eq_ignore_ascii_case(new) && !c.id.eq_ignore_ascii_case(old))
+            // A layer shares the control namespace (spec 091 R4, R5).
+            || self.layer_index(new).is_some()
         {
             return false;
         }

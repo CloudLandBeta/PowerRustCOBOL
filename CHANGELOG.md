@@ -17,6 +17,23 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.28] — 2026-10-09
+
+### Added
+- **Spec 091, slice 1 — the layer model and its file format (no designer, painter or
+  run time yet).** A form can now hold layers: `Form.layers` (a name and a
+  backdrop each, in stack order), `Control.layer` (none = the base), the names a
+  layer may take (`Form` and `Non-Visuals` reserved in any case, one namespace
+  with the controls, at most 64), add / rename / re-stack / move-to-layer, and a
+  control inside a container follows its container. The `.cfrm` records
+  `<Layer name=… …/>` and a `layer` attribute only when a form uses them, never a
+  `Visible`, so every layer starts hidden. `containers::render_order_in` draws the
+  base, then each layer upward, `ZOrder` only within a layer. The `Non-Visuals`
+  grid is a pure function: five columns, types A–Z by English name, names A–Z,
+  nothing stored. A form that uses none of this saves exactly as before: all 97
+  example forms diff clean against their pre-change save. 24 new tests; the whole
+  `cobolt-forms` suite is 1,440 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.90.27] — 2026-10-09
 
 ### Changed

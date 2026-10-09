@@ -43,6 +43,10 @@ pub mod model;
 // `cobolt-runtime` re-exports it as `crate::numedit`, so its call sites are
 // unchanged and there is exactly one implementation.
 pub mod numedit;
+/// The `Non-Visuals` tab's grid (spec 091 R49–R52): the cell of every non-visual
+/// control, derived from its type and name. Not behind `render` — the designer
+/// lays the cards out from it, and a test reads it without a painter.
+pub mod nv_grid;
 pub mod picture;
 /// The Snackbar's pure parts (spec 055) — size classes, category defaults,
 /// `Buttons` parsing, content layout and stack geometry. Deliberately NOT behind
@@ -79,7 +83,8 @@ pub use model::{
     BindingSourceMetadata, BindingTargetDescriptor, BindingTargetPath, BindingUpdateMetadata,
     BindingValidationSnapshot, Control, ControlType, DataBindingDef, DataGridAdvanced,
     DataGridColumn, DataGridFilter, EventBinding, FieldMapping, Form, GlassStyle, GuardianFinding,
-    GuardianSeverity, MapMarkerField, MapMarkerRecord, MappingCompatibility, PropValue, Rect,
+    GuardianSeverity, Layer, LayerError, MapMarkerField, MapMarkerRecord, MappingCompatibility,
+    PropValue, Rect,
     DATAGRID_ADVANCED_PROP, DATA_BINDING_SCHEMA_VERSION,
 };
 pub use code_site::{code_sites, resolve_display_path, site_text, CodeSite, StructureSection};

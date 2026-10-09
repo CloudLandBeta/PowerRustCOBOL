@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use crate::model::Rect;
+use crate::model::{layer_rank_in, Layer, Rect};
 use crate::{Control, ControlType};
 
 /// Active tab page (from 1, like `SelectedTab`) per `TabControl` id, used to
@@ -45,29 +45,52 @@ fn index_of(controls: &[Control], id: &str) -> Option<usize> {
 }
 
 /// Indices of the direct children of `parent_id` (`None` = form roots), sorted by
-/// `z_order` (ascending = drawn first / underneath).
-fn children_sorted(controls: &[Control], parent_id: Option<&str>) -> Vec<usize> {
+/// `z_order` (ascending = drawn first / underneath). The form roots sort by
+/// their layer first (spec 091 R10): every control of a layer above another
+/// draws after every control of it, whatever their `z_order`. A container's
+/// children never sort by layer — they follow their container (R8).
+fn children_sorted(controls: &[Control], layers: &[Layer], parent_id: Option<&str>) -> Vec<usize> {
     let mut kids: Vec<usize> = controls
         .iter()
         .enumerate()
         .filter(|(_, c)| c.parent.as_deref() == parent_id)
         .map(|(i, _)| i)
         .collect();
-    kids.sort_by_key(|&i| controls[i].z_order);
+    if parent_id.is_none() {
+        kids.sort_by_key(|&i| {
+            (
+                layer_rank_in(layers, controls[i].layer.as_deref()),
+                controls[i].z_order,
+            )
+        });
+    } else {
+        kids.sort_by_key(|&i| controls[i].z_order);
+    }
     kids
 }
 
 /// Pre-order draw list: a parent appears before its children, and siblings are
 /// ordered by `z_order`, so children paint on top of their container.
+///
+/// This is the form with no layers; [`render_order_in`] is the one that knows
+/// them, and gives this same list when `layers` is empty.
 pub fn render_order(controls: &[Control]) -> Vec<usize> {
+    render_order_in(controls, &[])
+}
+
+/// [`render_order`] for a form with layers (spec 091 R9, R10): the base first,
+/// then each layer from the one nearest the base up, and inside a layer the
+/// controls by `z_order`. A control naming a layer the form does not define
+/// draws with the base (R40).
+pub fn render_order_in(controls: &[Control], layers: &[Layer]) -> Vec<usize> {
     let mut out = Vec::with_capacity(controls.len());
-    fn rec(controls: &[Control], parent: Option<&str>, out: &mut Vec<usize>) {
-        for idx in children_sorted(controls, parent) {
+    fn rec(controls: &[Control], layers: &[Layer], parent: Option<&str>, out: &mut Vec<usize>) {
+        for idx in children_sorted(controls, layers, parent) {
             out.push(idx);
-            rec(controls, Some(controls[idx].id.as_str()), out);
+            rec(controls, layers, Some(controls[idx].id.as_str()), out);
         }
     }
-    rec(controls, None, &mut out);
+    rec(controls, layers, None, &mut out);
     // Any control whose `parent` points at a missing id is orphaned — surface it
     // at the form level rather than dropping it.
     for (i, c) in controls.iter().enumerate() {
