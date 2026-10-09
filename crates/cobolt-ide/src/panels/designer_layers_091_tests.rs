@@ -57,6 +57,10 @@ struct Rig {
     /// for a walk of the shapes.
     count_badges: bool,
     badges: usize,
+    /// Asked for by the tests that need it: keep, after each frame, the text of
+    /// every label the canvas painted (a control's caption says whether it was drawn).
+    capture_text: bool,
+    texts: Vec<String>,
 }
 
 impl Rig {
@@ -71,6 +75,8 @@ impl Rig {
             clipboard: None,
             count_badges: false,
             badges: 0,
+            capture_text: false,
+            texts: Vec::new(),
         }
     }
 
@@ -94,6 +100,19 @@ impl Rig {
         out.textures_delta.clear();
         if let Some(update) = out.platform_output.accesskit_update.take() {
             self.nodes.extend(update.nodes);
+        }
+        if self.capture_text {
+            fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                    _ => {}
+                }
+            }
+            self.texts.clear();
+            for clipped in &out.shapes {
+                texts(&clipped.shape, &mut self.texts);
+            }
         }
         if self.count_badges {
             fn walk(shape: &egui::Shape, n: &mut usize) {
@@ -3346,5 +3365,125 @@ mod badges {
         r.count_badges = true;
         r.settle(4);
         assert_eq!(r.badges, 1, "the host's own badge stays, whatever it contains");
+    }
+}
+
+// ── The eye of the Form tab: show or hide the form's own controls ───────────
+
+mod form_eye {
+    use super::*;
+    use crate::panels::layer_tabs::form_tab_parts;
+
+    fn captioned(id: &str, caption: &str, x: i32, y: i32, locked: bool) -> Control {
+        let mut c = Control::new(id, ControlType::Button, x, y);
+        c.rect.w = 120;
+        c.rect.h = 30;
+        c.set_prop("Caption".to_string(), PropValue::String(caption.into()));
+        if locked {
+            c.set_prop("Locked".to_string(), PropValue::Bool(true));
+        }
+        c
+    }
+
+    /// `FREE-ONE` and `LOCKED-ONE` on the form, `INSIDE-LOCKED` and `INSIDE-FREE` in
+    /// a panel, `LAYER-ONE` on Layer-1.
+    fn rig() -> Rig {
+        let mut f = form_with_layers(1);
+        f.controls.push(captioned("BTN-FREE", "FREE-ONE", 20, 20, false));
+        f.controls.push(captioned("BTN-LOCK", "LOCKED-ONE", 20, 80, true));
+        let mut panel = Control::new("PNL-BOX", ControlType::Panel, 300, 20);
+        panel.rect.w = 400;
+        panel.rect.h = 200;
+        f.controls.push(panel);
+        let mut inner_locked = captioned("BTN-IN-L", "INSIDE-LOCKED", 310, 30, true);
+        inner_locked.parent = Some("PNL-BOX".into());
+        f.controls.push(inner_locked);
+        let mut inner_free = captioned("BTN-IN-F", "INSIDE-FREE", 310, 100, false);
+        inner_free.parent = Some("PNL-BOX".into());
+        f.controls.push(inner_free);
+        let mut over = captioned("BTN-LAYER", "LAYER-ONE", 600, 400, false);
+        over.layer = Some("Layer-1".into());
+        f.controls.push(over);
+        let mut r = Rig::new(f);
+        r.capture_text = true;
+        r.d.tabs.set_shown("Layer-1", true);
+        r.settle(4);
+        r
+    }
+
+    fn drawn(r: &Rig, caption: &str) -> bool {
+        r.texts.iter().any(|t| t.contains(caption))
+    }
+
+    fn eye(r: &Rig) -> Pos2 {
+        form_tab_parts(r.slot_rect(Slot::Form)).1.center()
+    }
+
+    #[test]
+    fn the_form_starts_shown_and_the_eye_hides_everything_but_the_locked_controls() {
+        let mut r = rig();
+        for c in ["FREE-ONE", "LOCKED-ONE", "INSIDE-LOCKED", "INSIDE-FREE", "LAYER-ONE"] {
+            assert!(drawn(&r, c), "{c} is drawn by default");
+        }
+        assert!(r.d.tabs.is_form_shown());
+        let before = saved(&r.d);
+
+        r.click(eye(&r));
+        assert!(!r.d.tabs.is_form_shown(), "the eye closed the form");
+        assert!(!drawn(&r, "FREE-ONE"), "an unlocked control of the form is gone");
+        assert!(!drawn(&r, "INSIDE-FREE"), "so is an unlocked one inside a panel");
+        assert!(drawn(&r, "LOCKED-ONE"), "a locked control always appears");
+        assert!(drawn(&r, "INSIDE-LOCKED"), "even inside a panel (the panel stays so it has somewhere to be)");
+        assert!(drawn(&r, "LAYER-ONE"), "a layer's controls are not the form's");
+        assert_eq!(r.d.tabs.active(), &ActiveTab::Form, "the eye never changes the tab");
+        assert_eq!(saved(&r.d), before, "a temporary aid: nothing saved");
+        assert!(!r.d.dirty, "…and the form is not modified by it");
+
+        r.click(eye(&r));
+        assert!(r.d.tabs.is_form_shown());
+        for c in ["FREE-ONE", "INSIDE-FREE"] {
+            assert!(drawn(&r, c), "{c} is back");
+        }
+        println!("Form eye: default shown; closed → 2 unlocked controls gone, 2 locked + the layer's stay; reopened → all back");
+    }
+
+    #[test]
+    fn what_the_eye_hid_cannot_be_reached_but_a_locked_control_can() {
+        let mut r = rig();
+        r.click(eye(&r));
+        r.d.selected_ids.clear();
+        r.click(r.centre_of("BTN-FREE"));
+        assert!(r.d.selected_ids.is_empty(), "a hidden control is not clicked: {:?}", r.d.selected_ids);
+        r.click(r.centre_of("BTN-LOCK"));
+        assert_eq!(r.d.selected_ids, vec!["BTN-LOCK".to_string()], "a locked one still is");
+        // A selection that includes a hidden control loses it when the eye closes.
+        r.click(eye(&r));
+        assert!(r.d.tabs.is_form_shown(), "reopened");
+        r.d.selected_ids = vec!["BTN-FREE".into(), "BTN-LOCK".into()];
+        r.click(eye(&r));
+        assert!(!r.d.tabs.is_form_shown(), "closed again");
+        assert_eq!(r.d.selected_ids, vec!["BTN-LOCK".to_string()], "the hidden one leaves the selection");
+    }
+
+    #[test]
+    fn selecting_the_form_tab_shows_its_controls_again() {
+        let mut r = rig();
+        r.click(eye(&r));
+        r.select_tab(TabAction::SelectLayer("Layer-1".into()));
+        assert!(!r.d.tabs.is_form_shown(), "selecting a layer does not touch the form's eye");
+        assert!(!drawn(&r, "FREE-ONE"));
+        r.select_tab(TabAction::SelectForm);
+        assert!(r.d.tabs.is_form_shown(), "one does not edit what one cannot see");
+        assert!(drawn(&r, "FREE-ONE"));
+    }
+
+    #[test]
+    fn the_eye_changes_nothing_on_the_non_visuals_tab() {
+        let mut r = rig();
+        r.click(eye(&r));
+        r.select_tab(TabAction::SelectNonVisuals);
+        assert!(!r.d.tabs.is_form_shown(), "selecting Non-Visuals hides and shows nothing");
+        r.select_tab(TabAction::SelectForm);
+        assert!(r.d.tabs.is_form_shown());
     }
 }

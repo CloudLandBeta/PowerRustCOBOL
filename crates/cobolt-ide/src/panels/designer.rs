@@ -809,6 +809,18 @@ struct DesignerState<'a> {
 /// has animations.
 const ANIM_BADGE_FILL: Color32 = Color32::from_rgba_premultiplied(255, 180, 0, 180);
 
+/// The layer a control is declared in: its outermost container's (spec 091 R8).
+fn root_layer<'a>(by_id: &HashMap<&str, &'a Control>, c: &'a Control, laps: usize) -> Option<&'a str> {
+    let mut cur = c;
+    for _ in 0..=laps {
+        match cur.parent.as_deref().and_then(|p| by_id.get(p)) {
+            Some(parent) => cur = parent,
+            None => break,
+        }
+    }
+    cur.layer.as_deref()
+}
+
 /// Whether the editor badge of the control at `render_order[pos]`, centred on
 /// `badge`, is hidden by a control drawn after it: one that is not inside the
 /// control, paints a face of its own (a non-visual control, or a Panel or
@@ -841,7 +853,9 @@ impl cobolt_forms::render::FormState for DesignerState<'_> {
         match self.tabs {
             None => true,
             Some(t) if t.is_non_visuals() => base.control_type.is_non_visual(),
-            Some(_) => !base.control_type.is_non_visual(),
+            // The form's own controls leave the canvas while the eye of the
+            // `Form` tab is closed (locked ones never do): see `hidden_base_ids`.
+            Some(t) => !base.control_type.is_non_visual() && !t.hides(&base.id),
         }
     }
     /// Spec 091 R12, R25, R60 — a layer is drawn while the designer is showing
@@ -9212,7 +9226,7 @@ impl DesignerPanel {
                 // its layers on `Form` and the layer tabs, only the grid of
                 // non-visual cards on `Non-Visuals` (R47, R56); and which layers the
                 // designer is showing (R60).
-                let tab_view = self.tabs.view();
+                let tab_view = self.tabs.view().with_hidden(self.hidden_base_ids().unwrap_or_default());
                 let designer_st = DesignerState { anim: &anim_tf, tabs: Some(&tab_view) };
                 let laid = self
                     .canvas_is_laid_out()
@@ -13574,26 +13588,16 @@ impl DesignerPanel {
         use super::layer_tabs::ActiveTab;
         let controls = &self.form.controls;
         let any_non_visual = controls.iter().any(|c| c.control_type.is_non_visual());
-        if matches!(self.tabs.active(), ActiveTab::Form) && self.form.layers.is_empty() && !any_non_visual {
+        if matches!(self.tabs.active(), ActiveTab::Form)
+            && self.form.layers.is_empty()
+            && !any_non_visual
+            && self.tabs.is_form_shown()
+        {
             return None;
         }
         let by_id: HashMap<&str, &Control> = controls.iter().map(|c| (c.id.as_str(), c)).collect();
-        // The layer a control is declared in: its outermost container's (R8).
-        fn root_layer<'a>(
-            by_id: &HashMap<&str, &'a Control>,
-            c: &'a Control,
-            laps: usize,
-        ) -> Option<&'a str> {
-            let mut cur = c;
-            for _ in 0..=laps {
-                match cur.parent.as_deref().and_then(|p| by_id.get(p)) {
-                    Some(parent) => cur = parent,
-                    None => break,
-                }
-            }
-            cur.layer.as_deref()
-        }
         let laps = controls.len();
+        let hidden_base = self.hidden_base_ids();
         Some(
             controls
                 .iter()
@@ -13601,9 +13605,12 @@ impl DesignerPanel {
                     let non_visual = c.control_type.is_non_visual();
                     match self.tabs.active() {
                         ActiveTab::NonVisuals => non_visual,
+                        // …and so are the form's controls while the eye of the `Form`
+                        // tab is closed, the locked ones apart.
                         ActiveTab::Form => {
                             !non_visual
                                 && root_layer(&by_id, c, laps).is_none_or(|l| self.form.layer_index(l).is_none())
+                                && !hidden_base.as_ref().is_some_and(|h| h.contains(&c.id))
                         }
                         // A layer whose box is off is not drawn (R12, R62), so its
                         // controls cannot be reached either: the developer ticks the
@@ -13614,6 +13621,46 @@ impl DesignerPanel {
                                 && root_layer(&by_id, c, laps).is_some_and(|l| l.eq_ignore_ascii_case(name))
                         }
                     }
+                })
+                .map(|c| c.id.clone())
+                .collect(),
+        )
+    }
+
+    /// While the eye of the `Form` tab is closed: the ids of the form's own
+    /// controls the canvas leaves out and the pointer cannot reach — every visual
+    /// control of the base **except the locked ones** (`Locked`, which always
+    /// appear), and except the containers a locked control sits in, which stay so
+    /// it has somewhere to be drawn. `None` while the controls are shown, the
+    /// default. A temporary aid for editing: nothing here is saved or undoable.
+    pub(crate) fn hidden_base_ids(&self) -> Option<std::collections::HashSet<String>> {
+        if self.tabs.is_form_shown() {
+            return None;
+        }
+        let controls = &self.form.controls;
+        let by_id: HashMap<&str, &Control> = controls.iter().map(|c| (c.id.as_str(), c)).collect();
+        let laps = controls.len();
+        let mut kept: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for c in controls.iter().filter(|c| c.is_locked()) {
+            kept.insert(c.id.as_str());
+            let mut cur = c;
+            for _ in 0..=laps {
+                match cur.parent.as_deref().and_then(|p| by_id.get(p)) {
+                    Some(parent) => {
+                        kept.insert(parent.id.as_str());
+                        cur = parent;
+                    }
+                    None => break,
+                }
+            }
+        }
+        Some(
+            controls
+                .iter()
+                .filter(|c| {
+                    !c.control_type.is_non_visual()
+                        && root_layer(&by_id, c, laps).is_none_or(|l| self.form.layer_index(l).is_none())
+                        && !kept.contains(c.id.as_str())
                 })
                 .map(|c| c.id.clone())
                 .collect(),
@@ -13856,6 +13903,11 @@ impl DesignerPanel {
                 TabAction::ToggleShown(name) => {
                     let on = !self.tabs.is_shown(&name);
                     self.tabs.set_shown(&name, on);
+                }
+                // The `Form` tab's eye, the same: only the form's controls change.
+                TabAction::ToggleFormShown => {
+                    let on = !self.tabs.is_form_shown();
+                    self.tabs.set_form_shown(on);
                 }
                 TabAction::Add => self.add_layer_by_bar(),
                 TabAction::Rename { layer, to } => self.rename_layer_by_bar(&layer, &to),

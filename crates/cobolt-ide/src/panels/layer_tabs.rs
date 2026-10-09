@@ -50,6 +50,9 @@ pub enum TabAction {
     SelectLayer(String),
     /// The visibility box of a layer was clicked (R25, R62): the tab does not change.
     ToggleShown(String),
+    /// The eye of the `Form` tab was clicked: the form's controls are shown or
+    /// hidden (locked ones stay), and the tab does not change.
+    ToggleFormShown,
     /// The `+` (R26, Q30).
     Add,
     /// The red ✕ of a layer (R63): select it, then ask.
@@ -71,6 +74,10 @@ pub struct LayerTabs {
     /// The layers shown on the canvas, lower-cased. The base is always shown and
     /// is not in here.
     shown: HashSet<String>,
+    /// The eye of the `Form` tab is closed: the form's own controls are not drawn
+    /// or reachable — except the locked ones. A temporary aid like the layers'
+    /// eyes, never saved; the default, `false`, is shown.
+    form_hidden: bool,
     /// How far the scrollable tabs are shifted left, in pixels (the ◀ ▶ arrows).
     scroll: f32,
     /// A layer tab being dragged: where it was, and the pointer's offset from
@@ -126,9 +133,23 @@ impl LayerTabs {
     }
 
     /// Select the base. It hides no layer (R61): the layers the developer left
-    /// showing stay showing, over the form.
+    /// showing stay showing, over the form. It shows the form's controls, if the
+    /// eye had closed them, as selecting a layer shows the layer (R60): one does
+    /// not edit what one cannot see.
     pub fn select_form(&mut self) {
         self.active = ActiveTab::Form;
+        self.form_hidden = false;
+    }
+
+    /// Whether the form's own controls are shown (the eye of the `Form` tab).
+    pub fn is_form_shown(&self) -> bool {
+        !self.form_hidden
+    }
+
+    /// The eye of the `Form` tab: shows or hides the form's controls and **never
+    /// changes the active tab**, as a layer's eye does (R62).
+    pub fn set_form_shown(&mut self, on: bool) {
+        self.form_hidden = !on;
     }
 
     /// Select a layer (R60, R61): it becomes active, it is shown — if its box was
@@ -201,9 +222,24 @@ impl LayerTabs {
 pub struct TabView {
     non_visuals: bool,
     shown: HashSet<String>,
+    /// The ids of the form's own controls the canvas does not draw while the eye
+    /// of the `Form` tab is closed: the designer fills it from the form, which
+    /// this snapshot knows nothing of. Empty while they are shown.
+    hidden: HashSet<String>,
 }
 
 impl TabView {
+    /// The same snapshot, not drawing the controls in `ids`.
+    pub fn with_hidden(mut self, ids: HashSet<String>) -> Self {
+        self.hidden = ids;
+        self
+    }
+
+    /// Whether the canvas leaves the control `id` out (the closed eye of `Form`).
+    pub fn hides(&self, id: &str) -> bool {
+        self.hidden.contains(id)
+    }
+
     pub fn is_non_visuals(&self) -> bool {
         self.non_visuals
     }
@@ -216,7 +252,7 @@ impl TabView {
 impl LayerTabs {
     /// The snapshot the canvas paints from this frame.
     pub fn view(&self) -> TabView {
-        TabView { non_visuals: self.is_non_visuals(), shown: self.shown.clone() }
+        TabView { non_visuals: self.is_non_visuals(), shown: self.shown.clone(), hidden: HashSet::new() }
     }
 }
 
@@ -276,6 +312,19 @@ pub struct BarLayout {
     pub clip: (f32, f32),
 }
 
+/// The `Form` tab's width: its name and the eye that shows or hides its controls.
+pub fn form_tab_width(text_w: f32) -> f32 {
+    text_w + BOX + LABEL_GAP + INNER_PAD + 2.0 * FIXED_PAD * 0.5 + SLANT
+}
+
+/// Where the `Form` tab's name and eye sit inside its rectangle. One function for
+/// the painter, the pointer and the tests.
+pub fn form_tab_parts(rect: Rect) -> (Rect, Rect) {
+    let eye = Rect::from_center_size(pos2(rect.max.x - SLANT - INNER_PAD - BOX * 0.5 - 6.0, rect.center().y), vec2(BOX, BOX));
+    let label = Rect::from_min_max(pos2(rect.min.x + SLANT * 0.5, rect.min.y), pos2(eye.min.x - 2.0, rect.max.y));
+    (label, eye)
+}
+
 /// A tab's width: its text and what it carries, plus the lean of both edges.
 pub fn tab_width(text_w: f32, layer: bool) -> f32 {
     let carried = if layer { BOX + CROSS + 2.0 * INNER_PAD + LABEL_GAP } else { 0.0 };
@@ -300,7 +349,7 @@ pub fn tab_width(text_w: f32, layer: bool) -> f32 {
 /// `form_w` the two fixed tabs'.
 pub fn bar_layout(nv_text_w: f32, form_text_w: f32, layer_text_w: &[f32], avail: f32, scroll: f32) -> BarLayout {
     let nv_w = tab_width(nv_text_w, false);
-    let form_w = tab_width(form_text_w, false);
+    let form_w = form_tab_width(form_text_w);
     let add_w = TAB_H;
     let tabs_w: f32 = form_w
         + layer_text_w.iter().map(|w| tab_width(*w, true) - SLANT).sum::<f32>()
@@ -556,14 +605,7 @@ impl LayerTabs {
                         actions.push(TabAction::SelectNonVisuals);
                     }
                 }
-                Slot::Form => {
-                    let a = self.is_form();
-                    if tab_face(ui, &tp, rect, cobolt_forms::model::BASE_LAYER_NAME, a, false, ui.id().with("form"), &font, tr.layer_tab_form_hint)
-                        .clicked()
-                    {
-                        actions.push(TabAction::SelectForm);
-                    }
-                }
+                Slot::Form => self.form_tab(ui, &tp, rect, &font, tr, &mut actions),
                 Slot::Layer(i) => {
                     let name = layers[i].to_owned();
                     self.layer_tab(ui, &tp, rect, &name, i, &font, tr, &layout, &mut actions);
@@ -603,6 +645,43 @@ impl LayerTabs {
             }
         }
         actions
+    }
+
+    /// The `Form` tab: its name and, like a layer's, an eye — open while the form's
+    /// controls are shown (the default), closed while they are hidden. The tab
+    /// body is registered first and the eye after it, so a press on the eye is the
+    /// eye's and never selects the tab.
+    fn form_tab(
+        &mut self,
+        ui: &mut Ui,
+        painter: &egui::Painter,
+        rect: Rect,
+        font: &FontId,
+        tr: &crate::i18n::Tr,
+        actions: &mut Vec<TabAction>,
+    ) {
+        let active = self.is_form();
+        let (face, ink) = if active { (ACTIVE_FACE, ACTIVE_TEXT) } else { (INACTIVE_FACE, INACTIVE_TEXT) };
+        painter.add(Shape::convex_polygon(slanted(rect), face, Stroke::new(1.0, EDGE)));
+        let (label_r, eye_r) = form_tab_parts(rect);
+        painter.text(label_r.center(), Align2::CENTER_CENTER, cobolt_forms::model::BASE_LAYER_NAME, font.clone(), ink);
+        let body = ui
+            .interact(
+                visible_part(painter, rect.shrink2(vec2(SLANT * 0.5, 0.0))),
+                ui.id().with("form"),
+                Sense::click(),
+            )
+            .on_hover_text(tr.layer_tab_form_hint);
+        if body.clicked() {
+            actions.push(TabAction::SelectForm);
+        }
+        let eye = ui
+            .interact(visible_part(painter, eye_r.expand(2.0)), ui.id().with("form-eye"), Sense::click())
+            .on_hover_text(tr.layer_tab_form_visible_hint);
+        paint_eye(painter, eye_r, self.is_form_shown(), if active { Color32::WHITE } else { EYE_INK }, eye.hovered());
+        if eye.clicked() {
+            actions.push(TabAction::ToggleFormShown);
+        }
     }
 
     fn is_active_slot(&self, slot: Slot, layers: &[&str]) -> bool {

@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.50] — 2026-10-09
+
+### Added
+- **An eye on the `Form` tab.** The designer's tab bar now shows the same eye on
+  `Form` that a layer's tab has: open by default, it shows the form's own controls;
+  closed, it hides them — every control that is not on a layer — so a layer above
+  can be designed on its own. A control whose **Locked** property is on always
+  stays shown, and so does a container with a locked control inside it (the other
+  controls inside it go). Hidden controls cannot be clicked, lassoed or selected,
+  and a selection that held one loses it. Like a layer's eye it is a temporary aid:
+  never saved, not an edit, not an undo step, and it never changes the active tab.
+  Choosing the `Form` tab opens its eye again; choosing a layer or `Non-Visuals`
+  leaves it alone. The tab's hint is translated in all six languages.
+
 ## [PowerRustCOBOL 1.90.49] — 2026-10-09
 
 ### Fixed

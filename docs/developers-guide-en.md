@@ -2418,7 +2418,7 @@ a closed eye) and the `+`.
 | Tab | What it is |
 |-----|------------|
 | **Non-Visuals** | A fixed tab at the far left, always there. Every non-visual control — Timer, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, WebSearch, Snackbar and the AWS controls — lives here and nowhere else. |
-| **Form** | The base. It cannot be moved, renamed or deleted, and it has no eye: the base is always shown. |
+| **Form** | The base. It cannot be moved, renamed or deleted. Like a layer it has an **eye**: open by default, so its controls are shown; close it to hide the form's own controls while you design (the ones you **lock** stay — see below). It has no ✕. |
 | **Layer-1, Layer-2 …** | One tab per layer, left to right from the layer nearest `Form` to the one on top. Each has an **eye** — open when the layer is shown, closed when it is hidden — and a red **✕**. |
 | **+** | Adds a layer. |
 
@@ -2457,6 +2457,16 @@ tab at a time**:
 - **The eye never changes the tab.** Clicking an eye — the active layer's own or
   another's — only shows or hides that layer. A layer whose eye is closed is not
   drawn, and its controls cannot be reached until you open it.
+- **The `Form` tab has an eye too.** It shows and hides **the form's own
+  controls** — everything that is not on a layer — and is open by default. A
+  control whose **Locked** property is on **always stays shown**, whatever the
+  eye says (lock the frames, cards and backgrounds you want to keep in view while
+  you design a layer above them), and so does a container with a locked control
+  inside it, which stays so the locked control has somewhere to be drawn; the
+  other controls inside it go. While the eye is closed, the hidden controls
+  cannot be clicked, lassoed or selected, and a selection that held one loses it.
+  Choosing the `Form` tab opens its eye again; choosing a layer or `Non-Visuals`
+  leaves it as it is, and the layers' eyes and controls are never affected.
 - **Choosing a tab and clicking an eye are not edits.** The form is not marked
   modified, there is no undo step, and the saved file is the same whatever you
   left showing. Layers start **hidden** when the program runs (§11).
