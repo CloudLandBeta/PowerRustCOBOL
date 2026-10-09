@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.26] — 2026-10-09
+
+### Changed
+- **Spec 091 — which tab a click selects, and how a layer is deleted (draft).**
+  Six rules from the operator, now requirements R59–R65, with six acceptance
+  criteria (AC28–AC33). A click on a control in the toolbox selects `Non-Visuals`
+  for a non-visual control and `Form` for any other. Selecting a layer draws
+  `Form` and that layer on top of it, turns the layer on if it was off, and turns
+  every other layer off; the visibility box on a tab changes that layer only and
+  never the selected tab. The red ✕ selects the layer and asks in a modal window;
+  confirming deletes the layer, its controls and their event handlers as one undo
+  step. Four older requirements (R25, R27, R28, R58) and two criteria are
+  rewritten to match, three questions are settled (Q2b, Q15, Q22) and four are
+  new (Q25–Q28), the first of which — a toolbox control can no longer be created
+  in a layer — needs the operator's answer. Requirements only — no code yet.
+
 ## [PowerRustCOBOL 1.90.25] — 2026-10-08
 
 ### Changed
