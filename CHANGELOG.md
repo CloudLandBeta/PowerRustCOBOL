@@ -21,6 +21,26 @@
   nine acceptance criteria and thirteen open questions, each with its default.
   Requirements only — no code yet.
 
+## [PowerRustCOBOL 1.90.24] — 2026-10-08
+
+### Fixed
+- **The expand/collapse icons of the cards behind a dropdown showed on top of
+  it.** The icons are painted after everything else, so an overlay card drawn over
+  an expandable one — the filter dropdowns of PowerAnalytics — had its icons
+  showing through. An icon is now left out while a later control that is not part
+  of its card covers it, and the click goes with it.
+- **Only some of the controls in an expanded card grew with it.** The contents
+  were laid out by their anchors, so what was anchored to every edge stretched
+  and the rest stayed put: the donut stayed small and the legend rows bunched at
+  the top. Everything inside an expanded card, at every depth, now keeps its share
+  of the card — position and size scale with it, whatever its anchor says — and
+  goes back to its anchors when the card collapses.
+
+### Verified
+- **Clicking the Objects list of the designer placed Animators in the form.** Fixed
+  in 1.90.23 (the toolbox buttons answered a press although they were clipped
+  away, under the Objects pane); 1.90.24 adds the test that reproduces it.
+
 ## [PowerRustCOBOL 1.90.23] — 2026-10-08
 
 ### Fixed
@@ -48,6 +68,18 @@
   does build (a program with a block) it now builds optimised.
 - `rcrun build --debug` builds the unoptimised binary.
 
+## [PowerRustCOBOL 1.90.23] — 2026-10-08
+
+### Fixed
+- **Selecting text in the COBOL event editor dragged a control out of the
+  toolbox, behind the editor.** The editor is a window over the designer. When it
+  lay over the toolbox, a press on its text was taken as a press on the toolbox
+  button underneath — the button asked only where the pointer was, not whether a
+  window covered it — so the selection drag carried a ghost of that control (a
+  TabControl, in the report) over the form and dropped one there on release. The
+  button now answers only while the pointer can reach it, and a toolbox drag
+  released over the editor window places nothing on the canvas behind it.
+
 ## [PowerRustCOBOL 1.90.22] — 2026-10-08
 
 ### Added
@@ -57,6 +89,16 @@
   controls, shown or hidden in the designer and from COBOL by name, with a tab
   strip under the canvas, and a form without layers unchanged. The non-visual
   deployment part is still to be written. Requirements only — no code yet.
+
+## [PowerRustCOBOL 1.90.22] — 2026-10-08
+
+### Fixed
+- **A `FILE STATUS` item that is not declared compiled and ran.** `FILE STATUS IS
+  XYZ`, with no `XYZ` in the DATA DIVISION, raised nothing: the runtime filled in
+  an item of that name, so the program ran and every test of the status item the
+  developer meant passed unseen. It is now the error any undeclared name is —
+  `FILE STATUS 'XYZ' of file 'CUSTOMER' is not declared in DATA DIVISION` — for
+  every organization, and every gate that stops on an error refuses the program.
 
 ## [PowerRustCOBOL 1.90.21] — 2026-10-08
 

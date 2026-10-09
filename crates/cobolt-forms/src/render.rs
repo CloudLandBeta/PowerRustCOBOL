@@ -1254,6 +1254,13 @@ fn draw_expand_icons(
     let clicked_at = ui.and_then(|ui| {
         ui.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None })
     });
+    // The icons are painted after everything, so what is drawn OVER a card —
+    // a dropdown's overlay card, a panel laid on top — would show them through.
+    // An icon is left out while a later control that is not part of the card
+    // covers it, and with it goes the click (operator, 2026-10-08: the icons of
+    // the cards behind a dropdown showed on top of it).
+    let order = containers::render_order(input.controls);
+    let position = |idx: usize| order.iter().position(|&i| i == idx).unwrap_or(usize::MAX);
     for (idx, base) in input.controls.iter().enumerate() {
         if !matches!(base.control_type, ControlType::Panel | ControlType::GroupBox)
             || !input.state.visible(base)
@@ -1274,6 +1281,17 @@ fn draw_expand_icons(
             * input.state.transform(base).alpha
             * if enabled { 1.0 } else { 0.45 };
         let hit = crate::paint::expand_icon_rect(&live, screen);
+        let here = position(idx);
+        let covered = order.iter().skip(here.saturating_add(1)).any(|&j| {
+            let over = &input.controls[j];
+            input.state.visible(over)
+                && !crate::containers::is_descendant(input.controls, j, idx)
+                && !crate::paint::paints_no_card(&input.state.live(over))
+                && out.control_rects.get(&over.id).is_some_and(|r| r.intersects(hit))
+        });
+        if covered {
+            continue;
+        }
         let hovered = enabled && ui.is_some_and(|ui| ui.rect_contains_pointer(hit));
         crate::paint::draw_expand_icon(painter, &live, screen, alpha, hovered);
         if enabled && clicked_at.is_some_and(|p| hit.contains(p)) {
@@ -15562,6 +15580,16 @@ mod tests {
     /// The line segments of one frame that lie inside the expand icon's square
     /// of a 200×100 GroupBox at 40,40, drawn the way the designer canvas draws it.
     fn expand_icon_strokes(expandable: bool, laid_out: bool, expanded: bool) -> Vec<[egui::Pos2; 2]> {
+        expand_icon_strokes_over(Vec::new(), expandable, laid_out, expanded)
+    }
+
+    /// [`expand_icon_strokes`] with `later` controls drawn after the card.
+    fn expand_icon_strokes_over(
+        later: Vec<Control>,
+        expandable: bool,
+        laid_out: bool,
+        expanded: bool,
+    ) -> Vec<[egui::Pos2; 2]> {
         let mut card = ctrl("Card", ControlType::GroupBox, 40, 40, 200, 100);
         card.set_prop("Expandable", PropValue::Bool(expandable));
         card.set_prop("Expanded", PropValue::Bool(expanded));
@@ -15569,7 +15597,8 @@ mod tests {
             card.set_prop(crate::layout::apply::LAID_OUT, PropValue::Bool(true));
         }
         let hit = crate::paint::expand_icon_rect(&card, Rect::from_min_size(pos2(40.0, 40.0), Vec2::new(200.0, 100.0)));
-        let controls = vec![card];
+        let mut controls = vec![card];
+        controls.extend(later);
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
         let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
@@ -15606,6 +15635,30 @@ mod tests {
             walk(&cs.shape, hit, &mut found);
         }
         found
+    }
+
+    /// A card drawn OVER an expandable one — a dropdown's overlay card — covers
+    /// its icon, and the icon does not show through it (operator, 2026-10-08).
+    #[test]
+    fn a_card_over_an_expandable_one_hides_its_icon() {
+        let overlay = || {
+            let mut o = ctrl("Over", ControlType::GroupBox, 30, 30, 250, 150);
+            o.z_order = 99;
+            o
+        };
+        assert_eq!(expand_icon_strokes_over(Vec::new(), true, true, false).len(), 5, "control: nothing over it");
+        assert!(
+            expand_icon_strokes_over(vec![overlay()], true, true, false).is_empty(),
+            "a card drawn over the icon hides it"
+        );
+        // A frameless layout panel over it paints nothing, so it hides nothing.
+        let mut ghost = ctrl("Ghost", ControlType::Panel, 30, 30, 250, 150);
+        ghost.set_prop("HideBackground", PropValue::Bool(true));
+        assert_eq!(
+            expand_icon_strokes_over(vec![ghost], true, true, false).len(),
+            5,
+            "a panel with no face of its own does not cover the icon"
+        );
     }
 
     /// Spec 090 (AC3) — the expand icon is there when the card is Expandable and

@@ -112,6 +112,35 @@ pub fn resolve(
         known_objects,
         classes,
     };
+    // `FILE STATUS IS data-name` names a data item of the program (COBOL-85,
+    // the FILE STATUS clause's syntax rules). Nothing checked it, and the
+    // interpreter creates an undeclared item on first use: a program whose
+    // SELECT misspelled the status item compiled, ran, and every test of the
+    // item the developer MEANT passed unseen, because the runtime was filling
+    // in another (operator report, 2026-10-08: "FILE STATUS IS XYZ, e não
+    // acusa erro"). Same diagnostic, same severity as any undeclared
+    // reference in the PROCEDURE DIVISION.
+    if let Some(io) = program.environment.as_ref().and_then(|e| e.input_output.as_ref()) {
+        for fc in &io.file_controls {
+            let Some(name) = fc.file_status.as_deref().map(str::trim).filter(|n| !n.is_empty()) else {
+                continue;
+            };
+            let runtime = name.to_ascii_uppercase().starts_with("COBOL-");
+            if runtime || symbols.has_data_item(name) {
+                continue;
+            }
+            let msg = format!(
+                "FILE STATUS '{name}' of file '{}' is not declared in DATA DIVISION — \
+                 declare it (PIC XX) in WORKING-STORAGE, or name the item that holds the status",
+                fc.name
+            );
+            if tolerate_undeclared {
+                ctx.warn(msg, fc.span);
+            } else {
+                ctx.error(msg, fc.span);
+            }
+        }
+    }
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
             for para in paras {

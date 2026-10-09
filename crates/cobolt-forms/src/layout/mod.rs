@@ -469,7 +469,7 @@ pub(crate) fn lay_out(
             .insert(c.id.clone(), fonts::effective_size(c, font_factor));
     }
     let mode = props::layout_mode(&form);
-    let content = place_children(input, tree, None, &form, mode, designed_client, client, &mut out);
+    let content = place_children(input, tree, None, &form, mode, designed_client, client, false, &mut out);
     // A flex, grid or flow form is as tall as its content when that is
     // taller than the window, as a document is (R53): it lays out again at
     // that height and the surface scrolls. Its width stays the window's.
@@ -478,7 +478,7 @@ pub(crate) fn lay_out(
         if need > out.laid_out_size.1 + defaults::EPSILON {
             out.laid_out_size.1 = need;
             let client = LRect::new(0.0, 0.0, out.laid_out_size.0, need).deflate(pad);
-            place_children(input, tree, None, &form, mode, designed_client, client, &mut out);
+            place_children(input, tree, None, &form, mode, designed_client, client, false, &mut out);
         }
     }
     out
@@ -495,6 +495,7 @@ fn place_children(
     mode: LayoutMode,
     designed_client: LRect,
     client: LRect,
+    proportional: bool,
     out: &mut LayoutOutput,
 ) -> Option<(f32, f32)> {
     let kids = tree.children(parent);
@@ -516,7 +517,7 @@ fn place_children(
     let mut content: Option<(f32, f32)> = None;
     for set in page_sets(input.controls, parent, &visual) {
         let tracks = set.first().is_none_or(|&i| shown_page(input.controls, parent, &input.controls[i]));
-        if let Some((w, h)) = place_set(input, parent, src, mode, &set, designed_client, client, tracks, out) {
+        if let Some((w, h)) = place_set(input, parent, src, mode, &set, designed_client, client, tracks, proportional, out) {
             let (cw, ch) = content.unwrap_or((0.0, 0.0));
             content = Some((cw.max(w), ch.max(h)));
         }
@@ -544,7 +545,10 @@ fn place_children(
                     gaps: (0.0, 0.0),
                 },
             );
-            place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, out);
+            // Everything inside an expanded card grows with it: its contents
+            // — and theirs — are scaled with the card, not left to their anchors.
+            let stretched = proportional || (props::expanded(c) && !out.expanded_away.contains(&c.id));
+            place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, stretched, out);
         } else if c.control_type == ControlType::Splitter {
             carry_splitter(input, tree, c, designed_rect(input, c), laid, out);
         } else {
@@ -585,14 +589,22 @@ fn place_set(
     designed_client: LRect,
     client: LRect,
     tracks: bool,
+    proportional: bool,
     out: &mut LayoutOutput,
 ) -> Option<(f32, f32)> {
     // A flex, grid or flow container places its children itself (R50).
     let content = (mode != LayoutMode::Absolute).then(|| place_items(input, parent, src, mode, visual, client, tracks, out));
     // Spec 081 — on a scaling form, every control the developer did not
     // anchor or dock on purpose follows the window ratio.
-    let scaling = scale::style(&FormBag(input.form_props));
-    let scaled = |c: &Control| scaling != 0 && !scale::opted_out(c);
+    //
+    // Inside an expanded card (spec 090) every control does — position and size
+    // — whatever its anchor says, so that all of the card's contents grow with it.
+    let scaling = if proportional {
+        defaults::SCALING_RESIZE | defaults::SCALING_REPOSITION
+    } else {
+        scale::style(&FormBag(input.form_props))
+    };
+    let scaled = |c: &Control| scaling != 0 && (proportional || !scale::opted_out(c));
 
     // Docked controls first, in z-order, each taking an edge of what remains
     // (R12); every other control is anchored against the FULL client rect
@@ -787,7 +799,7 @@ fn carry_splitter(
                 gaps: (0.0, 0.0),
             },
         );
-        place_children(input, tree, Some(&pane.id), pane, mode, dclient, lclient, out);
+        place_children(input, tree, Some(&pane.id), pane, mode, dclient, lclient, false, out);
     }
 }
 
@@ -978,7 +990,7 @@ mod tests {
             c.z_order = z;
             c
         };
-        let mut inner = ctrl("IN", ControlType::Label, (110, 110, 80, 20), Some("B"));
+        let mut inner = ctrl("IN", ControlType::Label, (130, 20, 60, 20), Some("B"));
         inner.set_prop("Anchor", s("Top,Left,Right,Bottom"));
         let build = |expanded: &[&str]| {
             let mut v = vec![grid.clone(), card("A", 0, 0, 1), card("B", 120, 0, 2), card("C", 0, 120, 3), card("D", 120, 120, 4), inner.clone()];
@@ -999,16 +1011,69 @@ mod tests {
         let mut away: Vec<&str> = open.expanded_away.iter().map(String::as_str).collect();
         away.sort_unstable();
         assert_eq!(away, ["A", "C", "D"], "its three siblings give their room up");
-        let (dw, dh) = (client.w - cell_b.2, client.h - cell_b.3);
-        let (before, after) = (r(&collapsed, "IN"), r(&open, "IN"));
+        let g = &open.containers["B"];
+        let (rx, ry) = (g.client.w / g.designed_client.w, g.client.h / g.designed_client.h);
+        let after = r(&open, "IN");
         assert!(
-            (after.2 - before.2 - dw).abs() < 1.0 && (after.3 - before.3 - dh).abs() < 1.0,
-            "what is inside B follows its size: {before:?} -> {after:?}, B grew by {dw} x {dh}"
+            (after.2 - 60.0 * rx).abs() < 1.0 && (after.3 - 20.0 * ry).abs() < 1.0,
+            "what is inside B follows its size, share for share: {after:?} for x{rx} y{ry}"
         );
 
         let two = solve_at(&build(&["A", "D"]), (800.0, 600.0), (800.0, 600.0));
         assert_eq!(r(&two, "D"), (client.x, client.y, client.w, client.h), "the topmost wins");
         assert!(two.expanded_away.contains("A") && !two.expanded_away.contains("D"));
+    }
+
+    /// Spec 090 — what is inside an expanded card grows WITH it, whatever each
+    /// control's anchor says: position and size, at every depth (operator,
+    /// 2026-10-08: "some elements resize when their container expands, others
+    /// don't"). A card of 100 × 100 holds, at the default top-left anchor, a label
+    /// and a panel with a label inside it; expanded to 800 × 600 they all follow
+    /// the card's 8 × 6. The same card collapsed keeps them anchored.
+    #[test]
+    fn everything_inside_an_expanded_card_grows_with_it() {
+        let s = |v: &str| PropValue::String(v.into());
+        let mut grid = with(ctrl("G", ControlType::Panel, (0, 0, 800, 600), None), "LayoutMode", s("Grid"));
+        grid = with(with(with(grid, "GridColumns", s("1fr 1fr")), "GridRows", s("1fr 1fr")), "Gap", PropValue::Int(0));
+        let card = |id: &str, x: i32, y: i32| {
+            let mut c = ctrl(id, ControlType::Panel, (x, y, 100, 100), Some("G"));
+            c.set_prop("BorderStyle", s("None"));
+            c
+        };
+        let build = |expanded: bool| {
+            let mut b = card("B", 100, 0);
+            b.set_prop("Expanded", PropValue::Bool(expanded));
+            let mut label = ctrl("L", ControlType::Label, (110, 20, 40, 10), Some("B")); // top-left anchored
+            label.set_prop("Anchor", s("Top,Left"));
+            let mut inner = ctrl("P", ControlType::Panel, (150, 50, 40, 40), Some("B"));
+            inner.set_prop("BorderStyle", s("None"));
+            let mut deep = ctrl("Q", ControlType::Label, (160, 60, 20, 10), Some("P"));
+            deep.set_prop("Anchor", s("Top,Left"));
+            vec![grid.clone(), card("A", 0, 0), b, card("C", 0, 100), card("D", 100, 100), label, inner, deep]
+        };
+        let shut = solve_at(&build(false), (800.0, 600.0), (800.0, 600.0));
+        let open = solve_at(&build(true), (800.0, 600.0), (800.0, 600.0));
+        let near = |got: f32, want: f32| (got - want).abs() <= 1.0;
+        let l0 = r(&shut, "L");
+        assert_eq!((l0.2, l0.3), (40.0, 10.0), "collapsed, the anchored label keeps its size: {l0:?}");
+
+        // The card's contents: each at its share of the card's client.
+        let b = &open.containers["B"];
+        let (rx, ry) = (b.client.w / b.designed_client.w, b.client.h / b.designed_client.h);
+        assert!(rx > 5.0 && ry > 4.0, "the card really grew: x{rx} y{ry}");
+        let l = r(&open, "L");
+        let want = (b.client.x + (110.0 - b.designed_client.x) * rx, b.client.y + (20.0 - b.designed_client.y) * ry);
+        assert!(near(l.0, want.0) && near(l.1, want.1), "the label sits at its share of the card: {l:?}, want {want:?}");
+        assert!(near(l.2, 40.0 * rx) && near(l.3, 10.0 * ry), "…and is that much bigger: {l:?} (x{rx}, y{ry})");
+        let p = r(&open, "P");
+        assert!(near(p.2, 40.0 * rx) && near(p.3, 40.0 * ry), "the panel inside grows too: {p:?}");
+
+        // …and what is inside THAT panel, a level deeper.
+        let inner = &open.containers["P"];
+        let (px, py) = (inner.client.w / inner.designed_client.w, inner.client.h / inner.designed_client.h);
+        let q = r(&open, "Q");
+        assert!(near(q.2, 20.0 * px) && near(q.3, 10.0 * py), "a level deeper still follows: {q:?} (x{px}, y{py})");
+        assert!(px > 5.0 && py > 4.0, "…and that panel's own ratio is the card's: x{px} y{py}");
     }
 
     /// Only a Panel or a GroupBox expands; a control of any other type carrying

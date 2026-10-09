@@ -3075,10 +3075,15 @@ Your program drives it too, with or without the icon:
        END-IF
 ```
 
-`Expand()` and `Collapse()` are shorthand for writing `Expanded` 1 and 0; the
-controls inside the card are laid out for its new size exactly as for any other
-size — by their own `Anchor`, `Dock` or `LayoutMode` — so give a chart inside
-the card `Top,Left,Right,Bottom` and it grows with it.
+`Expand()` and `Collapse()` are shorthand for writing `Expanded` 1 and 0. While a
+card is expanded **everything inside it grows with it**, at every depth: each
+control keeps the same share of the card — its position and its size are the
+designed ones times how much the card has grown, in each direction — whatever its
+`Anchor` says, so a label, a bar, a chart and a panel with controls of its own
+all spread over the new room together. (`Dock` and the `LayoutMode` of a
+container inside the card still do their own layout.) Text keeps its font size;
+only the room around it grows. Collapse the card and its contents go back to
+their anchors.
 
 > **Note.** "The room of its siblings" is the whole client area of the card's
 > container: for a card in a Grid, the grid's tracks and gaps together; for a card
@@ -3087,6 +3092,11 @@ the card `Top,Left,Right,Bottom` and it grows with it.
 > siblings are expanded at once, the one highest in the stacking order wins.
 > Clicking the icon is not a click on the card, so the card's `onClick` stays
 > quiet; there is no event for the change — read `Expanded` when you need it.
+
+> The icon belongs to the card's own layer: a control drawn **over** a card — a
+> dropdown's overlay card, a panel laid on top — hides the card's icon while it
+> covers it, and a click there is the control's, not the card's. (Before 1.90.24 the
+> icons of the cards behind a dropdown showed on top of it.)
 
 > ⚠️ **Caveat.** The layout is what places the cards, so this works on a
 > **responsive** form (`Responsive` on) — which every application should be — and
@@ -6720,6 +6730,14 @@ top-right, and the **status bar** along the bottom (caret `Ln, Col`,
 **Insert/Overwrite** via the `Insert` key, **Trim on save**, and **Beautify**). It
 opens at 70 % of the window and is freely resizable.
 
+The editor is a window **over** the designer, and everything the mouse does on it
+is the window's: selecting text in it never reaches the toolbox or the form
+behind it — a button of the toolbox under the window does not start its drag, and
+a control dragged from the toolbox and released over the editor is not placed on
+the form behind it. (Before 1.90.23 a press on the editor over a toolbox button
+started that button's drag, and the selection drag carried a ghost of the control
+over the form.)
+
 The **first time** you open an unwritten handler, the editor seeds it with the
 standard skeleton so you only fill in the blanks:
 
@@ -8811,6 +8829,13 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 > **Note.** `FILE STATUS` may name a two-character **group** item —
 > `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
 > `PIC XX`. Both receive the code.
+
+> ⚠️ **Caveat.** The item `FILE STATUS IS` names must be **declared**. A name that
+> is not — a typo in the `SELECT`, a status item renamed in `WORKING-STORAGE` —
+> is a compile error, `FILE STATUS 'XYZ' of file 'CUSTOMER' is not declared in
+> DATA DIVISION`, like any undeclared name. (Before 1.90.22 it compiled and ran:
+> the runtime filled in an item of that name, and every test of the status you
+> meant passed unseen.)
 
 ### Copybook paths in `COPY`
 
