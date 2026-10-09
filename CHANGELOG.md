@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.51] — 2026-10-09
+
+*(This entry was written on branch `fixes-example-aurora-module` as 1.90.26 and is numbered here where it landed on `main`.)*
+
+### Fixed
+- **`cargo check --workspace --all-targets` failed on the leaderboard prototype.**
+  The `leaderboard_prototype` example includes the IDE's `theme.rs` by path, and
+  `theme.rs` has used `crate::aurora` (the Aurora themes' palette lookup and pane
+  edge, radius and shadow) since the Aurora themes landed, but the example never
+  included that module, so the build stopped with four `E0433` errors. The example
+  now includes `aurora.rs` the same way. Only the example changes: the IDE binary
+  and every shipped file are as they were.
+
 ## [PowerRustCOBOL 1.90.50] — 2026-10-09
 
 ### Added

@@ -44,6 +44,12 @@ use egui::{Color32, RichText};
 #[path = "../src/theme.rs"]
 #[allow(dead_code, unused_imports)]
 mod theme;
+// `theme.rs` reaches `crate::aurora` for the Aurora themes' pane edge, radius,
+// shadow and palette lookup, so the example's crate root must carry that
+// module too. (`crate::contrast` is only used by theme tests, not built here.)
+#[path = "../src/aurora.rs"]
+#[allow(dead_code, unused_imports)]
+mod aurora;
 use theme::Theme;
 
 // ── palette ────────────────────────────────────────────────────────────────
