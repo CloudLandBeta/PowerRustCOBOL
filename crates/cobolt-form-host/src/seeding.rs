@@ -336,6 +336,16 @@ pub fn build_object_seed(
             (c.id.clone(), c.control_type.as_str().to_string(), props)
         }))
         .chain(flat.iter().flat_map(toolbar_button_seed))
+        // Spec 091 R33: every LAYER is an object of class `Layer`, so a program
+        // reads and writes `LAYER-NAME::Visible` (and the backdrop properties)
+        // as it does a control's. It is seeded HIDDEN — a layer starts hidden at
+        // run time whatever the designer showed (R35) — and `Visible` is the one
+        // property its state holds besides the backdrop's.
+        .chain(
+            form.layers
+                .iter()
+                .map(|l| (l.name.clone(), "Layer".to_string(), l.runtime_props())),
+        )
         .collect()
 }
 
@@ -1043,4 +1053,38 @@ fn responsive_form_props(form: &cobolt_forms::Form) -> Vec<(String, String)> {
     ];
     out.extend(defaults::form_defaults().into_iter().map(|(k, _)| (k.to_owned(), bag.text(k))));
     out
+}
+
+#[cfg(test)]
+mod tests_091 {
+    use super::build_object_seed;
+    use cobolt_forms::{Control, ControlType, Form, Layer};
+
+    /// 091 R33, R35 — a layer is one more object of the form's registry, class
+    /// `Layer`, under its own name, and it is seeded hidden.
+    #[test]
+    fn a_layer_is_seeded_as_a_hidden_object_of_class_layer() {
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut l = Layer::new("Busy");
+        l.backdrop.transparency = 30;
+        form.layers = vec![l, Layer::new("Scrim")];
+        let flat = vec![Control::new("BTN-1", ControlType::Button, 0, 0)];
+        let seed = build_object_seed(&form, &flat, None, None);
+        let layers: Vec<_> = seed.iter().filter(|(_, class, _)| class == "Layer").collect();
+        assert_eq!(layers.iter().map(|(id, _, _)| id.as_str()).collect::<Vec<_>>(), ["Busy", "Scrim"]);
+        let (_, _, props) = layers[0];
+        let get = |k: &str| props.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("Visible"), Some("false"));
+        assert_eq!(get("Transparency"), Some("30"));
+        // The form and the control are seeded as before.
+        assert!(seed.iter().any(|(id, class, _)| id == "F" && class == "Form"));
+        assert!(seed.iter().any(|(id, class, _)| id == "BTN-1" && class == "Button"));
+    }
+
+    /// A form with no layers seeds exactly what it seeded: nothing of class `Layer`.
+    #[test]
+    fn a_form_with_no_layer_seeds_none() {
+        let form = Form::new("F", "F", 640, 480);
+        assert!(build_object_seed(&form, &[], None, None).iter().all(|(_, c, _)| c != "Layer"));
+    }
 }

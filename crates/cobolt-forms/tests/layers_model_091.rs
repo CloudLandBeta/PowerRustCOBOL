@@ -509,3 +509,95 @@ fn the_grid_s_scroll_height_follows_the_rows_and_never_the_form_091() {
     assert_eq!(h(6), h(10));
     assert!(h(11) > h(10));
 }
+
+// ── What a program sees of a layer (R33–R35) ──────────────────────────────
+
+use cobolt_forms::model::{layer_prop, layer_refusal, layer_writable, LAYER_PROPS};
+
+#[test]
+fn a_layer_is_seeded_hidden_with_every_property_a_program_can_read_091() {
+    let mut l = Layer::new("Layer-1");
+    l.backdrop.color = "#204080FF".into();
+    l.backdrop.transparency = 25;
+    l.backdrop.gradient_enabled = true;
+    l.backdrop.image = "Assets/bg.png".into();
+    let props = l.runtime_props();
+    let get = |k: &str| props.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+    // R35 — hidden, whatever the designer showed.
+    assert_eq!(get("Visible"), Some("false"));
+    assert_eq!(get("Name"), Some("Layer-1"));
+    assert_eq!(get("Transparency"), Some("25"));
+    assert_eq!(get("BackgroundColor"), Some("#204080FF"));
+    assert_eq!(get("BackgroundGradientEnabled"), Some("true"));
+    assert_eq!(get("BackgroundImage"), Some("Assets/bg.png"));
+    assert_eq!(get("BackgroundImageMode"), Some("Stretch"));
+    // Seeded: exactly the list a program may read, no more and no fewer.
+    let mut names: Vec<&str> = props.iter().map(|(n, _)| n.as_str()).collect();
+    let mut want: Vec<&str> = LAYER_PROPS.to_vec();
+    names.sort_unstable();
+    want.sort_unstable();
+    assert_eq!(names, want);
+}
+
+#[test]
+fn what_a_program_writes_over_a_layer_reaches_its_backdrop_091() {
+    let design = Layer::new("Layer-1");
+    let live: Vec<(String, String)> = [
+        ("TRANSPARENCY", "60"),
+        ("BackgroundColor", "#FF0000FF"),
+        ("BACKGROUNDGRADIENTENABLED", "true"),
+        ("backgroundgradientstartcolor", "#111111FF"),
+        ("BackgroundGradientEndColor", "#EEEEEEFF"),
+        ("BackgroundGradientDirection", "East"),
+        ("BackgroundImage", " Assets/x.png "),
+        ("BackgroundImageMode", "Tile"),
+        ("Visible", "true"),          // not the backdrop's: the state answers for it
+        ("Name", "ignored"),          // never changes the layer
+        ("Nonsense", "ignored"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let merged = design.with_live(live.iter().map(|(k, v)| (k, v)));
+    let b = &merged.backdrop;
+    assert_eq!(b.transparency, 60);
+    assert_eq!(b.color, "#FF0000FF");
+    assert!(b.gradient_enabled);
+    assert_eq!((b.gradient_start_color.as_str(), b.gradient_end_color.as_str()), ("#111111FF", "#EEEEEEFF"));
+    assert_eq!(b.gradient_direction, "East");
+    assert_eq!(b.image, "Assets/x.png");
+    assert_eq!(b.image_mode, cobolt_forms::model::BgImageMode::Tile);
+    assert_eq!(merged.name, "Layer-1", "a layer's name is never changed by a write");
+    // A write of nothing leaves the design as it was.
+    assert_eq!(design.with_live(std::iter::empty()), design);
+    // Out-of-range transparency is held to 0–100, as the form's is.
+    let over = vec![("Transparency".to_owned(), "400".to_owned())];
+    assert_eq!(design.with_live(over.iter().map(|(k, v)| (k, v))).backdrop.transparency, 100);
+}
+
+#[test]
+fn every_layer_property_but_name_is_writable_and_the_refusal_names_the_rest_091() {
+    for p in LAYER_PROPS {
+        assert!(layer_prop(p) && layer_prop(&p.to_uppercase()));
+        assert_eq!(layer_writable(p), *p != "Name", "{p}");
+    }
+    assert!(!layer_prop("Colour") && !layer_writable("Width"));
+    let msg = layer_refusal("LAYER-1", "Colour");
+    assert!(msg.contains("LAYER-1::Colour") && msg.contains("Visible") && !msg.contains("Name,"), "{msg}");
+    assert!(layer_refusal("LAYER-1", "Name").contains("renamed in the designer"));
+}
+
+#[test]
+fn a_program_can_address_a_layer_but_not_the_non_visuals_tab_091() {
+    let mut f = form();
+    f.add_layer().unwrap();
+    f.controls.push(button("BTN", None, 0));
+    let names = cobolt_forms::toolbar::object_names(&f);
+    assert!(names.contains("LAYER-1") && names.contains("BTN") && names.contains("F"));
+    // R55 — `Non-Visuals` is a tab of the designer, not an object of the form.
+    assert!(!names.contains("NON-VISUALS"));
+    assert_eq!(
+        cobolt_forms::toolbar::layer_names(&f).into_iter().collect::<Vec<_>>(),
+        vec!["LAYER-1".to_owned()]
+    );
+}

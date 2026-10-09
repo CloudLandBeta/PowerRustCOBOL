@@ -7978,6 +7978,111 @@ pub fn is_valid_layer_name(name: &str) -> bool {
         && !name.eq_ignore_ascii_case(NON_VISUALS_TAB_NAME)
 }
 
+/// What a program can read of a layer (spec 091 R33), in the names a control's
+/// own backdrop properties already carry. `Name` can be read and never written:
+/// a layer is renamed in the designer, where its references are followed.
+pub const LAYER_PROPS: &[&str] = &[
+    "Name",
+    "Visible",
+    "Transparency",
+    "BackgroundColor",
+    "BackgroundGradientEnabled",
+    "BackgroundGradientStartColor",
+    "BackgroundGradientEndColor",
+    "BackgroundGradientDirection",
+    "BackgroundImage",
+    "BackgroundImageMode",
+];
+
+/// Whether `prop` is a layer property a program can read (case-insensitive).
+pub fn layer_prop(prop: &str) -> bool {
+    LAYER_PROPS.iter().any(|p| p.eq_ignore_ascii_case(prop.trim()))
+}
+
+/// Whether a program may WRITE `prop` on a layer: every property but `Name`.
+pub fn layer_writable(prop: &str) -> bool {
+    layer_prop(prop) && !prop.trim().eq_ignore_ascii_case("Name")
+}
+
+/// Why a write to a layer property is refused, fit to put in front of the
+/// developer. A refused write is an ERROR rather than a no-op, as a toolbar
+/// button's is: a line that silently does nothing is how an afternoon is lost.
+pub fn layer_refusal(layer: &str, prop: &str) -> String {
+    let writable: Vec<&str> = LAYER_PROPS
+        .iter()
+        .copied()
+        .filter(|p| !p.eq_ignore_ascii_case("Name"))
+        .collect();
+    if prop.trim().eq_ignore_ascii_case("Name") {
+        format!(
+            "'{}::Name' cannot be written: a layer is renamed in the designer, where every reference to it is followed",
+            layer.trim()
+        )
+    } else {
+        format!(
+            "'{}::{}' is not a property of a layer (a layer has: {})",
+            layer.trim(),
+            prop.trim(),
+            writable.join(", ")
+        )
+    }
+}
+
+/// Whether a stored property text means "on": anything but empty, `0` and
+/// `false` in any letter case.
+fn text_is_on(text: &str) -> bool {
+    !matches!(text.trim().to_ascii_lowercase().as_str(), "" | "0" | "false")
+}
+
+impl Layer {
+    /// The layer as the interpreter is seeded with it: every property of
+    /// [`LAYER_PROPS`] as text, and `Visible` **hidden** — a layer starts hidden
+    /// at run time, whatever the designer was left showing (R35).
+    pub fn runtime_props(&self) -> Vec<(String, String)> {
+        let b = &self.backdrop;
+        vec![
+            ("Name".into(), self.name.clone()),
+            ("Visible".into(), bool_text(false).to_string()),
+            ("Transparency".into(), b.transparency.to_string()),
+            ("BackgroundColor".into(), b.color.clone()),
+            ("BackgroundGradientEnabled".into(), bool_text(b.gradient_enabled).to_string()),
+            ("BackgroundGradientStartColor".into(), b.gradient_start_color.clone()),
+            ("BackgroundGradientEndColor".into(), b.gradient_end_color.clone()),
+            ("BackgroundGradientDirection".into(), b.gradient_direction.clone()),
+            ("BackgroundImage".into(), b.image.clone()),
+            ("BackgroundImageMode".into(), b.image_mode.as_str().to_string()),
+        ]
+    }
+
+    /// The layer with what a running program has written over the design (R33,
+    /// R34): the backdrop the painter draws this frame. `live` is the layer's
+    /// stored properties, in any letter case; what it does not hold stays as
+    /// designed. `Visible` is not part of this — whether a layer is shown is the
+    /// state's own answer, [`FormState::layer_visible`] in the engine.
+    pub fn with_live<'a>(&self, live: impl IntoIterator<Item = (&'a String, &'a String)>) -> Layer {
+        let mut out = self.clone();
+        for (key, value) in live {
+            let b = &mut out.backdrop;
+            match key.to_ascii_lowercase().as_str() {
+                "transparency" => {
+                    if let Ok(t) = value.trim().parse::<f32>() {
+                        b.transparency = t.clamp(0.0, 100.0) as u8;
+                    }
+                }
+                "backgroundcolor" => b.color = value.trim().to_owned(),
+                "backgroundgradientenabled" => b.gradient_enabled = text_is_on(value),
+                "backgroundgradientstartcolor" => b.gradient_start_color = value.trim().to_owned(),
+                "backgroundgradientendcolor" => b.gradient_end_color = value.trim().to_owned(),
+                "backgroundgradientdirection" => b.gradient_direction = value.trim().to_owned(),
+                "backgroundimage" => b.image = value.trim().to_owned(),
+                "backgroundimagemode" => b.image_mode = BgImageMode::from_str(value.trim()),
+                _ => {}
+            }
+        }
+        out
+    }
+}
+
 /// [`Form::layer_rank`] for a bare stack — what the painters and the hit-test
 /// hold, which have the layers but not the form.
 pub fn layer_rank_in(layers: &[Layer], name: Option<&str>) -> usize {

@@ -2107,6 +2107,16 @@ fn build_core(
                     })
                     .map(|(_, _, form)| cobolt_forms::toolbar::object_names(form))
             }),
+            // …and a layer's properties are checked too (spec 091 R37): a
+            // misspelt `LAYER-NAME::Colour` fails here, not when it runs.
+            known_layers: form_formats.as_ref().and_then(|(parsed, _)| {
+                parsed
+                    .iter()
+                    .find(|(stem, _, _)| {
+                        generated_program_path(&proj, &project_dir, stem).as_deref() == Some(main_path.as_path())
+                    })
+                    .map(|(_, _, form)| cobolt_forms::toolbar::layer_names(form))
+            }),
         },
     );
     for d in &sem.diagnostics {
@@ -3901,10 +3911,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     cobolt_form_host::flatten_controls(&first_form.controls, &mut flat);
     flat.sort_by_key(|c| c.z_order);
 
-    let mut state: std::collections::HashMap<String, CtrlState> = std::collections::HashMap::new();
-    for c in &flat {
-        state.insert(c.id.clone(), CtrlState::from_control(c));
-    }
+    // One entry per control, and one per layer — hidden (spec 091 R35); the same
+    // shared builder Run Form and a child form use.
+    let mut state: std::collections::HashMap<String, CtrlState> =
+        cobolt_form_host::state::initial_state(&flat, &first_form.layers);
 
     // Seed the interpreter's visual-object registry with every control's
     // designed properties (042 R20) — the same shared builder Run Form uses,

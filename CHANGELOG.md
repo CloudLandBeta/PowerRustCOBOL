@@ -17,6 +17,27 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.33] — 2026-10-09
+
+### Added
+- **Spec 091, slice 3 — a program can show and hide a layer, on every host.**
+  `SET LAYER-1::Visible TO TRUE` shows a layer and it stays shown until the
+  program hides it; every layer starts hidden. A layer answers `Visible`,
+  `Transparency`, `BackgroundColor`, the gradient properties and
+  `BackgroundImage` / `BackgroundImageMode`, through `MOVE`/`SET`,
+  `CALL "COBOL-SET-PROPERTY"` and `INVOKE … "SetProperty"`; its `Name` is read
+  only, and anything else — an unknown property, any method — is refused out
+  loud. What a program writes over a layer's backdrop is painted the next frame.
+  The same COBOL program gives the same eight readings under `rcrun run-form`,
+  as an embedded child in a shell's ContentPane, and in a built binary compiled
+  from this checkout. Build and Run Form reject `LAYER-9::Visible` (no such
+  object), `LAYER-1::Colour` (not a property of a layer) and `Non-Visuals::Visible`
+  (not an object at all). The editor offers a layer and its properties. All
+  three hosts build their state with one function, so "every layer starts hidden"
+  is one rule. 19 new tests (one builds a real binary, run with `--ignored`);
+  the forms, form-host, semantic, runtime, compiler and CLI suites are green,
+  and the IDE suite's only red is the translation guard that was red before.
+
 ## [PowerRustCOBOL 1.90.32] — 2026-10-09
 
 ### Added

@@ -28,6 +28,22 @@ use cobolt_ast::{
 
 use crate::{symbol_table::SymbolTable, SemanticDiagnostic, Severity};
 
+/// Spec 091 R33 — what a program can read of a layer. A copy of
+/// `cobolt_forms::model::LAYER_PROPS`, which this crate cannot depend on (the
+/// dependency runs the other way); `tests_091` pins the two together.
+pub const LAYER_PROPS: &[&str] = &[
+    "Name",
+    "Visible",
+    "Transparency",
+    "BackgroundColor",
+    "BackgroundGradientEnabled",
+    "BackgroundGradientStartColor",
+    "BackgroundGradientEndColor",
+    "BackgroundGradientDirection",
+    "BackgroundImage",
+    "BackgroundImageMode",
+];
+
 /// 049 R33 — the universal form surface: the property set EVERY form carries,
 /// so a bare `me::X` / `super::…::X` is checkable at build time whatever form
 /// the receiver turns out to be. Must match the form-entry seed in
@@ -102,6 +118,7 @@ pub fn resolve(
     form_formats: Option<&std::collections::HashMap<String, crate::FormLoadFormat>>,
     tolerate_undeclared: bool,
     known_objects: Option<&std::collections::HashSet<String>>,
+    known_layers: Option<&std::collections::HashSet<String>>,
 ) {
     let classes: Vec<String> = program.repository.iter().map(|(c, _)| c.trim().to_ascii_uppercase()).collect();
     let mut ctx = ResolveCtx {
@@ -110,6 +127,7 @@ pub fn resolve(
         form_formats,
         tolerate_undeclared,
         known_objects,
+        known_layers,
         classes,
     };
     // `FILE STATUS IS data-name` names a data item of the program (COBOL-85,
@@ -169,6 +187,9 @@ struct ResolveCtx<'a> {
     /// The form's objects, when the caller knows the form (see
     /// [`crate::AnalyzeOptions::known_objects`]).
     known_objects: Option<&'a std::collections::HashSet<String>>,
+    /// The form's layers, UPPERCASE — receivers whose PROPERTIES are checked
+    /// ([`crate::AnalyzeOptions::known_layers`], spec 091 R37).
+    known_layers: Option<&'a std::collections::HashSet<String>>,
     /// This program's REPOSITORY class names, UPPERCASE: `Class::new()`.
     classes: Vec<String>,
     /// 049 R17 — the project's form formats (UPPERCASE id → format), when a
@@ -726,7 +747,35 @@ impl<'a> ResolveCtx<'a> {
         }
         if let Expr::Identifier(root, span) = cur {
             self.check_receiver(root, *span, &format!("{}::{}", root.trim(), first));
+            self.check_layer_property(root, first, *span);
         }
+    }
+
+    /// A layer has a fixed set of properties and no methods (spec 091 R33, Q9):
+    /// `LAYER-NAME::Visible` is checked, `LAYER-NAME::Colour` is an error at
+    /// build time, where it would otherwise be refused when it ran. Only a
+    /// receiver the caller named as a layer is checked, and only the first
+    /// member — what follows a property is the property's own.
+    fn check_layer_property(&mut self, root: &str, member: &str, span: cobolt_lexer::Span) {
+        let Some(layers) = self.known_layers else {
+            return;
+        };
+        if member.is_empty() || !layers.contains(&root.trim().to_ascii_uppercase()) {
+            return;
+        }
+        if LAYER_PROPS.iter().any(|p| p.eq_ignore_ascii_case(member.trim())) {
+            return;
+        }
+        self.error(
+            format!(
+                "'{}::{}' is not a property of a layer. A layer has: {} \
+                 (and no methods).",
+                root.trim(),
+                member.trim(),
+                LAYER_PROPS.join(", ")
+            ),
+            span,
+        );
     }
 
     /// A receiver that names nothing the form or program has is an ERROR:
@@ -976,6 +1025,15 @@ impl<'a> ResolveCtx<'a> {
                 span,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_091 {
+    /// 091 R33 — the copy of the layer property list cannot fall behind the model's.
+    #[test]
+    fn the_layer_property_list_is_the_models() {
+        assert_eq!(super::LAYER_PROPS, cobolt_forms::model::LAYER_PROPS);
     }
 }
 

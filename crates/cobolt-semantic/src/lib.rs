@@ -172,6 +172,12 @@ pub struct AnalyzeOptions {
     /// error, because the call would land on nothing and say nothing.
     /// `None` = no form context (a lone `.cbl`); receivers are not checked.
     pub known_objects: Option<std::collections::HashSet<String>>,
+    /// The names of the form's LAYERS, in UPPERCASE (spec 091 R37) — receivers
+    /// that are in `known_objects` too, but whose properties are checked as well:
+    /// `LAYER-NAME::Visible` passes, `LAYER-NAME::Colour` is an error at build
+    /// time, where a misspelt property would otherwise be refused at run time.
+    /// `None` (the default) = no layers known; no layer property is checked.
+    pub known_layers: Option<std::collections::HashSet<String>>,
     /// The program-names a literal `CALL "NAME"` may reach besides what the
     /// unit itself holds — its programs, paragraphs and sections: the
     /// project's Common Code, in UPPERCASE. `Some(set)` = a closed world (the
@@ -270,6 +276,7 @@ fn analyze_contained(
         opts.form_formats.as_ref(),
         opts.tolerate_undeclared,
         opts.known_objects.as_ref(),
+        opts.known_layers.as_ref(),
     );
 
     // Pass 3: type checking.
