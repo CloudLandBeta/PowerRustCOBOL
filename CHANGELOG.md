@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.233] — 2026-10-06
+
+### Fixed
+- **A Viewer's Save As saves the document the form gave it.** A handler's
+  `MOVE … TO VWR-1::View1Source` — the way every form, and PowerDemo3's
+  Viewer demo, loads a document — reached the window but never set the
+  runtime's `Source`, which `obj_set` keeps in step for the built-in methods.
+  So after a file was dropped on the demo's drop zone, `SaveAs()` proposed
+  `VWR-1.txt` instead of the file's own name, and an answered Save panel had
+  "no document loaded" to write. A COBOL write now mirrors `View1Source` ⇄
+  `Source` (and the other `View1*` aliases) exactly as a method's write does,
+  in every host: the runtime is shared by `rcrun run-form`, embedded child
+  forms and built applications.
+- Reproduced end to end in PowerDemo3's application shell (the Viewer page in
+  the ContentPane, a dropped file, then Save as...): the request reaches the
+  host's native Save panel with the dropped file's name, both before and
+  after the drop. Whether macOS then shows the panel cannot be observed
+  headlessly; that half of the report stays open until confirmed on screen.
+- Test: `a_cobol_move_to_view1source_is_what_save_as_saves` (cobolt-runtime).
+
 ## [PowerRustCOBOL 1.80.232] — 2026-10-06
 
 ### Added
