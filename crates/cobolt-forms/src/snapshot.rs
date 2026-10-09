@@ -126,6 +126,10 @@ fn backdrop(form: &Form, image: Option<(egui::TextureId, Vec2)>, window: Vec2, g
         draggable: false,
         // The picture is of the window, so a rounded one is pictured rounded.
         window: crate::render::form_window_arc(form, egui::Rect::from_min_size(egui::Pos2::ZERO, window)),
+        // A picture shows every layer, stacked as they are — its state answers
+        // "shown" to all of them — so a reader of the picture sees what each
+        // holds. A running form starts with them all hidden (spec 091 R35).
+        layers: form.layers.clone(),
     }
 }
 

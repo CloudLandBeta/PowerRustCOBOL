@@ -607,6 +607,8 @@ impl Shell {
         };
         let backdrop = cobolt_forms::render::Backdrop {
             paint: true,
+            // The MenuPane's own background: a rail is not a form, it has no layers.
+            layers: Vec::new(),
             color_hex: mp.color.clone(),
             transparency: mp.transparency,
             gradient_enabled: mp.gradient_enabled,

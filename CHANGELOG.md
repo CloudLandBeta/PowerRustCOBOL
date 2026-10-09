@@ -17,6 +17,23 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.29] — 2026-10-09
+
+### Added
+- **Spec 091, slice 2a — the render engine draws layers (no designer or run-time
+  state yet).** On every path that paints a form — the running form, the static
+  form and the designer canvas — the controls of a layer paint above those of
+  every layer below it, whatever their `ZOrder`; a layer's own background paints
+  between its neighbours (also for a layer with no control); a hidden layer
+  paints nothing and its controls take no focus; and the passes that paint over
+  controls (group captions, tab strips, expand icons, the corner mask) run once
+  per layer, so a base caption never lands above a layer. Tab walks the base
+  first, then each layer upward. A new layer is fully transparent and a form
+  with no layers draws exactly what it drew. `FormState::layer_visible` is the
+  question the engine asks, `Backdrop::layers` carries the stack; the hosts and
+  the designer state that answers it come with the next slices. 11 new tests;
+  the `cobolt-forms` and form-host suites are 1,646 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.90.28] — 2026-10-09
 
 ### Added

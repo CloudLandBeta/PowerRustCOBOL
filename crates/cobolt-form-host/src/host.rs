@@ -2707,6 +2707,10 @@ impl FormBody {
         };
         cobolt_forms::render::Backdrop {
             paint: true,
+            // The form's layers reach the engine here once the host holds their
+            // run-time state (spec 091, slice 3): until then a form with layers
+            // draws every control in the base, as R40 says of an undefined one.
+            layers: Vec::new(),
             color_hex,
             transparency: self.transparency,
             gradient_enabled: self.bg_gradient_enabled && !see_through,
@@ -6802,6 +6806,9 @@ impl FormHost {
                             // pane's translucent controls — a visible change
                             // nobody asked for.
                             paint: true,
+                            // Spec 091, slice 3: the pane's layers join here, as
+                            // in `FormBody::backdrop`.
+                            layers: Vec::new(),
                             color_hex: "#00000000".into(),
                             transparency: 100,
                             gradient_enabled: false,
