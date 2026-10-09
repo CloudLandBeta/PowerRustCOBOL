@@ -121,8 +121,13 @@ cargo test -p cobolt-ide --bin cobolt-ide       # the IDE needs --bin
   verdict a sweep from a grep for failures.
 - Live-network and `libsqlite3-sys` failures are environmental.
 - **Verify-first**: never report a measurement the run did not produce.
-- **Never drive the application** to verify. No computer-use, no UI automation.
-  Verify through builds and tests; let the operator look at the UI.
+- **Never drive the application's window** — no computer-use, no UI automation.
+  Verify through builds and tests, and use the **PowerRustCOBOL AI integration with
+  Claude Code** to act in the IDE: `open_project`, `check`, `regenerate`, `build`,
+  `render_form` and `run_form` (the `powerrustcobol-ide` server while the IDE runs,
+  `powerrustcobol` when it is closed). If the IDE's server does not answer, say so
+  and use the headless one; never fall back to clicking. Whether the UI *looks*
+  right stays with the operator.
 - Disk exhaustion masquerades as compiler errors. "could not compile *&lt;innocent
   crate&gt;*"? Check `df` before believing it.
 

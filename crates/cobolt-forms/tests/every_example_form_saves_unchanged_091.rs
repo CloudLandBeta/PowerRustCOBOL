@@ -10,7 +10,9 @@
 //!
 //! * how many forms it found, loaded, and could not load;
 //! * how many of them `save(load(f))` reproduces **byte for byte**;
-//! * that none of them gains layer markup.
+//! * that none of them gains layer markup — except a form that declares layers
+//!   itself (a project written with them, such as PowerAnalytics' popup and page layers), which
+//!   must keep every layer and every control's `layer`, and is counted apart.
 //!
 //! The byte-identical count is recorded in the commit that added this test,
 //! measured **before** the layer model existed. Any later change that lowers it
@@ -68,6 +70,7 @@ fn every_example_form_saves_unchanged_091() {
     let mut unloadable: Vec<String> = Vec::new();
     let mut identical = 0usize;
     let mut differing: Vec<String> = Vec::new();
+    let mut with_layers: Vec<String> = Vec::new();
     for path in &files {
         let shown = path
             .strip_prefix(&repo)
@@ -82,10 +85,33 @@ fn every_example_form_saves_unchanged_091() {
         let once = form_to_string(&form).unwrap();
         let twice = form_to_string(&load_form_from_str(&once).unwrap()).unwrap();
         assert_eq!(once, twice, "{shown} does not round-trip");
-        assert!(
-            !once.contains("<Layer") && !once.contains(" layer=\""),
-            "{shown} gained layer markup although it uses no layer (R2, R39)"
-        );
+        let declares_layers =
+            !form.layers.is_empty() || form.controls.iter().any(|c| c.layer.is_some());
+        if declares_layers {
+            // A form that uses layers keeps all of them (R39): each `<Layer>` and each
+            // control's `layer` survives the save.
+            for layer in &form.layers {
+                assert!(
+                    once.contains(&format!("<Layer name=\"{}\"", layer.name)),
+                    "{shown} lost layer {} on save (R39)",
+                    layer.name
+                );
+            }
+            for c in form.controls.iter().filter(|c| c.layer.is_some()) {
+                let l = c.layer.as_deref().unwrap_or_default();
+                assert!(
+                    once.contains(&format!(" layer=\"{l}\"")),
+                    "{shown}: control {} lost its layer {l} on save (R39)",
+                    c.id
+                );
+            }
+            with_layers.push(shown.clone());
+        } else {
+            assert!(
+                !once.contains("<Layer") && !once.contains(" layer=\""),
+                "{shown} gained layer markup although it uses no layer (R2, R39)"
+            );
+        }
         if let Some(dir) = &dump {
             let name = shown.replace(['/', '\\'], "__");
             std::fs::write(dir.join(name), &once).unwrap();
@@ -103,7 +129,10 @@ fn every_example_form_saves_unchanged_091() {
     println!("  forms that did not load           : {}", unloadable.len());
     println!("  save(load(f)) == f byte for byte  : {identical}");
     println!("  save(load(f)) != f (pre-existing) : {}", differing.len());
-    println!("  forms with layer markup after save: 0");
+    println!("  forms that declare layers (kept)  : {}", with_layers.len());
+    for w in &with_layers {
+        println!("    with layers: {w}");
+    }
     for u in &unloadable {
         println!("  did not load: {u}");
     }

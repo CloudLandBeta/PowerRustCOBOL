@@ -17,6 +17,21 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.54] — 2026-10-09
+
+### Changed
+- **Branch `features-form-layers` merged: the example round-trip guard accepts layers, and the "never drive the window" rule says how to work with the IDE.**
+  `every_example_form_saves_unchanged_091` now expects a form that declares layers to keep every layer
+  and every control's `layer`, and still forbids a form that declares none from gaining any (it counts
+  the two kinds apart). The `fix` skill's standing rule "never drive the application" now points at the
+  PowerRustCOBOL AI integration with Claude Code (`open_project`, `check`, `regenerate`, `build`,
+  `render_form`, `run_form`).
+  *(The branch also moved PowerAnalytics' two dropdowns and their scrim onto one `POPUPS` layer, sized by
+  a `SIZE-POPUPS` procedure. Those example changes were **not** taken: `main` has since given each popup
+  its own layer (`POPUP-LEVELS`, `POPUP-SEARCH`) and the Dados page one of its own, with the geometry
+  written by `SET-FILT-HEIGHT` — see 1.90.44 and 1.90.45 — so the form and its README stay as they are
+  on `main`.)*
+
 ## [PowerRustCOBOL 1.90.53] — 2026-10-09
 
 *(This entry was written on branch `fixes-memory-dup-order` as 1.90.3 and is numbered here where it landed on `main`.)*
