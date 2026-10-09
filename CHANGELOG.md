@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.49] — 2026-10-09
+
+### Fixed
+- **IntelliSense offered the wrong members after a `PIC X` item.** `WS-TEXT::`
+  treated the item as an unknown control and listed a control's methods (`Show`,
+  `Hide`, `MoveTo`, `SetFocus` …) while leaving out the ones a data item really
+  has. A receiver that is an ordinary data item of the program — an elementary or
+  group item, not a condition-name, an `OBJECT REFERENCE` or a control of the same
+  name — now completes with exactly the value methods of the language (`Trim`,
+  `UpperCase`, `ToUpperCase`, `Upper`, `LowerCase`, `ToLowerCase`, `Lower`,
+  `Replace`, `Len`, `Length`, `Split`) and `Length` as a property, after the item
+  and after each link of a chain (`WS-TEXT::Trim()::`), filtered by what you type.
+  A test keeps the popup's table equal to the language's own list.
+
 ## [PowerRustCOBOL 1.90.48] — 2026-10-09
 
 ### Fixed

@@ -8282,6 +8282,11 @@ A data item answers **these and nothing else**:
 | `Split(sep)` | text | The piece before the first `sep`. |
 | `Split(sep)(n)` | text | The *n*-th piece, counting from 1. |
 
+In the editor, typing `WS-A::` after a data item opens IntelliSense with exactly
+these — the methods above, and `Length` as the one property — and the same list
+after a method (`WS-A::Trim()::`); it never offers a control's methods
+(`Show`, `Hide`, `MoveTo` …) for a data item.
+
 Two examples of each, with what they give:
 
 ```cobol

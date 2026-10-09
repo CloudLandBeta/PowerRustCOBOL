@@ -344,6 +344,41 @@ pub fn cobol_object_known_control() -> KnownControl {
     }
 }
 
+/// The type IntelliSense gives an ordinary DATA ITEM used as a receiver —
+/// `WS-TEXT::`. It is not a control: it has none of a control's methods (no
+/// `Show`, no `MoveTo`), only the value methods of
+/// [`cobolt_ast::methods::DATA_ITEM_METHODS`], and one property, `Length`.
+pub(crate) const DATA_ITEM_TYPE: &str = "DataItem";
+
+/// What each value method of a data item does, for the popup. The NAMES are the
+/// language's own list, `cobolt_ast::methods::DATA_ITEM_METHODS`, which the
+/// analyser and the evaluator read too; a test keeps this table equal to it.
+const DATA_ITEM_METHOD_DOCS: &[Method] = &[
+    ("Trim", "Remove the blanks at both ends"),
+    ("UpperCase", "Capital letters"),
+    ("ToUpperCase", "Capital letters (same as UpperCase)"),
+    ("Upper", "Capital letters (same as UpperCase)"),
+    ("LowerCase", "Small letters"),
+    ("ToLowerCase", "Small letters (same as LowerCase)"),
+    ("Lower", "Small letters (same as LowerCase)"),
+    ("Replace", "Replace(from, to) — every occurrence of from becomes to"),
+    ("Len", "The field's declared length, as a number"),
+    ("Length", "The field's declared length, as a number (same as Len)"),
+    ("Split", "Split(sep) — the first piece; Split(sep)(n) — the n-th piece"),
+];
+
+/// The completion entry for a receiver: the form's own control of that id, or —
+/// for a name no control has — one built from the type detection decided on. A
+/// data item carries its one property.
+fn receiver_known_control(id: &str, ctrl_type: &str) -> KnownControl {
+    KnownControl {
+        id: id.to_owned(),
+        ctrl_type: ctrl_type.to_owned(),
+        properties: if ctrl_type == DATA_ITEM_TYPE { vec!["Length".to_owned()] } else { vec![] },
+        extra_methods: vec![],
+    }
+}
+
 /// Methods for non-visual widgets (Timer, AI agent, REST/SQL clients).
 const UNIVERSAL_NONVISUAL: &[Method] = &[
     ("SetProperty", "Set any property by name"),
@@ -356,6 +391,10 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
     // The `COBOL` object: the built-in CALLs, from the runtime's own table.
     if ctrl_type == COBOL_OBJECT_TYPE {
         return cobol_object_methods().to_vec();
+    }
+    // A data item: its value methods, and nothing of a control's.
+    if ctrl_type == DATA_ITEM_TYPE {
+        return DATA_ITEM_METHOD_DOCS.to_vec();
     }
     let (base, specific): (&[Method], &[Method]) = match ctrl_type {
         // A form receiver (`me`, `super`) is a window, not a control: it has
@@ -3843,7 +3882,21 @@ impl EditorPanel {
 
                         // Detect INVOKE … ' context → method completions
                         let invoke = if prop_ref.is_none() && !inside_plain_string {
-                            detect_invoke_context(&tab.content, char_idx, &self.known_controls)
+                            // Read the data section only when the line has a
+                            // receiver to resolve: this runs on every frame.
+                            let value_items = if line_to_cursor.contains("::")
+                                || line_to_cursor.to_ascii_uppercase().contains("INVOKE ")
+                            {
+                                value_item_names(&tab.content, &self.known_data_items)
+                            } else {
+                                Vec::new()
+                            };
+                            detect_invoke_context_with(
+                                &tab.content,
+                                char_idx,
+                                &self.known_controls,
+                                &value_items,
+                            )
                         } else {
                             None
                         };
@@ -3946,12 +3999,7 @@ impl EditorPanel {
                                 } else {
                                     (
                                         member_completions(
-                                            &KnownControl {
-                                                id: ctrl_id.clone(),
-                                                ctrl_type: ctrl_type.clone(),
-                                                properties: vec![],
-                                                extra_methods: vec![],
-                                            },
+                                            &receiver_known_control(ctrl_id, ctrl_type),
                                             member_pfx,
                                         ),
                                         true,
@@ -3968,12 +4016,7 @@ impl EditorPanel {
                                 } else {
                                     (
                                         member_completions(
-                                            &KnownControl {
-                                                id: ctrl_id.clone(),
-                                                ctrl_type: ctrl_type.clone(),
-                                                properties: vec![],
-                                                extra_methods: vec![],
-                                            },
+                                            &receiver_known_control(ctrl_id, ctrl_type),
                                             member_pfx,
                                         ),
                                         true,
@@ -4695,6 +4738,18 @@ fn detect_invoke_context(
     cursor_char: usize,
     controls: &[KnownControl],
 ) -> Option<(String, String, String)> {
+    detect_invoke_context_with(text, cursor_char, controls, &[])
+}
+
+/// [`detect_invoke_context`] knowing the program's ordinary data items: a
+/// receiver that is one — and no control — is a [`DATA_ITEM_TYPE`], so `WS-TEXT::`
+/// offers the value methods rather than a control's.
+fn detect_invoke_context_with(
+    text: &str,
+    cursor_char: usize,
+    controls: &[KnownControl],
+    value_items: &[String],
+) -> Option<(String, String, String)> {
     let char_indices: Vec<(usize, char)> = text.char_indices().collect();
     let cursor_byte = char_indices
         .get(cursor_char)
@@ -4720,7 +4775,7 @@ fn detect_invoke_context(
                         .iter()
                         .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
                         .map(|c| c.ctrl_type.clone())
-                        .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok));
+                        .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok, value_items));
                     return Some((ctrl_tok, ctrl_type, mprefix.into()));
                 }
             }
@@ -4765,7 +4820,7 @@ fn detect_invoke_context(
                 .iter()
                 .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
                 .map(|c| c.ctrl_type.clone())
-                .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok));
+                .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok, value_items));
             return Some((ctrl_tok, ctrl_type, mprefix.into()));
         }
     }
@@ -4774,10 +4829,13 @@ fn detect_invoke_context(
 }
 
 /// The type of a receiver no form declares: the `COBOL` object is known in
-/// every file — a Common Code program included — and anything else is generic.
-fn receiver_type_fallback(receiver: &str) -> String {
+/// every file — a Common Code program included —, an ordinary data item is a
+/// [`DATA_ITEM_TYPE`], and anything else is generic.
+fn receiver_type_fallback(receiver: &str, value_items: &[String]) -> String {
     if receiver.eq_ignore_ascii_case("COBOL") {
         COBOL_OBJECT_TYPE.into()
+    } else if value_items.iter().any(|d| d.eq_ignore_ascii_case(receiver)) {
+        DATA_ITEM_TYPE.into()
     } else {
         "Generic".into()
     }
@@ -5068,6 +5126,51 @@ fn extract_paragraphs(source: &str) -> Vec<String> {
                     out.push(w.into());
                 }
             }
+        }
+    }
+    out
+}
+
+/// The data items of `source` that answer value methods: elementary and group
+/// items of a data section, not an `FD`, a condition-name (88), a rename (66), a
+/// `FILLER`, an `OBJECT REFERENCE` or a `POINTER` (those are handles with
+/// methods of their own) — plus the form-level names the caller already knows.
+fn value_item_names(source: &str, global: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_data = false;
+    for line in source.lines() {
+        let upper = line.to_ascii_uppercase();
+        if upper.contains("WORKING-STORAGE")
+            || upper.contains("LOCAL-STORAGE")
+            || upper.contains("LINKAGE")
+            || upper.contains("FILE SECTION")
+        {
+            in_data = true;
+        }
+        if upper.contains("PROCEDURE DIVISION") {
+            in_data = false;
+        }
+        if !in_data {
+            continue;
+        }
+        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        if parts.len() < 2 || !parts[0].chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        if matches!(parts[0], "88" | "66") || upper.contains("OBJECT REFERENCE") || upper.contains(" POINTER") {
+            continue;
+        }
+        let name = parts[1].trim_end_matches('.');
+        if name != "FILLER"
+            && name.chars().all(|c| c.is_alphanumeric() || c == '-')
+            && name.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false)
+        {
+            out.push(name.to_owned());
+        }
+    }
+    for g in global {
+        if !out.iter().any(|d| d.eq_ignore_ascii_case(g)) {
+            out.push(g.clone());
         }
     }
     out
@@ -6650,6 +6753,98 @@ END-EVALUATE
         // Both categories survive; the cap used to let one starve the other.
         assert!(labels.contains(&"S-ITEM-039"), "last data item missing");
         assert!(labels.contains(&"S-Ctrl-039"), "last control missing");
+    }
+
+    /// Operator (2026-10-09): "intellisense does not show correctly the
+    /// properties/methods of a PIC X item". `WS-TEXT::` fell back to the
+    /// `Generic` control type and offered a control's methods (Show, Hide,
+    /// MoveTo …) instead of the value methods a data item has.
+    const VALUE_SRC: &str = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. T.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TEXT   PIC X(20).
+       01 WS-GROUP.
+          05 WS-PART PIC X(5).
+       01 WS-FLAG   PIC 9.
+          88 WS-ON   VALUE 1.
+       01 WS-OBJ    USAGE IS OBJECT REFERENCE RUST-STRING.
+       01 FILLER    PIC X.
+       PROCEDURE DIVISION.
+           STOP RUN.
+";
+
+    fn offered(line: &str, controls: &[KnownControl]) -> Option<(String, Vec<(String, String)>)> {
+        let items = value_item_names(VALUE_SRC, &[]);
+        let (id, ty, pre) = detect_invoke_context_with(line, line.chars().count(), controls, &items)?;
+        let k = receiver_known_control(&id, &ty);
+        let labels = member_completions(&k, &pre).into_iter().map(|i| (i.label, i.detail)).collect();
+        Some((ty, labels))
+    }
+
+    #[test]
+    fn a_data_item_receiver_is_offered_its_value_methods_and_nothing_of_a_controls() {
+        let (ty, got) = offered("           MOVE WS-TEXT::", &[]).expect("`WS-TEXT::` opens the list");
+        assert_eq!(ty, DATA_ITEM_TYPE);
+        let mut names: Vec<&str> = got.iter().map(|(l, _)| l.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        let mut want: Vec<&str> = cobolt_ast::methods::DATA_ITEM_METHODS.to_vec();
+        want.sort_unstable();
+        assert_eq!(names, want, "exactly the language's value methods (Length is both a method and a property)");
+        for control_only in ["Show", "Hide", "MoveTo", "SetFocus", "Resize", "BringToFront", "SetProperty"] {
+            assert!(!names.contains(&control_only), "{control_only} is a control's method, not a data item's");
+        }
+        // `Length` is offered as a property too: `WS-TEXT::Length` needs no parentheses.
+        assert!(got.iter().any(|(l, d)| l == "Length" && d == "property"), "{got:?}");
+        println!("  WS-TEXT:: offers {} value methods + the Length property: {names:?}", names.len());
+    }
+
+    #[test]
+    fn the_value_methods_filter_by_prefix_and_follow_a_chain() {
+        let (_, got) = offered("           MOVE WS-TEXT::up", &[]).unwrap();
+        let labels: Vec<&str> = got.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(labels.contains(&"UpperCase") && labels.contains(&"Upper") && labels.len() == 2, "{labels:?}");
+        // Every link after a data item is a value method, so the tail of a chain
+        // offers the same list.
+        let (ty, chain) = offered("           MOVE WS-TEXT::Trim()::", &[]).expect("a chain tail completes");
+        assert_eq!(ty, DATA_ITEM_TYPE);
+        assert!(chain.iter().any(|(l, _)| l == "UpperCase"), "{chain:?}");
+        // A group and a table occurrence answer them too.
+        assert_eq!(offered("           MOVE WS-GROUP::", &[]).unwrap().0, DATA_ITEM_TYPE);
+        assert_eq!(offered("           MOVE WS-TEXT(2:3)::", &[]).unwrap().0, DATA_ITEM_TYPE);
+    }
+
+    #[test]
+    fn only_a_real_value_item_gets_them() {
+        let control = KnownControl {
+            id: "WS-TEXT".into(), // a control that shares the item's name: the control wins
+            ctrl_type: "Button".into(),
+            properties: vec!["Caption".into()],
+            extra_methods: vec![],
+        };
+        assert_eq!(offered("           MOVE WS-TEXT::", &[control]).unwrap().0, "Button");
+        // A condition-name, a FILLER, an OBJECT REFERENCE and a name nothing declares.
+        for line in ["           IF WS-ON::", "           MOVE WS-OBJ::", "           MOVE NO-SUCH-NAME::"] {
+            assert_eq!(offered(line, &[]).unwrap().0, "Generic", "{line}");
+        }
+        let names = value_item_names(VALUE_SRC, &[]);
+        assert_eq!(names, vec!["WS-TEXT", "WS-GROUP", "WS-PART", "WS-FLAG"]);
+    }
+
+    #[test]
+    fn the_popup_table_lists_exactly_the_languages_value_methods() {
+        let mut docs: Vec<&str> = DATA_ITEM_METHOD_DOCS.iter().map(|(n, _)| *n).collect();
+        let mut lang: Vec<&str> = cobolt_ast::methods::DATA_ITEM_METHODS.to_vec();
+        docs.sort_unstable();
+        lang.sort_unstable();
+        assert_eq!(docs, lang, "a method the language has but the popup lacks (or the reverse) is the bug this guards");
+        // …and each is one the analyser accepts.
+        for (n, d) in DATA_ITEM_METHOD_DOCS {
+            assert!(cobolt_ast::methods::is_data_item_method(n), "{n}");
+            assert!(!d.is_empty(), "{n} needs a description");
+        }
     }
 
     #[test]
