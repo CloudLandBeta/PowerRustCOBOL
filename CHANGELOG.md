@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.45] — 2026-10-09
+
+### Fixed
+- **PowerAnalytics: the Dados page is a layer, and the popups sit above it.** The
+  second page (`PG-DATA`, its five KPI cards and the grid card) moved out of the
+  page container into a layer named `Dados`; the program shows and hides it with
+  `SET Dados::Visible TO TRUE` / `FALSE` in place of the page's own `Show` / `Hide`.
+  The layers now stand, bottom to top, `Form` (the Dashboard), `Dados`,
+  `POPUP-LEVELS`, `POPUP-SEARCH`: the filter bar is common to both pages, so the two
+  popups open above whichever page is showing. A layer is never laid out, so
+  `SET-FILT-HEIGHT` writes the place and size of the page's controls whenever the
+  window changes size — the KPI strip beside the grid on a wide or medium window, and
+  on a narrow one (under 600 px, where a layer cannot scroll) the grid alone — and the
+  breakpoint overrides the page no longer needs were dropped. At the designed size every
+  rectangle is where the page laid it out, so the page looks as it did.
+
 ## [PowerRustCOBOL 1.90.44] — 2026-10-09
 
 ### Fixed

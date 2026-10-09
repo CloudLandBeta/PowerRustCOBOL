@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="MAIN-FORM" title="PowerAnalytics - Fundos de investimento" width="1440" height="900" background="#EAF2FA14" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" main-form="true" title-visible="false" corner-radius="15" index-base="1" window-effects="false" start-position="Center" responsive="true">
+  <Layer name="Dados" color="#00000000"/>
   <Layer name="POPUP-LEVELS" color="#00000000"/>
   <Layer name="POPUP-SEARCH" color="#00000000"/>
   <FormLayout FontScaling="Fluid" MaxFontScale="1.3" MinFormHeight="520" MinFormWidth="360"/>
@@ -24,36 +25,6 @@
       <Override control="GRP-CAT" property="FlexGrow">1</Override>
       <Override control="GRP-PER" property="FlexGrow">1</Override>
       <Override control="GRP-VAL" property="FlexGrow">1</Override>
-      <Override control="PG-DATA" property="LayoutMode">Flex</Override>
-      <Override control="PG-DATA" property="FlexDirection">Row</Override>
-      <Override control="PG-DATA" property="FlexWrap">Wrap</Override>
-      <Override control="STRIP" property="FlexBasis">100%</Override>
-      <Override control="STRIP" property="FlexDirection">Row</Override>
-      <Override control="STRIP" property="FlexWrap">Wrap</Override>
-      <Override control="STRIP" property="Height">390</Override>
-      <Override control="STRIP" property="MinHeight">0</Override>
-      <Override control="C-GRID" property="FlexBasis">100%</Override>
-      <Override control="C-GRID" property="FlexGrow">1</Override>
-      <Override control="K1-C" property="FlexBasis">46%</Override>
-      <Override control="K1-C" property="FlexGrow">1</Override>
-      <Override control="K1-C" property="MinHeight">0</Override>
-      <Override control="K1-C" property="Height">121</Override>
-      <Override control="K2-C" property="FlexBasis">46%</Override>
-      <Override control="K2-C" property="FlexGrow">1</Override>
-      <Override control="K2-C" property="MinHeight">0</Override>
-      <Override control="K2-C" property="Height">121</Override>
-      <Override control="K3-C" property="FlexBasis">46%</Override>
-      <Override control="K3-C" property="FlexGrow">1</Override>
-      <Override control="K3-C" property="MinHeight">0</Override>
-      <Override control="K3-C" property="Height">121</Override>
-      <Override control="K4-C" property="FlexBasis">46%</Override>
-      <Override control="K4-C" property="FlexGrow">1</Override>
-      <Override control="K4-C" property="MinHeight">0</Override>
-      <Override control="K4-C" property="Height">121</Override>
-      <Override control="K5-C" property="FlexBasis">46%</Override>
-      <Override control="K5-C" property="FlexGrow">1</Override>
-      <Override control="K5-C" property="MinHeight">0</Override>
-      <Override control="K5-C" property="Height">121</Override>
       <Override control="PG-DASH" property="LayoutMode">Flex</Override>
       <Override control="PG-DASH" property="FlexDirection">Row</Override>
       <Override control="PG-DASH" property="FlexWrap">Wrap</Override>
@@ -102,7 +73,6 @@
     <Breakpoint name="Medium" min-width="600" font-factor="1">
       <Override control="LBL-STATUS" property="Visible">0</Override>
       <Override control="FILT" property="Height">136</Override>
-      <Override control="PG-DATA" property="GridColumns">200px MinMax(0px, 1fr)</Override>
       <Override control="PG-DASH" property="LayoutMode">Flex</Override>
       <Override control="PG-DASH" property="FlexDirection">Row</Override>
       <Override control="PG-DASH" property="FlexWrap">Wrap</Override>
@@ -2552,7 +2522,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
            IF WS-VIEW = "D"
-               INVOKE PG-DATA::Hide()
+               SET Dados::Visible TO FALSE
                INVOKE PG-DASH::Show()
                MOVE "#3E7BE8" TO BTN-DASH::BackgroundColor
                MOVE "#FFFFFF" TO BTN-DASH::ForegroundColor
@@ -2560,7 +2530,7 @@
                MOVE "#1B2A4E" TO BTN-DATA::ForegroundColor
            ELSE
                INVOKE PG-DASH::Hide()
-               INVOKE PG-DATA::Show()
+               SET Dados::Visible TO TRUE
                MOVE "#3E7BE8" TO BTN-DATA::BackgroundColor
                MOVE "#FFFFFF" TO BTN-DATA::ForegroundColor
                MOVE "#FFFFFF" TO BTN-DASH::BackgroundColor
@@ -2585,9 +2555,19 @@
        01 WS-GX3 PIC 9(5).
        01 WS-GY3 PIC 9(5).
        01 WS-T PIC 9(5).
+       01 WS-FHT PIC 9(5).
+       01 WS-PY PIC 9(5).
+       01 WS-PH PIC 9(5).
+       01 WS-SW PIC 9(5).
+       01 WS-KH PIC 9(5).
+       01 WS-CY PIC 9(5).
+       01 WS-GX PIC 9(5).
+       01 WS-GW PIC 9(5).
+       01 WS-IW PIC 9(5).
        PROCEDURE DIVISION.
            MOVE me::Breakpoint TO WS-BP
            MOVE me::Width TO WS-FWID
+           MOVE me::Height TO WS-FHT
            EVALUATE WS-BP
                WHEN "Compact"
                    MOVE 332 TO WS-H1
@@ -2692,11 +2672,207 @@
            MOVE WS-FWID TO SCRIM-SM::Width
            IF WS-BP = "Expanded"
                MOVE 0 TO PG-DASH::VScroll
-               MOVE 0 TO PG-DATA::VScroll
            ELSE
                MOVE 1 TO PG-DASH::VScroll
-               MOVE 1 TO PG-DATA::VScroll
            END-IF
+           COMPUTE WS-PY = WS-Y1 + 16
+           COMPUTE WS-PH = WS-FHT - WS-Y1 - 48
+           COMPUTE WS-IW = WS-FWID - 56
+           COMPUTE WS-KH = (WS-PH - 96) / 5
+           IF WS-KH < 84
+               MOVE 84 TO WS-KH
+           END-IF
+           EVALUATE WS-BP
+               WHEN "Compact"
+                   MOVE 0 TO WS-SW
+               WHEN "Medium"
+                   MOVE 200 TO WS-SW
+               WHEN OTHER
+                   MOVE 250 TO WS-SW
+           END-EVALUATE
+           IF WS-SW = 0
+               INVOKE STRIP::Hide()
+               MOVE 28 TO WS-GX
+               MOVE WS-IW TO WS-GW
+           ELSE
+               INVOKE STRIP::Show()
+               COMPUTE WS-GX = 28 + WS-SW + 24
+               COMPUTE WS-GW = WS-IW - WS-SW - 24
+           END-IF
+           MOVE 24 TO PG-DATA::X
+           COMPUTE WS-T = WS-Y1 + 12
+           MOVE WS-T TO PG-DATA::Y
+           MOVE WS-PW TO PG-DATA::Width
+           COMPUTE WS-T = WS-FHT - WS-Y1 - 36
+           MOVE WS-T TO PG-DATA::Height
+           IF WS-SW > 0
+               MOVE 28 TO STRIP::X
+               MOVE WS-PY TO STRIP::Y
+               MOVE WS-SW TO STRIP::Width
+               MOVE WS-PH TO STRIP::Height
+               COMPUTE WS-CY = WS-PY + 0 * (WS-KH + 24)
+               MOVE 28 TO K1-C::X
+               MOVE WS-CY TO K1-C::Y
+               MOVE WS-SW TO K1-C::Width
+               MOVE WS-KH TO K1-C::Height
+               MOVE 48 TO LBL-K1-T::X
+               COMPUTE WS-T = WS-CY + 14
+               MOVE WS-T TO LBL-K1-T::Y
+               COMPUTE WS-T = WS-SW - 60
+               MOVE WS-T TO LBL-K1-T::Width
+               COMPUTE WS-T = WS-SW - 2
+               MOVE WS-T TO DOT-K1::X
+               COMPUTE WS-T = WS-CY + 17
+               MOVE WS-T TO DOT-K1::Y
+               MOVE 48 TO LBL-K1-V::X
+               COMPUTE WS-T = WS-CY + 34
+               MOVE WS-T TO LBL-K1-V::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K1-V::Width
+               MOVE 48 TO LBL-K1-S::X
+               COMPUTE WS-T = WS-CY + 74
+               MOVE WS-T TO LBL-K1-S::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K1-S::Width
+               COMPUTE WS-CY = WS-PY + 1 * (WS-KH + 24)
+               MOVE 28 TO K2-C::X
+               MOVE WS-CY TO K2-C::Y
+               MOVE WS-SW TO K2-C::Width
+               MOVE WS-KH TO K2-C::Height
+               MOVE 48 TO LBL-K2-T::X
+               COMPUTE WS-T = WS-CY + 14
+               MOVE WS-T TO LBL-K2-T::Y
+               COMPUTE WS-T = WS-SW - 60
+               MOVE WS-T TO LBL-K2-T::Width
+               COMPUTE WS-T = WS-SW - 2
+               MOVE WS-T TO DOT-K2::X
+               COMPUTE WS-T = WS-CY + 17
+               MOVE WS-T TO DOT-K2::Y
+               MOVE 48 TO LBL-K2-V::X
+               COMPUTE WS-T = WS-CY + 34
+               MOVE WS-T TO LBL-K2-V::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K2-V::Width
+               MOVE 48 TO LBL-K2-S::X
+               COMPUTE WS-T = WS-CY + 74
+               MOVE WS-T TO LBL-K2-S::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K2-S::Width
+               COMPUTE WS-CY = WS-PY + 2 * (WS-KH + 24)
+               MOVE 28 TO K3-C::X
+               MOVE WS-CY TO K3-C::Y
+               MOVE WS-SW TO K3-C::Width
+               MOVE WS-KH TO K3-C::Height
+               MOVE 48 TO LBL-K3-T::X
+               COMPUTE WS-T = WS-CY + 14
+               MOVE WS-T TO LBL-K3-T::Y
+               COMPUTE WS-T = WS-SW - 60
+               MOVE WS-T TO LBL-K3-T::Width
+               COMPUTE WS-T = WS-SW - 2
+               MOVE WS-T TO DOT-K3::X
+               COMPUTE WS-T = WS-CY + 17
+               MOVE WS-T TO DOT-K3::Y
+               MOVE 48 TO LBL-K3-V::X
+               COMPUTE WS-T = WS-CY + 34
+               MOVE WS-T TO LBL-K3-V::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K3-V::Width
+               MOVE 48 TO LBL-K3-S::X
+               COMPUTE WS-T = WS-CY + 74
+               MOVE WS-T TO LBL-K3-S::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K3-S::Width
+               COMPUTE WS-CY = WS-PY + 3 * (WS-KH + 24)
+               MOVE 28 TO K4-C::X
+               MOVE WS-CY TO K4-C::Y
+               MOVE WS-SW TO K4-C::Width
+               MOVE WS-KH TO K4-C::Height
+               MOVE 48 TO LBL-K4-T::X
+               COMPUTE WS-T = WS-CY + 14
+               MOVE WS-T TO LBL-K4-T::Y
+               COMPUTE WS-T = WS-SW - 60
+               MOVE WS-T TO LBL-K4-T::Width
+               COMPUTE WS-T = WS-SW - 2
+               MOVE WS-T TO DOT-K4::X
+               COMPUTE WS-T = WS-CY + 17
+               MOVE WS-T TO DOT-K4::Y
+               MOVE 48 TO LBL-K4-V::X
+               COMPUTE WS-T = WS-CY + 34
+               MOVE WS-T TO LBL-K4-V::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K4-V::Width
+               MOVE 48 TO LBL-K4-S::X
+               COMPUTE WS-T = WS-CY + 74
+               MOVE WS-T TO LBL-K4-S::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K4-S::Width
+               COMPUTE WS-CY = WS-PY + 4 * (WS-KH + 24)
+               MOVE 28 TO K5-C::X
+               MOVE WS-CY TO K5-C::Y
+               MOVE WS-SW TO K5-C::Width
+               MOVE WS-KH TO K5-C::Height
+               MOVE 48 TO LBL-K5-T::X
+               COMPUTE WS-T = WS-CY + 14
+               MOVE WS-T TO LBL-K5-T::Y
+               COMPUTE WS-T = WS-SW - 60
+               MOVE WS-T TO LBL-K5-T::Width
+               COMPUTE WS-T = WS-SW - 2
+               MOVE WS-T TO DOT-K5::X
+               COMPUTE WS-T = WS-CY + 17
+               MOVE WS-T TO DOT-K5::Y
+               MOVE 48 TO LBL-K5-V::X
+               COMPUTE WS-T = WS-CY + 34
+               MOVE WS-T TO LBL-K5-V::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K5-V::Width
+               MOVE 48 TO LBL-K5-S::X
+               COMPUTE WS-T = WS-CY + 74
+               MOVE WS-T TO LBL-K5-S::Y
+               COMPUTE WS-T = WS-SW - 36
+               MOVE WS-T TO LBL-K5-S::Width
+           END-IF
+           MOVE WS-GX TO C-GRID::X
+           MOVE WS-PY TO C-GRID::Y
+           MOVE WS-GW TO C-GRID::Width
+           MOVE WS-PH TO C-GRID::Height
+           COMPUTE WS-T = WS-GX + 22
+           MOVE WS-T TO LBL-GRID-T::X
+           COMPUTE WS-T = WS-PY + 12
+           MOVE WS-T TO LBL-GRID-T::Y
+           IF WS-GW > 710
+               COMPUTE WS-T = WS-GW - 590
+           ELSE
+               MOVE 120 TO WS-T
+           END-IF
+           MOVE WS-T TO LBL-GRID-S::Width
+           COMPUTE WS-T = WS-GX + 22
+           MOVE WS-T TO LBL-GRID-S::X
+           COMPUTE WS-T = WS-PY + 40
+           MOVE WS-T TO LBL-GRID-S::Y
+           COMPUTE WS-T = WS-GX + WS-GW - 288
+           MOVE WS-T TO CMB-ORDER::X
+           COMPUTE WS-T = WS-PY + 16
+           MOVE WS-T TO CMB-ORDER::Y
+           COMPUTE WS-T = WS-GX + 12
+           MOVE WS-T TO GRD-FUNDOS::X
+           COMPUTE WS-T = WS-PY + 66
+           MOVE WS-T TO GRD-FUNDOS::Y
+           COMPUTE WS-T = WS-GW - 24
+           MOVE WS-T TO GRD-FUNDOS::Width
+           COMPUTE WS-T = WS-PH - 122
+           MOVE WS-T TO GRD-FUNDOS::Height
+           COMPUTE WS-T = WS-GX + 24
+           MOVE WS-T TO BTN-PREV::X
+           COMPUTE WS-T = WS-PY + WS-PH - 46
+           MOVE WS-T TO BTN-PREV::Y
+           COMPUTE WS-T = WS-GX + WS-GW / 2 - 110
+           MOVE WS-T TO LBL-PAGE::X
+           COMPUTE WS-T = WS-PY + WS-PH - 44
+           MOVE WS-T TO LBL-PAGE::Y
+           COMPUTE WS-T = WS-GX + WS-GW - 144
+           MOVE WS-T TO BTN-NEXT::X
+           COMPUTE WS-T = WS-PY + WS-PH - 46
+           MOVE WS-T TO BTN-NEXT::Y
 ]]></Event>
     <Event name="CLOSE-LEVELS" paragraph="CLOSE-LEVELS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -7336,17 +7512,11 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="PG-DATA" type="Panel" x="24" y="204" w="1392" h="672" tab-order="162" z-order="161" visible="false" enabled="true" parent="PNL-PAGES">
+  <Control id="PG-DATA" type="Panel" x="24" y="204" w="1392" h="672" tab-order="162" z-order="161" visible="true" enabled="true" layer="Dados">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="HideBackground">true</Property>
-    <Property name="LayoutMode">Grid</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
-    <Property name="GridColumns">250px MinMax(0px, 1fr)</Property>
-    <Property name="GridRows">MinMax(0px, 1fr)</Property>
-    <Property name="Gap">24</Property>
     <Property name="VScroll">false</Property>
-    <Property name="PaddingBottom">4</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7363,15 +7533,10 @@
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
   </Control>
-  <Control id="STRIP" type="Panel" x="24" y="204" w="250" h="672" tab-order="163" z-order="162" visible="true" enabled="true" parent="PG-DATA">
+  <Control id="STRIP" type="Panel" x="28" y="208" w="250" h="660" tab-order="163" z-order="162" visible="true" enabled="true" parent="PG-DATA">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="HideBackground">true</Property>
-    <Property name="LayoutMode">Flex</Property>
-    <Property name="FlexDirection">Column</Property>
-    <Property name="Gap">24</Property>
-    <Property name="GridColumn">1</Property>
-    <Property name="GridRow">1</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7388,7 +7553,7 @@
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
   </Control>
-  <Control id="K1-C" type="GroupBox" x="24" y="204" w="250" h="115" tab-order="164" z-order="163" visible="false" enabled="true" parent="STRIP">
+  <Control id="K1-C" type="GroupBox" x="28" y="208" w="250" h="112" tab-order="164" z-order="163" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -7402,9 +7567,6 @@
     <Property name="ShadowDistance">10</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
-    <Property name="FlexGrow">1</Property>
-    <Property name="FlexBasis">0</Property>
-    <Property name="MinHeight">84</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -7425,7 +7587,7 @@
     <Property name="BorderWidth">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K1-T" type="Label" x="44" y="218" w="190" h="16" tab-order="165" z-order="164" visible="true" enabled="true" parent="K1-C">
+  <Control id="LBL-K1-T" type="Label" x="48" y="222" w="190" h="16" tab-order="165" z-order="164" visible="true" enabled="true" parent="K1-C">
     <Property name="Caption">FUNDOS</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7434,7 +7596,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7451,7 +7612,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="DOT-K1" type="Shape" x="244" y="221" w="12" h="12" tab-order="166" z-order="165" visible="true" enabled="true" parent="K1-C">
+  <Control id="DOT-K1" type="Shape" x="248" y="225" w="12" h="12" tab-order="166" z-order="165" visible="true" enabled="true" parent="K1-C">
     <Property name="ShapeType">Circle</Property>
     <Property name="FillColor">#22C3D6</Property>
     <Property name="FillStyle">Solid</Property>
@@ -7474,7 +7635,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K1-V" type="Label" x="44" y="238" w="214" h="36" tab-order="167" z-order="166" visible="true" enabled="true" parent="K1-C">
+  <Control id="LBL-K1-V" type="Label" x="48" y="242" w="214" h="36" tab-order="167" z-order="166" visible="true" enabled="true" parent="K1-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -7483,7 +7644,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7500,7 +7660,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K1-S" type="Label" x="44" y="278" w="214" h="36" tab-order="168" z-order="167" visible="true" enabled="true" parent="K1-C">
+  <Control id="LBL-K1-S" type="Label" x="48" y="282" w="214" h="36" tab-order="168" z-order="167" visible="true" enabled="true" parent="K1-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7509,7 +7669,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Top</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -7527,7 +7686,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K2-C" type="GroupBox" x="24" y="343" w="250" h="115" tab-order="169" z-order="168" visible="false" enabled="true" parent="STRIP">
+  <Control id="K2-C" type="GroupBox" x="28" y="344" w="250" h="112" tab-order="169" z-order="168" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -7541,9 +7700,6 @@
     <Property name="ShadowDistance">10</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
-    <Property name="FlexGrow">1</Property>
-    <Property name="FlexBasis">0</Property>
-    <Property name="MinHeight">84</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -7564,7 +7720,7 @@
     <Property name="BorderWidth">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K2-T" type="Label" x="44" y="357" w="190" h="16" tab-order="170" z-order="169" visible="true" enabled="true" parent="K2-C">
+  <Control id="LBL-K2-T" type="Label" x="48" y="358" w="190" h="16" tab-order="170" z-order="169" visible="true" enabled="true" parent="K2-C">
     <Property name="Caption">PL TOTAL</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7573,7 +7729,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7590,7 +7745,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="DOT-K2" type="Shape" x="244" y="360" w="12" h="12" tab-order="171" z-order="170" visible="true" enabled="true" parent="K2-C">
+  <Control id="DOT-K2" type="Shape" x="248" y="361" w="12" h="12" tab-order="171" z-order="170" visible="true" enabled="true" parent="K2-C">
     <Property name="ShapeType">Circle</Property>
     <Property name="FillColor">#3E7BE8</Property>
     <Property name="FillStyle">Solid</Property>
@@ -7613,7 +7768,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K2-V" type="Label" x="44" y="377" w="214" h="36" tab-order="172" z-order="171" visible="true" enabled="true" parent="K2-C">
+  <Control id="LBL-K2-V" type="Label" x="48" y="378" w="214" h="36" tab-order="172" z-order="171" visible="true" enabled="true" parent="K2-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -7622,7 +7777,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7639,7 +7793,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K2-S" type="Label" x="44" y="417" w="214" h="36" tab-order="173" z-order="172" visible="true" enabled="true" parent="K2-C">
+  <Control id="LBL-K2-S" type="Label" x="48" y="418" w="214" h="36" tab-order="173" z-order="172" visible="true" enabled="true" parent="K2-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7648,7 +7802,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Top</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -7666,7 +7819,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K3-C" type="GroupBox" x="24" y="482" w="250" h="115" tab-order="174" z-order="173" visible="false" enabled="true" parent="STRIP">
+  <Control id="K3-C" type="GroupBox" x="28" y="480" w="250" h="112" tab-order="174" z-order="173" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -7680,9 +7833,6 @@
     <Property name="ShadowDistance">10</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
-    <Property name="FlexGrow">1</Property>
-    <Property name="FlexBasis">0</Property>
-    <Property name="MinHeight">84</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -7703,7 +7853,7 @@
     <Property name="BorderWidth">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K3-T" type="Label" x="44" y="496" w="190" h="16" tab-order="175" z-order="174" visible="true" enabled="true" parent="K3-C">
+  <Control id="LBL-K3-T" type="Label" x="48" y="494" w="190" h="16" tab-order="175" z-order="174" visible="true" enabled="true" parent="K3-C">
     <Property name="Caption">COTISTAS</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7712,7 +7862,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7729,7 +7878,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="DOT-K3" type="Shape" x="244" y="499" w="12" h="12" tab-order="176" z-order="175" visible="true" enabled="true" parent="K3-C">
+  <Control id="DOT-K3" type="Shape" x="248" y="497" w="12" h="12" tab-order="176" z-order="175" visible="true" enabled="true" parent="K3-C">
     <Property name="ShapeType">Circle</Property>
     <Property name="FillColor">#394670</Property>
     <Property name="FillStyle">Solid</Property>
@@ -7752,7 +7901,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K3-V" type="Label" x="44" y="516" w="214" h="36" tab-order="177" z-order="176" visible="true" enabled="true" parent="K3-C">
+  <Control id="LBL-K3-V" type="Label" x="48" y="514" w="214" h="36" tab-order="177" z-order="176" visible="true" enabled="true" parent="K3-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -7761,7 +7910,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7778,7 +7926,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K3-S" type="Label" x="44" y="556" w="214" h="36" tab-order="178" z-order="177" visible="true" enabled="true" parent="K3-C">
+  <Control id="LBL-K3-S" type="Label" x="48" y="554" w="214" h="36" tab-order="178" z-order="177" visible="true" enabled="true" parent="K3-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7787,7 +7935,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Top</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -7805,7 +7952,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K4-C" type="GroupBox" x="24" y="621" w="250" h="115" tab-order="179" z-order="178" visible="false" enabled="true" parent="STRIP">
+  <Control id="K4-C" type="GroupBox" x="28" y="616" w="250" h="112" tab-order="179" z-order="178" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -7819,9 +7966,6 @@
     <Property name="ShadowDistance">10</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
-    <Property name="FlexGrow">1</Property>
-    <Property name="FlexBasis">0</Property>
-    <Property name="MinHeight">84</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -7842,7 +7986,7 @@
     <Property name="BorderWidth">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K4-T" type="Label" x="44" y="635" w="190" h="16" tab-order="180" z-order="179" visible="true" enabled="true" parent="K4-C">
+  <Control id="LBL-K4-T" type="Label" x="48" y="630" w="190" h="16" tab-order="180" z-order="179" visible="true" enabled="true" parent="K4-C">
     <Property name="Caption">MAIOR FUNDO</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7851,7 +7995,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7868,7 +8011,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="DOT-K4" type="Shape" x="244" y="638" w="12" h="12" tab-order="181" z-order="180" visible="true" enabled="true" parent="K4-C">
+  <Control id="DOT-K4" type="Shape" x="248" y="633" w="12" h="12" tab-order="181" z-order="180" visible="true" enabled="true" parent="K4-C">
     <Property name="ShapeType">Circle</Property>
     <Property name="FillColor">#0F9FB3</Property>
     <Property name="FillStyle">Solid</Property>
@@ -7891,7 +8034,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K4-V" type="Label" x="44" y="655" w="214" h="36" tab-order="182" z-order="181" visible="true" enabled="true" parent="K4-C">
+  <Control id="LBL-K4-V" type="Label" x="48" y="650" w="214" h="36" tab-order="182" z-order="181" visible="true" enabled="true" parent="K4-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -7900,7 +8043,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -7917,7 +8059,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K4-S" type="Label" x="44" y="695" w="214" h="36" tab-order="183" z-order="182" visible="true" enabled="true" parent="K4-C">
+  <Control id="LBL-K4-S" type="Label" x="48" y="690" w="214" h="36" tab-order="183" z-order="182" visible="true" enabled="true" parent="K4-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7926,7 +8068,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Top</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -7944,7 +8085,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="K5-C" type="GroupBox" x="24" y="760" w="250" h="115" tab-order="184" z-order="183" visible="false" enabled="true" parent="STRIP">
+  <Control id="K5-C" type="GroupBox" x="28" y="752" w="250" h="112" tab-order="184" z-order="183" visible="false" enabled="true" parent="STRIP">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -7958,9 +8099,6 @@
     <Property name="ShadowDistance">10</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
-    <Property name="FlexGrow">1</Property>
-    <Property name="FlexBasis">0</Property>
-    <Property name="MinHeight">84</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -7981,7 +8119,7 @@
     <Property name="BorderWidth">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K5-T" type="Label" x="44" y="774" w="190" h="16" tab-order="185" z-order="184" visible="true" enabled="true" parent="K5-C">
+  <Control id="LBL-K5-T" type="Label" x="48" y="766" w="190" h="16" tab-order="185" z-order="184" visible="true" enabled="true" parent="K5-C">
     <Property name="Caption">CATEGORIA LÍDER</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -7990,7 +8128,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8007,7 +8144,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="DOT-K5" type="Shape" x="244" y="777" w="12" h="12" tab-order="186" z-order="185" visible="true" enabled="true" parent="K5-C">
+  <Control id="DOT-K5" type="Shape" x="248" y="769" w="12" h="12" tab-order="186" z-order="185" visible="true" enabled="true" parent="K5-C">
     <Property name="ShapeType">Circle</Property>
     <Property name="FillColor">#3E7BE8</Property>
     <Property name="FillStyle">Solid</Property>
@@ -8030,7 +8167,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K5-V" type="Label" x="44" y="794" w="214" h="36" tab-order="187" z-order="186" visible="true" enabled="true" parent="K5-C">
+  <Control id="LBL-K5-V" type="Label" x="48" y="786" w="214" h="36" tab-order="187" z-order="186" visible="true" enabled="true" parent="K5-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -8039,7 +8176,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8056,7 +8192,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-K5-S" type="Label" x="44" y="834" w="214" h="36" tab-order="188" z-order="187" visible="true" enabled="true" parent="K5-C">
+  <Control id="LBL-K5-S" type="Label" x="48" y="826" w="214" h="36" tab-order="188" z-order="187" visible="true" enabled="true" parent="K5-C">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -8065,7 +8201,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Top</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="WordWrap">true</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -8083,7 +8218,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="C-GRID" type="GroupBox" x="298" y="204" w="1118" h="672" tab-order="189" z-order="188" visible="false" enabled="true" parent="PG-DATA">
+  <Control id="C-GRID" type="GroupBox" x="302" y="208" w="1110" h="660" tab-order="189" z-order="188" visible="false" enabled="true" parent="PG-DATA">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">30</Property>
     <Property name="BorderStyle">None</Property>
@@ -8097,8 +8232,6 @@
     <Property name="ShadowDistance">10</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">14</Property>
-    <Property name="GridColumn">2</Property>
-    <Property name="GridRow">1</Property>
     <Property name="Expandable">true</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -8120,7 +8253,7 @@
     <Property name="BorderWidth">1</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-GRID-T" type="Label" x="320" y="216" w="240" h="28" tab-order="190" z-order="189" visible="true" enabled="true" parent="C-GRID">
+  <Control id="LBL-GRID-T" type="Label" x="324" y="220" w="240" h="28" tab-order="190" z-order="189" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption">Fundos de investimento</Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -8145,7 +8278,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-GRID-S" type="Label" x="320" y="244" w="520" h="16" tab-order="191" z-order="190" visible="true" enabled="true" parent="C-GRID">
+  <Control id="LBL-GRID-S" type="Label" x="324" y="248" w="520" h="16" tab-order="191" z-order="190" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#6E80A3</Property>
@@ -8154,7 +8287,6 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Top,Left,Right</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8171,7 +8303,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="CMB-ORDER" type="ComboBox" x="1128" y="220" w="230" h="34" tab-order="192" z-order="191" visible="true" enabled="true" parent="C-GRID">
+  <Control id="CMB-ORDER" type="ComboBox" x="1124" y="224" w="230" h="34" tab-order="192" z-order="191" visible="true" enabled="true" parent="C-GRID">
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="Transparency">0</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -8185,7 +8317,6 @@ Mais antigos
 Nome (A-Z)</Property>
     <Property name="Value">Maior PL</Property>
     <Property name="DropDownStyle">DropDownList</Property>
-    <Property name="Anchor">Top,Right</Property>
     <Property name="ActiveItemColor">#1F4E9A</Property>
     <Property name="HoverItemColor">#DCE9FA</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -8210,7 +8341,7 @@ Nome (A-Z)</Property>
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="GRD-FUNDOS" type="DataGrid" x="310" y="270" w="1094" h="550" tab-order="193" z-order="192" visible="true" enabled="true" parent="C-GRID">
+  <Control id="GRD-FUNDOS" type="DataGrid" x="314" y="274" w="1086" h="538" tab-order="193" z-order="192" visible="true" enabled="true" parent="C-GRID">
     <Property name="Columns">Nome Comercial:string
 Código ANBIMA:string
 Estrutura:string
@@ -8247,7 +8378,6 @@ Data de referência:string</Property>
     <Property name="ShowCSVExportButton">true</Property>
     <Property name="CSVExportMode">AllRows</Property>
     <Property name="CSVDelimiter">;</Property>
-    <Property name="Anchor">Top,Left,Right,Bottom</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
@@ -8270,7 +8400,7 @@ Data de referência:string</Property>
     <Property name="SelectableText">true</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="BTN-PREV" type="Button" x="322" y="830" w="120" h="32" tab-order="194" z-order="193" visible="true" enabled="true" parent="C-GRID">
+  <Control id="BTN-PREV" type="Button" x="326" y="822" w="120" h="32" tab-order="194" z-order="193" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption">Anterior</Property>
     <Property name="BackgroundColor">#FFFFFF</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -8278,7 +8408,6 @@ Data de referência:string</Property>
     <Property name="Bold">true</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">14</Property>
-    <Property name="Anchor">Bottom,Left</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="Transparency">10</Property>
@@ -8304,7 +8433,7 @@ Data de referência:string</Property>
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="LBL-PAGE" type="Label" x="747" y="832" w="220" h="28" tab-order="195" z-order="194" visible="true" enabled="true" parent="C-GRID">
+  <Control id="LBL-PAGE" type="Label" x="747" y="824" w="220" h="28" tab-order="195" z-order="194" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#FFFFFF01</Property>
     <Property name="ForegroundColor">#1B2A4E</Property>
@@ -8313,7 +8442,6 @@ Data de referência:string</Property>
     <Property name="TextAlignment">Center</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Anchor">Bottom</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -8330,7 +8458,7 @@ Data de referência:string</Property>
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="BTN-NEXT" type="Button" x="1272" y="830" w="120" h="32" tab-order="196" z-order="195" visible="true" enabled="true" parent="C-GRID">
+  <Control id="BTN-NEXT" type="Button" x="1268" y="822" w="120" h="32" tab-order="196" z-order="195" visible="true" enabled="true" parent="C-GRID">
     <Property name="Caption">Próxima</Property>
     <Property name="BackgroundColor">#3E7BE8</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -8338,7 +8466,6 @@ Data de referência:string</Property>
     <Property name="Bold">true</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">14</Property>
-    <Property name="Anchor">Bottom,Right</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="Transparency">10</Property>
