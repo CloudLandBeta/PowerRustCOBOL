@@ -17,11 +17,11 @@ Branches: `features-powercloud` (integration) ← `features-pc-aws`, `features-p
 - [x] T6  KB tables, Guide AWS section, support matrix (not `chunked.data`)
 
 ## WP1b — run-time credentials, amendment A6 (branch features-pc-creds)
-- [ ] T7   Per-connection in-memory store, redacting `Launch.credentials`, `built_env` as the only reader, restart on change
-- [ ] T8   `AWS-SET-CREDENTIALS`, `AWS-CLEAR-CREDENTIALS`, `AWS-CREDENTIALS-SET` built-ins (+ BUILTINS, `exec_call`, KB, Guide)
-- [ ] T9   Launch without `--profile` when credentials are set; the server restarts when they change or clear
-- [ ] T10  The credential-surface scan test (R7) over arguments, an unrelated child's environment, logs, Verbose, errors, saved files
-- [ ] T11  Amend spec 078 (A6) and every text listed in plan §WP1; `i18n.rs` ×6 and `prop_help_data.rs` `Connection` help ×6
+- [x] T7   Per-connection in-memory store, redacting `Launch.credentials`, `built_env` as the only reader, restart on change
+- [x] T8   `AWS-SET-CREDENTIALS`, `AWS-CLEAR-CREDENTIALS`, `AWS-CREDENTIALS-SET` built-ins (+ BUILTINS, `exec_call`, KB, Guide)
+- [x] T9   Launch without `--profile` when credentials are set; the server restarts when they change or clear
+- [x] T10  The credential-surface scan test (R7) over arguments, an unrelated child's environment, logs, Verbose, errors, saved files
+- [x] T11  Amend spec 078 (A6) and every text listed in plan §WP1; `i18n.rs` ×6 and `prop_help_data.rs` `Connection` help ×6
 
 ## WP2a — IMAGE-FIT, IMAGE-INFO, HTTP-DOWNLOAD (branch features-pc-media)
 - [ ] T12  `images` runtime feature + shim, forwarding, `RuntimeFeatures` plumbing and pinned test strings

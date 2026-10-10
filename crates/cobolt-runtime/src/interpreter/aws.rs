@@ -128,6 +128,53 @@ impl Interpreter {
     }
 }
 
+// ── Keys typed in at run time (spec 092 A6) ─────────────────────────────────
+//
+// The three built-ins' bodies. They log nothing and return no key: `status` is
+// `OK` or why nothing was stored, the flag is Y or N.
+
+/// `COBOL::"AWS-SET-CREDENTIALS"`: the status.
+#[cfg(feature = "aws")]
+pub(super) fn set_credentials(connection: &str, key_id: String, secret: String, token: String) -> String {
+    match crate::aws::credentials::set(connection, key_id, secret, token) {
+        Ok(()) => "OK".to_string(),
+        Err(why) => why,
+    }
+}
+
+/// `COBOL::"AWS-CLEAR-CREDENTIALS"`: the status.
+#[cfg(feature = "aws")]
+pub(super) fn clear_credentials(connection: &str) -> String {
+    match crate::aws::credentials::clear(connection) {
+        Ok(()) => "OK".to_string(),
+        Err(why) => why,
+    }
+}
+
+/// `COBOL::"AWS-CREDENTIALS-SET"`: whether the connection holds keys.
+#[cfg(feature = "aws")]
+pub(super) fn credentials_set(connection: &str) -> bool {
+    crate::aws::credentials::is_set(connection)
+}
+
+#[cfg(not(feature = "aws"))]
+const NO_AWS: &str = "this application was built without AWS support: nothing was stored";
+
+#[cfg(not(feature = "aws"))]
+pub(super) fn set_credentials(_connection: &str, _key_id: String, _secret: String, _token: String) -> String {
+    NO_AWS.to_string()
+}
+
+#[cfg(not(feature = "aws"))]
+pub(super) fn clear_credentials(_connection: &str) -> String {
+    NO_AWS.to_string()
+}
+
+#[cfg(not(feature = "aws"))]
+pub(super) fn credentials_set(_connection: &str) -> bool {
+    false
+}
+
 /// Mask what `Verbose` prints (R27). Without the feature there is nothing to
 /// print.
 #[cfg(feature = "aws")]

@@ -34,6 +34,9 @@ const fn b(name: &'static str, params: &'static str, description: &'static str) 
 /// Every built-in, alphabetically.
 pub const BUILTINS: &[Builtin] = &[
     b("APPEND-FILE", "path in, text in, [status out]", "Append a line of text to a file, creating it if missing"),
+    b("AWS-CLEAR-CREDENTIALS", "connection in, [status out]", "Forget the AWS keys set for a connection and end the server that held them"),
+    b("AWS-CREDENTIALS-SET", "connection in, flag out", "Whether AWS keys are set for a connection: Y or N (never the keys)"),
+    b("AWS-SET-CREDENTIALS", "connection in, key-id in, secret in, token in, [status out]", "Give a connection AWS keys for this run, kept in memory only (never read back)"),
     b("BINDING-LOAD", "binding-id in, status out", "Load a data binding's records from its source"),
     b("BINDING-MARK-CLEAN", "binding-id in, dirty-flag out", "Mark a binding clean: no pending edits"),
     b("BINDING-POPULATE", "binding-id in, status out", "Fill a binding's bound controls from its data"),
