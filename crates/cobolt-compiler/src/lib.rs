@@ -6242,7 +6242,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "PreviewItemCount" => ("integer 1-500", "Cards shown on the design canvas, and at run time by an unbound group whose ItemCount is 0."),
 
         // ── DataGrid ──
-        "Columns" => ("one `Name:Type` per line; Type ∈ `string` | `number` | `datetime` (default `string`)", "Column definitions."),
+        "Columns" => ("one `Name:Type` per line; Type ∈ `string` | `number` | `datetime` | `image` (default `string`)", "Column definitions. A column typed `image` (`img` and `picture` mean the same) shows each cell's value — the path of a picture file — as a picture, at most at its own size. How else a column shows its cells (a Button, an Image scaled to the cell, a Checkbox…) is its Edit control in **Edit DataGrid settings…**, not part of `Columns`: see the DataGrid notes."),
         "Rows" => ("rows separated by newline, cells within a row by TAB", "Cell data (usually populated at runtime)."),
         "AlternatingRowColor" => (COLOR_DOMAIN, "Tint applied to alternating rows/columns."),
         "AlternatingRowOpacity" => ("0-100 (percent)", "Strength of the alternating tint."),
@@ -6257,8 +6257,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "RowBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Per-row background pattern."),
         "SelectionMode" => ("one of: `Row` (default) | `Cell` | `Column`", "What a click on a cell highlights: its whole row (`Row`), the cell alone (`Cell`) or its whole column (`Column`). Ctrl+C copies what is highlighted — the cell, the row's cells joined by `CSVDelimiter`, or the column's values in the rows shown, one per line. `onCellClick` reports the cell either way."),
         "AllowCellEditing" => (BOOL_DOMAIN, "DataGrid (default false): the operator may edit a cell in place — a double-click, or F2 on the selected cell, opens it in a text box; Enter or clicking away commits, Escape cancels. A commit that changed the text writes it into `Rows` and fires `onCellEdited` with `EditedRow`, `EditedColumn` (the DATA row and column, numbered from 1 — `GetCellValue`'s), `EditedValue` and `PreviousValue`; the handler validates and stores it, and can put `PreviousValue` back with `SetCellValue` to refuse it. A column with no data behind it, or one showing its value as an image, is not editable; a typed tab or line break becomes a space. The retired `ReadOnly` does not control this."),
-        "ClickedRow" => ("integer (runtime-only, read-only)", "DataGrid: the data row a click (or double-click) landed on, numbered from 1 as `GetCellValue` counts — written just before `onCellClick` / `onCellDoubleClick`, so the handler knows which row's button was pressed."),
-        "ClickedColumn" => ("integer (runtime-only, read-only)", "DataGrid: the data column a click landed on, numbered from 1 (its position in `Columns`); 0 for a column with no data behind it. Written just before `onCellClick` / `onCellDoubleClick`."),
+        "ClickedRow" => ("integer (runtime-only, read-only)", "DataGrid: the data row a click (or double-click) landed on, numbered from 1 as `GetCellValue` counts — written just before `onCellClick` / `onCellDoubleClick`, so the handler knows which row's button was pressed. A click on a column heading does NOT write it (that sorts the grid and fires `onColumnClick`), and with `SelectableText` off the cells ignore the mouse and write nothing."),
+        "ClickedColumn" => ("integer (runtime-only, read-only)", "DataGrid: the data column a click landed on, numbered from 1 (its position in `Columns`); 0 for a column with no data behind it. Written just before `onCellClick` / `onCellDoubleClick`; a click on a column heading leaves it as it was."),
         "EditedRow" => ("integer (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the data row the operator edited, numbered from 1."),
         "EditedColumn" => ("integer (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the data column the operator edited, numbered from 1."),
         "EditedValue" => ("text (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the cell's new text — already in `Rows`."),
@@ -6290,7 +6290,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "FrozenColumns" => ("integer ≥ 0", "Leading columns that do not scroll sideways. A write from COBOL takes effect at once, like `FreezeColumns` — also on a grid configured in **Edit DataGrid settings…**."),
         "FrozenRows" => ("integer ≥ 0", "Leading rows that do not scroll. A write from COBOL takes effect at once, like `FreezeRows` — also on a grid configured in **Edit DataGrid settings…**."),
         "FrozenShadow" => (BOOL_DOMAIN, "Soft shadow cast by frozen rows/columns."),
-        "SelectableText" => (BOOL_DOMAIN, "Cell text can be selected/copied."),
+        "SelectableText" => (BOOL_DOMAIN, "DataGrid (default true): a click on a cell selects it, writes `ClickedRow` / `ClickedColumn`, fires `onCellClick` (and `onCellDoubleClick`), and Ctrl+C copies it. Off, the cells ignore mouse clicks — a click selects nothing and reports nothing, so a Button or icon column does nothing; a click on a column heading still sorts and fires `onColumnClick`."),
 
         // ── TabControl ──
         "Tabs" => ("one tab title per line", "The tab pages."),
@@ -7171,7 +7171,7 @@ fn control_structure(name: &str) -> &'static str {
         "TreeView" => "The tree is the `Items` property: one node per line, in display order, each child indented two spaces (or one tab) more than its parent, optionally followed by TAB-separated icon, colour and background fields. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole tree. From COBOL, `AddNode(level, text)` builds it at run time.",
         "ListBox" | "ComboBox" => "The entries are the `Items` property: one entry per line, in display order. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole list (sorting, adding or removing an entry means sending every line). When `ItemsFile` names a text file, the list reads its entries from that file each time the form opens instead.",
         "TabControl" => "The pages are the `Tabs` property: one tab title per line, in order. A control sits on a page through its own `Tab` property (the page, counting from 1) with this TabControl as its `Parent`, so reordering titles in `Tabs` does not move the controls with them: a page move also needs each child's `Tab` changed.",
-        "DataGrid" => "The columns are the `Columns` property, one `Name:Type` per line in display order (`string`, `number` or `datetime`); the cells are `Rows`, one row per line with cells separated by TAB, usually filled at run time. An agent changes the columns with `set_property` on `Columns`, sending every column.",
+        "DataGrid" => "The columns are the `Columns` property, one `Name:Type` per line in display order (`string`, `number`, `datetime`, or `image`); the cells are `Rows`, one row per line with cells separated by TAB, usually filled at run time. An agent changes the columns with `set_property` on `Columns`, sending every column. How a column SHOWS its cells is its kind — the Edit control in **Edit DataGrid settings…**: Textbox (the default), Dropdown, Checkbox, Button, Gauge or Image — and is not part of `Columns`. In an **Image** column the cell value is the path of a picture file (PNG, JPEG, GIF, WebP, BMP, TIFF or SVG; a relative path is looked for in the project folder, beside the executable in a built application): the picture is scaled to fit the cell, keeping its proportions, so give the grid a `RowHeight` (up to 120) that suits it; the column's settings add a corner radius and a drop shadow. A file that is missing or not yet a complete picture shows its path in the cell and is looked for again every half second, so a thumbnail a program downloads after the grid is on screen appears by itself; a picture that loaded is read once, and picked up again within about two seconds of the next repaint if the file is rewritten (a different modification time or size). In a **Button** column each cell is drawn as a button showing its value; a value `icon:<name>` draws that catalogue icon instead (`icon:pencil`, `icon:trash`). A click on a cell writes `ClickedRow` and `ClickedColumn` and fires `onCellClick`; a click on a column heading sorts instead and writes neither. An Image column is not editable in place. On a grid with a data binding, the refresh of the columns from the bound fields keeps a column set to Button, Gauge or Image; only a field made a Dropdown or Checkbox in the binding editor changes its column's control.",
         _ => "",
     }
 }
@@ -7812,6 +7812,21 @@ Three equivalent ways to feed the chart:\n\
 2. Generated paragraphs: `PERFORM Chart-1-ADD-POINT` (after `MOVE`s to `WS-Chart-1-SELECTED-LBL` / `-SELECTED-VAL`), `PERFORM Chart-1-SET-TABLE`, `PERFORM Chart-1-CLEAR`, `PERFORM Chart-1-REFRESH`.\n\
 3. Built-in calls: `COBOL::\"CHART-ADD-POINT\"( \"Chart-1\" label value )` and `COBOL::\"CHART-SET-TABLE\"( \"Chart-1\" table count )` (table rows: `PIC X(64)` label + `PIC 9(18)V9(6)` value).\n\
 Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueFields` properties.\n",
+        "DataGrid" => "\
+### Usage — pictures and per-row buttons\n\
+A cell's value is plain text: a picture column holds file paths, a Button column holds a caption or `icon:<name>`. Here `Columns` are `Photo`, `Name`, `Edit` and `Delete`; Photo is an Image column and Edit and Delete are Button columns (each column's Edit control, in Edit DataGrid settings…):\n\
+```cobol\n\
+STRING FUNCTION TRIM(WS-THUMB) X\"09\" FUNCTION TRIM(WS-NAME) X\"09\" \"icon:pencil\" X\"09\" \"icon:trash\"\n\
+    DELIMITED BY SIZE INTO WS-ROW\n\
+MOVE DG-1::AddRow(WS-ROW) TO WS-OK\n\
+...\n\
+DG-1--ONCELLCLICK.\n\
+    EVALUATE DG-1::ClickedColumn\n\
+        WHEN 3 PERFORM EDIT-ROW\n\
+        WHEN 4 PERFORM DELETE-ROW\n\
+    END-EVALUATE.\n\
+```\n\
+`ClickedRow` is the data row (from 1, as `GetCellValue` counts, so it is right after a sort), `ClickedColumn` the data column. The thumbnail file may be written after the row is added: the cell shows its path until the file can be read, then the picture. A click on a column heading sorts and does not write `ClickedRow` / `ClickedColumn`; with `SelectableText` off no cell click reports at all.\n",
         "RadarChart" => "\
 ### Axes and series\n\
 Each POINT is one AXIS — a spoke of the radar, captioned with its label — and each SERIES is one polygon. `AddPoint(label, v1, v2, …)` gives that axis's value in series 1, 2, 3 …. The first axis points straight up and the rest follow clockwise, in the order the points were added. Every axis shares one scale: `MinValue` at the centre and `MaxValue` on the rim — automatic, from the largest value of any series, while `MaxValue` is 0 — and a value below `MinValue` is drawn on the centre. Name the polygons with `SeriesLabels` and colour them with `SeriesColors`. Fewer than three axes cannot enclose an area: two axes draw each series as a line and one axis as a point.\n\
