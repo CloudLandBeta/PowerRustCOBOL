@@ -321,8 +321,7 @@
            MOVE WS-ED TO WS-EX
            INSPECT WS-EX CONVERTING "." TO ","
            MOVE SPACES TO WS-FT
-           STRING FUNCTION TRIM(WS-EX) " " FUNCTION TRIM(WS-SUF)
-               DELIMITED BY SIZE INTO WS-FT
+           STRING FUNCTION TRIM(WS-EX) " " FUNCTION TRIM(WS-SUF) INTO WS-FT
 ]]></Event>
     <Event name="FMT-SHORTN" paragraph="FMT-SHORTN"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -355,7 +354,7 @@
            MOVE WS-ED TO WS-EX
            INSPECT WS-EX CONVERTING "." TO ","
            MOVE SPACES TO WS-FT
-           STRING FUNCTION TRIM(WS-EX) "%" DELIMITED BY SIZE INTO WS-FT
+           STRING FUNCTION TRIM(WS-EX) "%" INTO WS-FT
 ]]></Event>
     <Event name="INIT-DB" paragraph="INIT-DB"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -397,8 +396,8 @@
            MOVE WS-UNIV TO WS-FC
            CALL "FMT-COUNT"
            MOVE SPACES TO WS-TXT
-           STRING "Base ANBIMA  |  referência " FUNCTION TRIM(WS-ROW) "  |  " FUNCTION TRIM(WS-FT) " fundo(s)"
-               DELIMITED BY SIZE INTO WS-TXT
+           STRING "Base ANBIMA  |  referência " WS-ROW::Trim() "  |  " WS-FT::Trim() " fundo(s)"
+               INTO WS-TXT
            MOVE WS-TXT TO LBL-STATUS::Caption
            INVOKE LST-N2::Clear()
            INVOKE LST-N3::Clear()
@@ -422,7 +421,7 @@
                IF WS-ROW = SPACES
                    EXIT PERFORM
                END-IF
-               INVOKE LST-N2::AddItem(FUNCTION TRIM(WS-ROW))
+               INVOKE LST-N2::AddItem(WS-ROW::Trim())
            END-PERFORM
            MOVE "SELECT nivel3 FROM fundos WHERE nivel3 IS NOT NULL GROUP BY nivel3 ORDER BY COUNT(*) DESC" TO WS-SQL
            MOVE DB-1::Query(WS-SQL) TO WS-N
@@ -431,7 +430,7 @@
                IF WS-ROW = SPACES
                    EXIT PERFORM
                END-IF
-               INVOKE LST-N3::AddItem(FUNCTION TRIM(WS-ROW))
+               INVOKE LST-N3::AddItem(WS-ROW::Trim())
            END-PERFORM
 ]]></Event>
     <Event name="MAKE-IN-LIST" paragraph="MAKE-IN-LIST"><![CDATA[       ENVIRONMENT DIVISION.
@@ -447,16 +446,16 @@
            IF WS-CHK = SPACES
                EXIT PARAGRAPH
            END-IF
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-CHK)) TO WS-LEN
+           MOVE FUNCTION LENGTH(WS-CHK::Trim()) TO WS-LEN
            MOVE 1 TO WS-UP
            PERFORM UNTIL WS-UP > WS-LEN
                MOVE SPACES TO WS-ITEM
                UNSTRING WS-CHK DELIMITED BY X"0A" INTO WS-ITEM WITH POINTER WS-UP
                IF WS-ITEM NOT = SPACES
                    IF WS-IP > 1
-                       STRING "," DELIMITED BY SIZE INTO WS-IN WITH POINTER WS-IP
+                       STRING "," INTO WS-IN WITH POINTER WS-IP
                    END-IF
-                   STRING "'" FUNCTION TRIM(WS-ITEM) "'" DELIMITED BY SIZE INTO WS-IN WITH POINTER WS-IP
+                   STRING "'" FUNCTION TRIM(WS-ITEM) "'" INTO WS-IN WITH POINTER WS-IP
                END-IF
            END-PERFORM
 ]]></Event>
@@ -469,7 +468,7 @@
                MOVE "%" TO WS-PAT
            ELSE
                MOVE SPACES TO WS-PAT
-               STRING "%" FUNCTION TRIM(WS-TERM) "%" DELIMITED BY SIZE INTO WS-PAT
+               STRING "%" WS-TERM::Trim() "%" INTO WS-PAT
            END-IF
 ]]></Event>
     <Event name="SQ-ESC" paragraph="SQ-ESC"><![CDATA[       ENVIRONMENT DIVISION.
@@ -483,7 +482,7 @@
        PROCEDURE DIVISION.
            MOVE SPACES TO WS-ESC
            MOVE 1 TO WS-BPTR
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-ONE)) TO WS-EL
+           MOVE FUNCTION LENGTH(WS-ONE::Trim()) TO WS-EL
            MOVE 1 TO WS-EI
            PERFORM UNTIL WS-EI > WS-EL
                MOVE SPACES TO WS-PART
@@ -491,10 +490,10 @@
                MOVE 0 TO WS-CNT
                UNSTRING WS-ONE DELIMITED BY "'" INTO WS-PART DELIMITER IN WS-DL COUNT IN WS-CNT WITH POINTER WS-EI
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE INTO WS-ESC WITH POINTER WS-BPTR
+                   STRING WS-PART(1:WS-CNT) INTO WS-ESC WITH POINTER WS-BPTR
                END-IF
                IF WS-DL = "'"
-                   STRING "''" DELIMITED BY SIZE INTO WS-ESC WITH POINTER WS-BPTR
+                   STRING "''" INTO WS-ESC WITH POINTER WS-BPTR
                END-IF
            END-PERFORM
 ]]></Event>
@@ -562,29 +561,29 @@
            IF WS-SM = "N"
                MOVE SPACES TO WS-SQL
                STRING "INSERT INTO vis SELECT 'N', nome FROM fundos WHERE nome IS NOT NULL AND nome <> '' AND nome_key LIKE '"
-                   FUNCTION TRIM(WS-PAT) "' GROUP BY nome ORDER BY nome LIMIT 150"
-                   DELIMITED BY SIZE INTO WS-SQL
+                   WS-PAT::Trim() "' GROUP BY nome ORDER BY nome LIMIT 150"
+                   INTO WS-SQL
                MOVE DB-1::Execute(WS-SQL) TO WS-N
                MOVE SPACES TO WS-SQL
                STRING "SELECT COUNT(DISTINCT nome) FROM fundos WHERE nome IS NOT NULL AND nome <> '' AND nome_key LIKE '"
-                   FUNCTION TRIM(WS-PAT) "'" DELIMITED BY SIZE INTO WS-SQL
+                   WS-PAT::Trim() "'" INTO WS-SQL
                MOVE DB-1::Query(WS-SQL) TO WS-N
                MOVE DB-1::Fetch() TO WS-ROW
                COMPUTE WS-SMN = FUNCTION NUMVAL(WS-ROW)
            ELSE
                MOVE 0 TO WS-SMN
-               MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-TERM)) TO WS-TL
+               MOVE FUNCTION LENGTH(WS-TERM::Trim()) TO WS-TL
                PERFORM VARYING WS-SK2 FROM 1 BY 1 UNTIL WS-SK2 > WS-CATCNT
                    MOVE SPACES TO WS-ONE
-                   MOVE FUNCTION TRIM(WS-CAT-NAME(WS-SK2)) TO WS-ONE
+                   MOVE WS-CAT-NAME(WS-SK2)::Trim() TO WS-ONE
                    MOVE WS-ONE TO WS-CMP
                    INSPECT WS-CMP CONVERTING "áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ'" TO "aaaaaeeeeiiiiooooouuuucnAAAAAEEEEIIIIOOOOOUUUUCN_"
                    MOVE FUNCTION UPPER-CASE(WS-CMP) TO WS-CMP
                    MOVE 1 TO WS-HIT
                    IF WS-TERM NOT = SPACES
                        MOVE SPACES TO WS-SQL
-                       STRING "SELECT instr('" FUNCTION TRIM(WS-CMP) "','" FUNCTION TRIM(WS-TERM) "')"
-                           DELIMITED BY SIZE INTO WS-SQL
+                       STRING "SELECT instr('" FUNCTION TRIM(WS-CMP) "','" WS-TERM::Trim() "')"
+                           INTO WS-SQL
                        MOVE DB-1::Query(WS-SQL) TO WS-N
                        MOVE DB-1::Fetch() TO WS-ROW
                        COMPUTE WS-HIT = FUNCTION NUMVAL(WS-ROW)
@@ -593,7 +592,7 @@
                        ADD 1 TO WS-SMN
                        CALL "SQ-ESC"
                        MOVE SPACES TO WS-SQL
-                       STRING "INSERT INTO vis VALUES ('C','" FUNCTION TRIM(WS-ESC) "')" DELIMITED BY SIZE INTO WS-SQL
+                       STRING "INSERT INTO vis VALUES ('C','" WS-ESC::Trim() "')" INTO WS-SQL
                        MOVE DB-1::Execute(WS-SQL) TO WS-N
                    END-IF
                END-PERFORM
@@ -610,7 +609,7 @@
                    EXIT PERFORM
                END-IF
                ADD 1 TO WS-SMK
-               INVOKE LST-SM::AddItem(FUNCTION TRIM(WS-ROW))
+               INVOKE LST-SM::AddItem(WS-ROW::Trim())
            END-PERFORM
            CALL "SM-TICKS"
            CALL "SM-INFO"
@@ -622,7 +621,7 @@
            MOVE 1 TO WS-BPTR
            MOVE SPACES TO WS-SQL
            IF (WS-SM = "N" AND WS-ALL-N = 1) OR (WS-SM = "C" AND WS-ALL-C = 1)
-               STRING "Todos" DELIMITED BY SIZE INTO WS-BIG WITH POINTER WS-BPTR
+               STRING "Todos" INTO WS-BIG WITH POINTER WS-BPTR
                STRING "SELECT name FROM vis WHERE fld = '" WS-SM "' ORDER BY rowid" DELIMITED BY SIZE INTO WS-SQL
            ELSE
                STRING "SELECT name FROM vis WHERE fld = '" WS-SM "' AND name IN (SELECT name FROM pick WHERE fld = '"
@@ -635,14 +634,14 @@
                    EXIT PERFORM
                END-IF
                IF WS-BPTR > 1
-                   STRING X"0A" DELIMITED BY SIZE INTO WS-BIG WITH POINTER WS-BPTR
+                   STRING X"0A" INTO WS-BIG WITH POINTER WS-BPTR
                END-IF
-               STRING FUNCTION TRIM(WS-ROW) DELIMITED BY SIZE INTO WS-BIG WITH POINTER WS-BPTR
+               STRING WS-ROW::Trim() INTO WS-BIG WITH POINTER WS-BPTR
            END-PERFORM
            IF WS-BPTR = 1
                MOVE SPACES TO LST-SM::CheckedItems
            ELSE
-               MOVE FUNCTION TRIM(WS-BIG) TO LST-SM::CheckedItems
+               MOVE WS-BIG::Trim() TO LST-SM::CheckedItems
            END-IF
 ]]></Event>
     <Event name="SM-INFO" paragraph="SM-INFO"><![CDATA[       ENVIRONMENT DIVISION.
@@ -663,19 +662,19 @@
            CALL "FMT-COUNT"
            MOVE SPACES TO WS-MSG
            IF (WS-SM = "N" AND WS-ALL-N = 1) OR (WS-SM = "C" AND WS-ALL-C = 1)
-               STRING "Todos: os " FUNCTION TRIM(WS-FT) " resultado(s) da busca entram no filtro."
-                   DELIMITED BY SIZE INTO WS-MSG
+               STRING "Todos: os " WS-FT::Trim() " resultado(s) da busca entram no filtro."
+                   INTO WS-MSG
            ELSE
                MOVE WS-SMK TO WS-E2
                MOVE WS-SMP TO WS-E3
                IF WS-SMP > 0
-                   STRING FUNCTION TRIM(WS-FT) " encontrado(s)  ·  exibindo " FUNCTION TRIM(WS-E2)
+                   STRING WS-FT::Trim() " encontrado(s)  ·  exibindo " FUNCTION TRIM(WS-E2)
                        "  ·  " FUNCTION TRIM(WS-E3) " marcado(s): só eles entram no filtro"
-                       DELIMITED BY SIZE INTO WS-MSG
+                       INTO WS-MSG
                ELSE
-                   STRING FUNCTION TRIM(WS-FT) " encontrado(s)  ·  exibindo " FUNCTION TRIM(WS-E2)
+                   STRING WS-FT::Trim() " encontrado(s)  ·  exibindo " FUNCTION TRIM(WS-E2)
                        "  ·  nenhum marcado: vale o texto digitado"
-                       DELIMITED BY SIZE INTO WS-MSG
+                       INTO WS-MSG
                END-IF
            END-IF
            MOVE WS-MSG TO LBL-SM-INFO::Caption
@@ -702,7 +701,7 @@
            ELSE
                IF WS-KN > 0
                    MOVE WS-KN TO WS-EN
-                   STRING "Nome comercial  ·  " FUNCTION TRIM(WS-EN) " marcado(s)" DELIMITED BY SIZE INTO WS-CAPT
+                   STRING "Nome comercial  ·  " FUNCTION TRIM(WS-EN) " marcado(s)" INTO WS-CAPT
                ELSE
                    MOVE "Nome comercial" TO WS-CAPT
                END-IF
@@ -714,7 +713,7 @@
            ELSE
                IF WS-KC > 0
                    MOVE WS-KC TO WS-EN
-                   STRING "Categoria  ·  " FUNCTION TRIM(WS-EN) " marcado(s)" DELIMITED BY SIZE INTO WS-CAPT
+                   STRING "Categoria  ·  " FUNCTION TRIM(WS-EN) " marcado(s)" INTO WS-CAPT
                ELSE
                    MOVE "Categoria" TO WS-CAPT
                END-IF
@@ -733,7 +732,7 @@
            MOVE DB-1::Execute("DELETE FROM chk") TO WS-N
            MOVE 0 TO WS-TODOS
            IF WS-BIG NOT = SPACES
-               MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-BIG)) TO WS-LN
+               MOVE FUNCTION LENGTH(WS-BIG::Trim()) TO WS-LN
                MOVE 1 TO WS-UP2
                PERFORM UNTIL WS-UP2 > WS-LN
                    MOVE SPACES TO WS-ONE
@@ -744,7 +743,7 @@
                        IF WS-ONE NOT = SPACES
                            CALL "SQ-ESC"
                            MOVE SPACES TO WS-SQL
-                           STRING "INSERT INTO chk VALUES ('" FUNCTION TRIM(WS-ESC) "')" DELIMITED BY SIZE INTO WS-SQL
+                           STRING "INSERT INTO chk VALUES ('" WS-ESC::Trim() "')" INTO WS-SQL
                            MOVE DB-1::Execute(WS-SQL) TO WS-N
                        END-IF
                    END-IF
@@ -834,10 +833,10 @@
                COMPUTE WS-K1 = FUNCTION NUMVAL(WS-ROW)
            END-IF
            IF WS-K1 > 0
-               STRING " AND nome IN (SELECT name FROM pick WHERE fld = 'N')" DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+               STRING " AND nome IN (SELECT name FROM pick WHERE fld = 'N')" INTO WS-WHERE WITH POINTER WS-P
            ELSE
                IF WS-TERM NOT = SPACES
-                   STRING " AND nome_key LIKE '" FUNCTION TRIM(WS-PAT) "'" DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+                   STRING " AND nome_key LIKE '" WS-PAT::Trim() "'" INTO WS-WHERE WITH POINTER WS-P
                END-IF
            END-IF
 ]]></Event>
@@ -856,10 +855,10 @@
                COMPUTE WS-K2 = FUNCTION NUMVAL(WS-ROW)
            END-IF
            IF WS-K2 > 0
-               STRING " AND nivel1 IN (SELECT name FROM pick WHERE fld = 'C')" DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+               STRING " AND nivel1 IN (SELECT name FROM pick WHERE fld = 'C')" INTO WS-WHERE WITH POINTER WS-P
            ELSE
                IF WS-TERM NOT = SPACES
-                   STRING " AND nivel1 IN (SELECT name FROM vis WHERE fld = 'C')" DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+                   STRING " AND nivel1 IN (SELECT name FROM vis WHERE fld = 'C')" INTO WS-WHERE WITH POINTER WS-P
                END-IF
            END-IF
 ]]></Event>
@@ -875,7 +874,7 @@
        PROCEDURE DIVISION.
            MOVE SPACES TO WS-WHERE
            MOVE 1 TO WS-P
-           STRING "WHERE 1=1" DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+           STRING "WHERE 1=1" INTO WS-WHERE WITH POINTER WS-P
            CALL "NAME-CLAUSE"
            CALL "CAT-CLAUSE"
            MOVE DTP-INI::Value TO WS-DT1
@@ -892,19 +891,17 @@
                COMPUTE WS-X1 = WS-V1 * 1000000
                COMPUTE WS-X2 = WS-V2 * 1000000
                STRING " AND pl >= " FUNCTION TRIM(WS-X1) " AND pl <= " FUNCTION TRIM(WS-X2)
-                   DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+                   INTO WS-WHERE WITH POINTER WS-P
            END-IF
            MOVE LST-N2::CheckedItems TO WS-CHK
            CALL "MAKE-IN-LIST"
            IF WS-IN NOT = SPACES
-               STRING " AND nivel2 IN (" FUNCTION TRIM(WS-IN) ")"
-                   DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+               STRING " AND nivel2 IN (" WS-IN::Trim() ")" INTO WS-WHERE WITH POINTER WS-P
            END-IF
            MOVE LST-N3::CheckedItems TO WS-CHK
            CALL "MAKE-IN-LIST"
            IF WS-IN NOT = SPACES
-               STRING " AND nivel3 IN (" FUNCTION TRIM(WS-IN) ")"
-                   DELIMITED BY SIZE INTO WS-WHERE WITH POINTER WS-P
+               STRING " AND nivel3 IN (" WS-IN::Trim() ")" INTO WS-WHERE WITH POINTER WS-P
            END-IF
 ]]></Event>
     <Event name="Q-TOTALS" paragraph="Q-TOTALS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -919,8 +916,8 @@
        PROCEDURE DIVISION.
            MOVE SPACES TO WS-SQL
            STRING "SELECT COUNT(*), COALESCE(SUM(pl),0), COALESCE(SUM(cotistas),0), COUNT(pl), "
-                  "COALESCE(MAX(pl),0), COALESCE(MAX(ano),0) FROM fundos " FUNCTION TRIM(WS-WHERE)
-               DELIMITED BY SIZE INTO WS-SQL
+                  "COALESCE(MAX(pl),0), COALESCE(MAX(ano),0) FROM fundos " WS-WHERE::Trim()
+               INTO WS-SQL
            MOVE DB-1::Query(WS-SQL) TO WS-N
            MOVE DB-1::Fetch() TO WS-ROW
            UNSTRING WS-ROW DELIMITED BY X"09" INTO WS-C1 WS-C2 WS-C3 WS-C4 WS-C5 WS-C6
@@ -933,9 +930,9 @@
            MOVE 0 TO WS-T-CLS
            MOVE 0 TO WS-T-SUB
            MOVE SPACES TO WS-SQL
-           STRING "SELECT estrutura, COALESCE(SUM(pl),0) FROM fundos " FUNCTION TRIM(WS-WHERE)
+           STRING "SELECT estrutura, COALESCE(SUM(pl),0) FROM fundos " WS-WHERE::Trim()
                   " GROUP BY estrutura"
-               DELIMITED BY SIZE INTO WS-SQL
+               INTO WS-SQL
            MOVE DB-1::Query(WS-SQL) TO WS-N
            PERFORM UNTIL 1 = 2
                MOVE DB-1::Fetch() TO WS-ROW
@@ -967,8 +964,8 @@
            END-PERFORM
            MOVE SPACES TO WS-SQL
            STRING "SELECT nivel1, COUNT(*), COALESCE(SUM(pl),0), COALESCE(SUM(cotistas),0) FROM fundos "
-                  FUNCTION TRIM(WS-WHERE) " AND nivel1 IS NOT NULL GROUP BY nivel1"
-               DELIMITED BY SIZE INTO WS-SQL
+                  WS-WHERE::Trim() " AND nivel1 IS NOT NULL GROUP BY nivel1"
+               INTO WS-SQL
            MOVE DB-1::Query(WS-SQL) TO WS-N
            PERFORM UNTIL 1 = 2
                MOVE DB-1::Fetch() TO WS-ROW
@@ -1000,9 +997,9 @@
            MOVE 0 TO WS-N2-TOTAL
            MOVE 0 TO WS-I
            MOVE SPACES TO WS-SQL
-           STRING "SELECT nivel2, COUNT(*) FROM fundos " FUNCTION TRIM(WS-WHERE)
+           STRING "SELECT nivel2, COUNT(*) FROM fundos " WS-WHERE::Trim()
                   " AND nivel2 IS NOT NULL GROUP BY nivel2 ORDER BY 2 DESC"
-               DELIMITED BY SIZE INTO WS-SQL
+               INTO WS-SQL
            MOVE DB-1::Query(WS-SQL) TO WS-N
            PERFORM UNTIL 1 = 2
                MOVE DB-1::Fetch() TO WS-ROW
@@ -1035,8 +1032,8 @@
            MOVE SPACES TO WS-SQL
            STRING "SELECT CASE WHEN pl < 1000000 THEN 1 WHEN pl < 10000000 THEN 2 "
                   "WHEN pl < 100000000 THEN 3 WHEN pl < 1000000000 THEN 4 ELSE 5 END, COUNT(*) FROM fundos "
-                  FUNCTION TRIM(WS-WHERE) " AND pl IS NOT NULL GROUP BY 1"
-               DELIMITED BY SIZE INTO WS-SQL
+                  WS-WHERE::Trim() " AND pl IS NOT NULL GROUP BY 1"
+               INTO WS-SQL
            MOVE DB-1::Query(WS-SQL) TO WS-N
            PERFORM UNTIL 1 = 2
                MOVE DB-1::Fetch() TO WS-ROW
@@ -1063,9 +1060,9 @@
            END-PERFORM
            MOVE 0 TO WS-TOP-N
            MOVE SPACES TO WS-SQL
-           STRING "SELECT COALESCE(nome,codigo), pl FROM fundos " FUNCTION TRIM(WS-WHERE)
+           STRING "SELECT COALESCE(nome,codigo), pl FROM fundos " WS-WHERE::Trim()
                   " AND pl IS NOT NULL ORDER BY pl DESC LIMIT 4"
-               DELIMITED BY SIZE INTO WS-SQL
+               INTO WS-SQL
            MOVE DB-1::Query(WS-SQL) TO WS-N
            PERFORM UNTIL 1 = 2
                MOVE DB-1::Fetch() TO WS-ROW
@@ -1122,10 +1119,10 @@
                PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 3
                    IF WS-TOP3-IDX(WS-K) > 0
                        IF WS-LP > 1
-                           STRING "," DELIMITED BY SIZE INTO WS-LIST WITH POINTER WS-LP
+                           STRING "," INTO WS-LIST WITH POINTER WS-LP
                        END-IF
-                       STRING "'" FUNCTION TRIM(WS-CAT-NAME(WS-TOP3-IDX(WS-K))) "'"
-                           DELIMITED BY SIZE INTO WS-LIST WITH POINTER WS-LP
+                       STRING "'" WS-CAT-NAME(WS-TOP3-IDX(WS-K))::Trim() "'"
+                           INTO WS-LIST WITH POINTER WS-LP
                    END-IF
                END-PERFORM
                IF WS-LIST = SPACES
@@ -1159,7 +1156,7 @@
            *>  all categories, per year in the window
                MOVE SPACES TO WS-SQL
                STRING "SELECT ano, COUNT(*), COALESCE(SUM(pl),0), COALESCE(SUM(cotistas),0) FROM fundos "
-                      FUNCTION TRIM(WS-WHERE) " AND ano >= " WS-Y " GROUP BY ano"
+                      WS-WHERE::Trim() " AND ano >= " WS-Y " GROUP BY ano"
                    DELIMITED BY SIZE INTO WS-SQL
                MOVE DB-1::Query(WS-SQL) TO WS-N
                PERFORM UNTIL 1 = 2
@@ -1180,7 +1177,7 @@
                MOVE WS-YR-MIN TO WS-Y
                MOVE SPACES TO WS-SQL
                STRING "SELECT COUNT(*), COALESCE(SUM(pl),0), COALESCE(SUM(cotistas),0) FROM fundos "
-                      FUNCTION TRIM(WS-WHERE) " AND ano < " WS-Y
+                      WS-WHERE::Trim() " AND ano < " WS-Y
                    DELIMITED BY SIZE INTO WS-SQL
                MOVE DB-1::Query(WS-SQL) TO WS-N
                MOVE DB-1::Fetch() TO WS-ROW
@@ -1191,7 +1188,7 @@
            *>  the three leading categories, per year in the window
                MOVE SPACES TO WS-SQL
                STRING "SELECT ano, nivel1, COUNT(*), COALESCE(SUM(pl),0), COALESCE(SUM(cotistas),0) FROM fundos "
-                      FUNCTION TRIM(WS-WHERE) " AND ano >= " WS-Y " AND nivel1 IN (" FUNCTION TRIM(WS-LIST)
+                      WS-WHERE::Trim() " AND ano >= " WS-Y " AND nivel1 IN (" FUNCTION TRIM(WS-LIST)
                       ") GROUP BY ano, nivel1"
                    DELIMITED BY SIZE INTO WS-SQL
                MOVE DB-1::Query(WS-SQL) TO WS-N
@@ -1217,7 +1214,7 @@
                MOVE WS-YR-MIN TO WS-Y
                MOVE SPACES TO WS-SQL
                STRING "SELECT nivel1, COUNT(*), COALESCE(SUM(pl),0), COALESCE(SUM(cotistas),0) FROM fundos "
-                      FUNCTION TRIM(WS-WHERE) " AND ano < " WS-Y " AND nivel1 IN (" FUNCTION TRIM(WS-LIST)
+                      WS-WHERE::Trim() " AND ano < " WS-Y " AND nivel1 IN (" FUNCTION TRIM(WS-LIST)
                       ") GROUP BY nivel1"
                    DELIMITED BY SIZE INTO WS-SQL
                MOVE DB-1::Query(WS-SQL) TO WS-N
@@ -1284,7 +1281,7 @@
                   "COALESCE(printf('%.4f', cota),''), COALESCE(foco,''), COALESCE(cnpj_classe,''), "
                   "COALESCE(cnpj_fundo,''), COALESCE(status,''), COALESCE(subclasses,''), "
                   "COALESCE(strftime('%d/%m/%Y', data_ref),'') FROM fundos "
-                  FUNCTION TRIM(WS-WHERE) " ORDER BY " FUNCTION TRIM(WS-ORD)
+                  WS-WHERE::Trim() " ORDER BY " FUNCTION TRIM(WS-ORD)
                   " LIMIT " WS-LIM " OFFSET " WS-OFFS
                DELIMITED BY SIZE INTO WS-SQL
            INVOKE GRD-FUNDOS::ClearRows()
@@ -1294,7 +1291,7 @@
                IF WS-ROW = SPACES
                    EXIT PERFORM
                END-IF
-               INVOKE GRD-FUNDOS::AddRow(FUNCTION TRIM(WS-ROW))
+               INVOKE GRD-FUNDOS::AddRow(WS-ROW::Trim())
            END-PERFORM
 ]]></Event>
     <Event name="SORT-CATS" paragraph="SORT-CATS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1339,7 +1336,7 @@
            MOVE WS-T-PL TO WS-FV
            CALL "FMT-SHORT"
            MOVE SPACES TO WS-TXT
-           STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+           STRING "R$ " WS-FT::Trim() INTO WS-TXT
            MOVE WS-TXT TO LBL-KPI-V::Caption
            MOVE WS-T-CNT TO WS-FC
            CALL "FMT-COUNT"
@@ -1347,8 +1344,7 @@
            MOVE WS-T-COT TO WS-FV
            CALL "FMT-SHORTN"
            MOVE SPACES TO WS-TXT
-           STRING FUNCTION TRIM(WS-A) " fundo(s)  |  " FUNCTION TRIM(WS-FT) " cotistas"
-               DELIMITED BY SIZE INTO WS-TXT
+           STRING FUNCTION TRIM(WS-A) " fundo(s)  |  " WS-FT::Trim() " cotistas" INTO WS-TXT
            MOVE WS-TXT TO LBL-KPI-C::Caption
            IF WS-UNIV > 0
                COMPUTE WS-PCT = WS-T-CNT * 100 / WS-UNIV
@@ -1365,12 +1361,12 @@
            MOVE WS-AVG TO WS-FV
            CALL "FMT-SHORT"
            MOVE SPACES TO WS-TXT
-           STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+           STRING "R$ " WS-FT::Trim() INTO WS-TXT
            MOVE WS-TXT TO LBL-AVG-V::Caption
            MOVE WS-T-MAX TO WS-FV
            CALL "FMT-SHORT"
            MOVE SPACES TO WS-TXT
-           STRING "PL médio por fundo  |  maior: R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+           STRING "PL médio por fundo  |  maior: R$ " WS-FT::Trim() INTO WS-TXT
            MOVE WS-TXT TO LBL-KPI-F::Caption
 ]]></Event>
     <Event name="PAINT-RADAR" paragraph="PAINT-RADAR"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1431,9 +1427,9 @@
                        END-IF
                    END-PERFORM
                    MOVE SPACES TO WS-SQL
-                   STRING "SELECT nome, nivel1, COUNT(*) FROM fundos " FUNCTION TRIM(WS-WHERE)
+                   STRING "SELECT nome, nivel1, COUNT(*) FROM fundos " WS-WHERE::Trim()
                           " AND nivel1 IS NOT NULL GROUP BY nome, nivel1"
-                       DELIMITED BY SIZE INTO WS-SQL
+                       INTO WS-SQL
                    MOVE DB-1::Query(WS-SQL) TO WS-N
                    PERFORM UNTIL 1 = 2
                        MOVE DB-1::Fetch() TO WS-ROW
@@ -1471,9 +1467,9 @@
                            END-IF
                        END-IF
                        IF WS-NM = 3
-                           INVOKE CH-RADAR::AddPoint(FUNCTION TRIM(WS-CAT-NAME(WS-I)), WS-V1, WS-V2, WS-V3)
+                           INVOKE CH-RADAR::AddPoint(WS-CAT-NAME(WS-I)::Trim(), WS-V1, WS-V2, WS-V3)
                        ELSE
-                           INVOKE CH-RADAR::AddPoint(FUNCTION TRIM(WS-CAT-NAME(WS-I)), WS-V1, WS-V2)
+                           INVOKE CH-RADAR::AddPoint(WS-CAT-NAME(WS-I)::Trim(), WS-V1, WS-V2)
                        END-IF
                    END-PERFORM
            *>      the legend: the first two words of each name
@@ -1486,9 +1482,9 @@
                        INSPECT WS-W1 REPLACING ALL "," BY " "
                        INSPECT WS-W2 REPLACING ALL "," BY " "
                        IF WS-K > 1
-                           STRING "," DELIMITED BY SIZE INTO WS-LB WITH POINTER WS-LP
+                           STRING "," INTO WS-LB WITH POINTER WS-LP
                        END-IF
-                       STRING FUNCTION TRIM(WS-W1) " " FUNCTION TRIM(WS-W2) DELIMITED BY SIZE INTO WS-LB WITH POINTER WS-LP
+                       STRING FUNCTION TRIM(WS-W1) " " FUNCTION TRIM(WS-W2) INTO WS-LB WITH POINTER WS-LP
                    END-PERFORM
                    MOVE WS-LB TO CH-RADAR::SeriesLabels
                    IF WS-NM = 3
@@ -1528,7 +1524,7 @@
                            IF WS-MK > 0
                                COMPUTE WS-V3 = WS-CAT-COT(WS-I) * 100 / WS-MK
                            END-IF
-                           INVOKE CH-RADAR::AddPoint(FUNCTION TRIM(WS-CAT-NAME(WS-I)), WS-V1, WS-V2, WS-V3)
+                           INVOKE CH-RADAR::AddPoint(WS-CAT-NAME(WS-I)::Trim(), WS-V1, WS-V2, WS-V3)
                        END-PERFORM
                        MOVE "Fundos,PL,Cotistas" TO CH-RADAR::SeriesLabels
                        MOVE "#22C3D6,#3E7BE8,#394670" TO CH-RADAR::SeriesColors
@@ -1547,7 +1543,7 @@
                            IF WS-MC > 0
                                COMPUTE WS-V1 = WS-CAT-CNT(WS-I) * 100 / WS-MC
                            END-IF
-                           INVOKE CH-RADAR::AddPoint(FUNCTION TRIM(WS-CAT-NAME(WS-I)), WS-V1)
+                           INVOKE CH-RADAR::AddPoint(WS-CAT-NAME(WS-I)::Trim(), WS-V1)
                        END-PERFORM
                        MOVE "Fundos" TO CH-RADAR::SeriesLabels
                        MOVE "#22C3D6" TO CH-RADAR::SeriesColors
@@ -1587,7 +1583,7 @@
                INVOKE CH-DONUT1::Clear()
                PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-CATCNT
                    COMPUTE WS-VB = WS-CAT-PL(WS-I) / 1000000000
-                   INVOKE CH-DONUT1::AddPoint(FUNCTION TRIM(WS-CAT-NAME(WS-I)), WS-VB)
+                   INVOKE CH-DONUT1::AddPoint(WS-CAT-NAME(WS-I)::Trim(), WS-VB)
                END-PERFORM
                MOVE WS-SP TO WS-FV
                CALL "FMT-SHORT"
@@ -1604,7 +1600,7 @@
                    MOVE WS-CAT-PL(WS-R) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-L1-1-V::Caption
                    MOVE WS-COLOR(WS-R) TO SHP-L1-1::FillColor
                ELSE
@@ -1625,7 +1621,7 @@
                    MOVE WS-CAT-PL(WS-R) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-L1-2-V::Caption
                    MOVE WS-COLOR(WS-R) TO SHP-L1-2::FillColor
                ELSE
@@ -1646,7 +1642,7 @@
                    MOVE WS-CAT-PL(WS-R) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-L1-3-V::Caption
                    MOVE WS-COLOR(WS-R) TO SHP-L1-3::FillColor
                ELSE
@@ -1667,7 +1663,7 @@
                    MOVE WS-CAT-PL(WS-R) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-L1-4-V::Caption
                    MOVE WS-COLOR(WS-R) TO SHP-L1-4::FillColor
                ELSE
@@ -1680,7 +1676,7 @@
                INVOKE CH-DONUT2::Clear()
                PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 10
                    IF WS-N2-NAME(WS-I) NOT = SPACES
-                       INVOKE CH-DONUT2::AddPoint(FUNCTION TRIM(WS-N2-NAME(WS-I)), WS-N2-CNT(WS-I))
+                       INVOKE CH-DONUT2::AddPoint(WS-N2-NAME(WS-I)::Trim(), WS-N2-CNT(WS-I))
                    END-IF
                END-PERFORM
                MOVE WS-N2-TOTAL TO WS-FC
@@ -1823,16 +1819,15 @@
            MOVE 1 TO WS-CP
            PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > 3
                IF WS-K > 1
-                   STRING "," DELIMITED BY SIZE INTO WS-SL WITH POINTER WS-LP
-                   STRING "," DELIMITED BY SIZE INTO WS-SC WITH POINTER WS-CP
+                   STRING "," INTO WS-SL WITH POINTER WS-LP
+                   STRING "," INTO WS-SC WITH POINTER WS-CP
                END-IF
                IF WS-TOP3-IDX(WS-K) > 0
-                   STRING FUNCTION TRIM(WS-CAT-NAME(WS-TOP3-IDX(WS-K))) DELIMITED BY SIZE
-                       INTO WS-SL WITH POINTER WS-LP
+                   STRING WS-CAT-NAME(WS-TOP3-IDX(WS-K))::Trim() INTO WS-SL WITH POINTER WS-LP
                    STRING WS-COLOR(WS-TOP3-IDX(WS-K)) DELIMITED BY SIZE INTO WS-SC WITH POINTER WS-CP
                ELSE
-                   STRING "-" DELIMITED BY SIZE INTO WS-SL WITH POINTER WS-LP
-                   STRING "#C9D3E6" DELIMITED BY SIZE INTO WS-SC WITH POINTER WS-CP
+                   STRING "-" INTO WS-SL WITH POINTER WS-LP
+                   STRING "#C9D3E6" INTO WS-SC WITH POINTER WS-CP
                END-IF
            END-PERFORM
            MOVE SPACES TO WS-TXT
@@ -1905,7 +1900,7 @@
                    MOVE WS-T-PL TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-BAR-TOT::Caption
                WHEN OTHER
                    MOVE "milhares de cotistas" TO LBL-BAR-U::Caption
@@ -1948,7 +1943,7 @@
                    MOVE WS-TOP-PL(1) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-TOP1-V::Caption
                    MOVE 0 TO WS-PCTI
                    IF WS-TOP-PL(1) > 0
@@ -1965,7 +1960,7 @@
                    MOVE WS-TOP-PL(2) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-TOP2-V::Caption
                    MOVE 0 TO WS-PCTI
                    IF WS-TOP-PL(1) > 0
@@ -1982,7 +1977,7 @@
                    MOVE WS-TOP-PL(3) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-TOP3-V::Caption
                    MOVE 0 TO WS-PCTI
                    IF WS-TOP-PL(1) > 0
@@ -1999,7 +1994,7 @@
                    MOVE WS-TOP-PL(4) TO WS-FV
                    CALL "FMT-SHORT"
                    MOVE SPACES TO WS-TXT
-                   STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+                   STRING "R$ " WS-FT::Trim() INTO WS-TXT
                    MOVE WS-TXT TO LBL-TOP4-V::Caption
                    MOVE 0 TO WS-PCTI
                    IF WS-TOP-PL(1) > 0
@@ -2051,12 +2046,12 @@
            MOVE WS-PCT TO WS-FP
            CALL "FMT-PCT"
            MOVE SPACES TO WS-TXT
-           STRING FUNCTION TRIM(WS-FT) " do universo" DELIMITED BY SIZE INTO WS-TXT
+           STRING WS-FT::Trim() " do universo" INTO WS-TXT
            MOVE WS-TXT TO LBL-K1-S::Caption
            MOVE WS-T-PL TO WS-FV
            CALL "FMT-SHORT"
            MOVE SPACES TO WS-TXT
-           STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+           STRING "R$ " WS-FT::Trim() INTO WS-TXT
            MOVE WS-TXT TO LBL-K2-V::Caption
            MOVE 0 TO WS-AVG
            IF WS-T-PLN > 0
@@ -2065,7 +2060,7 @@
            MOVE WS-AVG TO WS-FV
            CALL "FMT-SHORT"
            MOVE SPACES TO WS-TXT
-           STRING "médio R$ " FUNCTION TRIM(WS-FT) " por fundo" DELIMITED BY SIZE INTO WS-TXT
+           STRING "médio R$ " WS-FT::Trim() " por fundo" INTO WS-TXT
            MOVE WS-TXT TO LBL-K2-S::Caption
            MOVE WS-T-COT TO WS-FV
            CALL "FMT-SHORTN"
@@ -2077,12 +2072,12 @@
            MOVE WS-AVG TO WS-FV
            CALL "FMT-SHORTN"
            MOVE SPACES TO WS-TXT
-           STRING "média " FUNCTION TRIM(WS-FT) " por fundo" DELIMITED BY SIZE INTO WS-TXT
+           STRING "média " WS-FT::Trim() " por fundo" INTO WS-TXT
            MOVE WS-TXT TO LBL-K3-S::Caption
            MOVE WS-T-MAX TO WS-FV
            CALL "FMT-SHORT"
            MOVE SPACES TO WS-TXT
-           STRING "R$ " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+           STRING "R$ " WS-FT::Trim() INTO WS-TXT
            MOVE WS-TXT TO LBL-K4-V::Caption
            IF WS-TOP-N > 0
                MOVE WS-TOP-NAME(1) TO LBL-K4-S::Caption
@@ -2098,7 +2093,7 @@
                END-IF
                CALL "FMT-PCT"
                MOVE SPACES TO WS-TXT
-               STRING FUNCTION TRIM(WS-FT) " do PL filtrado" DELIMITED BY SIZE INTO WS-TXT
+               STRING WS-FT::Trim() " do PL filtrado" INTO WS-TXT
                MOVE WS-TXT TO LBL-K5-S::Caption
            ELSE
                MOVE "-" TO LBL-K5-V::Caption
@@ -2133,8 +2128,8 @@
            MOVE WS-T-CNT TO WS-FC
            CALL "FMT-COUNT"
            MOVE SPACES TO WS-TXT
-           STRING "Mostrando " FUNCTION TRIM(WS-A) " a " FUNCTION TRIM(WS-B) " de " FUNCTION TRIM(WS-FT)
-               " fundo(s)" DELIMITED BY SIZE INTO WS-TXT
+           STRING "Mostrando " FUNCTION TRIM(WS-A) " a " FUNCTION TRIM(WS-B) " de " WS-FT::Trim()
+               " fundo(s)" INTO WS-TXT
            MOVE WS-TXT TO LBL-GRID-S::Caption
            MOVE WS-PAGE TO WS-FC
            CALL "FMT-COUNT"
@@ -2142,7 +2137,7 @@
            MOVE WS-PAGES TO WS-FC
            CALL "FMT-COUNT"
            MOVE SPACES TO WS-TXT
-           STRING "Página " FUNCTION TRIM(WS-A) " de " FUNCTION TRIM(WS-FT) DELIMITED BY SIZE INTO WS-TXT
+           STRING "Página " FUNCTION TRIM(WS-A) " de " WS-FT::Trim() INTO WS-TXT
            MOVE WS-TXT TO LBL-PAGE::Caption
            IF WS-PAGE > 1
                INVOKE BTN-PREV::Enable()
@@ -2212,7 +2207,7 @@
            END-IF
            MOVE WS-FT TO WS-A
            CALL "FMT-PCT"
-           STRING FUNCTION TRIM(WS-A) "  (" FUNCTION TRIM(WS-FT) ")" DELIMITED BY SIZE INTO WS-TXT
+           STRING FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
            MOVE WS-TXT TO LBL-BIN1-V::Caption
            MOVE 0 TO WS-PCTI
            IF WS-BMAX > 0
@@ -2229,7 +2224,7 @@
            END-IF
            MOVE WS-FT TO WS-A
            CALL "FMT-PCT"
-           STRING FUNCTION TRIM(WS-A) "  (" FUNCTION TRIM(WS-FT) ")" DELIMITED BY SIZE INTO WS-TXT
+           STRING FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
            MOVE WS-TXT TO LBL-BIN2-V::Caption
            MOVE 0 TO WS-PCTI
            IF WS-BMAX > 0
@@ -2246,7 +2241,7 @@
            END-IF
            MOVE WS-FT TO WS-A
            CALL "FMT-PCT"
-           STRING FUNCTION TRIM(WS-A) "  (" FUNCTION TRIM(WS-FT) ")" DELIMITED BY SIZE INTO WS-TXT
+           STRING FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
            MOVE WS-TXT TO LBL-BIN3-V::Caption
            MOVE 0 TO WS-PCTI
            IF WS-BMAX > 0
@@ -2263,7 +2258,7 @@
            END-IF
            MOVE WS-FT TO WS-A
            CALL "FMT-PCT"
-           STRING FUNCTION TRIM(WS-A) "  (" FUNCTION TRIM(WS-FT) ")" DELIMITED BY SIZE INTO WS-TXT
+           STRING FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
            MOVE WS-TXT TO LBL-BIN4-V::Caption
            MOVE 0 TO WS-PCTI
            IF WS-BMAX > 0
@@ -2280,7 +2275,7 @@
            END-IF
            MOVE WS-FT TO WS-A
            CALL "FMT-PCT"
-           STRING FUNCTION TRIM(WS-A) "  (" FUNCTION TRIM(WS-FT) ")" DELIMITED BY SIZE INTO WS-TXT
+           STRING FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
            MOVE WS-TXT TO LBL-BIN5-V::Caption
            MOVE 0 TO WS-PCTI
            IF WS-BMAX > 0

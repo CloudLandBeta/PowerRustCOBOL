@@ -84,13 +84,13 @@
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Btn-Sidebar::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Btn-Back::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Forward::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(4, WS-LANG-IX)) TO Btn-Close::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(5, WS-LANG-IX)) TO Btn-New::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(6, WS-LANG-IX)) TO Btn-Share::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(7, WS-LANG-IX)) TO Btn-Tabs::Tooltip
+           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Btn-Sidebar::Tooltip
+           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Btn-Back::Tooltip
+           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Btn-Forward::Tooltip
+           MOVE PS-TEXT(4, WS-LANG-IX)::Trim() TO Btn-Close::Tooltip
+           MOVE PS-TEXT(5, WS-LANG-IX)::Trim() TO Btn-New::Tooltip
+           MOVE PS-TEXT(6, WS-LANG-IX)::Trim() TO Btn-Share::Tooltip
+           MOVE PS-TEXT(7, WS-LANG-IX)::Trim() TO Btn-Tabs::Tooltip
 ]]></Event>
   </user-procedures>
   <form-events>
@@ -323,7 +323,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   Closing the dashboard - the main form - ends the application.
-           INVOKE super::"Close"()
+           INVOKE super::Close()
 ]]></Event>
   </Control>
   <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="12" z-order="0" visible="true" enabled="true">

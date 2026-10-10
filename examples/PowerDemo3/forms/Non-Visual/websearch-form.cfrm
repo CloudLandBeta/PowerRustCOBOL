@@ -323,9 +323,7 @@
            IF Web-Find::ResultCount() = 0
                MOVE Web-Find::Query TO WS-HIT
                MOVE SPACES TO WS-LINE
-               STRING "No results for " DELIMITED BY SIZE
-                      FUNCTION TRIM(WS-HIT) DELIMITED BY SIZE
-                   INTO WS-LINE
+               STRING "No results for " FUNCTION TRIM(WS-HIT) INTO WS-LINE
                END-STRING
                SET Snackbar-1::Text TO FUNCTION TRIM(WS-LINE)
                SET Snackbar-1::Category TO "Info"
@@ -640,7 +638,7 @@
       *> FR: EXTENSION - la forme INVOKE du meme appel; requise la ou la forme en ligne n'est pas analysee.
       *> JP: EXTENSION - 同じ呼び出しの INVOKE 形式。インライン形式が解析されない場合に必要。
       *> CN: EXTENSION - 同一调用的 INVOKE 写法；内联写法尚未被解析时必须使用。
-           INVOKE Web-Find "Search" USING Web-Find::Query.
+           INVOKE Web-Find::Search(Web-Find::Query).
       *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
       *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
       *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
@@ -711,7 +709,7 @@
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
            MOVE 10 TO Web-Find::NumResults
 
-           INVOKE Web-Find "Search" USING Web-Find::Query.
+           INVOKE Web-Find::Search(Web-Find::Query).
 
 ]]></Event>
   </Control>
@@ -819,7 +817,7 @@
       *> FR: EXTENSION - la forme INVOKE du meme appel; requise la ou la forme en ligne n'est pas analysee.
       *> JP: EXTENSION - 同じ呼び出しの INVOKE 形式。インライン形式が解析されない場合に必要。
       *> CN: EXTENSION - 同一调用的 INVOKE 写法；内联写法尚未被解析时必须使用。
-           INVOKE Web-Find "Cancel"
+           INVOKE Web-Find::Cancel()
            INVOKE Lst-Hits::Clear().
 ]]></Event>
   </Control>

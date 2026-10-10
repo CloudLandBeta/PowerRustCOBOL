@@ -17,6 +17,21 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.56] — 2026-10-09
+
+### Changed
+- **The four example projects — PowerAnalytics, PowerDemo3, PowerChat and PowerSpatial — now use the RustCOBOL extensions the Developer's Guide teaches in *Code style* wherever that provably changes nothing, and behave exactly as before.**
+  Four mechanical rewrites over the COBOL inside their forms and sources, nothing else touched:
+  `FUNCTION TRIM(x)` → `x::Trim()` (720 sites);
+  a `DELIMITED BY SIZE` phrase dropped where `STRING`'s default is the same (299 statements, each re-flowed onto one line when it fits in 100 columns);
+  `INVOKE obj "Method" USING a b` → `INVOKE obj::Method(a, b)` (4);
+  `INVOKE obj::"Method"(…)` → `INVOKE obj::Method(…)` (91).
+  Counting code lines only (blank lines and comments disregarded): 25,974 → 25,778 (−196, 0.75 %), 104,359 → 102,657 words, 761,413 → 750,501 characters; 1,105 code lines (4.3 %) changed; of the 1,341 lines that carried one of the four verbose constructs, 977 (72.9 %) now use the extension form.
+  *Why it is not larger.* These examples already used the extensions (properties as data items, inline calls); what remains is mostly data — about 18 % of the lines are level-numbered declarations. Cutting further means removing scratch fields (`MOVE SPACES TO WS-T`, `STRING … INTO WS-T`, `MOVE WS-T TO ctrl::Prop`), and a `PIC X(n)` field truncates and pads where a property does not, so that is a per-site decision, not a rewrite that can be proved identical.
+  *How "no change in behaviour" was checked.* The program generated from each of the 87 forms and sources parses to the same syntax tree before and after, once only the four permitted rewrites are normalised, and the semantic analyser reports the same diagnostics. A syntax tree is not enough, and the tests said so twice: **a value method on a data item (`x::Trim()`) answers an empty string for an item that belongs to a contained program** — a form handler's own scratch items, such as `LK-PATH` and `LK-FILE` — **or whose name is declared in more than one program**, while `FUNCTION TRIM(x)` answers the value; only an item of the outermost program, GLOBAL or not, works. PowerChat's document tree stopped loading until those sites were put back. `x::Trim()` is therefore written only for a name declared exactly once, in the outermost program's WORKING-STORAGE, and the verifier requires the same. (The runtime bug itself is filed separately; 320 `TRIM` sites, most of them in PowerDemo3, wait on it.) The two spellings were also run side by side in `rcrun` — `TRIM` over 12 operand shapes, `STRING` over 9 operand kinds in 4 statement forms — and printed identical output.
+  Left as written, on purpose: `FUNCTION TRIM` of a handler-local or repeated name, and after `AND` / `OR` / `WHEN` (the parser does not yet take a `::` member as the left operand of a relation there — filed separately); every `DELIMITED BY SIZE` that covers a data-item operand (the default for those is `SPACES`, which trims); the `INVOKE … USING` lines of `maps-demo.cfrm`, whose tests read its source; the `<DeletedControl>` undo store; and the PowerAnalytics generator outside the repository, which still emits the old spellings.
+  Three assertions in `powerchat_compiles.rs` and `rest_demo_compiles.rs` pinned the old spellings (`FUNCTION TRIM(T-…)`, `"OpenFormSync"("…")`, `APPENDTEXT(FUNCTION TRIM(WS-LINE))`) — two of them would have gone silently vacuous, finding nothing to check — and now accept both. The codegen corpus goldens (`crates/cobolt-codegen/tests/golden/corpus/`) were regenerated: the only lines that moved are the rewrites.
+
 ## [PowerRustCOBOL 1.90.55] — 2026-10-09
 
 ### Fixed

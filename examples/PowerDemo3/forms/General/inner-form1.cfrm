@@ -57,7 +57,7 @@
 
            MOVE 8 TO MAPS-1::Zoom
 
-           INVOKE MAPS-1 "AddMarker" USING "M1" "-23.5614" "-46.6558" "Av. Paulista" "1578"
+           INVOKE MAPS-1::AddMarker("M1", "-23.5614", "-46.6558", "Av. Paulista", "1578")
 
            CONTINUE.
 ]]></Event>

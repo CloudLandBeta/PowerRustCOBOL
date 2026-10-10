@@ -505,9 +505,7 @@
            INVOKE SNACKBAR-1::Show()
 
            MOVE "5 - StackAnchor = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-ANCHOR) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-ANCHOR) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -551,9 +549,7 @@
            INVOKE SNACKBAR-1::Show()
 
            MOVE "6 - StackOrder = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-ORDER) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-ORDER) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -601,9 +597,7 @@
            INVOKE SNACKBAR-1::Show()
 
            MOVE "7 - MaximumVisible 2, OverflowBehavior " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-OVF) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-OVF) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -927,10 +921,10 @@
            END-EVALUATE
 
            MOVE "button " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-ID)  DELIMITED BY SIZE
-                  " at index "          DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-IX)  DELIMITED BY SIZE
+           STRING FUNCTION TRIM(WS-MSG)
+                  FUNCTION TRIM(WS-ID)
+                  " at index "
+                  FUNCTION TRIM(WS-IX)
                   INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption.
 

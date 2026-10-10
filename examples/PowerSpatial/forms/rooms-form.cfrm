@@ -108,12 +108,12 @@
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Btn-Living::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Bed::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(4, WS-LANG-IX)) TO Btn-Kitchen::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(5, WS-LANG-IX)) TO Btn-Dining::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(6, WS-LANG-IX)) TO Btn-Play::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Btn-Add-Room::Tooltip
+           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Btn-Living::Caption
+           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Btn-Bed::Caption
+           MOVE PS-TEXT(4, WS-LANG-IX)::Trim() TO Btn-Kitchen::Caption
+           MOVE PS-TEXT(5, WS-LANG-IX)::Trim() TO Btn-Dining::Caption
+           MOVE PS-TEXT(6, WS-LANG-IX)::Trim() TO Btn-Play::Caption
+           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Btn-Add-Room::Tooltip
 ]]></Event>
   </user-procedures>
   <form-events>

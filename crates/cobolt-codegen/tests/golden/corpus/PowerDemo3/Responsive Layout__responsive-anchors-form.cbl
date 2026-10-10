@@ -455,11 +455,11 @@
       *> Window size, active breakpoint and font scale, as the
       *> layout engine reports them after laying the form out.
            MOVE SPACES TO WS-LINE
-           STRING "Window " FUNCTION TRIM(WS-WIN-W)
-               " x " FUNCTION TRIM(WS-WIN-H)
-               "   |   breakpoint " FUNCTION TRIM(WS-BP)
-               "   |   font scale " FUNCTION TRIM(WS-FSC)
-               DELIMITED BY SIZE INTO WS-LINE
+           STRING "Window " WS-WIN-W::Trim()
+               " x " WS-WIN-H::Trim()
+               "   |   breakpoint " WS-BP::Trim()
+               "   |   font scale " WS-FSC::Trim()
+               INTO WS-LINE
            MOVE WS-LINE TO SB-INFO::Items
 
            GOBACK.
@@ -477,19 +477,19 @@
            MOVE SPACES TO WS-ANCHOR
            MOVE 1 TO WS-PTR
            IF CHK-TOP::Checked = 1
-               STRING "Top," DELIMITED BY SIZE INTO WS-ANCHOR
+               STRING "Top," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
            IF CHK-BOTTOM::Checked = 1
-               STRING "Bottom," DELIMITED BY SIZE INTO WS-ANCHOR
+               STRING "Bottom," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
            IF CHK-LEFT::Checked = 1
-               STRING "Left," DELIMITED BY SIZE INTO WS-ANCHOR
+               STRING "Left," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
            IF CHK-RIGHT::Checked = 1
-               STRING "Right," DELIMITED BY SIZE INTO WS-ANCHOR
+               STRING "Right," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
            MOVE WS-ANCHOR TO A-LIVE::Anchor

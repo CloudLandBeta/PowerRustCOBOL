@@ -1148,7 +1148,7 @@
        ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE FUNCTION TRIM(T-PDF-SAVED) TO Lbl-Status::Caption
+           MOVE T-PDF-SAVED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1164,7 +1164,7 @@
       *>   interface's language when it is only that there is nothing yet.
            MOVE Vwr-Chat::LastError TO WS-LINE
            IF WS-LINE = "the conversation is empty"
-               MOVE FUNCTION TRIM(T-PDF-EMPTY) TO Lbl-Status::Caption
+               MOVE T-PDF-EMPTY::Trim() TO Lbl-Status::Caption
            ELSE
                MOVE WS-LINE TO Lbl-Status::Caption
            END-IF
@@ -1184,11 +1184,11 @@
                EXIT PROGRAM
            END-IF
            IF WS-CUR-TOPIC = SPACES
-               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-OPEN-TOPIC-MENU)) TO WS-OK
+               MOVE Vwr-Chat::AppendMarkdown(T-OPEN-TOPIC-MENU::Trim()) TO WS-OK
                EXIT PROGRAM
            END-IF
            IF WS-ORCH = 0
-               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-ASSIGN-MODEL-MENU)) TO WS-OK
+               MOVE Vwr-Chat::AppendMarkdown(T-ASSIGN-MODEL-MENU::Trim()) TO WS-OK
                EXIT PROGRAM
            END-IF
            IF WS-STAGE NOT = "IDLE"
@@ -1208,7 +1208,7 @@
            MOVE WS-QUESTION TO WS-TEXT
            CALL "PC-SAVE-TURN"
            MOVE WS-QUESTION TO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "user") TO WS-OK
+           MOVE Vwr-Chat::AppendMarkdown(WS-MSG::Trim(), "user") TO WS-OK
            MOVE SPACES TO Txt-Input::Text
            CALL "PC-BUILD-PROMPT"
            MOVE WS-PROMPT TO WS-HISTORY
@@ -1221,13 +1221,12 @@
       *>       The main prompt's PLAN section says how.
                MOVE "PLAN" TO WS-SEC-NAME
                CALL "PC-SECTION"
-               STRING X"0A" X"0A" FUNCTION TRIM(WS-SEC)
-                   DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+               STRING X"0A" X"0A" WS-SEC::Trim() INTO WS-PROMPT WITH POINTER WS-PTR
                END-STRING
            END-IF
            MOVE WS-ORCH TO WS-FROM
            CALL "PC-ASK"
-           MOVE FUNCTION TRIM(T-THINKING) TO Lbl-Status::Caption
+           MOVE T-THINKING::Trim() TO Lbl-Status::Caption
            MOVE SPACES TO WS-STATUS-ID
            IF WS-STAGE = "PLAN"
                MOVE T-ST-COORD TO WS-STATUS-TEXT
@@ -1293,10 +1292,9 @@
            MOVE "1" TO WS-ARG1
            CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
-               DELIMITED BY SIZE INTO WS-MSG
+           STRING "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
            CALL "PC-SHOW-AGENT"
-           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+           MOVE T-LAST-FAILED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1328,10 +1326,9 @@
            MOVE "1" TO WS-ARG1
            CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
-               DELIMITED BY SIZE INTO WS-MSG
+           STRING "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
            CALL "PC-SHOW-AGENT"
-           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+           MOVE T-LAST-FAILED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1404,10 +1401,9 @@
            MOVE "2" TO WS-ARG1
            CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
-               DELIMITED BY SIZE INTO WS-MSG
+           STRING "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
            CALL "PC-SHOW-AGENT"
-           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+           MOVE T-LAST-FAILED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1439,10 +1435,9 @@
            MOVE "2" TO WS-ARG1
            CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
-               DELIMITED BY SIZE INTO WS-MSG
+           STRING "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
            CALL "PC-SHOW-AGENT"
-           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+           MOVE T-LAST-FAILED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1515,10 +1510,9 @@
            MOVE "3" TO WS-ARG1
            CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
-               DELIMITED BY SIZE INTO WS-MSG
+           STRING "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
            CALL "PC-SHOW-AGENT"
-           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+           MOVE T-LAST-FAILED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1550,10 +1544,9 @@
            MOVE "3" TO WS-ARG1
            CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
-               DELIMITED BY SIZE INTO WS-MSG
+           STRING "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
            CALL "PC-SHOW-AGENT"
-           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+           MOVE T-LAST-FAILED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1698,32 +1691,23 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-TOPICS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
-               DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           STRING WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
            MOVE SPACES TO WS-CONVS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/convs.idx"
-               DELIMITED BY SIZE INTO WS-CONVS-PATH
+           STRING WS-DATA-DIR::Trim() "/convs.idx" INTO WS-CONVS-PATH
            MOVE SPACES TO WS-TURNS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/turns.idx"
-               DELIMITED BY SIZE INTO WS-TURNS-PATH
+           STRING WS-DATA-DIR::Trim() "/turns.idx" INTO WS-TURNS-PATH
            MOVE SPACES TO WS-TR-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/taskresults.idx"
-               DELIMITED BY SIZE INTO WS-TR-PATH
+           STRING WS-DATA-DIR::Trim() "/taskresults.idx" INTO WS-TR-PATH
            MOVE SPACES TO WS-MODELS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
-               DELIMITED BY SIZE INTO WS-MODELS-PATH
+           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
            MOVE SPACES TO WS-TFILES-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
-               DELIMITED BY SIZE INTO WS-TFILES-PATH
+           STRING WS-DATA-DIR::Trim() "/topic-files.idx" INTO WS-TFILES-PATH
            MOVE SPACES TO WS-RTPL-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/templates.idx"
-               DELIMITED BY SIZE INTO WS-RTPL-PATH
+           STRING WS-DATA-DIR::Trim() "/templates.idx" INTO WS-RTPL-PATH
            MOVE SPACES TO WS-MAINP-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompt-versions.idx"
-               DELIMITED BY SIZE INTO WS-MAINP-PATH
+           STRING WS-DATA-DIR::Trim() "/prompt-versions.idx" INTO WS-MAINP-PATH
       *>   What ships beside the sample topics - the templates and the main
       *>   prompt's default: POWERCHAT_SAMPLES, else "samples".
            DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
@@ -1732,15 +1716,12 @@
                MOVE "samples" TO WS-SAMPLES-DIR
            END-IF
            MOVE SPACES TO WS-RTSEED-PATH
-           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/report-templates.txt"
-               DELIMITED BY SIZE INTO WS-RTSEED-PATH
+           STRING WS-SAMPLES-DIR::Trim() "/report-templates.txt" INTO WS-RTSEED-PATH
            MOVE WS-RTSEED-PATH TO WS-RTNEW-PATH
            MOVE SPACES TO WS-RTPREV-PATH
-           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/report-templates-previous.txt"
-               DELIMITED BY SIZE INTO WS-RTPREV-PATH
+           STRING WS-SAMPLES-DIR::Trim() "/report-templates-previous.txt" INTO WS-RTPREV-PATH
            MOVE SPACES TO WS-MPSEED-PATH
-           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/main-prompt.md"
-               DELIMITED BY SIZE INTO WS-MPSEED-PATH
+           STRING WS-SAMPLES-DIR::Trim() "/main-prompt.md" INTO WS-MPSEED-PATH
 
            GOBACK.
 
@@ -2024,7 +2005,7 @@
            END-PERFORM
            EVALUATE TRUE
                WHEN WS-N-AGENTS = 0
-                   MOVE FUNCTION TRIM(T-NO-MODEL) TO Lbl-Status::Caption
+                   MOVE T-NO-MODEL::Trim() TO Lbl-Status::Caption
                WHEN WS-N-AGENTS = 1
       *>           One agent answers by itself (R52).
                    IF WS-AG-TOOLS(WS-ORCH) = "Y"
@@ -2224,12 +2205,11 @@
                                MOVE MPSEED-REC TO WS-LN-BUF
                                CALL "PC-LINE-LEN"
                                IF WS-LN-LEN > 0
-                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A"
-                                       DELIMITED BY SIZE INTO WS-MAIN
+                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A" INTO WS-MAIN
                                        WITH POINTER WS-SX-B
                                    END-STRING
                                ELSE
-                                   STRING X"0A" DELIMITED BY SIZE INTO WS-MAIN
+                                   STRING X"0A" INTO WS-MAIN
                                        WITH POINTER WS-SX-B
                                    END-STRING
                                END-IF
@@ -2254,10 +2234,9 @@
       *>   the line after its "=== NAME ===" to the next "=== " line or the
       *>   end. A section the text does not have is empty: nothing is sent.
            MOVE SPACES TO WS-SEC WS-SPL
-           STRING X"0A" "=== " FUNCTION TRIM(WS-SEC-NAME) " ==="
-               DELIMITED BY SIZE INTO WS-SPL
+           STRING X"0A" "=== " WS-SEC-NAME::Trim() " ===" INTO WS-SPL
            END-STRING
-           COMPUTE WS-SX-L = FUNCTION LENGTH(FUNCTION TRIM(WS-SEC-NAME)) + 9
+           COMPUTE WS-SX-L = FUNCTION LENGTH(WS-SEC-NAME::Trim()) + 9
       *>   WS-SX-A: where the header's "===" starts - the very first line
       *>   counts too (a text whose first section has nothing above it).
            IF WS-MAIN(1:WS-SX-L - 1) = WS-SPL(2:WS-SX-L - 1)
@@ -2301,7 +2280,7 @@
        PROCEDURE DIVISION.
       *>   WS-TOKEN and WS-INS in: every WS-TOKEN in WS-SEC - "{TOPIC}" and
       *>   the like - replaced by WS-INS (nothing, when it is spaces).
-           COMPUTE WS-SX-L = FUNCTION LENGTH(FUNCTION TRIM(WS-TOKEN))
+           COMPUTE WS-SX-L = FUNCTION LENGTH(WS-TOKEN::Trim())
            PERFORM 20 TIMES
                MOVE 0 TO WS-SX-A
                INSPECT WS-SEC TALLYING WS-SX-A
@@ -2312,19 +2291,16 @@
                MOVE SPACES TO WS-SPL
                MOVE 1 TO WS-SX-B
                IF WS-SX-A > 0
-                   STRING WS-SEC(1:WS-SX-A) DELIMITED BY SIZE
-                       INTO WS-SPL WITH POINTER WS-SX-B
+                   STRING WS-SEC(1:WS-SX-A) INTO WS-SPL WITH POINTER WS-SX-B
                    END-STRING
                END-IF
                IF WS-INS NOT = SPACES
-                   STRING FUNCTION TRIM(WS-INS) DELIMITED BY SIZE
-                       INTO WS-SPL WITH POINTER WS-SX-B
+                   STRING WS-INS::Trim() INTO WS-SPL WITH POINTER WS-SX-B
                    END-STRING
                END-IF
                COMPUTE WS-SX-E = WS-SX-A + WS-SX-L + 1
                IF WS-SX-E NOT > 64000
-                   STRING WS-SEC(WS-SX-E:) DELIMITED BY SIZE
-                       INTO WS-SPL WITH POINTER WS-SX-B
+                   STRING WS-SEC(WS-SX-E:) INTO WS-SPL WITH POINTER WS-SX-B
                    END-STRING
                END-IF
                MOVE WS-SPL TO WS-SEC
@@ -2361,7 +2337,7 @@
       *>   WS-TPL-NAME in (any case): WS-TPL-SKEL out, and WS-TPL-NAME as
       *>   the catalog spells it; spaces when there is no such template.
            MOVE SPACES TO WS-TPL-SKEL
-           MOVE FUNCTION UPPER-CASE(FUNCTION TRIM(WS-TPL-NAME)) TO WS-RT-NAME
+           MOVE FUNCTION UPPER-CASE(WS-TPL-NAME::Trim()) TO WS-RT-NAME
            OPEN INPUT RTPL-FILE
            IF WS-FS NOT = "00"
                EXIT PROGRAM
@@ -2487,7 +2463,7 @@
                    NOT AT END
                        STRING "- " FUNCTION TRIM(RT-NAME) ": "
                               FUNCTION TRIM(RT-SUITS) X"0A"
-                           DELIMITED BY SIZE INTO WS-CATALOG WITH POINTER WS-SX-B
+                           INTO WS-CATALOG WITH POINTER WS-SX-B
                        END-STRING
                END-READ
            END-PERFORM
@@ -2532,12 +2508,11 @@
                                MOVE RTSEED-REC TO WS-LN-BUF
                                CALL "PC-LINE-LEN"
                                IF WS-LN-LEN > 0
-                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A"
-                                       DELIMITED BY SIZE INTO WS-RT-SKEL
+                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A" INTO WS-RT-SKEL
                                        WITH POINTER WS-RT-PT
                                    END-STRING
                                ELSE
-                                   STRING X"0A" DELIMITED BY SIZE INTO WS-RT-SKEL
+                                   STRING X"0A" INTO WS-RT-SKEL
                                        WITH POINTER WS-RT-PT
                                    END-STRING
                                END-IF
@@ -2710,7 +2685,7 @@
                MOVE 0 TO WS-FB
                INSPECT WS-SEC(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
                IF WS-FB > 0
-                   MOVE FUNCTION TRIM(WS-SEC(WS-FA:WS-FB)) TO WS-RT-NAME
+                   MOVE WS-SEC(WS-FA:WS-FB)::Trim() TO WS-RT-NAME
                END-IF
            END-IF
            MOVE 0 TO WS-FC
@@ -2724,7 +2699,7 @@
                MOVE 0 TO WS-FB
                INSPECT WS-SEC(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
                IF WS-FB > 0
-                   MOVE FUNCTION TRIM(WS-SEC(WS-FA:WS-FB)) TO WS-RT-SUITS
+                   MOVE WS-SEC(WS-FA:WS-FB)::Trim() TO WS-RT-SUITS
                END-IF
            END-IF
       *>   The skeleton: this answer's page - a ```html fence's content, or
@@ -2788,7 +2763,7 @@
       *>   the chat answers without it (R22). Registration is program-wide;
       *>   only the tool worker is offered them (ToolProtocol, PC-ELECT).
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-REG-COUNT
-               MOVE AGENT-1::UnregisterFile(FUNCTION TRIM(WS-REG-NAME(WS-I))) TO WS-OK
+               MOVE AGENT-1::UnregisterFile(WS-REG-NAME(WS-I)::Trim()) TO WS-OK
            END-PERFORM
            MOVE 0 TO WS-REG-COUNT WS-FAILED
            MOVE SPACES TO WS-FILE-NOTE
@@ -2822,9 +2797,9 @@
                            ELSE
                                ADD 1 TO WS-FAILED
                                MOVE AGENT-1::RegisterResult TO WS-RESULT
-                               STRING FUNCTION TRIM(WS-FILE-NOTE) " " FUNCTION TRIM(TF-NAME)
-                                      " (" FUNCTION TRIM(WS-RESULT) ")"
-                                   DELIMITED BY SIZE INTO WS-FILE-NOTE
+                               STRING WS-FILE-NOTE::Trim() " " FUNCTION TRIM(TF-NAME)
+                                      " (" WS-RESULT::Trim() ")"
+                                   INTO WS-FILE-NOTE
                            END-IF
                        END-IF
                END-READ
@@ -2847,7 +2822,7 @@
            CALL "PC-SETTING-GET"
            MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
            IF WS-CUR-TOPIC = SPACES
-               MOVE FUNCTION TRIM(T-NO-TOPIC) TO Lbl-Topic::Caption
+               MOVE T-NO-TOPIC::Trim() TO Lbl-Topic::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TOPICS-FILE
@@ -2860,7 +2835,7 @@
            READ TOPICS-FILE
                INVALID KEY
                    MOVE SPACES TO WS-CUR-TOPIC
-                   MOVE FUNCTION TRIM(T-TOPIC-GONE) TO Lbl-Topic::Caption
+                   MOVE T-TOPIC-GONE::Trim() TO Lbl-Topic::Caption
            END-READ
            CLOSE TOPICS-FILE
            IF WS-CUR-TOPIC = SPACES
@@ -2920,11 +2895,11 @@
       *>   WS-FROM (1-3) and WS-PROMPT in: that agent's question goes out.
            EVALUATE WS-FROM
                WHEN 1
-                   MOVE AGENT-1::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+                   MOVE AGENT-1::Ask(WS-PROMPT::Trim()) TO WS-OK
                WHEN 2
-                   MOVE AGENT-2::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+                   MOVE AGENT-2::Ask(WS-PROMPT::Trim()) TO WS-OK
                WHEN 3
-                   MOVE AGENT-3::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+                   MOVE AGENT-3::Ask(WS-PROMPT::Trim()) TO WS-OK
            END-EVALUATE
 
            GOBACK.
@@ -3046,11 +3021,11 @@
                END-IF
                COMPUTE WS-BS = WS-FB + 8
                IF WS-FB NOT < 64093
-                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+                   MOVE Vwr-Chat::AppendHtml(WS-MSG::Trim()) TO WS-OK
                    EXIT PROGRAM
                END-IF
                IF WS-MSG(WS-BS:) = SPACES
-                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+                   MOVE Vwr-Chat::AppendHtml(WS-MSG::Trim()) TO WS-OK
                    EXIT PROGRAM
                END-IF
            END-IF
@@ -3103,7 +3078,7 @@
       *>       No page left: the rest is Markdown.
                IF WS-FKIND = SPACE
                    IF WS-MSG(WS-FP:) NOT = SPACES
-                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:)))
+                       MOVE Vwr-Chat::AppendMarkdown(WS-MSG(WS-FP:)::Trim())
                            TO WS-OK
                    END-IF
                    EXIT PERFORM
@@ -3132,7 +3107,7 @@
                END-IF
                IF WS-FQ > 0
                    IF WS-MSG(WS-FP:WS-FQ) NOT = SPACES
-                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:WS-FQ)))
+                       MOVE Vwr-Chat::AppendMarkdown(WS-MSG(WS-FP:WS-FQ)::Trim())
                            TO WS-OK
                    END-IF
                END-IF
@@ -3166,7 +3141,7 @@
                END-IF
                IF WS-FB > 0
                    IF WS-MSG(WS-BS:WS-FB) NOT = SPACES
-                       MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG(WS-BS:WS-FB)))
+                       MOVE Vwr-Chat::AppendHtml(WS-MSG(WS-BS:WS-FB)::Trim())
                            TO WS-OK
                    END-IF
                END-IF
@@ -3207,14 +3182,13 @@
       *>   WS-STATUS-TEXT in: shown in the status bubble, in italics - made
       *>   the first time, changed in place after that.
            MOVE SPACES TO WS-MSG
-           STRING "*" FUNCTION TRIM(WS-STATUS-TEXT) "*"
-               DELIMITED BY SIZE INTO WS-MSG
+           STRING "*" WS-STATUS-TEXT::Trim() "*" INTO WS-MSG
            IF WS-STATUS-ID = SPACES
-               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent")
+               MOVE Vwr-Chat::AppendMarkdown(WS-MSG::Trim(), "agent")
                    TO WS-STATUS-ID
            ELSE
-               MOVE Vwr-Chat::ReplaceMessage(FUNCTION TRIM(WS-STATUS-ID),
-                   FUNCTION TRIM(WS-MSG), "Markdown") TO WS-OK
+               MOVE Vwr-Chat::ReplaceMessage(WS-STATUS-ID::Trim(),
+                   WS-MSG::Trim(), "Markdown") TO WS-OK
            END-IF
            MOVE Vwr-Chat::JumpToLatest() TO WS-OK
 
@@ -3236,7 +3210,7 @@
            MOVE "N" TO WS-SHOW-ANSWER
            IF WS-FORMATTED = "Y"
                IF WS-STATUS-ID NOT = SPACES
-                   MOVE Vwr-Chat::RemoveMessage(FUNCTION TRIM(WS-STATUS-ID)) TO WS-OK
+                   MOVE Vwr-Chat::RemoveMessage(WS-STATUS-ID::Trim()) TO WS-OK
                    MOVE SPACES TO WS-STATUS-ID
                END-IF
                CALL "PC-APPEND-FORMATTED"
@@ -3244,10 +3218,10 @@
                EXIT PROGRAM
            END-IF
            IF WS-STATUS-ID = SPACES
-               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
+               MOVE Vwr-Chat::AppendMarkdown(WS-MSG::Trim(), "agent") TO WS-OK
            ELSE
-               MOVE Vwr-Chat::ReplaceMessage(FUNCTION TRIM(WS-STATUS-ID),
-                   FUNCTION TRIM(WS-MSG), "Markdown") TO WS-OK
+               MOVE Vwr-Chat::ReplaceMessage(WS-STATUS-ID::Trim(),
+                   WS-MSG::Trim(), "Markdown") TO WS-OK
                MOVE SPACES TO WS-STATUS-ID
            END-IF
            MOVE Vwr-Chat::JumpToLatest() TO WS-OK
@@ -3337,7 +3311,7 @@
                EXIT PROGRAM
            END-IF
            MOVE WS-MSG(WS-FA:) TO WS-TEXT
-           MOVE FUNCTION TRIM(WS-TEXT) TO WS-MSG
+           MOVE WS-TEXT::Trim() TO WS-MSG
 
            GOBACK.
 
@@ -3363,7 +3337,7 @@
            IF WS-FP NOT > 200
                IF FUNCTION UPPER-CASE(WS-REPLY(WS-FP:4)) = "ASK:"
                    MOVE WS-REPLY(WS-FP + 4:) TO WS-TEXT
-                   MOVE FUNCTION TRIM(WS-TEXT) TO WS-REPLY
+                   MOVE WS-TEXT::Trim() TO WS-REPLY
                    CALL "PC-FINISH"
                    EXIT PROGRAM
                END-IF
@@ -3377,7 +3351,7 @@
                     WS-L(13) WS-L(14) WS-L(15) WS-L(16)
            END-UNSTRING
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
-               MOVE FUNCTION TRIM(WS-L(WS-I)) TO WS-L(WS-I)
+               MOVE WS-L(WS-I)::Trim() TO WS-L(WS-I)
       *>       A "TEMPLATE: name" line: the template the report takes.
                IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:9)) = "TEMPLATE:"
                    MOVE WS-L(WS-I)(10:) TO WS-TPL-NAME
@@ -3514,10 +3488,10 @@
            END-PERFORM
            MOVE T-WORKING TO WS-FMT
            MOVE WS-PENDING TO WS-NUM-ED
-           MOVE FUNCTION TRIM(WS-NUM-ED) TO WS-ARG1
+           MOVE WS-NUM-ED::Trim() TO WS-ARG1
            MOVE WS-B TO WS-ARG2
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
            MOVE WS-FMT-OUT TO WS-STATUS-TEXT
            CALL "PC-SAY-STATUS"
 
@@ -3549,9 +3523,9 @@
            ADD 1 TO WS-SX-B
            PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
                IF WS-TASK-ST(WS-TK) = "F"
-                   STRING X"0A" X"0A" "> **" FUNCTION TRIM(T-PART-MISSING)
-                          "** " FUNCTION TRIM(WS-TASK(WS-TK))
-                       DELIMITED BY SIZE INTO WS-REPLY WITH POINTER WS-SX-B
+                   STRING X"0A" X"0A" "> **" T-PART-MISSING::Trim()
+                          "** " WS-TASK(WS-TK)::Trim()
+                       INTO WS-REPLY WITH POINTER WS-SX-B
                    END-STRING
                END-IF
            END-PERFORM
@@ -3624,8 +3598,8 @@
                MOVE 1 TO WS-SX-B
                PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
                    IF WS-TASK-ST(WS-TK) = "D"
-                       STRING FUNCTION TRIM(WS-TASK-RES(WS-TK)) X"0A" X"0A"
-                           DELIMITED BY SIZE INTO WS-REPLY WITH POINTER WS-SX-B
+                       STRING WS-TASK-RES(WS-TK)::Trim() X"0A" X"0A"
+                           INTO WS-REPLY WITH POINTER WS-SX-B
                        END-STRING
                    END-IF
                END-PERFORM
@@ -3637,14 +3611,14 @@
            MOVE 1 TO WS-SX-B
            PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
                IF WS-TASK-ST(WS-TK) = "D"
-                   STRING "- On " FUNCTION TRIM(WS-TASK(WS-TK)) ": "
-                          FUNCTION TRIM(WS-TASK-RES(WS-TK)) X"0A"
-                       DELIMITED BY SIZE INTO WS-INS WITH POINTER WS-SX-B
+                   STRING "- On " WS-TASK(WS-TK)::Trim() ": "
+                          WS-TASK-RES(WS-TK)::Trim() X"0A"
+                       INTO WS-INS WITH POINTER WS-SX-B
                    END-STRING
                ELSE
-                   STRING "- On " FUNCTION TRIM(WS-TASK(WS-TK))
+                   STRING "- On " WS-TASK(WS-TK)::Trim()
                           ": NO RESULT - this part could not be answered." X"0A"
-                       DELIMITED BY SIZE INTO WS-INS WITH POINTER WS-SX-B
+                       INTO WS-INS WITH POINTER WS-SX-B
                    END-STRING
                END-IF
            END-PERFORM
@@ -3654,13 +3628,11 @@
            CALL "PC-FILL"
            MOVE SPACES TO WS-PROMPT
            MOVE 1 TO WS-PTR
-           STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A" FUNCTION TRIM(WS-SEC)
-               DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+           STRING WS-HISTORY::Trim() X"0A" X"0A" WS-SEC::Trim() INTO WS-PROMPT WITH POINTER WS-PTR
            END-STRING
            IF WS-TPL-SKEL NOT = SPACES
                CALL "PC-TEMPLATE-TEXT"
-               STRING X"0A" X"0A" FUNCTION TRIM(WS-SEC)
-                   DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+               STRING X"0A" X"0A" WS-SEC::Trim() INTO WS-PROMPT WITH POINTER WS-PTR
                END-STRING
            END-IF
            MOVE "COMPOSE" TO WS-STAGE
@@ -3695,9 +3667,9 @@
                        CALL "PC-TEMPLATE-TEXT"
                        MOVE SPACES TO WS-PROMPT
                        MOVE 1 TO WS-PTR
-                       STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A"
-                              FUNCTION TRIM(WS-SEC)
-                           DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                       STRING WS-HISTORY::Trim() X"0A" X"0A"
+                              WS-SEC::Trim()
+                           INTO WS-PROMPT WITH POINTER WS-PTR
                        END-STRING
                        CALL "PC-ASK"
                    END-IF
@@ -3760,28 +3732,26 @@
                            MOVE WS-PICK-COUNT TO WS-PICK-SEL
                        END-IF
                        IF WS-PICK-COUNT > 1
-                           STRING X"0A" DELIMITED BY SIZE
-                               INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
+                           STRING X"0A" INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
                            END-STRING
                        END-IF
-                       STRING FUNCTION TRIM(TOP-NAME) DELIMITED BY SIZE
-                           INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
+                       STRING FUNCTION TRIM(TOP-NAME) INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
                        END-STRING
                END-READ
            END-PERFORM
            CLOSE TOPICS-FILE
            IF WS-PICK-COUNT = 0
-               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-OPEN-TOPIC-MENU)) TO WS-OK
+               MOVE Vwr-Chat::AppendMarkdown(T-OPEN-TOPIC-MENU::Trim()) TO WS-OK
                EXIT PROGRAM
            END-IF
-           INVOKE ME::"SetProperty"("PickTitle", T-PICK-TOPIC)
-           INVOKE ME::"SetProperty"("PickOk", T-PICK-START)
-           INVOKE ME::"SetProperty"("PickCancel", T-PICK-CANCEL)
-           INVOKE ME::"SetProperty"("PickItems", WS-PICK-LIST)
-           INVOKE ME::"SetProperty"("PickSelected", WS-PICK-SEL)
-           INVOKE ME::"SetProperty"("PickAnswer", "0")
-           INVOKE ME::"OpenFormSync"("PICK-FORM")
-           INVOKE ME::"GetProperty"("PickAnswer") RETURNING WS-PICK-ANSWER
+           INVOKE ME::SetProperty("PickTitle", T-PICK-TOPIC)
+           INVOKE ME::SetProperty("PickOk", T-PICK-START)
+           INVOKE ME::SetProperty("PickCancel", T-PICK-CANCEL)
+           INVOKE ME::SetProperty("PickItems", WS-PICK-LIST)
+           INVOKE ME::SetProperty("PickSelected", WS-PICK-SEL)
+           INVOKE ME::SetProperty("PickAnswer", "0")
+           INVOKE ME::OpenFormSync("PICK-FORM")
+           INVOKE ME::GetProperty("PickAnswer") RETURNING WS-PICK-ANSWER
            MOVE FUNCTION NUMVAL(WS-PICK-ANSWER) TO WS-PICK-N
            IF WS-PICK-N < 1 OR WS-PICK-N > WS-PICK-COUNT
                EXIT PROGRAM
@@ -3858,25 +3828,25 @@
       *>   designer and the preview show them; their labels follow the
       *>   language here. Clear() keeps these labels - it takes only the
       *>   conversation rows added below.
-           MOVE SideMenu-1::SetItemLabel("chat", FUNCTION TRIM(T-MENU-CHAT)) TO WS-OK
-           MOVE SideMenu-1::SetItemLabel("newc", FUNCTION TRIM(T-MENU-NEWC)) TO WS-OK
-           MOVE SideMenu-1::SetItemLabel("tpcs", FUNCTION TRIM(T-TOPICS-TITLE)) TO WS-OK
-           MOVE SideMenu-1::SetItemLabel("docs", FUNCTION TRIM(T-DOCS-TITLE)) TO WS-OK
-           MOVE SideMenu-1::SetItemLabel("fils", FUNCTION TRIM(T-FILES-TITLE)) TO WS-OK
-           MOVE SideMenu-1::SetItemLabel("prmt", FUNCTION TRIM(T-PROMPT-TITLE)) TO WS-OK
-           MOVE SideMenu-1::SetItemLabel("sett", FUNCTION TRIM(T-SETTINGS-TITLE)) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("chat", T-MENU-CHAT::Trim()) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("newc", T-MENU-NEWC::Trim()) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("tpcs", T-TOPICS-TITLE::Trim()) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("docs", T-DOCS-TITLE::Trim()) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("fils", T-FILES-TITLE::Trim()) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("prmt", T-PROMPT-TITLE::Trim()) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("sett", T-SETTINGS-TITLE::Trim()) TO WS-OK
       *>   The welcome form's row is a run-time one, so Clear() took it:
       *>   it comes back here, in the current language, and stays enabled.
-           MOVE SideMenu-1::AddItem("welc", FUNCTION TRIM(T-MENU-WELC),
+           MOVE SideMenu-1::AddItem("welc", T-MENU-WELC::Trim(),
                 "rocket", "", "open-form:welcome-form") TO WS-OK
            IF WS-CONV-COUNT > 0
-               MOVE SideMenu-1::AddSection(FUNCTION TRIM(T-CONVERSATIONS)) TO WS-ITEM
+               MOVE SideMenu-1::AddSection(T-CONVERSATIONS::Trim()) TO WS-ITEM
       *>       Row ids are "c" + the conversation id, apart from the menu's own.
                PERFORM VARYING WS-I FROM WS-CONV-COUNT BY -1 UNTIL WS-I < 1
                    MOVE SPACES TO WS-ROW-ID
                    STRING "c" WS-CL-ID(WS-I) DELIMITED BY SIZE INTO WS-ROW-ID
                    MOVE SideMenu-1::AddItem(WS-ROW-ID,
-                        FUNCTION TRIM(WS-CL-TITLE(WS-I)), "chat") TO WS-OK
+                        WS-CL-TITLE(WS-I)::Trim(), "chat") TO WS-OK
                END-PERFORM
            END-IF
 
@@ -3932,8 +3902,7 @@
                CALL "PC-FMT"
                MOVE WS-LINE TO WS-ARG4
                MOVE SPACES TO WS-LINE
-               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-ARG4::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
            IF WS-N-AGENTS > 1
                MOVE T-ORCH-LINE TO WS-FMT
@@ -3942,8 +3911,7 @@
                CALL "PC-FMT"
                MOVE WS-LINE TO WS-ARG4
                MOVE SPACES TO WS-LINE
-               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-ARG4::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
            MOVE WS-LINE TO Lbl-Status::Caption
 
@@ -4121,17 +4089,15 @@
            END-IF
            IF WS-JOIN-TO = "P"
                IF WS-JOIN-ROLE = "U"
-                   STRING "User: " FUNCTION TRIM(WS-JOIN) X"0A"
-                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                   STRING "User: " WS-JOIN::Trim() X"0A" INTO WS-PROMPT WITH POINTER WS-PTR
                    END-STRING
                ELSE
-                   STRING "Assistant: " FUNCTION TRIM(WS-JOIN) X"0A"
-                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                   STRING "Assistant: " WS-JOIN::Trim() X"0A" INTO WS-PROMPT WITH POINTER WS-PTR
                    END-STRING
                END-IF
            ELSE
                IF WS-JOIN-ROLE = "U"
-                   MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "user") TO WS-OK
+                   MOVE Vwr-Chat::AppendMarkdown(WS-JOIN::Trim(), "user") TO WS-OK
                ELSE
       *>           A presentation reopens as it was shown: in the stream.
                    MOVE WS-JOIN TO WS-MSG
@@ -4141,7 +4107,7 @@
                    IF WS-FORMATTED = "Y"
                        CALL "PC-APPEND-FORMATTED"
                    ELSE
-                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "agent") TO WS-OK
+                       MOVE Vwr-Chat::AppendMarkdown(WS-JOIN::Trim(), "agent") TO WS-OK
                    END-IF
                END-IF
            END-IF
@@ -4349,10 +4315,10 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 36
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-HINT-ASK) TO Txt-Input::HintText
-           MOVE FUNCTION TRIM(T-SEND) TO Btn-Send::Caption
-           MOVE FUNCTION TRIM(T-SAVE-PDF) TO Btn-Pdf::Caption
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           MOVE T-HINT-ASK::Trim() TO Txt-Input::HintText
+           MOVE T-SEND::Trim() TO Btn-Send::Caption
+           MOVE T-SAVE-PDF::Trim() TO Btn-Pdf::Caption
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -4383,18 +4349,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
