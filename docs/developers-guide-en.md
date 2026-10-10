@@ -14482,6 +14482,11 @@ writes a per-control diagnostics dump named after the project.
   see-through and blurred in the same way. A project background image
   replaces the see-through view in the main window.
   There is also an optional **background image** with an opacity control.
+  In **Settings → Appearance**, **Browse…** picks the picture and **Clear**
+  takes it away. Both act on the window at once and are written to the
+  project file at once — neither waits for **Save**, and neither is undone by
+  **Cancel** (which only discards what you typed and have not saved). The
+  opacity slider below them is saved with the rest of the settings.
   Under either Aurora theme the image replaces the gradient backdrop.
   Settings are saved **per project** in `cobolt.toml`. The project tree and
   panel text automatically adapt their contrast to the theme — light text on
