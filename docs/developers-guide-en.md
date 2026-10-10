@@ -52,6 +52,8 @@ See the LICENSE file in the project root for full license information.
     - [Debugging lines](#debugging-lines)
     - [Long and awkward text: the block literal](#long-and-awkward-text-the--block-literal)
     - [Writing a text file without an `FD`](#writing-a-text-file-without-an-fd)
+    - [Pictures: fitting and measuring an image](#pictures-fitting-and-measuring-an-image)
+    - [Downloading a file over HTTP](#downloading-a-file-over-http)
 14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
 15. [SQL databases](#15-sql-databases)
     - [Embedded SQL: `EXEC SQL`](#embedded-sql-exec-sql)
@@ -7333,8 +7335,8 @@ never to emit these primitives for control access.
 #### The built-ins: the `COBOL` object
 
 Beyond the controls, the runtime has a set of **built-in calls** — HTTP, SQL,
-text files, the operating system's file dialogs, API keys, the model list,
-charts. They are the methods of one object, **`COBOL`**, and you write them
+text files, pictures, the operating system's file dialogs, API keys, the model
+list, charts. They are the methods of one object, **`COBOL`**, and you write them
 inline, like any other method:
 
 ```cobol
@@ -7364,9 +7366,13 @@ The built-ins, by family (each covered in its own section):
 - **SQL:** `OPEN-DB`, `EXEC-SQL`, `FETCH-ROW`, `NEXT-ROW`, `ROW-COUNT`,
   `CLOSE-DB`.
 - **HTTP:** `HTTP-GET`, `HTTP-POST`, `HTTP-PUT`, `HTTP-DELETE`,
-  `HTTP-SET-HEADER`, `HTTP-CLEAR-HEADERS`.
+  `HTTP-SET-HEADER`, `HTTP-CLEAR-HEADERS`, and `HTTP-DOWNLOAD`, which saves a
+  response **as bytes** into a file (see *Downloading a file over HTTP* in §13).
 - **Text files:** `WRITE-FILE`, `APPEND-FILE`, and `FILE-STATUS` for the last
   status of an `FD` file.
+- **Pictures:** `IMAGE-FIT`, which crops and resizes a picture to an exact
+  size, and `IMAGE-INFO`, which reads its size and format (see *Pictures:
+  fitting and measuring an image* in §13).
 - **Asking for a file or a folder:** `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG`,
   `FOLDER-DIALOG`.
 - **Models and keys:** `MODEL-SET`, `MODEL-REMOVE`, `MODEL-COUNT`,
@@ -10022,6 +10028,195 @@ built-in calls open the operating system's own dialog instead, and the program
 > Form and in a built application. A console program has no window to show one
 > in: there the calls return SPACES at once rather than wait for nothing.
 
+### Pictures: fitting and measuring an image
+
+A photo the operator drops on a form is whatever size the camera made it —
+4000 pixels wide, on its side, a few megabytes. What you store and show is
+usually something else: a 400 × 400 copy for the record, a 40 × 40 thumbnail
+for a grid. Two built-in calls do that work, with no image library to learn:
+
+```cobol
+           COBOL::"IMAGE-FIT"  ( WS-SOURCE WS-TARGET 400 400 WS-STATUS ).
+           COBOL::"IMAGE-INFO" ( WS-PATH WS-WIDTH WS-HEIGHT WS-FORMAT
+                                 WS-STATUS ).
+```
+
+| Call | Arguments, in order |
+|---|---|
+| `COBOL::"IMAGE-FIT"` | source · target · width · height · **status** |
+| `COBOL::"IMAGE-INFO"` | path · **width** · **height** · **format** · **status** |
+
+**`IMAGE-FIT`** reads the source picture, turns it upright, and makes a copy of
+exactly the width and height you ask for:
+
+- It reads **PNG, JPEG, GIF, WebP, BMP and TIFF**, and knows which one a file is
+  from its **content**, not its name — a PNG saved as `photo.jpg` is still read
+  as a PNG. A GIF gives its first frame.
+- A camera often stores a portrait photo **on its side**, with a note in the
+  file saying which way up it belongs. `IMAGE-FIT` reads that note and turns the
+  picture before anything else, so the copy is upright.
+- It **crops to fill**: the copy is cut from the middle of the picture, as much
+  of it as has the shape you asked for, then scaled. Nothing is stretched and
+  no bars are added — a 1200 × 800 photo fitted to 400 × 400 keeps its central
+  800 × 800 square, and its centre stays the centre.
+- The **target's extension** chooses the format written: `.png`, or `.jpg` /
+  `.jpeg` (quality 85, a good balance for photos). A transparent area becomes
+  white in a JPEG, which has no transparency; a PNG keeps it. Any other
+  extension is refused.
+- A folder on the way to the target that does not exist yet is created.
+
+```mermaid
+flowchart LR
+    A["photo.jpg<br/>1200 × 800"] --> B["turned upright<br/>(its EXIF note)"]
+    B --> C["middle cut to the<br/>target's shape"]
+    C --> D["scaled to exactly<br/>400 × 400"]
+    D --> E["pet-7.png or pet-7.jpg<br/>(by the extension)"]
+```
+
+**`IMAGE-INFO`** reads only the beginning of the file — never the picture
+itself, so it is quick even on a very large file — and returns the width and
+the height as numbers and the format as a word: `PNG`, `JPEG`, `GIF`, `WEBP`,
+`BMP` or `TIFF`. The size is the picture **upright**, the same picture
+`IMAGE-FIT` works on: a portrait photo stored on its side reports, say,
+3000 × 4000, not 4000 × 3000. That is also how you make an upright copy with
+nothing cut off — fit it to the size `IMAGE-INFO` reported.
+
+Both calls answer with **one word** in `status`, which is what you test:
+
+| `status` | Meaning |
+|---|---|
+| `OK` | Done |
+| `NOFILE` | The source does not exist or cannot be opened |
+| `BADIMAGE` | Not a picture in one of the six formats, or a damaged one |
+| `TOOBIG` | `IMAGE-FIT` only: the source is larger than **64 megapixels** |
+| `BADEXT` | `IMAGE-FIT` only: the target does not end in `.png`, `.jpg` or `.jpeg` |
+| `BADSIZE` | `IMAGE-FIT` only: a width or height below 1, or a target over 64 megapixels |
+| `WRITE` | `IMAGE-FIT` only: the target, or its folder, could not be written |
+| `NOFEATURE` | This program was built without picture support (see the caveat below) |
+
+A record's photo and its grid thumbnail, from one file the operator picks:
+
+```cobol
+       WORKING-STORAGE SECTION.
+       01  WS-CHOSEN    PIC X(260).
+       01  WS-PHOTO     PIC X(260) VALUE "photos/pet-7.jpg".
+       01  WS-THUMB     PIC X(260) VALUE "cache/pet-7-40.png".
+       01  WS-WIDTH     PIC 9(6).
+       01  WS-HEIGHT    PIC 9(6).
+       01  WS-FORMAT    PIC X(8).
+       01  WS-STATUS    PIC X(12).
+      *> ...
+       PROCEDURE DIVISION.
+           COBOL::"OPEN-FILE-DIALOG" ( "Choose a photo"
+                "Pictures|jpg,jpeg,png,webp" WS-CHOSEN ).
+           IF WS-CHOSEN = SPACES
+               GOBACK
+           END-IF.
+           COBOL::"IMAGE-INFO" ( WS-CHOSEN WS-WIDTH WS-HEIGHT WS-FORMAT
+                                 WS-STATUS ).
+           IF WS-STATUS NOT = "OK"
+               MOVE "That file is not a picture." TO LBL-MESSAGE::Caption
+               GOBACK
+           END-IF.
+           COBOL::"IMAGE-FIT" ( WS-CHOSEN WS-PHOTO 400 400 WS-STATUS ).
+           IF WS-STATUS = "OK"
+               COBOL::"IMAGE-FIT" ( WS-PHOTO WS-THUMB 40 40 WS-STATUS )
+           END-IF.
+           IF WS-STATUS = "TOOBIG"
+               MOVE "The photo is over 64 megapixels." TO LBL-MESSAGE::Caption
+           END-IF.
+```
+
+> **Note.** A fit that fails writes **nothing**: the copy is written beside the
+> target under a temporary name and only takes the target's place once it is
+> complete. A thumbnail that already existed is still there, unchanged, after a
+> failed refresh.
+
+> ⚠️ **Caveat — the 64-megapixel limit is checked before decoding.** A picture
+> that large needs a quarter of a gigabyte of memory just to hold. `IMAGE-FIT`
+> reads the size from the file's header and refuses with `TOOBIG` before
+> touching the pixels; `IMAGE-INFO` still tells you the size, so you can say
+> why.
+
+> ⚠️ **Caveat — `NOFEATURE`.** The picture support is linked into a built
+> application only when the build sees `IMAGE-FIT` or `IMAGE-INFO` written by
+> name, which is how you always write them. A `CALL` whose program name is
+> assembled in a data item at run time cannot be read by the build — that links
+> everything, so in practice you meet `NOFEATURE` only in a runtime built
+> deliberately without it.
+
+### Downloading a file over HTTP
+
+`COBOL::"HTTP-GET"` hands you the response as **text** in a data item, which is
+right for JSON and wrong for a photo, a PDF or a ZIP: bytes that are not text do
+not survive the trip, and a data item is no place for megabytes anyway.
+`HTTP-DOWNLOAD` saves the response **as it is, byte for byte, into a file**:
+
+```cobol
+           COBOL::"HTTP-DOWNLOAD" ( WS-URL WS-FILE WS-HTTP-CODE WS-STATUS ).
+```
+
+| Argument | What it does |
+|---|---|
+| 1 — url | An `http://` or `https://` address. Spaces at both ends are removed |
+| 2 — file | Where to save it. A folder on the way that does not exist yet is created |
+| 3 — http-status *(out)* | The server's status code — `200`, `404`, … — or `0` when no answer came back |
+| 4 — status *(out)* | One word, below |
+
+What it does for you:
+
+- It **follows redirects**, up to five in a row. A header named
+  `Authorization` is not carried across a redirect, so a credential meant for
+  one address never reaches another.
+- It sends the headers you set with `COBOL::"HTTP-SET-HEADER"` — and no others
+  of your program's.
+- It gives up after **60 seconds** for the whole download, and refuses a file
+  larger than **256 MB** — before reading it when the server says how large it
+  is, and the moment it grows past that when the server does not.
+- It writes to `<file>.part` and renames that to `<file>` only once the whole
+  response has arrived. A download that fails leaves **no** `.part` behind, and a
+  file that was already there **unchanged** — so a failed refresh never turns
+  yesterday's good copy into half of today's.
+
+| `status` | Meaning |
+|---|---|
+| `OK` | Saved |
+| `BADURL` | Not an `http://` / `https://` address |
+| `HTTP` | The server answered with an error (`http-status` holds the code, e.g. `404`), or redirected more than five times (`http-status` is `0`) |
+| `TIMEOUT` | Not finished within 60 seconds |
+| `TOOBIG` | Larger than 256 MB |
+| `NET` | No connection: an unknown host, a refused connection, a broken transfer |
+| `WRITE` | The file, or its folder, could not be written |
+| `NOFEATURE` | This program was built without HTTP support |
+
+A temporary address handed out by a cloud service, saved and then shown as a
+thumbnail:
+
+```cobol
+           COBOL::"HTTP-DOWNLOAD" ( WS-PHOTO-URL "cache/pet-7.jpg"
+                                    WS-HTTP-CODE WS-STATUS ).
+           EVALUATE WS-STATUS
+               WHEN "OK"
+                   COBOL::"IMAGE-FIT" ( "cache/pet-7.jpg" "cache/pet-7-40.png"
+                                        40 40 WS-STATUS )
+                   MOVE "cache/pet-7-40.png" TO PIC-PET::ImagePath
+               WHEN "HTTP"
+                   MOVE "The server refused the download." TO LBL-MESSAGE::Caption
+               WHEN OTHER
+                   MOVE "The photo could not be fetched." TO LBL-MESSAGE::Caption
+           END-EVALUATE.
+```
+
+> **Note.** A temporary ("pre-signed") address carries its signature — the
+> part that grants access — after the `?`. The runtime never writes that part
+> to a log: when a download fails, the warning names the server and the path
+> only.
+
+> ⚠️ **Caveat.** `HTTP-DOWNLOAD` waits for the download to finish, like the
+> other `HTTP-…` calls — up to a minute. Your program goes no further until it
+> returns, and no other event handler of the form runs meanwhile, so on a form
+> keep downloads small, or few per click.
+
 ### Rust inside COBOL — `EXEC RUST`
 
 `EXEC RUST … END-EXEC` embeds **real Rust**, compiled into your program. Not a
@@ -11470,7 +11665,9 @@ dialect itself, are the database's to judge when the statement runs.
 ## 16. HTTP / REST and AI agents
 
 - **HTTP/REST.** `COBOL::"HTTP-GET"`, `"HTTP-POST"`, `"HTTP-PUT"` and `"HTTP-DELETE"` issue requests;
-  `COBOL::"HTTP-SET-HEADER"` / `COBOL::"HTTP-CLEAR-HEADERS"` manage headers. The
+  `COBOL::"HTTP-SET-HEADER"` / `COBOL::"HTTP-CLEAR-HEADERS"` manage headers;
+  `COBOL::"HTTP-DOWNLOAD"` saves a binary response — a photo, a PDF — straight
+  into a file (see *Downloading a file over HTTP* in §13). The
   **REST Client** non-visual control gives you a designable endpoint with four
   events to bind: `onComplete`, `onError`, `onTimeout` and `onCancelled`.
 - **AI agents.** The **AI Agent** non-visual control models a connection to a
