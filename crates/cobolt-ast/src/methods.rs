@@ -163,6 +163,8 @@ pub fn is_known_method(name: &str) -> bool {
             | "LISTKNOWLEDGEBASES" | "RECORDEVENT" | "RETRIEVE" | "LISTTABLES"
             | "APPENDROWS" | "STARTJOBRUN" | "GETJOBRUN" | "STARTCRAWLER" | "GETTABLESCHEMA"
             | "ANALYZEDOCUMENT" | "CONFIRM" | "DELETEITEM" | "DELETEOBJECT" | "DESCRIBE" | "DETECTENTITIES" | "DETECTFACES" | "DETECTKEYPHRASES" | "DETECTLABELS" | "DETECTLANGUAGE" | "DETECTSENTIMENT" | "DETECTTEXT" | "GETATTRIBUTE" | "GETITEM" | "GETOBJECT" | "LIST" | "PUTITEM" | "PUTOBJECT" | "PUTVECTORS" | "QUERYVECTORS" | "SCAN" | "SIGNIN" | "SIGNOUT" | "SIGNUP" | "SYNTHESIZE" | "UPDATEITEM"
+        // AWS controls (092) — RecognizeCelebrities, ListBuckets, AwsCall.
+            | "RECOGNIZECELEBRITIES" | "LISTBUCKETS" | "AWSCALL"
         // Collection verbs + scalar transforms (exec_member_method)
             | "COUNT" | "SIZE" | "REMOVE" | "ADD" | "APPEND"
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"

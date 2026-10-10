@@ -80,7 +80,7 @@ pub const CONTROLS: &[AwsControl] = &[
     },
     AwsControl {
         name: "AwsMcp",
-        events: &["onToolResult", "onToolsListed", "onComplete", "onError", "onTimeout", "onCancelled"],
+        events: &["onToolResult", "onToolsListed", "onAwsCalled", "onComplete", "onError", "onTimeout", "onCancelled"],
         seeds: &[
             // The route-table server whose tools `Call` reaches.
             ("ServerId", Seed::Str("")),
@@ -166,7 +166,7 @@ pub const CONTROLS: &[AwsControl] = &[
     },
     AwsControl {
         name: "AwsS3",
-        events: &["onListed", "onObject", "onObjectPut", "onObjectDeleted", "onComplete", "onError", "onTimeout", "onCancelled"],
+        events: &["onListed", "onObject", "onObjectPut", "onObjectDeleted", "onBucketsListed", "onComplete", "onError", "onTimeout", "onCancelled"],
         seeds: &[
             ("Bucket", Seed::Str("")),
             ("MaxKeys", Seed::Int(1000)),
@@ -189,7 +189,7 @@ pub const CONTROLS: &[AwsControl] = &[
     },
     AwsControl {
         name: "AwsRekognition",
-        events: &["onLabels", "onTextDetected", "onFaces", "onComplete", "onError", "onTimeout", "onCancelled"],
+        events: &["onLabels", "onTextDetected", "onFaces", "onCelebrities", "onComplete", "onError", "onTimeout", "onCancelled"],
         seeds: &[
             ("MinConfidence", Seed::Int(70)),
         ],

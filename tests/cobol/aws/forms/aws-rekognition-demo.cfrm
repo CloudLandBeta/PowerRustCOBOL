@@ -35,6 +35,12 @@
                ADD 1 TO WS-FAIL
                DISPLAY "FAIL async DetectFaces RowCount: " FUNCTION TRIM(WS-FIELD)
            END-IF
+           IF AWS-REK::GetField(1, "Top") = "0.2"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL DetectFaces Top: " AWS-REK::GetRow(1)
+           END-IF
            .
 ]]></Event>
     <Event name="onComplete" paragraph="AWS-REK--ONCOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -97,6 +103,41 @@
                ADD 1 TO WS-FAIL
                DISPLAY "FAIL bad source refusal: " FUNCTION TRIM(WS-ERR)
            END-IF
+      *> 4. The celebrities in a picture, each face placed as ratios of
+      *>    the picture (spec 092).
+           INVOKE AWS-REK::RecognizeCelebrities("s3://photos/star.jpg")
+           ADD 1 TO WS-CALLS
+           IF AWS-REK::RowCount = 1
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL RecognizeCelebrities RowCount: " AWS-REK::RowCount
+           END-IF
+           IF AWS-REK::GetField(1, "Name") = "Ada Lovelace"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetField(1, Name): " AWS-REK::GetField(1, "Name")
+           END-IF
+           IF AWS-REK::GetField(1, "Left") = "0.25"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL the face's Left: " AWS-REK::GetRow(1)
+           END-IF
+           IF AWS-REK::GetField(1, "Width") = "0.5"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL the face's Width: " AWS-REK::GetRow(1)
+           END-IF
+           IF AWS-REK::GetField(1, "Urls") =
+              "www.wikidata.org/wiki/Q7259 www.imdb.com/name/nm0000001"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetField(1, Urls): " AWS-REK::GetField(1, "Urls")
+           END-IF
            MOVE FUNCTION CURRENT-DATE TO WS-T1
            COMPUTE WS-MS =
                ((FUNCTION NUMVAL(WS-T1(9:2)) * 3600
@@ -134,7 +175,8 @@
                DISPLAY "FAIL event order: " FUNCTION TRIM(WS-ORDER)
            END-IF
            DISPLAY "==== AwsRekognition demo (spec 078) ===="
-           DISPLAY "Operations: DetectLabels, DetectText, DetectFaces (Async), GetField"
+           DISPLAY "Operations: DetectLabels, DetectText, RecognizeCelebrities, DetectFaces (Async), GetField, GetRow"
+           DISPLAY "Rows read:  label Name; text Text; celebrity Name, Urls, Left, Width; face Top"
            DISPLAY "Refusals:   an image naming no object (nothing sent)"
            DISPLAY "Calls made: " WS-CALLS
            DISPLAY "Sync part:  " WS-MS " ms"
