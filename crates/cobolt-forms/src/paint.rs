@@ -7814,14 +7814,129 @@ pub fn cached_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::Tex
     loaded
 }
 
+/// How many times the image loaders touched the disk on this thread — `(reads,
+/// stats)` — for the tests that pin "a missing or undecodable file is not
+/// looked at every frame". Thread-local, because the test harness runs the
+/// frames on the thread that asks.
+#[cfg(test)]
+thread_local! {
+    static IMAGE_DISK_TOUCHES: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+#[cfg(test)]
+pub(crate) fn image_disk_touches() -> (u32, u32) {
+    IMAGE_DISK_TOUCHES.with(|t| t.get())
+}
+
+#[cfg(test)]
+pub(crate) fn reset_image_disk_touches() {
+    IMAGE_DISK_TOUCHES.with(|t| t.set((0, 0)));
+}
+
 pub fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
-    // Project-relative paths are anchored (`assets::resolve`); an absolute one
-    // passes straight through.
-    let bytes = std::fs::read(crate::assets::resolve(path)).ok()?;
-    let ci = decode_image_bytes(path, &bytes)?;
+    let bytes = read_image_file(path).ok()?;
+    texture_from_bytes(ctx, path, &bytes)
+}
+
+/// The bytes of an image file. Project-relative paths are anchored
+/// (`assets::resolve`); an absolute one passes straight through.
+fn read_image_file(path: &str) -> std::io::Result<Vec<u8>> {
+    #[cfg(test)]
+    IMAGE_DISK_TOUCHES.with(|t| t.set((t.get().0 + 1, t.get().1)));
+    std::fs::read(crate::assets::resolve(path))
+}
+
+fn texture_from_bytes(ctx: &egui::Context, path: &str, bytes: &[u8]) -> Option<egui::TextureHandle> {
+    let ci = decode_image_bytes(path, bytes)?;
     // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a Tiled backdrop
     // can also tile inside the corner-notch mask (spec 017).
     Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
+}
+
+/// How soon a picture that is NOT there (or would not decode) is looked for
+/// again, in egui time.
+const IMAGE_RETRY_SECS: f64 = 0.5;
+/// How often a picture that IS there is checked for having been replaced.
+const IMAGE_RECHECK_SECS: f64 = 2.0;
+
+/// What a [`retrying_image_texture`] remembers about one path.
+#[derive(Clone)]
+struct RetriedImage {
+    /// The last picture that decoded. Kept while a newer file fails to, so a
+    /// thumbnail does not flash to its path while it is being rewritten.
+    tex: Option<egui::TextureHandle>,
+    /// Which file the last attempt read: its modification time and length.
+    /// `None` until a file has been READ — an unreadable one is looked at again.
+    seen: Option<(Option<std::time::SystemTime>, u64)>,
+    /// The egui time of the last look at the disk.
+    looked_at: f64,
+}
+
+/// A path's file identity: when it was last written and how long it is.
+/// `None` for a path with no file behind it.
+fn image_file_identity(path: &str) -> Option<(Option<std::time::SystemTime>, u64)> {
+    #[cfg(test)]
+    IMAGE_DISK_TOUCHES.with(|t| t.set((t.get().0, t.get().1 + 1)));
+    let meta = std::fs::metadata(crate::assets::resolve(path)).ok()?;
+    meta.is_file().then(|| (meta.modified().ok(), meta.len()))
+}
+
+/// A texture for the image at `path`, cached under `id` — for a surface whose
+/// picture may be written AFTER the first paint (a DataGrid's thumbnails, which
+/// a program downloads once the grid is up).
+///
+/// The first call loads it, synchronously, as [`load_image_texture`] does. What
+/// differs is what happens next:
+///
+/// * a picture that is **not there** (or not decodable) is not remembered as
+///   failed for the session. The disk is looked at again after
+///   [`IMAGE_RETRY_SECS`] — a metadata probe, never a read — and the file is
+///   read only when its modification time or length differs from the one that
+///   already failed, so undecodable bytes are decoded once. While a picture is
+///   missing the form is asked to wake up for the next look, which an idle
+///   form would otherwise sleep through;
+/// * a picture that **loaded** costs nothing on later frames, and is checked
+///   for having been rewritten every [`IMAGE_RECHECK_SECS`] — a different
+///   modification time or length loads it again. Between checks it is shown
+///   as it was; the check runs when the form repaints, it does not ask for one.
+///
+/// A file replaced by one of the same length within the file system's time
+/// resolution is not noticed. An unreadable file (permissions, another process
+/// holding it) is looked at again at the next probe rather than given up on.
+pub(crate) fn retrying_image_texture(
+    ctx: &egui::Context,
+    id: egui::Id,
+    path: &str,
+) -> Option<egui::TextureHandle> {
+    let now = ctx.input(|i| i.time);
+    let slot = ctx.data(|d| d.get_temp::<RetriedImage>(id));
+    if let Some(slot) = &slot {
+        let every = if slot.tex.is_some() { IMAGE_RECHECK_SECS } else { IMAGE_RETRY_SECS };
+        let waited = now - slot.looked_at;
+        if (0.0..every).contains(&waited) {
+            if slot.tex.is_none() {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(every - waited));
+            }
+            return slot.tex.clone();
+        }
+    }
+    let mut slot = slot.unwrap_or(RetriedImage { tex: None, seen: None, looked_at: now });
+    slot.looked_at = now;
+    if let Some(identity) = image_file_identity(path) {
+        if slot.seen != Some(identity) {
+            if let Ok(bytes) = read_image_file(path) {
+                slot.seen = Some(identity);
+                if let Some(tex) = texture_from_bytes(ctx, path, &bytes) {
+                    slot.tex = Some(tex);
+                }
+            }
+        }
+    }
+    if slot.tex.is_none() {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(IMAGE_RETRY_SECS));
+    }
+    ctx.data_mut(|d| d.insert_temp(id, slot.clone()));
+    slot.tex
 }
 
 fn decode_image_bytes(path: &str, bytes: &[u8]) -> Option<egui::ColorImage> {

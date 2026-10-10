@@ -10427,14 +10427,7 @@ fn render_interactive(
             let bg_image = sv(ctrl, "GridBackgroundImage");
             if !bg_image.trim().is_empty() {
                 let image_id = egui::Id::new(("dg_bg_img", &ctrl.id, bg_image.as_str()));
-                let tex = match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(image_id)) {
-                    Some(t) => t,
-                    None => {
-                        let loaded = paint::load_image_texture(ui.ctx(), bg_image.trim());
-                        ui.data_mut(|d| d.insert_temp(image_id, loaded.clone()));
-                        loaded
-                    }
-                };
+                let tex = paint::retrying_image_texture(ui.ctx(), image_id, bg_image.trim());
                 if let Some(tex) = tex {
                     let mode = BgImageMode::from_str(&sv(ctrl, "GridBackgroundImageMode"));
                     let tsize = tex.size_vec2();
@@ -11716,19 +11709,11 @@ fn render_interactive(
                                 &column.id,
                                 column.background_image.as_str(),
                             ));
-                            let tex = match ui
-                                .data(|d| d.get_temp::<Option<egui::TextureHandle>>(image_id))
-                            {
-                                Some(t) => t,
-                                None => {
-                                    let loaded = paint::load_image_texture(
-                                        ui.ctx(),
-                                        column.background_image.trim(),
-                                    );
-                                    ui.data_mut(|d| d.insert_temp(image_id, loaded.clone()));
-                                    loaded
-                                }
-                            };
+                            let tex = paint::retrying_image_texture(
+                                ui.ctx(),
+                                image_id,
+                                column.background_image.trim(),
+                            );
                             if let Some(tex) = tex {
                                 let dest =
                                     image_dest(cell_rect, tex.size_vec2(), BgImageMode::Fill);
@@ -11799,16 +11784,9 @@ fn render_interactive(
                         let path = raw.trim();
                         if !path.is_empty() {
                             let image_id = egui::Id::new(("dg_cell_img", &ctrl.id, path));
-                            let tex = match ui
-                                .data(|d| d.get_temp::<Option<egui::TextureHandle>>(image_id))
-                            {
-                                Some(t) => t,
-                                None => {
-                                    let loaded = paint::load_image_texture(ui.ctx(), path);
-                                    ui.data_mut(|d| d.insert_temp(image_id, loaded.clone()));
-                                    loaded
-                                }
-                            };
+                            // Not cached as failed: the thumbnail may be written
+                            // after the grid's first paint.
+                            let tex = paint::retrying_image_texture(ui.ctx(), image_id, path);
                             let img_rect = cell_rect.shrink2(vec2(3.0, 3.0));
                             if let Some(tex) = tex {
                                 let dest = image_dest(img_rect, tex.size_vec2(), BgImageMode::Fit);
@@ -12016,15 +11994,7 @@ fn render_interactive(
                         let cell = cell_rect.shrink(2.0);
                         if !path.is_empty() {
                             let cid = egui::Id::new(("dg_img", path));
-                            let tex =
-                                match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(cid)) {
-                                    Some(t) => t,
-                                    None => {
-                                        let loaded = paint::load_image_texture(ui.ctx(), path);
-                                        ui.data_mut(|d| d.insert_temp(cid, loaded.clone()));
-                                        loaded
-                                    }
-                                };
+                            let tex = paint::retrying_image_texture(ui.ctx(), cid, path);
                             if let Some(t) = tex {
                                 let sz = t.size_vec2();
                                 let scale = (cell.width() / sz.x)
@@ -25093,6 +25063,327 @@ mod tests {
             "an icon cell draws its icon, not its value"
         );
         println!("\n  DataGrid -- clicking Bia's trash can reports ClickedRow 2 / ClickedColumn 3; icon: cells draw icons\n");
+    }
+
+    // ── DataGrid Image cells: a file that is not there yet (spec 092 R14) ───────
+
+    /// What one frame of a grid put on the screen that is a PICTURE (a texture
+    /// the application loaded, not the font atlas) and what it asked egui to do
+    /// next.
+    struct PictureFrame {
+        pictures: Vec<(egui::TextureId, Rect)>,
+        texts: Vec<String>,
+        repaint_in: std::time::Duration,
+    }
+
+    /// `frames` frames of one control list, `dt` seconds apart, with `before(i)`
+    /// run ahead of frame `i` — the way to make a file appear, or change, while
+    /// the form is up. The disk-touch counters are reset first, so a test reads
+    /// the touches of its own frames.
+    fn drive_pictures(
+        controls: &[Control],
+        frames: usize,
+        dt: f64,
+        mut before: impl FnMut(usize),
+    ) -> Vec<PictureFrame> {
+        fn walk(shape: &egui::Shape, out: &mut PictureFrame) {
+            match shape {
+                egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() => {
+                    out.pictures.push((m.texture_id, m.calc_bounds()));
+                }
+                egui::Shape::Rect(r) if r.fill_texture_id() != egui::TextureId::default() => {
+                    out.pictures.push((r.fill_texture_id(), r.rect));
+                }
+                egui::Shape::Text(t) => out.texts.push(t.galley.text().to_owned()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        crate::paint::reset_image_disk_touches();
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mut out = Vec::new();
+        for i in 0..frames {
+            before(i);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * dt);
+            let st = MapState(&overrides);
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(400.0, 300.0));
+                    let inp = RenderInput {
+                        controls,
+                        state: &st,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    render_form(ui, &inp);
+                });
+            });
+            full.textures_delta.clear();
+            let mut frame = PictureFrame {
+                pictures: Vec::new(),
+                texts: Vec::new(),
+                repaint_in: full
+                    .viewport_output
+                    .get(&egui::ViewportId::ROOT)
+                    .map(|v| v.repaint_delay)
+                    .unwrap_or(std::time::Duration::MAX),
+            };
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut frame);
+            }
+            out.push(frame);
+        }
+        out
+    }
+
+    /// A grid with ONE column whose cells are pictures: the cell value is the
+    /// file's path. `how` picks the way the column says so — the designer's
+    /// column editor writes `edit_control "Image"`; a hand-written or generated
+    /// form may write `control_kind "Image"`, which takes precedence; or the
+    /// `Columns` type (`image`, `img`, `picture`).
+    fn picture_grid(how: &str, paths: &[&str]) -> Control {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let rows = paths.join("\n");
+        let mut props: Vec<(String, String)> = vec![
+            ("Rows".into(), rows),
+            ("ShowCSVExportButton".into(), "false".into()),
+            ("RowHeight".into(), "40".into()),
+        ];
+        if how == "control_kind" || how == "edit_control" {
+            let mut advanced = DataGridAdvanced::default();
+            let mut column = DataGridColumn {
+                id: "Photo".into(),
+                title: "Photo".into(),
+                source_name: "Photo".into(),
+                value_type: "string".into(),
+                width: 120.0,
+                ..DataGridColumn::default()
+            };
+            if how == "control_kind" {
+                column.control_kind = "Image".into();
+            } else {
+                column.edit_control = "Image".into();
+            }
+            advanced.columns.push(column);
+            props.push(("Columns".into(), "Photo:string".into()));
+            props.push((DATAGRID_ADVANCED_PROP.into(), advanced.to_json().unwrap()));
+        } else {
+            props.push(("Columns".into(), format!("Photo:{how}")));
+        }
+        let borrowed: Vec<(&str, &str)> = props.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        ctrlp("DG", ControlType::DataGrid, 20, 20, 300, 200, &borrowed)
+    }
+
+    fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: [u8; 4]) {
+        image::RgbaImage::from_pixel(w, h, image::Rgba(rgba)).save(path).unwrap();
+    }
+
+    /// A thumbnail that a program downloads AFTER the grid is on screen — the
+    /// PowerCloud case — appears once the file exists. The grid used to
+    /// remember the first, failed load for the rest of the session, so the
+    /// cell kept showing its path for as long as the form was open.
+    ///
+    /// The file is looked for again at least every half second, so the picture
+    /// is drawn by the first repaint after that — never later — and never
+    /// before the file exists. Both ways of declaring an Image column are
+    /// covered, because each has its own cell painter.
+    #[test]
+    fn a_datagrid_image_cell_shows_a_file_that_appears_after_the_first_paint() {
+        for how in ["edit_control", "control_kind", "image", "img", "picture"] {
+            let dir = tempfile::tempdir().unwrap();
+            let thumb = dir.path().join("thumb-1.png");
+            let path = thumb.to_str().unwrap().to_owned();
+            let grid = picture_grid(how, &[&path]);
+
+            let arrives_at = 6; // frame 6 = 0.30 s
+            let frames = drive_pictures(&[grid], 40, 0.05, |i| {
+                if i == arrives_at {
+                    write_png(&thumb, 8, 8, [200, 30, 30, 255]);
+                }
+            });
+
+            let first = frames.iter().position(|f| !f.pictures.is_empty());
+            let first = first.unwrap_or_else(|| panic!("{how}: the thumbnail never appeared"));
+            assert!(first >= arrives_at, "{how}: drawn at frame {first}, before the file existed (frame {arrives_at})");
+            // 0.5 s of retry window = 10 frames of 0.05 s, plus the repaint itself.
+            assert!(first <= arrives_at + 11, "{how}: drawn only at frame {first}; the file arrived at {arrives_at}");
+            // The Image kind shows the path meanwhile, so the cell is never silently blank.
+            if how == "control_kind" || how == "edit_control" {
+                assert!(
+                    frames[0].texts.iter().any(|t| t.contains("thumb-1.png")),
+                    "{how}: the missing file's path is shown meanwhile"
+                );
+            }
+            // and once drawn it stays drawn, inside the grid, on every later frame.
+            for (n, f) in frames.iter().enumerate().skip(first) {
+                assert_eq!(f.pictures.len(), 1, "{how}: frame {n} draws the thumbnail exactly once");
+                let rect = f.pictures[0].1;
+                assert!(rect.width() > 4.0 && rect.height() > 4.0, "{how}: frame {n}: a real picture, got {rect:?}");
+                assert!(
+                    Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(300.0, 200.0)).contains_rect(rect),
+                    "{how}: frame {n}: the picture stays inside the grid, got {rect:?}"
+                );
+            }
+            // A successful load is free afterwards: one read, and the file is
+            // only looked at again every couple of seconds to see whether it changed.
+            let (reads, stats) = crate::paint::image_disk_touches();
+            assert_eq!(reads, 1, "{how}: the file is decoded once, not every frame");
+            assert!(stats <= 4, "{how}: {stats} metadata probes in 40 frames (2 s)");
+            println!("  DataGrid Image cell ({how}): file arrived at frame {arrives_at}, drawn at frame {first}; {reads} read, {stats} probes over 40 frames");
+        }
+    }
+
+    /// The grid's own backdrop and a column's background picture were cached
+    /// the same way, so a backdrop written after the first paint never showed
+    /// either: the same retry, the same reads.
+    #[test]
+    fn a_datagrid_background_picture_also_waits_for_a_file_that_is_not_there_yet() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let dir = tempfile::tempdir().unwrap();
+        let grid_bg = dir.path().join("grid-bg.png");
+        let col_bg = dir.path().join("col-bg.png");
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "Name".into(),
+            title: "Name".into(),
+            source_name: "Name".into(),
+            value_type: "string".into(),
+            width: 120.0,
+            background_image: col_bg.to_str().unwrap().into(),
+            ..DataGridColumn::default()
+        });
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("Columns", "Name:string"),
+                ("Rows", "Ana\nBia"),
+                ("ShowCSVExportButton", "false"),
+                ("RowHeight", "40"),
+                ("GridBackgroundImage", grid_bg.to_str().unwrap()),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        let frames = drive_pictures(&[grid], 40, 0.05, |i| {
+            if i == 6 {
+                write_png(&grid_bg, 8, 8, [200, 30, 30, 255]);
+                write_png(&col_bg, 8, 8, [30, 30, 200, 255]);
+            }
+        });
+        assert!(frames[..6].iter().all(|f| f.pictures.is_empty()), "nothing to draw yet");
+        let last = &frames[39];
+        // The backdrop, and the column picture behind each of the two rows.
+        assert_eq!(last.pictures.len(), 3, "backdrop + one per row: {:?}", last.pictures);
+        let (reads, stats) = crate::paint::image_disk_touches();
+        assert_eq!(reads, 2, "each file is decoded once, however many cells show it");
+        println!("  DataGrid backdrop + column picture, files arrive late: {reads} reads, {stats} probes over 40 frames");
+    }
+
+    /// A file that never appears is looked for on a schedule, not every frame:
+    /// no read at all (there is no file), a handful of metadata probes, and an
+    /// idle form is asked to wake in time for the next one.
+    #[test]
+    fn a_datagrid_image_cell_with_no_file_does_not_hit_the_disk_every_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("never.png").to_str().unwrap().to_owned();
+        let grid = picture_grid("control_kind", &[&path]);
+        let frames = drive_pictures(&[grid], 120, 0.05, |_| {}); // 6 s
+        let (reads, stats) = crate::paint::image_disk_touches();
+        assert!(frames.iter().all(|f| f.pictures.is_empty()), "no file, no picture");
+        assert!(frames.iter().all(|f| f.texts.iter().any(|t| t.contains("never.png"))), "its path is shown instead");
+        assert_eq!(reads, 0, "a file that is not there is never read");
+        // First look + one per half second = 13 at most; a probe per frame would be 120.
+        assert!(stats <= 14, "{stats} metadata probes in 120 frames (6 s)");
+        assert!(stats >= 5, "but it IS looked for again: {stats} probes in 6 s");
+        // An idle form sleeps between repaints: the grid asks to be woken.
+        let asked = frames.iter().filter(|f| f.repaint_in <= std::time::Duration::from_millis(500)).count();
+        assert!(asked >= frames.len() - 1, "every frame schedules the next look; only {asked} of {} did", frames.len());
+        println!("  DataGrid Image cell, file never appears: {reads} reads, {stats} probes over 120 frames (6 s)");
+    }
+
+    /// A file that is there but is not a picture is decoded ONCE: the grid
+    /// remembers which bytes it already gave up on, and decodes again only when
+    /// the file changes — then it shows the picture.
+    #[test]
+    fn a_datagrid_image_cell_with_an_undecodable_file_is_not_decoded_every_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        let thumb = dir.path().join("broken.png");
+        std::fs::write(&thumb, b"this is not a picture").unwrap();
+        let path = thumb.to_str().unwrap().to_owned();
+        let grid = picture_grid("control_kind", &[&path]);
+
+        let fixed_at = 73; // 3.65 s
+        let frames = drive_pictures(&[grid], 100, 0.05, |i| {
+            if i == fixed_at {
+                write_png(&thumb, 8, 8, [30, 30, 200, 255]);
+            }
+        });
+        assert!(frames[..fixed_at].iter().all(|f| f.pictures.is_empty()), "garbage draws nothing");
+        assert!(frames[..fixed_at].iter().all(|f| f.texts.iter().any(|t| t.contains("broken.png"))));
+        let first = frames.iter().position(|f| !f.pictures.is_empty()).expect("the repaired file appears");
+        assert!(first > fixed_at && first <= fixed_at + 11, "repaired at {fixed_at}, drawn at {first}");
+        let (reads, stats) = crate::paint::image_disk_touches();
+        assert_eq!(reads, 2, "decoded once as garbage, once repaired — not every frame");
+        assert!(stats <= 16, "{stats} metadata probes in 100 frames (5 s)");
+        println!("  DataGrid Image cell, undecodable then repaired: {reads} reads, {stats} probes over 100 frames (5 s)");
+    }
+
+    /// A thumbnail regenerated at the SAME path — new bytes, same name — shows
+    /// the new picture. The grid keys what it loaded by path, so the file's
+    /// modification time and size are checked (every couple of seconds, not
+    /// every frame) and a different pair loads it again.
+    #[test]
+    fn a_datagrid_image_cell_follows_a_file_rewritten_at_the_same_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let thumb = dir.path().join("avatar.png");
+        write_png(&thumb, 8, 4, [200, 30, 30, 255]); // wide
+        let path = thumb.to_str().unwrap().to_owned();
+        let grid = picture_grid("control_kind", &[&path]);
+
+        let rewritten_at = 20; // 1.0 s
+        let mut sizes = (0, 0);
+        let frames = drive_pictures(&[grid], 100, 0.05, |i| {
+            if i == rewritten_at {
+                sizes.0 = std::fs::metadata(&thumb).unwrap().len();
+                write_png(&thumb, 4, 40, [30, 200, 30, 255]); // tall, and bigger
+                sizes.1 = std::fs::metadata(&thumb).unwrap().len();
+            }
+        });
+        assert_ne!(sizes.0, sizes.1, "the test needs the two files to differ in size");
+        let before = &frames[0].pictures;
+        assert_eq!(before.len(), 1, "the first picture is drawn at once");
+        assert!(before[0].1.width() > before[0].1.height(), "wide: {:?}", before[0].1);
+        let changed = frames
+            .iter()
+            .position(|f| f.pictures.first().is_some_and(|p| p.0 != before[0].0))
+            .expect("the rewritten file is shown");
+        assert!(changed > rewritten_at, "not before it was rewritten");
+        // Re-checked every 2 s (40 frames): shown by the first check after the rewrite.
+        assert!(changed <= rewritten_at + 41, "rewritten at {rewritten_at}, shown at {changed}");
+        let now = &frames[changed].pictures[0].1;
+        assert!(now.height() > now.width(), "tall now: {now:?}");
+        for (n, f) in frames.iter().enumerate().skip(changed) {
+            assert_eq!(f.pictures.len(), 1, "frame {n}");
+            assert!(f.pictures[0].0 != before[0].0, "frame {n}: stays on the new picture");
+        }
+        let (reads, stats) = crate::paint::image_disk_touches();
+        assert_eq!(reads, 2, "decoded when first seen and once more when it changed");
+        assert!(stats <= 6, "{stats} metadata probes in 100 frames (5 s) for a loaded picture");
+        println!("  DataGrid Image cell, rewritten in place: rewritten at frame {rewritten_at}, new picture at frame {changed}; {reads} reads, {stats} probes over 100 frames (5 s)");
     }
 
     /// `AllowCellEditing`: a double-click opens the cell in a text box, Enter
