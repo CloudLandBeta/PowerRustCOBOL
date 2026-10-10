@@ -87,13 +87,21 @@ agent whose output they check, so `ensure_tandem_reviewer` (which begins by
 looking up an owner) cannot create it.
 
 Its model is seeded to a profile that is *not* the project default where a
-second profile exists. `reviewer_configured` refuses a reviewer identical to the
-primary, so a judge on the same model would silently return the run to
-self-scoring. Where only one model is configured the judge is still seeded and
-the run reports itself **unjudged**, which is a visible problem rather than a
-hidden one.
+second profile exists. (This paragraph once justified that by
+`reviewer_configured` refusing a reviewer identical to the primary; that refusal
+was lifted on 2026-09-27, so the preference is now only a default — a second
+opinion is nicer — and the judge may run any model.) Where only one model is
+configured the judge is seeded with it and judges on it.
 
-### R10 — Model separation (1.60.0)
+### R10 — Model separation (1.60.0) — LIFTED 2026-10-10
+
+> **Lifted by the operator (2026-10-10): any agent may run any model, and one
+> single model may serve every agent** — Grace, the Judge, the specialists and
+> the reviewers. `ModelClash`, `ModelSeparation`, `AgentsDb::model_separation`
+> and `AgentsDb::model_is_reserved` are gone with the Agents Manager warnings
+> and the per-row "Reserved for" label that surfaced them; the Judge is attached
+> to a benchmark of the very model it runs (`AgentsDb::attach_proficiency_judge`).
+> The text below is the rule as it stood, kept as history.
 
 A model cannot judge, or orchestrate, work it also performed.
 
