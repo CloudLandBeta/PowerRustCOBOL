@@ -1,0 +1,316 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# PowerCloud — the cloud side of the PowerRustCOBOL AI example.
+#
+# What it creates
+#   * a private, encrypted S3 bucket for the pet photos (objects under photos/);
+#   * a small Lambda function, powercloud-presign, that hands out a short-lived
+#     download link for one photo (this is the "temporary URL" the DynamoDB tab uses);
+#   * an IAM managed policy with exactly what the person who runs the demo needs;
+#   * optionally the DynamoDB table of pets (the DynamoDB tab can also create it itself);
+#   * optionally one small demo EC2 instance for the EC2 tab to list, start and stop.
+#
+# How to run it
+#   Deploy with credentials that may create IAM roles and policies (an administrator, or
+#   the PowerCloud Settings tab with such credentials), in the region you will use for the
+#   demo. Then attach the managed policy printed in the stack's Outputs to the user (or role)
+#   that PowerCloud will sign in as - that user needs nothing else.
+#
+#     aws cloudformation deploy --template-file powercloud.yaml --stack-name powercloud \
+#         --capabilities CAPABILITY_IAM
+#
+# Cost: the bucket, the function and the table (on-demand) cost nothing while idle. The demo
+# instance, if you ask for one, is a t3.micro that bills while it runs: stop it from the EC2 tab.
+# Deleting the stack: empty the bucket first (CloudFormation will not delete a bucket that holds
+# objects), then delete the stack.
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: PowerCloud demo for PowerRustCOBOL AI - photo bucket, temporary-link function, operator policy.
+
+Parameters:
+  BucketPrefix:
+    Type: String
+    Default: powercloud-photos
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$"
+    ConstraintDescription: 3-32 characters, lower-case letters, digits and hyphens.
+    Description: >-
+      Start of the bucket name. The account id and the region are appended, because a bucket
+      name is unique across all of AWS.
+  FunctionName:
+    Type: String
+    Default: powercloud-presign
+    AllowedPattern: "^powercloud-[a-zA-Z0-9-]{1,40}$"
+    ConstraintDescription: Must start with powercloud- (the application finds its function by that prefix).
+    Description: Name of the temporary-link function. Keep the powercloud- prefix.
+  TableName:
+    Type: String
+    Default: PowerCloudPets
+    AllowedPattern: "^[a-zA-Z0-9_.-]{3,64}$"
+    Description: Name of the DynamoDB table of pets.
+  CreateTable:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the pets table here. Leave it "false" if you will press Create table on the
+      DynamoDB tab (the application creates it, once, itself); set "true" to have the stack own it.
+  CreateDemoInstance:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Launch one t3.micro Amazon Linux instance (tagged PowerCloud=demo) in the default VPC for the
+      EC2 tab to list, start and stop. It bills while it runs.
+  UrlLifetimeSeconds:
+    Type: Number
+    Default: 900
+    MinValue: 60
+    MaxValue: 3600
+    Description: How long a temporary photo link stays valid.
+
+Conditions:
+  MakeTable:
+    Fn::Equals: [{Ref: CreateTable}, "true"]
+  MakeInstance:
+    Fn::Equals: [{Ref: CreateDemoInstance}, "true"]
+
+Resources:
+
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName:
+        Fn::Sub: "${BucketPrefix}-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: abandoned-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      Tags:
+        - Key: PowerCloud
+          Value: demo
+
+  # Only HTTPS may touch the bucket.
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: {Ref: PhotoBucket}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - Fn::GetAtt: [PhotoBucket, Arn]
+              - Fn::Sub: "${PhotoBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": "false"
+
+  PresignRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-photos
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "s3:GetObject"
+                Resource:
+                  Fn::Sub: "${PhotoBucket.Arn}/photos/*"
+      Tags:
+        - Key: PowerCloud
+          Value: demo
+
+  # The function the DynamoDB tab calls for a photo's temporary link. It signs a GET for one
+  # object under photos/ with its own role, so the person using PowerCloud never needs
+  # permission to read photos directly through the link.
+  PresignFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: {Ref: FunctionName}
+      Description: PowerCloud - returns a short-lived download link for one pet photo.
+      Runtime: python3.12
+      Handler: index.handler
+      Role:
+        Fn::GetAtt: [PresignRole, Arn]
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          BUCKET: {Ref: PhotoBucket}
+          EXPIRES:
+            Fn::Sub: "${UrlLifetimeSeconds}"
+      Code:
+        ZipFile: |
+          import os
+          import boto3
+          from botocore.config import Config
+
+          s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
+
+          def handler(event, context):
+              # event: {"key": "photos/<id>.jpg", "expires": 900}   ("expires" is optional)
+              event = event or {}
+              key = str(event.get("key", ""))
+              if not key.startswith("photos/") or ".." in key or len(key) > 200:
+                  return {"error": "the key must be an object under photos/"}
+              expires = int(event.get("expires") or os.environ.get("EXPIRES", "900"))
+              expires = max(60, min(expires, 3600))
+              url = s3.generate_presigned_url(
+                  "get_object",
+                  Params={"Bucket": os.environ["BUCKET"], "Key": key},
+                  ExpiresIn=expires,
+              )
+              return {"url": url, "expires": expires}
+      Tags:
+        - Key: PowerCloud
+          Value: demo
+
+  PetsTable:
+    Type: AWS::DynamoDB::Table
+    Condition: MakeTable
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TableName: {Ref: TableName}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      Tags:
+        - Key: PowerCloud
+          Value: demo
+
+  DemoInstance:
+    Type: AWS::EC2::Instance
+    Condition: MakeInstance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      InstanceInitiatedShutdownBehavior: stop
+      MetadataOptions:
+        HttpTokens: required
+      Tags:
+        - Key: Name
+          Value: PowerCloud-demo
+        - Key: PowerCloud
+          Value: demo
+
+  # Everything the person who runs PowerCloud needs, and nothing more.
+  OperatorPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: What the PowerCloud example needs - attach it to the user or role it signs in as.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PhotosInTheBucket
+            Effect: Allow
+            Action: ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+            Resource:
+              Fn::Sub: "${PhotoBucket.Arn}/photos/*"
+          - Sid: ListTheBucket
+            Effect: Allow
+            Action: "s3:ListBucket"
+            Resource:
+              Fn::GetAtt: [PhotoBucket, Arn]
+          - Sid: ChooseABucket
+            Effect: Allow
+            Action: "s3:ListAllMyBuckets"
+            Resource: "*"
+          - Sid: PetsTable
+            Effect: Allow
+            Action:
+              - "dynamodb:CreateTable"
+              - "dynamodb:DescribeTable"
+              - "dynamodb:PutItem"
+              - "dynamodb:GetItem"
+              - "dynamodb:UpdateItem"
+              - "dynamodb:DeleteItem"
+              - "dynamodb:Scan"
+              - "dynamodb:Query"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:dynamodb:*:${AWS::AccountId}:table/${TableName}"
+          - Sid: TemporaryLinks
+            Effect: Allow
+            Action: "lambda:InvokeFunction"
+            Resource:
+              Fn::GetAtt: [PresignFunction, Arn]
+          - Sid: FindTheFunction
+            Effect: Allow
+            Action: ["lambda:ListFunctions", "lambda:GetFunction"]
+            Resource: "*"
+          - Sid: Speech
+            Effect: Allow
+            Action: ["polly:SynthesizeSpeech", "polly:DescribeVoices"]
+            Resource: "*"
+          - Sid: Celebrities
+            Effect: Allow
+            Action: "rekognition:RecognizeCelebrities"
+            Resource: "*"
+          - Sid: SeeTheServers
+            Effect: Allow
+            Action: ["ec2:DescribeInstances", "ec2:DescribeRegions"]
+            Resource: "*"
+          - Sid: SwitchTheDemoServers
+            Effect: Allow
+            Action: ["ec2:StartInstances", "ec2:StopInstances"]
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:instance/*"
+            Condition:
+              StringEquals:
+                "aws:ResourceTag/PowerCloud": demo
+          - Sid: DeployThisStack
+            Effect: Allow
+            Action: ["cloudformation:DescribeStacks", "cloudformation:DescribeStackEvents"]
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/powercloud*/*"
+
+Outputs:
+  BucketName:
+    Description: The photo bucket (PowerCloud's S3 tab and DynamoDB tab use it).
+    Value: {Ref: PhotoBucket}
+  FunctionName:
+    Description: The temporary-link function. Its name starts with powercloud-, which is how the application finds it.
+    Value: {Ref: PresignFunction}
+  TableName:
+    Description: The DynamoDB table of pets.
+    Value: {Ref: TableName}
+  OperatorPolicyArn:
+    Description: Attach this managed policy to the user or role PowerCloud signs in as.
+    Value: {Ref: OperatorPolicy}
+  DemoInstanceId:
+    Condition: MakeInstance
+    Description: The demo instance (tagged PowerCloud=demo).
+    Value: {Ref: DemoInstance}
