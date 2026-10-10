@@ -2508,6 +2508,9 @@ fn build_core(
     if !features.images {
         log("   no IMAGE-FIT / IMAGE-INFO call — building without the picture built-ins");
     }
+    if !features.audio {
+        log("   no AUDIO verb reached — building without sound (no ALSA needed on Linux)");
+    }
     // Spec 068 — the built-in semantic model only on request, and only for an
     // application that has a Knowledge Base to use it.
     let features = runtime_features::RuntimeFeatures {
@@ -4625,6 +4628,11 @@ The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API
 | Method | Arguments, in order | What it does |
 |---|---|---|
 | `COBOL::"APPEND-FILE"` | path in, text in, [status out] | Append a line of text to a file, creating it if missing |
+| `COBOL::"AUDIO-PAUSE"` | [status out] | Pause the sound that is playing; its position holds |
+| `COBOL::"AUDIO-PLAY"` | file in, [status out] | Play an MP3, OGG Vorbis, WAV or FLAC file, replacing any sound already playing |
+| `COBOL::"AUDIO-RESUME"` | [status out] | Resume a paused sound from where it was paused |
+| `COBOL::"AUDIO-STATE"` | state out, [position-ms out], [duration-ms out] | IDLE, PLAYING, PAUSED, ENDED or ERROR, with the position and length in milliseconds |
+| `COBOL::"AUDIO-STOP"` | [status out] | Stop the sound and return to IDLE |
 | `COBOL::"AWS-CLEAR-CREDENTIALS"` | connection in, [status out] | Forget the AWS keys set for a connection and end the server that held them |
 | `COBOL::"AWS-CREDENTIALS-SET"` | connection in, flag out | Whether AWS keys are set for a connection: Y or N (never the keys) |
 | `COBOL::"AWS-SET-CREDENTIALS"` | connection in, key-id in, secret in, token in, [status out] | Give a connection AWS keys for this run, kept in memory only (never read back) |
@@ -4691,6 +4699,29 @@ Each answers with ONE status word in its last argument; test the word, never a m
 - **`IMAGE-INFO`** reads only the header: width and height as numbers (the UPRIGHT size — a camera photo stored sideways with an EXIF rotation reports its upright size, the picture `IMAGE-FIT` works on), the format name. Words: `OK`, `NOFILE`, `BADIMAGE`, `NOFEATURE`; on a refusal the size is 0 × 0 and the format spaces.
 - **`HTTP-DOWNLOAD`** fetches an `http://`/`https://` address AS BYTES (unlike `HTTP-GET`, whose response is text and capped). It follows up to 5 redirects (an `Authorization` header is not carried across one), sends only the headers set with `HTTP-SET-HEADER`, gives up after 60 seconds in total, refuses more than 256 MB, and writes through `<file>.part`, renamed when complete — a failure leaves no `.part` and an existing file untouched. `http-status` receives the server's code (0 when none came back). Words: `OK`, `BADURL`, `TIMEOUT`, `TOOBIG`, `HTTP` (a 4xx/5xx answer, or more than 5 redirects), `WRITE`, `NET` (no connection), `NOFEATURE`. The address's query string — where a pre-signed URL keeps its signature — never appears in a log.
 - `NOFEATURE` means the program was built without the picture or HTTP support. A build that calls these by their literal name always has it; only a CALL whose target is assembled at run time could meet it.
+
+### Sound — the `AUDIO-…` built-ins
+Any program, console or form, can play a sound file; there is no audio control. An audio player in a form is composed from ordinary controls: Play/Pause/Stop buttons, a ProgressBar and a Label, refreshed from a Timer's `onTick` that calls `COBOL::"AUDIO-STATE"`.
+
+- **One sound per application.** `AUDIO-PLAY` replaces whatever was playing, and every form reads the same player — a form can show the progress of a sound another form started. The sound stops when the program (form) that started it ends.
+- **Formats:** MP3, OGG Vorbis, WAV and FLAC, recognised by their content (the extension is only a hint).
+- **Status words** (the optional last argument of PLAY/PAUSE/RESUME/STOP; declare `PIC X(10)`): `OK`; `NOFILE` (missing, a folder, or unreadable); `BADFORMAT` (not sound in one of the four formats, or damaged); `NODEVICE` (no output device could be opened); `NOFEATURE` (the program was built without sound — only possible when the verb's name is computed at run time); `ERROR` (PAUSE/RESUME with nothing to pause or resume, or the player failed).
+- **State words** (`AUDIO-STATE`'s first argument; `PIC X(10)`): `IDLE` (nothing played yet, or stopped), `PLAYING`, `PAUSED` (the position holds), `ENDED` (played to its end; the position equals the length), `ERROR` (the last `AUDIO-PLAY` failed). Position and length are whole milliseconds (declare `PIC 9(7)` or larger); the length is `0` while the file does not declare it (some MP3s) and becomes known when the sound ends.
+- PAUSE on a paused sound and RESUME on a playing one answer `OK`; STOP always answers `OK` and returns to `IDLE`. A failed PLAY also ends the sound that was playing.
+- `COBOLT_AUDIO=null` in the environment plays on a **null output**: the file is decoded as usual and a clock "plays" it for its length, so states and positions behave exactly as with a sound card. Use it for tests and for machines without sound; without it, a machine with no output device answers `NODEVICE`.
+- On **Linux**, sound uses ALSA: building a program that plays sound needs `libasound2-dev` (Debian/Ubuntu) or `alsa-lib-devel` (Fedora), and running it needs `libasound2`. macOS and Windows need nothing. A program that never calls an `AUDIO-…` verb is built without sound and needs neither.
+
+```cobol
+      *> Play, then report progress (e.g. from a Timer's onTick).
+           COBOL::"AUDIO-PLAY" ( WS-FILE WS-STATUS )
+           IF WS-STATUS NOT = "OK"
+               MOVE WS-STATUS TO LBL-TIME::Caption
+           END-IF
+           COBOL::"AUDIO-STATE" ( WS-STATE WS-POS-MS WS-LEN-MS )
+           IF WS-LEN-MS > 0
+               COMPUTE PRG-PLAY::Value = WS-POS-MS * 100 / WS-LEN-MS
+           END-IF
+```
 
 ## Value Conventions (types and domains)
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.

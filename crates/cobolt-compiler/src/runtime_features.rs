@@ -77,6 +77,16 @@ const IMAGE_CALLS: &[&str] = &["COBOL-IMAGE-FIT", "COBOL-IMAGE-INFO"];
 /// Rust paths a block would name to reach the Maps runtime directly.
 const MAPS_RUST_PATHS: &[&str] = &["maps_bridge", "google_maps"];
 
+/// Spec 092 — the sound built-ins. A program naming any of these needs the
+/// audio runtime, and on Linux the ALSA development files to build it.
+const AUDIO_CALLS: &[&str] = &[
+    "COBOL-AUDIO-PLAY",
+    "COBOL-AUDIO-PAUSE",
+    "COBOL-AUDIO-RESUME",
+    "COBOL-AUDIO-STOP",
+    "COBOL-AUDIO-STATE",
+];
+
 /// What a program needs linked, unioned across every program in the build.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RuntimeFeatures {
@@ -113,6 +123,10 @@ pub struct RuntimeFeatures {
     /// `image` anyway (through `cobolt-forms`' renderer), so this is what a
     /// console program sheds.
     pub images: bool,
+    /// Spec 092 — the sound built-ins (`rodio`). Pure Rust on macOS and
+    /// Windows; on Linux it needs ALSA to build and `libasound2` to run, so
+    /// only a program that calls an `AUDIO-…` verb links it. No control does.
+    pub audio: bool,
 }
 
 impl RuntimeFeatures {
@@ -129,6 +143,7 @@ impl RuntimeFeatures {
             office: true,
             aws: true,
             images: true,
+            audio: true,
         }
     }
 
@@ -145,6 +160,7 @@ impl RuntimeFeatures {
             office: self.office || other.office,
             aws: self.aws || other.aws,
             images: self.images || other.images,
+            audio: self.audio || other.audio,
         }
     }
 
@@ -183,6 +199,9 @@ impl RuntimeFeatures {
         }
         if self.images {
             names.push("\"images\"");
+        }
+        if self.audio {
+            names.push("\"audio\"");
         }
         names.join(", ")
     }
@@ -262,6 +281,9 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
                     if IMAGE_CALLS.contains(&upper.as_str()) {
                         found.images = true;
                     }
+                    if AUDIO_CALLS.contains(&upper.as_str()) {
+                        found.audio = true;
+                    }
                 }
                 // The verb is computed at run time. Nothing in the source says
                 // what it will be, so the build can rule nothing out.
@@ -306,6 +328,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         office: source.contains("cobolt_docs"),
         aws: source.contains("cobolt_runtime::aws"),
         images: source.contains("image_runtime"),
+        audio: source.contains("audio_runtime"),
     }
 }
 
@@ -549,7 +572,7 @@ mod tests {
         assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
         assert_eq!(
             all.as_toml_features(),
-            "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\""
+            "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\", \"audio\""
         );
     }
 
@@ -652,6 +675,26 @@ mod tests {
         assert!(scan_rust("let c = cobolt_runtime::aws::connections::find(\"x\");").aws);
     }
 
+    /// Spec 092 R17 — every sound verb, by its literal name, links the audio
+    /// runtime, and nothing else does: a program that never plays a sound
+    /// needs no ALSA to build on Linux.
+    #[test]
+    fn a_literal_audio_call_links_sound_and_nothing_else_does() {
+        for verb in AUDIO_CALLS {
+            let f = scan(&prog(&format!("    CALL \"{verb}\" USING WS-VERB.\n    STOP RUN.")));
+            assert!(f.audio, "{verb} should link the audio runtime");
+            assert_eq!(f.as_toml_features(), "\"audio\"", "{verb} links sound alone");
+        }
+        // The inline spelling is the same CALL.
+        let inline = scan(&prog("    COBOL::\"AUDIO-PLAY\" ( \"a.mp3\" WS-S ).\n    STOP RUN."));
+        assert!(inline.audio, "COBOL::\"AUDIO-PLAY\" is CALL \"COBOL-AUDIO-PLAY\"");
+        assert!(!scan(&prog("    DISPLAY \"COBOL-AUDIO-PLAY\".\n    STOP RUN.")).audio, "a literal is not a call");
+        assert!(!scan(&prog("    CALL \"COBOL-HTTP-GET\" USING WS-VERB WS-VERB WS-H.\n    STOP RUN.")).audio);
+        assert!(!scan_forms([&form_with(cobolt_forms::ControlType::Button)]).audio, "no control plays sound");
+        assert!(scan_rust("cobolt_runtime::audio_runtime::AudioHandle::new();").audio);
+        assert!(!scan_rust("println!(\"audio\");").audio);
+    }
+
     fn control(id: &str, kind: cobolt_forms::ControlType) -> cobolt_forms::Control {
         cobolt_forms::Control::new(id, kind, 0, 0)
     }
@@ -684,7 +727,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\", \"audio\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 
