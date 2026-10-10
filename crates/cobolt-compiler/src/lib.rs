@@ -2505,6 +2505,9 @@ fn build_core(
     if !features.aws {
         log("   no AWS control — building without the AWS client");
     }
+    if !features.images {
+        log("   no IMAGE-FIT / IMAGE-INFO call — building without the picture built-ins");
+    }
     // Spec 068 — the built-in semantic model only on request, and only for an
     // application that has a Knowledge Base to use it.
     let features = runtime_features::RuntimeFeatures {
@@ -4605,7 +4608,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
   Several receiving fields under one `MOVE` remain perfectly legal when every one of them IS a receiver: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.` correctly writes the edited item AND the `X` property. Only a method among the receivers is the defect. The fix is a period on the preceding statement, or the explicit `INVOKE <control> "<method>" USING <parameters>` form, which cannot be read as a receiving field.
 
 ## RustCOBOL built-ins — the `COBOL` object
-The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the model list, charts, data bindings — are the methods of the **`COBOL` object**, and are written INLINE:
+The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API keys, the model list, charts, data bindings — are the methods of the **`COBOL` object**, and are written INLINE:
 
 ```cobol
            COBOL::"MODEL-LIST" ( WS-PROV-ID WS-CUR-URL WS-KEY WS-N WS-STATUS )
@@ -4643,10 +4646,13 @@ The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the
 | `COBOL::"GET-PROPERTY"` | object in, property in, value out | Read a control's property into a data item |
 | `COBOL::"HTTP-CLEAR-HEADERS"` | — | Remove every header set with HTTP-SET-HEADER |
 | `COBOL::"HTTP-DELETE"` | url in, response out, http-status out | Send an HTTP DELETE; returns the body and status code |
+| `COBOL::"HTTP-DOWNLOAD"` | url in, file in, http-status out, status out | Save what a URL returns, AS BYTES, into a file (pictures, PDFs, archives); status `OK` or an error word |
 | `COBOL::"HTTP-GET"` | url in, response out, http-status out | Send an HTTP GET; returns the body and status code |
 | `COBOL::"HTTP-POST"` | url in, body in, response out, http-status out | Send an HTTP POST (JSON by default); returns body and status |
 | `COBOL::"HTTP-PUT"` | url in, body in, response out, http-status out | Send an HTTP PUT; returns the body and status code |
 | `COBOL::"HTTP-SET-HEADER"` | name in, value in | Add or replace a header sent on every later HTTP call |
+| `COBOL::"IMAGE-FIT"` | source in, target in, width in, height in, status out | Turn a picture upright, crop it to fill and resize it to exactly width × height; writes PNG or JPEG by the target's extension |
+| `COBOL::"IMAGE-INFO"` | path in, width out, height out, format out, status out | A picture's upright size and its format (`PNG`, `JPEG`, `GIF`, `WEBP`, `BMP`, `TIFF`), read from its header |
 | `COBOL::"INIT-FORM"` | [form-name in] | Initialise the form (generated code calls it) |
 | `COBOL::"KEY-IS-SET"` | entry in, flag out | Whether an API key is stored for a model entry: Y or N |
 | `COBOL::"KEY-REMOVE"` | entry in, [status out] | Delete the stored API key of a model entry |
@@ -4669,6 +4675,22 @@ The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the
 | `COBOL::"SET-PROPERTY"` | object in, property in, value in | Set a control's property |
 | `COBOL::"WAIT-EVENT"` | event-id out, control-id out | Wait for the next event (generated code calls it) |
 | `COBOL::"WRITE-FILE"` | path in, text in, [status out] | Write a file holding one line of text, replacing it |
+
+### Pictures and binary downloads — `IMAGE-FIT`, `IMAGE-INFO`, `HTTP-DOWNLOAD`
+Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`).
+
+```cobol
+           COBOL::"HTTP-DOWNLOAD" ( WS-PHOTO-URL "cache/pet-7.jpg" WS-HTTP-CODE WS-STATUS )
+           IF WS-STATUS = "OK"
+               COBOL::"IMAGE-FIT" ( "cache/pet-7.jpg" "cache/pet-7-40.png" 40 40 WS-STATUS )
+           END-IF
+           COBOL::"IMAGE-INFO" ( "cache/pet-7.jpg" WS-WIDTH WS-HEIGHT WS-FORMAT WS-STATUS )
+```
+
+- **`IMAGE-FIT`** reads PNG, JPEG, GIF (its first frame), WebP, BMP or TIFF — recognised by CONTENT, not by name — turns it the way its EXIF orientation says, CROPS TO FILL (the centre stays the centre; nothing is stretched or letterboxed) and resizes to EXACTLY width × height. The target's extension picks the encoding: `.png`, or `.jpg`/`.jpeg` at quality 85 (transparency laid on white). A missing folder on the way is created; a failure writes nothing and leaves an existing target as it was. Words: `OK`, `NOFILE` (source missing), `BADIMAGE` (not one of the six formats, or damaged), `TOOBIG` (source over 64 megapixels — refused from the header, before decoding), `BADEXT` (target not .png/.jpg/.jpeg), `BADSIZE` (width or height below 1, or a target over 64 megapixels), `WRITE`, `NOFEATURE`.
+- **`IMAGE-INFO`** reads only the header: width and height as numbers (the UPRIGHT size — a camera photo stored sideways with an EXIF rotation reports its upright size, the picture `IMAGE-FIT` works on), the format name. Words: `OK`, `NOFILE`, `BADIMAGE`, `NOFEATURE`; on a refusal the size is 0 × 0 and the format spaces.
+- **`HTTP-DOWNLOAD`** fetches an `http://`/`https://` address AS BYTES (unlike `HTTP-GET`, whose response is text and capped). It follows up to 5 redirects (an `Authorization` header is not carried across one), sends only the headers set with `HTTP-SET-HEADER`, gives up after 60 seconds in total, refuses more than 256 MB, and writes through `<file>.part`, renamed when complete — a failure leaves no `.part` and an existing file untouched. `http-status` receives the server's code (0 when none came back). Words: `OK`, `BADURL`, `TIMEOUT`, `TOOBIG`, `HTTP` (a 4xx/5xx answer, or more than 5 redirects), `WRITE`, `NET` (no connection), `NOFEATURE`. The address's query string — where a pre-signed URL keeps its signature — never appears in a log.
+- `NOFEATURE` means the program was built without the picture or HTTP support. A build that calls these by their literal name always has it; only a CALL whose target is assembled at run time could meet it.
 
 ## Value Conventions (types and domains)
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.

@@ -11625,6 +11625,69 @@ impl Interpreter {
                 self.http.clear_headers();
             }
 
+            // ── Spec 092: pictures and binary downloads ─────────────────────
+            //
+            // COBOL-HTTP-DOWNLOAD USING url file http-status status
+            //   Fetch `url` AS BYTES into the file `file` (redirects followed,
+            //   only the HTTP-SET-HEADER headers sent, 60 s, 256 MB, written
+            //   through `<file>.part`). `http-status` gets the server's code
+            //   (0 when none came back); `status` one word: OK, BADURL,
+            //   TIMEOUT, TOOBIG, HTTP, WRITE, NET or NOFEATURE.
+            "COBOL-HTTP-DOWNLOAD" if using.len() >= 4 => {
+                let url = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let file = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let got = self.http.download(url.trim(), std::path::Path::new(file.trim()));
+                let code_name = self.expr_to_name(call_arg_expr(&using[2]));
+                self.env.set(&code_name, CobolValue::from_i64(i64::from(got.http_status)));
+                let status_name = self.expr_to_name(call_arg_expr(&using[3]));
+                self.env.set_str(&status_name, got.status);
+            }
+
+            // COBOL-IMAGE-FIT USING source target width height status
+            //   Decode `source`, turn it upright, crop it to fill and resize it
+            //   to exactly width × height; write `target` as PNG or JPEG by its
+            //   extension. `status`: OK, NOFILE, BADIMAGE, TOOBIG, BADEXT,
+            //   BADSIZE, WRITE or NOFEATURE.
+            "COBOL-IMAGE-FIT" if using.len() >= 5 => {
+                let source = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let target = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let width = self.eval_call_arg(&using[2], span)?.as_i64().unwrap_or(0);
+                let height = self.eval_call_arg(&using[3], span)?.as_i64().unwrap_or(0);
+                let status = match crate::image_runtime::fit(
+                    std::path::Path::new(source.trim()),
+                    std::path::Path::new(target.trim()),
+                    width,
+                    height,
+                ) {
+                    Ok(()) => crate::image_runtime::OK,
+                    Err(word) => word,
+                };
+                let var = self.expr_to_name(call_arg_expr(&using[4]));
+                self.env.set_str(&var, status);
+            }
+
+            // COBOL-IMAGE-INFO USING path width height format status
+            //   The picture's upright size and its format (PNG, JPEG, GIF,
+            //   WEBP, BMP, TIFF) from its header alone. On a refusal the size
+            //   is 0 × 0 and the format spaces; `status`: OK, NOFILE, BADIMAGE
+            //   or NOFEATURE.
+            "COBOL-IMAGE-INFO" if using.len() >= 5 => {
+                let path = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let (width, height, format, status) =
+                    match crate::image_runtime::info(std::path::Path::new(path.trim())) {
+                        Ok(i) => (i.width, i.height, i.format, crate::image_runtime::OK),
+                        Err(word) => (0, 0, "", word),
+                    };
+                for (arg, n) in [(&using[1], width), (&using[2], height)] {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_i64(&var, i64::from(n));
+                }
+                let var = self.expr_to_name(call_arg_expr(&using[3]));
+                self.env.set_str(&var, format);
+                let var = self.expr_to_name(call_arg_expr(&using[4]));
+                self.env.set_str(&var, status);
+            }
+
             // ── Spec 076: the application's model list and key store ──────────
             //
             // COBOL-MODEL-SET    USING name api url model [status]
