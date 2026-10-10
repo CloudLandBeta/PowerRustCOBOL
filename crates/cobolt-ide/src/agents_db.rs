@@ -26,7 +26,9 @@
 //! model and stored machine-global in [`crate::llm::LlmConfig::api_keys`],
 //! never in the project; a primary agent may name one pedantic companion,
 //! and any agent may use any model — a companion its primary's own included
-//! (operator, 2026-09-27, lifting spec 028 R5's different-model rule).
+//! (operator, 2026-09-27, lifting spec 028 R5's different-model rule), and
+//! Grace, the Judge and the specialists too: one model may serve every agent
+//! (operator, 2026-10-10, lifting spec 040 R10's separation rule).
 
 use std::path::{Path, PathBuf};
 
@@ -67,39 +69,6 @@ pub const PROFICIENCY_JUDGE: &str = "COBOL Proficiency Judge";
 /// here — an unpaired Judge is correctly configured, not an orphan.
 pub fn is_proficiency_judge(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case(PROFICIENCY_JUDGE)
-}
-
-/// One specialist standing on a model reserved for Grace or the judge.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelClash {
-    pub agent: String,
-    /// `provider::model`, lowercased.
-    pub model: String,
-    /// `GRACE` or `PROFICIENCY_JUDGE`.
-    pub reserved_for: &'static str,
-}
-
-/// How the project's models are spread across Grace, the judge and the
-/// specialists (spec 040 R10).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ModelSeparation {
-    pub grace_model: Option<String>,
-    pub judge_model: Option<String>,
-    /// Permitted, but only while `clashes` is empty — and never preferred.
-    pub judge_shares_grace: bool,
-    pub clashes: Vec<ModelClash>,
-}
-
-impl ModelSeparation {
-    /// Nothing is standing where it should not.
-    pub fn is_valid(&self) -> bool {
-        self.clashes.is_empty()
-    }
-
-    /// Grace, the judge and every specialist on models of their own.
-    pub fn is_ideal(&self) -> bool {
-        self.is_valid() && !self.judge_shares_grace && self.judge_model.is_some()
-    }
 }
 
 pub const PEDANTIC_GRACE_REVIEWER: &str = "Grace Pedantic Reviewer";
@@ -1305,7 +1274,9 @@ impl AgentsDb {
 
     /// The `provider::model` an agent actually runs on, however it is
     /// configured. Two profiles naming the same model are the same model, so
-    /// separation cannot be judged on profile ids.
+    /// what agents run on cannot be compared on profile ids. Only the tests ask
+    /// (nothing in the IDE compares one agent's model with another's).
+    #[cfg(test)]
     pub fn agent_model_key(&self, name: &str, llm: &crate::llm::LlmConfig) -> Option<String> {
         let a = self.by_name(name)?;
         let cfg = resolve_agent_connection(a, llm)?;
@@ -1317,56 +1288,6 @@ impl AgentsDb {
             cfg.provider.trim().to_ascii_lowercase(),
             cfg.model.trim().to_ascii_lowercase()
         ))
-    }
-
-    /// Who is standing on whose model (spec 040 R10).
-    ///
-    /// The separation rule exists because a model cannot mark its own homework
-    /// and cannot review work it produced elsewhere in the same project:
-    ///
-    /// * a specialist must not run Grace's model — the orchestrator would be
-    ///   grading a plan it carried out itself;
-    /// * a specialist must not run the judge's model — the judge would be
-    ///   scoring a model the project already depends on;
-    /// * the judge **may** share Grace's model, but only while no specialist is
-    ///   on it. That is the permitted arrangement, not the preferred one.
-    ///
-    /// Returns the violations, most severe first, and whether the ideal
-    /// three-way separation holds.
-    pub fn model_separation(&self, llm: &crate::llm::LlmConfig) -> ModelSeparation {
-        let grace = self.agent_model_key(GRACE, llm);
-        let judge = self.agent_model_key(PROFICIENCY_JUDGE, llm);
-        let mut clashes = Vec::new();
-        for a in &self.agents {
-            if a.kind != AgentKind::Specialist || !a.enabled {
-                continue;
-            }
-            let Some(key) = self.agent_model_key(&a.name, llm) else {
-                continue;
-            };
-            if grace.as_deref() == Some(key.as_str()) {
-                clashes.push(ModelClash {
-                    agent: a.name.clone(),
-                    model: key.clone(),
-                    reserved_for: GRACE,
-                });
-            }
-            if judge.as_deref() == Some(key.as_str()) {
-                clashes.push(ModelClash {
-                    agent: a.name.clone(),
-                    model: key.clone(),
-                    reserved_for: PROFICIENCY_JUDGE,
-                });
-            }
-        }
-        let judge_shares_grace =
-            judge.is_some() && judge == grace;
-        ModelSeparation {
-            grace_model: grace,
-            judge_model: judge,
-            judge_shares_grace,
-            clashes,
-        }
     }
 
     /// Every `(provider, model, endpoint)` an agent currently runs on,
@@ -1397,29 +1318,40 @@ impl AgentsDb {
         out
     }
 
-    /// Whether `model_key` may be given to a specialist agent.
-    pub fn model_is_reserved(
-        &self,
-        llm: &crate::llm::LlmConfig,
-        model_key: &str,
-    ) -> Option<&'static str> {
-        if self.agent_model_key(GRACE, llm).as_deref() == Some(model_key) {
-            return Some(GRACE);
-        }
-        if self.agent_model_key(PROFICIENCY_JUDGE, llm).as_deref() == Some(model_key) {
-            return Some(PROFICIENCY_JUDGE);
-        }
-        None
-    }
-
     /// The judge's runnable connection, or `None` when it is absent, disabled
-    /// or has no model of its own.
+    /// or has no model.
     pub fn proficiency_judge_config(
         &self,
         llm: &crate::llm::LlmConfig,
     ) -> Option<crate::llm::LlmConfig> {
         let judge = self.by_name(PROFICIENCY_JUDGE).filter(|a| a.enabled)?;
         resolve_agent_connection(judge, llm)
+    }
+
+    /// Point `cfg`'s reviewer fields at the COBOL Proficiency Judge, so the
+    /// benchmark of `cfg`'s model is re-scored by the Judge rather than
+    /// awarded by the model to itself (spec 040).
+    ///
+    /// The Judge may run any model, the one under test included: its
+    /// independence is its own prompt and its own separate call, not a second
+    /// model (operator, 2026-09-27 for reviewers, 2026-10-10 for every agent).
+    /// It stays unattached only when it cannot run — absent, disabled or
+    /// without a model — and the caller then reports the run as unjudged.
+    pub fn attach_proficiency_judge(
+        &self,
+        llm: &crate::llm::LlmConfig,
+        cfg: &mut crate::llm::LlmConfig,
+    ) {
+        let Some(judge) = self.proficiency_judge_config(llm) else {
+            return;
+        };
+        cfg.reviewer_provider = judge.provider.clone();
+        cfg.reviewer_endpoint = judge.endpoint.clone();
+        cfg.reviewer_model = judge.model.clone();
+        let prompt = self.load_agent_core_instructions(PROFICIENCY_JUDGE);
+        if !prompt.trim().is_empty() {
+            cfg.pedantic_prompt = prompt;
+        }
     }
 
     /// Retire the model-profile layer (spec 048 R24–R29).
@@ -2329,13 +2261,11 @@ impl AgentsDb {
     /// Give the judge a model, preferring one that is **not** the project
     /// default (spec 040).
     ///
-    /// A judge running the same model as the one under test is not a judge:
-    /// `reviewer_configured` refuses a reviewer identical to the primary, so
-    /// the run would silently fall back to the model scoring itself — the exact
-    /// thing this agent exists to prevent. Where a second profile exists it is
-    /// chosen; where only one does, the judge is seeded with it anyway and the
-    /// test says out loud that it ran unjudged, which is a problem the
-    /// developer can see and fix by adding a model.
+    /// Only a default: the judge may run any model, the project default
+    /// included, and the developer reassigns it freely. A second opinion from
+    /// another model is the better arrangement where one exists, so where a
+    /// second profile exists it is chosen; where only one does, the judge is
+    /// seeded with it anyway and judges on the very model it re-scores.
     fn ensure_judge_connection(
         &mut self,
         llm: &crate::llm::LlmConfig,
@@ -2744,8 +2674,8 @@ mod tests {
         let mut db = AgentsDb::load(&proj);
         db.ensure_fixed_agents(&llm);
 
-        // Give it a model of its own and nothing else — no companion link in
-        // either direction.
+        // Give it a model and nothing else — no companion link in either
+        // direction.
         let model = profile(&mut llm, "Judge", "model-j");
         assign(&mut db, PROFICIENCY_JUDGE, &model);
         assert!(
@@ -2768,9 +2698,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(proj);
     }
 
-    /// Seeding it onto the same model as everything else would make it a judge
-    /// of itself, which `reviewer_configured` rejects — leaving the run
-    /// silently self-scored.
+    /// Where a second model exists, seeding prefers it for the judge: a second
+    /// opinion is the better default, though never a requirement.
     #[test]
     fn the_judge_prefers_a_model_that_is_not_the_default() {
         let proj = tmp_project();
@@ -2790,16 +2719,15 @@ mod tests {
         assert_eq!(
             db.by_name(PROFICIENCY_JUDGE).unwrap().model_profile.as_deref(),
             Some(other_id.as_str()),
-            "the judge must not default to the model it would be judging"
+            "where a second model exists the judge is seeded onto it"
         );
         let cfg = db.proficiency_judge_config(&llm).expect("judge resolves");
         assert_eq!(cfg.model, "other-model");
         let _ = std::fs::remove_dir_all(proj);
     }
 
-    /// With one model configured there is no second opinion to be had. The
-    /// judge is still seeded — the run reports itself unjudged rather than
-    /// pretending otherwise.
+    /// With one model configured there is no second model to choose. The judge
+    /// is still seeded, on that one model, and judges on it.
     #[test]
     fn a_single_model_still_seeds_the_judge() {
         let proj = tmp_project();
@@ -3052,54 +2980,6 @@ mod tests {
         println!(
             "mixed providers: {GRACE} -> anthropic/{}, {specialist} -> ollama/{}",
             grace.model, spec.model
-        );
-        let _ = std::fs::remove_dir_all(proj);
-    }
-
-    /// The separation rule (spec 040 R10) is computed from the RESOLVED
-    /// connection, so it must survive the resolution change untouched
-    /// (spec 048 R21, AC17).
-    #[test]
-    fn a_specialist_on_graces_model_still_clashes_after_the_redesign() {
-        let proj = tmp_project();
-        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let mut db = AgentsDb::load(&proj);
-        db.ensure_fixed_agents(&llm);
-        llm.ensure_provider_config("anthropic");
-
-        let specialist = db
-            .agents
-            .iter()
-            .find(|a| a.kind == AgentKind::Specialist && a.enabled)
-            .map(|a| a.name.clone())
-            .expect("a seeded specialist");
-        for name in [GRACE, specialist.as_str()] {
-            let a = db
-                .agents
-                .iter_mut()
-                .find(|a| a.name.eq_ignore_ascii_case(name))
-                .unwrap();
-            a.model_profile = None;
-            a.no_model = false;
-            a.provider = "anthropic".into();
-            a.model = "claude-shared".into();
-        }
-
-        let sep = db.model_separation(&llm);
-        assert!(!sep.is_valid(), "a specialist on Grace's model is a clash");
-        let clash = sep
-            .clashes
-            .iter()
-            .find(|c| c.agent == specialist && c.reserved_for == GRACE)
-            .expect("the clash names the agent and the reserving role");
-        assert_eq!(clash.model, "anthropic::claude-shared");
-        assert_eq!(
-            db.model_is_reserved(&llm, "anthropic::claude-shared"),
-            Some(GRACE)
-        );
-        println!(
-            "separation: {} on {} clashes, reserved for {}",
-            clash.agent, clash.model, clash.reserved_for
         );
         let _ = std::fs::remove_dir_all(proj);
     }
@@ -3357,160 +3237,132 @@ mod tests {
         let _ = std::fs::remove_dir_all(proj);
     }
 
-    /// Move every specialist onto one profile. Seeding puts them all on the
-    /// project default, which is Grace's model — so a fixture that does not do
-    /// this starts out already violating the rule.
-    fn assign_all_specialists(db: &mut AgentsDb, profile_id: &str) {
+    /// Put every agent — Grace, the Judge, the specialists and the reviewers —
+    /// on one `provider` / `model`, as the developer does in the Agents
+    /// Manager's Agent × Model table.
+    fn put_every_agent_on(db: &mut AgentsDb, provider: &str, model: &str) {
         for a in &mut db.agents {
-            if a.kind == AgentKind::Specialist {
-                a.model_profile = Some(profile_id.to_string());
-                a.no_model = false;
-                a.provider.clear();
-                a.model.clear();
-            }
+            a.model_profile = None;
+            a.no_model = false;
+            a.provider = provider.into();
+            a.model = model.into();
         }
     }
 
-    /// Spec 040 R10: Grace on A, Judge on B, specialists on anything else.
+    /// Operator, 2026-10-10: one model for every agent. Which model an agent
+    /// runs never depends on which model another one runs — Grace, the Judge,
+    /// the specialists and the reviewers may all stand on the same one.
     #[test]
-    fn the_ideal_separation_reports_clean() {
+    fn one_model_can_serve_every_agent() {
         let proj = tmp_project();
         let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let a = profile(&mut llm, "A", "model-a");
-        let b = profile(&mut llm, "B", "model-b");
-        let c = profile(&mut llm, "C", "model-c");
+        llm.ensure_provider_config("anthropic");
+        llm.api_keys
+            .insert(crate::llm::provider_key_slot("anthropic"), "sk-test".into());
         let mut db = AgentsDb::load(&proj);
         db.ensure_fixed_agents(&llm);
-        assign_all_specialists(&mut db, &c);
-        assign(&mut db, GRACE, &a);
-        assign(&mut db, PROFICIENCY_JUDGE, &b);
+        put_every_agent_on(&mut db, "anthropic", "claude-one");
 
-        let sep = db.model_separation(&llm);
-        assert!(sep.is_valid());
-        assert!(sep.is_ideal(), "three-way separation is the ideal case");
-        assert!(!sep.judge_shares_grace);
-        let _ = std::fs::remove_dir_all(proj);
-    }
-
-    /// The judge may share Grace's model while nobody else is on it: valid,
-    /// but not the ideal, and the UI says so.
-    #[test]
-    fn the_judge_may_share_graces_model_alone() {
-        let proj = tmp_project();
-        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let a = profile(&mut llm, "A", "model-a");
-        let c = profile(&mut llm, "C", "model-c");
-        let mut db = AgentsDb::load(&proj);
-        db.ensure_fixed_agents(&llm);
-        assign_all_specialists(&mut db, &c);
-        assign(&mut db, GRACE, &a);
-        assign(&mut db, PROFICIENCY_JUDGE, &a);
-
-        let sep = db.model_separation(&llm);
-        assert!(sep.is_valid(), "sharing with Grace alone is permitted");
-        assert!(sep.judge_shares_grace);
-        assert!(!sep.is_ideal(), "permitted is not preferred");
-        let _ = std::fs::remove_dir_all(proj);
-    }
-
-    /// …but not once a specialist joins them on it.
-    #[test]
-    fn a_specialist_on_the_shared_model_breaks_the_rule() {
-        let proj = tmp_project();
-        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let a = profile(&mut llm, "A", "model-a");
-        let c = profile(&mut llm, "C", "model-c");
-        let mut db = AgentsDb::load(&proj);
-        db.ensure_fixed_agents(&llm);
-        assign_all_specialists(&mut db, &c);
-        assign(&mut db, GRACE, &a);
-        assign(&mut db, PROFICIENCY_JUDGE, &a);
-        assign(&mut db, FORM_DESIGNER, &a);
-
-        let sep = db.model_separation(&llm);
-        assert!(!sep.is_valid());
-        assert!(sep
-            .clashes
-            .iter()
-            .any(|c| c.agent == FORM_DESIGNER && c.reserved_for == GRACE));
-        assert!(sep
-            .clashes
-            .iter()
-            .any(|c| c.agent == FORM_DESIGNER && c.reserved_for == PROFICIENCY_JUDGE));
-        let _ = std::fs::remove_dir_all(proj);
-    }
-
-    /// A specialist on the judge's model would have the judge scoring a model
-    /// the project already runs on.
-    #[test]
-    fn a_specialist_may_not_stand_on_the_judges_model() {
-        let proj = tmp_project();
-        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let a = profile(&mut llm, "A", "model-a");
-        let b = profile(&mut llm, "B", "model-b");
-        let c = profile(&mut llm, "C", "model-c");
-        let mut db = AgentsDb::load(&proj);
-        db.ensure_fixed_agents(&llm);
-        assign_all_specialists(&mut db, &c);
-        assign(&mut db, GRACE, &a);
-        assign(&mut db, PROFICIENCY_JUDGE, &b);
-        assign(&mut db, EVENT_HANDLER, &b);
-
-        let sep = db.model_separation(&llm);
-        assert!(!sep.is_valid());
-        assert_eq!(sep.clashes.len(), 1);
-        assert_eq!(sep.clashes[0].reserved_for, PROFICIENCY_JUDGE);
+        // Every enabled agent really does resolve to that one model…
+        let mut seen = std::collections::BTreeSet::new();
+        for a in db.agents.iter().filter(|a| a.enabled) {
+            seen.insert(
+                db.agent_model_key(&a.name, &llm)
+                    .unwrap_or_else(|| panic!("{} resolved no model", a.name)),
+            );
+        }
         assert_eq!(
-            db.model_is_reserved(&llm, "anthropic::model-b"),
-            Some(PROFICIENCY_JUDGE)
+            seen.into_iter().collect::<Vec<_>>(),
+            vec!["anthropic::claude-one".to_string()]
         );
-        assert_eq!(db.model_is_reserved(&llm, "anthropic::model-c"), None);
+        for name in [GRACE, PROFICIENCY_JUDGE, FORM_DESIGNER, PEDANTIC_GRACE_REVIEWER] {
+            assert!(db.by_name(name).is_some_and(|a| a.enabled), "{name} is seeded");
+        }
+
+        // …and the only things the Agents Manager can still object to are
+        // things that are MISSING: a key, or a reviewer's model.
+        assert_eq!(db.missing_key(&llm), None);
+        assert!(unreviewed_primaries(&db).is_empty());
+
+        // Each primary's pedantic companion resolves, on the primary's own
+        // model, to a usable reviewer.
+        let primaries: Vec<String> = db
+            .agents
+            .iter()
+            .filter(|a| a.enabled && matches!(a.kind, AgentKind::Orchestrator | AgentKind::Specialist))
+            .map(|a| a.name.clone())
+            .collect();
+        assert!(primaries.len() >= 2, "Grace and at least one specialist");
+        for name in &primaries {
+            let cfg = agent_effective_config(&db, &llm, name)
+                .unwrap_or_else(|| panic!("{name} resolves"));
+            assert!(cfg.reviewer_configured(), "{name}'s reviewer is usable");
+            assert_eq!(
+                (cfg.reviewer_provider.as_str(), cfg.reviewer_model.as_str()),
+                (cfg.provider.as_str(), cfg.model.as_str()),
+                "{name}'s reviewer runs the very model {name} runs"
+            );
+        }
+        println!(
+            "one model, {} agents: {} primaries each reviewed on anthropic::claude-one",
+            db.agents.len(),
+            primaries.len()
+        );
         let _ = std::fs::remove_dir_all(proj);
     }
 
-    /// Two profiles naming one model are one model; separation cannot be
-    /// judged on profile ids.
+    /// The Judge re-scores a benchmark whatever model it runs — including the
+    /// model under test. Left out, a project on a single model would see every
+    /// leaderboard run go unjudged.
     #[test]
-    fn separation_compares_models_not_profiles() {
+    fn the_judge_is_attached_to_a_benchmark_of_its_own_model() {
         let proj = tmp_project();
-        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let first = profile(&mut llm, "First", "same-model");
-        let second = profile(&mut llm, "Second copy", "same-model");
-        let elsewhere = profile(&mut llm, "Elsewhere", "model-c");
-        let judge_model = profile(&mut llm, "Judge", "model-j");
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
         let mut db = AgentsDb::load(&proj);
         db.ensure_fixed_agents(&llm);
-        assign_all_specialists(&mut db, &elsewhere);
-        assign(&mut db, GRACE, &first);
-        assign(&mut db, PROFICIENCY_JUDGE, &judge_model);
-        assign(&mut db, FORM_DESIGNER, &second);
+        put_every_agent_on(&mut db, "anthropic", "claude-one");
 
+        let mut cfg = llm.clone();
+        cfg.provider = "anthropic".into();
+        cfg.model = "claude-one".into();
+        assert!(!cfg.reviewer_configured(), "starts without a reviewer");
+        db.attach_proficiency_judge(&llm, &mut cfg);
+
+        assert!(cfg.reviewer_configured(), "the run is judged");
+        assert_eq!(cfg.reviewer_provider, "anthropic");
+        assert_eq!(cfg.reviewer_model, "claude-one");
         assert!(
-            !db.model_separation(&llm).is_valid(),
-            "a duplicate profile is not a different model"
+            cfg.pedantic_prompt.contains("COBOL Proficiency Judge"),
+            "the reviewer speaks with the Judge's own prompt"
         );
-        let _ = std::fs::remove_dir_all(proj);
-    }
+        println!(
+            "judge attached to a benchmark of {}: reviewer {}/{}",
+            cfg.model, cfg.reviewer_provider, cfg.reviewer_model
+        );
 
-    /// A disabled specialist is not running anything, so it cannot clash.
-    #[test]
-    fn a_disabled_specialist_does_not_clash() {
-        let proj = tmp_project();
-        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let a = profile(&mut llm, "A", "model-a");
-        let b = profile(&mut llm, "B", "model-b");
-        let c = profile(&mut llm, "C", "model-c");
-        let mut db = AgentsDb::load(&proj);
-        db.ensure_fixed_agents(&llm);
-        assign_all_specialists(&mut db, &c);
-        assign(&mut db, GRACE, &a);
-        assign(&mut db, PROFICIENCY_JUDGE, &b);
-        assign(&mut db, FORM_DESIGNER, &a);
-        assert!(!db.model_separation(&llm).is_valid());
+        // A Judge on another model is attached just the same…
+        db.agents
+            .iter_mut()
+            .find(|a| a.name == PROFICIENCY_JUDGE)
+            .unwrap()
+            .model = "claude-two".into();
+        let mut other = llm.clone();
+        other.provider = "anthropic".into();
+        other.model = "claude-one".into();
+        db.attach_proficiency_judge(&llm, &mut other);
+        assert_eq!(other.reviewer_model, "claude-two");
 
-        let id = db.by_name(FORM_DESIGNER).unwrap().id.clone();
-        db.agents.iter_mut().find(|x| x.id == id).unwrap().enabled = false;
-        assert!(db.model_separation(&llm).is_valid());
+        // …and a Judge that cannot run leaves the run honestly unjudged.
+        db.agents
+            .iter_mut()
+            .find(|a| a.name == PROFICIENCY_JUDGE)
+            .unwrap()
+            .no_model = true;
+        let mut none = llm.clone();
+        none.provider = "anthropic".into();
+        none.model = "claude-one".into();
+        db.attach_proficiency_judge(&llm, &mut none);
+        assert!(!none.reviewer_configured());
         let _ = std::fs::remove_dir_all(proj);
     }
 

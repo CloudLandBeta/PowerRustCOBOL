@@ -284,12 +284,13 @@ finish.
 | Grace and the Proficiency Judge | `gemma4:e2b` | Locally — `ollama pull gemma4:e2b` |
 | Every other agent, the pedantic reviewers included | `gemma4:31b` | The Ollama cloud — an ollama.com account and API key, added in the Model Providers Manager as **Ollama Cloud** |
 
-> **Note — a reviewer may share its agent's model.** A pedantic companion is
-> independent through its own prompt and its own separate call, so it may run
-> on the same model as the agent it reviews.
-
-> **Note** — Grace and the Judge on the same model shows an informational note
-> in the Agents Manager; it does not stop anything.
+> **Note — any agent may run any model.** Grace, the Judge, the specialists and
+> the pedantic reviewers may share a model, and one single model may serve all
+> of them. A pedantic reviewer is independent through its own prompt and its own
+> separate call, not through a second model, so it may run on the same model as
+> the agent it reviews; the Judge re-scores a proficiency test just as well on
+> the very model it is scoring. The Agents Manager never warns about, filters or
+> refuses a model because another agent already runs it.
 
 ---
 
@@ -681,9 +682,14 @@ cloud provider while your specialists run a local Ollama. Each agent remembers
 the provider its model came from. With hundreds of models on offer from some
 providers, the search box beside the picker narrows the list.
 
-A row whose model is reserved for another role shows a warning beside the agent
-name: a specialist may not run Grace's model, nor the Judge's. (The Judge *may*
-share Grace's model, as long as no specialist is on it.)
+**Sharing a model.** Any agent may run any model — Grace, the Judge, every
+specialist and every Pedantic reviewer — and one single model may serve all of
+them. Nothing in the table warns about, greys out or refuses a model because
+another agent already runs it, and the Judge re-scores a Leaderboard test on
+whatever model it has, the one under test included. Giving different agents
+different models is a choice about cost and quality, never a permission. The
+footer reports only what is *missing*: an enabled agent whose provider has no
+key yet, or a specialist with no reviewer, or whose reviewer has no model.
 
 **When a provider retires a model.** Models are decommissioned — Anthropic,
 OpenAI, Meta and the rest withdraw them on their own schedule — and a rank for a
@@ -719,11 +725,12 @@ enabled), the prompt editor, capabilities, knowledge and relationships.
 **Tab 3 — User Guide.** A written guide to how models and agents fit together,
 in your interface language. Each of its four sections opens with a plain
 explanation, then goes deeper, then states the precise version — read as far as
-is useful and stop. It covers pairing agents with models and the sharing rule,
-what each setting does, why your strongest model belongs on the reviewers and
-the Judge rather than the writer, and the vocabulary (models, agents, Pedantic
-reviewers, the Judge, tokens and what they cost, local models, quantization,
-and why VRAM is the number that decides whether a local model is usable).
+is useful and stop. It covers pairing agents with models (and giving one model
+to all of them), what each setting does, why your strongest model belongs on the
+reviewers and the Judge rather than the writer, and the vocabulary (models,
+agents, Pedantic reviewers, the Judge, tokens and what they cost, local models,
+quantization, and why VRAM is the number that decides whether a local model is
+usable).
 Search highlights matches and steps between them, the text size is adjustable,
 the table of contents jumps, and **Export PDF** writes the whole guide out.
 
@@ -781,8 +788,8 @@ decomposition, ownership, dependencies, documentation governance, evidence,
 cross-agent integration, failures, and completion claims. The project-local
 reviewer prompts remain editable in Agents Manager and fixed-agent repair
 preserves those edits. Give each reviewer a model in the runtime table before
-enabling its review connection; a primary and its Pedantic companion cannot use
-the same model.
+enabling its review connection; a Pedantic reviewer may run any model, the one
+its primary runs included.
 
 **When Grace asks instead of acting.** A request that admits more than one
 reading gets a question rather than a guess — a red balloon in the same chat,

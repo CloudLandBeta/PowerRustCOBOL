@@ -354,47 +354,8 @@ impl AgentsModal {
                         ui.add_space(6.0);
                         // Compute the status message + colour once, so the
                         // footer layout is independent of which state fires.
-                        let missing = self.db.missing_key(llm);
-                        // Spec 040 R10: a specialist standing on Grace's or the
-                        // judge's model. Ranked above the key/reviewer warnings
-                        // because it silently invalidates a judgement rather
-                        // than stopping a run.
-                        let separation = self.db.model_separation(llm);
-                        let (msg, msg_color) = if let Some(e) = &self.error {
-                            (format!("⚠ {e}"), egui::Color32::from_rgb(224, 120, 120))
-                        } else if let Some(clash) = separation.clashes.first() {
-                            (
-                                tr.agents_model_reserved
-                                    .replacen("{}", &clash.agent, 1)
-                                    .replacen("{}", clash.reserved_for, 1),
-                                egui::Color32::from_rgb(230, 192, 106),
-                            )
-                        } else if separation.judge_shares_grace {
-                            (
-                                tr.agents_judge_shares_grace.to_string(),
-                                egui::Color32::from_rgb(169, 206, 236),
-                            )
-                        } else if let Some(name) = &missing {
-                            (
-                                tr.agents_missing_key.replacen("{}", name, 1),
-                                egui::Color32::from_rgb(230, 192, 106),
-                            )
-                        } else if let Some(name) =
-                            crate::agents_db::unreviewed_primaries(&self.db).first()
-                        {
-                            (
-                                tr.agents_unreviewed_warning.replacen("{}", name, 1),
-                                egui::Color32::from_rgb(230, 192, 106),
-                            )
-                        } else {
-                            let active = self.db.agents.iter().filter(|a| a.enabled).count();
-                            (
-                                tr.agents_valid
-                                    .replacen("{}", &active.to_string(), 1)
-                                    .replacen("{}", &self.db.agents.len().to_string(), 1),
-                                egui::Color32::from_rgb(125, 214, 160),
-                            )
-                        };
+                        let (msg, msg_color) =
+                            footer_status(self.error.as_deref(), &self.db, llm, tr);
                         ui.horizontal(|ui| {
                             // Message in a bounded LEFT region that WRAPS (never
                             // clipped by the buttons); buttons pinned bottom-right.
@@ -781,9 +742,6 @@ impl AgentsModal {
             .cloned()
             .collect();
 
-        // Who is standing on whose model, computed once for the whole table.
-        let separation = self.db.model_separation(llm);
-
         egui::ScrollArea::vertical()
             .id_salt("agents_runtime_table")
             .auto_shrink([false, false])
@@ -804,25 +762,7 @@ impl AgentsModal {
 
                         let mut any_list_open = false;
                         for i in 0..self.db.agents.len() {
-                            let name = self.db.agents[i].name.clone();
-                            let clash = separation
-                                .clashes
-                                .iter()
-                                .find(|c| c.agent == name)
-                                .map(|c| c.reserved_for);
-
-                            ui.horizontal(|ui| {
-                                ui.label(&name);
-                                if let Some(reserved_for) = clash {
-                                    ui.label(
-                                        egui::RichText::new(
-                                            tr.agents_tbl_clash.replacen("{}", reserved_for, 1),
-                                        )
-                                        .small()
-                                        .color(ui.visuals().error_fg_color),
-                                    );
-                                }
-                            });
+                            ui.label(&self.db.agents[i].name);
 
                             // Provider — whose model this row runs. Each agent
                             // keeps its own (R11); without this column a row on
@@ -1676,6 +1616,36 @@ impl AgentsModal {
 
 /// A label + editable string list (chips-lite): one row per entry with a
 /// remove button, plus an add field.
+/// What the Agents Manager's footer says, and in which colour.
+///
+/// A failure comes first, then what is MISSING — an enabled agent whose model
+/// has no API key, a specialist whose reviewer has no model. Nothing is said
+/// about WHICH model an agent runs: Grace, the Judge, the specialists and the
+/// reviewers may all run the same one (operator, 2026-10-10).
+fn footer_status(
+    error: Option<&str>,
+    db: &AgentsDb,
+    llm: &LlmConfig,
+    tr: &Tr,
+) -> (String, egui::Color32) {
+    let warn = egui::Color32::from_rgb(230, 192, 106);
+    if let Some(e) = error {
+        (format!("⚠ {e}"), egui::Color32::from_rgb(224, 120, 120))
+    } else if let Some(name) = db.missing_key(llm) {
+        (tr.agents_missing_key.replacen("{}", &name, 1), warn)
+    } else if let Some(name) = crate::agents_db::unreviewed_primaries(db).first() {
+        (tr.agents_unreviewed_warning.replacen("{}", name, 1), warn)
+    } else {
+        let active = db.agents.iter().filter(|a| a.enabled).count();
+        (
+            tr.agents_valid
+                .replacen("{}", &active.to_string(), 1)
+                .replacen("{}", &db.agents.len().to_string(), 1),
+            egui::Color32::from_rgb(125, 214, 160),
+        )
+    }
+}
+
 fn string_list_ui(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, changed: &mut bool) {
     ui.horizontal_wrapped(|ui| {
         ui.label(label);
@@ -1766,6 +1736,62 @@ mod scope_tests {
             after.iter().any(|(id, c)| id == "anthropic" && *c),
             "anthropic should now be marked configured"
         );
+    }
+}
+
+#[cfg(test)]
+mod footer_tests {
+    use super::*;
+
+    /// Operator, 2026-10-10: one model for every agent. With Grace, the Judge,
+    /// every specialist and every reviewer on the same model the footer has
+    /// nothing to say about the models — in any language. What it still
+    /// reports is something MISSING, such as a key.
+    #[test]
+    fn one_model_for_every_agent_raises_no_warning() {
+        let proj = std::env::temp_dir().join(format!(
+            "prc_agents_footer_{}",
+            crate::agents_db::new_uuid()
+        ));
+        std::fs::create_dir_all(&proj).unwrap();
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.ensure_provider_config("anthropic");
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+        for a in &mut db.agents {
+            a.model_profile = None;
+            a.no_model = false;
+            a.provider = "anthropic".into();
+            a.model = "claude-one".into();
+        }
+
+        // A key on file: nothing is missing, so the footer reads "valid".
+        llm.api_keys
+            .insert(crate::llm::provider_key_slot("anthropic"), "sk-test".into());
+        let active = db.agents.iter().filter(|a| a.enabled).count();
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            let valid = tr
+                .agents_valid
+                .replacen("{}", &active.to_string(), 1)
+                .replacen("{}", &db.agents.len().to_string(), 1);
+            let (msg, _) = footer_status(None, &db, &llm, &tr);
+            assert_eq!(msg, valid, "{lang:?}: one model for all is a valid project");
+        }
+
+        // The key is what a project like this can still lack — and that, not
+        // the sharing of a model, is what the footer says.
+        llm.api_keys.clear();
+        let tr = crate::i18n::Language::ALL[0].tr();
+        let (msg, _) = footer_status(None, &db, &llm, &tr);
+        assert!(
+            msg.contains("API key"),
+            "a missing key is still reported: {msg}"
+        );
+        // An error from a failed Save still outranks everything.
+        let (msg, _) = footer_status(Some("disk full"), &db, &llm, &tr);
+        assert_eq!(msg, "⚠ disk full");
+        let _ = std::fs::remove_dir_all(proj);
     }
 }
 

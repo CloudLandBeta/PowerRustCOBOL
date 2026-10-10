@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.58] — 2026-10-10
+
+### Fixed
+- **Any agent may run any model: one model can serve every agent.**
+  The Agents Manager no longer restricts which model an agent runs. Spec 040's separation rule is removed: a specialist on Grace's or the Judge's model, and the Judge on Grace's, no longer raise a footer warning, and the red "Reserved for …" label of the Agent × Model table is gone (`ModelClash`, `ModelSeparation`, `AgentsDb::model_separation`, `model_is_reserved`). Grace, the Judge, the specialists and the Pedantic reviewers may all run the same model.
+  A leaderboard run no longer leaves the COBOL Proficiency Judge out when it runs the very model under test. The old reason ("`reviewer_configured` would reject it") had been false since 1.70.284, and with one model for everything every benchmark would have run unjudged. The Judge is attached whatever its model (`AgentsDb::attach_proficiency_judge`); it is left out only when it cannot run (absent, disabled, no model).
+  Messages that still said a reviewer or the Judge needs "a different model" or "a model of its own" now say the new rule, in all six languages: the companion hint (missed by 1.70.284), the unpaired-Judge hint, the "UNJUDGED" status and the "Judge has no model" prompt, the Leaderboard "Use for Judge" hint, and section 1 of the in-IDE User Guide. Six dead or obsolete strings were removed (`agents_model_reserved`, `agents_judge_shares_grace`, `agents_tbl_clash`, `ai_setup_separation`, `leaderboard_model_reserved`, `leaderboard_judge_model_taken`), and the AI setup dialog no longer states the rule.
+  Still reported, because they are absences and not restrictions: a missing API key, a specialist with no reviewer or a reviewer with no model, a Judge with no model. Guide: the §3 note, the Agents Manager ("Sharing a model", Tab 3 summary) and the pedantic-reviewer paragraph; spec 040 R10 is marked lifted.
+  New tests: `one_model_can_serve_every_agent`, `the_judge_is_attached_to_a_benchmark_of_its_own_model` (failed before the change), and `one_model_for_every_agent_raises_no_warning` in all six languages. `cobolt-ide`: 1491 passed, 1 failed (the known translation-guard red). Not seen on screen: the Agents Manager's name cell is now a plain label instead of a horizontal group, and the AI setup dialog is one text line shorter.
+
 ## [PowerRustCOBOL 1.90.55] — 2026-10-09
 
 ### Fixed
