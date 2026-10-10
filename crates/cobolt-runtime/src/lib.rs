@@ -38,6 +38,8 @@ pub mod agent_tools;
 /// The built-in CALLs — the `COBOL` object's methods (`COBOL::"NAME"( … )`).
 pub mod builtins;
 pub mod async_op;
+/// Spec 092 — sound: the `AUDIO-…` built-ins (the device behind `audio`).
+pub mod audio_runtime;
 #[cfg(feature = "aws")]
 pub mod aws;
 pub mod channels;

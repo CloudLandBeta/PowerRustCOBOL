@@ -34,6 +34,11 @@ const fn b(name: &'static str, params: &'static str, description: &'static str) 
 /// Every built-in, alphabetically.
 pub const BUILTINS: &[Builtin] = &[
     b("APPEND-FILE", "path in, text in, [status out]", "Append a line of text to a file, creating it if missing"),
+    b("AUDIO-PAUSE", "[status out]", "Pause the sound that is playing; its position holds"),
+    b("AUDIO-PLAY", "file in, [status out]", "Play an MP3, OGG Vorbis, WAV or FLAC file, replacing any sound already playing"),
+    b("AUDIO-RESUME", "[status out]", "Resume a paused sound from where it was paused"),
+    b("AUDIO-STATE", "state out, [position-ms out], [duration-ms out]", "IDLE, PLAYING, PAUSED, ENDED or ERROR, with the position and length in milliseconds"),
+    b("AUDIO-STOP", "[status out]", "Stop the sound and return to IDLE"),
     b("AWS-CLEAR-CREDENTIALS", "connection in, [status out]", "Forget the AWS keys set for a connection and end the server that held them"),
     b("AWS-CREDENTIALS-SET", "connection in, flag out", "Whether AWS keys are set for a connection: Y or N (never the keys)"),
     b("AWS-SET-CREDENTIALS", "connection in, key-id in, secret in, token in, [status out]", "Give a connection AWS keys for this run, kept in memory only (never read back)"),

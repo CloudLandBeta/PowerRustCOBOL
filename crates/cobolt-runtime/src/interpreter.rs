@@ -1608,6 +1608,9 @@ pub struct Interpreter {
     /// Spec 075 — a fixed free-memory figure for the fit test, set only by
     /// tests; `None` asks the operating system.
     free_memory_probe: Option<u64>,
+    /// Spec 092 — this program's door to the application's one sound player
+    /// (`COBOL-AUDIO-…`). Dropping it stops the sound this program started.
+    audio: crate::audio_runtime::AudioHandle,
     /// Spec 076 — each agent's model-list entry and its generation when last
     /// used, so a change to it raises `onModelChanged` (R16).
     model_entry_seen: HashMap<String, (String, u64)>,
@@ -2146,6 +2149,7 @@ impl Interpreter {
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             free_memory_probe: None,
+            audio: crate::audio_runtime::AudioHandle::new(),
             model_entry_seen: HashMap::new(),
             designed_menus: HashMap::new(),
             agent_declared_tools: HashMap::new(),
@@ -11349,6 +11353,47 @@ impl Interpreter {
                 }
                 if let Err(e) = result {
                     tracing::warn!("{prog_name} failed for '{path}': {e}");
+                }
+            }
+
+            // ── Sound (spec 092 R15–R18) — see `audio_runtime` ───────────────
+            //
+            // COBOL-AUDIO-PLAY   USING file [status]
+            //   Play an MP3, OGG Vorbis, WAV or FLAC file, replacing whatever
+            //   was playing. `status`: OK, NOFILE, BADFORMAT, NODEVICE,
+            //   NOFEATURE.
+            // COBOL-AUDIO-PAUSE  USING [status]
+            // COBOL-AUDIO-RESUME USING [status]
+            // COBOL-AUDIO-STOP   USING [status]
+            //   `status`: OK, or ERROR when there is nothing to pause/resume.
+            // COBOL-AUDIO-STATE  USING state [position-ms] [duration-ms]
+            //   IDLE, PLAYING, PAUSED, ENDED or ERROR, and milliseconds.
+            "COBOL-AUDIO-PLAY" if !using.is_empty() => {
+                let file = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let status = self.audio.play(file.trim());
+                if let Some(arg) = using.get(1) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, status.as_word());
+                }
+            }
+            "COBOL-AUDIO-PAUSE" | "COBOL-AUDIO-RESUME" | "COBOL-AUDIO-STOP" => {
+                let status = match prog_name.as_str() {
+                    "COBOL-AUDIO-PAUSE" => self.audio.pause(),
+                    "COBOL-AUDIO-RESUME" => self.audio.resume(),
+                    _ => self.audio.stop(),
+                };
+                if let Some(arg) = using.first() {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, status.as_word());
+                }
+            }
+            "COBOL-AUDIO-STATE" if !using.is_empty() => {
+                let snap = self.audio.state();
+                let var = self.expr_to_name(call_arg_expr(&using[0]));
+                self.env.set_str(&var, snap.state.as_word());
+                for (arg, ms) in using[1..].iter().zip([snap.position_ms, snap.duration_ms]) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set(&var, CobolValue::from_i64(ms as i64));
                 }
             }
 

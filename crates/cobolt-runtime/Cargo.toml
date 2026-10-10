@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps", "kb", "smb", "pdf", "office", "aws", "images"]
+default = ["sql", "http", "maps", "kb", "smb", "pdf", "office", "aws", "images", "audio"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -96,6 +96,17 @@ aws = ["dep:toml"]
 # calls either built-in. A FORM application links `image` regardless, through
 # `cobolt-forms`' `render` feature, with these same codecs.
 images = ["dep:image"]
+
+# Sound (spec 092 R15–R18): `COBOL-AUDIO-PLAY` and its four companions play an
+# MP3, OGG Vorbis, WAV or FLAC file on the default output device.
+#
+# `rodio` owns the device through `cpal` and decodes through `symphonia` — pure
+# Rust on every platform, but on **Linux** `cpal` reaches the sound card through
+# ALSA, so building needs the ALSA development package (`libasound2-dev`,
+# `alsa-lib-devel`) and running needs `libasound2`. macOS (CoreAudio) and
+# Windows (WASAPI) need nothing. Separable for exactly that reason, like `http`:
+# the compiler turns it on only for a program that calls one of the verbs.
+audio = ["dep:rodio"]
 
 [dependencies]
 # Free memory, for the fit test of a registered file (spec 075 R18); the
@@ -193,6 +204,13 @@ smb2        = { version = "=0.26.0", default-features = false, features = ["toki
 # through `google_maps` → `chrono-tz`. `clock` is the feature that reads the
 # machine's zone; no C toolchain and no system library come with it.
 chrono      = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# Sound (feature `audio`). Defaults off: they would add recording, MP4/AAC and
+# dithering, none of which the verbs use. `playback` is the output device
+# (`cpal`); `tracing` sends rodio's own device messages to the log instead of
+# stderr (the crate is already ours); the four format features are symphonia's
+# pure-Rust decoders — `mp3`, `vorbis` (with its OGG container), `flac`, `wav`
+# (with PCM).
+rodio       = { version = "0.22", default-features = false, features = ["playback", "tracing", "mp3", "vorbis", "flac", "wav"], optional = true }
 
 [dev-dependencies]
 cobolt-codegen    = { path = "../cobolt-codegen" }
