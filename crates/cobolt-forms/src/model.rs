@@ -2623,7 +2623,7 @@ pub enum ControlType {
     Viewer,
     // Spec 078: the AWS controls — non-visual, in the toolbox's AWS category,
     // reaching AWS as an MCP client of AWS's own MCP servers (no SDK, no TLS,
-    // no credential in the application).
+    // no credential stored in the application).
     /// Call any tool of an AWS MCP server by name — the escape hatch.
     AwsMcp,
     /// Invoke an AWS Lambda function with a JSON payload.

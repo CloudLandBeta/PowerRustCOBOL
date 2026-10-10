@@ -319,7 +319,9 @@ pub fn resolve_agent_all(
 /// region, the Lambda functions the application may reach, and an optional
 /// route-table override — and nothing secret. The credential chain is the AWS
 /// CLI's own (a profile, SSO, `aws login`), read by the AWS MCP server
-/// process, never by the application.
+/// process, never by the application. Keys a running program hands a
+/// connection (`AWS-SET-CREDENTIALS`, spec 092 A6) live in the runtime's
+/// memory, never in this record.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AwsConnection {
     pub id: String,

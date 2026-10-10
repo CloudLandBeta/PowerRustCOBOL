@@ -7373,6 +7373,8 @@ The built-ins, by family (each covered in its own section):
   `MODEL-GET`, `MODEL-LIST`,
   `MODEL-LIST-GET`, `MODEL-TEST`, `PROVIDER-COUNT`, `PROVIDER-GET`, `KEY-SET`,
   `KEY-REMOVE`, `KEY-IS-SET`.
+- **AWS keys typed in at run time:** `AWS-SET-CREDENTIALS`,
+  `AWS-CREDENTIALS-SET`, `AWS-CLEAR-CREDENTIALS` (see *Calling AWS*).
 - **Data bindings and MCP:** the `BINDING-…` calls the generated code makes, and
   `MCP-SEARCH`.
 - **Lifecycle:** `INIT-FORM` and `WAIT-EVENT`, which the generated program
@@ -13358,19 +13360,21 @@ Services from COBOL:
 | `AwsCognito` | signs your application's own users up, in and out |
 | `AwsMcp` | the general door: any tool of an AWS server, by name |
 
-None asks you to write an HTTP request, sign it or handle a credential — you
-drop the control, fill in its properties, and call a method, the way a
-PowerCOBOL or isCOBOL developer calls a control's method.
+None asks you to write an HTTP request or sign it, and none needs you to
+handle a credential — you drop the control, fill in its properties, and call a
+method, the way a PowerCOBOL or isCOBOL developer calls a control's method.
 
 Behind them, the application talks to **AWS's own MCP servers** (small
-programs AWS publishes), which do the AWS work with the AWS CLI's credentials:
+programs AWS publishes), which do the AWS work with the AWS CLI's credentials
+— or with keys your program hands them (see *Keys typed in at run time*
+below):
 
 ```mermaid
 flowchart LR
     H["Your COBOL handler<br/>INVOKE LAMBDA-1 &quot;Invoke&quot;"] --> C["AwsLambda control"]
     C --> R["Route table<br/>(which server, which tool)"]
     R --> S["AWS MCP server<br/>(started once per connection)"]
-    S --> A["AWS<br/>signed with the profile"]
+    S --> A["AWS<br/>signed with the profile<br/>(or the keys you set)"]
     A --> S --> C
     C --> E["onInvoked, then onComplete<br/>(ResponseBody, RowCount, …)"]
 ```
@@ -13385,7 +13389,8 @@ flowchart LR
   AWS MCP Server itself (AWS's setup page for it lists the permissions) and
   the services you call.
 - **The AWS CLI** (2.32 or later) and a profile that is signed in:
-  `aws login --profile sales` once on that machine.
+  `aws login --profile sales` once on that machine — unless the application
+  asks its user for keys instead (*Keys typed in at run time*, below).
 
 That is the whole list, on your machine **and on your users'**: a built
 application carries no AWS key and no AWS library. The first call on a
@@ -13399,7 +13404,8 @@ on its connection until the application ends.
 an **AWS profile**, a **region**, which Lambda functions the application may
 reach (a **function prefix** such as `sales-`, or a comma-separated **function
 list**), and an optional route override for advanced cases. Nothing secret is
-stored — the profile signs every call on the machine that runs it.
+stored — the profile signs every call on the machine that runs it, unless the
+running program hands the connection keys of its own.
 
 **Test connection** starts the connection's server and tells you, in your
 language, one of four things: the program it needs is not installed (and how
@@ -13419,6 +13425,76 @@ an empty Connection means that only one.
 > 📷 **Screenshot needed — `aws-card.png`.** Drop an `AwsLambda` control on a
 > form and capture its tile on the canvas beside the inspector showing
 > Connection, Mode, FunctionName and AllowWrite.
+
+#### Keys typed in at run time: `AWS-SET-CREDENTIALS`
+
+A profile is the right choice for your own machine and for any machine you
+set up — keep using one there. Some applications, though, run where nobody
+will ever type `aws login`: a demonstration handed to a customer, a tool whose
+user has an AWS access key of their own. Such an application can ask its user
+for an **access key id**, a **secret access key** and, for temporary keys, a
+**session token**, and hand them to one of the project's connections:
+
+```cobol
+       PROGRAM-ID. BTN-CONNECT--ONCLICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-STATUS     PIC X(120).
+       PROCEDURE DIVISION.
+           COBOL::"AWS-SET-CREDENTIALS" ( "Sales" TXT-KEY-ID::Text
+               TXT-SECRET::Text TXT-TOKEN::Text WS-STATUS )
+           MOVE SPACES TO TXT-KEY-ID::Text TXT-SECRET::Text TXT-TOKEN::Text
+           IF WS-STATUS = "OK"
+               MOVE "Keys accepted for this session" TO LBL-STATE::Caption
+           ELSE
+               MOVE WS-STATUS TO LBL-STATE::Caption
+           END-IF
+           .
+```
+
+From then on, until the application ends, every AWS control on the `Sales`
+connection works with those keys instead of the connection's profile:
+
+```mermaid
+flowchart LR
+    U["Your user types the keys"] --> P["COBOL::&quot;AWS-SET-CREDENTIALS&quot;<br/>( connection key-id secret token status )"]
+    P --> M["The runtime's memory<br/>(this run only)"]
+    M --> S["The connection's AWS server<br/>receives them in its environment,<br/>no profile"]
+    S --> A["AWS"]
+```
+
+| Built-in | Arguments | What it does |
+|---|---|---|
+| `AWS-SET-CREDENTIALS` | connection, key id, secret, token, [status] | Gives the connection these keys for this run. The token may be spaces (permanent keys have none). `status` is `OK`, or why nothing was stored: no such connection, a key id or secret missing, a space inside a key. |
+| `AWS-CREDENTIALS-SET` | connection, flag | `Y` when the connection has keys set, `N` when it has none. Never the keys themselves. |
+| `AWS-CLEAR-CREDENTIALS` | connection, [status] | Forgets the keys; the connection goes back to its profile. |
+
+The connection is named the way a control's `Connection` names it — by name
+(or id), and empty means the project's only connection.
+
+What the runtime does with the keys, and what it never does:
+
+- They stay **in memory**, for this run of the application only. They are
+  not a property, so no form, no project file, no `Verbose` line, no error
+  message and no log ever holds them, and no built-in hands them back.
+- Only the AWS server the connection starts receives them, in its
+  environment — never on its command line, never in another program.
+- Setting new keys, or clearing them, ends the connection's running server at
+  once; the next call starts one with what is set now. The first call after
+  that takes a second longer.
+- A call AWS refuses because of the keys raises `onError` with a `LastError`
+  that says the keys were refused and should be set again — never the keys.
+
+> **Note.** The text boxes still hold what the user typed until you clear
+> them — which is why the example moves `SPACES` to them straight after the
+> call. Set the secret's text box `PasswordCharacter` (to `*`, say) so the
+> secret is never shown while it is typed.
+
+> ⚠️ **Caveats.**
+> - The keys are as powerful as the IAM user or role they belong to. Ask for
+>   keys whose policy allows only what the application does.
+> - Nothing is remembered between runs: the user types the keys again each
+>   time the application starts. Keeping them is deliberately not offered.
 
 #### Nothing changes AWS until you say so: `AllowWrite`
 
@@ -13922,7 +13998,8 @@ client secret**.
 > ⚠️ **Caveats.**
 > - A profile that is not signed in fails with `onError` and a `LastError`
 >   that names the profile and the `aws login` command; the server's own text
->   is never shown to your users.
+>   is never shown to your users. Keys set with `AWS-SET-CREDENTIALS` that
+>   AWS refuses fail the same way, saying the keys were refused.
 > - `Verbose = true` narrates each call into the program's output, with
 >   anything that looks like an AWS key, session token or signed URL masked.
 > - Run Form, the forms your application opens and the built binary all run

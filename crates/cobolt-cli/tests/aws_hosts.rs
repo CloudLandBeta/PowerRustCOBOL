@@ -362,6 +362,11 @@ fn the_guides_aws_examples_compile() {
         ("BTN-FIND", cobolt_forms::ControlType::Button),
         ("BTN-PHOTO", cobolt_forms::ControlType::Button),
         ("BTN-LOGIN", cobolt_forms::ControlType::Button),
+        // Spec 092 A6: keys typed in at run time.
+        ("BTN-CONNECT", cobolt_forms::ControlType::Button),
+        ("TXT-KEY-ID", cobolt_forms::ControlType::TextBox),
+        ("TXT-SECRET", cobolt_forms::ControlType::TextBox),
+        ("TXT-TOKEN", cobolt_forms::ControlType::TextBox),
     ] {
         form.controls.push(cobolt_forms::Control::new(id, ct, 0, 0));
     }
@@ -392,7 +397,7 @@ fn the_guides_aws_examples_compile() {
             handlers.push(name.to_owned());
         }
     }
-    assert_eq!(handlers.len(), 20, "{handlers:?}");
+    assert_eq!(handlers.len(), 21, "{handlers:?}");
     let src = cobolt_codegen::generate(&form);
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
     let errors: Vec<String> = parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("line {}: {}", d.span.line, d.message)).collect();

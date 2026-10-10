@@ -50,6 +50,7 @@ flowchart LR
 - The environment is **built, never inherited wholesale**. It carries:
   - `AWS_PROFILE`, `AWS_REGION`, the route's own variables, `PATH` and `HOME`/`USERPROFILE`;
   - never `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or `AWS_SESSION_TOKEN`. The builder strips those three even if the parent has them (R11, AC7).
+  - *(A6, 2026-10-09: except the keys the program set for the connection with `AWS-SET-CREDENTIALS`, which the builder itself adds as those three variables — the token only when one was given — while leaving `AWS_PROFILE` out. The builder is the only code that reads them.)*
 
 **`pool.rs`** is one process-global `OnceLock<Mutex<HashMap<(connection id, server id), Handle>>>`:
 - A handle owns the child, a writer and a reader thread that runs `Session::pump` and hands responses back over `mpsc`.
@@ -127,7 +128,7 @@ mutating = true
 ### 1.5 Connections, IDE, knowledge and docs (R12–R13, R22–R24, R30–R32)
 
 - **Shared record.** `cobolt-forms/src/connections.rs` gets `AwsConnection { id, name, profile, region, function_prefix, function_list, routes_override }`.
-  - It has **no secret field**, so none of the one-secret-per-control plumbing the survey flagged (`CREDENTIAL_PROPS`, the control and connection key slots) is touched.
+  - It has **no secret field**, so none of the one-secret-per-control plumbing the survey flagged (`CREDENTIAL_PROPS`, the control and connection key slots) is touched. *(A6: still none — keys set at run time are kept by the runtime, per connection, in memory, never in this record.)*
   - The record is added to `Catalogue.aws` with `#[serde(default)]`, plus `apply_aws` and `resolve_aws_all`.
 - **Where the list is kept.** The project's list lives in `[[integrations.aws_connections]]`, in both manifest copies: `cobolt-ide/src/project_model.rs` and `cobolt-compiler/src/lib.rs`.
 - **The three hosts** publish the catalogue the way they already do for search connections:
@@ -203,6 +204,7 @@ mutating = true
 - **No codegen.** Generic event dispatch already covers non-visual controls. A generator would only produce stubs nobody calls, and would move 62 golden files for nothing.
 - **No credential anywhere.** Profiles and `aws login` / SSO are the only path. The survey's "multi-secret" concern therefore does not arise.
   - Rejected: an access-key field "for convenience". It would put a long-lived key in the OS store of every end user's machine, and it contradicts spec R11.
+  - *(A6, 2026-10-09: profiles stay the recommended path, and a stored key field stays rejected. What spec 092 adds is narrower: a built-in through which a running program hands a connection keys its user typed in, held in memory for that run only and given to that connection's server in its environment.)*
 
 ## 5. Risks & mitigations
 
@@ -258,6 +260,8 @@ mutating = true
 - **A4 — R25.** State that a server's read-only flag is dropped only when a control on that connection has `AllowWrite` on, since one server process serves the whole connection.
 
 - **A5 — R30 (operator, 2026-10-06).** Icons are hand-drawn SVG look-alikes of AWS's service icons instead of original line glyphs.
+
+- **A6 — R11, AC7, AC8, the §2 non-goal (spec 092 D1, 2026-10-09).** The operator's PowerCloud definition says the application asks its user for the AWS credentials. `COBOL::"AWS-SET-CREDENTIALS" ( connection key-id secret token [status] )` hands a connection an access key id, a secret access key and an optional session token; the runtime keeps them in memory only, for that run, and uses them — for any server it starts or restarts for that connection — as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and (when given) `AWS_SESSION_TOKEN` in the server's environment, launching it without the profile. `AWS-CLEAR-CREDENTIALS` forgets them and ends the server that held them; `AWS-CREDENTIALS-SET` answers Y or N, never the values. They never appear in a `.cfrm`, a project file, a log, `Verbose` output, an error message, a `Debug` rendering, a COBOL-readable property or a child process's arguments. Nothing else changes: a profile stays the recommended route for a developer's own machine, and keys from the application's own environment or a route are still never passed.
 
 ## 9. Open questions — how the plan settles them
 
