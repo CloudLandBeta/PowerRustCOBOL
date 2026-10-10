@@ -13348,15 +13348,15 @@ Services from COBOL:
 | `AwsS3Tables` | lists Amazon S3 Tables, reads them with SQL, appends rows |
 | `AwsGlue` | starts Glue jobs and crawlers, follows a run, reads a table's columns |
 | `AwsDynamoDB` | reads and writes DynamoDB items as plain JSON |
-| `AwsS3` | lists, reads, writes and deletes the objects of a bucket |
+| `AwsS3` | lists, reads, writes and deletes the objects of a bucket, and lists your buckets |
 | `AwsS3Vectors` | finds the vectors nearest to one, and stores vectors |
-| `AwsRekognition` | finds labels, text and faces in an image |
+| `AwsRekognition` | finds labels, text, faces and well-known people in an image, and where each face is |
 | `AwsPolly` | speaks a text into an audio file |
 | `AwsComprehend` | the sentiment, entities, key phrases and language of a text |
 | `AwsTextract` | reads a document's lines, form fields and tables |
 | `AwsEC2` | describes, starts and stops instances |
 | `AwsCognito` | signs your application's own users up, in and out |
-| `AwsMcp` | the general door: any tool of an AWS server, by name |
+| `AwsMcp` | the general door: any tool of an AWS server, or any single AWS API call, by name |
 
 None asks you to write an HTTP request, sign it or handle a credential — you
 drop the control, fill in its properties, and call a method, the way a
@@ -13427,7 +13427,8 @@ an empty Connection means that only one.
 - `Invoke` on an `AwsLambda` is refused — running a function can change
   anything, so it counts as a write;
 - `Call` on an `AwsMcp` is refused for any tool its server does not declare
-  read-only;
+  read-only, and `AwsCall` is refused always — it cannot tell an API call
+  that reads from one that writes;
 - so are `AwsAgentCore`'s `Invoke`, `AwsAgentMemory`'s `RecordEvent`,
   `AwsS3Tables`'s `AppendRows`, and `AwsGlue`'s `StartJobRun` and
   `StartCrawler` — every operation that changes something, starts something
@@ -13849,17 +13850,144 @@ the speech into a local file.
 
 | Control | Methods | Rows / results |
 |---|---|---|
-| `AwsRekognition` | `DetectLabels`, `DetectText`, `DetectFaces` (image) | `Name`, `Confidence` · `Text`, `Type` · `AgeLow`, `AgeHigh`, `Smile`, `Emotion` |
+| `AwsRekognition` | `DetectLabels`, `DetectText`, `DetectFaces`, `RecognizeCelebrities` (image) | `Name`, `Confidence` · `Text`, `Type` · `AgeLow`, `AgeHigh`, `Smile`, `Emotion`, `Left`, `Top`, `Width`, `Height` · `Name`, `Id`, `MatchConfidence`, `Urls`, `Left`, `Top`, `Width`, `Height` |
 | `AwsTextract` | `DetectText`, `AnalyzeDocument` (document) | lines `Text`, `Page` · fields and cells: `Kind` (FIELD or CELL), `Key`, `Value`, `Table`, `Row`, `Column` |
 | `AwsPolly` | `Synthesize(text, voice, format, toFile)` | `SavedFile`, `Characters` (what Polly bills) |
 | `AwsComprehend` | `DetectSentiment`, `DetectEntities`, `DetectKeyPhrases`, `DetectLanguage` | `Sentiment` · `Text`, `Type`, `Score` · `Language` |
-| `AwsS3` | `List(prefix)`, `GetObject(key, toFile)`, `PutObject(key, text, fromFile)`, `DeleteObject(key)` | `Key`, `Size`, `LastModified` · the object as text in `ResponseBody` |
+| `AwsS3` | `List(prefix)`, `GetObject(key, toFile)`, `PutObject(key, text, fromFile)`, `DeleteObject(key)`, `ListBuckets()` | `Key`, `Size`, `LastModified` · the object as text in `ResponseBody` · your buckets: `Name`, `CreationDate` |
 | `AwsS3Vectors` | `QueryVectors(index, vector, topK)`, `PutVectors(index, vectors)` | `Key`, `Distance`, `Metadata` |
 | `AwsEC2` | `Describe(ids)`, `Start(ids)`, `Stop(ids)` | `InstanceId`, `Name`, `State`, `Type`, `PublicIp`, `PrivateIp` |
 
 ⚠️ Images, documents and objects travel inside the request and the answer,
 so these suit files of a few megabytes — a photo, a scanned form, a report —
 not a video.
+
+#### Example: who is in the picture, and where
+
+`RecognizeCelebrities` names the well-known people Rekognition finds in a
+picture — one row each, with `Name`, `Id`, `MatchConfidence` (0 to 100) and
+`Urls`, the links Rekognition knows for them, separated by spaces. A face
+nobody is recognised by is not a row.
+
+Each row also says **where the face is**: `Left`, `Top`, `Width` and `Height`
+are fractions (0 to 1) of the picture's width and height, counted from its
+top-left corner — the same four fields every `DetectFaces` row carries.
+Multiply them by the size the picture is shown at and you have a box to draw
+over it. With a PictureBox whose `SizeMode` is `Stretch`, the picture fills
+the control exactly, so the control's own `X`, `Y`, `Width` and `Height` are
+the picture's:
+
+```cobol
+       PROGRAM-ID. BTN-WHO--ONCLICK.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE VISION-1::RecognizeCelebrities(PIC-PHOTO::ImagePath)
+           .
+
+       PROGRAM-ID. VISION-1--ONCELEBRITIES.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           IF VISION-1::RowCount = 0
+               MOVE "Nobody I know" TO LBL-STATE::Caption
+           ELSE
+               MOVE VISION-1::GetField(1, "Name") TO LBL-STATE::Caption
+               COMPUTE SHP-FACE::X = PIC-PHOTO::X
+                   + VISION-1::GetField(1, "Left") * PIC-PHOTO::Width
+               COMPUTE SHP-FACE::Y = PIC-PHOTO::Y
+                   + VISION-1::GetField(1, "Top") * PIC-PHOTO::Height
+               COMPUTE SHP-FACE::Width =
+                   VISION-1::GetField(1, "Width") * PIC-PHOTO::Width
+               COMPUTE SHP-FACE::Height =
+                   VISION-1::GetField(1, "Height") * PIC-PHOTO::Height
+               MOVE TRUE TO SHP-FACE::Visible
+           END-IF
+           .
+```
+
+- One `Shape` per face you want to frame; a loop over `RowCount` places as
+  many as you have.
+- ⚠️ With `SizeMode = Zoom` the picture keeps its proportions and leaves a
+  margin on two sides, so the box must be computed against the rectangle the
+  picture really occupies, not the whole control.
+- Rekognition accepts JPEG and PNG pictures.
+
+> 📷 **Screenshot needed — `aws-celebrities.png`.** Run a form with a
+> PictureBox (`SizeMode = Stretch`), a rounded `Shape` and an
+> `AwsRekognition`, recognise a photo of a well-known person, and capture the
+> box drawn over the face with the name in the label beside it.
+
+#### Example: any AWS API call with `AwsCall`
+
+The controls above cover what an application usually needs. For everything
+else — creating a CloudFormation stack, creating a DynamoDB table, asking which
+account a profile belongs to — `AwsMcp` has **`AwsCall`**: one call to any AWS
+API, named the way AWS names it, through the same AWS MCP Server the
+general-purpose controls use (whatever its `ServerId` says).
+
+| Argument | What to write | Examples |
+|---|---|---|
+| `service` | the service's short name in AWS's SDK for Python — almost always the AWS CLI's (`aws cloudformation …`), except S3's API, which is `s3` (the CLI's `s3api`) | `cloudformation`, `dynamodb`, `s3`, `sts`, `cognito-idp` |
+| `operation` | the API operation's own name, in CamelCase, as the service's API Reference spells it | `DescribeStacks`, `CreateStack`, `CreateTable`, `GetCallerIdentity` |
+| `paramsJson` | a JSON object of the operation's parameters, spelled as the API Reference spells them; empty means none | `{"StackName": "powercloud"}` |
+
+```cobol
+       PROGRAM-ID. BTN-STACK--ONCLICK.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE CLOUD-1::AwsCall("cloudformation", "DescribeStacks",
+               '{"StackName": "powercloud"}')
+           .
+
+       PROGRAM-ID. CLOUD-1--ONAWSCALLED.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE CLOUD-1::GetField(1, "StackStatus") TO LBL-STATE::Caption
+           .
+
+       PROGRAM-ID. CLOUD-1--ONERROR.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE CLOUD-1::LastError TO LBL-STATE::Caption
+           .
+```
+
+What comes back:
+
+- `ResponseBody` and `ResultJson` hold the API's answer as JSON, with AWS's
+  request bookkeeping (`ResponseMetadata`) left out and every date written as
+  ISO 8601 (`2026-10-09T12:00:00+00:00`).
+- **Rows** come from the answer's shape: when it holds exactly one list
+  (`Stacks`, `Buckets`, `TableNames`), each item is a row; when its only
+  member is an object (`Table`, `TableDescription`), that object is row 1;
+  otherwise the answer itself is row 1 (`GetField(1, "StackId")` after a
+  `CreateStack`). A list of plain values gives rows with one field, `Value`.
+- A call AWS rejects raises **`onError`**, never an empty answer: `LastError`
+  starts with AWS's own error code — `ValidationException: Stack with id
+  powercloud does not exist`, `AccessDeniedException: …`,
+  `ResourceInUseException: …` — so a handler can test for the one it expects
+  (a table that already exists, a stack that is not there yet). A profile that
+  is not signed in is reported the way every AWS control reports it.
+
+```mermaid
+flowchart LR
+    C["INVOKE CLOUD-1::AwsCall(service, operation, params)"] --> W{"AllowWrite on?"}
+    W -- no --> R["onError — nothing sent"]
+    W -- yes --> S["The shipped script<br/>(the three values as quoted text)"]
+    S --> A["AWS API, in the connection's region"]
+    A -- answer --> E["onAwsCalled, then onComplete<br/>ResponseBody, rows"]
+    A -- AWS error --> F["onError<br/>LastError = Code: message"]
+```
+
+- ⚠️ `AwsCall` **always needs `AllowWrite`**: it cannot tell an operation that
+  reads from one that changes something, so it treats them all as changes.
+  Turn `AllowWrite` on only on the control that makes these calls.
+- The three values travel as **text inside the request, never as code** —
+  the same rule as every general-purpose control — so a name that came from a
+  user can name a call but never become one.
+- Parameters that are not valid JSON are refused before anything is sent, and
+  `LastError` names argument 3.
+- The profile's own IAM permissions still decide what the call may do; an
+  operation it is not allowed answers `AccessDeniedException`.
 
 #### Example: signing your users in with Cognito
 
@@ -13910,7 +14038,7 @@ client secret**.
 
 > **Note — the events are the asynchronous controls' own.** Each AWS control
 > raises its own completion event (`onInvoked`, `onFunctionsListed`,
-> `onToolResult`, `onToolsListed`, `onQueried`, `onKnowledgeBasesListed`,
+> `onToolResult`, `onToolsListed`, `onAwsCalled`, `onQueried`, `onKnowledgeBasesListed`,
 > `onEventRecorded`, `onRetrieved`, `onTablesListed`, `onRowsAppended`,
 > `onJobStarted`, `onJobRun`, `onCrawlerStarted`, `onTableSchema`, and
 > the general-purpose controls' `onItem`, `onLabels`, `onSignedIn` … listed

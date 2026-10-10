@@ -9,12 +9,12 @@ Branches: `features-powercloud` (integration) ← `features-pc-aws`, `features-p
 `features-pc-grid`, `features-pc-audio`, `features-pc-example`. Order of merge: aws, creds, media, grid, audio, example.
 
 ## WP1a — AWS operations (branch features-pc-aws)
-- [ ] T1  Route + event + method + docs for `AwsRekognition.RecognizeCelebrities`; BoundingBox fields on `DetectFaces`
-- [ ] T2  Route + event + method + docs for `AwsS3.ListBuckets`
-- [ ] T3  `AwsMcp.AwsCall(service, operation, paramsJson)` (literal-only, `mutating`, AWS error code → `onError`)
-- [ ] T4  Fake-server answers, demo forms and `aws_hosts` tallies for T1–T3; per-op tests in `aws_delivery_c.rs`
-- [ ] T5  Test: `MOVE "name" TO AWS-1::Connection` switches the connection for the next call (Q3)
-- [ ] T6  KB tables, Guide AWS section, support matrix (not `chunked.data`)
+- [x] T1  Route + event + method + docs for `AwsRekognition.RecognizeCelebrities`; BoundingBox fields on `DetectFaces`
+- [x] T2  Route + event + method + docs for `AwsS3.ListBuckets`
+- [x] T3  `AwsMcp.AwsCall(service, operation, paramsJson)` (literal-only, `mutating`, AWS error code → `onError`)
+- [x] T4  Fake-server answers, demo forms and `aws_hosts` tallies for T1–T3; per-op tests in `aws_delivery_c.rs`
+- [x] T5  Test: `MOVE "name" TO AWS-1::Connection` switches the connection for the next call (Q3)
+- [x] T6  KB tables, Guide AWS section, support matrix (not `chunked.data`)
 
 ## WP1b — run-time credentials, amendment A6 (branch features-pc-creds)
 - [ ] T7   Per-connection in-memory store, redacting `Launch.credentials`, `built_env` as the only reader, restart on change

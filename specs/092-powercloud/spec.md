@@ -286,4 +286,7 @@ is built on real, documented, tested features of the product and not on special 
 - **Q2 — Which exact tool carries a single API call on the hosted server (`aws___run_script` vs `aws___call_aws`)?**
   Spec 078 Q1, still open; the route table keeps the answer in data, and `AwsCall` follows whatever Q1 settles.
 - **Q3 — Can a `Connection` be switched at run time?** The runtime re-reads the property on every call, so it should;
-  no test covers it. *Plan:* add one (WP1) before the EC2 tab relies on it.
+  no test covers it. *Plan:* add one (WP1) before the EC2 tab relies on it. **Answered (WP1a, 2026-10-10): yes,
+  with no runtime change** — `aws_delivery_c.rs::moving_a_connection_name_switches_the_next_call` sends one call through
+  each of two connections, the second after `MOVE "…" TO AWS-1::Connection`, and each reaches its own server in its own
+  region.
