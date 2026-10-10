@@ -3697,11 +3697,11 @@ column, numbered from 1 like `GetCellValue` — just before `onCellClick` (and
 Page Up/Down, Home, End) counts as clicking it: the same two properties are
 written and `onCellClick` fires for the new cell, so a handler that loads the
 clicked row follows the keyboard too. A key that cannot move, such as Up on
-the first row, fires nothing. A column whose kind is **Button** (set in **Edit
-DataGrid settings…**) draws each cell as a button; a cell value of
-`icon:<name>` draws that icon from the catalogue instead, flat, in the grid's
-text colour — `icon:pencil` and `icon:trash` give each row its Edit and Delete
-buttons:
+the first row, fires nothing. A column whose **Edit control** is **Button**
+(set per column in **Edit DataGrid settings…**) draws each cell as a button; a
+cell value of `icon:<name>` draws that icon from the catalogue instead, flat, in
+the grid's text colour — `icon:pencil` and `icon:trash` give each row its Edit
+and Delete buttons:
 
 ```cobol
       *> Rows: name, then the two action columns
@@ -3718,6 +3718,82 @@ buttons:
 
 > ⚠️ **Caveat.** Before 1.70.258 a click told the handler nothing: the cell
 > travelled with the event, which a COBOL handler never receives.
+
+Two things are *not* a cell click, and a handler that assumes otherwise reads a
+stale row:
+
+- **A click on a column heading** sorts the grid (when `AllowSorting` is on and
+  the column allows it) and fires `onColumnClick`. It does **not** write
+  `ClickedRow` or `ClickedColumn`, which keep what the last cell click left in
+  them.
+- **A click while `SelectableText` is off.** The property is on by default and
+  is what makes a cell clickable at all: with it off, the cells ignore the
+  mouse — nothing is selected, `ClickedRow` and `ClickedColumn` are not
+  written, and neither `onCellClick` nor `onCellDoubleClick` fires, so a Button
+  or icon column does nothing. Headings still sort.
+
+**Pictures in cells — the Image kind.** Set a column's **Edit control** to
+**Image** in **Edit DataGrid settings…** and each cell shows a picture instead
+of text. The cell's value is the **path of a picture file** — PNG, JPEG, GIF,
+WebP, BMP, TIFF or SVG — which makes it a natural fit for a thumbnail column
+whose files your program downloads or generates:
+
+```cobol
+      *> Columns: Photo (Image) | Name | Edit (Button) | Delete (Button)
+           MOVE SPACES TO WS-ROW
+           STRING FUNCTION TRIM(WS-THUMB-PATH) X"09"
+                  FUNCTION TRIM(WS-NAME) X"09"
+                  "icon:pencil" X"09" "icon:trash"
+               DELIMITED BY SIZE INTO WS-ROW
+           MOVE DG-PETS::AddRow(WS-ROW) TO WS-OK.
+```
+
+- **Fit.** The picture is scaled to fit the cell, keeping its proportions; a
+  small picture is enlarged to the cell. The cell is as tall as the row, so give
+  the grid a `RowHeight` that suits the thumbnails (14–120 points; a single row
+  can be taller with `RowHeightOverrides`).
+- **Look.** The Image column's settings add **Image corner radius** and
+  **Image drop shadow**. They are designed in the settings; COBOL has no
+  property for them.
+- **Where the file is.** An absolute path is used as written. A relative path
+  is looked for in the project folder (beside the executable in a built
+  application) and then in the working directory.
+- **A file that is not there yet.** The cell shows the path itself instead of a
+  blank, and the grid looks for the file again every half second, waking the
+  form for the purpose. A thumbnail that your program writes *after* the grid
+  is on screen therefore appears by itself, within about half a second of the
+  file existing — no refresh call. A file that exists but is not a picture is
+  read once and left alone until its modification time or size changes.
+- **A file that is rewritten.** A picture that loaded is not read again on every
+  frame. Every couple of seconds the grid checks whether the file's modification
+  time or size changed and, if so, loads the new picture — so a thumbnail
+  regenerated under the same name is picked up shortly after the next repaint.
+  A file replaced by one of exactly the same size within the file system's
+  timestamp resolution is not noticed; writing the new picture under a new name
+  always works.
+- **Editing and sorting.** An Image column is not editable in place, and sorts by
+  its paths as text.
+
+> **Note.** Only the rows on screen load their pictures, so a grid with
+> thousands of thumbnail rows does not read thousands of files when it opens.
+
+> **Note.** On a grid with a **Data Binding**, the IDE refreshes the columns
+> from the bound fields whenever the form is saved, run or previewed, and while
+> the designer redraws it. A column you set to Image, Button or Gauge keeps that
+> kind through the refresh; only a field you made a Dropdown or Checkbox in the
+> binding editor changes its column's control.
+
+> ⚠️ **Caveat.** A column typed `image` in `Columns` (`Photo:image`; `img` and
+> `picture` mean the same) also shows pictures, but in a plainer form: a
+> picture is never enlarged past its own size, a missing file shows an empty
+> outlined frame instead of the path, and there is no corner radius or shadow.
+> Prefer the Image **Edit control**.
+
+> 📷 **Screenshot needed — `datagrid-image-cells.png`.** A DataGrid with four
+> rows: a Photo column of thumbnails (48-point row height, corner radius 6, drop
+> shadow on), a Name column, and Edit and Delete icon buttons. Beside it, **Edit
+> DataGrid settings…** open on the Photo column with **Edit control** set to
+> Image and the corner-radius and drop-shadow fields visible.
 
 **Headings in the running language.** A title designed in **Edit DataGrid
 settings…** is one language only. `SetColumnTitle(column, title)` replaces it

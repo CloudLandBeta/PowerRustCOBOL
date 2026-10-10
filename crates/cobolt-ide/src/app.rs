@@ -20316,11 +20316,21 @@ fn merge_datagrid_binding_column(
     if column.cobol_mask.trim().is_empty() {
         column.cobol_mask = field.cobol_mask.clone();
     }
-    column.edit_control = if field.edit_control.trim().is_empty() {
-        "Textbox".to_owned()
+    // The binding editor offers a field Textbox, Dropdown or Checkbox only.
+    // Button, Gauge and Image are chosen on the column itself (Edit DataGrid
+    // settings), and a field that says just "Textbox" has no opinion about
+    // them — so, like the mask above, a deliberate choice survives the refresh.
+    let bound_control = if field.edit_control.trim().is_empty() {
+        "Textbox"
     } else {
-        field.edit_control.clone()
+        field.edit_control.as_str()
     };
+    let column_kind_is_deliberate = ["Button", "Gauge", "Image"]
+        .iter()
+        .any(|kind| column.edit_control.eq_ignore_ascii_case(kind));
+    if !(bound_control.eq_ignore_ascii_case("Textbox") && column_kind_is_deliberate) {
+        column.edit_control = bound_control.to_owned();
+    }
     if column.width <= 0.0 {
         column.width = DataGridColumn::default().width;
     }
@@ -22304,6 +22314,89 @@ mod manifest_name_tests {
             id_col.cobol_mask, "9(6)",
             "a column with no mask is seeded from the bound field's PICTURE"
         );
+    }
+
+    /// The binding editor offers a field Textbox, Dropdown or Checkbox; Button,
+    /// Gauge and Image are chosen on the column itself, in Edit DataGrid
+    /// settings. A refresh used to write the field's control over the column's,
+    /// so a thumbnail column set to Image came back as a Textbox on every save
+    /// and run of a bound grid. A field that says only Textbox has no opinion
+    /// about a column's richer kind; one that says Dropdown or Checkbox does.
+    #[test]
+    fn datagrid_binding_refresh_preserves_an_image_button_or_gauge_column() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        let mut grid = Control::new("ActorGrid", ControlType::DataGrid, 0, 0);
+        let mut advanced = DataGridAdvanced::default();
+        for (id, kind) in [
+            ("ACTOR_THUMB", "Image"),
+            ("ACTOR_EDIT", "Button"),
+            ("ACTOR_SCORE", "Gauge"),
+            ("ACTOR_NAME", "Textbox"),
+            ("ACTOR_TIER", "Image"),
+        ] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.replace('_', "-"),
+                edit_control: kind.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        grid.set_prop(
+            DATAGRID_ADVANCED_PROP,
+            PropValue::String(advanced.to_json().expect("advanced serializes")),
+        );
+        form.add_control(grid);
+
+        let mut tier = BindingField::new("ACTOR-TIER", BindingDataType::Text);
+        tier.edit_control = "Dropdown".to_owned();
+        let fields = vec![
+            BindingField::new("ACTOR-THUMB", BindingDataType::Text),
+            BindingField::new("ACTOR-EDIT", BindingDataType::Text),
+            BindingField::new("ACTOR-SCORE", BindingDataType::Integer),
+            BindingField::new("ACTOR-NAME", BindingDataType::Text),
+            tier,
+            BindingField::new("ACTOR-NEW", BindingDataType::Text),
+        ];
+        let binding = DataBindingDef::new(
+            "BIND-ACTORS",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields,
+                key_fields: vec!["ACTOR-NAME".to_owned()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "ActorGrid".to_owned(),
+            },
+        );
+        apply_data_binding_to_form(&mut form, binding);
+        // The save/run refresh, twice: a kind must survive each one.
+        refresh_data_binding_target_properties(&mut form);
+        refresh_data_binding_target_properties(&mut form);
+
+        let parsed = DataGridAdvanced::from_control(form.find_control("ActorGrid").expect("grid"));
+        let kind_of = |source: &str| {
+            parsed
+                .columns
+                .iter()
+                .find(|c| c.source_name.eq_ignore_ascii_case(source))
+                .unwrap_or_else(|| panic!("column {source}"))
+                .edit_control
+                .clone()
+        };
+        assert_eq!(kind_of("ACTOR-THUMB"), "Image", "an Image column stays Image");
+        assert_eq!(kind_of("ACTOR-EDIT"), "Button", "a Button column stays Button");
+        assert_eq!(kind_of("ACTOR-SCORE"), "Gauge", "a Gauge column stays Gauge");
+        assert_eq!(kind_of("ACTOR-NAME"), "Textbox", "a plain column stays a Textbox");
+        assert_eq!(
+            kind_of("ACTOR-TIER"),
+            "Dropdown",
+            "a field the binding editor made a Dropdown still decides"
+        );
+        assert_eq!(kind_of("ACTOR-NEW"), "Textbox", "a new column takes the field's control");
     }
 
     #[test]
