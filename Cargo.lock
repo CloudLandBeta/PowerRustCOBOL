@@ -1744,6 +1744,7 @@ dependencies = [
  "cobolt-semantic",
  "getrandom 0.4.2",
  "google_maps",
+ "image 0.25.10",
  "indexmap",
  "libc",
  "mysql",
