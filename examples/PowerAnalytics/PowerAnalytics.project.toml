@@ -1,5 +1,4 @@
 user-controls = []
-crates = []
 
 [project]
 name = "PowerAnalytics.project"
@@ -10,8 +9,7 @@ copyright = ""
 license_model = ""
 license_text = ""
 destination_folder = "dist"
-debug_compilation = true
-built_with_version = "1.90.16"
+built_with_version = "1.90.55"
 
 [files]
 sources = ["src/main.cbl"]
@@ -641,6 +639,13 @@ For the FINAL assessment, END with exactly one fenced JSON block:
 ```json
 {"pedantic_final": true, "verdict": "<acceptable | not acceptable>", "overall_score": <0-100>}
 ```"""
+
+[[crates]]
+name = "blake3"
+requirement = ""
+version = "1.8.7"
+features = []
+url = "https://crates.io/crates/blake3"
 
 [integrations]
 google_search_engine_id = ""

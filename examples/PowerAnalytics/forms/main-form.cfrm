@@ -4394,7 +4394,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="BTN-M1" type="Button" x="402" y="248" w="84" h="26" tab-order="47" z-order="46" visible="true" enabled="true" parent="C-BAR">
+  <Control id="BTN-M1" type="Button" x="401" y="248" w="84" h="26" tab-order="47" z-order="46" visible="true" enabled="true" parent="C-BAR">
     <Property name="Caption">Fundos</Property>
     <Property name="BackgroundColor">#3E7BE8</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -8929,5 +8929,50 @@ Data de referência:string</Property>
        PROCEDURE DIVISION.
            CALL "STAGE-TICK"
 ]]></Event>
+  </Control>
+  <Control id="RestClient-1" type="RestClient" x="328" y="40" w="56" h="56" tab-order="160" z-order="213" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Configuration"></Property>
+    <Property name="BaseURL">https://api.example.com</Property>
+    <Property name="DefaultMethod">GET</Property>
+    <Property name="AuthType">None</Property>
+    <Property name="AuthToken"></Property>
+    <Property name="DefaultHeaders"></Property>
+    <Property name="TimeoutSeconds">30</Property>
+    <Property name="FollowRedirects">true</Property>
+    <Property name="VerifyTLS">true</Property>
+    <Property name="RequestDataItem"></Property>
+    <Property name="ResponseDataItem"></Property>
+    <Property name="StatusDataItem"></Property>
+    <Property name="Mode">Async</Property>
+    <Property name="Busy">false</Property>
+    <Property name="TimeoutMs">30000</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
   </Control>
 </Form>

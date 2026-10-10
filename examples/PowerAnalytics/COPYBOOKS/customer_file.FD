@@ -1,0 +1,7 @@
+       FD  CUSTOMER-FILE.
+           RECORD CONTAINS 208 CHARACTERS.
+           01 CUSTOMER-FILE-RECORD.
+               05 RECORD-KEY PIC X(8).
+               05 NOME PIC X(40).
+               05 ENDERECO PIC X(120).
+               05 EMAIL PIC X(40).

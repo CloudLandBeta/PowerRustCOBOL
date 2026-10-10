@@ -1,0 +1,5 @@
+           SELECT CUSTOMER-FILE ASSIGN TO "data/customers.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS RECORD-KEY
+               STORAGE MODE IS DISK WITH DATA COMPRESSION.
