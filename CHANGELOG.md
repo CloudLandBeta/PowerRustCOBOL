@@ -17,6 +17,15 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.59] — 2026-10-10
+
+### Fixed
+- **Removing the IDE background image now removes it.**
+  In Settings → Appearance, Browse set the background image and saved the project at once, but Clear only emptied the form's draft, and the window paints the project's value — so the picture stayed on screen until Save was pressed (or, if the IDE was closed or the project switched, until the "save changes?" prompt wrote it). After a Browse the form's saved baseline also still held the old value, so Clear put the draft back on it: the form read as clean, Save stayed disabled, and the image stayed in the project.
+  Clear now does what Browse does, with no image: it takes the path out of the project, writes the project and repaints. Browse and Clear both keep the form's baseline in step, so Save and Cancel agree with the project. The window's cached picture is dropped as soon as the path is gone, the file is deleted, or the file is replaced, and Save and every background change ask for a repaint at once. The paint decision moved out of `CoboltApp` into `ide_background.rs` (`project_image_path`, `BackgroundCache`) so it is tested headlessly.
+  18 new tests (14 in `ide_background`, 4 in `settings_form::background_image_tests`, including a real headless frame of the form in which the Clear button is clicked); five mutations of the production code are each caught by its own test; before the change a scratch test showed Browse-then-Clear leaving the project on the old image with the form clean and Save disabled. `cobolt-ide`: 1513 passed, 1 failed (the known translation-guard red). Developer's Guide §20 updated.
+  Not seen on screen, and the reported "cured only by restarting or switching project" is explained only as the save prompt on close/switch — if you can reproduce it after Clear + Save, tell us the exact sequence. The project-icon row has the same flaw (its Clear only empties the draft) and is not changed here.
+
 ## [PowerRustCOBOL 1.90.55] — 2026-10-09
 
 ### Fixed

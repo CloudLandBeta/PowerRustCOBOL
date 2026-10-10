@@ -374,6 +374,8 @@ pub struct SettingsFormAction {
     /// Reopen the read-only LLM debug modal with the last response (spec 025).
     pub show_debug: bool,
     pub browse_bg: bool,
+    /// Remove the background image — at once and for good, as Browse sets one.
+    pub clear_bg: bool,
     pub browse_project_icon: bool,
     /// Fetch the selected provider's model list (provider just changed, or the
     /// user clicked the refresh button).
@@ -557,8 +559,15 @@ impl SettingsForm {
         self.sync_cobol_proficiency_prompt_editor_from_draft();
     }
 
-    /// Push the just-picked background-image path into the draft.
+    /// The background image was just set (Browse) or removed (Clear): the
+    /// project already holds `path` and has been written to disk, so the draft
+    /// takes it **and so does the baseline**.
+    ///
+    /// The baseline is what Save/Cancel measure against. Left at the old value,
+    /// a Browse followed by Clear put the draft back on it: the form read as
+    /// clean, Save stayed disabled, and the image stayed in the project.
     pub fn set_bg_image(&mut self, path: String) {
+        self.baseline.bg_image = path.clone();
         self.draft.bg_image = path;
     }
 
@@ -1997,7 +2006,11 @@ impl SettingsForm {
                                     if !self.draft.bg_image.is_empty()
                                         && ui.button(tr.settings_bg_clear).clicked()
                                     {
-                                        self.draft.bg_image.clear();
+                                        // The caller removes it from the project
+                                        // and the window, as Browse does for a
+                                        // new one, and hands the empty path back
+                                        // through `set_bg_image`.
+                                        action.clear_bg = true;
                                     }
                                 });
                             });
@@ -3041,5 +3054,153 @@ mod license_tests {
         let mut d = draft("MIT", "my own words");
         d.set_license_model("MIT");
         assert_eq!(d.license_text, "my own words");
+    }
+}
+
+/// The IDE background image through the Settings form: what Browse and Clear
+/// leave behind in the form, and what the Clear button asks the app to do.
+#[cfg(test)]
+mod background_image_tests {
+    use super::*;
+    use crate::ide_background::project_image_path;
+    use std::path::Path;
+
+    const IMAGE: &str = "Assets/backdrop.png";
+
+    fn project_with(image: &str) -> CoboltProject {
+        let mut p = CoboltProject::new("Demo", "src/main.cbl");
+        p.ide.background_image = image.into();
+        p
+    }
+
+    /// What the app does after a Browse or a Clear, to the project and the form.
+    fn the_app_applies(project: &mut CoboltProject, form: &mut SettingsForm, image: &str) {
+        project.ide.background_image = image.into();
+        form.set_bg_image(project.ide.background_image.clone());
+    }
+
+    /// THE DEFECT. Browse wrote the project but left the form's baseline at the
+    /// old value, so Clear put the draft back on the baseline: the form read as
+    /// clean, Save was disabled, and the image stayed in the project.
+    #[test]
+    fn clearing_a_browsed_image_takes_it_out_of_the_project() {
+        let mut project = project_with("");
+        let llm = LlmConfig::defaults();
+        let mut form = SettingsForm::new(&project, &llm);
+
+        the_app_applies(&mut project, &mut form, IMAGE);
+        assert!(!form.is_dirty(), "Browse already wrote the project: nothing is pending");
+        assert_eq!(form.draft.bg_image, IMAGE);
+
+        the_app_applies(&mut project, &mut form, "");
+        assert!(project_image_path(&project, Some(Path::new("/p/demo.toml"))).is_none());
+        assert_eq!(form.draft.bg_image, "", "the form shows none");
+        assert!(!form.is_dirty(), "and owes the project nothing");
+
+        // A later Save of anything else must not bring the image back.
+        let mut llm = llm;
+        form.draft.name = "Renamed".into();
+        form.draft.apply(&mut project, &mut llm);
+        assert_eq!(project.ide.background_image, "");
+    }
+
+    /// Cancel throws away unsaved edits. A Browse is not one — it is already in
+    /// the project and on disk — so Cancel keeps it, and the form still agrees
+    /// with what the window shows.
+    #[test]
+    fn cancel_after_browse_keeps_the_image_the_project_holds() {
+        let mut project = project_with("");
+        let llm = LlmConfig::defaults();
+        let mut form = SettingsForm::new(&project, &llm);
+        the_app_applies(&mut project, &mut form, IMAGE);
+
+        form.draft.name = "Typed but not saved".into();
+        assert!(form.is_dirty());
+        form.cancel();
+        assert_eq!(form.draft.bg_image, IMAGE, "the draft still names the image");
+        assert_eq!(form.draft.name, "Demo", "while the genuinely unsaved edit is gone");
+    }
+
+    /// The model-level reading of the old route (Clear empties the draft, Save
+    /// applies it) stays correct for a project that is opened with an image:
+    /// an emptied draft is dirty, applying it empties the project, and the
+    /// window has nothing to paint afterwards.
+    #[test]
+    fn an_emptied_draft_is_dirty_and_saving_it_empties_the_project() {
+        let mut project = project_with(IMAGE);
+        let mut llm = LlmConfig::defaults();
+        let mut form = SettingsForm::new(&project, &llm);
+        assert!(!form.is_dirty());
+        assert_eq!(form.draft.bg_image, IMAGE);
+
+        form.draft.bg_image.clear();
+        assert!(form.is_dirty(), "Save is enabled for this one change");
+
+        form.draft.apply(&mut project, &mut llm);
+        form.mark_saved();
+        assert_eq!(project.ide.background_image, "");
+        assert!(project_image_path(&project, Some(Path::new("/p/demo.toml"))).is_none());
+        assert!(!form.is_dirty());
+        // Reopening the form from the saved project agrees.
+        let reopened = SettingsForm::new(&project, &llm);
+        assert_eq!(reopened.draft.bg_image, "");
+    }
+
+    /// The Clear button hands the removal to the app (`clear_bg`) instead of
+    /// quietly emptying the draft — which is what left the image on screen —
+    /// and shows no Clear at all once there is nothing to clear.
+    #[test]
+    fn the_clear_button_asks_the_app_to_remove_the_image() {
+        let tr = crate::i18n::Language::English.tr();
+        let llm = LlmConfig::defaults();
+
+        for (image, expect_button) in [(IMAGE, true), ("", false)] {
+            crate::theme::set_active(crate::theme::default_theme());
+            let mut form = SettingsForm::new(&project_with(image), &llm);
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let themes: Vec<(&'static str, &'static str)> = Vec::new();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 6000.0));
+            let mut act = SettingsFormAction::default();
+            let mut run = |form: &mut SettingsForm, events: Vec<egui::Event>| {
+                let input = egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                };
+                let mut out = ctx.run_ui(input, |ui| {
+                    act = form.show(ui, &tr, &themes, false, None, false, &[], true);
+                });
+                out.textures_delta.clear();
+                out.platform_output.accesskit_update.take()
+            };
+            run(&mut form, vec![]);
+            let update = run(&mut form, vec![]).expect("the accessibility tree is built");
+
+            let clear_at = update
+                .nodes
+                .iter()
+                .filter(|(_, n)| {
+                    n.role() == egui::accesskit::Role::Button && n.label() == Some(tr.settings_bg_clear)
+                })
+                .filter_map(|(_, n)| n.bounds())
+                .map(|b| egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32))
+                .collect::<Vec<_>>();
+            assert_eq!(clear_at.len(), usize::from(expect_button), "Clear buttons shown for {image:?}");
+            let Some(at) = clear_at.first().copied() else { continue };
+
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            run(&mut form, vec![egui::Event::PointerMoved(at)]);
+            run(&mut form, vec![button(true)]);
+            run(&mut form, vec![button(false)]);
+            assert!(act.clear_bg, "clicking Clear asks the app to remove the image");
+            assert_eq!(form.draft.bg_image, IMAGE, "the draft is left for the app to settle");
+            assert!(!form.is_dirty());
+        }
     }
 }

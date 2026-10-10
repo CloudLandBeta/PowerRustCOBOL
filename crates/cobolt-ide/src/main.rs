@@ -48,6 +48,7 @@ pub mod model_config_store;
 pub mod model_policy;
 pub mod grace_session;
 pub mod i18n;
+pub mod ide_background;
 pub mod inspector;
 pub mod leaderboard;
 pub mod llm;
