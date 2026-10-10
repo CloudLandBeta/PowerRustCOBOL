@@ -25,6 +25,8 @@ See the LICENSE file in the project root for full license information.
 | ID | Detected | Crate | Error | Summary |
 |----|----------|-------|-------|---------|
 | BUG-001 | 2026-09-14 | cobolt-runtime | runtime | `USAGE` is parsed and then ignored: `COMP-3`, `PACKED-DECIMAL`, `BINARY`, `COMP` and `COMP-5` items get DISPLAY storage, so every record holding one is byte-incompatible with other COBOL implementations. |
+| BUG-004 | 2026-10-10 | cobolt-runtime | runtime | `COMP-1` / `COMP-2` items inside an `FD` record occupy zero bytes: the value overwrites the start of the next field on `WRITE`, and a `READ` gives the neighbour a corrupted value. SEQUENTIAL and INDEXED alike. |
+| BUG-005 | 2026-10-10 | cobolt-runtime | runtime | `FUNCTION BYTE-LENGTH` of a numeric item measures the VALUE, not the declaration (10 for `PIC 9(7)V99 VALUE 1234567.89`, 4 with no `VALUE`; standard: 9). The `LENGTH` half of BUG-002 was fixed in 1.70.20; `BYTE-LENGTH` was left behind. |
 
 ### BUG-001 — `USAGE` is accepted and discarded
 
@@ -69,6 +71,87 @@ other half wrong.
 and nothing in that document warns the reader. Parked in `NIST/progress.json`
 rather than fixed on a `z` bump, because GOLDEN RULE #8 charges five translations
 per edit to that canonical.
+
+
+### BUG-004 — `COMP-1` / `COMP-2` get no bytes in a file record
+
+**Not a compiler error**, and found by `/doc-audit` (round 1 of the 1.91.0
+documentation regeneration) while checking the `USAGE` row of
+`docs/cobol85-supported-syntax-en.md` — which BUG-001 had already shown to be
+over-claimed. This is a second, separate defect on the same surface.
+
+**Measured at 1.90.55.** A record with a `COMP-1` between two `PIC X(4)` fields,
+written to a SEQUENTIAL file and read back (`/tmp/docaudit/usage/RT2.cbl`, if it
+still exists; the program is eleven lines of `MOVE` / `WRITE` / `READ`):
+
+```cobol
+01 OUT-REC.
+   05 R-HEAD PIC X(4).
+   05 R-C1   COMP-1.
+   05 R-TAIL PIC X(4).
+```
+
+`MOVE "AAAA" TO R-HEAD`, `MOVE 7 TO R-C1`, `MOVE "BBBB" TO R-TAIL`, `WRITE`:
+
+| | Result |
+|---|---|
+| File length | **8** bytes — `AAAA7BBB`, i.e. 4 + 0 + 4 (a 4-byte `COMP-1` would make the record 12) |
+| After `READ` | `R-HEAD=AAAA`, `R-C1=7`, **`R-TAIL=7BBB`** |
+
+The same program with the file `ORGANIZATION IS INDEXED` and a `COMP-2` of `3.5`
+(`RT4.cbl`) reads `R-TAIL` back as **`3.5B`**: the value of the float landed on
+top of the first bytes of `R-TAIL`.
+
+**Why (from the bytes observed, and the layout code).** `compute_layout`'s
+`walk()` (`cobolt-runtime/src/files.rs`) sizes a field from its PICTURE and never
+reads `usage` (BUG-001). A `COMP-1` / `COMP-2` item declares no PICTURE, and the
+8-byte file shows it was given no bytes of its own — so its value is written over
+the start of the field that follows, and a `READ` hands the same bytes to both. A
+record that holds a floating-point item is therefore **corrupt in the file, not
+only incompatible** — unlike BUG-001's integer usages, which are merely stored as
+DISPLAY digits and round-trip correctly. (The exact write path in `materialize()`
+/ `distribute()` was not traced.)
+
+**Related.** BUG-001 (the integer `USAGE`s) — both belong to the file-record
+layout and share one fix surface: `walk()` must size and encode every `USAGE`
+(`COMP-1` → 4 bytes, `COMP-2` → 8, IEEE little-endian) before any of them can be
+trusted in a record. The Developer's Guide does not document `COMP-1` / `COMP-2`
+in file records and the supported-syntax reference now says they get no bytes
+there.
+
+**Doc consequence.** None outstanding: `docs/cobol85-supported-syntax-en.md`
+already states the limitation (round 1, 1.91.0).
+
+### BUG-005 — `FUNCTION BYTE-LENGTH` still measures the value
+
+**Not a compiler error**, found by `/doc-audit`, as the other half of BUG-002.
+
+**Measured at 1.90.55** (`/tmp/docaudit/len/L3.cbl`):
+
+```cobol
+01 N1 PIC 9(7)V99 VALUE 1234567.89.
+01 N2 PIC 9(7)V99.
+01 X1 PIC X(10) VALUE "AB".
+    DISPLAY FUNCTION BYTE-LENGTH(N1) " " FUNCTION BYTE-LENGTH(N2)
+            " " FUNCTION BYTE-LENGTH(X1)
+```
+
+| Item | rcrun | Standard / GnuCOBOL |
+|---|---|---|
+| `PIC 9(7)V99 VALUE 1234567.89` | **10** | 9 |
+| `PIC 9(7)V99`, no `VALUE` | **4** | 9 |
+| `PIC X(10) VALUE "AB"` | 10 | 10 |
+
+**Why.** BUG-002 fixed `FUNCTION LENGTH` in 1.70.20 by asking
+`declared_length()` before evaluating the argument; the `BYTE-LENGTH` arm still
+takes the evaluated value's rendered length, so it answers by what the item
+holds — correct for alphanumerics by coincidence, wrong for every numeric. It
+must read the declaration, and, like `LENGTH`, honour `USAGE` once BUG-001 is
+fixed (a `COMP-3` item is 5 bytes).
+
+**Doc consequence.** `docs/cobol85-supported-syntax-en.md` records that
+`BYTE-LENGTH` "still measures the value" (round 1, 1.91.0); remove that sentence
+when this is fixed.
 
 ---
 
