@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.57] — 2026-10-10
+
+### Fixed
+- **A DataGrid Image cell shows a thumbnail that is written after the grid appears, and a bound grid keeps its Image, Button and Gauge columns.**
+  A DataGrid cached a failed picture load for the rest of the session, so a thumbnail that did not exist at the first paint never showed — the case when a program downloads thumbnails after showing the grid. A picture that is missing is now looked for again every half second (a metadata probe, never a read) and the form is asked to wake for it; a file that exists but does not decode is decoded once and again only when its modification time or size changes; a picture that loaded costs nothing per frame and is re-checked every two seconds, so a thumbnail regenerated under the same name is picked up. This covers the Image cell kind (Edit control Image, or `control_kind`), the `image`, `img` and `picture` column types, a column's background picture and the grid backdrop (four identical failed-load caches in `render.rs`, now on one helper, `paint::retrying_image_texture`).
+  On a grid with a Data Binding, every save, run, preview or designer redraw reset a column's Edit control to Textbox, because the binding editor can only express Textbox, Dropdown and Checkbox. A column set to Image, Button or Gauge now keeps its kind; a field made a Dropdown or Checkbox in the binding editor still decides its column.
+  The Image kind, the `Columns` type `image`, and the header-click and `SelectableText` rules for `ClickedRow` and `ClickedColumn` are documented in the System KB tables, and Guide chapter 8 gains an Image section with a COBOL example (`assets/knowledge/chunked.data` regenerated).
+  Verified by 5 new render tests that drive 40 to 120 frames (the file arrives at frame 6 and is drawn at frame 10, with 1 read and 2 probes; a file that never appears costs 0 reads and 12 probes over 120 frames; mutation checks fail 4 of 5 with the old behaviour) and 1 new IDE test (`datagrid_binding_refresh_preserves_an_image_button_or_gauge_column`), plus the full `cobolt-forms` (render), `cobolt-compiler` and `cobolt-ide` sweeps. Not seen on screen.
+  Found, not changed: `control_kind` has no UI, so the designer's "Edit control" combo shows a misleading "Textbox" for a column that carries one; Button columns are editable in place with `AllowCellEditing`, only Image columns are excluded; the column editor's strings ("Edit control", "Image corner radius", "Image drop shadow") are hard-coded English rather than `Tr` fields; `picturebox_texture` re-reads a missing PictureBox file on every frame.
+
 ## [PowerRustCOBOL 1.90.56] — 2026-10-10
 
 ### Fixed
