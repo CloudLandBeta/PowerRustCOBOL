@@ -96,10 +96,14 @@ fn the_rest_example_compiles_and_narrates_every_path() {
     assert!(missing.is_empty(), "the example does not report: {missing:?}");
 
     // The credential must never be printed by the example itself.
-    assert!(
-        !upper.contains("APPENDTEXT(FUNCTION TRIM(WS-LINE))\n           INVOKE TEXTBOX-LOG::APPENDTEXT(RESTCLIENT-1::AUTHTOKEN"),
-        "the log must never carry the token"
-    );
+    for trimmed in ["FUNCTION TRIM(WS-LINE)", "WS-LINE::TRIM()"] {
+        assert!(
+            !upper.contains(&format!(
+                "APPENDTEXT({trimmed})\n           INVOKE TEXTBOX-LOG::APPENDTEXT(RESTCLIENT-1::AUTHTOKEN"
+            )),
+            "the log must never carry the token"
+        );
+    }
 
     eprintln!(
         "  → {} lines generated, parsed and analysed with 0 errors\n",

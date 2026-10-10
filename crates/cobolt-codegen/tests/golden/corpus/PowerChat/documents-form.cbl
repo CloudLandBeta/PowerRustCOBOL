@@ -969,7 +969,7 @@
                    MOVE WS-FOLDER TO WS-ARG2
                END-IF
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE T-DROP-INTO TO WS-FMT
@@ -979,7 +979,7 @@
                MOVE WS-FOLDER TO WS-ARG1
            END-IF
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1036,12 +1036,12 @@
                EXIT PROGRAM
            END-IF
            IF WS-MOVE-STEP NOT = SPACE
-               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Status::Caption
+               MOVE T-KB-UPDATING::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE CONTROL-NODE-INDEX TO WS-J
            IF WS-NODE-KIND(WS-J) NOT = "D"
-               MOVE FUNCTION TRIM(T-DRAG-DOCS-ONLY) TO Lbl-Status::Caption
+               MOVE T-DRAG-DOCS-ONLY::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE WS-NODE-PATH(WS-J) TO WS-MOVE-SRC
@@ -1051,7 +1051,7 @@
                IF WS-NODE-KIND(WS-K1) = "F"
                    MOVE WS-NODE-PATH(WS-K1) TO WS-MOVE-TO
                ELSE
-                   MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-NODE-PATH(WS-K1))) TO WS-L
+                   MOVE FUNCTION LENGTH(WS-NODE-PATH(WS-K1)::Trim()) TO WS-L
                    MOVE 0 TO WS-P
                    PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
                        IF WS-NODE-PATH(WS-K1)(WS-K:1) = "/"
@@ -1079,7 +1079,7 @@
       *>   copies nothing) goes into the selected folder under its own name.
       *>   A name already there is asked about first: replace, or keep.
            MOVE Drop-Docs::DroppedFiles TO WS-UP-ALL
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-UP-ALL)) TO WS-UP-LEN
+           MOVE FUNCTION LENGTH(WS-UP-ALL::Trim()) TO WS-UP-LEN
            MOVE 1 TO WS-UP-PT
            IF WS-UP-N = 0
                MOVE 0 TO WS-UP-ADDED WS-UP-UPDATED WS-UP-KEPT
@@ -1090,7 +1090,7 @@
                    WITH POINTER WS-UP-PT
                END-UNSTRING
                IF WS-UP-ONE NOT = SPACES
-                   MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-UP-ONE)) TO WS-L
+                   MOVE FUNCTION LENGTH(WS-UP-ONE::Trim()) TO WS-L
                    MOVE 0 TO WS-P
                    PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
                        IF WS-UP-ONE(WS-K:1) = "/" OR WS-UP-ONE(WS-K:1) = "\"
@@ -1103,10 +1103,9 @@
                    MOVE WS-UP-ONE TO WS-UP-SRC(WS-UP-N)
                    MOVE SPACES TO WS-UP-DEST(WS-UP-N)
                    IF WS-FOLDER = SPACES
-                       MOVE FUNCTION TRIM(WS-UP-NAME) TO WS-UP-DEST(WS-UP-N)
+                       MOVE WS-UP-NAME::Trim() TO WS-UP-DEST(WS-UP-N)
                    ELSE
-                       STRING FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-UP-NAME)
-                           DELIMITED BY SIZE INTO WS-UP-DEST(WS-UP-N)
+                       STRING WS-FOLDER::Trim() "/" WS-UP-NAME::Trim() INTO WS-UP-DEST(WS-UP-N)
                    END-IF
                    MOVE "Q" TO WS-UP-STATE(WS-UP-N)
                    MOVE "N" TO WS-FOUND
@@ -1121,12 +1120,12 @@
                        MOVE WS-UP-DEST(WS-UP-N) TO WS-ARG1
                        CALL "PC-FMT"
                        MOVE WS-FMT-OUT TO WS-UP-QUESTION
-                       INVOKE ME::"SetProperty"("ConfirmText", WS-UP-QUESTION)
-                       INVOKE ME::"SetProperty"("ConfirmYes", T-REPLACE-YES)
-                       INVOKE ME::"SetProperty"("ConfirmNo", T-REPLACE-NO)
-                       INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
-                       INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
-                       INVOKE ME::"GetProperty"("ConfirmAnswer")
+                       INVOKE ME::SetProperty("ConfirmText", WS-UP-QUESTION)
+                       INVOKE ME::SetProperty("ConfirmYes", T-REPLACE-YES)
+                       INVOKE ME::SetProperty("ConfirmNo", T-REPLACE-NO)
+                       INVOKE ME::SetProperty("ConfirmAnswer", "N")
+                       INVOKE ME::OpenFormSync("CONFIRM-FORM")
+                       INVOKE ME::GetProperty("ConfirmAnswer")
                            RETURNING WS-UP-ANSWER
                        IF WS-UP-ANSWER(1:1) NOT = "Y"
                            MOVE "K" TO WS-UP-STATE(WS-UP-N)
@@ -1134,7 +1133,7 @@
                            MOVE T-UP-KEPT TO WS-FMT
                            MOVE WS-UP-DEST(WS-UP-N) TO WS-ARG1
                            CALL "PC-FMT"
-                           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+                           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                        END-IF
                    END-IF
                END-IF
@@ -1182,18 +1181,16 @@
                        END-IF
                    END-PERFORM
                    IF LK-OUT > 1
-                       STRING ", " DELIMITED BY SIZE
-                           INTO LK-NAMES WITH POINTER LK-OUT
+                       STRING ", " INTO LK-NAMES WITH POINTER LK-OUT
                    END-IF
-                   STRING LK-PATH(WS-P + 1:WS-L - WS-P) DELIMITED BY SIZE
-                       INTO LK-NAMES WITH POINTER LK-OUT
+                   STRING LK-PATH(WS-P + 1:WS-L - WS-P) INTO LK-NAMES WITH POINTER LK-OUT
                END-IF
            END-PERFORM
            MOVE T-REJECTED-TYPE TO WS-FMT
            MOVE LK-NAMES TO WS-ARG1
            CALL "PC-FMT"
            MOVE WS-FMT-OUT TO WS-REJECT-MSG
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1206,11 +1203,11 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
            IF WS-SEL-IX = 0
-               MOVE FUNCTION TRIM(T-PICK-DOC-FIRST) TO Lbl-Status::Caption
+               MOVE T-PICK-DOC-FIRST::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            IF WS-SEL-KIND = "D"
-               MOVE KB-D::DeleteDocument(FUNCTION TRIM(WS-SEL-PATH)) TO WS-OK
+               MOVE KB-D::DeleteDocument(WS-SEL-PATH::Trim()) TO WS-OK
                IF WS-OK NOT = "1"
                    MOVE KB-D::LastError TO Lbl-Status::Caption
                ELSE
@@ -1219,16 +1216,15 @@
                    MOVE T-REMOVING TO WS-FMT
                    MOVE WS-SEL-PATH TO WS-ARG1
                    CALL "PC-FMT"
-                   MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
+                   MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
                END-IF
                EXIT PROGRAM
            END-IF
       *>   A folder goes only when nothing is under it: deleting a folder
       *>   never deletes documents as a side effect.
            MOVE SPACES TO WS-KEY-TMP
-           STRING FUNCTION TRIM(WS-SEL-PATH) "/" DELIMITED BY SIZE
-               INTO WS-KEY-TMP
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-KEY-TMP)) TO WS-L
+           STRING WS-SEL-PATH::Trim() "/" INTO WS-KEY-TMP
+           MOVE FUNCTION LENGTH(WS-KEY-TMP::Trim()) TO WS-L
            MOVE "N" TO WS-FOUND
            PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
                IF WS-NODE-PATH(WS-J)(1:WS-L) = WS-KEY-TMP(1:WS-L)
@@ -1236,7 +1232,7 @@
                END-IF
            END-PERFORM
            IF WS-FOUND = "Y"
-               MOVE FUNCTION TRIM(T-FOLDER-NOT-EMPTY) TO Lbl-Status::Caption
+               MOVE T-FOLDER-NOT-EMPTY::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O FOLDERS-FILE
@@ -1256,7 +1252,7 @@
            MOVE T-FOLDER-DELETED TO WS-FMT
            MOVE WS-GONE TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1301,15 +1297,14 @@
            IF WS-NAME = SPACES OR WS-K > 0
               OR FUNCTION TRIM(WS-NAME) = "."
               OR FUNCTION TRIM(WS-NAME) = ".."
-               MOVE FUNCTION TRIM(T-FOLDER-NAME-BAD) TO Lbl-Status::Caption
+               MOVE T-FOLDER-NAME-BAD::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE SPACES TO WS-ONE-PATH
            IF WS-FOLDER = SPACES
-               MOVE FUNCTION TRIM(WS-NAME) TO WS-ONE-PATH
+               MOVE WS-NAME::Trim() TO WS-ONE-PATH
            ELSE
-               STRING FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-NAME)
-                   DELIMITED BY SIZE INTO WS-ONE-PATH
+               STRING WS-FOLDER::Trim() "/" WS-NAME::Trim() INTO WS-ONE-PATH
            END-IF
            MOVE "N" TO WS-FOUND
            PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
@@ -1318,7 +1313,7 @@
                END-IF
            END-PERFORM
            IF WS-FOUND = "Y"
-               MOVE FUNCTION TRIM(T-FOLDER-EXISTS) TO Lbl-Status::Caption
+               MOVE T-FOLDER-EXISTS::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O FOLDERS-FILE
@@ -1342,7 +1337,7 @@
            MOVE T-FOLDER-CREATED TO WS-FMT
            MOVE WS-SEL-PATH TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1357,12 +1352,12 @@
       *>   First press: the selected document is the one to move. Second
       *>   press: it goes into the selected folder (or a document's folder).
            IF WS-MOVE-STEP NOT = SPACE
-               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Status::Caption
+               MOVE T-KB-UPDATING::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            IF WS-MOVE-SRC = SPACES
                IF WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
-                   MOVE FUNCTION TRIM(T-PICK-DOC-TO-MOVE)
+                   MOVE T-PICK-DOC-TO-MOVE::Trim()
                        TO Lbl-Status::Caption
                    EXIT PROGRAM
                END-IF
@@ -1371,7 +1366,7 @@
                MOVE T-MOVE-PICK TO WS-FMT
                MOVE WS-MOVE-SRC TO WS-ARG1
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE WS-FOLDER TO WS-MOVE-TO
@@ -1418,7 +1413,7 @@
                MOVE WS-KB1 TO WS-ARG2
                MOVE WS-KB2 TO WS-ARG3
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
                EXIT PROGRAM
            END-IF
       *>   Two bars (operator, 2026-09-27): documents split into passages,
@@ -1442,7 +1437,7 @@
                MOVE WS-KB1 TO WS-ARG1
                MOVE WS-KB2 TO WS-ARG2
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Chunk::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Chunk::Caption
                MOVE WS-DOC-TOT TO Prg-Chunk::Maximum
                MOVE WS-DOC-CUR TO Prg-Chunk::Value
                SET Lbl-Chunk::Visible TO TRUE
@@ -1458,7 +1453,7 @@
                MOVE WS-KB1 TO WS-ARG1
                MOVE WS-KB2 TO WS-ARG2
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Embed::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Embed::Caption
                MOVE WS-PASSAGES TO Prg-Embed::Maximum
                MOVE WS-PASSAGE TO Prg-Embed::Value
                SET Lbl-Embed::Visible TO TRUE
@@ -1474,7 +1469,7 @@
            MOVE WS-N2 TO WS-ARG2
            MOVE KB-D::ProgressDocument TO WS-ARG3
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
 
            GOBACK.
 
@@ -1525,13 +1520,11 @@
                CALL "PC-FMT"
                MOVE WS-LINE TO WS-ARG2
                MOVE SPACES TO WS-LINE
-               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
                IF WS-REJECT-MSG NOT = SPACES
                    MOVE WS-LINE TO WS-ARG2
                    MOVE SPACES TO WS-LINE
-                   STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-REJECT-MSG)
-                       DELIMITED BY SIZE INTO WS-LINE
+                   STRING WS-ARG2::Trim() " " WS-REJECT-MSG::Trim() INTO WS-LINE
                    MOVE SPACES TO WS-REJECT-MSG
                END-IF
                MOVE WS-LINE TO Lbl-Status::Caption
@@ -1541,7 +1534,7 @@
       *>   A move's copy is indexed: now the original goes. Its own onIndexed
       *>   lists the tree and reports the move.
            IF WS-MOVE-STEP = "I"
-               MOVE KB-D::DeleteDocument(FUNCTION TRIM(WS-MOVE-SRC)) TO WS-OK
+               MOVE KB-D::DeleteDocument(WS-MOVE-SRC::Trim()) TO WS-OK
                IF WS-OK = "1"
                    MOVE "D" TO WS-MOVE-STEP
                    EXIT PROGRAM
@@ -1564,7 +1557,7 @@
                MOVE WS-DELETING TO WS-ARG1
                CALL "PC-FMT"
                MOVE SPACES TO WS-DELETING
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            IF WS-MOVE-STEP = "D"
@@ -1580,7 +1573,7 @@
                    MOVE WS-MOVE-TO TO WS-ARG2
                END-IF
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                MOVE SPACES TO WS-MOVE-SRC
                CALL "PC-MOVE-UI"
                EXIT PROGRAM
@@ -1596,7 +1589,7 @@
                MOVE KB-D::Reindex() TO WS-OK
                IF WS-OK = "1"
                    MOVE "R" TO WS-KB-STEP
-                   MOVE FUNCTION TRIM(T-REINDEXING) TO Lbl-Progress::Caption
+                   MOVE T-REINDEXING::Trim() TO Lbl-Progress::Caption
                    EXIT PROGRAM
                END-IF
            END-IF
@@ -1619,8 +1612,7 @@
                CALL "PC-FMT"
                MOVE WS-LINE TO WS-ARG2
                MOVE SPACES TO WS-LINE
-               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
       *>   What was stored, said outright: how many passages, and whether
       *>   they carry embeddings (operator, 2026-09-27: no confirmation that
@@ -1639,8 +1631,7 @@
                CALL "PC-FMT"
                MOVE WS-LINE TO WS-ARG2
                MOVE SPACES TO WS-LINE
-               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
       *>   R18: never degrade silently - say when search is by words only.
            IF WS-MODE-WHY NOT = SPACES
@@ -1649,14 +1640,12 @@
                CALL "PC-FMT"
                MOVE WS-LINE TO WS-ARG2
                MOVE SPACES TO WS-LINE
-               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
            IF WS-REJECT-MSG NOT = SPACES
                MOVE WS-LINE TO WS-ARG2
                MOVE SPACES TO WS-LINE
-               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-REJECT-MSG)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-ARG2::Trim() " " WS-REJECT-MSG::Trim() INTO WS-LINE
                MOVE SPACES TO WS-REJECT-MSG
            END-IF
            MOVE WS-LINE TO Lbl-Status::Caption
@@ -1768,14 +1757,11 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-TOPICS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
-               DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           STRING WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
            MOVE SPACES TO WS-FOLDERS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/folders.idx"
-               DELIMITED BY SIZE INTO WS-FOLDERS-PATH
+           STRING WS-DATA-DIR::Trim() "/folders.idx" INTO WS-FOLDERS-PATH
 
            GOBACK.
 
@@ -1845,7 +1831,7 @@
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-DOC-COUNT
                MOVE KB-D::GetDocument(WS-I) TO WS-DOC
                MOVE "D" TO WS-ONE-KIND
-               MOVE FUNCTION TRIM(WS-DOC) TO WS-ONE-PATH
+               MOVE WS-DOC::Trim() TO WS-ONE-PATH
                CALL "PC-TREE-ADD"
            END-PERFORM
       *>   The folders made here, including the empty ones.
@@ -1893,7 +1879,7 @@
       *>       Depth from 1 (a top-level entry), one more per "/".
                MOVE 1 TO WS-DEPTH
                INSPECT WS-NODE-PATH(WS-J) TALLYING WS-DEPTH FOR ALL "/"
-               MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-NODE-PATH(WS-J))) TO WS-L
+               MOVE FUNCTION LENGTH(WS-NODE-PATH(WS-J)::Trim()) TO WS-L
                MOVE 0 TO WS-P
                PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
                    IF WS-NODE-PATH(WS-J)(WS-K:1) = "/"
@@ -1910,25 +1896,24 @@
                    IF WS-J < WS-NODE-N
                        COMPUTE WS-K1 = WS-J + 1
                        MOVE SPACES TO WS-KEY-TMP
-                       STRING FUNCTION TRIM(WS-NODE-PATH(WS-J)) "/"
-                           DELIMITED BY SIZE INTO WS-KEY-TMP
+                       STRING WS-NODE-PATH(WS-J)::Trim() "/" INTO WS-KEY-TMP
                        IF WS-NODE-PATH(WS-K1)(1:WS-L + 1) = WS-KEY-TMP(1:WS-L + 1)
                            MOVE SPACES TO WS-ICON
                        END-IF
                    END-IF
                END-IF
                IF WS-ICON = SPACES
-                   MOVE Trv-Docs::AddNode(WS-DEPTH, FUNCTION TRIM(WS-NAME)) TO WS-OK
+                   MOVE Trv-Docs::AddNode(WS-DEPTH, WS-NAME::Trim()) TO WS-OK
                ELSE
-                   MOVE Trv-Docs::AddNode(WS-DEPTH, FUNCTION TRIM(WS-NAME),
-                       FUNCTION TRIM(WS-ICON)) TO WS-OK
+                   MOVE Trv-Docs::AddNode(WS-DEPTH, WS-NAME::Trim(),
+                       WS-ICON::Trim()) TO WS-OK
                END-IF
            END-PERFORM
            MOVE WS-DOC-COUNT TO WS-N1
            MOVE T-DOC-COUNT TO WS-FMT
            MOVE WS-N1 TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Count::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Count::Caption
            CALL "PC-SELECT-SYNC"
 
            GOBACK.
@@ -1988,7 +1973,7 @@
                MOVE WS-ONE-KIND TO WS-NODE-KIND(WS-NODE-N)
                MOVE WS-ONE-PATH TO WS-NODE-PATH(WS-NODE-N)
                MOVE LOW-VALUES TO WS-KEY-TMP
-               MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-ONE-PATH)) TO WS-L
+               MOVE FUNCTION LENGTH(WS-ONE-PATH::Trim()) TO WS-L
                MOVE WS-ONE-PATH(1:WS-L) TO WS-KEY-TMP(1:WS-L)
                INSPECT WS-KEY-TMP(1:WS-L) CONVERTING "/" TO X"01"
                MOVE WS-KEY-TMP TO WS-NODE-KEY(WS-NODE-N)
@@ -2023,7 +2008,7 @@
                IF WS-SEL-KIND = "F"
                    MOVE WS-SEL-PATH TO WS-FOLDER
                ELSE
-                   MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-SEL-PATH)) TO WS-L
+                   MOVE FUNCTION LENGTH(WS-SEL-PATH::Trim()) TO WS-L
                    MOVE 0 TO WS-P
                    PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
                        IF WS-SEL-PATH(WS-K:1) = "/"
@@ -2039,8 +2024,7 @@
            IF WS-FOLDER = SPACES
                MOVE WS-DOCS-DIR TO WS-LINE
            ELSE
-               STRING FUNCTION TRIM(WS-DOCS-DIR) "/" FUNCTION TRIM(WS-FOLDER)
-                   DELIMITED BY SIZE INTO WS-LINE
+               STRING WS-DOCS-DIR::Trim() "/" WS-FOLDER::Trim() INTO WS-LINE
            END-IF
       *>   The zone copies nothing itself (uploads are imported, asking
       *>   first when a name is taken): WS-FOLDER is where they go.
@@ -2074,20 +2058,20 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 54
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-DROP-HINT) TO Drop-Docs::Hint
-           MOVE FUNCTION TRIM(T-DELETE) TO Btn-Delete::Caption
-           MOVE FUNCTION TRIM(T-PREVIEW) TO Btn-Preview::Caption
-           MOVE FUNCTION TRIM(T-REFRESH) TO Btn-Refresh::Caption
-           MOVE FUNCTION TRIM(T-NEW-FOLDER) TO Btn-NewFolder::Caption
-           MOVE FUNCTION TRIM(T-FOLDER-HINT) TO Txt-Folder::HintText
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
-           MOVE FUNCTION TRIM(T-MOVE-TOP) TO Btn-MoveTop::Caption
+           MOVE T-DOCS-TITLE::Trim() TO Lbl-Title::Caption
+           MOVE T-DROP-HINT::Trim() TO Drop-Docs::Hint
+           MOVE T-DELETE::Trim() TO Btn-Delete::Caption
+           MOVE T-PREVIEW::Trim() TO Btn-Preview::Caption
+           MOVE T-REFRESH::Trim() TO Btn-Refresh::Caption
+           MOVE T-NEW-FOLDER::Trim() TO Btn-NewFolder::Caption
+           MOVE T-FOLDER-HINT::Trim() TO Txt-Folder::HintText
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
+           MOVE T-MOVE-TOP::Trim() TO Btn-MoveTop::Caption
            CALL "PC-MOVE-UI"
            MOVE T-ACCEPTED-TYPES TO WS-FMT
            MOVE WS-DOC-TYPES TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Types::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Types::Caption
 
            GOBACK.
 
@@ -2121,14 +2105,14 @@
                    MOVE WS-UP-KEPT TO WS-KB1
                    MOVE WS-KB1 TO WS-ARG3
                    CALL "PC-FMT"
-                   MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+                   MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                END-IF
                MOVE 0 TO WS-UP-N
                EXIT PROGRAM
            END-IF
            MOVE SPACES TO KB-D::SearchModeReason
-           MOVE KB-D::ImportDocument(FUNCTION TRIM(WS-UP-SRC(WS-UP-CUR)),
-               FUNCTION TRIM(WS-UP-DEST(WS-UP-CUR))) TO WS-OK
+           MOVE KB-D::ImportDocument(WS-UP-SRC(WS-UP-CUR)::Trim(),
+               WS-UP-DEST(WS-UP-CUR)::Trim()) TO WS-OK
            IF WS-OK NOT = "1"
       *>       Another update is running: this one waits for its end.
                EXIT PROGRAM
@@ -2137,7 +2121,7 @@
            MOVE T-UP-SENDING TO WS-FMT
            MOVE WS-UP-DEST(WS-UP-CUR) TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
 
            GOBACK.
 
@@ -2151,16 +2135,15 @@
        PROCEDURE DIVISION.
       *>   The selected document, shown in PREVIEW-FORM (a modal window).
            IF WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
-               MOVE FUNCTION TRIM(T-PICK-DOC-TO-PREVIEW) TO Lbl-Status::Caption
+               MOVE T-PICK-DOC-TO-PREVIEW::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE SPACES TO WS-LINE
-           STRING FUNCTION TRIM(WS-DOCS-DIR) "/" FUNCTION TRIM(WS-SEL-PATH)
-               DELIMITED BY SIZE INTO WS-LINE
-           INVOKE ME::"SetProperty"("PreviewPath", WS-LINE)
-           INVOKE ME::"SetProperty"("PreviewTitle", WS-SEL-PATH)
-           INVOKE ME::"SetProperty"("PreviewClose", T-CLOSE)
-           INVOKE ME::"OpenFormSync"("PREVIEW-FORM")
+           STRING WS-DOCS-DIR::Trim() "/" WS-SEL-PATH::Trim() INTO WS-LINE
+           INVOKE ME::SetProperty("PreviewPath", WS-LINE)
+           INVOKE ME::SetProperty("PreviewTitle", WS-SEL-PATH)
+           INVOKE ME::SetProperty("PreviewClose", T-CLOSE)
+           INVOKE ME::OpenFormSync("PREVIEW-FORM")
 
            GOBACK.
 
@@ -2180,7 +2163,7 @@
            IF WS-OK NOT = "1"
                MOVE KB-D::LastError TO Lbl-Status::Caption
            ELSE
-               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
+               MOVE T-KB-UPDATING::Trim() TO Lbl-Progress::Caption
            END-IF
 
            GOBACK.
@@ -2196,10 +2179,10 @@
       *>   The Move button says what the next press does: pick the document,
       *>   or place the one picked. "To the top level" only while one is.
            IF WS-MOVE-SRC = SPACES OR WS-MOVE-STEP NOT = SPACE
-               MOVE FUNCTION TRIM(T-MOVE) TO Btn-Move::Caption
+               MOVE T-MOVE::Trim() TO Btn-Move::Caption
                MOVE "false" TO Btn-MoveTop::Enabled
            ELSE
-               MOVE FUNCTION TRIM(T-MOVE-HERE) TO Btn-Move::Caption
+               MOVE T-MOVE-HERE::Trim() TO Btn-Move::Caption
                MOVE "true" TO Btn-MoveTop::Enabled
            END-IF
 
@@ -2218,7 +2201,7 @@
       *>   WS-MOVE-SRC goes into folder WS-MOVE-TO (spaces: the top level).
       *>   Step one copies it there through the Knowledge Base, which indexes
       *>   the copy; onIndexed then deletes the original (step two).
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-MOVE-SRC)) TO WS-L
+           MOVE FUNCTION LENGTH(WS-MOVE-SRC::Trim()) TO WS-L
            MOVE 0 TO WS-P
            PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
                IF WS-MOVE-SRC(WS-K:1) = "/"
@@ -2231,13 +2214,12 @@
            IF WS-MOVE-TO = SPACES
                MOVE FUNCTION TRIM(LK-FILE) TO WS-MOVE-DEST
            ELSE
-               STRING FUNCTION TRIM(WS-MOVE-TO) "/" FUNCTION TRIM(LK-FILE)
-                   DELIMITED BY SIZE INTO WS-MOVE-DEST
+               STRING WS-MOVE-TO::Trim() "/" FUNCTION TRIM(LK-FILE) INTO WS-MOVE-DEST
            END-IF
            IF WS-MOVE-DEST = WS-MOVE-SRC
                MOVE SPACES TO WS-MOVE-SRC
                CALL "PC-MOVE-UI"
-               MOVE FUNCTION TRIM(T-MOVE-SAME) TO Lbl-Status::Caption
+               MOVE T-MOVE-SAME::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
       *>   Never over another document: the copy would replace it.
@@ -2253,14 +2235,13 @@
                CALL "PC-FMT"
                MOVE SPACES TO WS-MOVE-SRC
                CALL "PC-MOVE-UI"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE SPACES TO WS-LINE
-           STRING FUNCTION TRIM(WS-DOCS-DIR) "/" FUNCTION TRIM(WS-MOVE-SRC)
-               DELIMITED BY SIZE INTO WS-LINE
-           MOVE KB-D::ImportDocument(FUNCTION TRIM(WS-LINE),
-               FUNCTION TRIM(WS-MOVE-DEST)) TO WS-OK
+           STRING WS-DOCS-DIR::Trim() "/" WS-MOVE-SRC::Trim() INTO WS-LINE
+           MOVE KB-D::ImportDocument(WS-LINE::Trim(),
+               WS-MOVE-DEST::Trim()) TO WS-OK
            IF WS-OK NOT = "1"
                MOVE SPACES TO WS-MOVE-SRC
                CALL "PC-MOVE-UI"
@@ -2269,7 +2250,7 @@
            END-IF
            MOVE "I" TO WS-MOVE-STEP
            CALL "PC-MOVE-UI"
-           MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
+           MOVE T-KB-UPDATING::Trim() TO Lbl-Progress::Caption
 
            GOBACK.
 
@@ -2300,18 +2281,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
@@ -2341,7 +2317,7 @@
                MOVE "assets/KB" TO WS-KB-LOCATION
            END-IF
            IF WS-CUR-TOPIC = SPACES
-               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               MOVE T-OPEN-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TOPICS-FILE
@@ -2358,15 +2334,14 @@
            MOVE T-DOCS-OF TO WS-FMT
            MOVE TOP-NAME TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Title::Caption
            MOVE WS-KB-LOCATION TO KB-D::Location
            MOVE WS-CUR-TOPIC TO KB-D::Collection
       *>   Dropped files land in the collection's documents folder; a refresh
       *>   then indexes them. So does anything copied there by other means.
       *>   PC-SELECT-SYNC points the zone at the selected folder inside it.
            MOVE SPACES TO WS-DOCS-DIR
-           STRING FUNCTION TRIM(WS-KB-LOCATION) "/" FUNCTION TRIM(WS-CUR-TOPIC)
-                  "/documents" DELIMITED BY SIZE INTO WS-DOCS-DIR
+           STRING WS-KB-LOCATION::Trim() "/" WS-CUR-TOPIC::Trim() "/documents" INTO WS-DOCS-DIR
            CALL "PC-LIST-DOCS"
       *>   The semantic model first - fetched once per installation, a quick
       *>   no-op after that - then pick up whatever changed in the folder

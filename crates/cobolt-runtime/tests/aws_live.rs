@@ -14,8 +14,11 @@
 //! ```
 //!
 //! Optional: `COBOLT_AWS_FUNCTION_PREFIX` (Lambda), `COBOLT_AWS_S3_BUCKET`,
-//! `COBOLT_AWS_DYNAMODB_TABLE`. A service whose input is not given is
-//! listed as skipped.
+//! `COBOLT_AWS_DYNAMODB_TABLE`, `COBOLT_AWS_CELEBRITY_IMAGE` (a JPEG or PNG,
+//! or `s3://bucket/key`, for `RecognizeCelebrities`). A service whose input
+//! is not given is listed as skipped. `AwsMcp.AwsCall` calls STS
+//! `GetCallerIdentity`, which only reads; it runs with AllowWrite on because
+//! every AwsCall needs it (spec 092 R4).
 //!
 //! It prints a table of what answered and how fast, and saves each server's
 //! real `tools/list` under `target/aws-live-tools/` — the input for
@@ -54,6 +57,7 @@ fn one_read_only_call_per_service() {
     let budget = Budget { call: Duration::from_secs(60), start: Duration::from_secs(300) };
     let bucket = env("COBOLT_AWS_S3_BUCKET");
     let table = env("COBOLT_AWS_DYNAMODB_TABLE");
+    let celebrity = env("COBOLT_AWS_CELEBRITY_IMAGE");
     let speech = std::env::temp_dir().join("prc-078-live.mp3");
     let speech = speech.to_string_lossy().into_owned();
     // (control, method, args, properties, needs)
@@ -66,6 +70,10 @@ fn one_read_only_call_per_service() {
         ("AwsPolly", "Synthesize", vec!["Hello from PowerRustCOBOL".into(), String::new(), String::new(), speech.clone()], vec![], true),
         ("AwsS3", "List", vec![String::new()], vec![("Bucket", bucket.clone())], !bucket.is_empty()),
         ("AwsDynamoDB", "Scan", vec!["5".into()], vec![("TableName", table.clone())], !table.is_empty()),
+        // Spec 092. AwsCall needs AllowWrite whatever it calls; this one only reads.
+        ("AwsS3", "ListBuckets", vec![], vec![], true),
+        ("AwsMcp", "AwsCall", vec!["sts".into(), "GetCallerIdentity".into(), String::new()], vec![], true),
+        ("AwsRekognition", "RecognizeCelebrities", vec![celebrity.clone()], vec![], !celebrity.is_empty()),
     ];
     let mut rows = Vec::new();
     for (control, method, args, props, run) in cases {
@@ -74,7 +82,8 @@ fn one_read_only_call_per_service() {
             continue;
         }
         let prop = |p: &str| props.iter().find(|(k, _)| *k == p).map(|(_, v)| v.clone()).unwrap_or_default();
-        let view = ControlView { control_type: control, method, args: &args, prop: &prop, control: "LIVE-1", allow_write: false, connection_allows_write: false };
+        let allow = method == "AwsCall";
+        let view = ControlView { control_type: control, method, args: &args, prop: &prop, control: "LIVE-1", allow_write: allow, connection_allows_write: allow };
         let t = Instant::now();
         let outcome = match ops::prepare(&view, &conn) {
             Ok(p) => ops::execute(&p, budget),

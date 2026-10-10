@@ -32,8 +32,7 @@
                MOVE "data/settings.idx" TO WS-PATH
            ELSE
                MOVE SPACES TO WS-PATH
-               STRING FUNCTION TRIM(WS-DIR) "/settings.idx"
-                   DELIMITED BY SIZE INTO WS-PATH
+               STRING WS-DIR::Trim() "/settings.idx" INTO WS-PATH
            END-IF
            OPEN INPUT SETTINGS-FILE
            IF WS-FS NOT = "00"

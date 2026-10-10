@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — AWS controls through MCP
 
-- **Status:** approved 2026-09-30 (with plan amendments A1–A4)
+- **Status:** approved 2026-09-30 (with plan amendments A1–A4; A5 2026-10-06; A6 2026-10-09, from spec 092)
 - **Folder:** specs/078-aws-mcp-controls/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-30
 
@@ -40,6 +40,15 @@ made for three reasons this repository already holds:
    role). The application passes a profile *name* and a region, never a key.
    A `.cfrm` already can never hold a credential (`xml.rs`, `CREDENTIAL_PROPS`);
    this feature introduces no credential for it to hold.
+   *(Amended 2026-10-09, A6 — spec 092 D1: one exception. A program may hand
+   a connection an access key id, a secret access key and an optional session
+   token with `COBOL::"AWS-SET-CREDENTIALS"`. The runtime keeps them in memory
+   only, for that run, and gives them to the server it starts for that
+   connection as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and
+   `AWS_SESSION_TOKEN` in its environment, launching it without the profile.
+   They never reach a `.cfrm`, a project file, a log, `Verbose` output, an
+   error message, a `Debug` rendering, a property or a command line. A profile
+   stays the recommended route for a developer's own machine.)*
 3. **The protocol is already half here.** `cobolt-mcp` (spec 065) implements
    the server side of MCP over a host-supplied byte stream, with no dependencies
    beyond serde. The client side is the missing half, and the same crate can
@@ -92,6 +101,9 @@ built application, and the spec treats it as one (R22–R24).
   (§7 Q3 keeps the door open).
 - Storing, entering or displaying AWS access keys anywhere in the IDE or in a
   built application. The AWS CLI / SSO login is the only credential path.
+  *(Amended 2026-10-09, A6: a running application may now hand a connection
+  keys its user typed in, through `AWS-SET-CREDENTIALS`, held in memory only.
+  Storing and displaying keys stay non-goals.)*
 - Administering AWS resources (creating tables, buckets, functions, user pools,
   IAM). The controls *use* resources that exist.
 - Exposing the application's own MCP server to AWS (that is spec 065's server
@@ -173,13 +185,20 @@ built application, and the spec treats it as one (R22–R24).
   a profile *name*, a region, route flags and the environment variables the
   route declares. It shall never pass, read, store or log an access key, a
   secret key or a session token.
+  *(Amended 2026-10-09, A6: except the keys the program set for a connection
+  with `AWS-SET-CREDENTIALS`, which the runtime holds in memory only and passes
+  to that connection's server as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+  and, when given, `AWS_SESSION_TOKEN` in its environment, instead of the
+  profile; they are never an argument, never stored and never logged. Keys in
+  the application's own environment or a route are still never passed.)*
 
 ### 4.3 Project AWS connections
 
 - **R12 (ubiquitous):** A project shall hold zero or more **AWS connections**,
   each with a name, an AWS profile name, a region and, optionally, a route
   override. They are stored in `cobolt.toml` with the other integrations and
-  contain nothing secret.
+  contain nothing secret. *(A6: keys set at run time never enter a
+  connection's record.)*
 - **R13 (ubiquitous):** Every AWS control shall have a `Connection` property
   naming one of the project's AWS connections. A project with exactly one AWS
   connection shall assign it to a newly dropped AWS control.
@@ -318,9 +337,13 @@ built application, and the spec treats it as one (R22–R24).
 - [ ] **AC7 (R10, R11, R27):** A test scans the arguments, environment and
   captured logs of a started server: no value matching an AWS key id, secret or
   session-token pattern appears; `Verbose` output masks a planted fake token.
+  *(A6: the one exception is the environment of the server of a connection
+  whose keys the program set — exactly the three variables, and no profile;
+  spec 092 AC3 scans every other surface and finds none of them.)*
 - [ ] **AC8 (R12, R13):** An AWS connection round-trips through `cobolt.toml`;
   a dropped AWS control in a one-connection project gets it; the saved `.cfrm`
-  and `cobolt.toml` contain no credential field.
+  and `cobolt.toml` contain no credential field. *(A6: keys set at run time
+  included — they are not a property and not part of the connection.)*
 - [ ] **AC9 (R14–R17):** The route-table test passes against the recorded
   `tools/list` fixtures, and fails when a fixture renames a tool the table uses
   (demonstrated with a mutated fixture).
@@ -373,7 +396,9 @@ built application, and the spec treats it as one (R22–R24).
 - **No C toolchain:** no rustls, aws-lc-rs, ring or AWS SDK anywhere (spec 063
   R18, the `native-tls` pin).
 - **Secrets:** nothing is added to `CREDENTIAL_PROPS` because no credential
-  property exists; AC7 proves none travels.
+  property exists; AC7 proves none travels. *(A6: the run-time keys are a
+  built-in's arguments, not a property, so `CREDENTIAL_PROPS` stays as it is;
+  spec 092 AC3 proves they travel only to their connection's server.)*
 - **Interpreter-binary parity:** R28 / AC16.
 - **Windows:** the golden rule that a window never resizes itself applies to the
   connection dialog and the Test-connection report.

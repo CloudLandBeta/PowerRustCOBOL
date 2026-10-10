@@ -500,7 +500,7 @@ pub fn launch_for(server: &ServerDef, ctx: &Context, allow_write: bool, profile:
         }
     }
     let opt = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_owned());
-    Ok(Launch { command: expand(&server.command, ctx)?, args, env, profile: opt(profile), region: opt(region) })
+    Ok(Launch { command: expand(&server.command, ctx)?, args, env, profile: opt(profile), region: opt(region), credentials: None })
 }
 
 /// Every text block of a result, joined.

@@ -40,6 +40,7 @@ fn a_started_server_never_receives_aws_secrets() {
         profile: Some("dev".into()),
         region: Some("us-east-1".into()),
         env: vec![("FUNCTION_PREFIX".into(), "app-".into())],
+        ..Default::default()
     };
     let mut s = spawn(&launch).expect("the fake starts");
     drop(s.stdin); // EOF: the fake ends

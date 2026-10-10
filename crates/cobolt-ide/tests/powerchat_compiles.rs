@@ -109,9 +109,12 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
     // No form opens in a window of its own — except the generic dialogs a
     // question is asked in (New conversation picks its topic in PICK-FORM,
     // 1.70.280).
-    for (i, _) in chat.match_indices("OpenFormSync\"(\"") {
-        let target: String = chat[i + 15..].chars().take_while(|c| *c != '"').collect();
-        assert!(["PICK-FORM", "CONFIRM-FORM"].contains(&target.as_str()), "the chat opens {target} in a window of its own");
+    // The method is written `OpenFormSync("…")` or, quoted, `"OpenFormSync"("…")`.
+    for opener in ["OpenFormSync\"(\"", "OpenFormSync(\""] {
+        for (i, _) in chat.match_indices(opener) {
+            let target: String = chat[i + opener.len()..].chars().take_while(|c| *c != '"').collect();
+            assert!(["PICK-FORM", "CONFIRM-FORM"].contains(&target.as_str()), "the chat opens {target} in a window of its own");
+        }
     }
     // The flags are image buttons: an empty Caption (a missing one shows the
     // id, which then takes the whole button and leaves the image no room).
@@ -153,7 +156,10 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
                 );
             }
             let id = cobolt_compiler::main_form_guard::form_id(Path::new(&rel));
-            assert!(settings.contains(&format!("OpenFormSync\"(\"{id}\")")), "RAG settings opens {id}");
+            assert!(
+                settings.contains(&format!("OpenFormSync\"(\"{id}\")")) || settings.contains(&format!("OpenFormSync(\"{id}\")")),
+                "RAG settings opens {id}"
+            );
         } else if ["confirm-form", "pick-form", "preview-form"].contains(&stem.as_str()) {
             // The generic dialogs any form asks through (a yes/no, a choice,
             // a document shown): windows of their own, sized to what they hold.
@@ -210,7 +216,11 @@ fn every_visible_text_is_translated_into_six_languages() {
                 }
                 let needle = format!(" TO {}::{prop}", c.id);
                 assert!(
-                    src.lines().any(|l| l.contains("FUNCTION TRIM(T-") && l.trim_end().ends_with(&needle)),
+                    // `FUNCTION TRIM(T-…) TO ctrl::Prop`, or `T-…::Trim() TO ctrl::Prop`.
+                    src.lines().any(|l| {
+                        (l.contains("FUNCTION TRIM(T-") || (l.trim_start().starts_with("MOVE T-") && l.contains("::Trim() TO")))
+                            && l.trim_end().ends_with(&needle)
+                    }),
                     "{rel}: {}::{prop} ({text:?}) is shown but never translated",
                     c.id
                 );

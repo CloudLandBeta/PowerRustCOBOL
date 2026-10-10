@@ -580,7 +580,7 @@
                   txt13::Text " "
                   txt14::Text " "
                   txt15::Text
-             DELIMITED BY SIZE INTO WS-FULL-TEXT
+             INTO WS-FULL-TEXT
            MOVE WS-FULL-TEXT TO lblSummary::Caption
            MOVE "Concatena todos os campos no lblSummary" TO Label-1::Caption.
 
@@ -616,7 +616,7 @@
                   "txt13=" txt13::Text " "
                   "txt14=" txt14::Text " "
                   "txt15=" txt15::Text
-             DELIMITED BY SIZE INTO WS-SUMMARY
+             INTO WS-SUMMARY
 
            MOVE WS-SUMMARY TO lblSummary::Caption
            MOVE "Summary generated successfully" TO Label-1::Caption.

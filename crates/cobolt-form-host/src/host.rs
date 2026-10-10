@@ -1628,8 +1628,15 @@ impl FormBody {
             return;
         }
         crate::diagnostics::trace_event("send", &ev.ctrl_id, &ev.event_id, ev.instance_index);
-        if self.ev_tx.send(ev).is_ok() {
-            self.pending.fetch_add(1, Ordering::Relaxed);
+        // Counted BEFORE it is sent: the interpreter's decrement is
+        // saturating, so one that took the event before it was counted found
+        // nothing to lower, and the backlog stayed one too high for the rest
+        // of the run (`an_event_is_counted_before_the_interpreter_can_take_it`).
+        self.pending.fetch_add(1, Ordering::Relaxed);
+        if self.ev_tx.send(ev).is_err() {
+            let _ = self
+                .pending
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_sub(1));
         }
     }
 
@@ -10670,6 +10677,55 @@ mod parity {
         let got: Vec<String> = ev_rx.try_iter().map(|e| e.event_id).collect();
         assert_eq!(got, vec!["onClick", "onKeyDown", "onTick", "onChange"]);
         assert_eq!(pending.load(Ordering::Relaxed), 4);
+    }
+
+    /// **An event is counted before the interpreter can take it.**
+    ///
+    /// The interpreter's decrement is saturating: it lowers the count only
+    /// when it is above zero. `send_event` used to count the event AFTER
+    /// sending it, so an interpreter that took the event in that gap found 0,
+    /// lost its decrement, and the count then stayed one too high for the rest
+    /// of the run — a headless `run_form` waited out its whole time limit for
+    /// an event that had long been handled (`aws_hosts`, under load, about one
+    /// run in two), and the timer coalescing judged a backlog that was not
+    /// there. The receiver here spins on the channel, as an idle interpreter
+    /// does on a busy machine, and checks the count each time it takes one.
+    #[test]
+    fn an_event_is_counted_before_the_interpreter_can_take_it() {
+        let (ev_tx, ev_rx) = mpsc::channel::<FormEvent>();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let mut body = timer_body(ev_tx, input_tx, Arc::clone(&pending));
+        const EVENTS: usize = 200_000;
+        let seen = Arc::clone(&pending);
+        let receiver = std::thread::spawn(move || {
+            let (mut taken, mut uncounted) = (0usize, 0usize);
+            while taken < EVENTS {
+                match ev_rx.try_recv() {
+                    Ok(_) => {
+                        taken += 1;
+                        // What the interpreter does as it takes an event.
+                        if seen
+                            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| if v > 0 { Some(v - 1) } else { None })
+                            .is_err()
+                        {
+                            uncounted += 1;
+                        }
+                    }
+                    Err(mpsc::TryRecvError::Empty) => std::hint::spin_loop(),
+                    Err(mpsc::TryRecvError::Disconnected) => break,
+                }
+            }
+            (taken, uncounted)
+        });
+        for _ in 0..EVENTS {
+            body.send_event(FormEvent::new("TIMER-FORM".to_owned(), "onClick"));
+        }
+        let (taken, uncounted) = receiver.join().unwrap();
+        assert_eq!(taken, EVENTS);
+        assert_eq!(uncounted, 0, "{uncounted} of {EVENTS} events were taken before they were counted");
+        assert_eq!(pending.load(Ordering::Relaxed), 0, "every event handled, so none is outstanding");
+        println!("event backlog — {EVENTS} events sent while the receiver spun: every one counted before it was taken, none left outstanding");
     }
 
     /// A form that DOES bind motion still gets every one of them: the developer

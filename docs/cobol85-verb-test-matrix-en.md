@@ -225,8 +225,10 @@ permutations (clauses/phrases) on top of the type mix.
 
 ### File verbs — *(only the gaps not in the file-I/O suite)*
 - ✅ **Implemented & tested** (`test_file_locking`): `OPEN … SHARING WITH …
-  [WITH LOCK]`, `READ … WITH [NO] LOCK`, `UNLOCK` (advisory in the single run
-  unit — see the supported-syntax reference).
+  [WITH LOCK]`, `READ … WITH [NO] LOCK`, `UNLOCK` (on an INDEXED file, `WITH LOCK`
+  and `SHARING WITH NO OTHER` exclude other processes — status `93`; record
+  locks and the other organizations stay within one run unit — see the
+  supported-syntax reference).
 - `READ … INTO`, `WRITE … FROM`, `REWRITE … FROM`, `START … KEY IS {= > >= < <=}`
   with reference-modified keys; multiple FDs sharing a record area.
 

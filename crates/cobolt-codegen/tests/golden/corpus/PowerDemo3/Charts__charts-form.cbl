@@ -701,9 +701,7 @@
            MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::Monochrome
 
            MOVE "Monochrome = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -743,9 +741,7 @@
            MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::MonochromeGradient
 
            MOVE "MonochromeGradient = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -784,9 +780,7 @@
            MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::ShowGridLines
 
            MOVE "ShowGridLines = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -825,9 +819,7 @@
            MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::ShowLegend
 
            MOVE "ShowLegend = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -860,9 +852,7 @@
            MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::Horizontal
 
            MOVE "BarChart-1 Horizontal = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -896,9 +886,7 @@
            MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::Smooth
 
            MOVE "Smooth = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
-                  INTO WS-OUT
+           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
 
@@ -944,10 +932,10 @@
 
            MOVE WS-HOLE TO WS-HOLE-TEXT
            MOVE "LabelFormat " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-FMT) DELIMITED BY SIZE
-                  ", InnerRadius "       DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-HOLE-TEXT) DELIMITED BY SIZE
+           STRING FUNCTION TRIM(WS-MSG)
+                  FUNCTION TRIM(WS-FMT)
+                  ", InnerRadius "
+                  FUNCTION TRIM(WS-HOLE-TEXT)
                   INTO WS-OUT
            MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
            DISPLAY FUNCTION TRIM(WS-OUT).
@@ -1014,10 +1002,7 @@
            MOVE WS-MS TO WS-MS-TEXT
            IF FUNCTION TRIM(WS-ON) = "true"
                MOVE "AnimateValues on, " TO WS-MSG
-               STRING FUNCTION TRIM(WS-MSG)     DELIMITED BY SIZE
-                      FUNCTION TRIM(WS-MS-TEXT) DELIMITED BY SIZE
-                      " ms"                     DELIMITED BY SIZE
-                      INTO WS-OUT
+               STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-MS-TEXT) " ms" INTO WS-OUT
            ELSE
                MOVE "AnimateValues off - data changes are instant" TO WS-OUT
            END-IF

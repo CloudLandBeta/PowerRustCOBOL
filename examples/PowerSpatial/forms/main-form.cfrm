@@ -339,21 +339,21 @@
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Lbl-Light::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Lbl-AirCon::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Lbl-Wifi::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(4, WS-LANG-IX)) TO Lbl-Outdoor::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(5, WS-LANG-IX)) TO Txt-Search::HintText
-           MOVE FUNCTION TRIM(PS-TEXT(6, WS-LANG-IX)) TO Lbl-Hi::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(7, WS-LANG-IX)) TO Lbl-Album::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(8, WS-LANG-IX)) TO Lbl-AC::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(11, WS-LANG-IX)) TO Lbl-Under::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(12, WS-LANG-IX)) TO Lbl-Consumption::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(13, WS-LANG-IX)) TO Lbl-Humidity::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(14, WS-LANG-IX)) TO Lbl-Pressure::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(15, WS-LANG-IX)) TO Lbl-Thermostat::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(16, WS-LANG-IX)) TO Lbl-Lighting::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(17, WS-LANG-IX)) TO Lbl-Speaker::Caption
+           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Lbl-Light::Caption
+           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Lbl-AirCon::Caption
+           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Lbl-Wifi::Caption
+           MOVE PS-TEXT(4, WS-LANG-IX)::Trim() TO Lbl-Outdoor::Caption
+           MOVE PS-TEXT(5, WS-LANG-IX)::Trim() TO Txt-Search::HintText
+           MOVE PS-TEXT(6, WS-LANG-IX)::Trim() TO Lbl-Hi::Caption
+           MOVE PS-TEXT(7, WS-LANG-IX)::Trim() TO Lbl-Album::Caption
+           MOVE PS-TEXT(8, WS-LANG-IX)::Trim() TO Lbl-AC::Caption
+           MOVE PS-TEXT(11, WS-LANG-IX)::Trim() TO Lbl-Under::Caption
+           MOVE PS-TEXT(12, WS-LANG-IX)::Trim() TO Lbl-Consumption::Caption
+           MOVE PS-TEXT(13, WS-LANG-IX)::Trim() TO Lbl-Humidity::Caption
+           MOVE PS-TEXT(14, WS-LANG-IX)::Trim() TO Lbl-Pressure::Caption
+           MOVE PS-TEXT(15, WS-LANG-IX)::Trim() TO Lbl-Thermostat::Caption
+           MOVE PS-TEXT(16, WS-LANG-IX)::Trim() TO Lbl-Lighting::Caption
+           MOVE PS-TEXT(17, WS-LANG-IX)::Trim() TO Lbl-Speaker::Caption
            CALL "PS-AC-SHOW"
            CALL "PS-DEVICES-SHOW"
            CALL "PS-CLOCK"
@@ -370,24 +370,24 @@
            EVALUATE WS-LANG-IX
       *>       2026年10月4日
                WHEN 5 WHEN 6
-                   STRING WS-NOW(1:4) "年" FUNCTION TRIM(PS-TEXT(WS-MONTH + 20, WS-LANG-IX))
-                       FUNCTION TRIM(WS-N-TXT) "日" DELIMITED BY SIZE INTO WS-LINE
+                   STRING WS-NOW(1:4) "年" PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                       WS-N-TXT::Trim() "日" INTO WS-LINE
       *>       4 de outubro de 2026 / 4 de octubre de 2026
                WHEN 2 WHEN 3
-                   STRING FUNCTION TRIM(WS-N-TXT) " de " FUNCTION TRIM(PS-TEXT(WS-MONTH + 20, WS-LANG-IX))
-                       " de " WS-NOW(1:4) DELIMITED BY SIZE INTO WS-LINE
+                   STRING WS-N-TXT::Trim() " de " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                       " de " WS-NOW(1:4) INTO WS-LINE
       *>       4 octobre 2026
                WHEN 4
-                   STRING FUNCTION TRIM(WS-N-TXT) " " FUNCTION TRIM(PS-TEXT(WS-MONTH + 20, WS-LANG-IX))
-                       " " WS-NOW(1:4) DELIMITED BY SIZE INTO WS-LINE
+                   STRING WS-N-TXT::Trim() " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                       " " WS-NOW(1:4) INTO WS-LINE
       *>       04 October, 2026
                WHEN OTHER
-                   STRING WS-NOW(7:2) " " FUNCTION TRIM(PS-TEXT(WS-MONTH + 20, WS-LANG-IX))
-                       ", " WS-NOW(1:4) DELIMITED BY SIZE INTO WS-LINE
+                   STRING WS-NOW(7:2) " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                       ", " WS-NOW(1:4) INTO WS-LINE
            END-EVALUATE
            MOVE WS-LINE TO Lbl-Date::Caption
            MOVE SPACES TO WS-LINE
-           STRING WS-NOW(9:2) ":" WS-NOW(11:2) DELIMITED BY SIZE INTO WS-LINE
+           STRING WS-NOW(9:2) ":" WS-NOW(11:2) INTO WS-LINE
            MOVE WS-LINE TO Lbl-Time::Caption
 ]]></Event>
     <Event name="PS-AC-SHOW" paragraph="PS-AC-SHOW"><![CDATA[       ENVIRONMENT DIVISION.
@@ -397,15 +397,15 @@
            MOVE Knb-AC::Value TO WS-N
            MOVE WS-N TO WS-N-TXT
            MOVE SPACES TO WS-LINE
-           STRING FUNCTION TRIM(WS-N-TXT) "°C" DELIMITED BY SIZE INTO WS-LINE
+           STRING WS-N-TXT::Trim() "°C" INTO WS-LINE
            MOVE WS-LINE TO Lbl-Target::Caption
            IF WS-AC-ON = "Y"
-               MOVE FUNCTION TRIM(PS-TEXT(9, WS-LANG-IX)) TO Lbl-Cooling::Caption
+               MOVE PS-TEXT(9, WS-LANG-IX)::Trim() TO Lbl-Cooling::Caption
                MOVE 1 TO Lbl-Under::Visible
                MOVE 1 TO Knb-AC::Enabled
                MOVE 1 TO Sw-AC::Checked
            ELSE
-               MOVE FUNCTION TRIM(PS-TEXT(10, WS-LANG-IX)) TO Lbl-Cooling::Caption
+               MOVE PS-TEXT(10, WS-LANG-IX)::Trim() TO Lbl-Cooling::Caption
                MOVE 0 TO Lbl-Under::Visible
                MOVE 0 TO Knb-AC::Enabled
                MOVE 0 TO Sw-AC::Checked
@@ -498,29 +498,29 @@
        PROCEDURE DIVISION.
       *>   Each device card shows whether the device is on.
            IF WS-DEV-ON(1) = "Y"
-               MOVE FUNCTION TRIM(PS-TEXT(18, WS-LANG-IX)) TO Lbl-Thermostat-Status::Caption
+               MOVE PS-TEXT(18, WS-LANG-IX)::Trim() TO Lbl-Thermostat-Status::Caption
                MOVE "#0A84FFFF" TO Btn-Thermostat-Cast::BackgroundColor
                MOVE "#2DC653FF" TO Btn-Thermostat-Plug::BackgroundColor
            ELSE
-               MOVE FUNCTION TRIM(PS-TEXT(19, WS-LANG-IX)) TO Lbl-Thermostat-Status::Caption
+               MOVE PS-TEXT(19, WS-LANG-IX)::Trim() TO Lbl-Thermostat-Status::Caption
                MOVE "#FFFFFF26" TO Btn-Thermostat-Cast::BackgroundColor
                MOVE "#FFFFFF26" TO Btn-Thermostat-Plug::BackgroundColor
            END-IF
            IF WS-DEV-ON(2) = "Y"
-               MOVE FUNCTION TRIM(PS-TEXT(18, WS-LANG-IX)) TO Lbl-Lighting-Status::Caption
+               MOVE PS-TEXT(18, WS-LANG-IX)::Trim() TO Lbl-Lighting-Status::Caption
                MOVE "#0A84FFFF" TO Btn-Lighting-Cast::BackgroundColor
                MOVE "#2DC653FF" TO Btn-Lighting-Plug::BackgroundColor
            ELSE
-               MOVE FUNCTION TRIM(PS-TEXT(19, WS-LANG-IX)) TO Lbl-Lighting-Status::Caption
+               MOVE PS-TEXT(19, WS-LANG-IX)::Trim() TO Lbl-Lighting-Status::Caption
                MOVE "#FFFFFF26" TO Btn-Lighting-Cast::BackgroundColor
                MOVE "#FFFFFF26" TO Btn-Lighting-Plug::BackgroundColor
            END-IF
            IF WS-DEV-ON(3) = "Y"
-               MOVE FUNCTION TRIM(PS-TEXT(18, WS-LANG-IX)) TO Lbl-Speaker-Status::Caption
+               MOVE PS-TEXT(18, WS-LANG-IX)::Trim() TO Lbl-Speaker-Status::Caption
                MOVE "#0A84FFFF" TO Btn-Speaker-Cast::BackgroundColor
                MOVE "#2DC653FF" TO Btn-Speaker-Plug::BackgroundColor
            ELSE
-               MOVE FUNCTION TRIM(PS-TEXT(19, WS-LANG-IX)) TO Lbl-Speaker-Status::Caption
+               MOVE PS-TEXT(19, WS-LANG-IX)::Trim() TO Lbl-Speaker-Status::Caption
                MOVE "#FFFFFF26" TO Btn-Speaker-Cast::BackgroundColor
                MOVE "#FFFFFF26" TO Btn-Speaker-Plug::BackgroundColor
            END-IF
@@ -539,7 +539,7 @@
     <Event name="PS-NOTIFY" paragraph="PS-NOTIFY"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE FUNCTION TRIM(PS-TEXT(20, WS-LANG-IX)) TO Snb-Note::Text
+           MOVE PS-TEXT(20, WS-LANG-IX)::Trim() TO Snb-Note::Text
            INVOKE Snb-Note::Show()
 ]]></Event>
   </user-procedures>
@@ -554,9 +554,9 @@
            CALL "PS-LANG-CHECK"
            CALL "PS-WAVE-INIT"
            CALL "PS-SONG-SHOW"
-           INVOKE me::"OpenFormAsync"("TOOLBAR-FORM")
-           INVOKE me::"OpenFormAsync"("RAIL-FORM")
-           INVOKE me::"OpenFormAsync"("ROOMS-FORM")
+           INVOKE me::OpenFormAsync("TOOLBAR-FORM")
+           INVOKE me::OpenFormAsync("RAIL-FORM")
+           INVOKE me::OpenFormAsync("ROOMS-FORM")
 ]]></Event>
     <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE">
     </Event>
@@ -1670,7 +1670,7 @@
            MOVE Sld-Fan::Value TO WS-N
            MOVE WS-N TO WS-N-TXT
            MOVE SPACES TO WS-LINE
-           STRING FUNCTION TRIM(WS-N-TXT) "%" DELIMITED BY SIZE INTO WS-LINE
+           STRING WS-N-TXT::Trim() "%" INTO WS-LINE
            MOVE WS-LINE TO Lbl-Fan::Caption
 ]]></Event>
   </Control>
@@ -1732,7 +1732,7 @@
            MOVE Sld-Swing::Value TO WS-N
            MOVE WS-N TO WS-N-TXT
            MOVE SPACES TO WS-LINE
-           STRING FUNCTION TRIM(WS-N-TXT) "%" DELIMITED BY SIZE INTO WS-LINE
+           STRING WS-N-TXT::Trim() "%" INTO WS-LINE
            MOVE WS-LINE TO Lbl-Swing::Caption
 ]]></Event>
   </Control>
@@ -2036,7 +2036,7 @@
     <Event name="onClick" paragraph="BTN-USER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           INVOKE me::"OpenFormSync"("SETTINGS-FORM")
+           INVOKE me::OpenFormSync("SETTINGS-FORM")
 ]]></Event>
   </Control>
   <Control id="Crd-Music" type="Panel" x="430" y="78" w="550" h="177" tab-order="55" z-order="0" visible="true" enabled="true" parent="Pnl-Right">

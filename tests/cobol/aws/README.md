@@ -8,16 +8,16 @@ in order, and the `PASS n FAIL m` tally.
 | Form | Control | Checks |
 |---|---|---|
 | `aws-lambda-demo.cfrm` | `AwsLambda` (Delivery A) | 9 |
-| `aws-mcp-demo.cfrm` | `AwsMcp` (Delivery A) | 9 |
+| `aws-mcp-demo.cfrm` | `AwsMcp` (Delivery A; `AwsCall`, spec 092) | 14 |
 | `aws-knowledge-base-demo.cfrm` | `AwsKnowledgeBase` (Delivery B) | 8 |
 | `aws-agent-core-demo.cfrm` | `AwsAgentCore` (Delivery B) | 6 |
 | `aws-agent-memory-demo.cfrm` | `AwsAgentMemory` (Delivery B) | 7 |
 | `aws-s3-tables-demo.cfrm` | `AwsS3Tables` (Delivery B) | 10 |
 | `aws-glue-demo.cfrm` | `AwsGlue` (Delivery B) | 9 |
 | `aws-dynamodb-demo.cfrm` | `AwsDynamoDB` (Delivery C) | 9 |
-| `aws-s3-demo.cfrm` | `AwsS3` (Delivery C) | 7 |
+| `aws-s3-demo.cfrm` | `AwsS3` (Delivery C; `ListBuckets`, spec 092) | 10 |
 | `aws-s3-vectors-demo.cfrm` | `AwsS3Vectors` (Delivery C) | 6 |
-| `aws-rekognition-demo.cfrm` | `AwsRekognition` (Delivery C) | 7 |
+| `aws-rekognition-demo.cfrm` | `AwsRekognition` (Delivery C; `RecognizeCelebrities`, face boxes, spec 092) | 13 |
 | `aws-polly-demo.cfrm` | `AwsPolly` (Delivery C) | 6 |
 | `aws-comprehend-demo.cfrm` | `AwsComprehend` (Delivery C) | 7 |
 | `aws-textract-demo.cfrm` | `AwsTextract` (Delivery C) | 7 |

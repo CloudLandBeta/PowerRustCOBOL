@@ -339,6 +339,18 @@ def _item(o):
 def _row(o):
     return dict((a, _plain(b)) for a, b in o.items())
 '''
+# A date as ISO 8601 text (`2026-10-01T09:30:00+00:00`): a datetime by its
+# own isoformat, and a date already written as text with a space between day
+# and time (what `str` of a datetime gives) with a `T` there instead.
+iso = '''
+def _iso(x):
+    if hasattr(x, 'isoformat'):
+        return x.isoformat()
+    s = str(x)
+    if len(s) > 10 and s[4] == '-' and s[10] == ' ':
+        return s[:10] + 'T' + s[11:]
+    return s
+'''
 
 # ── AwsDynamoDB ── items in and out as PLAIN JSON: {"id": 42, "name": "Ana"},
 # never DynamoDB's typed {"N": "42"} form — the template converts both ways.
@@ -486,6 +498,22 @@ r = await call_boto3(service_name='s3', operation_name='DeleteObject', params=di
 result = _j(dict(Done='1'))
 result'''
 
+# The account's buckets — not the control's `Bucket`, which it leaves alone.
+# CreationDate is ISO 8601 text.
+[ops."AwsS3.ListBuckets"]
+event    = "onBucketsListed"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/Buckets", fields = { Name = "/Name", CreationDate = "/CreationDate" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3.ListBuckets".input]
+code = '''{snippet:prelude}{snippet:iso}
+r = await call_boto3(service_name='s3', operation_name='ListBuckets', params=dict(), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(Buckets=[dict(Name=b.get('Name', ''), CreationDate=_iso(b.get('CreationDate', ''))) for b in r.get('Buckets', [])]))
+result'''
+
 # ── AwsS3Vectors ── a vector bucket's indexes: similarity search and writes.
 [ops."AwsS3Vectors.QueryVectors"]
 event    = "onVectorsQueried"
@@ -549,12 +577,32 @@ server   = "hosted"
 tool     = "aws___run_script"
 mutating = false
 result   = { ResultJson = "$json:/return_value" }
-rows     = { from = "$json:/return_value/FaceDetails", fields = { Confidence = "/Confidence", AgeLow = "/AgeRange/Low", AgeHigh = "/AgeRange/High", Smile = "/Smile/Value", Emotion = "/Emotions/0/Type" } }
+rows     = { from = "$json:/return_value/FaceDetails", fields = { Confidence = "/Confidence", AgeLow = "/AgeRange/Low", AgeHigh = "/AgeRange/High", Smile = "/Smile/Value", Emotion = "/Emotions/0/Type", Left = "/BoundingBox/Left", Top = "/BoundingBox/Top", Width = "/BoundingBox/Width", Height = "/BoundingBox/Height" } }
 fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
 [ops."AwsRekognition.DetectFaces".input]
 code = '''{snippet:prelude}
 r = await call_boto3(service_name='rekognition', operation_name='DetectFaces', params=dict(Image=_source({arg:1|source|quote}), Attributes=['ALL']), region_name={Connection.Region|or:us-east-1|quote})
 result = _j(dict(FaceDetails=r.get('FaceDetails', [])))
+result'''
+
+# The celebrities Rekognition knows in the picture. Left, Top, Width and
+# Height place each one's face as ratios of the picture (0 to 1, from its
+# top-left corner), as DetectFaces does; a celebrity's links are joined into
+# one text, separated by spaces. Faces it does not know are left out of the
+# rows (ResultJson keeps them, as UnrecognizedFaces).
+[ops."AwsRekognition.RecognizeCelebrities"]
+event    = "onCelebrities"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/CelebrityFaces", fields = { Name = "/Name", Id = "/Id", MatchConfidence = "/MatchConfidence", Urls = "/Urls", Left = "/Face/BoundingBox/Left", Top = "/Face/BoundingBox/Top", Width = "/Face/BoundingBox/Width", Height = "/Face/BoundingBox/Height" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsRekognition.RecognizeCelebrities".input]
+code = '''{snippet:prelude}
+r = await call_boto3(service_name='rekognition', operation_name='RecognizeCelebrities', params=dict(Image=_source({arg:1|source|quote})), region_name={Connection.Region|or:us-east-1|quote})
+c = [dict(f, Urls=' '.join(f.get('Urls') or [])) for f in r.get('CelebrityFaces', [])]
+result = _j(dict(CelebrityFaces=c, UnrecognizedFaces=r.get('UnrecognizedFaces', [])))
 result'''
 
 # ── AwsPolly ── speech into a local audio file. Read-only in AWS.
@@ -840,3 +888,64 @@ event    = "onToolsListed"
 server   = "{prop:ServerId}"
 tool     = "$list"
 mutating = false
+
+# ── AwsMcp.AwsCall ── one AWS API call by name (spec 092 R4), always on the
+# hosted server, whatever `ServerId` says. The service is boto3's name for it
+# (`cloudformation`, `dynamodb`, `s3`, `cognito-idp` — usually the AWS CLI's,
+# but `s3` where the CLI says `s3api`), the operation the API's own CamelCase
+# name, as every template above spells it (`DescribeStacks`, `CreateTable`), and
+# the parameters a JSON object spelled as the API reference spells them
+# (`{"StackName": "x"}`; empty is `{}`). All three enter the script as quoted
+# literals only — the same rule as every hosted template — so a COBOL value
+# can name a call but never write one.
+#
+# The script cannot know which operations only read, so every AwsCall needs
+# AllowWrite. A failing call never answers empty: an error the API raised
+# (botocore's ClientError, whose `response` carries Error.Code) or returned in
+# its own answer comes back as Status "error" with "<Code>: <message>", and a
+# failure the sandbox reports itself is caught by the same `fail`.
+#
+# The answer (ResponseMetadata removed, dates as ISO 8601) is ResponseBody and
+# ResultJson. Rows: the items of its one list when it has exactly one
+# (`Stacks`, `Buckets`); else, when its only member is an object, that object
+# (`Table`, `TableDescription`); else the answer itself — one row either way.
+[ops."AwsMcp.AwsCall"]
+event    = "onAwsCalled"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResponseBody = "$json:/return_value/Answer", ResultJson = "$json:/return_value/Answer" }
+rows     = { from = "$json:/return_value/Rows" }
+fail     = { when = "$json:/return_value/Status|/status", equals = "error", text = "$json:/return_value/Error|/error|/stderr" }
+[ops."AwsMcp.AwsCall".input]
+code = '''{snippet:prelude}{snippet:iso}
+def _code(x):
+    d = x if isinstance(x, dict) else getattr(x, 'response', None)
+    if isinstance(d, dict) and isinstance(d.get('Error'), dict):
+        return str(d['Error'].get('Code', '')), str(d['Error'].get('Message', ''))
+    return '', ''
+try:
+    r = await call_boto3(service_name={arg:1|quote}, operation_name={arg:2|quote}, params=json.loads({arg:3|json:{}|text|quote}), region_name={Connection.Region|or:us-east-1|quote})
+    c, m = _code(r)
+except Exception as x:
+    r = dict()
+    c, m = _code(x)
+    if not c:
+        s = str(x)
+        c = s[s.find('(') + 1:s.find(')')] if s.startswith('An error occurred (') else type(x).__name__
+        m = s
+if c:
+    result = _j(dict(Status='error', Error=c + ': ' + (m or c)))
+else:
+    a = json.loads(json.dumps(r, default=_iso))
+    if isinstance(a, dict):
+        a.pop('ResponseMetadata', None)
+    k = [n for n in a if isinstance(a[n], list)] if isinstance(a, dict) else []
+    if len(k) == 1:
+        rows = a[k[0]]
+    elif isinstance(a, dict) and len(a) == 1 and isinstance(list(a.values())[0], dict):
+        rows = [list(a.values())[0]]
+    else:
+        rows = [a]
+    result = _j(dict(Answer=a, Rows=[i if isinstance(i, dict) else dict(Value=i) for i in rows]))
+result'''

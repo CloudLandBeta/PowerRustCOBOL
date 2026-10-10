@@ -22,7 +22,8 @@
 //!   call (R8): the failed call is an error, the one after it a fresh start.
 //! - **A different launch restarts the server** — a connection whose controls
 //!   now allow writes needs the server started without its read-only flag
-//!   (amendment A4).
+//!   (amendment A4), and keys set or cleared at run time (spec 092 A6) make a
+//!   different launch too.
 //!
 //! Each server's map slot has a lock of its own, so a slow first start of one
 //! connection never holds up the others.
@@ -315,6 +316,21 @@ pub fn shutdown() {
 pub fn stop(key: &ServerKey) {
     let slot = lock(pool()).remove(key);
     if let Some(slot) = slot {
+        if let Some(h) = lock(&slot).take() {
+            h.stop();
+        }
+    }
+}
+
+/// Stop every server of one connection — its keys were set or cleared (spec
+/// 092 A6), so a process holding the old ones in its environment ends now.
+pub fn stop_connection(connection: &str) {
+    let slots: Vec<Slot> = {
+        let mut map = lock(pool());
+        let keys: Vec<ServerKey> = map.keys().filter(|k| k.connection == connection).cloned().collect();
+        keys.iter().filter_map(|k| map.remove(k)).collect()
+    };
+    for slot in slots {
         if let Some(h) = lock(&slot).take() {
             h.stop();
         }

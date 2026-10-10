@@ -656,26 +656,26 @@
 *>   1. Publish the data on THIS form's property surface. Any name
       *>      will do - SetProperty/GetProperty are the any-name pair.
       *>      Simple values: one property each.
-           INVOKE ME::"SetProperty"("CustomerName", Txt-Name::Text)
-           INVOKE ME::"SetProperty"("CreditLimit", Txt-Limit::Text)
+           INVOKE ME::SetProperty("CustomerName", Txt-Name::Text)
+           INVOKE ME::SetProperty("CreditLimit", Txt-Limit::Text)
            IF Chk-Vip::Checked = 1
                MOVE "Y" TO WS-VIP
            ELSE
                MOVE "N" TO WS-VIP
            END-IF
-           INVOKE ME::"SetProperty"("IsVip", WS-VIP)
+           INVOKE ME::SetProperty("IsVip", WS-VIP)
       *>      Complex data: the whole group item - header and table -
       *>      as ONE property.
-           INVOKE ME::"SetProperty"("OrderRecord", WS-ORDER)
-           INVOKE ME::"SetProperty"("ChildResult", "NONE")
+           INVOKE ME::SetProperty("OrderRecord", WS-ORDER)
+           INVOKE ME::SetProperty("ChildResult", "NONE")
       *>   2. Open the child modally: it reads all of it with
       *>      super::"GetProperty", and answers with super::"SetProperty".
-           INVOKE ME::"OpenFormSync"("PROPS-CHILD-FORM")
+           INVOKE ME::OpenFormSync("PROPS-CHILD-FORM")
       *>   3. Back here: read the answer.
-           INVOKE ME::"GetProperty"("ChildResult") RETURNING WS-RESULT
+           INVOKE ME::GetProperty("ChildResult") RETURNING WS-RESULT
            IF WS-RESULT = "OK"
-               INVOKE ME::"GetProperty"("CustomerName") RETURNING Txt-Name::Text
-               INVOKE ME::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+               INVOKE ME::GetProperty("CustomerName") RETURNING Txt-Name::Text
+               INVOKE ME::GetProperty("OrderRecord") RETURNING WS-ORDER
                CALL "PP-SHOW-ORDER"
                MOVE "The child form sent the customer and the order back."
                    TO Lbl-Status::Caption

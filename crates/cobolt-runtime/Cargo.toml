@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps", "kb", "smb", "pdf", "office", "aws"]
+default = ["sql", "http", "maps", "kb", "smb", "pdf", "office", "aws", "images"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -87,6 +87,16 @@ office = ["cobolt-forms/office"]
 # through `cobolt-forms`, so it adds no crate to a build.
 aws = ["dep:toml"]
 
+# `COBOL-IMAGE-FIT` and `COBOL-IMAGE-INFO` (spec 092 R10/R11): decode a
+# picture, turn it upright, crop it to fill and write it at an exact size; or
+# read its size from the header alone. Pure Rust — `image` with only the six
+# codecs the built-ins promise (`default-features = false`: no `rayon`, none of
+# its other default codecs). Separable because a console program that never fits a
+# picture should not carry six decoders; the compiler turns it on when a program
+# calls either built-in. A FORM application links `image` regardless, through
+# `cobolt-forms`' `render` feature, with these same codecs.
+images = ["dep:image"]
+
 [dependencies]
 # Free memory, for the fit test of a registered file (spec 075 R18); the
 # host name, for the key store's cipher key (spec 076 R10).
@@ -155,6 +165,9 @@ redb2           = { package = "redb", version = "2.6" }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
 ureq            = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"], optional = true }  # native-tls, not rustls (ring compiles C)
 native-tls      = { version = "0.2", optional = true }   # the connector ureq needs handed to it; see http_runtime::tls_connector
+# Spec 092 — the picture built-ins (feature `images`). The version and the codec
+# list are `cobolt-forms`' own, so a form application resolves ONE `image`.
+image           = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"], optional = true }
 # Maps control (spec 039 T11): Directions/Geocoding/Places/Distance-Matrix
 # only — never the OSM basemap tiles (cobolt-forms fetches those directly).
 # This crate is `reqwest`+async, unlike the rest of this crate's blocking

@@ -61,6 +61,22 @@ fn a_drifted_fixture_fails_the_route_check() {
     println!("AC9 drift: a renamed input and a renamed tool both fail the check");
 }
 
+/// Every route's completion event is one its control declares: otherwise the
+/// designer cannot bind it, and a handler written for it is never generated.
+#[test]
+fn every_routed_event_is_one_its_control_raises() {
+    let mut missing = Vec::new();
+    for (key, op) in &Routes::shipped().ops {
+        let control = key.split('.').next().unwrap_or_default();
+        let declared = cobolt_forms::aws_catalog::by_name(control).map_or(&[][..], |c| c.events);
+        if !declared.contains(&op.event.as_str()) {
+            missing.push(format!("{key} raises {}", op.event));
+        }
+    }
+    assert!(missing.is_empty(), "not in the control's aws_catalog events: {missing:?}");
+    println!("{} routed operations, every event declared by its control", Routes::shipped().ops.len());
+}
+
 /// Every routed method is in the inline-call vocabulary: otherwise
 /// `AWS-1::Query(…)` parses its parentheses as a subscript and calls nothing.
 #[test]

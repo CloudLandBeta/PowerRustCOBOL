@@ -515,11 +515,11 @@
       *> Window size, active breakpoint and font scale, as the
       *> layout engine reports them after laying the form out.
            MOVE SPACES TO WS-LINE
-           STRING "Window " FUNCTION TRIM(WS-WIN-W)
-               " x " FUNCTION TRIM(WS-WIN-H)
-               "   |   breakpoint " FUNCTION TRIM(WS-BP)
-               "   |   font scale " FUNCTION TRIM(WS-FSC)
-               DELIMITED BY SIZE INTO WS-LINE
+           STRING "Window " WS-WIN-W::Trim()
+               " x " WS-WIN-H::Trim()
+               "   |   breakpoint " WS-BP::Trim()
+               "   |   font scale " WS-FSC::Trim()
+               INTO WS-LINE
            MOVE WS-LINE TO SB-INFO::Items
 
            GOBACK.

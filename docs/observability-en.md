@@ -32,10 +32,12 @@ what it did, how fast, and how healthy the underlying stores are. It starts with
 
 The crash-safe **redb** indexed engine can write a per-file log of every
 transaction — useful for diagnostics, capacity planning, and dashboards. It is
-**off by default** and specific to the redb engine — which since 1.62.73 is the
-engine you get without asking (see
-[`indexed-redb-engine-en.md`](indexed-redb-engine-en.md)), so only the log itself
-has to be switched on.
+**off by default** and specific to the redb engine — which is **not** the engine
+you get without asking (`PRCIDXD1` is, since 1.70.24; see
+[`indexed-redb-engine-en.md`](indexed-redb-engine-en.md)). A file served by
+`PRCIDXD1` writes no log: choose redb for the files you want logged
+(`--indexed-engine redb`, or per file in the Indexed File editor), and then
+switch the log on.
 
 ### 1.1 Enabling it
 

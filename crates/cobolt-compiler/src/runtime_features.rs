@@ -63,10 +63,16 @@ const HTTP_CALLS: &[&str] = &[
     "COBOL-HTTP-DELETE",
     "COBOL-HTTP-SET-HEADER",
     "COBOL-HTTP-CLEAR-HEADERS",
+    // Spec 092 R12 — a binary download rides the same client.
+    "COBOL-HTTP-DOWNLOAD",
 ];
 
 /// Rust paths a block would name to reach the HTTP runtime directly.
 const HTTP_RUST_PATHS: &[&str] = &["http_runtime", "HttpClient", "ureq", "native_tls"];
+
+/// Spec 092 R10/R11 — the picture built-ins. A program naming either needs the
+/// image decoders.
+const IMAGE_CALLS: &[&str] = &["COBOL-IMAGE-FIT", "COBOL-IMAGE-INFO"];
 
 /// Rust paths a block would name to reach the Maps runtime directly.
 const MAPS_RUST_PATHS: &[&str] = &["maps_bridge", "google_maps"];
@@ -102,6 +108,11 @@ pub struct RuntimeFeatures {
     /// new crate; on for any form with an `Aws*` control (R29: an application
     /// without one links none of it).
     pub aws: bool,
+    /// Spec 092 — `IMAGE-FIT` / `IMAGE-INFO`: the `image` decoders. Pure
+    /// Rust; on for a program that calls either. A form application links
+    /// `image` anyway (through `cobolt-forms`' renderer), so this is what a
+    /// console program sheds.
+    pub images: bool,
 }
 
 impl RuntimeFeatures {
@@ -117,6 +128,7 @@ impl RuntimeFeatures {
             pdf: true,
             office: true,
             aws: true,
+            images: true,
         }
     }
 
@@ -132,6 +144,7 @@ impl RuntimeFeatures {
             pdf: self.pdf || other.pdf,
             office: self.office || other.office,
             aws: self.aws || other.aws,
+            images: self.images || other.images,
         }
     }
 
@@ -167,6 +180,9 @@ impl RuntimeFeatures {
         }
         if self.aws {
             names.push("\"aws\"");
+        }
+        if self.images {
+            names.push("\"images\"");
         }
         names.join(", ")
     }
@@ -243,6 +259,9 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
                     if HTTP_CALLS.contains(&upper.as_str()) {
                         found.http = true;
                     }
+                    if IMAGE_CALLS.contains(&upper.as_str()) {
+                        found.images = true;
+                    }
                 }
                 // The verb is computed at run time. Nothing in the source says
                 // what it will be, so the build can rule nothing out.
@@ -286,6 +305,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         pdf: source.contains("viewer_pdf"),
         office: source.contains("cobolt_docs"),
         aws: source.contains("cobolt_runtime::aws"),
+        images: source.contains("image_runtime"),
     }
 }
 
@@ -351,7 +371,55 @@ mod tests {
         assert!(!f.sql, "nothing here reaches a database");
         assert!(!f.http, "…nor the network");
         assert!(!f.maps, "…nor Maps");
+        assert!(!f.images, "…nor a picture");
         assert_eq!(f.as_toml_features(), "");
+    }
+
+    /// Spec 092 — `IMAGE-FIT` / `IMAGE-INFO` link the decoders, written either
+    /// way, and nothing else; a console program that never calls them sheds
+    /// them (`a_plain_program_needs_nothing`).
+    #[test]
+    fn a_picture_built_in_links_the_image_decoders() {
+        for call in [
+            "CALL \"COBOL-IMAGE-FIT\" USING WS-VERB, WS-VERB, WS-H, WS-H, WS-S",
+            "COBOL::\"IMAGE-FIT\" ( WS-VERB WS-VERB 400 400 WS-S )",
+            "CALL \"COBOL-IMAGE-INFO\" USING WS-VERB, WS-H, WS-H, WS-VERB, WS-S",
+            "COBOL::\"IMAGE-INFO\" ( WS-VERB WS-H WS-H WS-VERB WS-S )",
+        ] {
+            let f = scan(&prog(&format!("    {call}\n    STOP RUN.")));
+            assert!(f.images, "{call} should link the decoders");
+            assert_eq!(f.as_toml_features(), "\"images\"", "{call} links nothing else");
+        }
+        assert!(scan_rust("let _ = cobolt_runtime::image_runtime::info(p);").images);
+    }
+
+    /// Spec 092 — `HTTP-DOWNLOAD` is a REST verb: it links the client (and
+    /// with it the platform TLS), not the decoders.
+    #[test]
+    fn http_download_links_the_rest_client() {
+        let f = scan(&prog(
+            "    COBOL::\"HTTP-DOWNLOAD\" ( WS-VERB WS-VERB WS-H WS-S )\n    STOP RUN.",
+        ));
+        assert!(f.http && !f.images && !f.sql, "{f:?}");
+        assert_eq!(f.as_toml_features(), "\"http\"");
+    }
+
+    /// A form's handler is a nested program: a fit inside one links the
+    /// decoders for the built binary too (interpreter-binary parity).
+    #[test]
+    fn a_picture_built_in_in_a_handler_links_the_decoders() {
+        let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. OUTER.\n\
+                   DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-H PIC 9(9).\n\
+                   PROCEDURE DIVISION.\nMAIN.\n    DISPLAY \"outer\".\n\
+                   IDENTIFICATION DIVISION.\nPROGRAM-ID. INNER.\n\
+                   DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-S PIC X(12).\n\
+                   PROCEDURE DIVISION.\nCLICK.\n\
+                   \x20   COBOL::\"IMAGE-FIT\" ( \"a.jpg\" \"b.png\" 40 40 WS-S )\n\
+                   END PROGRAM INNER.\nEND PROGRAM OUTER.\n";
+        assert!(scan(src).images, "the handler that fits a picture is a nested program");
+        // A designed form says nothing about pictures by itself: its `image`
+        // comes from the renderer, and the feature only from a call.
+        assert!(!scan_forms([&form_with(cobolt_forms::ControlType::PictureBox)]).images);
     }
 
     #[test]
@@ -481,7 +549,7 @@ mod tests {
         assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
         assert_eq!(
             all.as_toml_features(),
-            "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\""
+            "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\""
         );
     }
 
@@ -616,7 +684,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\", \"aws\", \"images\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 

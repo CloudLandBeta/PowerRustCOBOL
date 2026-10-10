@@ -2505,6 +2505,9 @@ fn build_core(
     if !features.aws {
         log("   no AWS control — building without the AWS client");
     }
+    if !features.images {
+        log("   no IMAGE-FIT / IMAGE-INFO call — building without the picture built-ins");
+    }
     // Spec 068 — the built-in semantic model only on request, and only for an
     // application that has a Knowledge Base to use it.
     let features = runtime_features::RuntimeFeatures {
@@ -4605,7 +4608,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
   Several receiving fields under one `MOVE` remain perfectly legal when every one of them IS a receiver: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.` correctly writes the edited item AND the `X` property. Only a method among the receivers is the defect. The fix is a period on the preceding statement, or the explicit `INVOKE <control> "<method>" USING <parameters>` form, which cannot be read as a receiving field.
 
 ## RustCOBOL built-ins — the `COBOL` object
-The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the model list, charts, data bindings — are the methods of the **`COBOL` object**, and are written INLINE:
+The runtime's built-in calls — HTTP, SQL, files, pictures, native dialogs, API keys, the model list, charts, data bindings — are the methods of the **`COBOL` object**, and are written INLINE:
 
 ```cobol
            COBOL::"MODEL-LIST" ( WS-PROV-ID WS-CUR-URL WS-KEY WS-N WS-STATUS )
@@ -4622,6 +4625,9 @@ The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the
 | Method | Arguments, in order | What it does |
 |---|---|---|
 | `COBOL::"APPEND-FILE"` | path in, text in, [status out] | Append a line of text to a file, creating it if missing |
+| `COBOL::"AWS-CLEAR-CREDENTIALS"` | connection in, [status out] | Forget the AWS keys set for a connection and end the server that held them |
+| `COBOL::"AWS-CREDENTIALS-SET"` | connection in, flag out | Whether AWS keys are set for a connection: Y or N (never the keys) |
+| `COBOL::"AWS-SET-CREDENTIALS"` | connection in, key-id in, secret in, token in, [status out] | Give a connection AWS keys for this run, kept in memory only (never read back) |
 | `COBOL::"BINDING-LOAD"` | binding-id in, status out | Load a data binding's records from its source |
 | `COBOL::"BINDING-MARK-CLEAN"` | binding-id in, dirty-flag out | Mark a binding clean: no pending edits |
 | `COBOL::"BINDING-POPULATE"` | binding-id in, status out | Fill a binding's bound controls from its data |
@@ -4640,10 +4646,13 @@ The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the
 | `COBOL::"GET-PROPERTY"` | object in, property in, value out | Read a control's property into a data item |
 | `COBOL::"HTTP-CLEAR-HEADERS"` | — | Remove every header set with HTTP-SET-HEADER |
 | `COBOL::"HTTP-DELETE"` | url in, response out, http-status out | Send an HTTP DELETE; returns the body and status code |
+| `COBOL::"HTTP-DOWNLOAD"` | url in, file in, http-status out, status out | Save what a URL returns, AS BYTES, into a file (pictures, PDFs, archives); status `OK` or an error word |
 | `COBOL::"HTTP-GET"` | url in, response out, http-status out | Send an HTTP GET; returns the body and status code |
 | `COBOL::"HTTP-POST"` | url in, body in, response out, http-status out | Send an HTTP POST (JSON by default); returns body and status |
 | `COBOL::"HTTP-PUT"` | url in, body in, response out, http-status out | Send an HTTP PUT; returns the body and status code |
 | `COBOL::"HTTP-SET-HEADER"` | name in, value in | Add or replace a header sent on every later HTTP call |
+| `COBOL::"IMAGE-FIT"` | source in, target in, width in, height in, status out | Turn a picture upright, crop it to fill and resize it to exactly width × height; writes PNG or JPEG by the target's extension |
+| `COBOL::"IMAGE-INFO"` | path in, width out, height out, format out, status out | A picture's upright size and its format (`PNG`, `JPEG`, `GIF`, `WEBP`, `BMP`, `TIFF`), read from its header |
 | `COBOL::"INIT-FORM"` | [form-name in] | Initialise the form (generated code calls it) |
 | `COBOL::"KEY-IS-SET"` | entry in, flag out | Whether an API key is stored for a model entry: Y or N |
 | `COBOL::"KEY-REMOVE"` | entry in, [status out] | Delete the stored API key of a model entry |
@@ -4666,6 +4675,22 @@ The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the
 | `COBOL::"SET-PROPERTY"` | object in, property in, value in | Set a control's property |
 | `COBOL::"WAIT-EVENT"` | event-id out, control-id out | Wait for the next event (generated code calls it) |
 | `COBOL::"WRITE-FILE"` | path in, text in, [status out] | Write a file holding one line of text, replacing it |
+
+### Pictures and binary downloads — `IMAGE-FIT`, `IMAGE-INFO`, `HTTP-DOWNLOAD`
+Each answers with ONE status word in its last argument; test the word, never a message. Give the status item room for 9 characters (`PIC X(12)`).
+
+```cobol
+           COBOL::"HTTP-DOWNLOAD" ( WS-PHOTO-URL "cache/pet-7.jpg" WS-HTTP-CODE WS-STATUS )
+           IF WS-STATUS = "OK"
+               COBOL::"IMAGE-FIT" ( "cache/pet-7.jpg" "cache/pet-7-40.png" 40 40 WS-STATUS )
+           END-IF
+           COBOL::"IMAGE-INFO" ( "cache/pet-7.jpg" WS-WIDTH WS-HEIGHT WS-FORMAT WS-STATUS )
+```
+
+- **`IMAGE-FIT`** reads PNG, JPEG, GIF (its first frame), WebP, BMP or TIFF — recognised by CONTENT, not by name — turns it the way its EXIF orientation says, CROPS TO FILL (the centre stays the centre; nothing is stretched or letterboxed) and resizes to EXACTLY width × height. The target's extension picks the encoding: `.png`, or `.jpg`/`.jpeg` at quality 85 (transparency laid on white). A missing folder on the way is created; a failure writes nothing and leaves an existing target as it was. Words: `OK`, `NOFILE` (source missing), `BADIMAGE` (not one of the six formats, or damaged), `TOOBIG` (source over 64 megapixels — refused from the header, before decoding), `BADEXT` (target not .png/.jpg/.jpeg), `BADSIZE` (width or height below 1, or a target over 64 megapixels), `WRITE`, `NOFEATURE`.
+- **`IMAGE-INFO`** reads only the header: width and height as numbers (the UPRIGHT size — a camera photo stored sideways with an EXIF rotation reports its upright size, the picture `IMAGE-FIT` works on), the format name. Words: `OK`, `NOFILE`, `BADIMAGE`, `NOFEATURE`; on a refusal the size is 0 × 0 and the format spaces.
+- **`HTTP-DOWNLOAD`** fetches an `http://`/`https://` address AS BYTES (unlike `HTTP-GET`, whose response is text and capped). It follows up to 5 redirects (an `Authorization` header is not carried across one), sends only the headers set with `HTTP-SET-HEADER`, gives up after 60 seconds in total, refuses more than 256 MB, and writes through `<file>.part`, renamed when complete — a failure leaves no `.part` and an existing file untouched. `http-status` receives the server's code (0 when none came back). Words: `OK`, `BADURL`, `TIMEOUT`, `TOOBIG`, `HTTP` (a 4xx/5xx answer, or more than 5 redirects), `WRITE`, `NET` (no connection), `NOFEATURE`. The address's query string — where a pre-signed URL keeps its signature — never appears in a log.
+- `NOFEATURE` means the program was built without the picture or HTTP support. A build that calls these by their literal name always has it; only a CALL whose target is assembled at run time could meet it.
 
 ## Value Conventions (types and domains)
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.
@@ -6242,7 +6267,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "PreviewItemCount" => ("integer 1-500", "Cards shown on the design canvas, and at run time by an unbound group whose ItemCount is 0."),
 
         // ── DataGrid ──
-        "Columns" => ("one `Name:Type` per line; Type ∈ `string` | `number` | `datetime` (default `string`)", "Column definitions."),
+        "Columns" => ("one `Name:Type` per line; Type ∈ `string` | `number` | `datetime` | `image` (default `string`)", "Column definitions. A column typed `image` (`img` and `picture` mean the same) shows each cell's value — the path of a picture file — as a picture, at most at its own size. How else a column shows its cells (a Button, an Image scaled to the cell, a Checkbox…) is its Edit control in **Edit DataGrid settings…**, not part of `Columns`: see the DataGrid notes."),
         "Rows" => ("rows separated by newline, cells within a row by TAB", "Cell data (usually populated at runtime)."),
         "AlternatingRowColor" => (COLOR_DOMAIN, "Tint applied to alternating rows/columns."),
         "AlternatingRowOpacity" => ("0-100 (percent)", "Strength of the alternating tint."),
@@ -6257,8 +6282,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "RowBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Per-row background pattern."),
         "SelectionMode" => ("one of: `Row` (default) | `Cell` | `Column`", "What a click on a cell highlights: its whole row (`Row`), the cell alone (`Cell`) or its whole column (`Column`). Ctrl+C copies what is highlighted — the cell, the row's cells joined by `CSVDelimiter`, or the column's values in the rows shown, one per line. `onCellClick` reports the cell either way."),
         "AllowCellEditing" => (BOOL_DOMAIN, "DataGrid (default false): the operator may edit a cell in place — a double-click, or F2 on the selected cell, opens it in a text box; Enter or clicking away commits, Escape cancels. A commit that changed the text writes it into `Rows` and fires `onCellEdited` with `EditedRow`, `EditedColumn` (the DATA row and column, numbered from 1 — `GetCellValue`'s), `EditedValue` and `PreviousValue`; the handler validates and stores it, and can put `PreviousValue` back with `SetCellValue` to refuse it. A column with no data behind it, or one showing its value as an image, is not editable; a typed tab or line break becomes a space. The retired `ReadOnly` does not control this."),
-        "ClickedRow" => ("integer (runtime-only, read-only)", "DataGrid: the data row a click (or double-click) landed on, numbered from 1 as `GetCellValue` counts — written just before `onCellClick` / `onCellDoubleClick`, so the handler knows which row's button was pressed."),
-        "ClickedColumn" => ("integer (runtime-only, read-only)", "DataGrid: the data column a click landed on, numbered from 1 (its position in `Columns`); 0 for a column with no data behind it. Written just before `onCellClick` / `onCellDoubleClick`."),
+        "ClickedRow" => ("integer (runtime-only, read-only)", "DataGrid: the data row a click (or double-click) landed on, numbered from 1 as `GetCellValue` counts — written just before `onCellClick` / `onCellDoubleClick`, so the handler knows which row's button was pressed. A click on a column heading does NOT write it (that sorts the grid and fires `onColumnClick`), and with `SelectableText` off the cells ignore the mouse and write nothing."),
+        "ClickedColumn" => ("integer (runtime-only, read-only)", "DataGrid: the data column a click landed on, numbered from 1 (its position in `Columns`); 0 for a column with no data behind it. Written just before `onCellClick` / `onCellDoubleClick`; a click on a column heading leaves it as it was."),
         "EditedRow" => ("integer (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the data row the operator edited, numbered from 1."),
         "EditedColumn" => ("integer (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the data column the operator edited, numbered from 1."),
         "EditedValue" => ("text (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the cell's new text — already in `Rows`."),
@@ -6290,7 +6315,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "FrozenColumns" => ("integer ≥ 0", "Leading columns that do not scroll sideways. A write from COBOL takes effect at once, like `FreezeColumns` — also on a grid configured in **Edit DataGrid settings…**."),
         "FrozenRows" => ("integer ≥ 0", "Leading rows that do not scroll. A write from COBOL takes effect at once, like `FreezeRows` — also on a grid configured in **Edit DataGrid settings…**."),
         "FrozenShadow" => (BOOL_DOMAIN, "Soft shadow cast by frozen rows/columns."),
-        "SelectableText" => (BOOL_DOMAIN, "Cell text can be selected/copied."),
+        "SelectableText" => (BOOL_DOMAIN, "DataGrid (default true): a click on a cell selects it, writes `ClickedRow` / `ClickedColumn`, fires `onCellClick` (and `onCellDoubleClick`), and Ctrl+C copies it. Off, the cells ignore mouse clicks — a click selects nothing and reports nothing, so a Button or icon column does nothing; a click on a column heading still sorts and fires `onColumnClick`."),
 
         // ── TabControl ──
         "Tabs" => ("one tab title per line", "The tab pages."),
@@ -6751,7 +6776,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── AWS controls (spec 078) ──
         "Connection" => (
             "the name of one of the project's AWS connections, or empty",
-            "AWS controls: which AWS connection (Settings → Integrations → AWS) the control works through — its profile, its region and, for Lambda, which functions are offered. Empty means the project's ONLY AWS connection, when it has exactly one. A name the project does not have fails the call with `onError`, naming the connections it does have. A connection holds no secret: credentials come from the AWS profile on the machine that runs the application (`aws login --profile <name>`), never from the form or the project.",
+            "AWS controls: which AWS connection (Settings → Integrations → AWS) the control works through — its profile, its region and, for Lambda, which functions are offered. Empty means the project's ONLY AWS connection, when it has exactly one. A name the project does not have fails the call with `onError`, naming the connections it does have. A connection holds no secret: credentials come from the AWS profile on the machine that runs the application (`aws login --profile <name>`), never from the form or the project — or, when the program hands the connection keys at run time with `COBOL::\"AWS-SET-CREDENTIALS\"`, from those keys, kept in memory only for that run.",
         ),
         "StartTimeoutMs" => (
             "milliseconds (default 120000)",
@@ -6759,7 +6784,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "AllowWrite" => (
             "true | false (default false)",
-            "AWS controls: whether this control may CHANGE anything in AWS. Off by default: an operation that writes — invoking a Lambda function, or an `AwsMcp` tool its server does not mark read-only — is refused with `onError` before anything is sent, and a server that has a read-only mode starts in it. One server serves a whole connection, so it leaves read-only mode as soon as any control on that connection turns this on; every other control is still refused by its own `AllowWrite`.",
+            "AWS controls: whether this control may CHANGE anything in AWS. Off by default: an operation that writes — invoking a Lambda function, an `AwsMcp` tool its server does not mark read-only, or any `AwsMcp` `AwsCall` (it cannot know which API calls only read) — is refused with `onError` before anything is sent, and a server that has a read-only mode starts in it. One server serves a whole connection, so it leaves read-only mode as soon as any control on that connection turns this on; every other control is still refused by its own `AllowWrite`.",
         ),
         "ResultJson" => (
             "JSON text (runtime-only, read-only)",
@@ -6779,7 +6804,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "ServerId" => (
             "a server id from the AWS route table, e.g. `lambda`",
-            "AwsMcp: which of the connection's AWS servers this control talks to.",
+            "AwsMcp: which of the connection's AWS servers `Call` and `ListTools` talk to. `AwsCall` ignores it: it always goes through the AWS MCP Server.",
         ),
         "KnowledgeBaseId" => (
             "an Amazon Bedrock knowledge base id, e.g. `KB12345678`",
@@ -7125,7 +7150,10 @@ fn event_reference(name: &str) -> &'static str {
         "onVectorsPut" => "AwsS3Vectors: `PutVectors` stored the vectors; `onComplete` follows",
         "onLabels" => "AwsRekognition: `DetectLabels` answered — one row per label: `Name`, `Confidence`, `Parents`; `onComplete` follows",
         "onTextDetected" => "AwsRekognition: `DetectText` answered — rows `Text`, `Type` (LINE or WORD), `Confidence`. AwsTextract: `DetectText` answered — one row per line: `Text`, `Confidence`, `Page`; `onComplete` follows",
-        "onFaces" => "AwsRekognition: `DetectFaces` answered — one row per face: `Confidence`, `AgeLow`, `AgeHigh`, `Smile`, `Emotion`; `onComplete` follows",
+        "onFaces" => "AwsRekognition: `DetectFaces` answered — one row per face: `Confidence`, `AgeLow`, `AgeHigh`, `Smile`, `Emotion`, and where the face is — `Left`, `Top`, `Width`, `Height`, ratios (0 to 1) of the image's width and height from its top-left corner; `onComplete` follows",
+        "onCelebrities" => "AwsRekognition: `RecognizeCelebrities` answered — one row per celebrity recognised: `Name`, `Id`, `MatchConfidence` (0–100), `Urls` (their links, separated by spaces) and the face's `Left`, `Top`, `Width`, `Height` (ratios of the image); faces it does not know are not rows. `onComplete` follows",
+        "onBucketsListed" => "AwsS3: `ListBuckets` answered — one row per bucket of the account: `Name`, `CreationDate` (ISO 8601, e.g. `2026-10-01T09:30:00+00:00`); `onComplete` follows",
+        "onAwsCalled" => "AwsMcp: `AwsCall` answered — `ResponseBody` and `ResultJson` hold the API's answer as JSON; the rows are the items of its one list (`Stacks`, `Buckets` …), or the one object it holds (`Table`), or the answer itself. Its own event; `onComplete` follows. A failing API call raises `onError` with `LastError` = `<AWS error code>: <message>` instead",
         "onSynthesized" => "AwsPolly: `Synthesize` wrote the audio — `SavedFile`, `ContentType`, `Characters`; `onComplete` follows",
         "onSentiment" => "AwsComprehend: `DetectSentiment` answered — `Sentiment`, and row 1 holds `Positive`, `Negative`, `Neutral`, `Mixed`; `onComplete` follows",
         "onEntities" => "AwsComprehend: `DetectEntities` answered — rows `Text`, `Type`, `Score`; `onComplete` follows",
@@ -7171,7 +7199,7 @@ fn control_structure(name: &str) -> &'static str {
         "TreeView" => "The tree is the `Items` property: one node per line, in display order, each child indented two spaces (or one tab) more than its parent, optionally followed by TAB-separated icon, colour and background fields. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole tree. From COBOL, `AddNode(level, text)` builds it at run time.",
         "ListBox" | "ComboBox" => "The entries are the `Items` property: one entry per line, in display order. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole list (sorting, adding or removing an entry means sending every line). When `ItemsFile` names a text file, the list reads its entries from that file each time the form opens instead.",
         "TabControl" => "The pages are the `Tabs` property: one tab title per line, in order. A control sits on a page through its own `Tab` property (the page, counting from 1) with this TabControl as its `Parent`, so reordering titles in `Tabs` does not move the controls with them: a page move also needs each child's `Tab` changed.",
-        "DataGrid" => "The columns are the `Columns` property, one `Name:Type` per line in display order (`string`, `number` or `datetime`); the cells are `Rows`, one row per line with cells separated by TAB, usually filled at run time. An agent changes the columns with `set_property` on `Columns`, sending every column.",
+        "DataGrid" => "The columns are the `Columns` property, one `Name:Type` per line in display order (`string`, `number`, `datetime`, or `image`); the cells are `Rows`, one row per line with cells separated by TAB, usually filled at run time. An agent changes the columns with `set_property` on `Columns`, sending every column. How a column SHOWS its cells is its kind — the Edit control in **Edit DataGrid settings…**: Textbox (the default), Dropdown, Checkbox, Button, Gauge or Image — and is not part of `Columns`. In an **Image** column the cell value is the path of a picture file (PNG, JPEG, GIF, WebP, BMP, TIFF or SVG; a relative path is looked for in the project folder, beside the executable in a built application): the picture is scaled to fit the cell, keeping its proportions, so give the grid a `RowHeight` (up to 120) that suits it; the column's settings add a corner radius and a drop shadow. A file that is missing or not yet a complete picture shows its path in the cell and is looked for again every half second, so a thumbnail a program downloads after the grid is on screen appears by itself; a picture that loaded is read once, and picked up again within about two seconds of the next repaint if the file is rewritten (a different modification time or size). In a **Button** column each cell is drawn as a button showing its value; a value `icon:<name>` draws that catalogue icon instead (`icon:pencil`, `icon:trash`). A click on a cell writes `ClickedRow` and `ClickedColumn` and fires `onCellClick`; a click on a column heading sorts instead and writes neither. An Image column is not editable in place. On a grid with a data binding, the refresh of the columns from the bound fields keeps a column set to Button, Gauge or Image; only a field made a Dropdown or Checkbox in the binding editor changes its column's control.",
         _ => "",
     }
 }
@@ -7225,15 +7253,15 @@ fn control_purpose(name: &str) -> &'static str {
         "Maps" => "Embedded, pannable/zoomable OpenStreetMap view with optional google_maps-backed location data (Directions/Geocoding/Places/Distance-Matrix). Wheel zoom is continuous: one notch is one level, released a slice per frame, and while it travels the map is drawn BETWEEN levels by scaling the tiles it already has, with the point under the pointer held fixed and markers/routes/regions scaling along with the basemap.",
         "WebSearch" => "Non-visual Google Custom Search JSON API client (async by default, same lifecycle as RestClient).",
         "AwsLambda" => "Non-visual: invokes AWS Lambda functions with a JSON payload and reads their answer, through the control's AWS connection. Async by default; refused unless `AllowWrite` is on, since running a function can change anything.",
-        "AwsMcp" => "Non-visual escape hatch to AWS: calls any tool of one of the connection's AWS servers by name with a JSON argument, and lists the tools it offers. A tool the server does not mark read-only is refused unless `AllowWrite` is on.",
+        "AwsMcp" => "Non-visual escape hatch to AWS: calls any tool of one of the connection's AWS servers by name with a JSON argument, and lists the tools it offers; `AwsCall` makes any single AWS API call by service and operation name (CloudFormation, DynamoDB's CreateTable …) through the AWS MCP Server. A tool the server does not mark read-only, and every `AwsCall`, is refused unless `AllowWrite` is on.",
         "AwsKnowledgeBase" => "Non-visual: asks an Amazon Bedrock knowledge base a question in plain language and returns the matching passages as rows (text, source, score) — retrieval for a chatbot or a search screen. Read-only.",
         "AwsAgentCore" => "Non-visual: sends a prompt to an agent hosted in Amazon Bedrock AgentCore Runtime and reads its reply, keeping the conversation in `SessionId`. Refused unless `AllowWrite` is on, since an agent can act and is billed per call.",
         "AwsAgentMemory" => "Non-visual: records conversation turns in an AgentCore Memory and searches what it has learned (`Retrieve` returns records as rows). Recording needs `AllowWrite`.",
         "AwsS3Tables" => "Non-visual: lists the tables of Amazon S3 Tables (Apache Iceberg), runs read-only SQL on them with rows named after the columns, and appends rows. Appending needs `AllowWrite`.",
         "AwsDynamoDB" => "Non-visual: reads and writes DynamoDB items as PLAIN JSON (`{\"id\": 42}`, never the typed `{\"N\": \"42\"}` form) — GetItem, Query, Scan, PutItem, UpdateItem, DeleteItem. Writes need `AllowWrite`.",
-        "AwsS3" => "Non-visual: lists, reads, writes and deletes the objects of an S3 bucket. Writes need `AllowWrite`. Objects travel inside the answer, so it suits objects up to a few MB.",
+        "AwsS3" => "Non-visual: lists, reads, writes and deletes the objects of an S3 bucket, and lists the account's buckets (`ListBuckets`). Writes need `AllowWrite`. Objects travel inside the answer, so it suits objects up to a few MB.",
         "AwsS3Vectors" => "Non-visual: similarity search in an S3 vector index (`QueryVectors`), and writing vectors (`PutVectors`, which needs `AllowWrite`).",
-        "AwsRekognition" => "Non-visual: finds labels, text and faces in an image — a local file or an `s3://bucket/key` object — and returns them as rows. Read-only.",
+        "AwsRekognition" => "Non-visual: finds labels, text, faces and known celebrities in an image — a local file or an `s3://bucket/key` object — and returns them as rows; a face's row places it in the picture (`Left`, `Top`, `Width`, `Height`, ratios of the image). Read-only.",
         "AwsPolly" => "Non-visual: speaks a text with an Amazon Polly voice and writes the audio to a local file. Read-only in AWS.",
         "AwsComprehend" => "Non-visual: the sentiment, entities, key phrases and dominant language of a text. Read-only.",
         "AwsTextract" => "Non-visual: reads a document — a local file or an `s3://bucket/key` object: its lines (`DetectText`), its form fields and its table cells (`AnalyzeDocument`), as rows. Read-only.",
@@ -7602,6 +7630,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         "AwsMcp" => vec![
             ("Call(tool: String?, arguments: String?) → 1/0", "Run one tool of the `ServerId` server — `ToolName` when none is named — with a JSON object of arguments (`{}` when none). Async: returns 1, then `onToolResult` and `onComplete`. Sync: returns the tool's answer. Refused with `onError`, nothing sent, when the arguments are not valid JSON, or when the server does not mark the tool read-only and `AllowWrite` is off."),
             ("ListTools() → 1/0", "List the server's tools; `onToolsListed`, then read the rows (`Name`, `Description`, `ReadOnly`)."),
+            ("AwsCall(service: String, operation: String, paramsJson: String?) → 1/0", "Make ONE AWS API call by name through the AWS MCP Server, whatever `ServerId` says: `service` is its short name in AWS's SDK for Python (boto3) — usually the AWS CLI's: `cloudformation`, `dynamodb`, `sts`, `cognito-idp`, but `s3` for S3 (the CLI's `s3api`) — `operation` the API's own CamelCase name — `DescribeStacks`, `CreateTable` — and `paramsJson` a JSON object of its parameters spelled as the API reference spells them (`{\"StackName\": \"x\"}`; empty is `{}`), in the connection's region. Async: `onAwsCalled`, then `onComplete`; Sync: returns the answer. The answer (dates ISO 8601) is `ResponseBody`/`ResultJson`; rows are its one list's items, else its one object, else the answer. Always needs `AllowWrite`. A failing call raises `onError` with `LastError` = `<AWS error code>: <message>` (e.g. `ValidationException: …`); parameters that are not JSON are refused before anything is sent. The three values enter the request only as quoted text, never as code."),
             ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
             ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
@@ -7666,6 +7695,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("GetObject(key: String, toFile: String?) → 1/0", "Read an object: as text in `ResponseBody`, and as bytes into `toFile` when one is named; `onObject`."),
             ("PutObject(key: String, text: String, fromFile: String?) → 1/0", "Store `text` — or the bytes of `fromFile` when one is named — as the object `key`; `onObjectPut`. Needs `AllowWrite`."),
             ("DeleteObject(key: String) → 1/0", "Remove an object; `onObjectDeleted`. Needs `AllowWrite`."),
+            ("ListBuckets() → 1/0", "The account's buckets as rows (`Name`, `CreationDate` in ISO 8601) — whatever `Bucket` says, which it leaves alone; `onBucketsListed`. Read-only."),
             ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
             ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
@@ -7682,7 +7712,8 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         "AwsRekognition" => vec![
             ("DetectLabels(image: String) → 1/0", "Labels in an image — a local file or `s3://bucket/key` — at or above `MinConfidence`; `onLabels`."),
             ("DetectText(image: String) → 1/0", "Text in an image, as lines and words; `onTextDetected`."),
-            ("DetectFaces(image: String) → 1/0", "Faces in an image with age range, smile and main emotion; `onFaces`."),
+            ("DetectFaces(image: String) → 1/0", "Faces in an image with age range, smile, main emotion and where each face is (`Left`, `Top`, `Width`, `Height`, ratios of the image); `onFaces`."),
+            ("RecognizeCelebrities(image: String) → 1/0", "Known celebrities in an image — a local file or `s3://bucket/key` — as rows: `Name`, `Id`, `MatchConfidence`, `Urls` (space-separated links) and the face's `Left`, `Top`, `Width`, `Height` as ratios (0 to 1) of the image's width and height; multiply by the picture's displayed size to draw a box over it. `onCelebrities`."),
             ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
             ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
@@ -7812,6 +7843,21 @@ Three equivalent ways to feed the chart:\n\
 2. Generated paragraphs: `PERFORM Chart-1-ADD-POINT` (after `MOVE`s to `WS-Chart-1-SELECTED-LBL` / `-SELECTED-VAL`), `PERFORM Chart-1-SET-TABLE`, `PERFORM Chart-1-CLEAR`, `PERFORM Chart-1-REFRESH`.\n\
 3. Built-in calls: `COBOL::\"CHART-ADD-POINT\"( \"Chart-1\" label value )` and `COBOL::\"CHART-SET-TABLE\"( \"Chart-1\" table count )` (table rows: `PIC X(64)` label + `PIC 9(18)V9(6)` value).\n\
 Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueFields` properties.\n",
+        "DataGrid" => "\
+### Usage — pictures and per-row buttons\n\
+A cell's value is plain text: a picture column holds file paths, a Button column holds a caption or `icon:<name>`. Here `Columns` are `Photo`, `Name`, `Edit` and `Delete`; Photo is an Image column and Edit and Delete are Button columns (each column's Edit control, in Edit DataGrid settings…):\n\
+```cobol\n\
+STRING FUNCTION TRIM(WS-THUMB) X\"09\" FUNCTION TRIM(WS-NAME) X\"09\" \"icon:pencil\" X\"09\" \"icon:trash\"\n\
+    DELIMITED BY SIZE INTO WS-ROW\n\
+MOVE DG-1::AddRow(WS-ROW) TO WS-OK\n\
+...\n\
+DG-1--ONCELLCLICK.\n\
+    EVALUATE DG-1::ClickedColumn\n\
+        WHEN 3 PERFORM EDIT-ROW\n\
+        WHEN 4 PERFORM DELETE-ROW\n\
+    END-EVALUATE.\n\
+```\n\
+`ClickedRow` is the data row (from 1, as `GetCellValue` counts, so it is right after a sort), `ClickedColumn` the data column. The thumbnail file may be written after the row is added: the cell shows its path until the file can be read, then the picture. A click on a column heading sorts and does not write `ClickedRow` / `ClickedColumn`; with `SelectableText` off no cell click reports at all.\n",
         "RadarChart" => "\
 ### Axes and series\n\
 Each POINT is one AXIS — a spoke of the radar, captioned with its label — and each SERIES is one polygon. `AddPoint(label, v1, v2, …)` gives that axis's value in series 1, 2, 3 …. The first axis points straight up and the rest follow clockwise, in the order the points were added. Every axis shares one scale: `MinValue` at the centre and `MaxValue` on the rim — automatic, from the largest value of any series, while `MaxValue` is 0 — and a value below `MinValue` is drawn on the centre. Name the polygons with `SeriesLabels` and colour them with `SeriesColors`. Fewer than three axes cannot enclose an area: two axes draw each series as a line and one axis as a point.\n\
@@ -7921,6 +7967,8 @@ Colour carried by the DATA still wins: `AddRoute` USING id colour width geometry
         | "AwsEC2" | "AwsCognito" => "\
 ### Usage — AWS controls\n\
 An AWS control works through one of the project's AWS connections (Settings → Integrations → AWS), which names an AWS profile and a region. The application signs in with that profile on the machine it runs on — run `aws login --profile <name>` once there — and no key is ever kept in a form, a project or a built application. The first call on a machine starts the connection's AWS server with `uvx`, which must be installed (`LastError` says so, with the fix, when it is not); every AWS control on the connection then shares that one server, and it ends with the application.\n\
+\n\
+An application whose user types in AWS keys hands them to a connection with `COBOL::\"AWS-SET-CREDENTIALS\" ( connection key-id secret token [status] )` — the token may be spaces; `status` is `OK` or why nothing was stored (an unknown connection, a missing key id or secret). The runtime keeps them in memory for that run only and gives them to the connection's AWS server in its environment, instead of the profile; they are never a property, never written to a file or a log, never in `Verbose` output or an error, and no call returns them. `COBOL::\"AWS-CREDENTIALS-SET\" ( connection flag )` answers `Y` or `N`; `COBOL::\"AWS-CLEAR-CREDENTIALS\" ( connection [status] )` forgets them. Setting or clearing them ends the connection's running server, so the next call starts one with what is set now. Clear the fields the user typed the keys into straight after the call. A developer's own machine should keep using a profile.\n\
 \n\
 ```cobol\n\
            MOVE '{\"orderId\": 42}' TO WS-PAYLOAD\n\
@@ -8861,16 +8909,16 @@ fn methods_reference_doc() -> String {
             "Reach AWS through an AWS connection (profile + region, no key in the project). `AwsLambda` invokes Lambda functions; `AwsMcp` calls any tool of the connection's AWS server; `AwsKnowledgeBase`, `AwsAgentCore`, `AwsAgentMemory`, `AwsS3Tables` and `AwsGlue` reach those services. Async by default — the control's own event (`onInvoked`, `onToolResult`, `onQueried` …), then `onComplete`; or `onError`, `onTimeout`, `onCancelled`. `AllowWrite` (off by default) guards everything that changes AWS. Lists come back as rows.",
             &[
                 ("AwsLambda: Invoke(function?, payload?) / ListFunctions()", "Run a function with a JSON payload / list the connection's functions."),
-                ("AwsMcp: Call(tool?, arguments?) / ListTools()", "Run a tool with a JSON object / list the server's tools."),
+                ("AwsMcp: Call(tool?, arguments?) / ListTools() / AwsCall(service, operation, paramsJson?)", "Run a tool with a JSON object / list the server's tools / make one AWS API call by name (`\"cloudformation\", \"DescribeStacks\"`), needs `AllowWrite`."),
                 ("AwsKnowledgeBase: Query(kbId?, question) / ListKnowledgeBases()", "Retrieve passages / list the reachable knowledge bases."),
                 ("AwsAgentCore: Invoke(runtimeArn?, prompt, sessionId?)", "Ask an AgentCore agent; the reply in `ResponseBody`."),
                 ("AwsAgentMemory: RecordEvent(memoryId?, actorId?, sessionId?, text, role?) / Retrieve(memoryId?, namespace?, query)", "Store a turn / search what the memory learned."),
                 ("AwsS3Tables: ListTables(namespace?) / Query(sql) / AppendRows(table?, rowsJson)", "List, read with SQL, append."),
                 ("AwsGlue: StartJobRun(job?, argsJson?) / GetJobRun(job?, runId?) / StartCrawler(name?) / GetTableSchema(db?, table?)", "Run and follow jobs and crawlers; read a table's columns."),
                 ("AwsDynamoDB: GetItem / Query / Scan / PutItem / UpdateItem / DeleteItem", "Items as plain JSON."),
-                ("AwsS3: List / GetObject / PutObject / DeleteObject", "A bucket's objects."),
+                ("AwsS3: List / GetObject / PutObject / DeleteObject / ListBuckets", "A bucket's objects; the account's buckets."),
                 ("AwsS3Vectors: QueryVectors / PutVectors", "Nearest-vector search and writes."),
-                ("AwsRekognition: DetectLabels / DetectText / DetectFaces", "An image, from a file or s3://."),
+                ("AwsRekognition: DetectLabels / DetectText / DetectFaces / RecognizeCelebrities", "An image, from a file or s3://; faces and celebrities carry their box (Left, Top, Width, Height)."),
                 ("AwsPolly: Synthesize(text, voice?, format?, toFile?)", "Speech into an audio file."),
                 ("AwsComprehend: DetectSentiment / DetectEntities / DetectKeyPhrases / DetectLanguage", "Text analysis."),
                 ("AwsTextract: DetectText / AnalyzeDocument", "A document's lines, fields and tables."),

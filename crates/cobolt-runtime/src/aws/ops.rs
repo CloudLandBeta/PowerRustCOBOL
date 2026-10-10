@@ -95,7 +95,10 @@ pub fn prepare(view: &ControlView, conn: &AwsConnection) -> Result<Prepared, Str
             view.method
         ));
     }
-    let conn_field = |f: &str| conn.field(f);
+    // Keys the program set for this connection sign instead of its profile
+    // (spec 092 A6): the profile is no placeholder's value either.
+    let keys = super::credentials::for_connection(&conn.id);
+    let conn_field = |f: &str| if keys.is_some() && f == "Profile" { String::new() } else { conn.field(f) };
     let ctx = Context { args: view.args, prop: view.prop, connection: &conn_field };
     let expand_err = |e: ExpandError| match e {
         ExpandError::InvalidJson { arg, message } => {
@@ -109,8 +112,11 @@ pub fn prepare(view: &ControlView, conn: &AwsConnection) -> Result<Prepared, Str
         .servers
         .get(&server_id)
         .ok_or_else(|| format!("no AWS server \"{server_id}\" in the route table"))?;
-    let launch = routes::launch_for(server, &ctx, view.connection_allows_write, &conn.profile, &conn.region)
+    let mut launch = routes::launch_for(server, &ctx, view.connection_allows_write, &conn.profile, &conn.region)
         .map_err(expand_err)?;
+    if let Some(keys) = keys.clone() {
+        launch = launch.with_credentials(keys);
+    }
     let action = if op.tool == "$list" {
         Action::ListTools
     } else {
@@ -181,6 +187,22 @@ pub fn plain_error(raw: &str, profile: &str) -> String {
     mask(raw.trim())
 }
 
+/// How AWS refuses keys it does not accept, beyond [`CREDENTIAL_FAILURES`]:
+/// an unknown key id, a wrong secret.
+const KEY_FAILURES: [&str; 3] = ["InvalidAccessKeyId", "SignatureDoesNotMatch", "UnrecognizedClientException"];
+
+/// [`plain_error`] for a connection signing with keys the program set (spec
+/// 092 A6): no profile is involved, so a credential failure says the keys
+/// were refused — and, like every message, never repeats them.
+pub fn plain_error_with_keys(raw: &str) -> String {
+    if CREDENTIAL_FAILURES.iter().chain(KEY_FAILURES.iter()).any(|f| raw.contains(f)) {
+        return "The AWS credentials set for this connection were refused or have expired. \
+                Set them again with AWS-SET-CREDENTIALS."
+            .to_owned();
+    }
+    mask(raw.trim())
+}
+
 /// Rows from an answer that is a JSON array, or holds one.
 fn rows_of(v: &Value) -> Vec<Value> {
     match v {
@@ -216,6 +238,15 @@ fn answered_failure(r: &cobolt_mcp::ToolResult, f: &FailDef) -> bool {
 /// Run a prepared operation through the pool.
 pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
     let profile = p.launch.profile.clone().unwrap_or_default();
+    // In words for the user: a credential failure names the profile, or, when
+    // the program's own keys sign (A6), says they were refused.
+    let plain = |raw: &str| {
+        if p.launch.credentials.is_some() {
+            plain_error_with_keys(raw)
+        } else {
+            plain_error(raw, &profile)
+        }
+    };
     let fail = |e: CallError| match e {
         CallError::Timeout => Outcome::Timeout(format!(
             "No answer within {} ms: the AWS call was abandoned.",
@@ -223,10 +254,10 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
         )),
         // A start failure's first line is for the user; what the server said
         // after it decides whether this is really a profile to sign in to.
-        CallError::Start(m) => Outcome::Error(plain_error(&m, &profile).lines().next().unwrap_or_default().to_owned()),
+        CallError::Start(m) => Outcome::Error(plain(&m).lines().next().unwrap_or_default().to_owned()),
         CallError::Failed(m) => {
             let stderr = pool::stderr_of(&p.key).unwrap_or_default();
-            Outcome::Error(plain_error(&format!("{m}\n{stderr}"), &profile).lines().next().unwrap_or_default().to_owned())
+            Outcome::Error(plain(&format!("{m}\n{stderr}")).lines().next().unwrap_or_default().to_owned())
         }
     };
     match &p.action {
@@ -281,13 +312,13 @@ pub fn execute(p: &Prepared, budget: Budget) -> Outcome {
             match answer {
                 Ok(r) if r.is_error == Some(true) => {
                     let text = routes::result_text(&r);
-                    Outcome::Error(plain_error(&text, &profile))
+                    Outcome::Error(plain(&text))
                 }
                 Ok(r) if p.fail.as_ref().is_some_and(|f| answered_failure(&r, f)) => {
                     let f = p.fail.as_ref().expect("checked");
                     let text = routes::extract(&r, &f.text);
                     let text = if text.trim().is_empty() { routes::result_text(&r) } else { text };
-                    Outcome::Error(plain_error(&text, &profile))
+                    Outcome::Error(plain(&text))
                 }
                 Ok(r) => {
                     let mut props: Vec<(String, String)> =
@@ -336,6 +367,23 @@ mod tests {
         let m = plain_error(raw, "sales");
         assert_eq!(m, "The AWS profile \"sales\" is not signed in or has expired. Run: aws login --profile sales");
         assert!(!plain_error("boom AKIAABCDEFGHIJKLMNOP", "x").contains("EFGHIJKLMNOP"));
+    }
+
+    /// A6: with keys set there is no profile to name; a refusal says the keys
+    /// were refused, in the same plain words for every way AWS refuses them.
+    #[test]
+    fn refused_keys_are_named_as_keys_not_a_profile() {
+        for raw in [
+            "An error occurred (InvalidClientTokenId) when calling GetCallerIdentity",
+            "An error occurred (SignatureDoesNotMatch): the request signature we calculated does not match",
+            "An error occurred (InvalidAccessKeyId) when calling ListBuckets",
+            "An error occurred (UnrecognizedClientException) when calling Scan",
+            "An error occurred (ExpiredToken) when calling DescribeInstances",
+        ] {
+            let m = plain_error_with_keys(raw);
+            assert!(m.contains("AWS credentials set for this connection") && !m.contains("profile"), "{raw} -> {m}");
+        }
+        assert_eq!(plain_error_with_keys("ValidationException: no such table"), "ValidationException: no such table");
     }
 
     fn view<'a>(ty: &'a str, method: &'a str, args: &'a [String], prop: &'a dyn Fn(&str) -> String, allow: bool) -> ControlView<'a> {

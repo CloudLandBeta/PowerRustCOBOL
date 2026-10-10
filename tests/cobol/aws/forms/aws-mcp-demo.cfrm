@@ -126,6 +126,54 @@
                ADD 1 TO WS-FAIL
                DISPLAY "FAIL ListTools rows: " WS-N
            END-IF
+      *>   5. AwsCall: one AWS API by name, through the hosted server
+      *>      (spec 092). With AllowWrite off it is refused, nothing sent.
+           INVOKE AWS-RO::AwsCall("cloudformation", "DescribeStacks", "{}")
+           MOVE AWS-RO::LastError TO WS-ERR
+           MOVE 0 TO WS-K
+           INSPECT WS-ERR TALLYING WS-K FOR ALL "AllowWrite is off"
+           IF WS-K > 0
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL AwsCall AllowWrite refusal: " FUNCTION TRIM(WS-ERR)
+           END-IF
+      *>      With it on: the API's answer, and its one list as the rows.
+           MOVE AWS-FN::AwsCall("cloudformation", "DescribeStacks",
+               '{"StackName": "powercloud"}') TO WS-OUT
+           ADD 1 TO WS-CALLS
+           MOVE 0 TO WS-K
+           INSPECT WS-OUT TALLYING WS-K FOR ALL '"Stacks"'
+           IF WS-K > 0
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL AwsCall answer: " FUNCTION TRIM(WS-OUT)
+                   " " AWS-FN::LastError
+           END-IF
+           IF AWS-FN::RowCount = 1
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL AwsCall RowCount: " AWS-FN::RowCount
+           END-IF
+           IF AWS-FN::GetField(1, "StackStatus") = "CREATE_COMPLETE"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL GetField(1, StackStatus): " AWS-FN::GetRow(1)
+           END-IF
+      *>      A stack that does not exist: AWS's error code in LastError.
+           INVOKE AWS-FN::AwsCall("cloudformation", "DescribeStacks",
+               '{"StackName": "no-such-stack"}')
+           ADD 1 TO WS-CALLS
+           IF AWS-FN::LastError =
+              "ValidationException: Stack with id no-such-stack does not exist"
+               ADD 1 TO WS-PASS
+           ELSE
+               ADD 1 TO WS-FAIL
+               DISPLAY "FAIL AwsCall error code: " AWS-FN::LastError
+           END-IF
            MOVE FUNCTION CURRENT-DATE TO WS-T1
            COMPUTE WS-MS =
                ((FUNCTION NUMVAL(WS-T1(9:2)) * 3600
@@ -136,7 +184,7 @@
                  + FUNCTION NUMVAL(WS-T0(11:2)) * 60
                  + FUNCTION NUMVAL(WS-T0(13:2))) * 100
                  + FUNCTION NUMVAL(WS-T0(15:2))) * 10
-      *>   5. Call, asynchronous: it answers with onToolResult, then onComplete.
+      *>   6. Call, asynchronous: it answers with onToolResult, then onComplete.
            MOVE "Async" TO AWS-FN::Mode
            MOVE '{"k": 1}' TO WS-PAY
            INVOKE AWS-FN "Call" USING WS-NAME WS-PAY RETURNING WS-RC
@@ -162,8 +210,9 @@
                DISPLAY "FAIL event order: " FUNCTION TRIM(WS-ORDER)
            END-IF
            DISPLAY "==== AwsMcp demo (spec 078) ===="
-           DISPLAY "Operations: Call (Sync), Call (Async), ListTools, GetField, ResultJson"
-           DISPLAY "Refusals:   a tool not marked read-only, arguments not JSON (nothing sent)"
+           DISPLAY "Operations: Call (Sync), Call (Async), ListTools, AwsCall (Sync), GetField, ResultJson"
+           DISPLAY "AwsCall:    cloudformation DescribeStacks: the answer, 1 row, StackStatus; an unknown stack: ValidationException"
+           DISPLAY "Refusals:   a tool not marked read-only, arguments not JSON, AwsCall with AllowWrite off (nothing sent)"
            DISPLAY "Calls made: " WS-CALLS
            DISPLAY "Sync part:  " WS-MS " ms"
            DISPLAY "Events:     " FUNCTION TRIM(WS-ORDER)

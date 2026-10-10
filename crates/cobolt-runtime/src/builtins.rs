@@ -34,6 +34,9 @@ const fn b(name: &'static str, params: &'static str, description: &'static str) 
 /// Every built-in, alphabetically.
 pub const BUILTINS: &[Builtin] = &[
     b("APPEND-FILE", "path in, text in, [status out]", "Append a line of text to a file, creating it if missing"),
+    b("AWS-CLEAR-CREDENTIALS", "connection in, [status out]", "Forget the AWS keys set for a connection and end the server that held them"),
+    b("AWS-CREDENTIALS-SET", "connection in, flag out", "Whether AWS keys are set for a connection: Y or N (never the keys)"),
+    b("AWS-SET-CREDENTIALS", "connection in, key-id in, secret in, token in, [status out]", "Give a connection AWS keys for this run, kept in memory only (never read back)"),
     b("BINDING-LOAD", "binding-id in, status out", "Load a data binding's records from its source"),
     b("BINDING-MARK-CLEAN", "binding-id in, dirty-flag out", "Mark a binding clean: no pending edits"),
     b("BINDING-POPULATE", "binding-id in, status out", "Fill a binding's bound controls from its data"),
@@ -52,10 +55,13 @@ pub const BUILTINS: &[Builtin] = &[
     b("GET-PROPERTY", "object in, property in, value out", "Read a control's property into a data item"),
     b("HTTP-CLEAR-HEADERS", "", "Remove every header set with HTTP-SET-HEADER"),
     b("HTTP-DELETE", "url in, response out, http-status out", "Send an HTTP DELETE; returns the body and status code"),
+    b("HTTP-DOWNLOAD", "url in, file in, http-status out, status out", "Save what a URL returns, as bytes, into a file; status OK or an error word"),
     b("HTTP-GET", "url in, response out, http-status out", "Send an HTTP GET; returns the body and status code"),
     b("HTTP-POST", "url in, body in, response out, http-status out", "Send an HTTP POST (JSON by default); returns body and status"),
     b("HTTP-PUT", "url in, body in, response out, http-status out", "Send an HTTP PUT; returns the body and status code"),
     b("HTTP-SET-HEADER", "name in, value in", "Add or replace a header sent on every later HTTP call"),
+    b("IMAGE-FIT", "source in, target in, width in, height in, status out", "Crop a picture to fill and resize it to exactly width x height; writes PNG or JPEG"),
+    b("IMAGE-INFO", "path in, width out, height out, format out, status out", "A picture's upright size and format, read from its header"),
     b("INIT-FORM", "[form-name in]", "Initialise the form (generated code calls it)"),
     b("KEY-IS-SET", "entry in, flag out", "Whether an API key is stored for a model entry: Y or N"),
     b("KEY-REMOVE", "entry in, [status out]", "Delete the stored API key of a model entry"),

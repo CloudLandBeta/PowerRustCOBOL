@@ -852,8 +852,9 @@ pub struct CoboltApp {
     /// Once the user has chosen Save-before-close or Close-without-saving, this
     /// lets the next close request through without re-prompting.
     allow_close: bool,
-    /// Cached background-image texture, keyed by the resolved absolute path.
-    bg_texture: Option<(PathBuf, egui::TextureHandle)>,
+    /// The project's IDE background image: its decoded texture, kept only
+    /// while it still matches what the project names (`ide_background`).
+    ide_background: crate::ide_background::BackgroundCache,
 
     /// Global AI-assistant configuration (cloud LLM for the code editor).
     /// Stored outside the project so the API key never lands in a repo.
@@ -2178,7 +2179,7 @@ impl CoboltApp {
             grace_chat: GraceChatPanel::new(),
             close_confirm: false,
             allow_close: false,
-            bg_texture: None,
+            ide_background: Default::default(),
             llm: crate::llm::LlmConfig::load(),
             llm_test_rx: None,
             llm_test_from_model_selection: false,
@@ -8767,17 +8768,10 @@ impl CoboltApp {
 
     /// Absolute path of the project's IDE background image, if configured.
     fn bg_image_abs_path(&self) -> Option<PathBuf> {
-        let proj = self.cobolt_project.as_ref()?;
-        let raw = proj.ide.background_image.trim();
-        if raw.is_empty() {
-            return None;
-        }
-        let p = Path::new(raw);
-        if p.is_absolute() {
-            return Some(p.to_path_buf());
-        }
-        let dir = self.project_path.as_ref()?.parent()?;
-        Some(dir.join(p))
+        crate::ide_background::project_image_path(
+            self.cobolt_project.as_ref()?,
+            self.project_path.as_deref(),
+        )
     }
 
     /// Absolute path of the project's icon image, if configured.
@@ -8805,54 +8799,14 @@ impl CoboltApp {
     /// the main IDE window, scaled to cover, at the configured opacity. The
     /// translucent glass panels then blend over it.
     fn paint_ide_background(&mut self, ctx: &Context) {
-        let opacity = match &self.cobolt_project {
-            Some(p) => p.ide.background_opacity.min(100),
-            None => return,
-        };
-        if opacity == 0 {
-            return;
-        }
-        let Some(abs) = self.bg_image_abs_path() else {
-            return;
-        };
-
-        let need_load = match &self.bg_texture {
-            Some((p, _)) => p != &abs,
-            None => true,
-        };
-        if need_load {
-            match load_image_texture(ctx, &abs.display().to_string()) {
-                Some(tex) => self.bg_texture = Some((abs.clone(), tex)),
-                None => return,
-            }
-        }
-        let Some((_, tex)) = &self.bg_texture else {
-            return;
-        };
-
-        let screen = ctx.content_rect();
-        let tex_size = tex.size_vec2();
-        if tex_size.x <= 0.0 || tex_size.y <= 0.0 {
-            return;
-        }
-        // Cover: scale up so the image fills the window, centred.
-        let s = (screen.width() / tex_size.x).max(screen.height() / tex_size.y);
-        let dw = tex_size.x * s;
-        let dh = tex_size.y * s;
-        let ox = (screen.width() - dw) * 0.5;
-        let oy = (screen.height() - dh) * 0.5;
-        let dest = egui::Rect::from_min_size(screen.min + egui::vec2(ox, oy), egui::vec2(dw, dh));
-        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-
-        // Draw the image (cover) over the opaque floor, scaled by
-        // `background_opacity` so the texture shows through more or less.
-        let img_a = (opacity as f32 / 100.0 * 255.0) as u8;
-        ctx.layer_painter(egui::LayerId::background()).image(
-            tex.id(),
-            dest,
-            uv,
-            egui::Color32::from_white_alpha(img_a),
-        );
+        let opacity = self
+            .cobolt_project
+            .as_ref()
+            .map_or(0, |p| p.ide.background_opacity);
+        // With no project, or none naming an image, `image` is `None` and the
+        // cache lets go of whatever it still holds.
+        let image = self.bg_image_abs_path();
+        self.ide_background.paint(ctx, image.as_deref(), opacity);
     }
 
     /// Poll an in-flight "Test connection" request started from the Settings
@@ -10910,7 +10864,10 @@ impl CoboltApp {
         form.draft.apply(proj, &mut self.llm);
         form.mark_saved();
         self.persist_active_project_ai();
-        self.bg_texture = None; // force the background image to reload
+        // The background image or its opacity may have just changed: drop the
+        // decoded texture and ask for a frame, so the window shows the saved
+        // setting at once instead of the old picture until some input arrives.
+        self.ide_background.reset(&self.egui_ctx);
     }
 
     /// Control/member metadata for the Settings → AI prompt editor. Prefer the
@@ -11220,6 +11177,9 @@ impl CoboltApp {
                     .filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp"]),
             );
         }
+        if action.clear_bg {
+            self.clear_background_image();
+        }
         if action.browse_project_icon {
             self.begin_file_dialog(
                 FileRequest::PickProjectIcon,
@@ -11299,9 +11259,6 @@ impl CoboltApp {
 
     /// Lazily decode + upload the embedded mascot PNG as a texture.
     fn mascot_texture(&mut self, ctx: &Context) -> Option<egui::TextureHandle> {
-        if let Some((_, t)) = &self.bg_texture {
-            // reuse a separate cache slot? keep mascot in its own ctx-memory cache.
-        }
         // Mascot texture is no longer used (welcome pane with the dev guide
         // replaces the old no-project mascot view). Stub to avoid include
         // path issues in the current tree while keeping the fn for any
@@ -14689,12 +14646,28 @@ impl CoboltApp {
             .and_then(|p| p.parent())
             .and_then(|dir| relative_to(&path, dir))
             .unwrap_or_else(|| path.display().to_string());
+        self.apply_background_image(rel);
+    }
+
+    /// The Settings form's **Clear** beside the background image: the same
+    /// thing Browse does, with no image. Like Browse it takes effect and is
+    /// written to the project at once — Clear used to empty the form's draft
+    /// only, so the picture stayed on screen until Save, and after a Browse
+    /// the draft already equalled the saved baseline, which left Save disabled
+    /// with the image still in the project.
+    fn clear_background_image(&mut self) {
+        self.apply_background_image(String::new());
+    }
+
+    /// Put `image` (project-relative, absolute, or empty for none) into the
+    /// project's IDE settings, persist it, and have the window repaint with it.
+    fn apply_background_image(&mut self, image: String) {
         if let Some(proj) = &mut self.cobolt_project {
-            proj.ide.background_image = rel;
+            proj.ide.background_image = image;
             if let Some(form) = &mut self.settings_form {
                 form.set_bg_image(proj.ide.background_image.clone());
             }
-            self.bg_texture = None;
+            self.ide_background.reset(&self.egui_ctx);
             self.do_save_project();
         }
     }
@@ -20291,11 +20264,21 @@ fn merge_datagrid_binding_column(
     if column.cobol_mask.trim().is_empty() {
         column.cobol_mask = field.cobol_mask.clone();
     }
-    column.edit_control = if field.edit_control.trim().is_empty() {
-        "Textbox".to_owned()
+    // The binding editor offers a field Textbox, Dropdown or Checkbox only.
+    // Button, Gauge and Image are chosen on the column itself (Edit DataGrid
+    // settings), and a field that says just "Textbox" has no opinion about
+    // them — so, like the mask above, a deliberate choice survives the refresh.
+    let bound_control = if field.edit_control.trim().is_empty() {
+        "Textbox"
     } else {
-        field.edit_control.clone()
+        field.edit_control.as_str()
     };
+    let column_kind_is_deliberate = ["Button", "Gauge", "Image"]
+        .iter()
+        .any(|kind| column.edit_control.eq_ignore_ascii_case(kind));
+    if !(bound_control.eq_ignore_ascii_case("Textbox") && column_kind_is_deliberate) {
+        column.edit_control = bound_control.to_owned();
+    }
     if column.width <= 0.0 {
         column.width = DataGridColumn::default().width;
     }
@@ -22279,6 +22262,89 @@ mod manifest_name_tests {
             id_col.cobol_mask, "9(6)",
             "a column with no mask is seeded from the bound field's PICTURE"
         );
+    }
+
+    /// The binding editor offers a field Textbox, Dropdown or Checkbox; Button,
+    /// Gauge and Image are chosen on the column itself, in Edit DataGrid
+    /// settings. A refresh used to write the field's control over the column's,
+    /// so a thumbnail column set to Image came back as a Textbox on every save
+    /// and run of a bound grid. A field that says only Textbox has no opinion
+    /// about a column's richer kind; one that says Dropdown or Checkbox does.
+    #[test]
+    fn datagrid_binding_refresh_preserves_an_image_button_or_gauge_column() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        let mut grid = Control::new("ActorGrid", ControlType::DataGrid, 0, 0);
+        let mut advanced = DataGridAdvanced::default();
+        for (id, kind) in [
+            ("ACTOR_THUMB", "Image"),
+            ("ACTOR_EDIT", "Button"),
+            ("ACTOR_SCORE", "Gauge"),
+            ("ACTOR_NAME", "Textbox"),
+            ("ACTOR_TIER", "Image"),
+        ] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.replace('_', "-"),
+                edit_control: kind.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        grid.set_prop(
+            DATAGRID_ADVANCED_PROP,
+            PropValue::String(advanced.to_json().expect("advanced serializes")),
+        );
+        form.add_control(grid);
+
+        let mut tier = BindingField::new("ACTOR-TIER", BindingDataType::Text);
+        tier.edit_control = "Dropdown".to_owned();
+        let fields = vec![
+            BindingField::new("ACTOR-THUMB", BindingDataType::Text),
+            BindingField::new("ACTOR-EDIT", BindingDataType::Text),
+            BindingField::new("ACTOR-SCORE", BindingDataType::Integer),
+            BindingField::new("ACTOR-NAME", BindingDataType::Text),
+            tier,
+            BindingField::new("ACTOR-NEW", BindingDataType::Text),
+        ];
+        let binding = DataBindingDef::new(
+            "BIND-ACTORS",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields,
+                key_fields: vec!["ACTOR-NAME".to_owned()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "ActorGrid".to_owned(),
+            },
+        );
+        apply_data_binding_to_form(&mut form, binding);
+        // The save/run refresh, twice: a kind must survive each one.
+        refresh_data_binding_target_properties(&mut form);
+        refresh_data_binding_target_properties(&mut form);
+
+        let parsed = DataGridAdvanced::from_control(form.find_control("ActorGrid").expect("grid"));
+        let kind_of = |source: &str| {
+            parsed
+                .columns
+                .iter()
+                .find(|c| c.source_name.eq_ignore_ascii_case(source))
+                .unwrap_or_else(|| panic!("column {source}"))
+                .edit_control
+                .clone()
+        };
+        assert_eq!(kind_of("ACTOR-THUMB"), "Image", "an Image column stays Image");
+        assert_eq!(kind_of("ACTOR-EDIT"), "Button", "a Button column stays Button");
+        assert_eq!(kind_of("ACTOR-SCORE"), "Gauge", "a Gauge column stays Gauge");
+        assert_eq!(kind_of("ACTOR-NAME"), "Textbox", "a plain column stays a Textbox");
+        assert_eq!(
+            kind_of("ACTOR-TIER"),
+            "Dropdown",
+            "a field the binding editor made a Dropdown still decides"
+        );
+        assert_eq!(kind_of("ACTOR-NEW"), "Textbox", "a new column takes the field's control");
     }
 
     #[test]

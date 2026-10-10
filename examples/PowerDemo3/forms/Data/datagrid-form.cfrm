@@ -290,9 +290,9 @@ programmatic interface for creating content directly in code.</Property>
            MOVE DataGrid-1::RefreshBinding() TO WS-ROW-COUNT
            MOVE WS-ROW-COUNT TO WS-ROW-COUNT-TEXT
 
-           STRING "Loaded " DELIMITED BY SIZE
-                  FUNCTION TRIM(WS-ROW-COUNT-TEXT) DELIMITED BY SIZE
-                  " actors from ACTORS-FILE" DELIMITED BY SIZE
+           STRING "Loaded "
+                  FUNCTION TRIM(WS-ROW-COUNT-TEXT)
+                  " actors from ACTORS-FILE"
                   INTO WS-MESSAGE
            END-STRING
 

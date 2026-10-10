@@ -726,13 +726,13 @@
       *>   the address and the key; which model to use is chosen afterwards.
            CALL "PC-PICKED-PROVIDER"
            IF WS-PROV-IX = 0
-               MOVE FUNCTION TRIM(T-PICK-PROVIDER) TO Lbl-Status::Caption
+               MOVE T-PICK-PROVIDER::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE T-LISTING TO WS-FMT
            MOVE WS-PROV-LABEL TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
            MOVE Txt-Url::Text TO WS-PATH
            MOVE Txt-Key::Text TO WS-KEY
            MOVE Txt-Name::Text TO MDL-NAME
@@ -744,7 +744,7 @@
                MOVE WS-N TO WS-NE
                MOVE WS-NE TO WS-ARG1
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
            ELSE
                MOVE WS-LONG TO Lbl-Status::Caption
            END-IF
@@ -878,11 +878,9 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-MODELS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
-               DELIMITED BY SIZE INTO WS-MODELS-PATH
+           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
 
            GOBACK.
 
@@ -1137,12 +1135,12 @@
            END-IF
            MOVE SPACES TO WS-ROW
            STRING FUNCTION TRIM(MDL-NAME) X"09"
-                  FUNCTION TRIM(WS-PROV-LABEL) X"09"
+                  WS-PROV-LABEL::Trim() X"09"
                   FUNCTION TRIM(MDL-URL) X"09"
                   FUNCTION TRIM(MDL-MODEL) X"09"
-                  FUNCTION TRIM(WS-YESNO) X"09"
+                  WS-YESNO::Trim() X"09"
                   "icon:pencil" X"09" "icon:trash"
-               DELIMITED BY SIZE INTO WS-ROW
+               INTO WS-ROW
            MOVE Dg-List::AddRow(WS-ROW) TO WS-OK
 
            GOBACK.
@@ -1219,7 +1217,7 @@
                MOVE WS-EDIT-NAME TO WS-XVAL
            END-IF
            IF WS-XVAL = SPACES OR WS-PROV-IX = 0
-               MOVE FUNCTION TRIM(T-CONN-NEEDS) TO Lbl-Status::Caption
+               MOVE T-CONN-NEEDS::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O MODELS-FILE
@@ -1257,7 +1255,7 @@
                MOVE WS-FS TO WS-ARG1
                CLOSE MODELS-FILE
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            COMMIT
@@ -1281,7 +1279,7 @@
       *>       stay on this page so it can be typed now.
                COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
                IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
-                   MOVE FUNCTION TRIM(T-CONN-NEEDS-KEY) TO Lbl-Status::Caption
+                   MOVE T-CONN-NEEDS-KEY::Trim() TO Lbl-Status::Caption
                    CALL "PC-FILL-GRID"
                    EXIT PROGRAM
                END-IF
@@ -1323,12 +1321,12 @@
            MOVE WS-KEY-NAME TO WS-ARG1
            CALL "PC-FMT"
            MOVE WS-FMT-OUT TO WS-QUESTION
-           INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
-           INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
-           INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
-           INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
-           INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
-           INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+           INVOKE ME::SetProperty("ConfirmText", WS-QUESTION)
+           INVOKE ME::SetProperty("ConfirmYes", T-YES)
+           INVOKE ME::SetProperty("ConfirmNo", T-NO)
+           INVOKE ME::SetProperty("ConfirmAnswer", "N")
+           INVOKE ME::OpenFormSync("CONFIRM-FORM")
+           INVOKE ME::GetProperty("ConfirmAnswer") RETURNING WS-ANSWER
            IF WS-ANSWER NOT = "Y"
                EXIT PROGRAM
            END-IF
@@ -1357,9 +1355,9 @@
                MOVE T-CONN-REMOVED-AGENTS TO WS-FMT
                MOVE WS-CLEARED TO WS-ARG1
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-List-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-List-Status::Caption
            ELSE
-               MOVE FUNCTION TRIM(T-CONN-REMOVED) TO Lbl-List-Status::Caption
+               MOVE T-CONN-REMOVED::Trim() TO Lbl-List-Status::Caption
            END-IF
 
            GOBACK.
@@ -1433,7 +1431,7 @@
            PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-PROV-COUNT
                COBOL::"PROVIDER-GET" ( WS-P WS-PROV-ID WS-PROV-LABEL
                     WS-PROV-EP WS-PROV-NEEDS )
-               MOVE Cmb-Provider::AddItem(FUNCTION TRIM(WS-PROV-LABEL)) TO WS-OK
+               MOVE Cmb-Provider::AddItem(WS-PROV-LABEL::Trim()) TO WS-OK
            END-PERFORM
 
            GOBACK.
@@ -1517,30 +1515,29 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 37
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-PROVIDERS-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-NAME) TO Lbl-Name::Caption
-           MOVE FUNCTION TRIM(T-HINT-MODEL-NAME) TO Txt-Name::HintText
-           MOVE FUNCTION TRIM(T-PROVIDER) TO Lbl-Api::Caption
-           MOVE FUNCTION TRIM(T-ENDPOINT) TO Lbl-Url::Caption
-           MOVE FUNCTION TRIM(T-HINT-ENDPOINT) TO Txt-Url::HintText
-           MOVE FUNCTION TRIM(T-API-KEY) TO Lbl-Key::Caption
-           MOVE FUNCTION TRIM(T-HINT-KEY) TO Txt-Key::HintText
-           MOVE FUNCTION TRIM(T-TEST-CONN) TO Btn-Test::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save-Top::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel-Top::Caption
-           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
-           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
-           MOVE FUNCTION TRIM(T-TIP-NAME) TO Txt-Name::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-PROVIDER) TO Cmb-Provider::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-URL) TO Txt-Url::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-KEY) TO Txt-Key::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-TEST-LIST) TO Btn-Test::Tooltip
+           MOVE T-PROVIDERS-TITLE::Trim() TO Lbl-Title::Caption
+           MOVE T-NAME::Trim() TO Lbl-Name::Caption
+           MOVE T-HINT-MODEL-NAME::Trim() TO Txt-Name::HintText
+           MOVE T-PROVIDER::Trim() TO Lbl-Api::Caption
+           MOVE T-ENDPOINT::Trim() TO Lbl-Url::Caption
+           MOVE T-HINT-ENDPOINT::Trim() TO Txt-Url::HintText
+           MOVE T-API-KEY::Trim() TO Lbl-Key::Caption
+           MOVE T-HINT-KEY::Trim() TO Txt-Key::HintText
+           MOVE T-TEST-CONN::Trim() TO Btn-Test::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save-Top::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel-Top::Caption
+           MOVE T-NEW::Trim() TO Btn-New::Caption
+           MOVE T-CLOSE::Trim() TO Btn-Close::Caption
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
+           MOVE T-TIP-NAME::Trim() TO Txt-Name::Tooltip
+           MOVE T-TIP-PROVIDER::Trim() TO Cmb-Provider::Tooltip
+           MOVE T-TIP-URL::Trim() TO Txt-Url::Tooltip
+           MOVE T-TIP-KEY::Trim() TO Txt-Key::Tooltip
+           MOVE T-TIP-TEST-LIST::Trim() TO Btn-Test::Tooltip
            MOVE SPACES TO WS-TABS
-           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
-               DELIMITED BY SIZE INTO WS-TABS
+           STRING T-TAB-BROWSE::Trim() X"0A" T-TAB-EDIT::Trim() INTO WS-TABS
            MOVE WS-TABS TO Tab-Crud::Tabs
       *>   The grid's column titles; ids, widths and the two Button columns
       *>   stay as designed.
@@ -1579,18 +1576,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM

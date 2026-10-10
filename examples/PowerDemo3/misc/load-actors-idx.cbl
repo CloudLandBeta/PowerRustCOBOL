@@ -387,10 +387,7 @@
                COMPUTE WS-FI = (WS-C - 1) * 16 + WS-FI
                COMPUTE WS-LI = (WS-C - 1) * 16 + WS-LI
                MOVE SPACES TO WS-NAME
-               STRING FUNCTION TRIM(WS-FIRST(WS-FI))
-                      " "
-                      FUNCTION TRIM(WS-LAST(WS-LI))
-                   DELIMITED BY SIZE INTO WS-NAME
+               STRING WS-FIRST(WS-FI)::Trim() " " WS-LAST(WS-LI)::Trim() INTO WS-NAME
                END-STRING
       *>     Reuse the 100 photos that exist rather than name files that
       *>     do not.
@@ -398,10 +395,7 @@
                ADD 1 TO WS-PHOTO
                MOVE WS-PHOTO TO WS-PHOTO-ED
                MOVE SPACES TO WS-THUMB
-               STRING "~/PowerDemo2/assets/images/photo"
-                      FUNCTION TRIM(WS-PHOTO-ED)
-                      ".jpg"
-                   DELIMITED BY SIZE INTO WS-THUMB
+               STRING "~/PowerDemo2/assets/images/photo" WS-PHOTO-ED::Trim() ".jpg" INTO WS-THUMB
                END-STRING
                COMPUTE ACTOR-ID = 100 + WS-N
                MOVE WS-THUMB TO ACTOR-THUMB

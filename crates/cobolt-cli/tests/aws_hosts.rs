@@ -166,7 +166,12 @@ fn hosted_answers() -> Value {
         ("QueryVectors", json!({"vectors": [{"key": "doc-7", "distance": 0.12, "metadata": {}}]})),
         ("DetectLabels", json!({"Labels": [{"Name": "Dog", "Confidence": 98.1}, {"Name": "Pet", "Confidence": 97.0}]})),
         ("operation_name='DetectText'", json!({"TextDetections": [{"DetectedText": "GOOD BOY", "Type": "LINE", "Confidence": 99}]})),
-        ("DetectFaces", json!({"FaceDetails": [{"Confidence": 99.9, "AgeRange": {"Low": 2, "High": 6}}]})),
+        ("DetectFaces", json!({"FaceDetails": [{"Confidence": 99.9, "AgeRange": {"Low": 2, "High": 6}, "BoundingBox": {"Left": 0.1, "Top": 0.2, "Width": 0.3, "Height": 0.4}}]})),
+        (
+            "RecognizeCelebrities",
+            json!({"CelebrityFaces": [{"Name": "Ada Lovelace", "Id": "1a2B3c", "MatchConfidence": 99.5, "Urls": "www.wikidata.org/wiki/Q7259 www.imdb.com/name/nm0000001", "Face": {"BoundingBox": {"Left": 0.25, "Top": 0.125, "Width": 0.5, "Height": 0.625}}}], "UnrecognizedFaces": []}),
+        ),
+        ("ListBuckets", json!({"Buckets": [{"Name": "photos", "CreationDate": "2026-10-01T09:30:00+00:00"}, {"Name": "reports", "CreationDate": "2025-02-14T18:00:00+00:00"}]})),
         ("SynthesizeSpeech", json!({"Base64": "SUQzBAA=", "ContentType": "audio/mpeg", "Characters": 5})),
         ("DetectSentiment", json!({"Sentiment": "POSITIVE", "Scores": [{"Positive": 0.97}]})),
         ("DetectEntities", json!({"Entities": [{"Text": "Ana", "Type": "PERSON", "Score": 0.99}, {"Text": "Porto", "Type": "LOCATION", "Score": 0.98}]})),
@@ -180,16 +185,26 @@ fn hosted_answers() -> Value {
         ("GetUser", json!({"Value": "ana@example.com"})),
         ("GlobalSignOut", json!({"SignedIn": "0", "UserName": ""})),
     ];
-    Value::Array(
-        rules
-            .into_iter()
-            .map(|(op, v)| {
-                let contains = if op.starts_with('\'') || op.starts_with("operation_name") { op.to_owned() } else { format!("'{op}'") };
-                let contains = if contains.starts_with("operation_name") { contains } else { format!("operation_name={contains}") };
-                json!({"tool": "aws___run_script", "contains": contains, "answer": env(v)})
-            })
-            .collect(),
-    )
+    let mut answers: Vec<Value> = rules
+        .into_iter()
+        .map(|(op, v)| {
+            let contains = if op.starts_with('\'') || op.starts_with("operation_name") { op.to_owned() } else { format!("'{op}'") };
+            let contains = if contains.starts_with("operation_name") { contains } else { format!("operation_name={contains}") };
+            json!({"tool": "aws___run_script", "contains": contains, "answer": env(v)})
+        })
+        .collect();
+    // AwsMcp.AwsCall (spec 092): the operation arrives as a quoted LITERAL, so
+    // its script says `operation_name="DescribeStacks"` — `\"` in the JSON
+    // text the fake matches — which no rule above can match. The stack that
+    // does not exist comes first: AWS answers it with an error code.
+    let stack = json!({"StackName": "powercloud", "StackStatus": "CREATE_COMPLETE"});
+    for (contains, v) in [
+        ("no-such-stack", json!({"Status": "error", "Error": "ValidationException: Stack with id no-such-stack does not exist"})),
+        (r#"operation_name=\"DescribeStacks\""#, json!({"Answer": {"Stacks": [stack]}, "Rows": [stack]})),
+    ] {
+        answers.push(json!({"tool": "aws___run_script", "contains": contains, "answer": env(v)}));
+    }
+    Value::Array(answers)
 }
 
 /// The steps that run one demo; `open` loads it into the shell's pane first.
@@ -249,16 +264,16 @@ fn run_form(p: &Project, form: &str, program: &str, script: &Value) -> String {
 
 const DEMOS: [(&str, &str); 16] = [
     ("aws-lambda-demo", "PASS 009 FAIL 000"),
-    ("aws-mcp-demo", "PASS 009 FAIL 000"),
+    ("aws-mcp-demo", "PASS 014 FAIL 000"),
     ("aws-knowledge-base-demo", "PASS 008 FAIL 000"),
     ("aws-agent-core-demo", "PASS 006 FAIL 000"),
     ("aws-agent-memory-demo", "PASS 007 FAIL 000"),
     ("aws-s3-tables-demo", "PASS 010 FAIL 000"),
     ("aws-glue-demo", "PASS 009 FAIL 000"),
     ("aws-dynamodb-demo", "PASS 009 FAIL 000"),
-    ("aws-s3-demo", "PASS 007 FAIL 000"),
+    ("aws-s3-demo", "PASS 010 FAIL 000"),
     ("aws-s3-vectors-demo", "PASS 006 FAIL 000"),
-    ("aws-rekognition-demo", "PASS 007 FAIL 000"),
+    ("aws-rekognition-demo", "PASS 013 FAIL 000"),
     ("aws-polly-demo", "PASS 006 FAIL 000"),
     ("aws-comprehend-demo", "PASS 007 FAIL 000"),
     ("aws-textract-demo", "PASS 007 FAIL 000"),
@@ -341,8 +356,8 @@ fn the_guides_aws_examples_compile() {
         ("TXT-OUT", cobolt_forms::ControlType::TextBox),
         ("BTN-QUOTE", cobolt_forms::ControlType::Button),
         ("BTN-TOOLS", cobolt_forms::ControlType::Button),
-        ("KB-1", cobolt_forms::ControlType::AwsKnowledgeBase),
-        ("AGENT-1", cobolt_forms::ControlType::AwsAgentCore),
+        ("BEDROCK-1", cobolt_forms::ControlType::AwsKnowledgeBase),
+        ("CORE-1", cobolt_forms::ControlType::AwsAgentCore),
         ("MEMORY-1", cobolt_forms::ControlType::AwsAgentMemory),
         ("TABLES-1", cobolt_forms::ControlType::AwsS3Tables),
         ("GLUE-1", cobolt_forms::ControlType::AwsGlue),
@@ -362,6 +377,17 @@ fn the_guides_aws_examples_compile() {
         ("BTN-FIND", cobolt_forms::ControlType::Button),
         ("BTN-PHOTO", cobolt_forms::ControlType::Button),
         ("BTN-LOGIN", cobolt_forms::ControlType::Button),
+        // Spec 092: celebrities and their boxes, and AwsCall.
+        ("BTN-WHO", cobolt_forms::ControlType::Button),
+        ("PIC-PHOTO", cobolt_forms::ControlType::PictureBox),
+        ("SHP-FACE", cobolt_forms::ControlType::Shape),
+        ("BTN-STACK", cobolt_forms::ControlType::Button),
+        ("CLOUD-1", cobolt_forms::ControlType::AwsMcp),
+        // Spec 092 A6: keys typed in at run time.
+        ("BTN-CONNECT", cobolt_forms::ControlType::Button),
+        ("TXT-KEY-ID", cobolt_forms::ControlType::TextBox),
+        ("TXT-SECRET", cobolt_forms::ControlType::TextBox),
+        ("TXT-TOKEN", cobolt_forms::ControlType::TextBox),
     ] {
         form.controls.push(cobolt_forms::Control::new(id, ct, 0, 0));
     }
@@ -381,6 +407,9 @@ fn the_guides_aws_examples_compile() {
                 "ONITEM" => "onItem",
                 "ONLABELS" => "onLabels",
                 "ONSIGNEDIN" => "onSignedIn",
+                "ONCELEBRITIES" => "onCelebrities",
+                "ONAWSCALLED" => "onAwsCalled",
+                "ONERROR" => "onError",
                 other => panic!("an example handler for an unexpected event: {other}"),
             };
             let c = form.controls.iter_mut().find(|c| c.id == ctrl).unwrap_or_else(|| panic!("no control {ctrl}"));
@@ -392,7 +421,7 @@ fn the_guides_aws_examples_compile() {
             handlers.push(name.to_owned());
         }
     }
-    assert_eq!(handlers.len(), 20, "{handlers:?}");
+    assert_eq!(handlers.len(), 26, "{handlers:?}");
     let src = cobolt_codegen::generate(&form);
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
     let errors: Vec<String> = parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("line {}: {}", d.span.line, d.message)).collect();

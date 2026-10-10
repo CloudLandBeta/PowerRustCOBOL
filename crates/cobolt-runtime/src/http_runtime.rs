@@ -19,6 +19,11 @@
 //! | `COBOL-HTTP-DELETE`      | url-var, response-var, status-var                 |
 //! | `COBOL-HTTP-SET-HEADER`  | name-var, value-var                               |
 //! | `COBOL-HTTP-CLEAR-HEADERS` | (no arguments)                                  |
+//! | `COBOL-HTTP-DOWNLOAD`    | url-var, file-var, http-status-var, status-var    |
+//!
+//! `COBOL-HTTP-DOWNLOAD` (spec 092 R12) is the one verb that does not return a
+//! body: it saves the response **as bytes** into a file and answers with a
+//! status word — see [`HttpClient::download_with`].
 //!
 //! # Argument conventions
 //!
@@ -258,9 +263,77 @@ impl Default for RequestConfig {
     }
 }
 
+// ── HTTP-DOWNLOAD (spec 092 R12) ─────────────────────────────────────────────
+
+/// The bounds of one `COBOL-HTTP-DOWNLOAD`.
+///
+/// The built-in always uses [`Default`]; the type exists so the bounds are
+/// stated once, and so a test can prove the cap and the timeout without moving
+/// 256 MB or waiting a minute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DownloadLimits {
+    /// The most the file may hold. A larger `Content-Length` is refused before
+    /// the body is read; a body that streams past it is cut off.
+    pub max_bytes: u64,
+    /// The whole download — connecting, every redirect, the body — must finish
+    /// within this.
+    pub timeout_ms: u64,
+}
+
+impl Default for DownloadLimits {
+    fn default() -> Self {
+        Self { max_bytes: 256 * 1024 * 1024, timeout_ms: 60_000 }
+    }
+}
+
+/// How many redirects a download follows before it gives up.
+pub const DOWNLOAD_REDIRECTS: u32 = 5;
+
+/// What one `COBOL-HTTP-DOWNLOAD` reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Download {
+    /// The server's final status code; 0 when no answer was received.
+    pub http_status: u16,
+    /// `OK`, `BADURL`, `TIMEOUT`, `TOOBIG`, `HTTP`, `WRITE`, `NET` or
+    /// `NOFEATURE`.
+    pub status: &'static str,
+}
+
+impl Download {
+    #[cfg_attr(not(feature = "http"), allow(dead_code))]
+    fn new(http_status: u16, status: &'static str) -> Self {
+        Self { http_status, status }
+    }
+}
+
+/// `url` as it may appear in a log: scheme, host, port and path — never the
+/// user info, the query or the fragment.
+///
+/// A pre-signed URL carries its signature in the query string, and a URL can
+/// carry a password before the `@`; both are credentials, and a log line is
+/// read by people who were never meant to hold one. Text that is not an
+/// `http(s)` address at all is not echoed either.
+pub fn url_for_log(url: &str) -> String {
+    let url = url.trim();
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return "(not an http address)".to_owned();
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let path_end = tail.find(['?', '#']).unwrap_or(tail.len());
+    format!("{scheme}://{host}{}", &tail[..path_end])
+}
+
 impl HttpClient {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// `COBOL-HTTP-DOWNLOAD`: fetch `url` into the file `dest`, with the
+    /// built-in's bounds. See [`Self::download_with`].
+    pub fn download(&self, url: &str, dest: &std::path::Path) -> Download {
+        self.download_with(url, dest, DownloadLimits::default())
     }
 
     /// Add / overwrite a persistent request header.
@@ -337,6 +410,12 @@ impl HttpClient {
         _on_line: &mut dyn FnMut(&str),
     ) -> (String, u16) {
         (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+
+    /// `HTTP-DOWNLOAD` without the bridge: a status word, like the picture
+    /// built-ins without theirs, rather than a body nobody reads.
+    pub fn download_with(&self, _url: &str, _dest: &std::path::Path, _limits: DownloadLimits) -> Download {
+        Download { http_status: 0, status: "NOFEATURE" }
     }
 }
 
@@ -706,9 +785,198 @@ impl HttpClient {
     }
 }
 
+#[cfg(feature = "http")]
+impl HttpClient {
+    /// Fetch `url` **as bytes** into the file `dest`, within `limits`.
+    ///
+    /// - Only `http://` and `https://` addresses; anything else is `BADURL`
+    ///   before a byte is sent.
+    /// - Up to [`DOWNLOAD_REDIRECTS`] redirects are followed. An
+    ///   `Authorization` header is not carried across one (ureq's
+    ///   `RedirectAuthHeaders::Never`): a credential meant for one address
+    ///   never reaches another.
+    /// - The only headers added are the session's, from `COBOL-HTTP-SET-HEADER`.
+    /// - A 2xx answer is streamed to `<dest>.part` — never held in memory —
+    ///   and renamed over `dest` once complete; any failure removes the
+    ///   `.part`, so `dest` is either the whole new file or exactly what it was
+    ///   before. A missing folder on the way to `dest` is created.
+    /// - Any other answer is `HTTP` with its code, and writes nothing.
+    ///
+    /// A failure is logged as a warning naming the address WITHOUT its query
+    /// string or user info ([`url_for_log`]): a pre-signed URL's query is its
+    /// signature.
+    pub fn download_with(&self, url: &str, dest: &std::path::Path, limits: DownloadLimits) -> Download {
+        let url = url.trim();
+        let outcome = self.download_inner(url, dest, limits);
+        if outcome.status != "OK" {
+            tracing::warn!(
+                "HTTP-DOWNLOAD {} → '{}': {} (HTTP status {})",
+                url_for_log(url),
+                dest.display(),
+                outcome.status,
+                outcome.http_status
+            );
+        }
+        outcome
+    }
+
+    fn download_inner(&self, url: &str, dest: &std::path::Path, limits: DownloadLimits) -> Download {
+        if !is_http_url(url) {
+            return Download::new(0, "BADURL");
+        }
+        if dest.as_os_str().is_empty() {
+            return Download::new(0, "WRITE");
+        }
+        // ureq counts the hop that would EXCEED its limit as the error, so a
+        // limit of N follows N - 1 redirects: one more than we promise.
+        let mut builder = ureq::AgentBuilder::new()
+            .timeout(std::time::Duration::from_millis(limits.timeout_ms))
+            .redirects(DOWNLOAD_REDIRECTS + 1);
+        if let Some(connector) = tls_connector() {
+            builder = builder.tls_connector(connector);
+        }
+        let mut req = builder.build().get(url);
+        let mut session: Vec<(&String, &String)> = self.headers.iter().collect();
+        session.sort();
+        for (k, v) in session {
+            req = req.set(k, v);
+        }
+        let resp = match req.call() {
+            Ok(resp) => resp,
+            Err(ureq::Error::Status(code, _)) => return Download::new(code, "HTTP"),
+            Err(ureq::Error::Transport(t)) => return Download::new(0, transport_word(&t)),
+        };
+        let code = resp.status();
+        if !(200..300).contains(&code) {
+            // A 3xx with no Location to follow.
+            return Download::new(code, "HTTP");
+        }
+        let declared = resp.header("Content-Length").and_then(|v| v.trim().parse::<u64>().ok());
+        if declared.is_some_and(|len| len > limits.max_bytes) {
+            return Download::new(code, "TOOBIG");
+        }
+        match stream_to_file(resp.into_reader(), dest, limits.max_bytes) {
+            Ok(()) => Download::new(code, "OK"),
+            Err(word) => Download::new(code, word),
+        }
+    }
+}
+
+/// An `http://` or `https://` address with a host.
+#[cfg(feature = "http")]
+fn is_http_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix("http://").or_else(|| lower.strip_prefix("https://")) else {
+        return false;
+    };
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    !host.is_empty() && !url.chars().any(char::is_whitespace)
+}
+
+/// The status word for a request that got no HTTP answer.
+#[cfg(feature = "http")]
+fn transport_word(t: &ureq::Transport) -> &'static str {
+    if timed_out(t) {
+        return "TIMEOUT";
+    }
+    match t.kind() {
+        ureq::ErrorKind::InvalidUrl | ureq::ErrorKind::UnknownScheme => "BADURL",
+        // Redirected past the limit: the server answered, but never finally.
+        ureq::ErrorKind::TooManyRedirects => "HTTP",
+        _ => "NET",
+    }
+}
+
+/// Whether an error, or anything it was caused by, is a timeout.
+#[cfg(feature = "http")]
+fn timed_out(e: &(dyn std::error::Error + 'static)) -> bool {
+    let mut cur = Some(e);
+    while let Some(err) = cur {
+        if let Some(io) = err.downcast_ref::<std::io::Error>() {
+            if matches!(io.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) {
+                return true;
+            }
+        }
+        cur = err.source();
+    }
+    false
+}
+
+/// Copy `body` into `<dest>.part`, at most `max` bytes, then rename it over
+/// `dest`. On any failure the `.part` is removed and `dest` is untouched.
+#[cfg(feature = "http")]
+fn stream_to_file(body: impl std::io::Read, dest: &std::path::Path, max: u64) -> Result<(), &'static str> {
+    use std::io::{Read, Write};
+
+    if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|_| "WRITE")?;
+    }
+    let part = crate::image_runtime::part_path(dest);
+    let copy = || -> Result<(), &'static str> {
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&part).map_err(|_| "WRITE")?);
+        // One byte past the cap is enough to know the body is too big.
+        let mut body = body.take(max.saturating_add(1));
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut total: u64 = 0;
+        loop {
+            let n = match body.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(if timed_out(&e) { "TIMEOUT" } else { "NET" }),
+            };
+            total += n as u64;
+            if total > max {
+                return Err("TOOBIG");
+            }
+            out.write_all(&buf[..n]).map_err(|_| "WRITE")?;
+        }
+        // Flushed and closed before the rename: Windows will not rename a
+        // file that is still open.
+        drop(out.into_inner().map_err(|_| "WRITE")?);
+        std::fs::rename(&part, dest).map_err(|_| "WRITE")
+    };
+    let result = copy();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a download may log of its address: never the user info, the query
+    /// or the fragment — the places a password and a signature live.
+    #[test]
+    fn a_url_is_logged_without_its_query_user_info_or_fragment() {
+        let cases = [
+            ("https://bucket.s3.amazonaws.com/photos/7.jpg?X-Amz-Signature=abc&X-Amz-Expires=300",
+             "https://bucket.s3.amazonaws.com/photos/7.jpg"),
+            ("http://user:secret@127.0.0.1:8080/a/b.bin#part-2", "http://127.0.0.1:8080/a/b.bin"),
+            ("https://example.com?token=abc", "https://example.com"),
+            ("https://example.com", "https://example.com"),
+            ("  https://example.com/x  ", "https://example.com/x"),
+            ("not a url?secret=1", "(not an http address)"),
+        ];
+        for (url, want) in cases {
+            println!("  {url:<80} → {}", url_for_log(url));
+            assert_eq!(url_for_log(url), want);
+        }
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn only_http_and_https_addresses_with_a_host_are_downloaded() {
+        for ok in ["http://a", "https://example.com/x?y=1", "HTTPS://Example.com", "http://u:p@h/x"] {
+            assert!(is_http_url(ok), "{ok}");
+        }
+        for bad in ["", "http://", "https://?x", "ftp://a/b", "file:///etc/hosts", "example.com/a", "http://a b/c"] {
+            assert!(!is_http_url(bad), "{bad:?}");
+        }
+    }
 
     #[test]
     fn base64_matches_the_rfc4648_vectors_including_padding() {

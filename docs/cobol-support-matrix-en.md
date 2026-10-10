@@ -86,10 +86,10 @@ not yet implemented · `🚫` out of scope by design, will never be implemented.
 | `PICTURE` X / A / 9 / S / V with `(n)` repetition | ● | ○ | — | ✅ | |
 | Numeric-edited PICTURE (`Z` `*` `$` `+` `-` `,` `.` `B` `0` `/` `CR` `DB`) | ● | ○ | — | ✅ | Zero-suppression, check-protection, fixed and floating `$` and signs |
 | `USAGE DISPLAY` | ● | ○ | — | ✅ | |
-| `USAGE COMP` / `BINARY` | ● | ○ | — | ✅ | |
-| `USAGE COMP-1` / `COMP-2` | — | ○ | ● | ✅ | Floating point; a vendor extension standardised later as `FLOAT-SHORT`/`FLOAT-LONG` |
-| `USAGE COMP-3` / `PACKED-DECIMAL` | ● | ○ | — | ✅ | |
-| `USAGE COMP-5` | — | ○ | ● | ✅ | Native binary; vendor extension |
+| `USAGE COMP` / `BINARY` | ● | ○ | — | 🚧 | Computes by its PICTURE but is stored as DISPLAY digits — `PIC S9(4) COMP` takes 4 bytes, not 2 — so records holding it are byte-incompatible with other COBOL |
+| `USAGE COMP-1` / `COMP-2` | — | ○ | ● | 🚧 | Floating point; a vendor extension standardised later as `FLOAT-SHORT`/`FLOAT-LONG`. Keep them out of file records: a record gives them no bytes of their own, so a `WRITE` spills the value into the next field |
+| `USAGE COMP-3` / `PACKED-DECIMAL` | ● | ○ | — | 🚧 | Computes by its PICTURE but is stored as DISPLAY digits — `PIC 9(7)V99 COMP-3` takes 9 bytes, not 5 — so records holding it are byte-incompatible with other COBOL |
+| `USAGE COMP-5` | — | ○ | ● | 🚧 | Native binary; vendor extension. Stored as DISPLAY digits, like `COMP` |
 | `USAGE INDEX` | ● | ○ | — | ✅ | |
 | `USAGE POINTER` | — | ● | — | ✅ | COBOL 2002; alias read **and** write |
 | `OCCURS` fixed | ● | ○ | — | ✅ | |
@@ -242,11 +242,11 @@ column. All of the below are implemented.
 | `START … KEY IS = / > / >= / < / <=` | ● | ○ | — | ✅ | Including `GREATER/LESS THAN`, `NOT LESS THAN` |
 | `INVALID KEY` / `NOT INVALID KEY` | ● | ○ | — | ✅ | |
 | `FILE STATUS` codes | ● | ○ | — | ✅ | 00/02/10/22/23/30/35/39/… |
-| `OPEN … SHARING WITH ALL OTHER \| NO OTHER \| READ ONLY` | — | ● | — | 🚧 | Parsed and carried on the statement, **advisory** — there is one run unit, so nothing contends |
-| `OPEN … WITH LOCK` (open the file exclusively) | — | ● | — | 🚧 | Same: accepted and advisory in the single-run-unit model |
+| `OPEN … SHARING WITH ALL OTHER \| NO OTHER \| READ ONLY` | — | ● | — | 🚧 | INDEXED files: `NO OTHER` takes the file exclusively across OS processes (another `OPEN` gets `93`) and `ALL OTHER` shares it; `READ ONLY` is treated as `ALL OTHER`. No effect on SEQUENTIAL or RELATIVE files |
+| `OPEN … WITH LOCK` (open the file exclusively) | — | ● | — | 🚧 | INDEXED files: exclusive across OS processes since 1.70.21 — another program's `OPEN` gets `93`. No effect on SEQUENTIAL or RELATIVE files |
 | `READ … WITH LOCK` | — | ● | — | ✅ | The engine already holds the record under `I-O`; the phrase states the intent |
-| `READ … WITH NO LOCK` | — | ● | — | ✅ | Actually releases the lock the engine takes under `I-O` — the one lock phrase with a runtime effect today. `UNLOCK` is in §3 with the other verbs |
-| Cross-process file sharing / record-lock enforcement | — | ● | — | ⛔ | Planned; single run-unit model today |
+| `READ … WITH NO LOCK` | — | ● | — | ✅ | Actually releases the lock the engine takes under `I-O`. `UNLOCK` is in §3 with the other verbs |
+| Cross-process file sharing / record-lock enforcement | — | ● | — | 🚧 | Whole INDEXED files since 1.70.21 (`WITH LOCK`, `SHARING WITH NO OTHER` → `93`). Record locks still hold within one run unit only: another program can read and rewrite a record you hold |
 
 ## 7. File I/O — the INDEXED engine (PowerRustCOBOL)
 
@@ -258,12 +258,12 @@ Everything in this section is a platform extension around the standard
 
 | Capability | 85 | 20xx | PRC | Status | Notes |
 |---|:--:|:--:|:--:|:--:|---|
-| `STORAGE [MODE] IS DISK` | — | — | ● | ✅ | **The default storage mode.** Records and indexes live in the `ASSIGN` file and are read on demand, so RAM stays bounded on very large files. Served by the crash-safe redb engine since 1.62.73; the older paged B+tree is still reachable with `--indexed-engine rust` |
+| `STORAGE [MODE] IS DISK` | — | — | ● | ✅ | **The default storage mode.** Records and indexes live in the `ASSIGN` file and are read on demand, so RAM stays bounded on very large files. Served by the paged B+tree (`PRCIDXD1`) by default — again since 1.70.24, after redb was the default from 1.62.73; the crash-safe redb engine is chosen with `--indexed-engine redb` |
 | `STORAGE [MODE] IS MEMORY` | — | — | ● | ✅ | Whole file in RAM, persisted to the `ASSIGN` path on close |
 | `WITH [DATA] COMPRESSION` | — | — | ● | ✅ | Dependency-free RLE; crushes the padded runs in typical COBOL records well past 50 % |
 | Program-controlled `COMMIT` / `ROLLBACK` | — | — | ● | ✅ | Real undo log, memory and disk engines |
 | Record locking within a run unit | — | ○ | ● | ✅ | See the cross-process caveat above |
-| Selectable engine (`--indexed-engine rust\|rm-cobol85\|fujitsu\|redb`) | — | — | ● | ✅ | Also `COBOL_INDEXED_ENGINE`; all behaviour-compatible. **`redb` is the default** since 1.62.73 (`cobolt-runtime/src/indexed.rs:126`) |
+| Selectable engine (`--indexed-engine rust\|rm-cobol85\|fujitsu\|redb`) | — | — | ● | ✅ | Also `COBOL_INDEXED_ENGINE`; the same verbs and statuses on each. **`rust` (`PRCIDXD1`) is the default** since 1.70.24; the engines differ in sharing and crash behaviour — see [choosing an engine](indexed-redb-engine-en.md#choosing-an-engine-redb-or-prcidxd1) |
 | `redb` crash-safe ACID engine | — | — | ● | ✅ | O(1) OPEN (~5 ms at 200 k records), working-set RAM (≥250 M records), survives power loss with no index corruption |
 | Self-describing `PRCIDX1` container | — | — | ● | ✅ | Embeds record format + key descriptors; strict open-time validation maps schema mismatch → `39`, missing file → `35`. Not byte-compatible with Fujitsu |
 | Per-file transaction log (`--indexed-log basic\|full`) | — | — | ● | ✅ | logfmt or Grafana/Loki-ready NDJSON — see [`observability-en.md`](observability-en.md) |
@@ -278,8 +278,11 @@ COBOL; it is what makes the language usable for modern applications.
 | **SQL** — SQLite, PostgreSQL, MySQL | — | — | ● | ✅ | One identical CALL surface for all three; the backend is chosen from the connection string. **No system libraries** — nothing is linked from the host — but "pure Rust" is only true of two of the three: `postgres` and `mysql` are, while `rusqlite` is pinned `features = ["bundled"]` and compiles the **SQLite C amalgamation** through `libsqlite3-sys`. (That C build is also why `test_external_crates_e2e` intermittently fails inside a nested `cargo build`.) See [`database-runtime-en.md`](database-runtime-en.md) |
 | **SQL result sets** — `Fetch()`, `ColumnNames()`, `ColumnCount()`, `ColumnName(n)` | — | — | ● | ✅ | `Fetch()` returns the next row TAB-separated and empty when spent, so it terminates its own loop; `ColumnNames()` names the result set in SELECT order, even when it matched no rows. The `CALL` surface reads the current row one column at a time by index instead — the two traversals must not be mixed on one handle |
 | **HTTP / REST** — GET / POST / PUT / DELETE | — | — | ● | ✅ | Custom headers |
-| **AWS** — `AwsLambda` (invoke a Lambda function), `AwsMcp` (any tool of an AWS MCP server), `AwsKnowledgeBase` (Bedrock knowledge base retrieval), `AwsAgentCore` (an AgentCore agent), `AwsAgentMemory` (AgentCore Memory), `AwsS3Tables` (S3 Tables: list, SQL, append), `AwsGlue` (Glue jobs, crawlers, table schemas), and through the hosted AWS MCP Server `AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`, `AwsComprehend`, `AwsTextract`, `AwsEC2`, `AwsCognito` | — | — | ● | 🚧 | Spec 078: through AWS's own MCP servers, started with `uvx` and signed by an AWS CLI profile — no key in the project or the binary. `AllowWrite` off by default; Test connection in Settings → Integrations. Verified against recorded and documented server behaviour; the live smoke test with a real profile is pending. See the Developer's Guide, *Calling AWS* |
+| **HTTP binary download** — `COBOL-HTTP-DOWNLOAD` | — | — | ● | ✅ | Saves a response byte for byte into a file: up to 5 redirects (no `Authorization` across one), only the `COBOL-HTTP-SET-HEADER` headers, 60 s total, 256 MB cap, written through `<file>.part`. One status word (`OK`, `BADURL`, `TIMEOUT`, `TOOBIG`, `HTTP`, `WRITE`, `NET`); the query string of a pre-signed URL is never logged |
+| **Pictures** — `COBOL-IMAGE-FIT`, `COBOL-IMAGE-INFO` | — | — | ● | ✅ | PNG, JPEG, GIF (first frame), WebP, BMP, TIFF, recognised by content. FIT turns a photo upright from its EXIF orientation, crops to fill and resizes to an exact size, writing PNG or JPEG (quality 85) by the target's extension; sources over 64 MP are refused from the header. INFO reads the upright size and the format from the header without decoding. Linked into a console program only when it calls them |
+| **AWS** — `AwsLambda` (invoke a Lambda function), `AwsMcp` (any tool of an AWS MCP server; `AwsCall`, any single AWS API call by service and operation name), `AwsKnowledgeBase` (Bedrock knowledge base retrieval), `AwsAgentCore` (an AgentCore agent), `AwsAgentMemory` (AgentCore Memory), `AwsS3Tables` (S3 Tables: list, SQL, append), `AwsGlue` (Glue jobs, crawlers, table schemas), and through the hosted AWS MCP Server `AwsDynamoDB`, `AwsS3` (objects, and the account's buckets), `AwsS3Vectors`, `AwsRekognition` (labels, text, faces and celebrities, each face with its box), `AwsPolly`, `AwsComprehend`, `AwsTextract`, `AwsEC2`, `AwsCognito` | — | — | ● | 🚧 | Spec 078: through AWS's own MCP servers, started with `uvx` and signed by an AWS CLI profile — no key in the project or the binary. `AllowWrite` off by default; Test connection in Settings → Integrations. Spec 092 added `RecognizeCelebrities`, `ListBuckets` and `AwsCall` (literal-only, needs `AllowWrite`, an AWS error code raises `onError`). Verified against recorded and documented server behaviour; the live smoke test with a real profile is pending. See the Developer's Guide, *Calling AWS* |
 | **GUI** — `COBOL-WAIT-EVENT`, `COBOL-SET-PROPERTY`, `COBOL-GET-PROPERTY`, `COBOL-INIT-FORM` | — | — | ● | ✅ | |
+| **AWS keys typed in at run time** — `COBOL::"AWS-SET-CREDENTIALS"`, `"AWS-CREDENTIALS-SET"`, `"AWS-CLEAR-CREDENTIALS"` | — | — | ● | ✅ | Spec 092 A6: an application may ask its user for an access key id, secret and optional session token and hand them to one AWS connection. Kept in memory for that run only and given to that connection's AWS server in its environment, instead of the profile; never a property, a file, a log, `Verbose` output or an error, and never returned (`AWS-CREDENTIALS-SET` answers Y/N). Setting or clearing them restarts the connection's server. Proven offline against the fake server; whether AWS's hosted-server proxy signs with keys from its environment is confirmed only by the live smoke test. See the Developer's Guide, *Calling AWS* |
 | **Charts** — bar / line / pie / area / scatter / donut | — | — | ● | ✅ | Bound to COBOL tables |
 | **Text files** — `COBOL-APPEND-FILE`, `COBOL-WRITE-FILE` | — | — | ● | ✅ | |
 | **Timers** | — | — | ● | ✅ | |

@@ -101,11 +101,11 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
   - Files: `crates/cobolt-runtime/src/aws/process.rs` (new).
   - Do:
     - `Command` with piped stdin and stdout; stderr drained by a thread into a 64 KiB ring.
-    - `env_clear()`, then **only** `PATH`, `HOME`/`USERPROFILE`, `SystemRoot`/`TEMP` on Windows, `AWS_PROFILE`, `AWS_REGION`, `AWS_CONFIG_FILE`/`AWS_SHARED_CREDENTIALS_FILE` when set, and the route's declared variables. **Never** the access key id, secret access key or session token.
+    - `env_clear()`, then **only** `PATH`, `HOME`/`USERPROFILE`, `SystemRoot`/`TEMP` on Windows, `AWS_PROFILE`, `AWS_REGION`, `AWS_CONFIG_FILE`/`AWS_SHARED_CREDENTIALS_FILE` when set, and the route's declared variables. **Never** the access key id, secret access key or session token. *(A6, 2026-10-09: except those the program set for the connection with `AWS-SET-CREDENTIALS` — then exactly those three variables, and no `AWS_PROFILE`; spec 092 T7–T10.)*
     - A spawn failure with `NotFound` becomes the plain-language R22 error, naming the program and the fix (install `uv`).
     - `mask(&str)` masks `AKIA`/`ASIA` key ids, 40-character secrets, session tokens and `X-Amz-Signature=` values (R27).
   - Verify:
-    - `env_never_carries_aws_secrets`: plant the three secrets in the parent; the fake dumps its environment; assert none is present (AC7).
+    - `env_never_carries_aws_secrets`: plant the three secrets in the parent; the fake dumps its environment; assert none is present (AC7). *(A6: the keys a program sets are proven separately — `tests/aws_credentials.rs`, spec 092 AC3.)*
     - `mask_hides_planted_token`.
     - `missing_program_names_uv`.
 
@@ -219,13 +219,13 @@ The tasks are small, ordered and each can be checked on its own. Each names the 
   - Read first: `cobolt-forms/src/connections.rs` (`SearchConnection`, `apply_search`, `Catalogue`, `resolve_search_all`); both manifest copies (`cobolt-ide/src/project_model.rs` `ProjectIntegrationSettings`, `cobolt-compiler/src/lib.rs` `ProjectIntegrations` and `project_connections`); `cobolt-form-host/src/seeding.rs` (`publish_search_connections`, `resolve_connections`, the per-type seeds); `cobolt-cli/src/form_gui.rs` (catalogue publishing); the compiler's baked `PROJECT_CONNECTIONS` and its read-back.
   - Files: all of the above.
   - Do:
-    - `AwsConnection { id, name, profile, region, function_prefix, function_list, routes_override }` has **no secret field**.
+    - `AwsConnection { id, name, profile, region, function_prefix, function_list, routes_override }` has **no secret field**. *(A6: keys set at run time are held by the runtime, in memory, never here.)*
     - Add `Catalogue.aws` (`#[serde(default)]`), `publish_aws_connections`, and the `_ResolvedAwsProfile`/`_ResolvedAwsRegion` seeds.
     - Each of the three hosts publishes the AWS list.
     - Add `[[integrations.aws_connections]]` to both manifests.
   - Verify:
     - `aws_connection_round_trips_through_cobolt_toml` (both copies);
-    - `no_credential_field_in_cfrm_or_toml`, which scans the saved files for key, secret and token names (AC8);
+    - `no_credential_field_in_cfrm_or_toml`, which scans the saved files for key, secret and token names (AC8); *(A6: and spec 092's scan finds no run-time key in a saved `.cfrm` or the connection record either)*;
     - the compiler's `PROJECT_CONNECTIONS` tests extended with `aws`.
     - Gate P names the three hosts.
 
