@@ -185,6 +185,17 @@ application in `/opt/powerrustcobol` and link `powerrustcobol` and `rcrun` into
 Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the
 OpenGL, X11 or Wayland libraries your desktop already provides.
 
+> **Note — sound on Linux.** The IDE and `rcrun` carry the sound built-ins
+> (§11, *Playing sound*), which reach the sound card through **ALSA**, so on
+> Linux they need the ALSA library, `libasound2` (`libasound2t64` on Ubuntu
+> 24.04 and Debian 13; `alsa-lib` on Fedora). Every desktop installs it with its
+> sound system; on a minimal or server install the `.deb` and `.rpm` fetch it
+> for you, and with the archive you install it yourself
+> (`sudo apt install libasound2`). **Building** an application that plays sound
+> on Linux also needs the ALSA development package — `libasound2-dev`, or
+> `alsa-lib-devel` on Fedora; one that never calls an `AUDIO-…` built-in is
+> built without sound and needs neither. macOS and Windows need nothing.
+
 Launch the IDE; on first run you are greeted with an empty workspace and the
 prompt *"Open a COBOL file to get started."* You can either open a single `.cbl`
 file or create a full **project** (recommended — see §6).
@@ -7476,6 +7487,8 @@ The built-ins, by family (each covered in its own section):
 - **Pictures:** `IMAGE-FIT`, which crops and resizes a picture to an exact
   size, and `IMAGE-INFO`, which reads its size and format (see *Pictures:
   fitting and measuring an image* in §13).
+- **Sound:** `AUDIO-PLAY`, `AUDIO-PAUSE`, `AUDIO-RESUME`, `AUDIO-STOP`,
+  `AUDIO-STATE` — see *Playing sound* below.
 - **Asking for a file or a folder:** `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG`,
   `FOLDER-DIALOG`.
 - **Models and keys:** `MODEL-SET`, `MODEL-REMOVE`, `MODEL-COUNT`,
@@ -7492,6 +7505,163 @@ The built-ins, by family (each covered in its own section):
 > **Note.** Property names passed to `GET`/`SET` are exactly the names shown in
 > the properties pane (e.g. `"Text"`, `"Caption"`, `"BackgroundColor"`,
 > `"Value"`). Control IDs are the IDs shown in the tree (e.g. `"BTN-GREET"`).
+
+#### Playing sound: the `AUDIO-…` built-ins
+
+PowerCOBOL and isCOBOL leave sound to a media control or to an operating-system
+call. Here five built-ins give **any** program sound — a console program as
+much as a form — and the player your user sees is built from ordinary controls.
+
+| Built-in | Arguments, in order | What it does |
+|---|---|---|
+| `COBOL::"AUDIO-PLAY"` | file, [status] | Starts an MP3, OGG Vorbis, WAV or FLAC file, replacing any sound already playing |
+| `COBOL::"AUDIO-PAUSE"` | [status] | Pauses; the position holds |
+| `COBOL::"AUDIO-RESUME"` | [status] | Carries on from where it was paused |
+| `COBOL::"AUDIO-STOP"` | [status] | Stops, and the player is `IDLE` again |
+| `COBOL::"AUDIO-STATE"` | state, [position-ms], [duration-ms] | Where the player is, and how far into the sound |
+
+The calls do not wait for the sound: `AUDIO-PLAY` answers once the file is
+open and the device is playing it — usually a tenth of a second, a moment
+longer the first time a machine's sound system wakes up — and the sound plays
+on by itself while your program carries on. Declare the status and the state
+`PIC X(10)` and the two times `PIC 9(7)` — whole milliseconds, enough for two
+and three-quarter hours.
+
+| Status | Means |
+|---|---|
+| `OK` | Done |
+| `NOFILE` | The file does not exist, is a folder, or cannot be read |
+| `BADFORMAT` | The file is not sound in one of the four formats, or it is damaged |
+| `NODEVICE` | The machine has no output device that can be opened |
+| `NOFEATURE` | The program was built without sound (see the last caveat) |
+| `ERROR` | `AUDIO-PAUSE` or `AUDIO-RESUME` with nothing to pause or resume |
+
+The state is one of five words:
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> PLAYING: AUDIO-PLAY answers OK
+    IDLE --> ERROR: AUDIO-PLAY answers NOFILE, BADFORMAT or NODEVICE
+    PLAYING --> PAUSED: AUDIO-PAUSE
+    PAUSED --> PLAYING: AUDIO-RESUME
+    PLAYING --> ENDED: the sound reaches its end
+    PLAYING --> IDLE: AUDIO-STOP
+    PAUSED --> IDLE: AUDIO-STOP
+    ENDED --> IDLE: AUDIO-STOP
+    ERROR --> IDLE: AUDIO-STOP
+```
+
+`AUDIO-PLAY` may be called in any state: it ends whatever was playing and
+starts over — `PLAYING` when the new file plays, `ERROR` when it cannot.
+`ENDED` leaves the position equal to the length. The length is the one the
+file declares: WAV, FLAC and OGG files normally do, and an MP3 does when it
+carries a length header; when a file does not, the length reads `0` while the
+sound plays and becomes known when it ends.
+
+##### Example: a player for a Polly voice
+
+The form has a text box `TXT-SAY`, an `AwsPolly` control `POLLY-1` (§16),
+buttons `BTN-SPEAK`, `BTN-PLAY`, `BTN-PAUSE` and `BTN-STOP`, a ProgressBar
+`PRG-PLAY` (0 to 100), a Label `LBL-TIME` and a Timer `TMR-PLAY` with an
+`Interval` of 200 ms that is off at start. Polly writes the speech into a file;
+the sound built-ins play it, and the timer keeps the read-out current.
+
+```cobol
+       PROGRAM-ID. BTN-SPEAK--ONCLICK.
+       PROCEDURE DIVISION.
+           INVOKE POLLY-1::Synthesize(TXT-SAY::Text, "Joanna", "mp3",
+               "speech.mp3")
+           .
+
+       PROGRAM-ID. POLLY-1--ONSYNTHESIZED.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-STATUS     PIC X(10).
+       PROCEDURE DIVISION.
+           COBOL::"AUDIO-PLAY" ( POLLY-1::SavedFile WS-STATUS )
+           IF WS-STATUS = "OK"
+               SET TMR-PLAY::Enabled TO 1
+           ELSE
+               MOVE WS-STATUS TO LBL-TIME::Caption
+           END-IF
+           .
+
+       PROGRAM-ID. BTN-PAUSE--ONCLICK.
+       PROCEDURE DIVISION.
+           COBOL::"AUDIO-PAUSE" ( )
+           .
+
+       PROGRAM-ID. TMR-PLAY--ONTICK.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-STATE      PIC X(10).
+       01 WS-POS-MS     PIC 9(7).
+       01 WS-LEN-MS     PIC 9(7).
+       PROCEDURE DIVISION.
+           COBOL::"AUDIO-STATE" ( WS-STATE WS-POS-MS WS-LEN-MS )
+           IF WS-LEN-MS > 0
+               COMPUTE PRG-PLAY::Value = WS-POS-MS * 100 / WS-LEN-MS
+           END-IF
+           MOVE SPACES TO LBL-TIME::Caption
+           STRING FUNCTION INTEGER-PART(WS-POS-MS / 1000)
+                      DELIMITED BY SIZE
+                  " of " DELIMITED BY SIZE
+                  FUNCTION INTEGER-PART(WS-LEN-MS / 1000)
+                      DELIMITED BY SIZE
+                  " s" DELIMITED BY SIZE
+               INTO LBL-TIME::Caption
+           IF WS-STATE NOT = "PLAYING" AND WS-STATE NOT = "PAUSED"
+               SET TMR-PLAY::Enabled TO 0
+           END-IF
+           .
+```
+
+`BTN-PLAY` resumes (`COBOL::"AUDIO-RESUME" ( )`) and `BTN-STOP` stops
+(`COBOL::"AUDIO-STOP" ( )`) in the same way as `BTN-PAUSE`.
+
+📷 Screenshot needed — `audio-player-form.png`: the form above while a voice
+plays — text in `TXT-SAY`, the progress bar part-way and `LBL-TIME` reading
+e.g. "3 of 8 s".
+
+A console program has no timer, so to let a short sound finish before the
+program ends it asks until the sound is over:
+
+```cobol
+           COBOL::"AUDIO-PLAY" ( "chime.wav" WS-STATUS )
+           COBOL::"AUDIO-STATE" ( WS-STATE )
+           PERFORM UNTIL WS-STATE NOT = "PLAYING"
+               COBOL::"AUDIO-STATE" ( WS-STATE )
+           END-PERFORM
+```
+
+> **Note — one sound per application.** `AUDIO-PLAY` replaces whatever was
+> playing, and every form talks to the same player, so a form can show the
+> progress of a sound another form started.
+
+> **Note — testing without a sound card.** With the environment variable
+> `COBOLT_AUDIO=null`, nothing is sent to a device: the file is still opened
+> and decoded, so `NOFILE` and `BADFORMAT` mean what they always mean, and a
+> clock "plays" it for its length — states, positions and the end of the sound
+> behave exactly as they do with speakers. It is what the product's own tests
+> use (`COBOLT_AUDIO=null rcrun run tests/cobol/audio/test-audio.cbl`). Without
+> it, a machine with no output device answers `NODEVICE`.
+
+> ⚠️ **Caveat — the sound ends with the program that started it.** When a
+> console program reaches `STOP RUN`, or a form that started a sound closes,
+> the sound stops. Wait for `ENDED` first, as above, if it must be heard to
+> the end.
+
+> ⚠️ **Caveat — a relative path** is resolved from the folder the program runs
+> in, as for `WRITE-FILE`. There is no volume or seek control: the operating
+> system's volume applies.
+
+> ⚠️ **Caveat — what the build links.** A program is built with sound only
+> when one of its `AUDIO-…` calls names the built-in literally, which the
+> inline form always does. That keeps sound — and, on Linux, the ALSA library
+> (§3) — out of every application that never plays one. `NOFEATURE` is what a
+> runtime built without sound answers; through the IDE and `rcrun` you will
+> not meet it.
 
 ### Multi-form applications and the main form
 
@@ -14481,6 +14651,7 @@ today does not have, so they stop with "manifest not found": name the file.
 | `COBOL_INDEXED_LOG`        | `off` (default), `basic`, `full`                                                                              |
 | `COBOL_INDEXED_LOG_FORMAT` | `text` (default) or `json`                                                                                    |
 | `COBOL_SWITCHES`           | `SPECIAL-NAMES` external switches, `NAME=ON|OFF`, comma separated — the same as repeating `--switch NAME=ON` |
+| `COBOLT_AUDIO`             | `null` plays the `AUDIO-…` built-ins on a clock instead of a sound card (§11, *Playing sound*); no flag      |
 
 A flag always wins over its environment variable.
 
