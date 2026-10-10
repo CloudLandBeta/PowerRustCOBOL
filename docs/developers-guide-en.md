@@ -60,7 +60,7 @@ See the LICENSE file in the project root for full license information.
 17. [The command line (rcrun)](#17-the-command-line-rcrun)
 18. [Building a distributable binary](#18-building-a-distributable-binary)
 19. [Debugging](#19-debugging)
-    - [Diagnostic switches (Help → Debug Settings)](#diagnostic-switches-help--debug-settings)
+    - [Diagnostic switches (Help ▸ Debug Settings)](#diagnostic-switches-help--debug-settings)
 20. [Appearance and internationalisation](#20-appearance-and-internationalisation)
 21. [COBOL Structure and shared data](#21-cobol-structure-and-shared-data)
 22. [The application shell and the `super` receiver](#22-the-application-shell-and-the-super-receiver)
@@ -418,7 +418,7 @@ License: Apache 2.0
 <quote text in green, randomly selected on each cycle from a built-in list>
 — <author in light blue>
 
-The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fade-out). The left tree, editor, output and editor-specific controls are hidden until you use File → New Project or File → Open Project. Once a project is open the normal three-pane workspace appears. The full guide is available in the docs/ folder.
+The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fade-out). The left tree, editor, output and editor-specific controls are hidden until you use File ▸ New Project or File ▸ Open Project. Once a project is open the normal three-pane workspace appears. The full guide is available in the docs/ folder.
 
 - **Toolbar (top).** `Open · Save · Check · Build · Run · Debug · Stop`, plus
   language selector on the far right. *Run* interprets the program; *Build*
@@ -480,7 +480,7 @@ prompt bar never appears.
 **Configure it via the project root settings form.** Click the top node of the
 project tree (the 📁 line with your project name). In the **AI assistant** section
 of the form you can enter the connection details. AI behavior and agents belong
-to the open project and travel in its `cobolt.toml` and `agentic_ai/` directory;
+to the open project and travel in its project file and `agentic_ai/` directory;
 provider configuration and API keys are machine-local and never travel in a
 repository:
 
@@ -690,7 +690,7 @@ OpenAI, Meta and the rest withdraw them on their own schedule — and a rank for
 model that no longer exists is worse than no rank: it invites you to choose it.
 So a refresh in the Model Providers Manager that comes back with a catalogue also
 takes off the Leaderboard any of that provider's models the catalogue no longer
-lists, and says which in the Output pane.
+lists, and says which in the Output panel.
 
 Only a refresh that **actually listed models** can do this, and only for the
 provider it listed. A failed request, an expired key and a provider you have not
@@ -908,7 +908,7 @@ even unsaved** text — plus every Common Code file.
   and closes only on its **✕** or **Cancel**.
 
 What it deliberately does **not** search: generated `.cbl` files (build
-artifacts — every hit in one is a duplicate of a hit at its real site) and
+artefacts — every hit in one is a duplicate of a hit at its real site) and
 the deleted-code recycle bin.
 
 <!-- 📷 code-search.png — The search window over a project, showing grouped results with highlighted matches and the totals line. -->
@@ -1021,7 +1021,7 @@ ends (through the exit effect, when one is set), and fires
 Two practical notes. Effects paint inside the window: with the native title
 bar visible, the animation covers the content area; a chromeless form
 (`TitleVisible` off) with transparency gives an effect the whole window
-rectangle. And a machine-wide kill-switch lives in **Help → Debug Settings →
+rectangle. And a machine-wide kill-switch lives in **Help ▸ Debug Settings ▸
 "Disable window effects"** — instant windows everywhere without touching any
 project, for motion sensitivity, weak GPUs, or automation
 (`PRC_NO_WINDOW_FX=1` does the same for a bare `rcrun run-form` **or a built
@@ -1154,7 +1154,7 @@ the model, which is minutes on a slow reasoning model.
 
 Indexed-file work uses a mandatory two-specialist handoff coordinated by Grace.
 Documentation Agent first obtains a missing file name, derives the file purpose
-from the request, searches project knowledge, and analyzes the structure under
+from the request, searches project knowledge, and analyses the structure under
 First (1NF), Second (2NF), and Third (3NF) Normal Forms. It identifies every
 helper indexed file needed to remove repeating groups, partial dependencies, or
 transitive dependencies. For each ID field it asks the developer to choose
@@ -1171,7 +1171,7 @@ delegates each definition to **Data (Indexed File) Agent**. This specialist can
 list, inspect, and write indexed definitions only through governed
 `indexed_file.*` tools backed by the same model used by the Indexed File UI. A
 successful write validates the record and keys, saves the `.cidx`, regenerates
-the indexed COBOL and copybooks, initializes data only when the assigned data
+the indexed COBOL and copybooks, initialises data only when the assigned data
 file does not already exist, and refreshes the project's Indexed Files tree.
 Existing indexed data is never truncated during schema maintenance. Each helper
 relation is a separate definition. A finalized definition keeps the Indexed
@@ -1183,7 +1183,7 @@ File) Agent Pedantic Reviewer** before Grace reports completion.
 properties of the control: they are the tree you build in its menu editor,
 stored in `<control id>.menu.yaml` beside the form. Grace and the specialists
 are shown that tree, item by item, with each item's id and action, so a request
-such as "which form does *Samples → Responsive Layout → Responsive: grid*
+such as "which form does *Samples ▸ Responsive Layout ▸ Responsive: grid*
 open?" is answered from your real menu. Agents cannot yet rearrange those
 items. A request to reorder, move or rename them gets an explanation that the
 menu editor does it, not a change.
@@ -1314,24 +1314,24 @@ statement catches it like any other; with no `CATCH`, it reaches
 > an unguarded size error there keeps the standard's silence, because COBOL-85
 > leaves the result undefined when the phrase is absent and the CCVS85 suite
 > relies on being allowed to carry on.
-### The example projects (Help → Examples)
+### The example projects (Help ▸ Examples)
 
-**Help → Examples** lists one entry per example project:
+**Help ▸ Examples** lists one entry per example project:
 
-- **Help → Examples → PowerChat** opens a chatbot that supports both RAG
+- **Help ▸ Examples ▸ PowerChat** opens a chatbot that supports both RAG
   (Retrieval Augmented Generation) over your documents and real-time analysis
   of data in indexed files. It is built 100% in RustCOBOL, and it can easily be
   adapted and sold as a solution for bringing Generative AI to COBOL
   applications. See *PowerChat — a chatbot to copy* below.
-- **Help → Examples → PowerDemo3** opens the project that carries one demo form
+- **Help ▸ Examples ▸ PowerDemo3** opens the project that carries one demo form
   per toolbox control — every widget, wired and running, with its COBOL beside
   it. It is the fastest way to see how a control is actually driven.
-- **Help → Examples → PowerSpatial** opens a smart-home dashboard in the
+- **Help ▸ Examples ▸ PowerSpatial** opens a smart-home dashboard in the
   Spatial theme: frameless glass windows, a toolbar, a rail and a room bar
   docked around the dashboard that move with it as one, a thermostat dial, a
   music player, and six languages kept in a setting the forms share through
   Common Code. It is the example to copy for a group of floating windows.
-- **Help → Examples → PowerAnalytics** opens a fund-analytics dashboard on the
+- **Help ▸ Examples ▸ PowerAnalytics** opens a fund-analytics dashboard on the
   Spatial theme: 43,750 investment funds read from a spreadsheet into an
   in-memory SQLite database, glass panels that zoom in one after another, charts
   that grow from zero (bar, line, donut and the RadarChart, up to three series
@@ -1349,7 +1349,7 @@ folder, so that it can be built. A copy you already have is opened as it is and
 never overwritten.
 
 > **Note.** Opening it replaces the project you currently have open, exactly as
-> *File → Open Project* would. Save your work first.
+> *File ▸ Open Project* would. Save your work first.
 
 #### PowerChat — a chatbot to copy
 
@@ -1491,9 +1491,9 @@ language wants them, because word order is not the same in all six.
 📷 Screenshot needed — `powerchat-chat.png`: PowerChat's chat form with a topic
 open, a question and its answer in the conversation, and past conversations
 listed in the menu.
-### Reading the docs in the IDE (Help → Documentation)
+### Reading the docs in the IDE (Help ▸ Documentation)
 
-**Help → Documentation** opens a dedicated window that renders this guide and the
+**Help ▸ Documentation** opens a dedicated window that renders this guide and the
 other PowerRustCOBOL manuals — including their **Mermaid diagrams** and
 **screenshots**, drawn inline (rendered in pure Rust, no browser required). The
 docs are bundled with the IDE, so it works offline; `Cmd+O` opens any local
@@ -1541,7 +1541,7 @@ read in.
 
 The first time you open a project on a new machine, the IDE dims itself and
 introduces its six main parts, one at a time: **Project settings**, **Forms**,
-**Indexed Files**, **Assets**, the **Knowledge Base**, and the **Output pane**.
+**Indexed Files**, **Assets**, the **Knowledge Base**, and the **Output panel**.
 Each step lights the component it is describing and points a speech balloon at
 it, so there is never any doubt which part of the window is meant.
 
@@ -1553,7 +1553,7 @@ It runs **once per machine**, not once per project: it describes the IDE, and
 you only need to learn the IDE once. However you leave it — finishing, Skip or
 `Esc` — it does not come back on its own.
 
-> **Replaying it.** **Help → IDE Walkthrough seen** is a tick box showing
+> **Replaying it.** **Help ▸ IDE Walkthrough seen** is a tick box showing
 > whether you have been through it. Clear the tick and the tour starts again
 > immediately. With no project open the entry explains that one is needed
 > first — five of the six parts it points at are nodes in the project tree, and
@@ -1564,7 +1564,7 @@ it is describing is visible, but it does not expand categories, open forms, or
 change what you had on screen. When it ends you are exactly where you left off.
 
 📷 Screenshot needed — `walkthrough-step.png`. Open a project on a machine
-where the tour has not run (or clear **Help → IDE Walkthrough seen**), and
+where the tour has not run (or clear **Help ▸ IDE Walkthrough seen**), and
 capture step 2 — the one pointing at **Forms** — so the dimmed IDE, the lit
 tree row and the balloon's tail are all visible in one frame.
 
@@ -1572,9 +1572,10 @@ tree row and the balloon's tail are all visible in one frame.
 
 ## 6. Projects and the project model
 
-A **project** is a folder containing a manifest file, `cobolt.toml`, plus your
-sources, forms, and assets. The manifest records the project name, version, main
-program, and the files in each category.
+A **project** is a folder containing a manifest file named after the project —
+`HelloPower.project.toml`, say; this Guide calls it the **project file** — plus
+your sources, forms, and assets. The manifest records the project name, version,
+main program, and the files in each category.
 
 ### Folder layout
 
@@ -1582,21 +1583,21 @@ When you create a project, PowerRustCOBOL scaffolds this structure on disk:
 
 ```text
 HelloPower/
-├── cobolt.toml         ← project manifest
-├── src/                ← Common Code  (hand-written COBOL programs/copybooks)
-├── forms/              ← Forms        (.cfrm designer files)
-├── indexed/            ← Indexed Files (.cidx definitions)
-├── generated/          ← Generated Code (RAD-produced .cbl — read-only)
-├── COPYBOOKS/          ← per indexed file: its SELECT, its FD, and the
-│                         editable COBOL descriptor the raw editor uses
-├── crates/             ← Project's Crates (appears once you register one)
-├── Assets/             ← Assets       (images, audio, fonts, data files)
-├── Knowledge Base/     ← project-specific documents and indexed knowledge
-├── bin/                ← built binaries
-├── debug/              ← debugging working files
-├── temp/               ← temporary files
-├── dist/               ← (reserved) self-contained distribution bundle
-└── data/               ← project data files (e.g. the AI conversation store)
+├── HelloPower.project.toml  ← project manifest (the project file)
+├── src/                     ← Common Code  (hand-written COBOL programs/copybooks)
+├── forms/                   ← Forms        (.cfrm designer files)
+├── indexed/                 ← Indexed Files (.cidx definitions)
+├── generated/               ← Generated Code (RAD-produced .cbl — read-only)
+├── COPYBOOKS/               ← per indexed file: its SELECT, its FD, and the
+│                              editable COBOL descriptor the raw editor uses
+├── crates/                  ← Project's Crates (appears once you register one)
+├── Assets/                  ← Assets       (images, audio, fonts, data files)
+├── Knowledge Base/          ← project-specific documents and indexed knowledge
+├── bin/                     ← built binaries
+├── debug/                   ← debugging working files
+├── temp/                    ← temporary files
+├── dist/                    ← the hand-over folder a Build installs into
+└── data/                    ← project data files (e.g. the AI conversation store)
 ```
 
 > **`data/` is shared with the AI assistant.** Your program's data files live
@@ -1827,9 +1828,9 @@ flowchart LR
     PROP -- "edit" --> CANVAS
 ```
 
-- **Toolbox (left).** Widgets in seven groups, in this order: **Common**,
-  **Containers**, **Data**, **Graphics**, **Menus & Bars**, **Non-Visual** and
-  **Charts**. Drag any control onto the canvas. Use the **◀** chevron to collapse the sidebar
+- **Toolbox (left).** Widgets in eight groups, in this order: **Common**,
+  **Containers**, **Data**, **Graphics**, **Menus & Bars**, **Non-Visual**,
+  **AWS** and **Charts**. Drag any control onto the canvas. Use the **◀** chevron to collapse the sidebar
   to a narrow **icon rail** (drag from the rail still works) and **▶** to expand
   it; drag its edge to resize it, and the width you set is restored when you
   re-expand.
@@ -2144,7 +2145,7 @@ first minute:
   grows. Untick it for the classic look; a template is always modern.
 
 A project created with this version makes **responsive** forms
-(**Settings → New forms are responsive**, ticked). A project created earlier
+(**Settings ▸ New forms are responsive**, ticked). A project created earlier
 keeps making forms as before until you tick it; no existing form is ever
 changed for you.
 
@@ -2208,7 +2209,7 @@ the image. Forms saved before keep the frame they had.
 **Seeing where the focus is.** The control that has the focus in a running
 form wears a border — the *focus ring* — so a data-entry operator never loses
 their place, whether they got there with Tab, Shift+Tab, Enter or a click. It
-is a project setting, the same for every form: **Settings → Appearance →
+is a project setting, the same for every form: **Settings ▸ Appearance ▸
 Keyboard focus ring** has a checkbox that turns it on or off (on by default),
 picks the colour (a blue by default) and, optionally, **Pulse**, which makes the
 border breathe slowly — one full breath every 6.4 seconds. The ring goes the
@@ -2310,7 +2311,7 @@ then reads.
 ### Responsive examples in PowerDemo3
 
 PowerDemo3 has twelve forms that show the responsive layout, filed in
-`forms/Responsive Layout/`. Open them from **Samples → Responsive Layout** in
+`forms/Responsive Layout/`. Open them from **Samples ▸ Responsive Layout** in
 its side menu; each one shows the window size, the active breakpoint and the
 font scale along its bottom edge as you resize it.
 
@@ -2330,7 +2331,7 @@ font scale along its bottom edge as you resize it.
 | Responsive: dashboard | `responsive-dashboard-form` | All of it together: a docked header (a Flex row) and navigation, a Grid of indicator cards, charts and a data grid, Fluid fonts, and two breakpoints that rearrange it. |
 
 > 📷 Screenshot needed — `responsive-dashboard.png`: run PowerDemo3, open
-> **Samples → Responsive Layout → Responsive: dashboard**, and capture the
+> **Samples ▸ Responsive Layout ▸ Responsive: dashboard**, and capture the
 > window twice: once wide (about 1400 px) and once narrow (about 550 px). Place
 > the two side by side.
 
@@ -2480,7 +2481,7 @@ tab at a time**:
 | Add a layer | Click **+**. The new layer is named `Layer-1`, `Layer-2` …, is fully transparent, and is selected. The 65th is refused with a message. |
 | Rename a layer | Double-click its tab, type, press Enter. Every control that names it and every `OLD::Visible` in your handlers and procedures follows. A name is refused — and nothing changes — if it is not a COBOL-style name, is `Form` or `Non-Visuals` in any letter case, or is already used by a control or another layer: layers and controls share **one** set of names. |
 | Re-stack layers | Drag a layer tab and drop it among the others. A layer paints above the layers before it. A tab never goes to the left of `Form`. |
-| Move controls to a layer | Select them and choose the **Layer** row in the Properties pane, or right-click → **Move to layer**. A container takes everything inside it; a control inside a container cannot be moved on its own. Into a layer, a control loses its **Dock** and its **Anchor** returns to the default (Undo gives them back). |
+| Move controls to a layer | Select them and choose the **Layer** row in the Properties pane, or right-click ▸ **Move to layer**. A container takes everything inside it; a control inside a container cannot be moved on its own. Into a layer, a control loses its **Dock** and its **Anchor** returns to the default (Undo gives them back). |
 | Delete a layer | Click its red **✕**. The layer is selected and a window tells you its name and how many controls and event handlers go with it. **Delete** removes the layer, every control on it and the handler of each; **Cancel** leaves everything. One **Undo** brings it all back. |
 
 📷 **Screenshot needed — `layer-delete-confirmation.png`.** Select a layer that
@@ -3415,7 +3416,7 @@ caption opens the whole straight part of the top edge.
 
 A **GroupBox** can be turned into a **repeating group** — a visual template that
 is repeated at run time, one instance per array element. Design the group once
-(its child controls are the template) and right-click it → **Set as Repeating
+(its child controls are the template) and right-click it ▸ **Set as Repeating
 Group** (right-click again for **Unset Repeating Group**). A small **▦ ARRAY**
 badge marks a repeating group in the designer.
 
@@ -4846,7 +4847,7 @@ the **Output** pane. That is where a toolbar gets built, so that is where its
 buttons have to work.
 
 The other five actions — the two window captures and the three that run your
-COBOL — do **not** run in Preview, and each says so in the Output pane rather
+COBOL — do **not** run in Preview, and each says so in the Output panel rather
 than leaving you to guess:
 
 | Action                             | Why not                                                                                                                                                                                                                           |
@@ -5120,7 +5121,7 @@ SQLite is bundled, so it runs with nothing installed.
 
 ### Default Theme Settings (what a theme means in *your* project)
 
-A theme decides how every control on a form looks. **Project settings → Default
+A theme decides how every control on a form looks. **Project settings ▸ Default
 Theme Settings** is where you say what that look is.
 
 PowerCOBOL has nothing quite like this: there, a control's appearance is a
@@ -5158,7 +5159,7 @@ bindings are **yours**, and a theme switch never rewrites them.
 > switch only clears the marks a theme could have written, so a form that needs
 > one control to be different from its theme just sets it and keeps it.
 >
-> **Note.** The table lives in `cobolt.toml` under `theme_defaults`, keyed by
+> **Note.** The table lives in the project file under `theme_defaults`, keyed by
 > theme and glass style, as plain values you can read and edit by hand:
 >
 > ```toml
@@ -6046,9 +6047,10 @@ no capability in this control that COBOL cannot reach.
   the keyboard, so `Ctrl`/`Cmd+C` copies it even after the pointer has moved
   on — to a chat's question box, say, which would otherwise take the
   keystroke. Text laid out side by side (table cells, columns, the cards of a
-  report) selects where you press, in whichever column that is. What reaches the clipboard keeps its
-  blocks on separate lines, because they are separate blocks. Cards and images
-  are not selectable: a contact sheet is not a page, and a picture has no text.
+  report) selects where you press, in whichever column that is. What reaches
+  the clipboard keeps its blocks on separate lines, because they are separate
+  blocks. Cards and images are not selectable: a contact sheet is not a page,
+  and a picture has no text.
 - **The wheel belongs to the Viewer.** While the pointer is over the control,
   a wheel notch scrolls the document and stops there — it never also scrolls
   the form, a Panel or a GroupBox behind it, and that holds even where the
@@ -6318,7 +6320,7 @@ itself: see **Rows your program adds** in the application-shell chapter.
 | `RegisterConversation(id, title)` | Seeds a history entry for a conversation from an earlier run |
 | `HistoryList` | Up to ten entries, one `id|title` per line |
 
-A minimal chatbot form, then, is a Viewer, a ListBox and two buttons:
+A minimal chatbot form, then, is a Viewer, a ListBox and one button:
 
 ```cobol
       *> The developer's own "New chat" button.
@@ -6396,8 +6398,8 @@ abbreviations). A few you will use constantly:
 | `FontName`, `FontSize`, `Bold`, `Italic`, `Underline`, `Strikethrough` | Typography: the caption, list items, grid cells, a GroupBox legend and a TextBox's text as it is typed. |
 | `Visible`, `Enabled`                     | State.                                                                    |
 | `TextAlignment`                          | Text justification.                                                       |
-| `Padding`                                | Extra space (0-128 points) between the frame and the content; a TextBox adds it to its `InnerPadding`. |
-| `Tooltip`                                | Pop-up text while the pointer rests on the control, on every visual control, after its `HoverDelayMs`. |
+| `Padding`                                | Extra space (0–128 points) between the frame and the content; a TextBox adds it to its `InnerPadding`. |
+| `Tooltip`                                | Pop-up text while the pointer rests on the control — every visual control shows it. Most wait for the control's `HoverDelayMs` (200 ms unless you set it); a Button, TextBox, ComboBox and CheckBox show it after half a second whatever `HoverDelayMs` says. |
 | `ZOrder`                                 | Stacking order; `SET ctl::ZOrder`, `BringToFront` and `SendToBack` change it while the form runs. |
 
 > **Binding a control to data** is done on the form, in the **Data Binding**
@@ -6421,8 +6423,8 @@ A few properties whose effect depends on the control:
 
 > **Note.** Standard acronyms are kept (`CSV`, `URL`, `API`, `TLS`); everything
 > else is written in full — for example `BackgroundColor` (not `BackColor`),
-> `MaximumLength` (not `MaxLength`), `PasswordCharacter` (not `PasswordChar`),
-> and property names are written in full (not abbreviated).
+> `MaximumLength` (not `MaxLength`) and `PasswordCharacter` (not
+> `PasswordChar`).
 
 > **Caption rules.** Only Label, Button, CheckBox, RadioButton, and GroupBox use
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
@@ -6459,10 +6461,10 @@ A few properties whose effect depends on the control:
 > on the designer canvas a drag still moves the control rather than selecting its
 > text.
 >
-> Note. Before this, copyable text meant a TextBox with `ReadOnly` set. That
-> still works and is still the right control when the text is a *value* the
-> operator may want to correct later — but it is no longer what you reach for
-> merely to let someone copy a caption.
+> **Note.** Before a Label's text could be selected, copyable text meant a
+> TextBox with `ReadOnly` set. That still works and is still the right control
+> when the text is a *value* the operator may want to correct later — but it is
+> no longer what you reach for merely to let someone copy a caption.
 
 > **Text you can always read.** A form does not know what its theme paints, so
 > the colours that carry meaning are checked against the surface they land on: a
@@ -6591,9 +6593,9 @@ procedural style clears any per-form pack override for that form.
 
 **Choosing.**
 
-- Project default: *Settings → Appearance → Default form theme*.
-- Per-form: Designer form *Appearance → Theme* (or leave to inherit).
-- At creation: *File → New Form → Theme*, which lists the same catalogue and
+- Project default: *Settings ▸ Appearance ▸ Default form theme*.
+- Per-form: Designer form *Appearance ▸ Theme* (or leave to inherit).
+- At creation: *File ▸ New Form ▸ Theme*, which lists the same catalogue and
   defaults to inheriting the project's.
 
 Resolution: per-form → project default → Classic/Liquid Glass.
@@ -6618,8 +6620,8 @@ dashboards — where frosted panels compete with the data for attention.
 Choosing it is no different from any other theme:
 
 ```text
-Project-wide   Settings → Appearance → Default form theme → Elegance
-One form only  Designer → form Appearance → Theme → Elegance
+Project-wide   Settings ▸ Appearance ▸ Default form theme ▸ Elegance
+One form only  Designer ▸ form Appearance ▸ Theme ▸ Elegance
 ```
 
 Everything on the form takes the theme at once — panels and group boxes, buttons,
@@ -6659,13 +6661,13 @@ unsaturated accents. It is the one **see-through** theme:
   list stays inside the form.
 
 ```text
-Project-wide   Settings → Appearance → Default form theme → Spatial
-One form only  Designer → form Appearance → Theme → Spatial
+Project-wide   Settings ▸ Appearance ▸ Default form theme ▸ Spatial
+One form only  Designer ▸ form Appearance ▸ Theme ▸ Spatial
 ```
 
 **The Spatial look.** On a Spatial form, the IDE dresses what you add the
 way the *Buttons* example in PowerDemo3 is dressed: a new form gets a dim
-glass window (`BackgroundColor` `40404008`, `Transparency` 50), and every
+glass window (`BackgroundColor` `#40404008`, `Transparency` 50), and every
 control you drop on it a dark face — a gradient from `#4E4E4E` down to
 black, a soft shadow to the lower right, no border, white text. The faces of
 buttons, panels and group boxes are 70 % opaque — set in their colours
@@ -6693,11 +6695,13 @@ the shadow was cut at the edge of the grid or the row.)
 > ⚠️ **Caveat.** A Panel's `Transparency` fades everything inside it, not
 > just its face: a picture in a Panel at `Transparency` 30 is drawn at 70 %.
 > To see through a card but not through its contents, give its colours an
-> alpha instead. Switching a form to Spatial dresses its controls the same way, and
-switching it away takes the look back off — a value you set on a control
-yourself is kept either way. To change what Spatial means for your project,
-use the **Default Theme Settings** button in the project settings: the project's table is laid over
-the shipped look.
+> alpha instead.
+
+Switching a form to Spatial dresses its controls in the look described under
+**The Spatial look** above, and switching it away takes that look back off — a
+value you set on a control yourself is kept either way. To change what Spatial
+means for your project, use the **Default Theme Settings** button in the project
+settings: the project's table is laid over the shipped look.
 
 Spatial also pairs with `BorderStyle` `Glow`: a card with the default white
 glow looks like a lit glass edge. The same look is available for the IDE
@@ -6727,8 +6731,9 @@ For a theme that owns the whole look:
   rewrites your background colours, gradient settings or per-control shadow
   properties, so switching back and forth is lossless: the form you had is the
   form you get.
-- **Your own properties still apply, all of them.** *Back color*, *Fore color*,
-  *Corner radius*, *Transparency*, *Shadow* — anything you set on a control wins
+- **Your own properties still apply, all of them.** *Back color*
+  (`BackgroundColor`), *Fore color* (`ForegroundColor`), *Corner radius*
+  (`CornerRadius`), *Transparency*, *Shadow* — anything you set on a control wins
   over the theme. In particular a drop shadow you switch on **is drawn**, whatever
   the theme.
 
@@ -6744,8 +6749,8 @@ Two more things worth knowing:
 - **Your own colours still win.** A control with an explicit *Back color* or
   *Fore color* keeps it. The theme only supplies the defaults, so you can theme a
   whole form and still make one field red.
-- **Elegance owns the whole look**, so the Glass style row is disabled while it
-  is selected — see above.
+- **Elegance and Spatial own the whole look**, so the Glass style row is
+  disabled while either is selected — see above.
 
 Elegance is a control theme only: it does not supply a form background, so the
 form's own *Back color* / *Background Image* applies exactly as before.
@@ -6753,7 +6758,7 @@ form's own *Back color* / *Background Image* applies exactly as before.
 📷 Screenshot needed — `elegance-theme.png`
 Open a form containing a mix of controls (a group box with text boxes and a
 combo box, a data grid with a few rows, a couple of buttons, and one chart),
-set *Appearance → Theme* to **Elegance**, and capture the designer canvas.
+set *Appearance ▸ Theme* to **Elegance**, and capture the designer canvas.
 Capture the same form with Theme = Liquid Glass as `liquid-glass-theme.png` so
 the two can be shown side by side.
 
@@ -6803,7 +6808,7 @@ slice = [20, 20, 20, 20]
 >
 > ```mermaid
 > flowchart TD
->     A[Form Appearance → Theme] --> B{Procedural?}
+>     A[Form Appearance ▸ Theme] --> B{Procedural?}
 >     B -->|Classic/Enhanced/Neumorphic| C[draw_neumorphic or glass]
 >     B -->|pack id| D[9-slice from assets/themes/id/ + palette]
 >     E[Project default] -->|fallback| F[Liquid Glass / Classic]
@@ -6868,9 +6873,9 @@ In words:
   `onClose` (as it closes) are pre-created for every form; the rest you attach as
   needed.
 
-> **A tooltip says what a field is for.** A Button, TextBox, ComboBox or
-> CheckBox shows its `Tooltip` while the pointer rests on it — the place to
-> tell the user, in plain words, what to type or choose. Set it in the designer
+> **A tooltip says what a field is for.** Every visual control shows its
+> `Tooltip` while the pointer rests on it — the place to tell the user, in
+> plain words, what to type or choose. Set it in the designer
 > or from COBOL, which is how a translated interface changes it:
 > `MOVE "The address of the model's server" TO TXT-URL::Tooltip`. A ComboBox
 > hides it while its list is open, so it never covers the items.
@@ -6946,12 +6951,10 @@ In words:
 >           MOVE WS-CHAT-H TO Vwr-Chat::Height
 >   ```
 >
->   ⚠️ No period inside an `IF … END-IF`: the first one ends the `IF`, and
->   the `END-IF` is left with nothing to close.
->
-> Events with no engine behind them (drag-and-drop, column sorting/resizing,
-> chart zoom, tree-node expand/checkbox states…) are no longer listed in the
-> design view — an event you can bind is an event that fires.
+> Events with no engine behind them (a control's drag-and-drop, column
+> sorting/resizing, chart zoom…) are not listed in the design view — an event
+> you can bind is an event that fires. (A TreeView's `onNodeCheck`,
+> `onNodeCollapse` and `onNodeExpand` are listed, and fire.)
 
 ### Adding a handler
 
@@ -6970,9 +6973,10 @@ The editor is a window **over** the designer, and everything the mouse does on i
 is the window's: selecting text in it never reaches the toolbox or the form
 behind it — a button of the toolbox under the window does not start its drag, and
 a control dragged from the toolbox and released over the editor is not placed on
-the form behind it. (Before 1.90.23 a press on the editor over a toolbox button
-started that button's drag, and the selection drag carried a ghost of the control
-over the form.)
+the form behind it. (Before 1.90.23, a press on the editor's text where the
+editor lay over a toolbox button was taken as a press on that button: dragging
+to select text lifted a copy of the toolbox control and dropped it onto the form
+behind the editor when you let go.)
 
 The **first time** you open an unwritten handler, the editor seeds it with the
 standard skeleton so you only fill in the blanks:
@@ -7047,7 +7051,10 @@ and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
 
 A control's properties are read and written with the **`::`** member syntax or
 the **`INVOKE`** verb — the same forms used for methods. The member is just the
-property name; there is **one** consistent way to touch a property.
+property name. There are several spellings of the same thing — `::`, a quoted
+member name, `INVOKE` with or without the `GET-` / `SET-` prefix, and the
+`COBOL` object's `GET-PROPERTY` / `SET-PROPERTY` built-ins (last section of
+this chapter) — and they are interchangeable: pick whichever reads best.
 
 A property behaves like a working-storage item of its own type, so you do not
 declare scratch fields for it — see *Code style* in §13.
@@ -7188,6 +7195,10 @@ control's methods after you type `::`, each with a one-line description.
 | AI Agent                    | `Ask`, `SetPrompt`, `SetModel`, `Stop`                                                                                                                          |
 | DataGrid                    | `RefreshBinding`, `ExportCSV`, `SetFilter`, `ClearFilters`, `FreezeColumns`, `FreezeRows`, `SetRowHeight`, `SetColumnWidth`, `GetSelectedText`, `CopySelection` |
 
+Method names are **not case-sensitive**: `get`, `Get` and `GET` are one call. The
+REST Client and SQL Database rows are written in lowercase only because that is
+how their examples spell them.
+
 A method that changes a property updates the **running form immediately** — the
 same channel the property syntax uses — so `Lbl-Out::SetCaption("Done")` repaints
 the label the moment it runs. Methods and the property syntax are fully
@@ -7252,7 +7263,7 @@ rows, a list's items, a row's columns); a bare name is a property; a name with
 ```cobol
       *> read a nested cell, then a method on its value
            DISPLAY Grid-1::Rows(I)::Columns(2)::Value.
-           DISPLAY Grid-1::Rows(I)::Columns(2)::Value::toUpperCase().
+           DISPLAY Grid-1::Rows(I)::Columns(2)::Value::Upper().
 
       *> write a nested cell — the structure is created on demand
            MOVE "Total" TO Grid-1::Rows(1)::Columns(1)::Value.
@@ -7279,14 +7290,17 @@ content-changing verb may write to it, not just `MOVE`/`SET`:
 A chain that ends in a **method call** `()` is a value only:
 
 ```cobol
-           MOVE name TO obj::UpperCase().   *> INVALID — not a receiving field
-           SET  name TO obj::UpperCase().   *> valid — reads the transformed value
-           obj::UpperCase().                *> valid as a statement, but changes nothing
+           MOVE name TO obj::Upper().   *> INVALID — not a receiving field
+           SET  name TO obj::Upper().   *> valid — reads the transformed value
+           obj::Upper().                *> valid as a statement, but changes nothing
 ```
 
 **Collection / value helper methods** available on a chain element:
 `Count` / `Size` (number of entries), `Delete` / `Remove`, `Clear`, `Add` /
-`Append`, and the value transforms `toUpperCase`, `toLowerCase`, `trim`, `len`.
+`Append`, and the value methods — `Trim`, `Upper`, `Lower`, `Len`, `Replace`
+and `Split` — the same ones a data item answers (see *Code style* in §13).
+Method names are not case-sensitive, and the older spellings `UpperCase` /
+`ToUpperCase`, `LowerCase` / `ToLowerCase` and `Length` are accepted aliases.
 
 **INITIALIZE on a control.** Initialising a control resets its **`Value`**
 property; you can also target one property explicitly, and mix controls with
@@ -7330,13 +7344,13 @@ A handler is a nested program, not a paragraph, and its body is what you write
            GOBACK.
 ```
 
-Written with the built-in primitives instead, the two property lines would read
+Written with these built-ins instead, the two property lines would read
 `COBOL::"GET-PROPERTY"( "TXT-NAME" "Text" WS-NAME )` and
 `COBOL::"SET-PROPERTY"( "LBL-OUT" "Caption" WS-MESSAGE )`. They still work, but
 `::` on the control itself is the form to write — the agents are instructed
-never to emit these primitives for control access.
+never to emit these built-ins for control access.
 
-#### The built-ins: the `COBOL` object
+### The built-ins: the `COBOL` object
 
 Beyond the controls, the runtime has a set of **built-in calls** — HTTP, SQL,
 text files, the operating system's file dialogs, API keys, the model list,
@@ -7479,6 +7493,10 @@ leaving fullscreen returns to the previous state). At runtime:
     INVOKE me "SetTitleVisible" USING "false".
 ```
 
+Each **actual** fullscreen transition fires the form's `onFullScreenChanged`
+event (the OS may refuse a request — the event follows reality, once per real
+change; read `me`'s `FullScreen` for the new value).
+
 **Closing from the keyboard.** **Ctrl+W** (**⌘W** on macOS) closes the window
 that has the focus exactly as its close button does: the main window's close
 ends the application (and its `onClose` handler can still refuse, raising
@@ -7512,8 +7530,9 @@ child windows and a shell application's window — there the rail, the
 breadcrumb strip and the ContentPane each round the corners they touch. The
 designer canvas shows the corners as they will run, and so does **Preview**: a
 form without a title bar previews in a window without one — rounded, moved by
-dragging its background, and closed with **Esc** (or Cmd+W / Ctrl+W), which a
-notice in the middle of the window recalls for its first five seconds. While the title bar is on,
+dragging its background, and closed with **Esc** (or **Ctrl+W**, **⌘W** on
+macOS), which a notice in the middle of the window recalls for its first five
+seconds. While the title bar is on,
 the corners belong to the operating system, so the radius is kept but not used
 (and the row is hidden).
 
@@ -7538,10 +7557,6 @@ the corners belong to the operating system, so the radius is kept but not used
 > and Corner radius 24, running over a contrasting desktop, so the four rounded
 > corners and the desktop behind them are visible.
 
-Each **actual** fullscreen transition fires the form's `onFullScreenChanged`
-event (the OS may refuse a request — the event follows reality, once per real
-change; read `me`'s `FullScreen` for the new value).
-
 **Where they apply.** The main window, a **shell** application's window (a
 main form carrying a SideMenu) and a **child window** opened with
 `OpenFormSync` / `OpenFormAsync` or a Stand Alone menu action all honour
@@ -7550,7 +7565,7 @@ also opens where its `StartPosition` says when the caller passes no position,
 and a shell window takes `TitleVisible`, `StartPosition` and the taskbar icon
 too. Entrance/exit effects stay the main window's.
 
-**Sizing the window, and windows that move together.** Four designer
+**Sizing the window, and windows that move together.** Five designer
 properties, in the form's **Geometry** section, decide how a window opens:
 
 - **Resizable** (`Resizable`, on by default). Off, the borders do not drag:
@@ -7576,9 +7591,9 @@ properties, in the form's **Geometry** section, decide how a window opens:
   Elsewhere they follow as soon as the opener has moved.
 - **Dock length** (`DockLength`, 0 to 100 %). Above 0 the docked window is
   that share of its opener's edge long — a toolbar the opener's full width at
-  100, a tab strip at 60 — and follows when the opener changes size, as it
-  does when the opener opens with a **Screen fill**. Make the docked form
-  responsive, so its own layout adapts to the length it is given.
+  100, a tab strip at 60 — and keeps that share when the opener changes size,
+  including the size a **Screen fill** gives the opener when it opens. Make the
+  docked form responsive, so its own layout adapts to the length it is given.
 
 A floating toolbar above a dashboard, a tab strip below it and a rail beside it
 are three small forms docked Top, Bottom and Left, which the dashboard opens
@@ -7752,7 +7767,7 @@ The child reads in its `onLoad`, and answers before it closes:
 - `COBOL::"GET-PROPERTY"` reads the controls of **its own** program only; the
   parent is reached through `super`.
 
-PowerDemo3 has the whole example — **General → Passing Data to a Child
+PowerDemo3 has the whole example — **General ▸ Passing Data to a Child
 Form** (`props-parent-form` and `props-child-form`).
 
 > 📷 Screenshot needed — `props-demo.png`: PowerDemo3's *Passing Data to a
@@ -7763,21 +7778,21 @@ Form** (`props-parent-form` and `props-child-form`).
 - The **main form is a singleton**: opening it while it runs focuses the
   running instance and returns its existing handle. Other forms may run any
   number of concurrent instances.
-- **Sync** children close together with their caller — and a caller cannot
-  close while any of its Sync children is `Waiting` (it gets
+- Children close together with their caller, **Sync and Async alike**: closing
+  a form closes every window it opened, and those windows' own children with
+  them. An Async child is independent of its opener only while both are open —
+  the opener is never blocked by it — but it does not outlive it.
+- A caller cannot close while any of those children is `Waiting` (it gets
   `onCloseRejected` too).
-- **Async** children survive their caller's close — except when the **main
-  form** closes: then every form closes and the application exits.
+- When the **main form** closes, every form closes and the application exits.
 - A **modal** Sync child blocks the caller's input and its COBOL flow until
   the child closes; the `RETURNING` handle is NULL by the time the caller
   resumes.
 
 > **Status.** The window-lifecycle rules above (FormState vetoes,
-> `onCloseRejected`, window commands, `onFullScreenChanged`) are live in the
-> run-form runtime today. Hosting the OpenForm* **child windows** is landing
-> with the multi-viewport host; until then a child open is accepted, logged
-> to stderr, and immediately released (its handle reads NULL), so programs
-> never deadlock.
+> `onCloseRejected`, window commands, `onFullScreenChanged`) are live in Run
+> Form and in built applications alike, and so are the `OpenFormSync` /
+> `OpenFormAsync` **child windows**: each opens in a window of its own.
 
 ---
 
@@ -7817,7 +7832,7 @@ or bug fixes) without breaking your code.
 ### Reading a diagnostic
 
 Because the compiler sees the woven `.cbl`, an error used to be reported
-against that artifact — `842:17: ✖ error: …`, line 842 of a file you never
+against that artefact — `842:17: ✖ error: …`, line 842 of a file you never
 wrote. A Check now reports the place **you** wrote instead. An Output row
 reads:
 
@@ -7881,7 +7896,7 @@ edit.
 > - its own controls, including toolbar buttons by their id;
 > - the form's own name, `me` and `super`;
 > - `COBOL`, for the built-in calls;
-> - a data item you declared (`WS-TEXT::UpperCase()`);
+> - a data item you declared (`WS-TEXT::Upper()`);
 > - a class from the program's `REPOSITORY`.
 >
 > Deleting a control removes its name. A handler of another control that
@@ -8088,9 +8103,10 @@ extensions. Highlights a working COBOL programmer will rely on:
 > suite) are definitive.
 
 > ⚠️ **Out of scope (today):** cross-process **record** locking and OO
-> `CLASS`/`METHOD` definitions are not implemented. A whole INDEXED file opened
+> `CLASS`/`METHOD` definitions are not implemented. (A whole INDEXED file opened
 > `WITH LOCK` or `SHARING WITH NO OTHER` *is* exclusive across processes —
-> another program's `OPEN` gets status `93`. **RELATIVE file
+> another program's `OPEN` of it gets status `93`; record locks are
+> single-process.) **RELATIVE file
 > organisation is implemented** — see
 > [Addressing records by number](#addressing-records-by-number-organization-is-relative).
 
@@ -8114,9 +8130,10 @@ a value.** If the value can be read, tested or moved where it is, do that.
 | write `CALL "COBOL-OPEN-DB" USING …` | `COBOL::"OPEN-DB" ( ":memory:" WS-DB WS-ST )` |
 
 Every behaviour described below is exercised by a program that runs under the
-test suite — `tests/cobol/code-style/test-code-style.cbl` (26 cases in 12 forms)
-and `tests/cobol/string-ops/test-data-item-methods.cbl` (32 cases in 16 forms) —
-so the examples show what the compiler and the runtime actually do.
+test suite — `tests/cobol/code-style/test-code-style.cbl` (26 cases over 12
+syntax forms) and `tests/cobol/string-ops/test-data-item-methods.cbl` (32 cases
+over 16 syntax forms) — so the examples show what the compiler and the runtime
+actually do.
 
 #### A property is a data item
 
@@ -8162,8 +8179,8 @@ extension does not make the second form wrong; it makes it unnecessary.
 
 > **Note.** What follows the `::` is the control's own member. Look the names up
 > in the control catalogue (§8) rather than guessing them; a **control** that
-> does not exist is an error at Check and Build (see *Talking to the UI*), and a
-> layer answers only its own few properties.
+> does not exist is an error at Check and Build (see *Talking to the UI from
+> COBOL* in §11), and a layer answers only its own few properties.
 
 #### A method that returns a value is an expression
 
@@ -8198,9 +8215,8 @@ stay in an item for later; if you use it once, put the call where it is used.
 #### An ordinary data item has methods too
 
 A `PIC X` item (and a group, a table occurrence, a slice) answers a small, fixed
-set of **value methods**: `Trim`, `UpperCase` (`ToUpperCase`, `Upper`),
-`LowerCase` (`ToLowerCase`, `Lower`), `Replace`, `Len` (`Length`) and `Split`.
-They return a value, they **chain**, and they work on a property as well:
+set of **value methods**: `Trim`, `Upper`, `Lower`, `Replace`, `Len` and
+`Split`. They return a value, they **chain**, and they work on a property as well:
 
 ```cobol
        WORKING-STORAGE SECTION.
@@ -8208,8 +8224,8 @@ They return a value, they **chain**, and they work on a property as well:
       ...
        PROCEDURE DIVISION.
            MOVE person-name::Replace(", MD", ", M.D.")  TO person-name
-           MOVE person-name::Trim()::UpperCase()        TO WS-HEADING
-           MOVE PERSON::Name::UpperCase()               TO LBL-B::Caption
+           MOVE person-name::Trim()::Upper()            TO WS-HEADING
+           MOVE PERSON::Name::Upper()                   TO LBL-B::Caption
            IF PERSON::Name::Len() > 5
                DISPLAY "a long name"
            END-IF
@@ -8265,7 +8281,7 @@ and `Replace(",", ";")` are the same call.
 3. **Put a method call inside the expression that needs it**; use `INVOKE` for
    a method whose answer you do not need, `RETURNING` only to keep the answer.
 4. **`MOVE` a returned record into its 01 group**; do not unpack it by hand.
-5. **Chain the value methods** (`::Trim()::UpperCase()`) rather than writing an
+5. **Chain the value methods** (`::Trim()::Upper()`) rather than writing an
    `INSPECT` or a scratch item for a text clean-up.
 6. **Use an expression** in `MOVE`, `SET` and `STRING` where a calculation would
    otherwise need `COMPUTE` and a temporary.
@@ -8286,17 +8302,17 @@ can be asked questions about its **value** with the same `::` you use on a
 control. This is a PowerRustCOBOL convenience, not standard COBOL: it replaces a
 scratch field and an `INSPECT` or `FUNCTION` for the everyday text jobs. Use it
 wherever an expression is allowed — `MOVE`, `COMPUTE`, `IF`, `DISPLAY`, `STRING`
-— and **chain** the calls: `WS-NAME::Trim()::UpperCase()`.
+— and **chain** the calls: `WS-NAME::Trim()::Upper()`.
 
 A data item answers **these and nothing else**:
 
 | Method | Gives | What it does |
 |--------|-------|--------------|
 | `Trim()` | text | Takes the blanks off both ends. |
-| `UpperCase()` · `ToUpperCase()` · `Upper()` | text | Capital letters. Three spellings of one method. |
-| `LowerCase()` · `ToLowerCase()` · `Lower()` | text | Small letters. Three spellings of one method. |
+| `Upper()` | text | Capital letters. `UpperCase()` and `ToUpperCase()` are accepted aliases. |
+| `Lower()` | text | Small letters. `LowerCase()` and `ToLowerCase()` are accepted aliases. |
 | `Replace(from, to)` | text | Every occurrence of `from` becomes `to`. |
-| `Len()` · `Length()` · `Length` | number | The **declared length of the field** — a `PIC X(20)` holding `hello` answers 20. `Length` also reads without the parentheses. |
+| `Len()` | number | The **declared length of the field** — a `PIC X(20)` holding `hello` answers 20. `Length()` is an accepted alias, and `Length` also reads without the parentheses. |
 | `Split(sep)` | text | The piece before the first `sep`. |
 | `Split(sep)(n)` | text | The *n*-th piece, counting from 1. |
 
@@ -8319,19 +8335,15 @@ Two examples of each, with what they give:
            MOVE "  a b  " TO WS-A
            MOVE WS-A::Trim() TO WS-OUT              *> a b   (the inner blank stays)
 
-      *> UpperCase() · ToUpperCase() · Upper()
+      *> Upper()
            MOVE "abc def" TO WS-A
-           MOVE WS-A::UpperCase() TO WS-OUT         *> ABC DEF
-           MOVE "cobol-85" TO WS-A
-           MOVE WS-A::ToUpperCase() TO WS-OUT       *> COBOL-85
+           MOVE WS-A::Upper() TO WS-OUT             *> ABC DEF
            MOVE "a1b2" TO WS-A
            MOVE WS-A::Upper() TO WS-OUT             *> A1B2
 
-      *> LowerCase() · ToLowerCase() · Lower()
+      *> Lower()
            MOVE "MiXeD 123" TO WS-A
-           MOVE WS-A::LowerCase() TO WS-OUT         *> mixed 123
-           MOVE "COBOL-85" TO WS-A
-           MOVE WS-A::ToLowerCase() TO WS-OUT       *> cobol-85
+           MOVE WS-A::Lower() TO WS-OUT             *> mixed 123
            MOVE "HELLO" TO WS-A
            MOVE WS-A::Lower() TO WS-OUT             *> hello
 
@@ -8341,10 +8353,9 @@ Two examples of each, with what they give:
            MOVE "a-b-c" TO WS-A
            MOVE WS-A::Replace("-" " ") TO WS-OUT           *> a b c
 
-      *> Len() · Length() · Length  — the field's length, not its content's
+      *> Len() — the field's length, not its content's
            COMPUTE WS-N = WS-A::Len()               *> 20   (PIC X(20))
-           COMPUTE WS-N = WS-CSV::Length()          *> 30   (PIC X(30))
-           COMPUTE WS-N = WS-A::Length              *> 20   (no parentheses)
+           COMPUTE WS-N = WS-CSV::Len()             *> 30   (PIC X(30))
            MOVE "  hi  " TO WS-A
            COMPUTE WS-N = WS-A::Trim()::Len()       *> 2    (the content's length)
 
@@ -8356,16 +8367,16 @@ Two examples of each, with what they give:
            MOVE WS-CSV::Split("-")(2) TO WS-OUT     *> b
 ```
 
-They also work on a slice and a table occurrence — `WS-A(5:3)::UpperCase()`,
+They also work on a slice and a table occurrence — `WS-A(5:3)::Upper()`,
 `WS-ROW(2)::Trim()` — and inside a condition: `IF WS-A::Trim() = "yes"`.
 
 > **Notes.**
 > - The results keep the field's **padding**. `Upper`, `Lower` and `Replace` give
 >   back the whole padded field, and the last piece of a `Split` carries the
 >   blanks that follow it; wrap the call in `::Trim()` when the blanks matter.
-> - The methods are **read only**: `MOVE x TO WS-A::UpperCase()` is refused,
+> - The methods are **read only**: `MOVE x TO WS-A::Upper()` is refused,
 >   because a method's result is not a place to put something. Use
->   `MOVE WS-A::UpperCase() TO WS-A` to change the field itself.
+>   `MOVE WS-A::Upper() TO WS-A` to change the field itself.
 > - A literal cannot be the receiver (`"a-b-c"::Split("-")` is a syntax error);
 >   put it in a data item first.
 
@@ -8561,7 +8572,7 @@ name for its first child.
 >                    04  FLAG-2  PIC 9.
 >                        88  SOFT  VALUE 1.
 >        01  REC-12 REDEFINES REC-10.
->            02  FILLER       PIC X(24).
+>            02  FILLER       PIC X(8).
 >            02  STATUS-CODE  PIC 99.
 >
 >            MOVE 11 TO STATUS-CODE.     *> SOFT is now true
@@ -8626,9 +8637,9 @@ also the trap: rename a field on one side and it silently stops being copied.
 >
 > Two more things follow from "a `66` is its covered items". A regrouping that
 > reaches over a table covers **every occurrence** of it, not just the first —
-> `66 R RENAMES ITEM-1 THRU TABLE-2` where `TABLE-2` is `PIC XXX OCCURS 5` is
-> twenty characters wide. And a regrouping of **exactly one** item takes that
-> item's whole description: `66 R RENAMES W` where `W` is `PIC 9(4)` is a
+> `66 R RENAMES ITEM-1 THRU TABLE-2`, with `ITEM-1` `PIC X(5)` and `TABLE-2`
+> `PIC XXX OCCURS 5`, is twenty characters wide (5 + 5 × 3). And a regrouping of
+> **exactly one** item takes that item's whole description: `66 R RENAMES W` where `W` is `PIC 9(4)` is a
 > four-digit numeric item, so `ADD 3500 TO R` with 8000 in it raises
 > `ON SIZE ERROR` and leaves it alone, exactly as `ADD 3500 TO W` would.
 
@@ -9040,7 +9051,7 @@ under the category `national` or `utf-8`, showing its characters as the
 value and its storage in bytes as the length.
 
 > 📷 Screenshot needed — `national-structure-size.png`: open a form's COBOL
-> Structure → WORKING-STORAGE, type `01 WS-MSG PIC N(30).` and leave the
+> Structure ▸ WORKING-STORAGE, type `01 WS-MSG PIC N(30).` and leave the
 > caret on that line. Capture the editor with the size line beneath the
 > status bar.
 
@@ -9094,8 +9105,8 @@ column:
 An `OCCURS … DEPENDING ON` table expands against its count at the moment the
 function is called.
 
-> **A function name you did not implement is now a compile error.** An
-> unrecognised `FUNCTION` used to return **0** silently, so a typo produced a
+> **An unknown function name is a compile error.** A `FUNCTION` the compiler
+> does not recognise used to return **0** silently, so a typo produced a
 > confident wrong answer that nothing reported. `FUNCTION SQRTT(4)` now fails to
 > compile and says *did you mean FUNCTION SQRT?*
 
@@ -9154,12 +9165,12 @@ Hello, World!
 The rules are short:
 
 
-|                                                        |                                                                           |
-| ------------------------------------------------------ | ------------------------------------------------------------------------- |
-| The text starts on the **line after** the opening fence | anything after ``` on that line is a tag, like Markdown's `json`           |
+| Rule                                                    | Detail                                                                    |
+| ------------------------------------------------------- | ------------------------------------------------------------------------- |
+| The text starts on the **line after** the opening fence | anything after ``` on that line is a tag, like Markdown's `json`          |
 | The closing fence's line is **not** text                | nor is the newline before it, so a one-line block has no trailing newline |
 | Interior newlines **are** kept                          | that is the whole point                                                   |
-| **No escaping**                                        | quotes and apostrophes are literal characters                             |
+| **No escaping**                                         | quotes and apostrophes are literal characters                             |
 
 Which makes embedded JSON, SQL and HTML readable:
 
@@ -9239,7 +9250,7 @@ default from the operand's category — so the common case reads like plain text
 | Operand                         | Default               | Why                               |
 | ------------------------------- | --------------------- | --------------------------------- |
 | String literal (`" earns "`)    | `DELIMITED BY SIZE`   | take it verbatim, spaces included |
-| Alphanumeric item (`PIC X`/`A`) | `DELIMITED BY SPACES` | drop the trailing space padding   |
+| Alphanumeric item (`PIC X`/`A`) | `DELIMITED BY SPACE`  | drop the trailing space padding   |
 | Numeric item (`PIC 9`/`S9`)     | `DELIMITED BY SIZE`   | move the field's characters       |
 | Numeric-edited (`PIC ZZ9.99`)   | `DELIMITED BY SIZE`   | move the edited characters        |
 | `FUNCTION …` / expression      | `DELIMITED BY SIZE`   | move the whole computed value     |
@@ -9269,7 +9280,7 @@ produces:
 Joe earns 000100000 or US$100,000.00
 ```
 
-`DELIMITED BY SPACES` here keeps any **internal** spaces (`"Joe Smith"` stays
+`DELIMITED BY SPACE` here keeps any **internal** spaces (`"Joe Smith"` stays
 `"Joe Smith"`) and trims only the trailing pad. Writing an explicit
 `DELIMITED BY …` phrase always overrides the default for every sender it
 governs.
@@ -9340,10 +9351,12 @@ statement is `USE AFTER STANDARD ERROR PROCEDURE ON …`:
 
 The `USE` target can be one or more **file names** (`ON file-1 file-2`), an
 **open mode** (`ON INPUT`, `ON OUTPUT`, `ON I-O`, `ON EXTEND`), or nothing (a
-catch-all that covers every file). **`ON` is optional** — `USE AFTER STANDARD ERROR PROCEDURE OUTPUT.` means the same as `… PROCEDURE ON OUTPUT.`, and a
-program may mix the two spellings across its handlers. When a file operation (`OPEN`, `READ`,
-`WRITE`, `REWRITE`, `DELETE`, `START`, `CLOSE`) finishes with an **error**
-`FILE STATUS` (any class other than `0x`), the matching declarative runs — unless
+catch-all that covers every file). **`ON` is optional** —
+`USE AFTER STANDARD ERROR PROCEDURE OUTPUT.` means the same as
+`… PROCEDURE ON OUTPUT.`, and a program may mix the two spellings across its
+handlers. When a file operation (`OPEN`, `READ`, `WRITE`, `REWRITE`, `DELETE`,
+`START`, `CLOSE`) finishes with an **error** `FILE STATUS` (any class other
+than `0x`), the matching declarative runs — unless
 that same statement carried its own `AT END` / `INVALID KEY` phrase, which always
 takes precedence. After the declarative returns, control continues with the
 statement after the failed operation. (A declarative's own I/O does not
@@ -9582,10 +9595,10 @@ next, so `ADVANCING n LINES` is accepted in all three organizations.
 
 `ADVANCING PAGE`, the `FD`'s `LINAGE` clause and `AT END-OF-PAGE` describe a
 printed page, and Markdown and HTML flow — they have no pages to break. Writing
-either on a rendered report is reported when you check the program, rather than
+any of them on a rendered report is reported when you check the program, rather than
 quietly dropping the page breaks you asked for.
 
-> **Note** — `LINAGE-COUNTER` is one name for the whole program. A program with
+> **Note.** `LINAGE-COUNTER` is one name for the whole program. A program with
 > two `LINAGE` files at once shares it between them; the overwhelmingly common
 > shape is one printed report, and that is the shape it serves.
 
@@ -9604,10 +9617,10 @@ quietly dropping the page breaks you asked for.
 - A report with **no records** is still a report: an empty document, which is a
   result like any other.
 
-⚠️ A report held in memory (the fallback above) is held whole. One written to a
-file is indexed as the reader moves through it, so a very large report is
-cheaper on disk than in memory — which is the usual case, and the one you get
-unless the temporary directory refuses you.
+> ⚠️ **Caveat.** A report held in memory (the fallback above) is held whole. One
+> written to a file is indexed as the reader moves through it, so a very large
+> report is cheaper on disk than in memory — which is the usual case, and the
+> one you get unless the temporary directory refuses you.
 
 ### Ending a tape volume: `CLOSE … REEL` / `CLOSE … UNIT`
 
@@ -9690,11 +9703,11 @@ is a bug worth hearing about.
 > correctly through a variable-length FD, or the other way round — so if two
 > programs share a file, give them the same `RECORD` clause.
 
-**Every `01` under an FD describes the same storage.** They are not separate
-buffers: `SHORT-RECORD` and `LONG-RECORD` above are two readings of one record
-area, exactly as in the COBOL you already write. So a `READ` fills in both — the
-long record's `CUST-NOTES` is there after reading a long record — and a `WRITE`
-sends the whole area, including any part the record it names covers only with
+**The records of an FD are readings of one area.** As described under *Writing it
+the way the standard lets you*, `SHORT-RECORD` and `LONG-RECORD` above are not
+separate buffers. Two things follow here: a `READ` fills in both — the long
+record's `CUST-NOTES` is there after reading a long record — and a `WRITE` sends
+the whole area, including any part the record it names covers only with
 `FILLER`.
 
 **`FILLER` holds its bytes.** An unnamed item in a record description is space
@@ -9774,10 +9787,10 @@ rewriting is how you *ask* for a different length, and `44` is the answer.
 A **relative** file is a table of numbered slots, not a list of records. Slot
 *n* either holds a record or is empty, and an empty slot keeps its number:
 deleting record 7 does not renumber record 8. If you have used relative files
-in PowerCOBOL or isCOBOL the model is the familiar one, and it sits neatly
-between the two organizations either side of it — a sequential file you can
-only walk, an indexed file you address by a key inside the record, and a
-relative file you address by the record's *position*.
+in PowerCOBOL or isCOBOL the model is the familiar one, and it sits between its
+two neighbours: a sequential file you can only walk, an indexed file you address
+by a key inside the record — and a relative file, which you address by the
+record's *position*.
 
 That number lives in the `RELATIVE KEY` item, which is in WORKING-STORAGE, **not
 in the record**:
@@ -9846,8 +9859,8 @@ The statuses worth testing for:
 | `WRITE`, `READ`, `REWRITE` or `DELETE` with a `RELATIVE KEY` of zero         | `24`             |
 | `READ`, `REWRITE`, `DELETE` or `START` on an empty slot, or one past the end | `23`             |
 | `READ NEXT` / `PREVIOUS` with no further record                              | `10`             |
-| A sequential `READ` whose record number will not fit the `RELATIVE KEY` item  | `14`             |
-| Sequential `REWRITE` or `DELETE` with no `READ` before it                     | `43`             |
+| A sequential `READ` whose record number will not fit the `RELATIVE KEY` item | `14`             |
+| Sequential `REWRITE` or `DELETE` with no `READ` before it                    | `43`             |
 | The file is not open in the mode the verb needs                              | `47`, `48`, `49` |
 
 **Size the key item for the whole file.** Status `14` is the one on that list
@@ -9866,8 +9879,9 @@ look, from the outside, as though the file simply ended.
 
 Storage follows the same `STORAGE [MODE] IS MEMORY | DISK` clause as indexed
 files (see §14), and the two containers are required to answer identically — a
-program must not be able to tell which one it is running on. `RECORD IS VARYING` works as it does elsewhere: each slot stores its record's own length,
-so a short record is not padded into ambiguity.
+program must not be able to tell which one it is running on. `RECORD IS VARYING`
+works as it does elsewhere: each slot stores its record's own length, so a short
+record is not padded into ambiguity.
 
 > ⚠️ **Caveat.** Slot numbers start at **1**, never 0, and a random `WRITE`
 > beyond the current end of the file is legal — the slots it skips over become
@@ -9942,8 +9956,8 @@ built-in calls write one line and are done:
 ```
 
 
-|                       |                                                                     |
-| --------------------- | ------------------------------------------------------------------- |
+| Call                   | What it does                                                         |
+| ---------------------- | -------------------------------------------------------------------- |
 | `COBOL::"WRITE-FILE"`  | **Replaces** the file — this is how you write the first, header line |
 | `COBOL::"APPEND-FILE"` | **Adds** to the end — this is how you write every line after it      |
 
@@ -9966,7 +9980,13 @@ A header line and then the rows is the whole pattern:
        01  WS-PATH    PIC X(120) VALUE "audit.csv".
        01  WS-LINE    PIC X(200).
        01  WS-STATUS  PIC X(120).
-      *> ...
+       01  WS-I       PIC 9(4).
+       01  WS-COUNT   PIC 9(4).
+       01  CUSTOMERS.
+           05  CUST OCCURS 100 TIMES.
+               10  CUST-ID    PIC X(4).
+               10  CUST-NAME  PIC X(20).
+      *> ... (the program fills CUST and sets WS-COUNT)
        PROCEDURE DIVISION.
            COBOL::"WRITE-FILE" ( WS-PATH "id,name,total" WS-STATUS ).
            IF WS-STATUS NOT = SPACES
@@ -10228,7 +10248,9 @@ item starts it from.
 - **Crates**: `std`, plus `eframe`, `egui`, `egui_extras` and PowerRustCOBOL's own
   crates. A program containing any block links the GUI crates even when it has no
   forms, so a console program can open a window. A `use` of anything else is
-  rejected, naming the crate; arbitrary dependencies are not supported yet.
+  rejected, naming the crate — unless you have registered that crate under
+  *Project's Crates (Beta)*, further on, which is how a block gets a third-party
+  library.
 - **Errors are reported in your terms.** A Rust type error inside a block fails
   the build at *your* `EXEC RUST` line and column, not at generated code.
 
@@ -10238,7 +10260,7 @@ You can debug it. Press **Debug** exactly as you would for any other form.
 
 There is one thing to know, and it explains everything else: a program with a
 block is always **built** before it runs, and Debug is no exception. The IDE
-says so in the Output pane, builds, and then attaches the debugger to the
+says so in the Output panel, builds, and then attaches the debugger to the
 application the build produced. That is not a limitation being worked around —
 it is the only arrangement in which your Rust actually executes while you step,
 which is what you want from a debugger.
@@ -10266,7 +10288,7 @@ items a block wrote to, since the block runs for real before the next stop.
 
 > ⚠️ **Caveat — the build happens first, and takes as long as a build takes.**
 > Pressing Debug on a program with a block is not instant the way it is for a
-> pure-COBOL form. The Output pane says a build has started; the debugger window
+> pure-COBOL form. The Output panel says a build has started; the debugger window
 > opens, paused at line 1, once it finishes. A build that fails reports the
 > failure and starts nothing — you are not left waiting on a session that will
 > never arrive.
@@ -10381,7 +10403,7 @@ eframe tutorials showing `update` will not compile here.
 > second form built in the designer.** `run_native` is for console programs,
 > where the interpreter owns the main thread.
 
-### Changing a control from inside a block
+#### Changing a control from inside a block
 
 A block is handed `cobolt_objects`, the running program's object registry. Write
 a control property there and the window is repainted when the block returns:
@@ -10410,7 +10432,7 @@ a control property there and the window is repainted when the block returns:
 > designed value — only one it set itself. To read what the operator typed, use
 > `TextBox-1::Text` in COBOL and pass the item into the block.
 
-### Opening a window from a block
+#### Opening a window from a block
 
 A block can open a window of its own and draw whatever egui it likes in it. Use
 `cobolt_windows`, which is in scope in every block:
@@ -10502,7 +10524,7 @@ the form application replays it every frame on your behalf.
 
 > **Beta.** The feature is complete and tested, and the tree calls it
 > *Project's Crates (Beta)* so you know its edges are still being found —
-> the pin format in `cobolt.toml`, the conflict wording and the dialog may
+> the pin format in the project file, the conflict wording and the dialog may
 > still move. What a project records today keeps working.
 
 Out of the box a block may use the Rust standard library and the GUI stack
@@ -10596,8 +10618,9 @@ requirement itself, remove and re-add.
 **When you genuinely need a different version of something PowerRustCOBOL
 already links.** Say your block needs `egui` 0.29 for a reason of your own,
 but the platform itself links `egui` 0.36 — ordinarily that is a plain
-refusal ("already available" / "clashes with the built-in"). For exactly
-this case — a name that collides directly with a linked crate, at a version
+refusal ("already available" / "clashes with the built-in" — those two
+messages come from the build and are worded in English whatever the IDE's
+language). For exactly this case — a name that collides directly with a linked crate, at a version
 that genuinely cannot coexist with the linked one — the dialog offers an
 alternative instead of just refusing: add it under an **alias**
 (`prj_egui`), a second, independent copy living alongside the platform's
@@ -10713,7 +10736,7 @@ spellings you may be bringing with you, for `RECORD KEY` and for
 ```
 
 - The key's value is its fields joined in order: `ORD-KEY` above is the region
-  followed by the order number, even though four other fields sit between them.
+  followed by the order number, even though three other fields sit between them.
 - `WITH DUPLICATES` applies to the whole key — two records may share
   `ORD-CUSTOMER`, or `ORD-CUSTOMER` and `ORD-DATE` together, only when it is
   given.
@@ -10804,7 +10827,7 @@ are coming from PowerCOBOL or isCOBOL this is familiar ground, but it is worth
 testing for explicitly, because the statuses are the only way to see it.
 
 
-| Statement,`ACCESS MODE IS SEQUENTIAL`                                        | `FILE STATUS` |
+| Statement under `ACCESS MODE IS SEQUENTIAL`                                  | `FILE STATUS` |
 | ---------------------------------------------------------------------------- | ------------- |
 | `WRITE` whose `RECORD KEY` is **not greater** than the previous one written  | `21`          |
 | `REWRITE` or `DELETE` with no successful `READ` immediately before it        | `43`          |
@@ -10954,7 +10977,7 @@ flowchart LR
 
 Choose the engine with `rcrun --indexed-engine <name>` (or the
 `COBOL_INDEXED_ENGINE` environment variable). For a project, choose it once in
-**Settings → Default Indexed File Engine**. Run, Run Form, Debug Form and Build
+**Settings ▸ Default Indexed File Engine**. Run, Run Form, Debug Form and Build
 all use that choice, for every form, including the forms another form opens.
 A built application carries the choice with it. When the project leaves it
 empty, the application uses `COBOL_INDEXED_ENGINE` on the machine that runs it.
@@ -10992,8 +11015,12 @@ entries with the operator you supply.
 > as standard file-status codes). The format is **not** binary-compatible with
 > any third-party ISAM; do not assume interchange with other vendors' files.
 
-> ⚠️ **Caveat.** Record locking is single-process (VSAM/RLS-style semantics
-> within one running program). Cross-*process* locking is not implemented.
+> ⚠️ **Caveat — locking works at two levels.** A whole INDEXED file opened
+> `WITH LOCK` or `SHARING WITH NO OTHER` is exclusive **across processes**:
+> another program's `OPEN` of it gets status `93`. **Record** locks
+> (`READ … WITH LOCK`, `UNLOCK`) are single-process — VSAM/RLS-style semantics
+> within one running program — so two processes do not see each other's record
+> locks.
 
 ---
 
@@ -11079,9 +11106,9 @@ does not end the block.
 makes it a host variable. Any item your program declares can be one; the
 value travels to the database as a *parameter*, never pasted into the SQL
 text. A hyphen belongs to the name only right after the colon: in
-`SELECT QTY-1 INTO :WS-QTY-LESS-ONE` the first hyphen is SQL subtraction, the
-second part of the COBOL name. When two items share a name, qualify it:
-`:CITY OF CUSTOMER`, or `:CITY.CUSTOMER`. A host variable is never subscripted
+`SELECT QTY-1 INTO :WS-QTY-LESS-ONE` the hyphen in `QTY-1` is SQL subtraction,
+while the hyphens in `:WS-QTY-LESS-ONE` are part of the COBOL name. When two
+items share a name, qualify it: `:CITY OF CUSTOMER`, or `:CITY.CUSTOMER`. A host variable is never subscripted
 or reference-modified, and COBOL figurative constants (`SPACES`, `ZERO` …)
 have no meaning inside SQL — write an SQL literal instead.
 
@@ -11244,9 +11271,10 @@ when you press **Stop** in the IDE, every connection **rolls back**. Then every
 connection is closed. Ending with an explicit `EXEC SQL COMMIT` is still the
 clearer program.
 
-**Forms share one run unit.** Every form of an application — the main form,
-the windows it opens, the forms loaded into a side menu's pane — uses the same
-SQL connections. A form that connects makes the connection current for all of
+**Forms share their SQL connections.** Every form of an application — the main
+form, the windows it opens, the forms loaded into a side menu's pane — uses the
+same SQL connections. (Only the connections are shared: each form keeps its own
+`WORKING-STORAGE`.) A form that connects makes the connection current for all of
 them, a form opened later reads through it (uncommitted rows included), and
 closing a form releases only its own cursors and prepared statements: the
 connection, and the work on it, belong to the application and are settled
@@ -11473,6 +11501,40 @@ database. Each message names its line:
 Check validates the COBOL side only: table and column names, and the SQL
 dialect itself, are the database's to judge when the statement runs.
 
+**Per database.** The same statements reach all three; these are the
+differences a program can notice.
+
+| | SQLite | PostgreSQL | MySQL |
+|---|---|---|---|
+| A unit of work begins | before the first statement that changes data | before the first statement | before the first statement |
+| A failing statement inside a unit | the unit carries on | the unit carries on (each statement runs under a savepoint) | the unit carries on |
+| `CREATE`/`ALTER`/`DROP` inside a unit | part of the unit | part of the unit | **commits the unit** (MySQL's rule); the next statement starts a new one |
+| `WHERE CURRENT OF` names the row by | its `rowid` | its physical address — a row the same unit changed since the FETCH is not found (`02000`) | the table's **primary key** — a table without one gives `0A000` |
+| `UPDATE` counts | the rows the `WHERE` matched, even when a value is left as it was | the same | the same — the connection asks MySQL to count matched rows, not changed ones |
+| Values a host variable cannot take | — | arrays, ranges, geometry and other special types give `0A000`: cast them in the query (`::text`) | — |
+| `DESCRIBE INPUT` parameter types | unknown | known | unknown |
+
+On all three a cursor reads its rows when it opens, so a query over a very
+large table belongs behind a `WHERE` that narrows it. PostgreSQL and MySQL are
+reached without TLS: use them on a trusted network, or through a tunnel.
+
+**In the editor and the debugger.** The COBOL editor draws an `EXEC SQL`
+block as SQL — keywords, strings and comments in their colours, across as many
+lines as the block takes, with each host variable drawn as the COBOL name it
+is — and goes back to COBOL after `END-EXEC`. **Go to definition** (F12, or a
+click with ⌘ on macOS / Ctrl elsewhere) on a host variable lands on the data
+item's declaration; in a form's event handler it opens the site that declares
+it, the form's WORKING-STORAGE for instance. The debugger steps over a block
+as one statement, so a breakpoint goes on its `EXEC SQL` line — one inside the
+block is refused, with the reason. After each statement the dock's **SQL** tab
+shows what was sent, with `?` where the host variables went, the values bound
+to them, and the SQLSTATE, SQLCODE, rows and message; a `CONNECT` password
+appears only as `******`.
+
+> 📷 **Screenshot needed — `debugger-sql-tab.png`.** Debug a program with an
+> `EXEC SQL INSERT` that uses a host variable, step over it, and capture the
+> dock with the **SQL** tab selected.
+
 ---
 
 ## 16. HTTP / REST and AI agents
@@ -11515,40 +11577,6 @@ The control's properties configure **every request it sends**, so a handler is
 usually a single line — the address and the credentials live in the properties
 pane, not repeated through your COBOL.
 
-**Per database.** The same statements reach all three; these are the
-differences a program can notice.
-
-| | SQLite | PostgreSQL | MySQL |
-|---|---|---|---|
-| A unit of work begins | before the first statement that changes data | before the first statement | before the first statement |
-| A failing statement inside a unit | the unit carries on | the unit carries on (each statement runs under a savepoint) | the unit carries on |
-| `CREATE`/`ALTER`/`DROP` inside a unit | part of the unit | part of the unit | **commits the unit** (MySQL's rule); the next statement starts a new one |
-| `WHERE CURRENT OF` names the row by | its `rowid` | its physical address — a row the same unit changed since the FETCH is not found (`02000`) | the table's **primary key** — a table without one gives `0A000` |
-| `UPDATE` counts | the rows changed | the rows changed | the rows **matched**, as the other two do |
-| Values a host variable cannot take | — | arrays, ranges, geometry and other special types give `0A000`: cast them in the query (`::text`) | — |
-| `DESCRIBE INPUT` parameter types | unknown | known | unknown |
-
-On all three a cursor reads its rows when it opens, so a query over a very
-large table belongs behind a `WHERE` that narrows it. PostgreSQL and MySQL are
-reached without TLS: use them on a trusted network, or through a tunnel.
-
-**In the editor and the debugger.** The COBOL editor draws an `EXEC SQL`
-block as SQL — keywords, strings and comments in their colours, across as many
-lines as the block takes, with each host variable drawn as the COBOL name it
-is — and goes back to COBOL after `END-EXEC`. **Go to definition** (F12, or a
-click with ⌘ on macOS / Ctrl elsewhere) on a host variable lands on the data
-item's declaration; in a form's event handler it opens the site that declares
-it, the form's WORKING-STORAGE for instance. The debugger steps over a block
-as one statement, so a breakpoint goes on its `EXEC SQL` line — one inside the
-block is refused, with the reason. After each statement the dock's **SQL** tab
-shows what was sent, with `?` where the host variables went, the values bound
-to them, and the SQLSTATE, SQLCODE, rows and message; a `CONNECT` password
-appears only as `******`.
-
-> 📷 **Screenshot needed — `debugger-sql-tab.png`.** Debug a program with an
-> `EXEC SQL INSERT` that uses a host variable, step over it, and capture the
-> dock with the **SQL** tab selected.
-
 #### Local settings, or a project connection
 
 Every `RestClient` has a **`Configuration`** property that decides where its
@@ -11559,18 +11587,18 @@ connection comes from:
 - **a named project connection** — its address, method, authentication scheme,
   headers and timeouts replace the control's own before the form runs.
 
-Define connections in **Settings → Integrations → REST connections** (click the
-project tree's top node → *Settings*). Give one a name, a base URL, a default
+Define connections in **Settings ▸ Integrations ▸ REST connections** (click the
+project tree's top node ▸ *Settings*). Give one a name, a base URL, a default
 method, an authentication scheme, a timeout, and its API key. Then point as
 many forms at it as you like: change the address once and every form that uses
 it follows, instead of six forms drifting apart.
 
 > **Where each half is stored — this matters before you commit.** The
 > connection itself (name, URL, method, auth *scheme*, headers, timeouts) is
-> saved in `cobolt.toml` and is **meant to be committed**: a colleague who
+> saved in the project file and is **meant to be committed**: a colleague who
 > checks the project out gets your connections. **The API key is not part of
 > it.** Keys are held in a machine-local store outside the project and are
-> never written to `cobolt.toml`, to a `.cfrm`, or to generated COBOL — so each
+> never written to the project file, to a `.cfrm`, or to generated COBOL — so each
 > developer supplies their own, and a shared repository never carries one.
 >
 > ⚠️ Machine-local means *on this machine, in a file* — it is not the operating
@@ -11588,7 +11616,7 @@ it follows, instead of six forms drifting apart.
 
 The connection travels with the build: `rcrun build` bakes the project's
 connections into the binary, so a built application resolves them with no
-`cobolt.toml` beside it. **The key does not travel with the build** — that is
+project file beside it. **The key does not travel with the build** — that is
 the point of keeping it out of the project — so the machine running the
 application supplies it through an environment variable, one per connection:
 
@@ -11649,7 +11677,8 @@ should hold, and an operations team can see which value goes where.
 - **`TimeoutSeconds`** / **`TimeoutMs`** — bound the request in **both** `Sync`
   and `Async` mode.
 
-A complete pair of handlers, with everything else configured in the designer:
+A complete set of handlers — the click that starts the call, and the two ways it
+can end — with everything else configured in the designer:
 
 ```cobol
       *> Button-1 :: onClick
@@ -11714,7 +11743,7 @@ The control surface, on `RestClient` and `WebSearch`:
 > statement *after* a `GET` relies on the old blocking behaviour. Set that
 > control's `Mode` to `Sync` to keep the original same-statement result, or
 > move the read into an `onComplete` handler. The `COBOL::"HTTP-…"` built-ins
-> is unchanged and always synchronous.
+> are unchanged and always synchronous.
 
 #### An asynchronous SqlDatabase
 
@@ -11930,7 +11959,6 @@ independent halves with different credential needs:
   > Record which one you called (a one-character flag in WORKING-STORAGE is
   > enough) and branch on it, or the handler will read metres as a distance
   > *text* and the polyline as a route summary.
-  >
 - **Regions** fill areas — sales territories, delivery zones, coverage. One line
   per region (`id`⇥`fill`⇥`stroke`⇥`width`⇥`geometry`), or `AddRegion` /
   `RemoveRegion` / `ClearRegions`. Give the fill an alpha (`#RRGGBBAA`) so the
@@ -11966,7 +11994,6 @@ independent halves with different credential needs:
   `MarkerBorderColor` are it, and `RouteCasingColor` applies to every route
   whatever colour the route itself names.
 
-
   ```cobol
            MOVE "#0F7B6C" TO MAP-1::MarkerColor
            MOVE "#FFFFFF" TO MAP-1::MarkerBorderColor
@@ -11976,7 +12003,6 @@ independent halves with different credential needs:
   > but a decision: a region whose own line names no stroke is drawn **without a
   > border**. Naming a colour here gives every such region an outline — which
   > may be more than you wanted on a map of many small territories.
-  >
 
   📄 **Worked example** — `forms/maps/maps-demo.cfrm` in the demo project: five
   salesmen as markers, five coloured territories, Madrid → Granada traced, and
@@ -11994,63 +12020,62 @@ independent halves with different credential needs:
   — `LastError` explains it, `onError` fires — never a crash and never a
   silent network attempt:
 
-⚠️ **All five are asynchronous — they do not return the answer.** The call
-starts the lookup, sets `Busy` to `1` and comes straight back with an **empty
-string**; the result arrives later on the `onComplete` event, in the
-`ResponseBody` property. There is no synchronous mode. So this does *not*
-work, however much it reads like it should:
+  ⚠️ **All five are asynchronous — they do not return the answer.** The call
+  starts the lookup, sets `Busy` to `1` and comes straight back with an **empty
+  string**; the result arrives later on the `onComplete` event, in the
+  `ResponseBody` property. There is no synchronous mode. So this does *not*
+  work, however much it reads like it should:
 
-> **Note — `ResponseBody`, `StatusCode`, `LastError` and `Busy` are read-only
-> runtime properties.** Do not look for them in the property inspector: the
-> runtime writes them when it has something to report, so they have no
-> design-time value, no default, and are not stored in the form. They are read
-> exactly like any other property, and only reading them makes sense — an
-> answer is not a setting.
+  ```cobol
+        *> WRONG — Geocode returns immediately, before any answer exists,
+        *> so WS-GEOCODE-RESULT is always empty.
+             MOVE Map1::Geocode("1600 Amphitheatre Parkway") TO WS-GEOCODE-RESULT.
+  ```
 
-```cobol
-      *> WRONG — Geocode returns immediately, before any answer exists,
-      *> so WS-GEOCODE-RESULT is always empty.
-           MOVE Map1::Geocode("1600 Amphitheatre Parkway") TO WS-GEOCODE-RESULT.
-```
+  Start the lookup in one handler and read the answer in the other:
 
-Start the lookup in one handler and read the answer in the other:
+  ```cobol
+        *> Btn-Find :: onClick — start it
+         FIND-ADDRESS-PARA.
+             Map1::Geocode("1600 Amphitheatre Parkway, Mountain View").
 
-```cobol
-      *> Btn-Find :: onClick — start it
-       FIND-ADDRESS-PARA.
-           Map1::Geocode("1600 Amphitheatre Parkway, Mountain View").
+        *> Map1 :: onComplete — the answer landed in ResponseBody
+         ADDRESS-FOUND-PARA.
+             MOVE Map1::ResponseBody TO WS-GEOCODE-RESULT.
+        *>   WS-GEOCODE-RESULT = "lat<TAB>lng<TAB>formatted address"
+             UNSTRING WS-GEOCODE-RESULT DELIMITED BY X"09"
+                 INTO WS-LAT WS-LNG WS-ADDRESS.
+             MOVE WS-LAT TO Map1::CenterLat.
+             MOVE WS-LNG TO Map1::CenterLng.
+             MOVE 16     TO Map1::Zoom.
 
-      *> Map1 :: onComplete — the answer landed in ResponseBody
-       ADDRESS-FOUND-PARA.
-           MOVE Map1::ResponseBody TO WS-GEOCODE-RESULT.
-      *>   WS-GEOCODE-RESULT = "lat<TAB>lng<TAB>formatted address"
-           UNSTRING WS-GEOCODE-RESULT DELIMITED BY X"09"
-               INTO WS-LAT WS-LNG WS-ADDRESS.
-           MOVE WS-LAT TO Map1::CenterLat.
-           MOVE WS-LNG TO Map1::CenterLng.
-           MOVE 16     TO Map1::Zoom.
+        *> Map1 :: onError — LastError says why
+         ADDRESS-FAILED-PARA.
+             DISPLAY "Lookup failed: " Map1::LastError.
+  ```
 
-      *> Map1 :: onError — LastError says why
-       ADDRESS-FAILED-PARA.
-           DISPLAY "Lookup failed: " Map1::LastError.
-```
+  > **Note — `ResponseBody`, `StatusCode`, `LastError` and `Busy` are read-only
+  > runtime properties.** Do not look for them in the property inspector: the
+  > runtime writes them when it has something to report, so they have no
+  > design-time value, no default, and are not stored in the form. They are read
+  > exactly like any other property, and only reading them makes sense — an
+  > answer is not a setting.
 
+  | Method                                | `onComplete` leaves in `ResponseBody`                          |
+  | ------------------------------------- | -------------------------------------------------------------- |
+  | `Geocode(address)`                    | `lat`⇥`lng`⇥`formatted_address`                              |
+  | `ReverseGeocode(lat, lng)`            | the formatted address                                          |
+  | `Directions(origin, destination)`     | seven fields: `distance_text`⇥`duration_text`⇥`route_summary`⇥`distance_metres`⇥`duration_seconds`⇥`polyline`⇥`duration_in_traffic_seconds` (see *Drive time comes back as numbers*, above) |
+  | `DistanceMatrix(origin, destination)` | `distance_text`⇥`duration_text`                               |
+  | `PlacesSearch(query, radiusMeters)`   | one `place_id`⇥`name`⇥`address`⇥`lat`⇥`lng` line per result |
 
-| Method                                | `onComplete` leaves in `ResponseBody`                          |
-| ------------------------------------- | -------------------------------------------------------------- |
-| `Geocode(address)`                    | `lat`⇥`lng`⇥`formatted_address`                              |
-| `ReverseGeocode(lat, lng)`            | the formatted address                                          |
-| `Directions(origin, destination)`     | `distance_text`⇥`duration_text`⇥`route_summary`              |
-| `DistanceMatrix(origin, destination)` | `distance_text`⇥`duration_text`                               |
-| `PlacesSearch(query, radiusMeters)`   | one `place_id`⇥`name`⇥`address`⇥`lat`⇥`lng` line per result |
+  Like every other async control, Maps offers the four lifecycle events —
+  `onComplete`, `onError`, `onTimeout` and `onCancelled` — alongside its own
+  `onMapClick` / `onMarkerClick` / `onBoundsChanged`.
 
-Like every other async control, Maps offers the four lifecycle events —
-`onComplete`, `onError`, `onTimeout` and `onCancelled` — alongside its own
-`onMapClick` / `onMarkerClick` / `onBoundsChanged`.
-
-> **Note.** `X"09"` above is the standard hexadecimal literal for a TAB. Write
-> any byte that way (`X"0D0A"` is CR LF); each *pair* of hex digits is one
-> character, so the digit count is always even.
+  > **Note.** `X"09"` above is the standard hexadecimal literal for a TAB. Write
+  > any byte that way (`X"0D0A"` is CR LF); each *pair* of hex digits is one
+  > character, so the digit count is always even.
 
 **Data binding.** A Maps control can be a standalone binding target: bind
 its `Markers` collection to a source with `Lat`/`Lng`/`Label` fields mapped
@@ -12093,10 +12118,9 @@ a form built before the control had a choice behaves exactly as it did.
 > and a JSON-disabled instance returns a page the control cannot read (you will
 > get zero results rather than an error).
 
-Set `Query`, `NumResults` and `SafeSearch`, then call `Search()`:
-
-Results arrive on **`onResultsReceived`**, the control's primary event and the
-one a double-click binds. The uniform `onComplete` is raised straight after it,
+Set `Query`, `NumResults` and `SafeSearch`, then call `Search()`. The results
+arrive on **`onResultsReceived`**, the control's primary event and the one a
+double-click binds. The uniform `onComplete` is raised straight after it,
 so a handler on either works — bind whichever reads better, not both:
 
 ```cobol
@@ -12126,18 +12150,18 @@ another — defines **named search connections** instead, exactly as it does for
   connection instead, including its own key. The local rows disappear from the
   pane, because every one of them is dictated by the connection.
 
-Define them in **Settings → Integrations → Web search connections**: a name, a
+Define them in **Settings ▸ Integrations ▸ Web search connections**: a name, a
 provider, its engine id (Google) or instance URL (SearXNG), and its API key.
 SearXNG is not asked for a key, because it has no account.
 
 > **A connection does not carry `NumResults` or `SafeSearch`.** Those stay on
 > the control, because they are per-call settings your COBOL changes at run
-> time — `MOVE 10 TO Search-1::NumResults` before a `Search()` is an ordinary
+> time — `MOVE 10 TO SEARCH-1::NumResults` before a `Search()` is an ordinary
 > thing to write. A connection that carried them would overwrite what you
 > designed, and silently beat any value your program set at start-up.
 
 > The same storage split as the REST connections: the connection is saved in
-> `cobolt.toml` and is meant to be committed, the key never is. A built
+> the project file and is meant to be committed, the key never is. A built
 > application carries the connections baked in and reads each key from
 > `COBOLT_CONNECTION_KEY_<ID>` on the machine that runs it.
 
@@ -12159,10 +12183,9 @@ produce the same silence. `Verbose` is what separates them.
 > in output that ends up pasted into a bug report.
 
 **Where the key comes from.** For a control on `(Local)`: the project-level
-search credential (Settings → Integrations), the same way Maps resolves its
-key. A control may
-override it with its own `ApiKey` property when one form has to search under a
-different account than the project default — leave `ApiKey` empty and the
+search credential (the project's **Settings ▸ Integrations**), the same way Maps
+resolves its key. A control may override it with its own `ApiKey` property when
+one form has to search under a different account than the project default — leave `ApiKey` empty and the
 project's key is used. `SearXNG` needs no key at all; it needs `Endpoint`.
 Either way the check happens **before anything is sent**: a control missing its
 key (or, for SearXNG, its `Endpoint`) fails immediately with `onError` and
@@ -12180,19 +12203,19 @@ percent-encodes the query, resolves the credential, and honours `Provider`.
 
 An `AgentObject` also has a **`Configuration`** property, but it does not point
 at a project connection. It points at one of the **Model Providers** you have
-configured in the IDE (Settings → Models) — the same list Grace and the
-specialists use.
+configured in the IDE (the IDE's own **Settings ▸ Models**, not the project's)
+— the same list Grace and the specialists use.
 
-- **`(Local)`** — the default: this control's own `AgentAPI`, `URL` and
-  `API Key`.
+- **`(Local)`** — the default: this control's own `AgentAPI`, `AgentURL` and
+  `AgentAPIKey`.
 - **a configured provider** — its protocol, endpoint and API key are used
-  instead, and **the `API Key` row disappears from the properties pane**. That
+  instead, and **the API key row disappears from the properties pane**. That
   is the whole point: a provider's key is entered once, in one place, and never
   copied onto a form. A `.cfrm` is a file people commit.
 
-The **model and the tuning stay yours**: `Model`, `Temperature`,
-`Maximum tokens` and `Timeout` remain on the control even while it is bound,
-because one provider offers many models and which one this agent uses is a
+The **model and the tuning stay yours**: `AgentModel`, `Temperature`,
+`MaximumTokens` and `TimeoutSeconds` remain on the control even while it is
+bound, because one provider offers many models and which one this agent uses is a
 property of this agent.
 
 > ⚠️ **This binding is machine-scoped.** Model Providers are configured per
@@ -12201,8 +12224,10 @@ property of this agent.
 > application, needs that provider configured too. The control says so plainly
 > ("this machine has no such model provider configured") rather than pretending
 > the project is broken. A deployed application receives them through the
-> `COBOLT_AGENT_PROVIDERS` environment variable, and each key through
-> `COBOLT_CONNECTION_KEY_<PROVIDER>`.
+> `COBOLT_AGENT_PROVIDERS` environment variable, and each provider's key
+> through `COBOLT_CONNECTION_KEY_<ID>` — the same variable a REST or Web Search
+> connection uses, with `<ID>` the provider's id, upper-cased and with dashes
+> written as underscores.
 
 ##### Models your users choose: the model list and the key store
 
@@ -12266,8 +12291,8 @@ example).
 **Offering your users the IDE's providers.** The IDE's Model Providers Manager
 knows seventeen providers — OpenAI, Anthropic, Cohere, Google Gemini,
 Perplexity, Mistral, Groq, OpenRouter, HuggingFace, Together AI, DeepSeek,
-Alibaba, xAI, Voyage AI, Ollama (local and cloud) and Llamafile — each with its
-default endpoint, whether it needs a key, how it lists its models and how its
+Alibaba, xAI, Voyage AI, Ollama (Local and Cloud, which count as two) and
+Llamafile — each with its default endpoint, whether it needs a key, how it lists its models and how its
 connection is tested. A built application has the same list and the same
 rules, without the IDE:
 
@@ -12328,9 +12353,9 @@ what happened:
 | `Truncated` | 1 when the answer is still incomplete: the limit cut it off and the continuations ran out (or `MaximumContinuations` is 0). |
 
 ```cobol
-       AGT-1--ONRESPONSE.
-           MOVE AGT-1::LastReply TO WS-ANSWER
-           IF AGT-1::Truncated = "1"
+       AGENT-1--ONRESPONSE.
+           MOVE AGENT-1::LastReply TO WS-ANSWER
+           IF AGENT-1::Truncated = "1"
                MOVE "Incomplete answer: ask for less." TO LBL-STATUS::Caption
            END-IF.
 ```
@@ -12382,16 +12407,16 @@ while the model thinks. The answer therefore arrives in a *second* handler —
            STRING "Summarise these search results in three bullet points: "
                   SEARCH-1::TopTitle " — " SEARCH-1::TopSnippet
              INTO WS-SUMMARY-PROMPT
-           Agent1::Ask(WS-SUMMARY-PROMPT).
+           AGENT-1::Ask(WS-SUMMARY-PROMPT).
 
-       AGENT1--ONRESPONSE.
-           MOVE Agent1::LastReply TO Summary-Box::Text.
+       AGENT-1--ONRESPONSE.
+           MOVE AGENT-1::LastReply TO Summary-Box::Text.
 
-       AGENT1--ONERROR.
-           MOVE Agent1::LastError TO Summary-Box::Text.
+       AGENT-1--ONERROR.
+           MOVE AGENT-1::LastError TO Summary-Box::Text.
 ```
 
-> ⚠️ **Do not write `MOVE Agent1::Ask(...) TO X`.** `Ask` returns the empty
+> ⚠️ **Do not write `MOVE AGENT-1::Ask(...) TO X`.** `Ask` returns the empty
 > string — the reply does not exist yet when the statement finishes — so that
 > `MOVE` silently clears the receiving field. This is the same convention every
 > other non-visual control follows (`RestClient::Get`, `Maps::Geocode`,
@@ -12411,7 +12436,9 @@ while the model thinks. The answer therefore arrives in a *second* handler —
 > - **`TimeoutSeconds`** — once the answer has begun, the longest it may fall
 >   **silent** between two pieces. Every agent request is streamed on the wire
 >   (you see the pieces only with `StreamReply`), so a long answer that keeps
->   coming is never cut off, however long it takes in total.
+>   coming is never cut off, however long it takes in total. (An `Ask` that
+>   *offers tools* is timed differently: there the limit covers the whole
+>   question — see *Letting an agent use tools*.)
 
 **Showing the reply while it arrives — `StreamReply`.** A long answer can take
 many seconds, and an empty box for all of them feels broken. Turn `StreamReply`
@@ -12425,19 +12452,19 @@ still ends the way it always did — `onResponse`, once, with the whole text in
        SEND-BUTTON--ONCLICK.
            INVOKE VWR-1::AppendMarkdown("**Assistant:**")
                RETURNING WS-MESSAGE-ID.
-           Agent1::Ask(Prompt-Box::Text).
+           AGENT-1::Ask(Prompt-Box::Text).
 
-       AGENT1--ONPARTIALREPLY.
+       AGENT-1--ONPARTIALREPLY.
            INVOKE VWR-1::AppendToMessage(WS-MESSAGE-ID,
-               Agent1::ReplyPiece, "Raw").
+               AGENT-1::ReplyPiece, "Raw").
 
-       AGENT1--ONRESPONSE.
-           MOVE Agent1::LastReply TO WS-LAST-ANSWER.
+       AGENT-1--ONRESPONSE.
+           MOVE AGENT-1::LastReply TO WS-LAST-ANSWER.
 ```
 
-> **Notes.** `TimeoutSeconds` is a limit on *silence*: every piece that
-> arrives restarts it, so a long answer that keeps coming is never cut off,
-> while a provider that goes quiet still times out. `Busy` stays true until
+> **Notes.** For an ordinary `Ask`, `TimeoutSeconds` is a limit on *silence*:
+> every piece that arrives restarts it, so a long answer that keeps coming is
+> never cut off, while a provider that goes quiet still times out. `Busy` stays true until
 > `onResponse` (or `onError`). An Ask that offers tools is never *shown* on
 > the way — its rounds are answered by your program, not read — though each
 > round is streamed on the wire like any other request.
@@ -12456,12 +12483,12 @@ a RestClient response can.
 
 ### Data & credentials
 
-The **google_maps** key (Maps' Directions/Geocoding/Places/Distance-Matrix
-methods) and the **search API key** + **Search Engine id** (WebSearch)
+The **Google Maps API key** (Maps' Directions/Geocoding/Places/Distance-Matrix
+methods) and the **Search API key** + **Search Engine id** (WebSearch)
 are configured once per project, in the **Integrations** section of
-project Settings (click the project tree's top node → *Integrations*) —
-the same machine-local pattern already used for AI provider keys (see *The
-AI assistant* above):
+project Settings (click the project tree's top node ▸ *Integrations*) —
+the same machine-local pattern already used for AI provider keys (see *The AI
+assistant (optional)* in §5):
 
 
 | Field                     | Meaning                                                                                         |
@@ -12470,17 +12497,23 @@ AI assistant* above):
 | **Search API key**        | Used by `WebSearch`'s `Search()` — the key for whichever `Provider` the control is set to (Google, Brave, Serper or Tavily). `SearXNG` needs none. A control may override this with its own `ApiKey` property. |
 | **Search Engine id (cx)** | Which Google Custom Search engine to query — a plain, non-secret id, entered separately from the key. Read only when `Provider` is `Google`. |
 
-Both keys are **machine-local, never written to `cobolt.toml`, the `.cfrm`
-form file, or any generated `.cbl`** — the same discipline the AI
-assistant's own API key already follows. Running a form seeds the resolved
+The two keys — the **Google Maps API key** and the **Search API key** (the
+Search Engine id is a plain id, not a key) — are **machine-local, never written
+to the project file, the `.cfrm` form file, or any generated `.cbl`** — the same
+discipline the AI assistant's own API key already follows. Running a form seeds the resolved
 key into the interpreter as a runtime-only value; it never becomes literal
 generated-source text, so it cannot leak through a shared `.cbl` file
 (Build and Run compile the exact same generated source).
 
 ### Driving the IDE with an AI agent (MCP)
 
-The IDE itself is agent-operable. At startup it serves the **egui inspection
-protocol** on `127.0.0.1:5719` (change the port under ⚙ *Settings* → AI —
+The IDE itself is agent-operable. This section describes the IDE's generic
+**inspection endpoint**, which lets an agent see and drive the IDE's own
+windows. It is not how an agent builds your *application*: for that, the
+coding-agent tools described in the next section run on a server of their own
+(port 5720 by default) and work through the product rather than through its
+windows. The two ports are always different. At startup the IDE serves the
+**egui inspection protocol** on `127.0.0.1:5719` (change the port under ⚙ *Settings* ▸ AI —
 takes effect on restart; the Output console shows the listen address). Through
 it an agent can read the live widget tree, click and type on real IDE
 controls, resize the window, and capture screenshots.
@@ -12614,6 +12647,8 @@ indexed files, a DataGrid bound to an indexed file, a REST call, a question to
 a model through an AgentObject, and a small modal dialog that answers its
 caller. The agent reads the closest one before writing its own.
 
+The tools the agent has are these:
+
 - **`list_files`** — the files the project tracks, and the gap reports.
 - **`check`** — the IDE's own Check: every form's code, every source, every
   `.cfrm` and `.cidx`, the main-form designation and data-binding problems. A
@@ -12722,7 +12757,7 @@ The reports appear in the project tree under **Compiler requests**, newest
 first, as soon as the agent writes one. Click a report to open it. The node is
 absent while there is none.
 
-> 📷 **Screenshot needed — `claude-code-settings.png`.** Help ▸ Claude Code
+> 📷 **Screenshot needed — `claude-code-settings.png`.** Help ▸ Coding Agent
 > Settings after a successful Configure: Claude Code found, the plugin up to
 > date, the tool server listening and the access token set; with the Output
 > panel below showing the "Claude Code is configured" line.
@@ -12753,7 +12788,9 @@ described as *"one row per employment record"* with a field described as
 #### Choosing which files may be consulted
 
 Describing a file does **not** publish it. Nothing is consultable until your
-application marks it so, and an application that marks nothing answers nothing:
+application marks it so — with `AllowFile` or `RegisterFile`, which the next
+section, *Letting an agent use tools*, shows — and an application that marks
+nothing answers nothing:
 
 ```
     ACTORS-FILE: no consultable file is served by that tool
@@ -12815,8 +12852,8 @@ container decides how it is read, not the search:
 | redb | records on demand | bounded, any size |
 | `PRCIDX1`: written by a MEMORY program before 1.80.37 | loaded whole | grows with the file |
 
-So the project carries a **memory limit** — *Project Settings → Runtime → Model
-file-search memory*, stored in `cobolt.toml` as `[agents] file_memory_limit_mb`,
+So the project carries a **memory limit** — *Project Settings ▸ Runtime ▸ Model
+file-search memory*, stored in the project file as `[agents] file_memory_limit_mb`,
 64 MB unless you change it — and it applies to the last row only.
 Ask to search such a file larger than that limit and the tool
 declines, naming both numbers:
@@ -12999,7 +13036,7 @@ users in your own tables.
 >   counts reclaimable cache differently. Treat it as a guard, not a promise.
 > - `smb://` works over SMB 2 and 3. SMB 1 is not supported.
 
-📷 Screenshot needed — `registerfile-project-settings.png`: *Project Settings →
+📷 Screenshot needed — `registerfile-project-settings.png`: *Project Settings ▸
 Runtime* with the **Model file-search memory** field visible (set it to 64 MB).
 
 **A tool your program answers.** Declare it, describe its arguments, and answer
@@ -13040,6 +13077,10 @@ declared, and every value in it is a string.
 | `MaximumContinuations` | How many times an answer cut off by `MaximumTokens` is continued (default 4; see "A long answer is never cut short in silence"). |
 | `LastInputTokens`, `LastOutputTokens` | Tokens the provider reported for the last `Ask`, summed over every round. |
 | `LastToolCallCount` | How many tools the model called during the last `Ask`. |
+| `ToolCallId`, `ToolName`, `ToolArguments` | Read-only, during `onToolCall`: the id of the call to pass to `SetToolResult`, the tool's name, and its arguments as a JSON object. `ToolName` and `ToolArguments` are also set during `onToolUse`. |
+| `ToolKind` | Read-only, during `onToolUse`: `KnowledgeBase` or `IndexedFile`. |
+| `RegisterResult`, `RegisterMessage` | Read-only, after `RegisterFile`: the outcome code (table above) and the same outcome in English. |
+| `RegisterFileBytes`, `RegisterLimitBytes` | Read-only, after `RegisterFile`: the size of the file it examined and the limit it was compared with, in bytes. |
 
 **`Native` or `Fenced`.** With `Native`, tools use the provider's own
 tool-calling format — OpenAI-compatible servers, Ollama and Anthropic each have
@@ -13071,8 +13112,10 @@ on every agent except the one doing the tool work.
 >   without tools. They are how you watch what a question costs.
 
 > ⚠️ **Caveats.**
-> - `TimeoutSeconds` bounds the **whole** question — every round, and every
->   wait for your handler. A tool that runs a long batch job should hand the
+> - For an `Ask` that offers tools, `TimeoutSeconds` bounds the **whole**
+>   question — every round, and every wait for your handler — and the pieces
+>   of an answer do not restart it, unlike a plain `Ask`, where it only
+>   limits the silence between pieces. A tool that runs a long batch job should hand the
 >   work off and answer at once. `StartTimeoutSeconds` applies to each round
 >   on its own: every request to the model must begin in time.
 > - A model that keeps calling tools is stopped at `MaximumToolRounds` with
@@ -13093,14 +13136,11 @@ There is nothing to answer: the result goes straight to the model. It is what
 a chat needs to say "searching the Knowledge Base…" while it happens.
 
 ```cobol
-       PROGRAM-ID. AGENT-1--ONTOOLUSE.
-       PROCEDURE DIVISION.
-           MOVE AGENT-1::ToolKind TO WS-KIND
-           IF WS-KIND = "KnowledgeBase"
+       AGENT-1--ONTOOLUSE.
+           IF AGENT-1::ToolKind = "KnowledgeBase"
                INVOKE VWR-1::ReplaceMessage(WS-STATUS-ID,
                    "*Searching the documents...*", "Markdown")
-           END-IF
-           .
+           END-IF.
 ```
 
 ### Your users' documents: the KnowledgeBase control
@@ -13111,8 +13151,8 @@ notes. It is the application's own. It has nothing to do with the Knowledge
 Base the IDE's assistant uses while you design, and a built application carries
 nothing of the IDE for it.
 
-Drop a **KnowledgeBase** from the Toolbox (*NonVisual*) onto a form. It holds
-**collections**: independent sets of documents, each in its own folder with a
+Drop a **KnowledgeBase** from the Toolbox (its **Non-Visual** group) onto a
+form. It holds **collections**: independent sets of documents, each in its own folder with a
 searchable index built from them.
 
 ```text
@@ -13130,9 +13170,25 @@ searchable index built from them.
 | `Location` | The folder holding the collections. Relative paths start at the application's folder; it may be a folder on another machine in your network. |
 | `Collection` | The collection the document and search methods act on. |
 | `Embedder` | `Lexical`, `Endpoint` or `Builtin` — see *How text is matched*. |
+| `EmbeddingAPI`, `EmbeddingURL`, `EmbeddingModel` | For `Endpoint`: the server's wire format (`Ollama`, `OpenAI`, `LMStudio` or `Custom`), its base address, and the embedding model asked for (default `nomic-embed-text`). |
+| `EmbeddingAPIKey` | For `Endpoint`: the server's key. Never saved in the form — it comes from the machine's key store or the environment at run time. |
+| `Configuration`, `ModelEntry` | For `Endpoint`: instead of the three `Embedding…` rows, name one of your Model Providers (`Configuration`) or a model-list entry (`ModelEntry`, set at run time) — see *Which settings an agent uses*. |
 | `MaximumResults` | Hits a `Search` returns when it names no maximum (5). |
 | `WriteWaitMilliseconds` | How long a write waits for another application writing the same collection (5000). |
 | `ArchiveMaximumMegabytes`, `ArchiveMaximumFiles`, `ArchiveMaximumDepth` | Bounds on reading an archive of documents (500 MB, 10,000 files, 3 levels) — see *Which documents it reads*. |
+
+The control also reports, read-only and at run time:
+
+| Property | What it holds |
+|---|---|
+| `LastError` | Why the last operation failed, with `onError` or `onBusy`; empty after one that succeeded. |
+| `ProgressDocument`, `ProgressCurrent`, `ProgressTotal` | In `onProgress`: the document just handled, how many documents are done, and how many the update touches. |
+| `ProgressPassage`, `ProgressPassages` | In `onProgress`, while a document is being embedded: how many of its passages are done (reported after each batch of 16) and how many it was split into — 0 otherwise. Embedding is most of an update's time, so this is the pair to put a progress bar against. |
+| `AddedCount`, `UpdatedCount`, `RemovedCount`, `SkippedCount`, `SkippedDocuments` | In `onIndexed`: what the update did, and each skipped document as `document: code (explanation)` — see *Which documents it reads*. |
+| `PassageCount` | In `onIndexed`: how many passages the update stored. |
+| `SearchMode`, `SearchModeReason` | `Semantic` or `Lexical`: how the last search was scored, or how the last update stored its documents; `SearchModeReason` says why it is `Lexical` (the lexical embedder, an unreachable embedding server, a model not fetched, a collection indexed with another embedder). |
+| `ResultCount` | In `onSearchComplete`: how many hits there are, read with `GetResultDocument` … `GetResultScore(n)`. |
+| `CollectionCount`, `DocumentCount` | What the last `ListCollections` and `ListDocuments` found. |
 
 #### Everything happens in the background
 
@@ -13318,8 +13374,8 @@ share provides.
 #### Letting an agent read the documents
 
 ```cobol
-           MOVE AGT-1::AllowKnowledgeBase("KB-1") TO WS-OK
-           MOVE AGT-1::Ask("How much annual leave do we get?") TO WS-OK
+           MOVE AGENT-1::AllowKnowledgeBase("KB-1") TO WS-OK
+           MOVE AGENT-1::Ask("How much annual leave do we get?") TO WS-OK
 ```
 
 The model now has a tool that searches the collection (the control's
@@ -13344,7 +13400,8 @@ from another.
 
 ### Calling AWS: the AWS controls
 
-The non-visual controls in the toolbox's **AWS** section reach Amazon Web
+The non-visual controls in the toolbox's **AWS** group (on a form they sit on
+the *Non-Visuals* tab, like any other non-visual control) reach Amazon Web
 Services from COBOL:
 
 | Control | What it does |
@@ -13403,7 +13460,7 @@ on its connection until the application ends.
 
 #### AWS connections
 
-**Settings → Integrations → AWS** holds the project's AWS connections: a name,
+**Settings ▸ Integrations ▸ AWS** holds the project's AWS connections: a name,
 an **AWS profile**, a **region**, which Lambda functions the application may
 reach (a **function prefix** such as `sales-`, or a comma-separated **function
 list**), and an optional route override for advanced cases. Nothing secret is
@@ -13415,7 +13472,7 @@ to install it), the profile is not signed in (and the `aws login` command to
 run), the server does not answer as expected, or **connected** — with the
 Lambda functions it found.
 
-> 📷 **Screenshot needed — `aws-connections.png`.** Open Settings →
+> 📷 **Screenshot needed — `aws-connections.png`.** Open Settings ▸
 > Integrations, add an AWS connection with a profile and region, press **Test
 > connection**, and capture the AWS section showing the connection and the
 > green "Connected. Lambda functions offered: …" line.
@@ -13430,17 +13487,27 @@ an empty Connection means that only one.
 
 #### Nothing changes AWS until you say so: `AllowWrite`
 
-`AllowWrite` is **off** on every new AWS control. While it is off:
+`AllowWrite` is **off** on every new AWS control. While it is off, every
+operation that changes something, starts something or is billed for acting is
+refused. This is the complete list:
 
-- `Invoke` on an `AwsLambda` is refused — running a function can change
-  anything, so it counts as a write;
-- `Call` on an `AwsMcp` is refused for any tool its server does not declare
-  read-only;
-- so are `AwsAgentCore`'s `Invoke`, `AwsAgentMemory`'s `RecordEvent`,
-  `AwsS3Tables`'s `AppendRows`, and `AwsGlue`'s `StartJobRun` and
-  `StartCrawler` — every operation that changes something, starts something
-  or is billed for acting;
-- a server that has a read-only mode starts in it.
+| Control | Refused while `AllowWrite` is off |
+|---|---|
+| `AwsLambda` | `Invoke` — running a function can change anything, so it counts as a write |
+| `AwsAgentCore` | `Invoke` |
+| `AwsAgentMemory` | `RecordEvent` |
+| `AwsS3Tables` | `AppendRows` |
+| `AwsGlue` | `StartJobRun`, `StartCrawler` |
+| `AwsDynamoDB` | `PutItem`, `UpdateItem`, `DeleteItem` |
+| `AwsS3` | `PutObject`, `DeleteObject` |
+| `AwsS3Vectors` | `PutVectors` |
+| `AwsEC2` | `Start`, `Stop` |
+| `AwsCognito` | `SignUp`, `Confirm` |
+| `AwsMcp` | `Call`, for any tool its server does not declare read-only |
+
+Every other operation only reads, and `AwsKnowledgeBase`, `AwsRekognition`,
+`AwsPolly`, `AwsComprehend` and `AwsTextract` have no operation on the list at
+all. A server that has a read-only mode starts in it.
 
 A refused call sends nothing and raises `onError` with `LastError` saying
 why. Turn `AllowWrite` on for exactly the controls that need it.
@@ -13452,29 +13519,17 @@ answer arrives as `onInvoked`, then `onComplete`.
 
 ```cobol
        PROGRAM-ID. BTN-QUOTE--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-FUNCTION   PIC X(40) VALUE "sales-quote".
-       01 WS-PAYLOAD    PIC X(200).
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           MOVE '{"customer": 1042, "items": 3}' TO WS-PAYLOAD
-           INVOKE LAMBDA-1 "Invoke" USING WS-FUNCTION WS-PAYLOAD
-               RETURNING WS-STARTED
+           LAMBDA-1::Invoke("sales-quote",
+               '{"customer": 1042, "items": 3}')
            .
 
        PROGRAM-ID. LAMBDA-1--ONINVOKED.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-ANSWER     PIC X(2000).
-       01 WS-FAILED     PIC X(200).
        PROCEDURE DIVISION.
-           MOVE LAMBDA-1::FunctionError TO WS-FAILED
-           IF WS-FAILED = SPACES
-               MOVE LAMBDA-1::ResponseBody TO WS-ANSWER
-               MOVE WS-ANSWER TO LBL-QUOTE::Caption
+           IF LAMBDA-1::FunctionError = SPACES
+               MOVE LAMBDA-1::ResponseBody TO LBL-QUOTE::Caption
            ELSE
-               MOVE WS-FAILED TO LBL-QUOTE::Caption
+               MOVE LAMBDA-1::FunctionError TO LBL-QUOTE::Caption
            END-IF
            .
 ```
@@ -13493,8 +13548,8 @@ With `Mode = Sync` the same `Invoke` waits and returns the answer itself:
 
 ```cobol
            MOVE "Sync" TO LAMBDA-1::Mode
-           INVOKE LAMBDA-1 "Invoke" USING WS-FUNCTION WS-PAYLOAD
-               RETURNING WS-ANSWER
+           MOVE LAMBDA-1::Invoke("sales-quote", '{"customer": 1042}')
+               TO LBL-QUOTE::Caption
 ```
 
 #### Example: call any AWS tool with `AwsMcp`
@@ -13505,22 +13560,13 @@ its tools with a JSON object of arguments. `ListTools` lists them — `Name`,
 
 ```cobol
        PROGRAM-ID. BTN-TOOLS--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-TOOL       PIC X(60) VALUE "list_functions".
-       01 WS-ARGS       PIC X(200) VALUE "{}".
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           INVOKE MCP-1 "Call" USING WS-TOOL WS-ARGS RETURNING WS-STARTED
+           MCP-1::Call("list_functions", "{}")
            .
 
        PROGRAM-ID. MCP-1--ONTOOLRESULT.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-TEXT       PIC X(4000).
        PROCEDURE DIVISION.
-           MOVE MCP-1::ResponseBody TO WS-TEXT
-           MOVE WS-TEXT TO TXT-OUT::Text
+           MOVE MCP-1::ResponseBody TO TXT-OUT::Text
            .
 ```
 
@@ -13550,40 +13596,26 @@ how well it matched.
 
 ```cobol
        PROGRAM-ID. BTN-ASK--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-KB         PIC X(20) VALUE SPACES.
-       01 WS-QUESTION   PIC X(500).
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           MOVE TXT-QUESTION::Text TO WS-QUESTION
-           INVOKE KB-1 "Query" USING WS-KB WS-QUESTION
-               RETURNING WS-STARTED
+           BEDROCK-1::Query("", TXT-QUESTION::Text)
            .
 
-       PROGRAM-ID. KB-1--ONQUERIED.
+       PROGRAM-ID. BEDROCK-1--ONQUERIED.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
-       01 WS-N          PIC 9(4).
        01 WS-I          PIC 9(4).
-       01 WS-FIELD      PIC X(20).
-       01 WS-TEXT       PIC X(1000).
-       01 WS-SOURCE     PIC X(300).
        01 WS-ALL        PIC X(8000).
        01 WS-PTR        PIC 9(4).
        PROCEDURE DIVISION.
            MOVE SPACES TO WS-ALL
            MOVE 1 TO WS-PTR
-           MOVE KB-1::RowCount TO WS-N
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
-               MOVE "Text" TO WS-FIELD
-               INVOKE KB-1 "GetField" USING WS-I WS-FIELD
-                   RETURNING WS-TEXT
-               MOVE "Source" TO WS-FIELD
-               INVOKE KB-1 "GetField" USING WS-I WS-FIELD
-                   RETURNING WS-SOURCE
-               STRING FUNCTION TRIM(WS-TEXT) " [" FUNCTION TRIM(WS-SOURCE)
-                   "] " DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
+           PERFORM VARYING WS-I FROM 1 BY 1
+                   UNTIL WS-I > BEDROCK-1::RowCount
+               STRING BEDROCK-1::GetField(WS-I, "Text")::Trim()
+                      " ["
+                      BEDROCK-1::GetField(WS-I, "Source")::Trim()
+                      "] "
+                   DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
            END-PERFORM
            MOVE WS-ALL TO TXT-OUT::Text
            .
@@ -13610,31 +13642,16 @@ can recall what the user said.
 
 ```cobol
        PROGRAM-ID. BTN-CHAT--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-ARN        PIC X(10) VALUE SPACES.
-       01 WS-PROMPT     PIC X(1000).
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           MOVE TXT-QUESTION::Text TO WS-PROMPT
-           INVOKE AGENT-1 "Invoke" USING WS-ARN WS-PROMPT
-               RETURNING WS-STARTED
+           CORE-1::Invoke("", TXT-QUESTION::Text)
            .
 
-       PROGRAM-ID. AGENT-1--ONINVOKED.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-REPLY      PIC X(4000).
-       01 WS-NONE       PIC X VALUE SPACE.
-       01 WS-ROLE       PIC X(10) VALUE "ASSISTANT".
-       01 WS-STARTED    PIC X.
+       PROGRAM-ID. CORE-1--ONINVOKED.
        PROCEDURE DIVISION.
-           MOVE AGENT-1::ResponseBody TO WS-REPLY
-           MOVE WS-REPLY TO TXT-OUT::Text
-           MOVE AGENT-1::SessionId TO MEMORY-1::SessionId
-           INVOKE MEMORY-1 "RecordEvent"
-               USING WS-NONE WS-NONE WS-NONE WS-REPLY WS-ROLE
-               RETURNING WS-STARTED
+           MOVE CORE-1::ResponseBody TO TXT-OUT::Text
+           MOVE CORE-1::SessionId TO MEMORY-1::SessionId
+           MEMORY-1::RecordEvent("", "", "", CORE-1::ResponseBody,
+               "ASSISTANT")
            .
 ```
 
@@ -13665,34 +13682,26 @@ becomes a row whose fields are named after the columns:
        WORKING-STORAGE SECTION.
        01 WS-SQL        PIC X(200) VALUE
            "SELECT region, SUM(total) AS total FROM orders GROUP BY region".
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           INVOKE TABLES-1 "Query" USING WS-SQL RETURNING WS-STARTED
+           TABLES-1::Query(WS-SQL)
            .
 
        PROGRAM-ID. TABLES-1--ONQUERIED.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
-       01 WS-N          PIC 9(4).
        01 WS-I          PIC 9(4).
-       01 WS-FIELD      PIC X(20).
-       01 WS-REGION     PIC X(40).
-       01 WS-TOTAL      PIC X(20).
        01 WS-ALL        PIC X(4000).
        01 WS-PTR        PIC 9(4).
        PROCEDURE DIVISION.
            MOVE SPACES TO WS-ALL
            MOVE 1 TO WS-PTR
-           MOVE TABLES-1::RowCount TO WS-N
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
-               MOVE "region" TO WS-FIELD
-               INVOKE TABLES-1 "GetField" USING WS-I WS-FIELD
-                   RETURNING WS-REGION
-               MOVE "total" TO WS-FIELD
-               INVOKE TABLES-1 "GetField" USING WS-I WS-FIELD
-                   RETURNING WS-TOTAL
-               STRING FUNCTION TRIM(WS-REGION) ": " FUNCTION TRIM(WS-TOTAL)
-                   "  " DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
+           PERFORM VARYING WS-I FROM 1 BY 1
+                   UNTIL WS-I > TABLES-1::RowCount
+               STRING TABLES-1::GetField(WS-I, "region")::Trim()
+                      ": "
+                      TABLES-1::GetField(WS-I, "total")::Trim()
+                      "  "
+                   DELIMITED BY SIZE INTO WS-ALL WITH POINTER WS-PTR
            END-PERFORM
            MOVE WS-ALL TO TXT-OUT::Text
            .
@@ -13717,40 +13726,23 @@ no arguments follows exactly that run:
 
 ```cobol
        PROGRAM-ID. BTN-ETL--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-JOB        PIC X VALUE SPACE.
-       01 WS-ARGS       PIC X(100) VALUE '{"--day": "2026-10-07"}'.
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           INVOKE GLUE-1 "StartJobRun" USING WS-JOB WS-ARGS
-               RETURNING WS-STARTED
+           GLUE-1::StartJobRun("", '{"--day": "2026-10-07"}')
            .
 
        PROGRAM-ID. GLUE-1--ONJOBSTARTED.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-RUN        PIC X(80).
        PROCEDURE DIVISION.
-           MOVE GLUE-1::JobRunId TO WS-RUN
-           MOVE WS-RUN TO LBL-STATE::Caption
+           MOVE GLUE-1::JobRunId TO LBL-STATE::Caption
            .
 
        PROGRAM-ID. BTN-CHECK--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           INVOKE GLUE-1 "GetJobRun" RETURNING WS-STARTED
+           GLUE-1::GetJobRun()
            .
 
        PROGRAM-ID. GLUE-1--ONJOBRUN.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-STATE      PIC X(20).
        PROCEDURE DIVISION.
-           MOVE GLUE-1::State TO WS-STATE
-           MOVE WS-STATE TO LBL-STATE::Caption
+           MOVE GLUE-1::State TO LBL-STATE::Caption
            .
 ```
 
@@ -13794,24 +13786,16 @@ attributes.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-KEY        PIC X(100).
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           STRING '{"id": ' FUNCTION TRIM(TXT-ID::Text) '}'
+           STRING '{"id": ' TXT-ID::Text::Trim() '}'
                DELIMITED BY SIZE INTO WS-KEY
-           INVOKE ORDERS-1 "GetItem" USING WS-KEY RETURNING WS-STARTED
+           ORDERS-1::GetItem(WS-KEY)
            .
 
        PROGRAM-ID. ORDERS-1--ONITEM.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-ROW        PIC 9 VALUE 1.
-       01 WS-FIELD      PIC X(20) VALUE "customer".
-       01 WS-CUSTOMER   PIC X(80).
        PROCEDURE DIVISION.
            IF ORDERS-1::Found = "1"
-               INVOKE ORDERS-1 "GetField" USING WS-ROW WS-FIELD
-                   RETURNING WS-CUSTOMER
-               MOVE WS-CUSTOMER TO LBL-STATE::Caption
+               MOVE ORDERS-1::GetField(1, "customer") TO LBL-STATE::Caption
            ELSE
                MOVE "No such order" TO LBL-STATE::Caption
            END-IF
@@ -13833,25 +13817,13 @@ the speech into a local file.
 
 ```cobol
        PROGRAM-ID. BTN-PHOTO--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-IMAGE      PIC X(200) VALUE "photos/dog.jpg".
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           INVOKE VISION-1 "DetectLabels" USING WS-IMAGE
-               RETURNING WS-STARTED
+           VISION-1::DetectLabels("photos/dog.jpg")
            .
 
        PROGRAM-ID. VISION-1--ONLABELS.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-ROW        PIC 9 VALUE 1.
-       01 WS-FIELD      PIC X(20) VALUE "Name".
-       01 WS-LABEL      PIC X(80).
        PROCEDURE DIVISION.
-           INVOKE VISION-1 "GetField" USING WS-ROW WS-FIELD
-               RETURNING WS-LABEL
-           MOVE WS-LABEL TO LBL-STATE::Caption
+           MOVE VISION-1::GetField(1, "Name") TO LBL-STATE::Caption
            .
 ```
 
@@ -13878,27 +13850,15 @@ client secret**.
 
 ```cobol
        PROGRAM-ID. BTN-LOGIN--ONCLICK.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-USER       PIC X(80).
-       01 WS-PASSWORD   PIC X(80).
-       01 WS-STARTED    PIC X.
        PROCEDURE DIVISION.
-           MOVE TXT-USER::Text TO WS-USER
-           MOVE TXT-PASSWORD::Text TO WS-PASSWORD
-           INVOKE USERS-1 "SignIn" USING WS-USER WS-PASSWORD
-               RETURNING WS-STARTED
-           MOVE SPACES TO WS-PASSWORD
+           USERS-1::SignIn(TXT-USER::Text, TXT-PASSWORD::Text)
+           MOVE SPACES TO TXT-PASSWORD::Text
            .
 
        PROGRAM-ID. USERS-1--ONSIGNEDIN.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-NAME       PIC X(80).
        PROCEDURE DIVISION.
            IF USERS-1::SignedIn = "1"
-               MOVE USERS-1::UserName TO WS-NAME
-               MOVE WS-NAME TO LBL-STATE::Caption
+               MOVE USERS-1::UserName TO LBL-STATE::Caption
            ELSE
                MOVE USERS-1::Challenge TO LBL-STATE::Caption
            END-IF
@@ -13948,8 +13908,8 @@ rcrun run      <file.cbl> [args…]       # interpret a COBOL source file
 rcrun run-form <form.cfrm> <file.cbl>   # run the project's MAIN form in its own GUI window
 rcrun check    <file.cbl>               # parse + semantic analysis only (no run)
 rcrun build    <file.cbl>               # compile a single console program → bin/<name>
-rcrun build    [cobolt.toml]            # compile a project → one native binary in bin/
-rcrun package  [cobolt.toml]            # package the project into a .zip
+rcrun build    [<name>.project.toml]    # compile a project → one native binary in bin/
+rcrun package  [<name>.project.toml]    # package the project into a .zip
 rcrun mcp      [--project <path>]       # serve the coding-agent tools over stdio
 rcrun version                           # print version
 rcrun help                              # print usage
@@ -13958,6 +13918,11 @@ rcrun help                              # print usage
 Anything after the source path on `rcrun run` is handed to the program itself,
 so a program can be driven from a shell script the same way any other command
 is.
+
+`rcrun build` and `rcrun package` take the path of the project file —
+`rcrun build MyApp.project.toml`. With no argument they look in the current
+folder for a project file under an older, fixed name, which a project created
+today does not have, so they stop with "manifest not found": name the file.
 
 **Flags**
 
@@ -13970,7 +13935,7 @@ is.
 | `run`          | `--indexed-log-format <text|json>` | Log line format; `json` is NDJSON for Grafana/Loki                                                                                                                                                                               |
 | `run`          | `--switch <NAME>=<ON|OFF>`         | Initial state of a `SPECIAL-NAMES` external switch, by its implementor name (repeatable) — see **External switches and user-defined classes**                                                                                   |
 | `run-form`     | `--debug`                          | Debugger control over stdin/stdout (`@DBG` lines)                                                                                                                                                                               |
-| `run-form`     | `--designer`                       | Run the named form even when it is not the main one. The IDE passes this for **Run Form**; a shipped application never does. It announces itself on stderr, so a designer run cannot be mistaken for how the application starts. |
+| `run-form`     | `--designer`                       | Run the named form even when it is not the main one. The IDE passes this for **Run Form**; a shipped application never does. It announces itself on stderr, so a form run this way cannot be mistaken for the application starting normally. |
 | `build`        | `--full`, `--clean`                | Discard every cached artefact and rebuild from scratch                                                                                                                                                                          |
 | `build`        | `--debug`                          | Build the unoptimised binary the debugger attaches to, installed as `bin/<name>-debug` and never copied to the destination folder. Without it the binary is optimised — see **Build and Debug: which binary you get**         |
 | `build`        | `--quiet`, `-q`                    | Report only the outcome, not the progress                                                                                                                                                                                       |
@@ -14069,11 +14034,23 @@ flowchart LR
     SRC["src/*.cbl + forms/*.cfrm"] --> COMPILE["rcrun build"]
     COMPILE --> EMBED["parse · analyse · embed (compressed)"]
     EMBED --> EXE["bin/yourapp  (native executable)"]
-    ASSETS["Assets/ + Knowledge Base/"] -. "copied alongside" .-> EXE
+    EXE --> DIST["dist/yourapp  (the hand-over folder)"]
+    ASSETS["assets/ + data/"] -. "copied alongside" .-> DIST
 ```
 
-- Tracked **Assets** and **Knowledge Base** files are copied next to the binary so the
-  program finds them by relative path at run time.
+- A build installs the executable in `bin/` and — when it is the optimised
+  build, never a debug one — in the **destination folder**: `dist/` unless the
+  project settings name another. That folder is what you hand over. Besides the
+  executable it receives the project's `assets/` and `data/` folders, laid out as
+  they are in the project (so a stored path such as `assets/logo.png` resolves
+  the same way), the definitions of the indexed files the program uses, and the
+  licence notices. The program finds all of it by relative path at run time.
+- The project's own **Knowledge Base/** folder — the documents the AI assistant
+  reads while you develop — is not delivered. The files of a **KnowledgeBase**
+  control's collections live under `assets/KB`, and a build seeds only each
+  collection's `documents/` folder into the delivery: an index is never copied,
+  and a collection that already exists at the destination is left alone, so a
+  rebuild never overwrites what your users have added.
 - Required licence/notice files are placed alongside the binary automatically.
 
 > ⚠️ **Caveat.** The *end user* of your application installs nothing, but the
@@ -14081,7 +14058,7 @@ flowchart LR
 > platform's own sources. Building is a real compile, not an export. A
 > PowerRustCOBOL installation that ships the platform SDK beside its executable
 > satisfies this on its own; if yours does not, Build stops and names every
-> folder it searched. Point it at a copy under **Help → Platform SDK Location**,
+> folder it searched. Point it at a copy under **Help ▸ Platform SDK Location**,
 > or see *Installing the IDE elsewhere* in `BUILDING-en.md`.
 
 > **Note — what a build links, and what that costs.** The SQL bridge
@@ -14095,7 +14072,8 @@ flowchart LR
 > **What this note does *not* excuse you from.** A C *compiler* is needed only
 > when something C is actually built. The **linker** is needed every time,
 > because every executable has to be linked — so a program that never opens a
-> database still needs the platform's build tools installed (§3). On Windows and
+> database still needs the platform's build tools installed — see *Rust is
+> installed and Build still cannot finish* in §3. On Windows and
 > macOS, and on most Linux distributions, the same single package provides both,
 > which is why the two are easy to confuse: what varies is the C compiler, and
 > what never varies is the linker.
@@ -14120,10 +14098,6 @@ flowchart LR
 > the system TLS development package. It is the **console** programs that build
 > with nothing but Rust.
 
-- **`dist/`** is reserved for a future "bundle everything needed to run on a
-  machine without PowerRustCOBOL" feature (binary + assets + any libraries +
-  launcher). For now, ship `bin/` and the copied assets.
-
 ### Build and Debug: which binary you get
 
 The button you press decides how your application is compiled. A project has no
@@ -14141,12 +14115,15 @@ optimised — and run. A form with no blocks never waits for a build.
 
 **Debug builds first.** In a project, pressing **Debug** on a form compiles the
 application without optimisation, starts it, and attaches the debugger to it,
-paused at line 1. The first debug build compiles everything and takes a while;
-the next ones recompile only what changed. A form that does not belong to a
+paused at line 1. (The button itself comes alive only once the project has been
+built by the PowerRustCOBOL you are running — see **Debugging**, next — and the
+debug build it then makes is its own, not the Build button's.) The first debug
+build compiles everything and takes a while; the next ones recompile only what
+changed. A form that does not belong to a
 project has nothing to build, so its Debug still runs on the IDE's runtime.
 
-> ⚠️ **Caveat — an unoptimised program is slow, and that is the point of its
-> name.** Debug exists to be stepped through, not to be fast. Measured on the
+> ⚠️ **Caveat — an unoptimised program is slower, by design.** Debug exists to
+> be stepped through, not to be fast. Measured on the
 > PowerAnalytics example (a 43,000-row data set loaded into the program's own
 > database), the same application started in 1.0 s optimised against 3.0 s
 > unoptimised, and applying a filter and switching pages took 2.2 s against
@@ -14180,8 +14157,8 @@ the same full build before it starts anything.
 From the command line:
 
 ```text
-rcrun build --full  [cobolt.toml]   # discard cached artefacts, then build
-rcrun build --clean [cobolt.toml]   # same thing, spelled the other way
+rcrun build --full  [<name>.project.toml]   # discard cached artefacts, then build
+rcrun build --clean [<name>.project.toml]   # same thing, spelled the other way
 ```
 
 > ⚠️ **Caveat.** Only a full build updates the recorded version, and that is
@@ -14208,20 +14185,29 @@ PowerRustCOBOL"** badge to your app's **About box** (and, optionally, your READM
 - High-resolution master (for print or large displays): `assets/images/made-with-powerrustcobol.webp`
   (6785×2270) — scale it down to whatever size you need.
 
-The IDE's own **Help → About** box shows the same badge, so you can see exactly how
+The IDE's own **Help ▸ About** box shows the same badge, so you can see exactly how
 it looks in an application.
 
 ---
 
 ## 19. Debugging
 
-Select a Generated Code item and press **Debug** to start a session. You get:
+Press **Debug** to start a session. In a project the button comes alive **after
+a Build** — once the project has been built by the PowerRustCOBOL you are
+running (the tooltip says so while it is grey; a project built by an older
+version needs a fresh Build first). What the session debugs depends on what is
+open: a Common Code file in the editor is debugged as a program; a form's
+generated program (a Generated Code item) is routed to its form, which starts as
+a real window; and with nothing open it debugs the project's **main form**,
+exactly the form **Run** would launch, with the debugger attached to its window.
+You get:
 
 - **Breakpoints** in the editor gutter **and in the debugger window's own
   gutter** — click beside any line in either place, before the session or during
   it. A breakpoint you set, move or clear while the program is stopped takes
   effect on the very next statement; you do not restart to change your mind.
-- **step** controls and **continue** (F5 / F10 while debugging),
+- **step** controls and **continue** — **F5** continues, **F10** steps over,
+  **F11** steps into and **Shift+F11** steps out, while the program is stopped,
 - a **variable watch** panel,
 - the **source listing**: the generated program, one row per line, each row as
   tall as the code font — the **A−** and **A+** buttons in the debugger toolbar
@@ -14243,13 +14229,7 @@ Select a Generated Code item and press **Debug** to start a session. You get:
   over by hand with **Step Into** / **Step Over**.
 
 During a session a *Stop Debug* control appears; otherwise debugging starts from
-the toolbar **Debug** button (to the right of **Run**). In a project the
-button comes alive **after a Build** — once the project has been built by the
-PowerRustCOBOL you are running (the tooltip says so while it is grey; a
-project built by an older version needs a fresh Build first). From then on,
-with a COBOL file open in the editor it debugs that file; with nothing open
-it debugs the project's **main form**, exactly the form **Run** would
-launch, with the debugger attached to its window.
+the toolbar **Debug** button, to the right of **Run**.
 
 > **Note — the Breakpoints list is the whole project's.** The debugger's
 > **Breakpoints** list shows every breakpoint you have set anywhere in the
@@ -14319,22 +14299,22 @@ worth knowing:
 > 📷 **Screenshot needed — `debugger.png`.** A debug session paused on a
 > breakpoint, with the variable-watch panel populated.
 
-### Diagnostic switches (Help → Debug Settings)
+### Diagnostic switches (Help ▸ Debug Settings)
 
 Some faults are far easier to find with the IDE narrating what it is doing.
-**Help → Debug Settings** gathers every such switch into one modal, arranged in
+**Help ▸ Debug Settings** gathers every such switch into one modal, arranged in
 five tabs: **User Interface**, **Data Binding**, **Events**, **Indexed Files**
 and **Logging**.
 
 They are **machine settings, not project data** — kept in the IDE's own settings
-folder and never written to `cobolt.toml`. So they follow you from project to
+folder and never written to the project file. So they follow you from project to
 project, never travel to a colleague inside a commit, and the modal opens even
 with no project loaded.
 
 
 | Tab                | Switch                       | What it gives you                                                                                                                                                                                                    |
 | ------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **User Interface** | Frame diagnostics overlay    | Explodes each control's layers — shadow, face, border, content, outline — into coloured, offset frames. This is how a corner artifact or a mis-rounded layer becomes visible                                          |
+| **User Interface** | Frame diagnostics overlay    | Explodes each control's layers — shadow, face, border, content, outline — into coloured, offset frames. This is how a corner artefact or a mis-rounded layer becomes visible                                          |
 | **User Interface** | DataGrid component frames    | Outlines every internal part of a DataGrid — header, body, each column, each visible row and cell, frozen panes, scrollbar — each in its own colour                                                                   |
 | **User Interface** | Disable window effects       | Skips every window entrance and exit effect without editing a single project or form — for motion sensitivity, a weak GPU, or automation                                                                             |
 | **Data Binding**   | Data-bind trace              | Writes `databinding.log`: repeating-group seeding and per-row control-array binding                                                                                                                                  |
@@ -14408,20 +14388,21 @@ writes a per-control diagnostics dump named after the project.
   replaces the see-through view in the main window.
   There is also an optional **background image** with an opacity control.
   Under either Aurora theme the image replaces the gradient backdrop.
-  Settings are saved **per project** in `cobolt.toml`. The project tree and
+  Settings are saved **per project**, in the project file. The project tree and
   panel text automatically adapt their contrast to the theme — light text on
   dark themes, dark text on light ones.
 - **IDE languages.** The IDE interface is available in **six** languages —
-  **English, Português, Español, Français, Japanese (日本語), and Chinese (中文)**
-  — chosen from the toolbar language selector. CJK glyphs render via bundled font
-  fallbacks, so 日本語 / 中文 display correctly on any system.
+  **English, Português, Español, Français, 日本語 and 中文** (the selector names
+  each in its own language) — chosen from the toolbar language selector. CJK
+  glyphs render via bundled font fallbacks, so 日本語 / 中文 display correctly on
+  any system.
 - **Text rendering.** The IDE renders text with the UI framework's modern font
   engine (hinting enabled), so glyphs are noticeably crisper at small sizes than
   in earlier releases. Form **Font** properties keep working exactly as before:
   a face the engine cannot rasterise (for example a bitmap-only system font)
   is skipped and the control falls back to Arial instead of failing.
 - **Branding.** The IDE uses the PowerRustCOBOL icon for its window/taskbar
-  (override it with an `app-icon.png` in the config directory). **Help → About**
+  (override it with an `app-icon.png` in the config directory). **Help ▸ About**
   shows the mascot, the version, and the Apache-2.0 licence.
 
 > ⚠️ **Critical rule.** The IDE language translates the **interface only**. Your
@@ -14602,7 +14583,7 @@ which is the opposite of what an unjustified item does.
 An **alphanumeric-edited** picture owns its insertion characters — `B` prints a
 space, `0` a zero, `/` a slash — and the sender fills only the `X`, `A` and `9`
 positions. `MOVE "AB12CD" TO WS-PART-NO` gives `"AB 12/CD"`. Moving spaces in
-leaves the insertions in place (`"   /  "`), which is what `INITIALIZE` does to
+leaves the insertions in place (`"     /  "`), which is what `INITIALIZE` does to
 such a field.
 
 ### A group operand suspends the receiver's PICTURE
@@ -14659,7 +14640,7 @@ data name. Intermediate levels may be skipped, and the subscript belongs to the
 ### Figurative constants take the size of what they meet
 
 A figurative constant has no width of its own. It is repeated to fill whatever
-it is written against, and that rule reaches three places worth knowing:
+it is written against, and that rule reaches four places worth knowing:
 
 ```cobol
        01  WS-BANNER   PIC X(6) VALUE ALL "ABC".
@@ -14717,7 +14698,7 @@ or a `-` anywhere in the field makes it negative:
        01  WS-SHOWN   PIC $(4)9.99CR.
        01  WS-VALUE   PIC S9(4)V99.
 ...
-           MOVE -123.45 TO WS-SHOWN.     *> WS-SHOWN  = "$ 123.45CR"
+           MOVE -123.45 TO WS-SHOWN.     *> WS-SHOWN  = " $123.45CR"
            MOVE WS-SHOWN TO WS-VALUE.    *> WS-VALUE  = -123.45
 ```
 
@@ -14808,8 +14789,22 @@ Each form is a closed run unit, so a grid event in one form cannot simply update
 what another form is showing. The data has to be carried across the boundary,
 and the plumbing that carries it is what the operator feels as lag.
 
-PowerRustCOBOL keeps the standard meaning of `EXTERNAL` and adds one thing: an
-`EXTERNAL` item may be **qualified by the form module that declares it**.
+PowerRustCOBOL keeps the standard meaning of `EXTERNAL` and defines one
+addition: an `EXTERNAL` item may be **qualified by the form module that
+declares it**.
+
+> ⚠️ **Availability — defined, not yet in effect.** Qualified `EXTERNAL`
+> requires the forms of one application to run in a shared run unit, and no
+> host joins them into one today: every running form still gets its own private
+> `EXTERNAL` storage, and `rcrun check` reports the qualifier — the other
+> form's name — as not declared. Everything below describes the behaviour the
+> feature is defined to have, not what ships. Until it does, carry data between
+> forms with published properties (`super::"GetProperty"` and
+> `me::"SetProperty"`, §11) or through a file they share.
+>
+> This is a different thing from the shared SQL connections of *Embedded SQL*,
+> which already work across forms: there it is one connection registry that the
+> forms of an application use together, not their `WORKING-STORAGE`.
 
 Form `CRM-MAIN` publishes the current selection:
 
@@ -14834,7 +14829,7 @@ still works inside it when a name would otherwise be ambiguous:
              TO WS-ORDER-CUSTOMER.
 ```
 
-What to expect:
+What to expect, once it ships:
 
 
 | Rule                        | What to expect                                                                                                                                                                                                   |
@@ -14857,12 +14852,6 @@ What to expect:
 > vendor's compiler. Reserve it for the places that genuinely need cross-form
 > data.
 
-> ⚠️ **Availability.** Qualified `EXTERNAL` requires the forms of one
-> application to run in a shared run unit. That sharing is not active in current
-> builds — every running form still gets its own private `EXTERNAL` storage — so
-> the qualified form described here is the defined behaviour, not yet the
-> shipped one.
-
 ### Procedures: the form-module model
 
 Each form becomes its **own COBOL program module** (`PROGRAM-ID` = the form
@@ -14878,14 +14867,14 @@ module's event loop, which branches to the matching event procedure.
            CALL "RECALC-TOTAL".
 ```
 
-A user procedure is just a named procedure you add via **➕ Add** (the COBOL
-Structure list); it sees the form's `GLOBAL` data and is callable by name.
+A user procedure is just a named procedure you add via **➕ Add procedure** (the
+COBOL Structure list); it sees the form's `GLOBAL` data and is callable by name.
 
 **Every procedure name is unique in its form.** Each procedure is its own
 nested program, and COBOL-85 lets a source hold only one program of each name.
-Two user procedures with the same name - or one named like the form or like a
-handler - are refused by **Check**, Run and Build with *"program '…' is declared
-more than once"*. **➕ Add** always proposes a name that is still free.
+Two user procedures with the same name — or one named like the form or like a
+handler — are refused by **Check**, Run and Build with *"program '…' is declared
+more than once"*. **➕ Add procedure** always proposes a name that is still free.
 
 **Procedure-local data is private.** A procedure may declare its own
 `WORKING-STORAGE`; those items are visible only inside it. A `GLOBAL` clause on a
@@ -14982,7 +14971,7 @@ From COBOL, `SetItemBadge(id, text)` changes the badge only on rows your
 program added (see *Rows your program adds*), never on a designed
 row.
 
-### Sidebar layout — the two properties that matter
+### Sidebar layout, header and footer
 
 **FullHeight** (on by default) says the sidebar owns the window's whole vertical
 extent, with the breadcrumb starting at its right edge. Turn it off and the
@@ -15024,12 +15013,12 @@ a shape to fill:
 
 - A logo that fits inside 270 x 80 is drawn at **its own size**, centred.
 - A logo bigger than that is **scaled down to fit**, keeping its **aspect
-  ratio** -- so a 540 x 80 banner is drawn 270 x 40, a tall 270 x 240 mark is
+  ratio** — so a 540 x 80 banner is drawn 270 x 40, a tall 270 x 240 mark is
   drawn 90 x 80, and a square one stays square.
 
 Design at 270 x 80 and it lands exactly; design larger and it is fitted, never
 squeezed out of shape. The SideMenu's default **HeaderHeight** of 120 holds the
-full box, so you need not change anything to use all of it -- but a header
+full box, so you need not change anything to use all of it — but a header
 shorter than about 88 points, or a collapsed rail, shrinks the box (keeping its
 27:8 shape) and the logo with it.
 
@@ -15061,8 +15050,8 @@ breadcrumb of its own above it to carry that control.
 
 **The footer panel is yours.** Every SideMenu owns a Panel in its footer band,
 and it is an ordinary container: drop controls into it, style it through the
-inspector, bind and handle events on what you put there. A clock, a user badge,
-a version string and a Log-out button are the usual tenants.
+inspector, bind and handle events on what you put there. A clock, the signed-in
+user's name, a version string and a Log-out button are the usual tenants.
 
 What you do *not* own is where the Panel sits. Its rectangle is re-pinned to the
 footer band on every change, so it follows a form resize, a **FooterHeight**
@@ -15077,6 +15066,7 @@ it, and **FooterHeight** is.
 > from the form's left edge. (Before 1.61.151 the footer's contents were drawn
 > with the form's content instead, so they surfaced *beside* the rail at run
 > time while looking correct in the designer.)
+>
 > **Icons in the sidebar.** Each menu item's icon (picked in the menu editor)
 > renders beside its label on every surface — the designer canvas, the preview,
 > the Run Form pane and the running shell's MenuPane. The SideMenu's
@@ -15210,7 +15200,7 @@ disappear when the program ends. Nothing is written back to the menu file.
 | `RemoveItem(id)` | Removes one of your rows and everything under it |
 | `Clear()` | Removes all of your rows; the designed menu stays, with any label or state you gave it |
 | `GetCount()` / `HasItem(id)` | How many rows you added; whether an id exists at all |
-| `ActivateItem(id)` | Does what a click on that row does — opens its form in the ContentPane, goes home, or raises `onMenuClick` — from code. Any row, designed or yours; a disabled row does nothing. How a program sends the operator somewhere by itself: a welcome form on first run, a form a finished task leads to |
+| `ActivateItem(id)` | Does what a click on that row does — opens its form in the ContentPane, goes home, or raises `onMenuItemClick` (with the row's id in `SelectedItemId`) — from code. Any row, designed or yours; a disabled row does nothing. How a program sends the operator somewhere by itself: a welcome form on first run, a form a finished task leads to |
 
 ```cobol
       *> first run: nothing is configured yet, so show the welcome form
@@ -15327,9 +15317,9 @@ own name, from the form itself:
 
 ```cobol
       *> Main Menu > Customer Data > John Smith
-           INVOKE me "SetBreadcrumbDetail" USING WS-CUSTOMER-NAME.
+           me::"SetBreadcrumbDetail"(WS-CUSTOMER-NAME)
       *> ...and back to just Main Menu > Customer Data
-           INVOKE me "ClearBreadcrumbDetail".
+           me::"ClearBreadcrumbDetail"()
 ```
 
 Rules worth knowing:
@@ -15395,7 +15385,8 @@ another form.
 Every form declares it in the property inspector:
 
 - **Standalone** (default) — its own window, opened with `OpenFormSync` /
-  `OpenFormAsync`. Everything §21-era applications do today.
+  `OpenFormAsync`. This is how every form worked before the application shell
+  existed, and it still works that way.
 - **Embedded** — loaded into the ContentPane by a menu item.
 - **Both** — a reusable screen valid on either path (a customer lookup that is
   a modal dialog from Sales and a browsing pane inside CRM).
@@ -15502,7 +15493,7 @@ or opened it — on both paths, menu loads and `OpenFormSync`/`OpenFormAsync`:
            MOVE super::Title TO WS-T.
            MOVE "Processing…" TO super::Title.
       *> drive its window (any windowHandler method)
-           INVOKE super::"SetWindowState"("Minimized").
+           super::"SetWindowState"("Minimized")
       *> walk further up: one loader per super
            MOVE super::super::Title TO WS-T.
       *> drive the menu pane (state persists per application)
@@ -15517,8 +15508,8 @@ Rules to expect:
   TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat,
   BackgroundColor, Transparency, PreventReset) — a typo like `super::Widht` fails the
   build at any depth.
-- **Running a procedure of the form that loaded you** — `INVOKE
-  super::"RecalcTotals"()`. The name is one of the *parent's* own procedures (a
+- **Running a procedure of the form that loaded you** —
+  `super::"RecalcTotals"()`. The name is one of the *parent's* own procedures (a
   paragraph or user procedure of its program), and it runs there exactly as
   `CALL "RecalcTotals"` would. The call is answered at once and the procedure
   runs the next time the parent waits for an event, so it returns nothing to
@@ -15527,12 +15518,12 @@ Rules to expect:
 
   ```cobol
       *> in the settings pane, after the agents were saved
-           INVOKE super::"PC-MENU-STATE"().
+           super::"PC-MENU-STATE"()
   ```
 
   A name the parent has no procedure for is reported in its program output and
-  nothing runs. ⚠️ Until 1.70.255 this was documented and refused at run time
-  with "windowHandler has no method".
+  nothing runs. ⚠️ Before 1.70.255 the call was described here but did not work:
+  it stopped at run time with "windowHandler has no method".
 - **`super` can be NULL**: in the main form, and in an async-opened form
   whose opener has closed (the child never keeps its opener alive).
   Referencing a NULL `super` raises the standard runtime error.
@@ -15556,7 +15547,7 @@ which of them may load it:
    The target needs format `Embedded` or `Both`. The outgoing occupant
    deactivates (and parks, when the clicking item checked *Preserve previous
    form*); the breadcrumb follows.
-2. **As a child window from COBOL** — `INVOKE me "OpenFormSync"` /
+2. **As a child window from COBOL** — `me::"OpenFormSync"` /
    `"OpenFormAsync"`, parented to the calling form. The target needs
    `Standalone` or `Both`.
 3. **As a child window from the sidebar** — the **Open Stand Alone Form
@@ -15566,8 +15557,8 @@ which of them may load it:
 ```cobol
       *> block until the report window closes (Sync is implicitly modal —
       *> the whole shell waits with you)
-           INVOKE SideMenu-1 "OpenStandAloneFormSync"
-               USING "RPT-MONTH" "Normal" 80 80 640 480 "true".
+           SideMenu-1::"OpenStandAloneFormSync"("RPT-MONTH", "Normal",
+               80, 80, 640, 480, "true")
       *> or open it modeless and keep its handle
            INVOKE SideMenu-1::"OpenStandAloneFormAsync"("MONITOR")
                RETURNING WS-H.
@@ -15575,7 +15566,7 @@ which of them may load it:
 ```
 
 Windows opened this way are parented to the **shell**, whichever form ran
-the INVOKE — closing the application closes them. The target needs
+the call — closing the application closes them. The target needs
 `Standalone` or `Both`.
 
 #### A window with its own side menu
@@ -15599,7 +15590,7 @@ and works there as it does on its own.
 
 ```cobol
       *> open the assistant beside the application, modeless
-           INVOKE ME::"OpenFormAsync"("CHAT-FORM").
+           ME::"OpenFormAsync"("CHAT-FORM")
 ```
 
 > **Note.** Each form's menu is its own: two forms can both have a
@@ -15610,6 +15601,10 @@ and works there as it does on its own.
 **Sync is implicitly modal.** From a menu click or from COBOL: while a
 Sync-opened window lives, its parent's whole face — the shell's chrome
 included — takes no input. Async windows are never modal.
+
+**The Target list.** The menu editor's **Target** list only offers the forms the
+chosen action may legally load, and the build enforces the same rule for literal
+form ids in COBOL — a mismatch is a compile error, not a surprise at run time.
 
 #### Going back to the shell's own pane — the Home action
 
@@ -15637,10 +15632,6 @@ belongs to.
 ⚠️ **Home is a SideMenu action only.** A MenuBar form has no ContentPane to
 restore, so the action is not offered there.
 
-The menu editor's **Target** list only offers the forms the chosen action may
-legally load, and the build enforces the same rule for literal form ids in
-COBOL — a mismatch is a compile error, not a surprise at run time.
-
 **Parked forms stay alive.** A preserved occupant keeps its storage AND its
 enabled Timer controls keep ticking while off-pane — timer handlers run the
 whole time, with bursts coalesced when the form's event queue is busy.
@@ -15656,12 +15647,16 @@ whole time, with bursts coalesced when the form's event queue is busy.
 
 A consolidated list so you are never surprised:
 
-- **Event firing.** All form/control events are *designable*; only the core set is
-  *fired* by the runtime today (see §10). Verify in *Run Form*.
+- **Event firing.** The design view lists only events the runtime fires, and
+  every one of them does (§10). An event with no engine behind it — a control's
+  drag-and-drop, say — is not offered, so you cannot bind a handler that never
+  runs. Verify in *Run Form*.
 - **File organisations.** All four are supported — SEQUENTIAL, LINE
   SEQUENTIAL, INDEXED and RELATIVE (§13). Each verb is dispatched by the
   file's declared `ORGANIZATION`.
-- **Locking.** Single-process record locking only.
+- **Locking.** A whole INDEXED file opened `WITH LOCK` or `SHARING WITH NO
+  OTHER` is exclusive across processes (another program's `OPEN` gets status
+  `93`). Record locks are single-process (§14).
 - **One INDEXED file, two live forms.** Each form is its own program, so two
   forms writing the *same* INDEXED file are two independent writers — their
   record locks do not coordinate across forms. Give each data file one owner
@@ -15670,8 +15665,8 @@ A consolidated list so you are never surprised:
   a handle created in any form's block resolves in every other form's
   blocks, and blocks from different forms take turns on it. Values stored
   through the bridge must be thread-safe (`Send`) for that reason.
-- **`rcrun build` regenerates, like the IDE.** Before it compiles, `rcrun
-  build` rewrites every form's generated COBOL from its `.cfrm`, and every
+- **`rcrun build` regenerates, like the IDE.** Before it compiles,
+  `rcrun build` rewrites every form's generated COBOL from its `.cfrm`, and every
   indexed file's facade and `COPYBOOKS/<name>.SEL`/`.FD` from its `.cidx`.
   It uses the same generator and the same files the IDE's Generate uses, so
   a form edited outside the IDE builds its current code. Your handlers and
@@ -15684,17 +15679,19 @@ A consolidated list so you are never surprised:
 - **ISAM interchange.** The on-disk format is original and **not**
   binary-compatible with any third-party ISAM.
 - **Generated code is read-only.** Edit forms or Common Code, never `generated/`.
-- **`dist/` is reserved**, not yet populated by tooling.
 - **Secrets** must not be embedded in shipped forms.
 - **Layers.** A layer's controls are not laid out (no Dock, Anchor or flex, grid
   or flow), `Visible` is a state of the running program and of the designer
   and is never saved, and seven control types may paint past the rounded corner
   of a window in a layer, as they do in the base (§7). IDE Check does not read
   `LAYER-NAME::property`; Build and Run Form do.
-- **Form Theme / procedural styles.** The Appearance "Theme" dropdown selects
-  Classic / Enhanced / Neumorphic Light / Neumorphic Dark (procedural relief
-  with full gradient, blur, distance, rim controls). Asset-pack selection is project / toml driven; some
-  per-form pack UI is still evolving.
+- **Form themes.** A form's **Theme** (in its Appearance section) selects Liquid
+  Glass — the default — **Elegance**, **Spatial**, or any installed asset pack;
+  a form that leaves it unset takes the project's **Default form theme**
+  (*Form themes and styles*, §9). Under Liquid Glass a separate **Glass style**
+  row chooses Classic, Enhanced, Neumorphic Light or Neumorphic Dark (procedural
+  relief with gradient, blur, distance and rim controls); a theme that owns the
+  whole look, such as Elegance or Spatial, ignores it.
 
 ---
 
@@ -15702,18 +15699,17 @@ A consolidated list so you are never surprised:
 
 A rough mental map to speed you up. These are *analogies*, not exact equivalents.
 
-
 | You knew (PowerCOBOL / isCOBOL)       | In PowerRustCOBOL                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | A *sheet* / *form* with controls       | A **form** (`.cfrm`) edited in the **Form Designer**                                                     |
 | Property sheet                        | The **properties pane** (collapsible section cards)                                                      |
 | Event procedure attached to a control | A COBOL **event handler** (`CONTROL-ID--EVENTNAME` nested program)                                       |
 | The event loop hidden by the runtime  | The explicit **`COBOL::"WAIT-EVENT"`** loop in generated code                                               |
-| `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
+| `INVOKE`/method calls on controls     | The same — `Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
 | Vendor ISAM                           | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`)                 |
 | Embedded SQL / ODBC                   | `EXEC SQL … END-EXEC` with host variables, cursors, SQLCA — [Embedded SQL](#embedded-sql-exec-sql) (SQLite, PostgreSQL, MySQL); or `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL) |
 | Building an `.exe` with a runtime DLL  | `rcrun build` → **one self-contained binary**, no runtime to install                                   |
-| Project/workspace file                | `cobolt.toml` + the standard folder layout                                                              |
+| Project/workspace file                | The project file (`<name>.project.toml`) + the standard folder layout                                    |
 
 > ⚠️ **Do not** expect source-level, file-format, or binary compatibility with
 > any prior vendor's product. The concepts transfer; the artefacts do not.
@@ -15740,7 +15736,7 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 - **Data Binding Guardian** — the validator that checks bindings before a save,
   run, debug, Check, Build or package, reporting Blockers, Warnings and Info.
 - **Engine** — the storage backend for indexed files, chosen with
-  `rcrun --indexed-engine` or, for a project, **Settings → Default Indexed File
+  `rcrun --indexed-engine` or, for a project, **Settings ▸ Default Indexed File
   Engine**. The default is the paged `rust` engine; the crash-safe **`redb`**
   engine is chosen by name.
 - **Event** — something the user or the system does; named `onSomething`.
