@@ -297,7 +297,7 @@ cargo build --release -p cobolt-ide -p cobolt-cli
 sudo apt update && sudo apt install -y \
     build-essential pkg-config \
     libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-    libxkbcommon-dev libssl-dev
+    libxkbcommon-dev libssl-dev libasound2-dev
 ```
 
 **Fedora** — install the equivalent packages:
@@ -306,6 +306,7 @@ sudo apt update && sudo apt install -y \
 - `libxcb-devel`
 - `libxkbcommon-devel`
 - `openssl-devel`
+- `alsa-lib-devel`
 - `@development-tools`
 
 **Then, on either — install Rust** from [rustup.rs](https://rustup.rs):
@@ -329,6 +330,13 @@ drives. Without it even a pure-Rust program fails at the link step.
 >
 > This avoids bundling a cryptographic library that would need to be compiled
 > from C on every machine.
+
+> **Sound dependency (Linux)**
+>
+> `libasound2-dev` on Debian/Ubuntu and `alsa-lib-devel` on Fedora: the sound
+> built-ins (`AUDIO-PLAY` and its companions) reach the sound card through ALSA,
+> and the IDE and `rcrun` always carry them. Windows (WASAPI) and macOS
+> (CoreAudio) need nothing extra.
 
 Verify Rust is ready:
 

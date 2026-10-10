@@ -85,6 +85,26 @@ Component: mermaid-rs-renderer / resvg / genpdf
 Homepage: https://github.com/mermaid-js/mermaid-rs-renderer (and related)
 License: varies (MIT / Apache-2.0 per crate — verify before release)
 Used by: cobolt-ide (documentation viewer: Mermaid diagrams, PDF export)
+
+Component: rodio 0.22
+Homepage: https://github.com/RustAudio/rodio
+License: MIT OR Apache-2.0
+Used by: cobolt-runtime, feature `audio` (the AUDIO-… built-ins); in rcrun, the IDE
+and any built application that plays sound
+
+Component: cpal 0.17
+Homepage: https://github.com/RustAudio/cpal
+License: Apache-2.0
+Used by: rodio (the audio output device)
+
+Component: symphonia 0.5 (symphonia, -core, -metadata, -bundle-mp3, -bundle-flac,
+           -codec-vorbis, -codec-pcm, -format-ogg, -format-riff, -utils-xiph)
+Homepage: https://github.com/pdeljanov/Symphonia
+License: MPL-2.0
+Used by: rodio (MP3, FLAC, Vorbis/OGG and WAV decoding)
+Notes: Unmodified. MPL-2.0 is a file-level copyleft: its Source Code Form is
+       available from the homepage above and from https://crates.io/crates/symphonia
+       (each crate of the family under its own name, version 0.5.5).
 ```
 
 ## Template entry

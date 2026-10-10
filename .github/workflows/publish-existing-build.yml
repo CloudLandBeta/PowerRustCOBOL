@@ -122,7 +122,7 @@ jobs:
             "" \
             "First run on Windows: the executable is unsigned, so SmartScreen warns once. Choose More info, then Run anyway." \
             "" \
-            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland libraries your desktop already provides." \
+            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland and ALSA sound (libasound2) libraries your desktop already provides." \
             "" \
             "Built by run $RUN_ID, from commit $BUILD_SHA." \
             > notes.md

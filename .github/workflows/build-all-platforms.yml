@@ -120,7 +120,9 @@ jobs:
       - uses: actions/checkout@v7
 
       # openssl-sys links the system OpenSSL (native-tls), and eframe needs the
-      # xcb/xkbcommon headers. Everything else the tree touches — winit's X11
+      # xcb/xkbcommon headers. alsa-sys (the sound built-ins, through rodio and
+      # cpal) links libasound and finds it with pkg-config, so it needs the
+      # ALSA headers. Everything else the tree touches — winit's X11
       # and Wayland bindings, the file dialog's XDG portal client — is loaded at
       # runtime, so no GTK development package is required.
       #
@@ -140,7 +142,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             pkg-config libssl-dev libxkbcommon-dev \
-            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libasound2-dev
           echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
           echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
           echo "OPENSSL_INCLUDE_DIR=/usr/include" >> "$GITHUB_ENV"
@@ -1010,6 +1013,7 @@ jobs:
           Architecture: amd64
           Maintainer: Emerson Lopes <emersonlopes@gmail.com>
           Installed-Size: $size
+          Depends: libasound2 | libasound2t64
           Suggests: build-essential
           Description: PowerRustCOBOL AI - the next generation COBOL RAD IDE
            Design forms visually, run them on a fast tree-walking COBOL-85
@@ -1017,6 +1021,14 @@ jobs:
            rcrun, the command-line runtime.
           CONTROL
 
+          # The ALSA library is a `Depends`, not a weak relation: the IDE and
+          # rcrun carry the sound built-ins, and alsa-sys links libasound.so.2
+          # into both, so without it neither program starts at all. Every
+          # desktop installs it with its sound system; a minimal or container
+          # install does not, and apt now fetches it. The alternative covers
+          # Ubuntu 24.04 / Debian 13, where the 64-bit-time transition renamed
+          # the package to libasound2t64.
+          #
           # `Suggests` rather than `Depends` or `Recommends`, deliberately.
           # Designing forms and running programs need nothing beyond this
           # package; only BUILD does. A Depends would force a compiler on every
@@ -1135,6 +1147,12 @@ jobs:
           URL:            https://github.com/CloudLandBeta/PowerRustCOBOL
           BuildArch:      x86_64
           AutoReqProv:    no
+          # Hard, for the reason the .deb uses Depends: both programs link
+          # libasound.so.2 (the sound built-ins) and do not start without it.
+          # Named by the library's own soname, which Fedora/RHEL's alsa-lib and
+          # openSUSE's libasound2 both provide - AutoReqProv is off, so this is
+          # the one requirement rpm is told about.
+          Requires:       libasound.so.2()(64bit)
           # Weak, for the reason the .deb uses Suggests: only BUILD needs a
           # compiler, and forcing one on every user who wants to design forms
           # would be wrong. gcc is what carries the linker here.
@@ -1355,7 +1373,7 @@ jobs:
             "" \
             "First run on Windows: the executable is unsigned, so SmartScreen warns once. Choose More info, then Run anyway." \
             "" \
-            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland libraries your desktop already provides." \
+            "Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the OpenGL, X11 or Wayland and ALSA sound (libasound2) libraries your desktop already provides." \
             > "$RUNNER_TEMP/notes.md"
 
           # Draft first, files second, publish last. An immutable release takes

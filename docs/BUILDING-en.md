@@ -108,20 +108,20 @@ Apple Silicon and Intel are both supported; rustup picks the right host target.
 sudo apt update && sudo apt install -y \
     build-essential pkg-config \
     libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-    libxkbcommon-dev libssl-dev
+    libxkbcommon-dev libssl-dev libasound2-dev
 ```
 
 **Fedora / RHEL:**
 
 ```sh
 sudo dnf install -y @development-tools pkgconf-pkg-config \
-    gtk3-devel libxcb-devel libxkbcommon-devel openssl-devel
+    gtk3-devel libxcb-devel libxkbcommon-devel openssl-devel alsa-lib-devel
 ```
 
 **Arch:**
 
 ```sh
-sudo pacman -S --needed base-devel pkgconf gtk3 libxcb libxkbcommon openssl
+sudo pacman -S --needed base-devel pkgconf gtk3 libxcb libxkbcommon openssl alsa-lib
 ```
 
 Then Rust:
@@ -130,11 +130,16 @@ Then Rust:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Two of those packages are load-bearing and worth naming:
+Three of those packages are load-bearing and worth naming:
 
 - **`libssl-dev` / `openssl-devel`** — HTTPS uses the system's TLS on Linux, and
   this is it.
 - **`libgtk-3-dev` / `gtk3-devel`** — the native Open/Save dialogs.
+- **`libasound2-dev` / `alsa-lib-devel` / `alsa-lib`** — sound (the `AUDIO-…`
+  built-ins) reaches the sound card through ALSA. The IDE and `rcrun` always
+  carry it, so building them needs it, and running them needs the ALSA library
+  (`libasound2`), which every desktop distribution installs with its sound
+  system. An application you build that never plays a sound needs neither.
 
 X11 and Wayland are both supported; the window layer picks whichever session is
 running, so neither is a separate install.
@@ -251,6 +256,10 @@ is missing.
 
 **`Could not find directory of OpenSSL installation` (Linux)** — install
 `libssl-dev` / `openssl-devel` and `pkg-config`.
+
+**`alsa-sys` fails with "Pkg-config failed … alsa development headers are not
+installed" (Linux)** — install `libasound2-dev` / `alsa-lib-devel` and
+`pkg-config`.
 
 **`error: package requires rustc 1.92 or newer`** — `rustup update stable`.
 

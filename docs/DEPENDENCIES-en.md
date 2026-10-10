@@ -133,6 +133,42 @@ note above — the product version is its own sequence).
 | `tokio` | 1.52.3 | agents, ide | Async runtime for the agent layer |
 | `futures` | 0.3.32 | agents | Async combinators |
 
+### Sound — the runtime's `audio` feature
+
+Added with spec 092 on **2026-10-10**, after the reconciliation stamped above
+(the totals at the top do not count it yet).
+
+| Crate | Version | Used by | What it does |
+|---|---|---|---|
+| `rodio` | 0.22.2 | runtime | Plays the `AUDIO-…` built-ins' files: the output device through `cpal`, decoding through `symphonia`. Optional — linked only into a build whose programs call one of the verbs; `rcrun` and the IDE always carry it |
+
+Everything it brings in, with each crate's licence — the column matters here
+because one family is not MIT/Apache:
+
+| Crate(s) | Version | Licence | Built for | Role |
+|---|---|---|---|---|
+| `cpal` | 0.17.3 | Apache-2.0 | every platform | The output device (WASAPI on Windows through the `windows` crate already in the graph) |
+| `dasp_sample` | 0.11.0 | MIT OR Apache-2.0 | every platform | Sample-format conversions |
+| `symphonia`, `symphonia-core`, `symphonia-metadata`, `symphonia-bundle-mp3`, `symphonia-bundle-flac`, `symphonia-codec-vorbis`, `symphonia-codec-pcm`, `symphonia-format-ogg`, `symphonia-format-riff`, `symphonia-utils-xiph` | 0.5.5 | **MPL-2.0** | every platform | The MP3, FLAC, Vorbis-in-OGG and WAV decoders — pure Rust |
+| `extended` | 0.1.0 | MIT | every platform | 80-bit floats in RIFF/AIFF headers (for `symphonia-format-riff`) |
+| `alsa`, `alsa-sys` | 0.11.0, 0.4.0 | Apache-2.0/MIT, MIT | Linux | ALSA bindings. `alsa-sys` **links the system's `libasound`** — see below |
+| `coreaudio-rs` | 0.14.2 | MIT/Apache-2.0 | macOS | CoreAudio |
+| `objc2-core-audio`, `objc2-core-audio-types`, `objc2-audio-toolbox` | 0.3.2 | Zlib OR Apache-2.0 OR MIT | macOS | CoreAudio and AudioToolbox bindings |
+| `mach2` | 0.5.0 | BSD-2-Clause OR MIT OR Apache-2.0 | macOS | Mach kernel bindings |
+| `objc2-avf-audio` | 0.3.2 | Zlib OR Apache-2.0 OR MIT | iOS only | In the lock file, never built for a desktop target |
+| `jni` 0.21.1, `cesu8` 1.1.0, `windows-sys` 0.45.0, `windows-targets` 0.42.2 and its seven `windows_*` 0.42.2 target crates | — | MIT/Apache-2.0, every one | Android only | `cpal`'s Android backend and that crate's own build dependencies — in the lock file, never built for a desktop target |
+
+> **Note — `symphonia` is MPL-2.0.** The Mozilla Public License is a
+> *file-level* copyleft: the obligation attaches to symphonia's own source
+> files, not to the program that links them, and it combines with the
+> Apache-2.0 code of this project as a "Larger Work" (MPL-2.0 §3.3). Used
+> unmodified, as it is here, what it asks is that anyone who receives a binary
+> can get symphonia's source — it is published on crates.io and GitHub, and
+> [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) says where. A change to
+> one of its files would have to be published under the MPL. rodio offers
+> MIT/Apache decoders instead (`hound`, `claxon`, `lewton`, `minimp3`), but its
+> MP3 one compiles C, which this project avoids.
+
 ### Cross-cutting
 
 | Crate | Version | Used by | What it does |
@@ -177,3 +213,9 @@ Worth knowing when setting up a machine (see [BUILDING-en.md](BUILDING-en.md)):
 
 Nothing in the tree compiles **C++**, and no build script invokes CMake, NASM,
 Python, Node or a JVM.
+
+One more crate needs something from the system, though it compiles nothing:
+`alsa-sys` (sound, through `rodio` → `cpal`, Linux only) finds the ALSA library
+with `pkg-config` and links `libasound.so.2` dynamically. Building on Linux
+needs `libasound2-dev` / `alsa-lib-devel`, and every Linux machine running the
+IDE, `rcrun` or an application that plays sound needs `libasound2`.
