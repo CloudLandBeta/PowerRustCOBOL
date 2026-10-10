@@ -412,11 +412,9 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-MODELS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
-               DELIMITED BY SIZE INTO WS-MODELS-PATH
+           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
 
            GOBACK.
 
@@ -496,15 +494,15 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 9
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-KB-FOLDER-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-KB-FOLDER-LABEL) TO Lbl-KB::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-SaveTop::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-CancelTop::Caption
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
-           MOVE FUNCTION TRIM(T-TIP-KB) TO Txt-KbLocation::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-BROWSE) TO Btn-BrowseKb::Tooltip
+           MOVE T-KB-FOLDER-TITLE::Trim() TO Lbl-Title::Caption
+           MOVE T-KB-FOLDER-LABEL::Trim() TO Lbl-KB::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
+           MOVE T-SAVE::Trim() TO Btn-SaveTop::Caption
+           MOVE T-CANCEL::Trim() TO Btn-CancelTop::Caption
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
+           MOVE T-TIP-KB::Trim() TO Txt-KbLocation::Tooltip
+           MOVE T-TIP-BROWSE::Trim() TO Btn-BrowseKb::Tooltip
 
            GOBACK.
 
@@ -535,18 +533,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
@@ -568,7 +561,7 @@
                MOVE "assets/KB" TO WS-SET-VALUE
            END-IF
            CALL "PC-SETTING-PUT"
-           MOVE FUNCTION TRIM(T-KB-FOLDER-SAVED) TO Lbl-Status::Caption
+           MOVE T-KB-FOLDER-SAVED::Trim() TO Lbl-Status::Caption
            INVOKE ME::Close()
 
            GOBACK.

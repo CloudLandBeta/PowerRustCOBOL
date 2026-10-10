@@ -756,7 +756,7 @@
       *>   Nothing about any sample is written in this code (R10).
            CALL "PC-HAS-SAMPLES"
            IF WS-OK = "Y"
-               MOVE FUNCTION TRIM(T-SAMPLES-ALREADY) TO Lbl-Status::Caption
+               MOVE T-SAMPLES-ALREADY::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN INPUT SAMPLES-FILE
@@ -764,7 +764,7 @@
                MOVE T-SAMPLES-NONE TO WS-FMT
                MOVE WS-SAMPLES-LIST TO WS-ARG1
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE 0 TO WS-MAP-COUNT WS-Q-COUNT WS-SEQ-N WS-TF-SEQ
@@ -787,10 +787,10 @@
                                    ADD 1 TO WS-Q-COUNT
                                    MOVE WS-TOPIC-ID-OF TO WS-Q-TOPIC(WS-Q-COUNT)
                                    MOVE SPACES TO WS-Q-PATH(WS-Q-COUNT)
-                                   STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/"
-                                          FUNCTION TRIM(WS-FOLDER) "/documents/"
-                                          FUNCTION TRIM(WS-F3)
-                                       DELIMITED BY SIZE INTO WS-Q-PATH(WS-Q-COUNT)
+                                   STRING WS-SAMPLES-DIR::Trim() "/"
+                                          WS-FOLDER::Trim() "/documents/"
+                                          WS-F3::Trim()
+                                       INTO WS-Q-PATH(WS-Q-COUNT)
                                END-IF
                            WHEN "FILE"
                                CALL "PC-ADD-SAMPLE-FILE"
@@ -866,7 +866,7 @@
            MOVE T-SAMPLES-REMOVED TO WS-FMT
            MOVE WS-N1 TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
            CALL "PC-LOAD-TOPICS"
 
            GOBACK.
@@ -1032,17 +1032,13 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-TOPICS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
-               DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           STRING WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
            MOVE SPACES TO WS-TFILES-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
-               DELIMITED BY SIZE INTO WS-TFILES-PATH
+           STRING WS-DATA-DIR::Trim() "/topic-files.idx" INTO WS-TFILES-PATH
            MOVE SPACES TO WS-PROMPTS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompt-versions.idx"
-               DELIMITED BY SIZE INTO WS-PROMPTS-PATH
+           STRING WS-DATA-DIR::Trim() "/prompt-versions.idx" INTO WS-PROMPTS-PATH
 
            GOBACK.
 
@@ -1132,10 +1128,10 @@
                                ALL X"0D" BY SPACE ALL X"09" BY SPACE
                            MOVE SPACES TO WS-ROW
                            STRING FUNCTION TRIM(TOP-NAME) X"09"
-                                  FUNCTION TRIM(WS-PREVIEW) X"09"
+                                  WS-PREVIEW::Trim() X"09"
                                   "icon:chat" X"09" "icon:pencil" X"09"
                                   "icon:trash"
-                               DELIMITED BY SIZE INTO WS-ROW
+                               INTO WS-ROW
                            MOVE Dg-List::AddRow(WS-ROW) TO WS-OK
                        END-IF
                END-READ
@@ -1166,7 +1162,7 @@
                MOVE WS-N1 TO WS-ARG1
                MOVE WS-N2 TO WS-ARG2
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                CALL "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
@@ -1177,8 +1173,8 @@
            MOVE WS-N1 TO WS-ARG1
            MOVE WS-N2 TO WS-ARG2
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           MOVE KB-T::ImportDocument(FUNCTION TRIM(WS-Q-PATH(WS-Q-NEXT))) TO WS-OK
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           MOVE KB-T::ImportDocument(WS-Q-PATH(WS-Q-NEXT)::Trim()) TO WS-OK
            ADD 1 TO WS-Q-NEXT
 
            GOBACK.
@@ -1381,12 +1377,8 @@
            MOVE WS-TF-SEQ TO TF-SEQ
            MOVE WS-F3 TO TF-NAME
            MOVE SPACES TO TF-DATA TF-CIDX
-           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/"
-                  FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-F3)
-               DELIMITED BY SIZE INTO TF-DATA
-           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/"
-                  FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-F4)
-               DELIMITED BY SIZE INTO TF-CIDX
+           STRING WS-SAMPLES-DIR::Trim() "/" WS-FOLDER::Trim() "/" WS-F3::Trim() INTO TF-DATA
+           STRING WS-SAMPLES-DIR::Trim() "/" WS-FOLDER::Trim() "/" WS-F4::Trim() INTO TF-CIDX
            WRITE TFILE-REC
                INVALID KEY REWRITE TFILE-REC
            END-WRITE
@@ -1422,28 +1414,27 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-TOPICS-TITLE) TO Lbl-Title::Caption
+           MOVE T-TOPICS-TITLE::Trim() TO Lbl-Title::Caption
            MOVE SPACES TO WS-TABS
-           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
-               DELIMITED BY SIZE INTO WS-TABS
+           STRING T-TAB-BROWSE::Trim() X"0A" T-TAB-EDIT::Trim() INTO WS-TABS
            MOVE WS-TABS TO Tab-Crud::Tabs
            INVOKE Dg-List::SetColumnTitle("name", T-COL-NAME)
            INVOKE Dg-List::SetColumnTitle("prompt", T-COL-PROMPT)
-           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save2::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel2::Caption
+           MOVE T-NEW::Trim() TO Btn-New::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save2::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel2::Caption
            IF WS-EDIT-ID = SPACES
-               MOVE FUNCTION TRIM(T-NEW-TOPIC) TO Lbl-New::Caption
+               MOVE T-NEW-TOPIC::Trim() TO Lbl-New::Caption
            ELSE
-               MOVE FUNCTION TRIM(T-EDIT-TOPIC) TO Lbl-New::Caption
+               MOVE T-EDIT-TOPIC::Trim() TO Lbl-New::Caption
            END-IF
-           MOVE FUNCTION TRIM(T-HINT-TOPIC-NAME) TO Txt-Name::HintText
-           MOVE FUNCTION TRIM(T-HINT-TOPIC-PROMPT) TO Txt-Prompt::HintText
-           MOVE FUNCTION TRIM(T-INSTALL-SAMPLES) TO Btn-Install::Caption
-           MOVE FUNCTION TRIM(T-REMOVE-SAMPLES) TO Btn-RemoveSamples::Caption
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           MOVE T-HINT-TOPIC-NAME::Trim() TO Txt-Name::HintText
+           MOVE T-HINT-TOPIC-PROMPT::Trim() TO Txt-Prompt::HintText
+           MOVE T-INSTALL-SAMPLES::Trim() TO Btn-Install::Caption
+           MOVE T-REMOVE-SAMPLES::Trim() TO Btn-RemoveSamples::Caption
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1474,18 +1465,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
@@ -1509,8 +1495,7 @@
                MOVE "samples" TO WS-SAMPLES-DIR
            END-IF
            MOVE SPACES TO WS-SAMPLES-LIST
-           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/samples.txt"
-               DELIMITED BY SIZE INTO WS-SAMPLES-LIST
+           STRING WS-SAMPLES-DIR::Trim() "/samples.txt" INTO WS-SAMPLES-LIST
            MOVE "KB-LOCATION" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            IF WS-SET-VALUE NOT = SPACES
@@ -1518,9 +1503,9 @@
            END-IF
            CALL "PC-LOAD-TOPICS"
            IF WS-TOPIC-COUNT = 0
-               MOVE FUNCTION TRIM(T-NO-TOPICS) TO Lbl-Status::Caption
+               MOVE T-NO-TOPICS::Trim() TO Lbl-Status::Caption
            ELSE
-               MOVE FUNCTION TRIM(T-PICK-OR-CREATE) TO Lbl-Status::Caption
+               MOVE T-PICK-OR-CREATE::Trim() TO Lbl-Status::Caption
            END-IF
 
            GOBACK.
@@ -1564,7 +1549,7 @@
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            MOVE WS-TOPIC-ID-OF TO WS-SET-VALUE
            CALL "PC-SETTING-PUT"
-           MOVE FUNCTION TRIM(T-TOPIC-OPENED) TO Lbl-Status::Caption
+           MOVE T-TOPIC-OPENED::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1580,7 +1565,7 @@
            MOVE SPACES TO WS-EDIT-ID
            MOVE SPACES TO Txt-Name::Text
            MOVE SPACES TO Txt-Prompt::Text
-           MOVE FUNCTION TRIM(T-NEW-TOPIC) TO Lbl-New::Caption
+           MOVE T-NEW-TOPIC::Trim() TO Lbl-New::Caption
            MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
@@ -1609,14 +1594,14 @@
            END-READ
            CLOSE TOPICS-FILE
            IF WS-SAVE-OK NOT = "Y"
-               MOVE FUNCTION TRIM(T-PICK-TOPIC-FIRST) TO Lbl-Status::Caption
+               MOVE T-PICK-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
                CALL "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
            MOVE WS-TOPIC-ID-OF TO WS-EDIT-ID
            MOVE FUNCTION TRIM(TOP-NAME) TO Txt-Name::Text
            MOVE FUNCTION TRIM(TOP-PROMPT) TO Txt-Prompt::Text
-           MOVE FUNCTION TRIM(T-EDIT-TOPIC) TO Lbl-New::Caption
+           MOVE T-EDIT-TOPIC::Trim() TO Lbl-New::Caption
            MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
@@ -1636,7 +1621,7 @@
            MOVE Txt-Name::Text TO WS-NEW-NAME
            MOVE Txt-Prompt::Text TO WS-NEW-PROMPT
            IF WS-NEW-NAME = SPACES
-               MOVE FUNCTION TRIM(T-NAME-FIRST) TO Lbl-Status::Caption
+               MOVE T-NAME-FIRST::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE FUNCTION CURRENT-DATE TO WS-NOW
@@ -1668,7 +1653,7 @@
                INVALID KEY
                    IF WS-EDIT-ID = SPACES
       *>               A fresh id already taken: another topic, this instant.
-                       MOVE FUNCTION TRIM(T-SAME-INSTANT) TO Lbl-Status::Caption
+                       MOVE T-SAME-INSTANT::Trim() TO Lbl-Status::Caption
                        MOVE "N" TO WS-SAVE-OK
                    ELSE
                        REWRITE TOPIC-REC
@@ -1676,7 +1661,7 @@
                                MOVE T-SAVE-FAILED TO WS-FMT
                                MOVE WS-FS TO WS-ARG1
                                CALL "PC-FMT"
-                               MOVE FUNCTION TRIM(WS-FMT-OUT)
+                               MOVE WS-FMT-OUT::Trim()
                                    TO Lbl-Status::Caption
                                MOVE "N" TO WS-SAVE-OK
                        END-REWRITE
@@ -1694,10 +1679,10 @@
                IF WS-OK NOT = "1"
                    MOVE KB-T::LastError TO Lbl-Status::Caption
                ELSE
-                   MOVE FUNCTION TRIM(T-TOPIC-CREATED) TO Lbl-Status::Caption
+                   MOVE T-TOPIC-CREATED::Trim() TO Lbl-Status::Caption
                END-IF
            ELSE
-               MOVE FUNCTION TRIM(T-TOPIC-SAVED) TO Lbl-Status::Caption
+               MOVE T-TOPIC-SAVED::Trim() TO Lbl-Status::Caption
            END-IF
            MOVE SPACES TO WS-EDIT-ID
            MOVE SPACES TO Txt-Name::Text
@@ -1747,7 +1732,7 @@
            END-READ
            CLOSE TOPICS-FILE
            IF WS-SAVE-OK NOT = "Y"
-               MOVE FUNCTION TRIM(T-PICK-TOPIC-FIRST) TO Lbl-Status::Caption
+               MOVE T-PICK-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
                CALL "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
@@ -1755,12 +1740,12 @@
            MOVE TOP-NAME TO WS-ARG1
            CALL "PC-FMT"
            MOVE WS-FMT-OUT TO WS-QUESTION
-           INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
-           INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
-           INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
-           INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
-           INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
-           INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+           INVOKE ME::SetProperty("ConfirmText", WS-QUESTION)
+           INVOKE ME::SetProperty("ConfirmYes", T-YES)
+           INVOKE ME::SetProperty("ConfirmNo", T-NO)
+           INVOKE ME::SetProperty("ConfirmAnswer", "N")
+           INVOKE ME::OpenFormSync("CONFIRM-FORM")
+           INVOKE ME::GetProperty("ConfirmAnswer") RETURNING WS-ANSWER
            IF WS-ANSWER NOT = "Y"
                EXIT PROGRAM
            END-IF
@@ -1779,7 +1764,7 @@
                MOVE SPACES TO WS-SET-VALUE
                CALL "PC-SETTING-PUT"
            END-IF
-           MOVE FUNCTION TRIM(T-TOPIC-DELETED) TO Lbl-Status::Caption
+           MOVE T-TOPIC-DELETED::Trim() TO Lbl-Status::Caption
            CALL "PC-LOAD-TOPICS"
 
            GOBACK.

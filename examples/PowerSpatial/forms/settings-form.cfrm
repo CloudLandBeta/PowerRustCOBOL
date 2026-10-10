@@ -56,9 +56,9 @@
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Lbl-Language::Caption
-           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Close::Caption
+           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Lbl-Title::Caption
+           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Lbl-Language::Caption
+           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Btn-Close::Caption
            MOVE WS-LANG-IX TO Cmb-Language::SelectedIndex
 ]]></Event>
     <Event name="PS-SAVE-LANGUAGE" paragraph="PS-SAVE-LANGUAGE"><![CDATA[       ENVIRONMENT DIVISION.

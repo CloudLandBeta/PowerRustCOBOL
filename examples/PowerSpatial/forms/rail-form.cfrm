@@ -108,12 +108,12 @@
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE FUNCTION TRIM(PS-TEXT(1, WS-LANG-IX)) TO Btn-Home::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(2, WS-LANG-IX)) TO Btn-Rooms::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(3, WS-LANG-IX)) TO Btn-Security::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(4, WS-LANG-IX)) TO Btn-Cameras::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(5, WS-LANG-IX)) TO Btn-Energy::Tooltip
-           MOVE FUNCTION TRIM(PS-TEXT(6, WS-LANG-IX)) TO Btn-Settings::Tooltip
+           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Btn-Home::Tooltip
+           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Btn-Rooms::Tooltip
+           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Btn-Security::Tooltip
+           MOVE PS-TEXT(4, WS-LANG-IX)::Trim() TO Btn-Cameras::Tooltip
+           MOVE PS-TEXT(5, WS-LANG-IX)::Trim() TO Btn-Energy::Tooltip
+           MOVE PS-TEXT(6, WS-LANG-IX)::Trim() TO Btn-Settings::Tooltip
 ]]></Event>
   </user-procedures>
   <form-events>
@@ -250,7 +250,7 @@
     <Event name="onClick" paragraph="BTN-SETTINGS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           INVOKE me::"OpenFormSync"("SETTINGS-FORM")
+           INVOKE me::OpenFormSync("SETTINGS-FORM")
 ]]></Event>
   </Control>
   <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="7" z-order="0" visible="true" enabled="true">

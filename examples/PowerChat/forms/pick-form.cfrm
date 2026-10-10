@@ -122,8 +122,7 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -164,9 +163,9 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 3
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-CHOOSE-ONE) TO Lbl-Question::Caption
-           MOVE FUNCTION TRIM(T-OK) TO Btn-Ok::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE T-CHOOSE-ONE::Trim() TO Lbl-Question::Caption
+           MOVE T-OK::Trim() TO Btn-Ok::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
 ]]></Event>
   </user-procedures>
   <form-events>
@@ -183,19 +182,19 @@
       *>   caller hands over below replaces them.
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
-           INVOKE super::"GetProperty"("PickTitle") RETURNING WS-TEXT
+           INVOKE super::GetProperty("PickTitle") RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES
-               MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Question::Caption
+               MOVE WS-TEXT::Trim() TO Lbl-Question::Caption
            END-IF
-           INVOKE super::"GetProperty"("PickOk") RETURNING WS-TEXT
+           INVOKE super::GetProperty("PickOk") RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES
-               MOVE FUNCTION TRIM(WS-TEXT) TO Btn-Ok::Caption
+               MOVE WS-TEXT::Trim() TO Btn-Ok::Caption
            END-IF
-           INVOKE super::"GetProperty"("PickCancel") RETURNING WS-TEXT
+           INVOKE super::GetProperty("PickCancel") RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES
-               MOVE FUNCTION TRIM(WS-TEXT) TO Btn-Cancel::Caption
+               MOVE WS-TEXT::Trim() TO Btn-Cancel::Caption
            END-IF
-           INVOKE super::"GetProperty"("PickItems") RETURNING WS-ITEMS
+           INVOKE super::GetProperty("PickItems") RETURNING WS-ITEMS
            MOVE Lst-Items::Clear() TO WS-OK
            MOVE 1 TO WS-PTR
            PERFORM UNTIL WS-PTR > 8400
@@ -206,9 +205,9 @@
                IF WS-ITEM = SPACES
                    EXIT PERFORM
                END-IF
-               MOVE Lst-Items::AddItem(FUNCTION TRIM(WS-ITEM)) TO WS-OK
+               MOVE Lst-Items::AddItem(WS-ITEM::Trim()) TO WS-OK
            END-PERFORM
-           INVOKE super::"GetProperty"("PickSelected") RETURNING WS-TEXT
+           INVOKE super::GetProperty("PickSelected") RETURNING WS-TEXT
            IF WS-TEXT = SPACES
                MOVE 1 TO WS-IDX
            ELSE
@@ -396,7 +395,7 @@
                EXIT PROGRAM
            END-IF
            MOVE WS-IDX TO WS-ANSWER
-           INVOKE super::"SetProperty"("PickAnswer", WS-ANSWER)
+           INVOKE super::SetProperty("PickAnswer", WS-ANSWER)
            INVOKE ME::Close()
 ]]></Event>
   </Control>

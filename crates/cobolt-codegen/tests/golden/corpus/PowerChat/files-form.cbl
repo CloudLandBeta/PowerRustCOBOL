@@ -774,8 +774,7 @@
       *>   The platform's own Open panel, showing RustCOBOL indexed files
       *>   only; the choice lands in the field and waits for Save.
            MOVE SPACES TO WS-FILTER
-           STRING FUNCTION TRIM(T-FILTER-IDX) "|idx" DELIMITED BY SIZE
-               INTO WS-FILTER
+           STRING T-FILTER-IDX::Trim() "|idx" INTO WS-FILTER
            MOVE SPACES TO WS-PICKED
            COBOL::"OPEN-FILE-DIALOG" ( T-PICK-DATA WS-FILTER WS-PICKED )
            IF WS-PICKED NOT = SPACES
@@ -794,8 +793,7 @@
        PROCEDURE DIVISION.
       *>   The same, for the file's description: .cidx files only.
            MOVE SPACES TO WS-FILTER
-           STRING FUNCTION TRIM(T-FILTER-CIDX) "|cidx" DELIMITED BY SIZE
-               INTO WS-FILTER
+           STRING T-FILTER-CIDX::Trim() "|cidx" INTO WS-FILTER
            MOVE SPACES TO WS-PICKED
            COBOL::"OPEN-FILE-DIALOG" ( T-PICK-CIDX WS-FILTER WS-PICKED )
            IF WS-PICKED NOT = SPACES
@@ -855,14 +853,11 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-TOPICS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
-               DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           STRING WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
            MOVE SPACES TO WS-TFILES-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
-               DELIMITED BY SIZE INTO WS-TFILES-PATH
+           STRING WS-DATA-DIR::Trim() "/topic-files.idx" INTO WS-TFILES-PATH
 
            GOBACK.
 
@@ -928,12 +923,12 @@
       *>   whether it can be used and how - WS-OK, WS-NAME, WS-RESULT and
       *>   WS-MESSAGE out - then withdraw it again. The chat form registers
       *>   the topic's files for real when the topic opens.
-           MOVE AGENT-F::RegisterFile(FUNCTION TRIM(WS-DATA), FUNCTION TRIM(WS-CIDX)) TO WS-OK
+           MOVE AGENT-F::RegisterFile(WS-DATA::Trim(), WS-CIDX::Trim()) TO WS-OK
            MOVE AGENT-F::RegisterResult TO WS-RESULT
            MOVE AGENT-F::RegisterMessage TO WS-MESSAGE
            MOVE AGENT-F::RegisteredName TO WS-NAME
            IF WS-OK = "1"
-               MOVE AGENT-F::UnregisterFile(FUNCTION TRIM(WS-NAME)) TO WS-DISCARD
+               MOVE AGENT-F::UnregisterFile(WS-NAME::Trim()) TO WS-DISCARD
            END-IF
 
            GOBACK.
@@ -978,11 +973,11 @@
                                CALL "PC-TRY"
                                MOVE SPACES TO WS-ROW
                                STRING FUNCTION TRIM(TF-NAME)
-                                      "  [" FUNCTION TRIM(WS-RESULT) "]" X"09"
+                                      "  [" WS-RESULT::Trim() "]" X"09"
                                       FUNCTION TRIM(TF-DATA) X"09"
                                       FUNCTION TRIM(TF-CIDX) X"09"
                                       "icon:pencil" X"09" "icon:trash"
-                                   DELIMITED BY SIZE INTO WS-ROW
+                                   INTO WS-ROW
                                MOVE Dg-List::AddRow(WS-ROW) TO WS-DISCARD
                            END-IF
                        END-IF
@@ -1020,28 +1015,27 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 32
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-FILES-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-FILES-HELP) TO Lbl-Help::Caption
+           MOVE T-FILES-TITLE::Trim() TO Lbl-Title::Caption
+           MOVE T-FILES-HELP::Trim() TO Lbl-Help::Caption
            MOVE SPACES TO WS-TABS
-           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
-               DELIMITED BY SIZE INTO WS-TABS
+           STRING T-TAB-BROWSE::Trim() X"0A" T-TAB-EDIT::Trim() INTO WS-TABS
            MOVE WS-TABS TO Tab-Crud::Tabs
       *>   The grid's headings: the data columns, by their designed id.
-           INVOKE Dg-List::SetColumnTitle("Col-Name", FUNCTION TRIM(T-COL-FILE))
-           INVOKE Dg-List::SetColumnTitle("Col-Data", FUNCTION TRIM(T-DATA-FILE))
-           INVOKE Dg-List::SetColumnTitle("Col-Cidx", FUNCTION TRIM(T-DESCRIPTION))
-           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save2::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel2::Caption
-           MOVE FUNCTION TRIM(T-DATA-FILE) TO Lbl-Data::Caption
-           MOVE FUNCTION TRIM(T-HINT-DATA-PATH) TO Txt-Data::HintText
-           MOVE FUNCTION TRIM(T-DESCRIPTION) TO Lbl-Cidx::Caption
-           MOVE FUNCTION TRIM(T-HINT-CIDX) TO Txt-Cidx::HintText
-           MOVE FUNCTION TRIM(T-BROWSE) TO Btn-BrowseData::Caption
-           MOVE FUNCTION TRIM(T-BROWSE) TO Btn-BrowseCidx::Caption
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           INVOKE Dg-List::SetColumnTitle("Col-Name", T-COL-FILE::Trim())
+           INVOKE Dg-List::SetColumnTitle("Col-Data", T-DATA-FILE::Trim())
+           INVOKE Dg-List::SetColumnTitle("Col-Cidx", T-DESCRIPTION::Trim())
+           MOVE T-NEW::Trim() TO Btn-New::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save2::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel2::Caption
+           MOVE T-DATA-FILE::Trim() TO Lbl-Data::Caption
+           MOVE T-HINT-DATA-PATH::Trim() TO Txt-Data::HintText
+           MOVE T-DESCRIPTION::Trim() TO Lbl-Cidx::Caption
+           MOVE T-HINT-CIDX::Trim() TO Txt-Cidx::HintText
+           MOVE T-BROWSE::Trim() TO Btn-BrowseData::Caption
+           MOVE T-BROWSE::Trim() TO Btn-BrowseCidx::Caption
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1072,18 +1066,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
@@ -1111,7 +1100,7 @@
            IF WS-CUR-TOPIC = SPACES
                MOVE Dg-List::ClearRows() TO WS-DISCARD
                MOVE 0 TO WS-FILE-COUNT
-               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               MOVE T-OPEN-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TOPICS-FILE
@@ -1128,7 +1117,7 @@
            MOVE T-FILES-OF TO WS-FMT
            MOVE TOP-NAME TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Title::Caption
            CALL "PC-LOAD-FILES"
 
            GOBACK.
@@ -1170,7 +1159,7 @@
        PROCEDURE DIVISION.
       *>   An empty Create/Update page for a new file of the current topic.
            IF WS-CUR-TOPIC = SPACES
-               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               MOVE T-OPEN-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE "N" TO WS-EDIT-MODE
@@ -1205,7 +1194,7 @@
            END-READ
            CLOSE TFILES-FILE
            IF WS-SAVE-OK NOT = "Y"
-               MOVE FUNCTION TRIM(T-PICK-FILE-FIRST) TO Lbl-Status::Caption
+               MOVE T-PICK-FILE-FIRST::Trim() TO Lbl-Status::Caption
                CALL "PC-LOAD-FILES"
                EXIT PROGRAM
            END-IF
@@ -1231,13 +1220,13 @@
       *>   sequence; an edited one keeps its own, so WRITE finds it taken and
       *>   REWRITE replaces it.
            IF WS-CUR-TOPIC = SPACES
-               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               MOVE T-OPEN-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE Txt-Data::Text TO WS-DATA
            MOVE Txt-Cidx::Text TO WS-CIDX
            IF WS-DATA = SPACES OR WS-CIDX = SPACES
-               MOVE FUNCTION TRIM(T-GIVE-BOTH) TO Lbl-Status::Caption
+               MOVE T-GIVE-BOTH::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            CALL "PC-TRY"
@@ -1246,7 +1235,7 @@
                MOVE WS-RESULT TO WS-ARG1
                MOVE WS-MESSAGE TO WS-ARG2
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TFILES-FILE
@@ -1277,7 +1266,7 @@
                MOVE T-NOT-SAVED TO WS-FMT
                MOVE WS-FS TO WS-ARG1
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            IF WS-EDIT-MODE = "E"
@@ -1288,7 +1277,7 @@
            MOVE WS-NAME TO WS-ARG1
            MOVE WS-MESSAGE TO WS-ARG2
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
            MOVE "N" TO WS-EDIT-MODE
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
@@ -1339,7 +1328,7 @@
            END-READ
            CLOSE TFILES-FILE
            IF WS-SAVE-OK NOT = "Y"
-               MOVE FUNCTION TRIM(T-PICK-FILE-FIRST) TO Lbl-Status::Caption
+               MOVE T-PICK-FILE-FIRST::Trim() TO Lbl-Status::Caption
                CALL "PC-LOAD-FILES"
                EXIT PROGRAM
            END-IF
@@ -1351,12 +1340,12 @@
            END-IF
            CALL "PC-FMT"
            MOVE WS-FMT-OUT TO WS-QUESTION
-           INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
-           INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
-           INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
-           INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
-           INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
-           INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+           INVOKE ME::SetProperty("ConfirmText", WS-QUESTION)
+           INVOKE ME::SetProperty("ConfirmYes", T-YES)
+           INVOKE ME::SetProperty("ConfirmNo", T-NO)
+           INVOKE ME::SetProperty("ConfirmAnswer", "N")
+           INVOKE ME::OpenFormSync("CONFIRM-FORM")
+           INVOKE ME::GetProperty("ConfirmAnswer") RETURNING WS-ANSWER
            IF WS-ANSWER NOT = "Y"
                EXIT PROGRAM
            END-IF
@@ -1368,7 +1357,7 @@
            END-DELETE
            COMMIT
            CLOSE TFILES-FILE
-           MOVE FUNCTION TRIM(T-FILE-REMOVED) TO Lbl-Status::Caption
+           MOVE T-FILE-REMOVED::Trim() TO Lbl-Status::Caption
            CALL "PC-LOAD-FILES"
 
            GOBACK.

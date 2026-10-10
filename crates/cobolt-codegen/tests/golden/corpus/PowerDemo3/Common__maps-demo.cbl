@@ -328,11 +328,7 @@
       *> Every click reports where it landed, so the projection can be seen
       *> to be correct rather than taken on trust.
            MOVE SPACES TO WS-MSG
-           STRING "Clicked at " DELIMITED BY SIZE
-                  MAP-1::ClickLat DELIMITED BY SIZE
-                  ", " DELIMITED BY SIZE
-                  MAP-1::ClickLng DELIMITED BY SIZE
-             INTO WS-MSG
+           STRING "Clicked at " MAP-1::ClickLat ", " MAP-1::ClickLng INTO WS-MSG
            MOVE WS-MSG TO LBL-STATUS::Caption
 
            GOBACK.
@@ -350,9 +346,7 @@
        PROCEDURE DIVISION.
 
            MOVE SPACES TO WS-MSG
-           STRING "Salesman: " DELIMITED BY SIZE
-                  MAP-1::SelectedMarkerId DELIMITED BY SIZE
-             INTO WS-MSG
+           STRING "Salesman: " MAP-1::SelectedMarkerId INTO WS-MSG
            MOVE WS-MSG TO LBL-STATUS::Caption
 
            GOBACK.
@@ -502,9 +496,7 @@
       *> here instead of attempting a call. Everything drawn locally is
       *> unaffected — that half needs no credential at all.
            MOVE SPACES TO WS-MSG
-           STRING "Drive time unavailable: " DELIMITED BY SIZE
-                  MAP-1::LastError DELIMITED BY SIZE
-             INTO WS-MSG
+           STRING "Drive time unavailable: " MAP-1::LastError INTO WS-MSG
            MOVE WS-MSG TO LBL-STATUS::Caption
 
            GOBACK.

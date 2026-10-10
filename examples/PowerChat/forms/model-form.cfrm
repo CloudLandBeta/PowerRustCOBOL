@@ -286,11 +286,9 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-MODELS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
-               DELIMITED BY SIZE INTO WS-MODELS-PATH
+           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
 ]]></Event>
     <Event name="PC-SYNC-MODELS" paragraph="PC-SYNC-MODELS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -533,7 +531,7 @@
            MOVE T-LISTING TO WS-FMT
            MOVE WS-PROV-LABEL TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
            MOVE Cmb-Model::Clear() TO WS-OK
            MOVE SPACES TO WS-KEY
            COBOL::"MODEL-LIST" ( WS-PROV-ID WS-CUR-URL WS-KEY WS-N
@@ -542,7 +540,7 @@
       *>       No list: what went wrong, and the saved model still on offer.
                MOVE WS-LONG TO Lbl-Status::Caption
                IF WS-MODEL-ID NOT = SPACES
-                   MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-MODEL-ID)) TO WS-OK
+                   MOVE Cmb-Model::AddItem(WS-MODEL-ID::Trim()) TO WS-OK
                    MOVE Cmb-Model::SetSelectedIndex(1) TO WS-OK
                END-IF
                MOVE WS-MODEL-ID TO Cmb-Model::Value
@@ -551,7 +549,7 @@
            MOVE 0 TO WS-INDEX
            PERFORM VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
                COBOL::"MODEL-LIST-GET" ( WS-M WS-XVAL )
-               MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-XVAL)) TO WS-OK
+               MOVE Cmb-Model::AddItem(WS-XVAL::Trim()) TO WS-OK
                IF WS-XVAL = WS-MODEL-ID
                    MOVE WS-M TO WS-INDEX
                END-IF
@@ -569,7 +567,7 @@
            MOVE WS-N TO WS-NE
            MOVE WS-NE TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
 ]]></Event>
     <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -592,20 +590,20 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 18
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-MODEL-SEL-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-CONNECTION) TO Lbl-Conn::Caption
-           MOVE FUNCTION TRIM(T-MODEL) TO Lbl-Model::Caption
-           MOVE FUNCTION TRIM(T-RANK) TO Lbl-Rank::Caption
-           MOVE FUNCTION TRIM(T-CALLS-TOOLS) TO Chk-Tools::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
-           MOVE FUNCTION TRIM(T-SAVE) TO Btn-SaveTop::Caption
-           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-CancelTop::Caption
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
-           MOVE FUNCTION TRIM(T-TIP-CONN-MODEL) TO Cmb-Conn::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-MODEL-LIST) TO Cmb-Model::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-RANK) TO Txt-Rank::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-TOOLS) TO Chk-Tools::Tooltip
+           MOVE T-MODEL-SEL-TITLE::Trim() TO Lbl-Title::Caption
+           MOVE T-CONNECTION::Trim() TO Lbl-Conn::Caption
+           MOVE T-MODEL::Trim() TO Lbl-Model::Caption
+           MOVE T-RANK::Trim() TO Lbl-Rank::Caption
+           MOVE T-CALLS-TOOLS::Trim() TO Chk-Tools::Caption
+           MOVE T-SAVE::Trim() TO Btn-Save::Caption
+           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
+           MOVE T-SAVE::Trim() TO Btn-SaveTop::Caption
+           MOVE T-CANCEL::Trim() TO Btn-CancelTop::Caption
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
+           MOVE T-TIP-CONN-MODEL::Trim() TO Cmb-Conn::Tooltip
+           MOVE T-TIP-MODEL-LIST::Trim() TO Cmb-Model::Tooltip
+           MOVE T-TIP-RANK::Trim() TO Txt-Rank::Tooltip
+           MOVE T-TIP-TOOLS::Trim() TO Chk-Tools::Tooltip
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -629,18 +627,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
@@ -651,12 +644,12 @@
       *>   Save - shared by the Save buttons at the top and at the bottom.
       *>   The model, its rank and whether it calls tools, onto the connection.
            IF WS-CUR-NAME = SPACES
-               MOVE FUNCTION TRIM(T-PICK-CONN) TO Lbl-Status::Caption
+               MOVE T-PICK-CONN::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE Cmb-Model::Value TO WS-MODEL-ID
            IF WS-MODEL-ID = SPACES
-               MOVE FUNCTION TRIM(T-PICK-MODEL) TO Lbl-Status::Caption
+               MOVE T-PICK-MODEL::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O MODELS-FILE
@@ -669,7 +662,7 @@
            READ MODELS-FILE
                INVALID KEY
                    CLOSE MODELS-FILE
-                   MOVE FUNCTION TRIM(T-PICK-CONN) TO Lbl-Status::Caption
+                   MOVE T-PICK-CONN::Trim() TO Lbl-Status::Caption
                    EXIT PROGRAM
            END-READ
            MOVE WS-MODEL-ID TO MDL-MODEL
@@ -689,7 +682,7 @@
            COMMIT
            CLOSE MODELS-FILE
            COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
-           MOVE FUNCTION TRIM(T-MODEL-SAVED) TO Lbl-Status::Caption
+           MOVE T-MODEL-SAVED::Trim() TO Lbl-Status::Caption
            INVOKE ME::Close()
 ]]></Event>
     <Event name="PC-CANCEL" paragraph="PC-CANCEL"><![CDATA[       ENVIRONMENT DIVISION.
@@ -711,11 +704,11 @@
            CALL "PC-LOAD-CONNS"
            MOVE Cmb-Conn::Clear() TO WS-OK
            IF WS-CONN-COUNT = 0
-               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               MOVE T-SUM-NEED-PROVIDER::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               MOVE Cmb-Conn::AddItem(FUNCTION TRIM(WS-CONN-NAME(WS-P))) TO WS-OK
+               MOVE Cmb-Conn::AddItem(WS-CONN-NAME(WS-P)::Trim()) TO WS-OK
            END-PERFORM
       *>   Opening connects: the first connection and its models, at once.
            MOVE Cmb-Conn::SetSelectedIndex(1) TO WS-OK

@@ -207,18 +207,18 @@
       *>   caller hands over below replaces them.
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
-           INVOKE super::"GetProperty"("ConfirmText") RETURNING WS-TEXT
+           INVOKE super::GetProperty("ConfirmText") RETURNING WS-TEXT
       *>   No question given: the translated "Are you sure?" stays.
            IF WS-TEXT NOT = SPACES
-               MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Question::Caption
+               MOVE WS-TEXT::Trim() TO Lbl-Question::Caption
            END-IF
-           INVOKE super::"GetProperty"("ConfirmYes") RETURNING WS-TEXT
+           INVOKE super::GetProperty("ConfirmYes") RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES
-               MOVE FUNCTION TRIM(WS-TEXT) TO Btn-Yes::Caption
+               MOVE WS-TEXT::Trim() TO Btn-Yes::Caption
            END-IF
-           INVOKE super::"GetProperty"("ConfirmNo") RETURNING WS-TEXT
+           INVOKE super::GetProperty("ConfirmNo") RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES
-               MOVE FUNCTION TRIM(WS-TEXT) TO Btn-No::Caption
+               MOVE WS-TEXT::Trim() TO Btn-No::Caption
            END-IF
 
            GOBACK.
@@ -248,7 +248,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   The caller asked; this is its answer, read after OpenFormSync.
-           INVOKE super::"SetProperty"("ConfirmAnswer", "N")
+           INVOKE super::SetProperty("ConfirmAnswer", "N")
            INVOKE ME::Close()
 
            GOBACK.
@@ -261,7 +261,7 @@
        ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           INVOKE super::"SetProperty"("ConfirmAnswer", "Y")
+           INVOKE super::SetProperty("ConfirmAnswer", "Y")
            INVOKE ME::Close()
 
            GOBACK.
@@ -281,8 +281,7 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
 
            GOBACK.
 
@@ -337,9 +336,9 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 3
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-ARE-YOU-SURE) TO Lbl-Question::Caption
-           MOVE FUNCTION TRIM(T-YES) TO Btn-Yes::Caption
-           MOVE FUNCTION TRIM(T-NO) TO Btn-No::Caption
+           MOVE T-ARE-YOU-SURE::Trim() TO Lbl-Question::Caption
+           MOVE T-YES::Trim() TO Btn-Yes::Caption
+           MOVE T-NO::Trim() TO Btn-No::Caption
 
            GOBACK.
 

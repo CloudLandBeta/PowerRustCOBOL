@@ -600,7 +600,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   The Knowledge Base folder in its own dialog; the summary is read again after.
-           INVOKE ME::"OpenFormSync"("KB-FOLDER-FORM")
+           INVOKE ME::OpenFormSync("KB-FOLDER-FORM")
            CALL "PC-REFRESH"
 
            GOBACK.
@@ -614,7 +614,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   The connections: provider, address and key in its own dialog; the summary is read again after.
-           INVOKE ME::"OpenFormSync"("PROVIDERS-FORM")
+           INVOKE ME::OpenFormSync("PROVIDERS-FORM")
            CALL "PC-REFRESH"
 
            GOBACK.
@@ -630,10 +630,10 @@
       *>   Each connection's model, rank and tools, in its own dialog. Only
       *>   once a provider is set up: the button is off until then.
            IF WS-MODEL-COUNT = 0
-               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               MOVE T-SUM-NEED-PROVIDER::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
-           INVOKE ME::"OpenFormSync"("MODEL-FORM")
+           INVOKE ME::OpenFormSync("MODEL-FORM")
            CALL "PC-REFRESH"
 
            GOBACK.
@@ -649,10 +649,10 @@
       *>   Which connection each of the chat's three agents uses, in its own
       *>   dialog. Only once a provider is set up.
            IF WS-MODEL-COUNT = 0
-               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               MOVE T-SUM-NEED-PROVIDER::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
-           INVOKE ME::"OpenFormSync"("AGENTS-FORM")
+           INVOKE ME::OpenFormSync("AGENTS-FORM")
            CALL "PC-REFRESH"
 
            GOBACK.
@@ -680,7 +680,7 @@
                MOVE WS-XML-PATH TO WS-ARG1
                MOVE WS-LONG TO WS-ARG2
                CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE '<rag-settings application="PowerChat" version="1">' TO WS-XLINE
@@ -690,8 +690,7 @@
            MOVE WS-SET-VALUE TO WS-XIN
            CALL "PC-XML-ESC"
            MOVE SPACES TO WS-XLINE
-           STRING '  <knowledge-base folder="' FUNCTION TRIM(WS-XOUT) '"/>'
-               DELIMITED BY SIZE INTO WS-XLINE
+           STRING '  <knowledge-base folder="' WS-XOUT::Trim() '"/>' INTO WS-XLINE
            CALL "PC-XML-PUT"
            MOVE '  <models>' TO WS-XLINE
            CALL "PC-XML-PUT"
@@ -708,23 +707,19 @@
                        NOT AT END
                            MOVE SPACES TO WS-XLINE
                            MOVE 1 TO WS-P
-                           STRING '    <model' DELIMITED BY SIZE INTO WS-XLINE WITH POINTER WS-P
+                           STRING '    <model' INTO WS-XLINE WITH POINTER WS-P
                            MOVE MDL-NAME TO WS-XIN
                            CALL "PC-XML-ESC"
-                           STRING ' name="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
-                               INTO WS-XLINE WITH POINTER WS-P
+                           STRING ' name="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            MOVE MDL-API TO WS-XIN
                            CALL "PC-XML-ESC"
-                           STRING ' provider="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
-                               INTO WS-XLINE WITH POINTER WS-P
+                           STRING ' provider="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            MOVE MDL-URL TO WS-XIN
                            CALL "PC-XML-ESC"
-                           STRING ' endpoint="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
-                               INTO WS-XLINE WITH POINTER WS-P
+                           STRING ' endpoint="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            MOVE MDL-MODEL TO WS-XIN
                            CALL "PC-XML-ESC"
-                           STRING ' model="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
-                               INTO WS-XLINE WITH POINTER WS-P
+                           STRING ' model="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            STRING ' tools="' MDL-TOOLS '" rank="' MDL-RANK '"/>'
                                DELIMITED BY SIZE INTO WS-XLINE WITH POINTER WS-P
                            CALL "PC-XML-PUT"
@@ -741,7 +736,7 @@
                MOVE WS-AGENT-ENTRY(WS-A) TO WS-XIN
                CALL "PC-XML-ESC"
                MOVE SPACES TO WS-XLINE
-               STRING '    <agent number="' WS-A '" model="' FUNCTION TRIM(WS-XOUT) '"/>'
+               STRING '    <agent number="' WS-A '" model="' WS-XOUT::Trim() '"/>'
                    DELIMITED BY SIZE INTO WS-XLINE
                CALL "PC-XML-PUT"
            END-PERFORM
@@ -752,7 +747,7 @@
            MOVE T-EXPORTED TO WS-FMT
            MOVE WS-XML-PATH TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -775,7 +770,7 @@
            END-IF
            OPEN INPUT XML-FILE
            IF WS-FS NOT = "00"
-               MOVE FUNCTION TRIM(T-NOT-RAG-FILE) TO Lbl-Status::Caption
+               MOVE T-NOT-RAG-FILE::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE "N" TO WS-XROOT WS-EOF
@@ -791,7 +786,7 @@
                READ XML-FILE INTO WS-XLINE
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       MOVE FUNCTION TRIM(WS-XLINE) TO WS-XLINE
+                       MOVE WS-XLINE::Trim() TO WS-XLINE
                        EVALUATE TRUE
                            WHEN WS-XLINE(1:13) = "<rag-settings"
                                MOVE "Y" TO WS-XROOT
@@ -851,8 +846,8 @@
                                        ELSE
                                            MOVE WS-NEED-KEYS TO WS-XOUT
                                            MOVE SPACES TO WS-NEED-KEYS
-                                           STRING FUNCTION TRIM(WS-XOUT) ", " FUNCTION TRIM(MDL-NAME)
-                                               DELIMITED BY SIZE INTO WS-NEED-KEYS
+                                           STRING WS-XOUT::Trim() ", " FUNCTION TRIM(MDL-NAME)
+                                               INTO WS-NEED-KEYS
                                        END-IF
                                    END-IF
                                END-IF
@@ -876,7 +871,7 @@
            CLOSE MODELS-FILE
            CLOSE XML-FILE
            IF WS-XROOT NOT = "Y"
-               MOVE FUNCTION TRIM(T-NOT-RAG-FILE) TO Lbl-Status::Caption
+               MOVE T-NOT-RAG-FILE::Trim() TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            CALL "PC-REFRESH"
@@ -891,8 +886,7 @@
                CALL "PC-FMT"
                MOVE WS-LONG TO WS-XOUT
                MOVE SPACES TO WS-LONG
-               STRING FUNCTION TRIM(WS-XOUT) " " FUNCTION TRIM(WS-FMT-OUT)
-                   DELIMITED BY SIZE INTO WS-LONG
+               STRING WS-XOUT::Trim() " " WS-FMT-OUT::Trim() INTO WS-LONG
            END-IF
            MOVE WS-LONG TO Lbl-Status::Caption
 
@@ -930,11 +924,9 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
            MOVE SPACES TO WS-MODELS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
-               DELIMITED BY SIZE INTO WS-MODELS-PATH
+           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
 
            GOBACK.
 
@@ -1171,16 +1163,15 @@
                            CALL "PC-PROVIDER-LABEL"
                            MOVE SPACES TO WS-ROW
                            STRING FUNCTION TRIM(MDL-NAME) " - "
-                                  FUNCTION TRIM(WS-PROV-LABEL) " "
+                                  WS-PROV-LABEL::Trim() " "
                                   FUNCTION TRIM(MDL-MODEL)
-                               DELIMITED BY SIZE INTO WS-ROW
+                               INTO WS-ROW
                            IF MDL-TOOLS = "Y"
                                MOVE T-ROW-TOOLS TO WS-FMT
                                CALL "PC-FMT"
                                MOVE WS-ROW TO WS-ARG4
                                MOVE SPACES TO WS-ROW
-                               STRING FUNCTION TRIM(WS-ARG4) FUNCTION TRIM(WS-FMT-OUT)
-                                   DELIMITED BY SIZE INTO WS-ROW
+                               STRING WS-ARG4::Trim() WS-FMT-OUT::Trim() INTO WS-ROW
                            END-IF
                            IF MDL-RANK IS NUMERIC AND MDL-RANK > 0
                                MOVE T-ROW-RANK TO WS-FMT
@@ -1188,16 +1179,14 @@
                                CALL "PC-FMT"
                                MOVE WS-ROW TO WS-ARG4
                                MOVE SPACES TO WS-ROW
-                               STRING FUNCTION TRIM(WS-ARG4) FUNCTION TRIM(WS-FMT-OUT)
-                                   DELIMITED BY SIZE INTO WS-ROW
+                               STRING WS-ARG4::Trim() WS-FMT-OUT::Trim() INTO WS-ROW
                            END-IF
                            IF WS-KEY-FLAG = "Y"
                                MOVE T-ROW-KEY-SET TO WS-FMT
                                CALL "PC-FMT"
                                MOVE WS-ROW TO WS-ARG4
                                MOVE SPACES TO WS-ROW
-                               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
-                                   DELIMITED BY SIZE INTO WS-ROW
+                               STRING WS-ARG4::Trim() " " WS-FMT-OUT::Trim() INTO WS-ROW
                            END-IF
                            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                                IF MDL-NAME = WS-AGENT-ENTRY(WS-A)
@@ -1206,11 +1195,10 @@
                                    CALL "PC-FMT"
                                    MOVE WS-ROW TO WS-ARG4
                                    MOVE SPACES TO WS-ROW
-                                   STRING FUNCTION TRIM(WS-ARG4) "  " FUNCTION TRIM(WS-FMT-OUT)
-                                       DELIMITED BY SIZE INTO WS-ROW
+                                   STRING WS-ARG4::Trim() "  " WS-FMT-OUT::Trim() INTO WS-ROW
                                END-IF
                            END-PERFORM
-                           MOVE Lst-Models::AddItem(FUNCTION TRIM(WS-ROW)) TO WS-OK
+                           MOVE Lst-Models::AddItem(WS-ROW::Trim()) TO WS-OK
                        END-IF
                END-READ
            END-PERFORM
@@ -1265,16 +1253,16 @@
            MOVE SPACES TO WS-XOUT
            MOVE 1 TO WS-PT
            PERFORM VARYING WS-CH FROM 1 BY 1
-                   UNTIL WS-CH > FUNCTION LENGTH(FUNCTION TRIM(WS-XIN))
+                   UNTIL WS-CH > FUNCTION LENGTH(WS-XIN::Trim())
                       OR WS-XIN = SPACES
                EVALUATE WS-XIN(WS-CH:1)
-                   WHEN "&" STRING "&amp;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
-                   WHEN "<" STRING "&lt;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
-                   WHEN ">" STRING "&gt;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
-                   WHEN QUOTE STRING "&quot;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
-                   WHEN "'" STRING "&apos;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN "&" STRING "&amp;" INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN "<" STRING "&lt;" INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN ">" STRING "&gt;" INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN QUOTE STRING "&quot;" INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN "'" STRING "&apos;" INTO WS-XOUT WITH POINTER WS-PT
                    WHEN OTHER
-                       STRING WS-XIN(WS-CH:1) DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+                       STRING WS-XIN(WS-CH:1) INTO WS-XOUT WITH POINTER WS-PT
                END-EVALUATE
            END-PERFORM
 
@@ -1298,8 +1286,8 @@
       *>   decoded); WS-XFOUND = "Y" when the line carries it.
            MOVE SPACES TO WS-XVAL WS-KEYTXT
            MOVE "N" TO WS-XFOUND
-           STRING " " FUNCTION TRIM(WS-XNAME) "=" QUOTE DELIMITED BY SIZE INTO WS-KEYTXT
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-XNAME)) TO WS-KL
+           STRING " " WS-XNAME::Trim() "=" QUOTE DELIMITED BY SIZE INTO WS-KEYTXT
+           MOVE FUNCTION LENGTH(WS-XNAME::Trim()) TO WS-KL
            ADD 3 TO WS-KL
            MOVE 0 TO WS-AT
            PERFORM VARYING WS-CH FROM 1 BY 1
@@ -1317,22 +1305,22 @@
            PERFORM UNTIL WS-CH > 1000 OR WS-XLINE(WS-CH:1) = QUOTE
                EVALUATE TRUE
                    WHEN WS-XLINE(WS-CH:5) = "&amp;"
-                       STRING "&" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       STRING "&" INTO WS-XVAL WITH POINTER WS-PT
                        ADD 5 TO WS-CH
                    WHEN WS-XLINE(WS-CH:4) = "&lt;"
-                       STRING "<" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       STRING "<" INTO WS-XVAL WITH POINTER WS-PT
                        ADD 4 TO WS-CH
                    WHEN WS-XLINE(WS-CH:4) = "&gt;"
-                       STRING ">" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       STRING ">" INTO WS-XVAL WITH POINTER WS-PT
                        ADD 4 TO WS-CH
                    WHEN WS-XLINE(WS-CH:6) = "&quot;"
                        STRING QUOTE DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
                        ADD 6 TO WS-CH
                    WHEN WS-XLINE(WS-CH:6) = "&apos;"
-                       STRING "'" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       STRING "'" INTO WS-XVAL WITH POINTER WS-PT
                        ADD 6 TO WS-CH
                    WHEN OTHER
-                       STRING WS-XLINE(WS-CH:1) DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       STRING WS-XLINE(WS-CH:1) INTO WS-XVAL WITH POINTER WS-PT
                        ADD 1 TO WS-CH
                END-EVALUATE
            END-PERFORM
@@ -1380,9 +1368,9 @@
            MOVE WS-SET-VALUE TO Lbl-KbSum::Caption
            CALL "PC-LOAD-MODELS"
            IF WS-MODEL-COUNT = 0
-               MOVE FUNCTION TRIM(T-SUM-NO-CONNS) TO Lbl-ProvSum::Caption
-               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-ModelSum::Caption
-               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-AgentSum::Caption
+               MOVE T-SUM-NO-CONNS::Trim() TO Lbl-ProvSum::Caption
+               MOVE T-SUM-NEED-PROVIDER::Trim() TO Lbl-ModelSum::Caption
+               MOVE T-SUM-NEED-PROVIDER::Trim() TO Lbl-AgentSum::Caption
                MOVE "false" TO Btn-ModelSel::Enabled
                MOVE "false" TO Btn-Agents::Enabled
                EXIT PROGRAM
@@ -1393,13 +1381,13 @@
            MOVE WS-MODEL-COUNT TO WS-NE
            MOVE WS-NE TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-ProvSum::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-ProvSum::Caption
            MOVE T-SUM-MODELS TO WS-FMT
            MOVE WS-WITH-MODEL TO WS-NE2
            MOVE WS-NE2 TO WS-ARG1
            MOVE WS-NE TO WS-ARG2
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-ModelSum::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-ModelSum::Caption
            MOVE 0 TO WS-AGENTS-ON
            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF WS-AGENT-ENTRY(WS-A) NOT = SPACES
@@ -1409,7 +1397,7 @@
            MOVE T-SUM-AGENTS TO WS-FMT
            MOVE WS-AGENTS-ON TO WS-ARG1
            CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-AgentSum::Caption
+           MOVE WS-FMT-OUT::Trim() TO Lbl-AgentSum::Caption
 
            GOBACK.
 
@@ -1440,15 +1428,15 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 25
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-SETTINGS-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-KB-FOLDER-TITLE) TO Btn-KbFolder::Caption
-           MOVE FUNCTION TRIM(T-PROVIDERS-TITLE) TO Btn-Providers::Caption
-           MOVE FUNCTION TRIM(T-MODEL-SEL-TITLE) TO Btn-ModelSel::Caption
-           MOVE FUNCTION TRIM(T-AGENTS-TITLE) TO Btn-Agents::Caption
-           MOVE FUNCTION TRIM(T-MODELS) TO Lbl-Models::Caption
-           MOVE FUNCTION TRIM(T-EXPORT) TO Btn-Export::Caption
-           MOVE FUNCTION TRIM(T-IMPORT) TO Btn-Import::Caption
-           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           MOVE T-SETTINGS-TITLE::Trim() TO Lbl-Title::Caption
+           MOVE T-KB-FOLDER-TITLE::Trim() TO Btn-KbFolder::Caption
+           MOVE T-PROVIDERS-TITLE::Trim() TO Btn-Providers::Caption
+           MOVE T-MODEL-SEL-TITLE::Trim() TO Btn-ModelSel::Caption
+           MOVE T-AGENTS-TITLE::Trim() TO Btn-Agents::Caption
+           MOVE T-MODELS::Trim() TO Lbl-Models::Caption
+           MOVE T-EXPORT::Trim() TO Btn-Export::Caption
+           MOVE T-IMPORT::Trim() TO Btn-Import::Caption
+           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
 
            GOBACK.
 
@@ -1479,18 +1467,13 @@
                    WITH POINTER WS-FROM
                END-UNSTRING
                IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
-                       INTO WS-FMT-OUT WITH POINTER WS-PT
+                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
                EVALUATE WS-DELIM
-                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
-                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
-                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM

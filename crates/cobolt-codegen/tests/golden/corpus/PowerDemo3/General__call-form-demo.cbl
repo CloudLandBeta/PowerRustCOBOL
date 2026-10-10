@@ -179,11 +179,11 @@
 
            *> Call the form in modal (Sync)
 
-           INVOKE ME::"OpenFormSync"("CALLED-FORM-DEMO")
+           INVOKE ME::OpenFormSync("CALLED-FORM-DEMO")
 
            *> Retrieve data set by the modal window
 
-           INVOKE ME::"GetProperty"("ResultText") RETURNING Lbl-Result::Caption.
+           INVOKE ME::GetProperty("ResultText") RETURNING Lbl-Result::Caption.
 
            GOBACK.
 

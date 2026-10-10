@@ -61,12 +61,12 @@
       *>   OpenFormSync. The Viewer shows Markdown, text, HTML, PDF and
       *>   images as they are, and Word, PowerPoint, Excel and OpenDocument
       *>   files as their text. Nothing comes back: it only shows.
-           INVOKE super::"GetProperty"("PreviewTitle") RETURNING WS-TEXT
-           MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Title::Caption
-           INVOKE super::"GetProperty"("PreviewClose") RETURNING WS-TEXT
-           MOVE FUNCTION TRIM(WS-TEXT) TO Btn-Close::Caption
-           INVOKE super::"GetProperty"("PreviewPath") RETURNING WS-TEXT
-           MOVE FUNCTION TRIM(WS-TEXT) TO Vwr-Doc::Source
+           INVOKE super::GetProperty("PreviewTitle") RETURNING WS-TEXT
+           MOVE WS-TEXT::Trim() TO Lbl-Title::Caption
+           INVOKE super::GetProperty("PreviewClose") RETURNING WS-TEXT
+           MOVE WS-TEXT::Trim() TO Btn-Close::Caption
+           INVOKE super::GetProperty("PreviewPath") RETURNING WS-TEXT
+           MOVE WS-TEXT::Trim() TO Vwr-Doc::Source
 ]]></Event>
     <Event name="onClose" paragraph="PREVIEW-FORM--ONCLOSE">
     </Event>

@@ -94,19 +94,19 @@
       *>   this one. A form property of the parent's own surface reads
       *>   bare (super::Title); a property of any name, through GetProperty.
            MOVE SPACES TO WS-LINE
-           STRING "Opened by: " super::Title DELIMITED BY SIZE INTO WS-LINE
+           STRING "Opened by: " super::Title INTO WS-LINE
            MOVE WS-LINE TO Lbl-From::Caption
       *>   Simple values.
-           INVOKE super::"GetProperty"("CustomerName") RETURNING Txt-Name::Text
-           INVOKE super::"GetProperty"("CreditLimit") RETURNING Lbl-Limit-Value::Caption
-           INVOKE super::"GetProperty"("IsVip") RETURNING WS-VIP
+           INVOKE super::GetProperty("CustomerName") RETURNING Txt-Name::Text
+           INVOKE super::GetProperty("CreditLimit") RETURNING Lbl-Limit-Value::Caption
+           INVOKE super::GetProperty("IsVip") RETURNING WS-VIP
            IF WS-VIP = "Y"
                SET Chk-Vip::Checked TO TRUE
            ELSE
                SET Chk-Vip::Checked TO FALSE
            END-IF
       *>   Complex data: the record lands in the same layout, field by field.
-           INVOKE super::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+           INVOKE super::GetProperty("OrderRecord") RETURNING WS-ORDER
            MOVE ORD-ITEM(1) TO Lbl-Item-1::Caption
            MOVE ORD-ITEM(2) TO Lbl-Item-2::Caption
            MOVE ORD-ITEM(3) TO Lbl-Item-3::Caption
@@ -802,9 +802,9 @@
 *>   Send the edited data back to the parent - it reads it after
       *>   OpenFormSync returns - and close.
            CALL "PC-TOTAL"
-           INVOKE super::"SetProperty"("CustomerName", Txt-Name::Text)
-           INVOKE super::"SetProperty"("OrderRecord", WS-ORDER)
-           INVOKE super::"SetProperty"("ChildResult", "OK")
+           INVOKE super::SetProperty("CustomerName", Txt-Name::Text)
+           INVOKE super::SetProperty("OrderRecord", WS-ORDER)
+           INVOKE super::SetProperty("ChildResult", "OK")
            INVOKE ME::Close()
 ]]></Event>
   </Control>
@@ -851,7 +851,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
 *>   Nothing is sent back but the answer itself.
-           INVOKE super::"SetProperty"("ChildResult", "CANCEL")
+           INVOKE super::SetProperty("ChildResult", "CANCEL")
            INVOKE ME::Close()
 ]]></Event>
   </Control>

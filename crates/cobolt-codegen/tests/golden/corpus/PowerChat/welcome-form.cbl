@@ -333,8 +333,7 @@
                MOVE "data" TO WS-DATA-DIR
            END-IF
            MOVE SPACES TO WS-SETTINGS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
-               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
 
            GOBACK.
 
@@ -389,11 +388,11 @@
            PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 5
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
-           MOVE FUNCTION TRIM(T-WELCOME) TO Lbl-Welcome::Caption
-           MOVE FUNCTION TRIM(T-STEP-1) TO Lbl-Step-1::Caption
-           MOVE FUNCTION TRIM(T-STEP-2) TO Lbl-Step-2::Caption
-           MOVE FUNCTION TRIM(T-STEP-3) TO Lbl-Step-3::Caption
-           MOVE FUNCTION TRIM(T-STEP-4) TO Lbl-Step-4::Caption
+           MOVE T-WELCOME::Trim() TO Lbl-Welcome::Caption
+           MOVE T-STEP-1::Trim() TO Lbl-Step-1::Caption
+           MOVE T-STEP-2::Trim() TO Lbl-Step-2::Caption
+           MOVE T-STEP-3::Trim() TO Lbl-Step-3::Caption
+           MOVE T-STEP-4::Trim() TO Lbl-Step-4::Caption
 
            GOBACK.
 
