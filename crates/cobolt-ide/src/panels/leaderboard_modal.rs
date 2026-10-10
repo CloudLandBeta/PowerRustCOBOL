@@ -51,9 +51,9 @@ pub struct LeaderboardModal {
     /// `(model, message)` of the error window.
     error: Option<(String, String)>,
     status: Option<String>,
-    /// Whether the COBOL Proficiency Judge has a model of its own. Resolved by
-    /// the app when the panel opens — reading the agent database every frame
-    /// would be a file read per frame.
+    /// Whether the COBOL Proficiency Judge has a model (any model: the one
+    /// under test included). Resolved by the app when the panel opens —
+    /// reading the agent database every frame would be a file read per frame.
     judge_ready: bool,
     /// A Run tests click held back while the judge question is answered.
     pending_run: Option<(String, String)>,
@@ -84,9 +84,9 @@ pub struct LeaderboardAction {
     pub run_tests: Option<(String, String)>,
     // `apply_to_grace` / `apply_to_judge` / `apply_to_specialists` are gone
     // (operator, 2026-08-09). Assigning a model belongs to the Agent × Model
-    // table, which shows every agent at once and checks the separation rule as
-    // you pick; three buttons that silently rewrote several agents from a
-    // screen displaying none of them was the wrong home for it.
+    // table, which shows every agent at once; three buttons that silently
+    // rewrote several agents from a screen displaying none of them was the
+    // wrong home for it.
     /// Reopen the stored benchmark report for this `(provider, model)`.
     pub open_report: Option<(String, String)>,
     /// Open the Agents Manager at the COBOL Proficiency Judge so a model can be
@@ -576,8 +576,7 @@ impl LeaderboardModal {
                                 // "Use for Grace / Judge / All Specialists"
                                 // used to sit here. Assigning a model is the
                                 // Agent × Model table's job, where you can see
-                                // which agent gets what and the separation rule
-                                // is checked as you choose. Three buttons that
+                                // which agent gets what. Three buttons that
                                 // silently rewrote several agents from a screen
                                 // that shows none of them was the wrong place
                                 // for it (operator, 2026-08-09).

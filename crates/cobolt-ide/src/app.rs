@@ -9020,7 +9020,8 @@ impl CoboltApp {
     }
 
     /// Whether the COBOL Proficiency Judge can actually judge — it exists, is
-    /// enabled, and has a model of its own (spec 040).
+    /// enabled, and has a model (spec 040). Any model will do: the one under
+    /// test included.
     fn judge_has_model(&self) -> bool {
         self.project_dir()
             .map(|root| {
@@ -9070,8 +9071,7 @@ impl CoboltApp {
         }
         // The board's "Use for Grace / Judge / All Specialists" actions are
         // gone (operator, 2026-08-09) — assigning a model is the Agent × Model
-        // table's job, where every agent is visible and the separation rule is
-        // checked as you pick.
+        // table's job, where every agent is visible.
         if let Some((provider, model)) = act.add_model {
             // Spec 048 R20 — a model can be benchmarked without any agent
             // running it, so the board takes it on the developer's say-so.
@@ -9161,33 +9161,14 @@ impl CoboltApp {
     }
 
     /// Point the run's reviewer fields at the COBOL Proficiency Judge, so the
-    /// score the board ranks was contested by a second model rather than
-    /// awarded by the model to itself (spec 040).
-    ///
-    /// A judge resolving to the same model as the one under test is left
-    /// unattached: `reviewer_configured` would reject it anyway, and an
-    /// unattached reviewer is at least an honest "unjudged" the caller can
-    /// report.
+    /// score the board ranks was re-scored by the Judge rather than awarded by
+    /// the model to itself (spec 040). Left unattached only when the Judge
+    /// cannot run; the caller reports that run as unjudged.
     fn attach_proficiency_judge(&self, cfg: &mut crate::llm::LlmConfig) {
         let Some(root) = self.project_dir() else {
             return;
         };
-        let db = crate::agents_db::AgentsDb::load(&root);
-        let Some(judge) = db.proficiency_judge_config(&self.llm) else {
-            return;
-        };
-        if judge.model.trim().eq_ignore_ascii_case(cfg.model.trim())
-            && judge.provider.trim().eq_ignore_ascii_case(cfg.provider.trim())
-        {
-            return;
-        }
-        cfg.reviewer_provider = judge.provider.clone();
-        cfg.reviewer_endpoint = judge.endpoint.clone();
-        cfg.reviewer_model = judge.model.clone();
-        let prompt = db.load_agent_core_instructions(crate::agents_db::PROFICIENCY_JUDGE);
-        if !prompt.trim().is_empty() {
-            cfg.pedantic_prompt = prompt;
-        }
+        crate::agents_db::AgentsDb::load(&root).attach_proficiency_judge(&self.llm, cfg);
     }
 
     /// The model-under-test half of a leaderboard run.
@@ -9229,9 +9210,9 @@ impl CoboltApp {
     // `assign_model_to_judge` and `assign_model_to_agents` lived here. They
     // existed only for the Leaderboard's "Use for Grace / Judge / All
     // Specialists" buttons, removed by the operator on 2026-08-09 — assigning
-    // a model is the Agent × Model table's job, where every agent is on screen
-    // and the separation rule is checked as you choose, rather than three
-    // buttons silently rewriting a pool of agents none of which is visible.
+    // a model is the Agent × Model table's job, where every agent is on screen,
+    // rather than three buttons silently rewriting a pool of agents none of
+    // which is visible.
 
     /// The most recent stored report for this model in the open project.
     fn stored_benchmark_report(&self, provider: &str, model: &str) -> Option<String> {
@@ -12901,13 +12882,7 @@ impl CoboltApp {
                                 open_judge = true;
                             }
                         });
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new(tr.ai_setup_separation)
-                                .size(12.0)
-                                .color(self.current_theme().text_dim),
-                        );
-                        ui.add_space(10.0);
+                        ui.add_space(18.0);
                         ui.checkbox(&mut hide_again, tr.ai_setup_hide);
                         ui.add_space(8.0);
                         if ui.button(tr.ai_setup_later).clicked() {
