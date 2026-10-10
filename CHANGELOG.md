@@ -17,6 +17,14 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.56] — 2026-10-10
+
+### Fixed
+- **A form event is counted before the interpreter can take it, so a headless run no longer waits out its time limit for an event that was already handled.**
+  `FormBody::send_event` added the event to the host's backlog counter *after* sending it. The interpreter lowers that counter with a saturating decrement, so an interpreter that took the event in the gap between the send and the count found 0, lost its decrement, and the counter stayed one too high for the rest of the run. A headless `run_form` then waited for an event long handled (`aws_hosts` timed out on the untouched lambda and agent-memory demos about one run in two on a loaded machine, and `layers_hosts_091` and two `run_form` tests failed in the same way), and the timer coalescing judged a backlog that was not there. The event is now counted first, and the count is taken back if the send fails.
+  New test `an_event_is_counted_before_the_interpreter_can_take_it` in `cobolt-form-host` (200 000 events against a receiver that spins on the channel, as an idle interpreter does on a busy machine): it failed 3 runs out of 3 before the change and passed 5 out of 5 after it. Found by the PowerCloud work package that adds the AWS operations, while its acceptance test kept timing out.
+  Not changed, noted: `shell.rs` sends `onDeactivate`, `onDeactivated` and `onDestroy` without counting them, so they can take a decrement that belongs to another event.
+
 ## [PowerRustCOBOL 1.90.55] — 2026-10-09
 
 ### Fixed
