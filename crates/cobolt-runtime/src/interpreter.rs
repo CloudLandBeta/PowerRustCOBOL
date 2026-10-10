@@ -11723,6 +11723,45 @@ impl Interpreter {
                 self.env.set_str(&var, if set { "Y" } else { "N" });
             }
 
+            // ── AWS keys typed in at run time (spec 092 A6) ─────────────
+            // COBOL-AWS-SET-CREDENTIALS   USING connection key-id secret token [status]
+            // COBOL-AWS-CLEAR-CREDENTIALS USING connection [status]
+            // COBOL-AWS-CREDENTIALS-SET   USING connection flag
+            //   A connection's access key id, secret access key and session
+            //   token (spaces for none), kept in this process's memory and
+            //   handed only to the AWS server started for that connection, in
+            //   its environment, instead of the profile. Never logged, never a
+            //   property; no CALL returns them. `status` receives `OK` or why
+            //   nothing was stored; `flag` is Y or N.
+            "COBOL-AWS-SET-CREDENTIALS" if using.len() >= 4 => {
+                let text = |i: usize, me: &mut Self| -> Result<String, RuntimeError> {
+                    Ok(me.eval_call_arg(&using[i], span)?.as_display_string())
+                };
+                let connection = text(0, self)?;
+                let key_id = text(1, self)?;
+                let secret = text(2, self)?;
+                let token = text(3, self)?;
+                let status = aws::set_credentials(connection.trim(), key_id, secret, token);
+                if let Some(arg) = using.get(4) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, &status);
+                }
+            }
+            "COBOL-AWS-CLEAR-CREDENTIALS" if !using.is_empty() => {
+                let connection = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let status = aws::clear_credentials(connection.trim());
+                if let Some(arg) = using.get(1) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, &status);
+                }
+            }
+            "COBOL-AWS-CREDENTIALS-SET" if using.len() >= 2 => {
+                let connection = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let set = aws::credentials_set(connection.trim());
+                let var = self.expr_to_name(call_arg_expr(&using[1]));
+                self.env.set_str(&var, if set { "Y" } else { "N" });
+            }
+
             // ── Model providers (the IDE's list and rules, spec 048) ───────
             // COBOL-PROVIDER-COUNT USING count
             // COBOL-PROVIDER-GET   USING index id label default-endpoint needs-key

@@ -9,9 +9,13 @@
 //! The AWS controls reach AWS as an MCP client of AWS's own MCP servers,
 //! started as child processes and spoken to over stdio. The servers do their
 //! own TLS and SigV4 signing and read the standard AWS credential chain, so
-//! this module links no AWS SDK, no HTTP stack and no TLS, and handles no
-//! credential.
+//! this module links no AWS SDK, no HTTP stack and no TLS, and signs nothing
+//! itself. The one credential it ever holds is a connection's keys that the
+//! program set at run time (spec 092, amendment A6): kept in memory only,
+//! handed to that connection's server through its environment, and shown
+//! nowhere — see [`credentials`].
 //!
+//! - [`credentials`] — keys a program set for a connection, in memory only.
 //! - [`process`] — starting a server: the built environment, stderr, masking.
 //! - [`pool`] — one shared server per connection and server, timeouts,
 //!   restarts.
@@ -20,6 +24,7 @@
 
 pub mod b64;
 pub mod connections;
+pub mod credentials;
 pub mod diagnose;
 pub mod lifetime;
 pub mod ops;

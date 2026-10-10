@@ -4622,6 +4622,9 @@ The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the
 | Method | Arguments, in order | What it does |
 |---|---|---|
 | `COBOL::"APPEND-FILE"` | path in, text in, [status out] | Append a line of text to a file, creating it if missing |
+| `COBOL::"AWS-CLEAR-CREDENTIALS"` | connection in, [status out] | Forget the AWS keys set for a connection and end the server that held them |
+| `COBOL::"AWS-CREDENTIALS-SET"` | connection in, flag out | Whether AWS keys are set for a connection: Y or N (never the keys) |
+| `COBOL::"AWS-SET-CREDENTIALS"` | connection in, key-id in, secret in, token in, [status out] | Give a connection AWS keys for this run, kept in memory only (never read back) |
 | `COBOL::"BINDING-LOAD"` | binding-id in, status out | Load a data binding's records from its source |
 | `COBOL::"BINDING-MARK-CLEAN"` | binding-id in, dirty-flag out | Mark a binding clean: no pending edits |
 | `COBOL::"BINDING-POPULATE"` | binding-id in, status out | Fill a binding's bound controls from its data |
@@ -6751,7 +6754,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── AWS controls (spec 078) ──
         "Connection" => (
             "the name of one of the project's AWS connections, or empty",
-            "AWS controls: which AWS connection (Settings → Integrations → AWS) the control works through — its profile, its region and, for Lambda, which functions are offered. Empty means the project's ONLY AWS connection, when it has exactly one. A name the project does not have fails the call with `onError`, naming the connections it does have. A connection holds no secret: credentials come from the AWS profile on the machine that runs the application (`aws login --profile <name>`), never from the form or the project.",
+            "AWS controls: which AWS connection (Settings → Integrations → AWS) the control works through — its profile, its region and, for Lambda, which functions are offered. Empty means the project's ONLY AWS connection, when it has exactly one. A name the project does not have fails the call with `onError`, naming the connections it does have. A connection holds no secret: credentials come from the AWS profile on the machine that runs the application (`aws login --profile <name>`), never from the form or the project — or, when the program hands the connection keys at run time with `COBOL::\"AWS-SET-CREDENTIALS\"`, from those keys, kept in memory only for that run.",
         ),
         "StartTimeoutMs" => (
             "milliseconds (default 120000)",
@@ -7921,6 +7924,8 @@ Colour carried by the DATA still wins: `AddRoute` USING id colour width geometry
         | "AwsEC2" | "AwsCognito" => "\
 ### Usage — AWS controls\n\
 An AWS control works through one of the project's AWS connections (Settings → Integrations → AWS), which names an AWS profile and a region. The application signs in with that profile on the machine it runs on — run `aws login --profile <name>` once there — and no key is ever kept in a form, a project or a built application. The first call on a machine starts the connection's AWS server with `uvx`, which must be installed (`LastError` says so, with the fix, when it is not); every AWS control on the connection then shares that one server, and it ends with the application.\n\
+\n\
+An application whose user types in AWS keys hands them to a connection with `COBOL::\"AWS-SET-CREDENTIALS\" ( connection key-id secret token [status] )` — the token may be spaces; `status` is `OK` or why nothing was stored (an unknown connection, a missing key id or secret). The runtime keeps them in memory for that run only and gives them to the connection's AWS server in its environment, instead of the profile; they are never a property, never written to a file or a log, never in `Verbose` output or an error, and no call returns them. `COBOL::\"AWS-CREDENTIALS-SET\" ( connection flag )` answers `Y` or `N`; `COBOL::\"AWS-CLEAR-CREDENTIALS\" ( connection [status] )` forgets them. Setting or clearing them ends the connection's running server, so the next call starts one with what is set now. Clear the fields the user typed the keys into straight after the call. A developer's own machine should keep using a profile.\n\
 \n\
 ```cobol\n\
            MOVE '{\"orderId\": 42}' TO WS-PAYLOAD\n\

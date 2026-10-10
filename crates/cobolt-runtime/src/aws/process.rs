@@ -12,8 +12,14 @@
 //!   gets the few variables a program needs to run and find its AWS
 //!   configuration, the profile and region the connection names, and the
 //!   variables its route declares — and never an access key, a secret key or a
-//!   session token, even when the application's own environment holds them.
+//!   session token from the application's own environment or from a route.
 //!   The credential chain is the AWS CLI's: a named profile, SSO, `aws login`.
+//!   **Amendment A6 (spec 092)** adds one exception: the keys the program set
+//!   for the connection with `COBOL::"AWS-SET-CREDENTIALS"` ([`Credentials`]).
+//!   When a launch carries them, the server receives exactly
+//!   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and (when one was given)
+//!   `AWS_SESSION_TOKEN` from them, and no profile at all. [`built_env`] is
+//!   the only code that reads them; they are never an argument.
 //! - **stderr never reaches the protocol stream or an end user raw** (R10). A
 //!   thread drains it into a bounded ring the runtime may consult — to
 //!   recognise a credential failure, say — and `Verbose` shows it masked.
@@ -36,11 +42,126 @@ pub struct Launch {
     /// The AWS CLI profile the connection names — a NAME, never a key.
     pub profile: Option<String>,
     pub region: Option<String>,
+    /// The keys the program set for the connection (spec 092 A6). When
+    /// present they sign the server's calls and the profile is left out; see
+    /// [`Launch::with_credentials`]. A different set is a different launch,
+    /// so the pool restarts the server.
+    pub credentials: Option<Arc<Credentials>>,
 }
 
-/// The variables a server may never receive, whoever offers them.
+impl Launch {
+    /// This launch signing with `credentials` instead of a profile (A6): no
+    /// profile, and no `--profile` argument a route override may have added —
+    /// an explicit profile makes the AWS SDK ignore keys in the environment.
+    pub fn with_credentials(mut self, credentials: Arc<Credentials>) -> Self {
+        let mut args = Vec::with_capacity(self.args.len());
+        let mut skip_value = false;
+        for a in self.args {
+            if skip_value {
+                skip_value = false;
+            } else if a == "--profile" {
+                skip_value = true;
+            } else if !a.starts_with("--profile=") {
+                args.push(a);
+            }
+        }
+        self.args = args;
+        self.profile = None;
+        self.credentials = Some(credentials);
+        self
+    }
+}
+
+/// AWS keys a program set for one connection at run time (spec 092 A6).
+///
+/// Nothing can read them back. The fields are private to this module, whose
+/// [`built_env`] is their one reader; `Debug` and `Display` print a
+/// placeholder; and the text is overwritten when the last holder lets it go.
+/// Two sets are equal only when they are the same set — every
+/// `AWS-SET-CREDENTIALS` makes a new one — so a server started with other
+/// keys never matches the launch and is restarted.
+pub struct Credentials {
+    serial: u64,
+    key_id: Secret,
+    secret: Secret,
+    /// Empty when no session token was given.
+    token: Secret,
+}
+
+impl Credentials {
+    /// Take an access key id, a secret access key and a session token (empty
+    /// for none), surrounding spaces removed. The texts handed in are
+    /// overwritten.
+    pub fn new(key_id: String, secret: String, token: String) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SERIAL: AtomicU64 = AtomicU64::new(1);
+        Credentials {
+            serial: SERIAL.fetch_add(1, Ordering::Relaxed),
+            key_id: Secret::take_trimmed(key_id),
+            secret: Secret::take_trimmed(secret),
+            token: Secret::take_trimmed(token),
+        }
+    }
+}
+
+impl PartialEq for Credentials {
+    fn eq(&self, other: &Self) -> bool {
+        self.serial == other.serial
+    }
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Credentials(redacted)")
+    }
+}
+
+impl std::fmt::Display for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("(AWS credentials, redacted)")
+    }
+}
+
+/// One held value: no `Debug`, no `Clone`, wiped when dropped.
+struct Secret(String);
+
+impl Secret {
+    fn take_trimmed(mut text: String) -> Self {
+        let kept = Secret(text.trim().to_owned());
+        wipe(&mut text);
+        kept
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        wipe(&mut self.0);
+    }
+}
+
+/// Overwrite a string's bytes with zeros before its memory is released, in a
+/// way the optimiser may not drop as a dead store, then empty it.
+pub(crate) fn wipe(text: &mut String) {
+    // SAFETY: zero bytes are valid UTF-8, so the string stays valid while it
+    // is overwritten, and it is emptied straight after.
+    let bytes = unsafe { text.as_mut_vec() };
+    for b in bytes.iter_mut() {
+        // SAFETY: `b` is a valid, aligned and exclusive reference.
+        unsafe { std::ptr::write_volatile(b, 0) };
+    }
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    text.clear();
+}
+
+/// The variables a server may never receive from the application's
+/// environment or a route. (The keys a program set, A6, are the one way in,
+/// and [`built_env`] adds them itself.)
 pub const SECRET_VARS: [&str; 4] =
     ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_SECURITY_TOKEN"];
+
+/// The variables that name a profile — left out when keys sign instead (A6):
+/// a profile the machine does not have is an error to the AWS SDK.
+const PROFILE_VARS: [&str; 2] = ["AWS_PROFILE", "AWS_DEFAULT_PROFILE"];
 
 /// The parent variables a server inherits: enough to run a program, find its
 /// caches and read the AWS configuration files — nothing else.
@@ -67,8 +188,15 @@ fn is_secret(name: &str) -> bool {
     SECRET_VARS.iter().any(|s| s.eq_ignore_ascii_case(name))
 }
 
-/// The environment a server is started with, from the parent's (R11).
-pub fn built_env(launch: &Launch, parent: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+fn is_profile_var(name: &str) -> bool {
+    PROFILE_VARS.iter().any(|s| s.eq_ignore_ascii_case(name))
+}
+
+/// The environment a server is started with, from the parent's (R11) — and,
+/// when the launch carries keys the program set (A6), those keys instead of a
+/// profile. The only reader of [`Credentials`].
+fn built_env(launch: &Launch, parent: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+    let keys = launch.credentials.as_deref();
     let mut env: Vec<(String, String)> = parent
         .into_iter()
         .filter(|(k, _)| INHERITED_VARS.iter().any(|v| v.eq_ignore_ascii_case(k)))
@@ -77,18 +205,25 @@ pub fn built_env(launch: &Launch, parent: impl IntoIterator<Item = (String, Stri
         env.retain(|(name, _)| !name.eq_ignore_ascii_case(k));
         env.push((k.to_owned(), v.to_owned()));
     };
-    if let Some(p) = launch.profile.as_deref().filter(|p| !p.trim().is_empty()) {
+    if let Some(p) = launch.profile.as_deref().filter(|p| keys.is_none() && !p.trim().is_empty()) {
         set("AWS_PROFILE", p.trim());
     }
     if let Some(r) = launch.region.as_deref().filter(|r| !r.trim().is_empty()) {
         set("AWS_REGION", r.trim());
     }
     for (k, v) in &launch.env {
-        if !is_secret(k) {
+        if !is_secret(k) && !(keys.is_some() && is_profile_var(k)) {
             set(k, v);
         }
     }
     env.retain(|(k, _)| !is_secret(k));
+    if let Some(c) = keys {
+        env.push(("AWS_ACCESS_KEY_ID".to_owned(), c.key_id.0.clone()));
+        env.push(("AWS_SECRET_ACCESS_KEY".to_owned(), c.secret.0.clone()));
+        if !c.token.0.is_empty() {
+            env.push(("AWS_SESSION_TOKEN".to_owned(), c.token.0.clone()));
+        }
+    }
     env
 }
 
@@ -144,15 +279,21 @@ pub fn missing_program_message(program: &str) -> String {
 /// Start a server (R7): stdin and stdout piped for the protocol, stderr
 /// drained into a ring by a thread of its own.
 pub fn spawn(launch: &Launch) -> Result<Spawned, String> {
+    let mut env = built_env(launch, std::env::vars());
     let mut cmd = Command::new(&launch.command);
     cmd.args(&launch.args)
         .env_clear()
-        .envs(built_env(launch, std::env::vars()))
+        .envs(env.iter().map(|(k, v)| (k, v)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     super::lifetime::prepare(&mut cmd);
-    let mut child = match cmd.spawn() {
+    let started = cmd.spawn();
+    // The command keeps its own copy until it is dropped; this one goes now.
+    for (_, v) in env.iter_mut() {
+        wipe(v);
+    }
+    let mut child = match started {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(missing_program_message(&launch.command));
@@ -289,6 +430,124 @@ mod tests {
         assert!(m.contains("AKIA****************"));
         assert!(m.contains("X-Amz-Signature=****&x=1"));
         assert!(m.contains("plain words stay, id 12345"));
+    }
+
+    /// Recognisable values, assembled here: they look like no real AWS key,
+    /// so masking cannot hide a leak — a surface must simply never hold them.
+    fn planted() -> (String, String, String) {
+        let tag = std::process::id().to_string();
+        (["prc", "a6", "keyid", &tag].join("-"), ["prc", "a6", "secret", &tag].join("_"), ["prc", "a6", "token", &tag].join("."))
+    }
+
+    fn keys(key: &str, secret: &str, token: &str) -> Arc<Credentials> {
+        Arc::new(Credentials::new(format!("  {key} "), secret.to_owned(), token.to_owned()))
+    }
+
+    /// A6 (R5): keys set for the connection reach its server as exactly the
+    /// three variables, and the profile — the launch's, a route's, the
+    /// parent's — is left out; the parent's own secrets still never pass.
+    #[test]
+    fn credentials_replace_the_profile_in_the_built_environment() {
+        let (key, secret, token) = planted();
+        // Built by hand, profile AND keys: `built_env` must drop the profile
+        // itself, not rely on `with_credentials` having done it.
+        let launch = Launch {
+            command: "uvx".into(),
+            profile: Some("dev".into()),
+            region: Some("eu-west-1".into()),
+            env: vec![("FUNCTION_PREFIX".into(), "app-".into()), ("AWS_DEFAULT_PROFILE".into(), "route-profile".into())],
+            credentials: Some(keys(&key, &secret, &token)),
+            ..Default::default()
+        };
+        let mut offered = parent();
+        offered.push(("AWS_PROFILE".into(), "parent-profile".into()));
+        let env = built_env(&launch, offered);
+        let get = |k: &str| env.iter().filter(|(n, _)| n == k).map(|(_, v)| v.as_str()).collect::<Vec<_>>();
+        assert_eq!(get("AWS_ACCESS_KEY_ID"), [key.as_str()], "trimmed, once");
+        assert_eq!(get("AWS_SECRET_ACCESS_KEY"), [secret.as_str()]);
+        assert_eq!(get("AWS_SESSION_TOKEN"), [token.as_str()]);
+        assert!(get("AWS_SECURITY_TOKEN").is_empty());
+        for p in PROFILE_VARS {
+            assert!(get(p).is_empty(), "{p} must be left out when keys sign: {env:?}");
+        }
+        assert_eq!(get("AWS_REGION"), ["eu-west-1"]);
+        assert_eq!(get("FUNCTION_PREFIX"), ["app-"]);
+        let all: String = env.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+        for (name, value) in parent().into_iter().filter(|(k, _)| is_secret(k) || k == "MY_APP_SECRET") {
+            assert!(!all.contains(&value), "the parent's {name} passed");
+        }
+        println!("A6 built env: 3 key variables, 0 profile variables, {} variables in all", env.len());
+    }
+
+    /// A6 (R5): an empty token leaves AWS_SESSION_TOKEN out altogether.
+    #[test]
+    fn an_empty_token_is_left_out() {
+        let (key, secret, _) = planted();
+        let launch = Launch::default().with_credentials(keys(&key, &secret, "   "));
+        let env = built_env(&launch, Vec::new());
+        let names: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(names, ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]);
+    }
+
+    /// A6 (R5): a launch with keys carries no profile and no `--profile`
+    /// argument, in either spelling; every other argument stays, in order.
+    #[test]
+    fn keys_take_the_profile_argument_away() {
+        let (key, secret, token) = planted();
+        let launch = Launch {
+            command: "uvx".into(),
+            args: ["proxy@1", "--profile", "dev", "https://x", "--profile=dev", "--metadata", "AWS_REGION=eu-west-1"]
+                .map(String::from)
+                .to_vec(),
+            profile: Some("dev".into()),
+            ..Default::default()
+        };
+        let plain = launch.clone();
+        let signed = launch.with_credentials(keys(&key, &secret, &token));
+        assert_eq!(signed.args, ["proxy@1", "https://x", "--metadata", "AWS_REGION=eu-west-1"]);
+        assert_eq!(signed.profile, None);
+        assert!(!signed.args.iter().any(|a| a.contains(&key) || a.contains(&secret) || a.contains(&token)));
+        assert_ne!(plain, signed, "keys make a different launch");
+    }
+
+    /// A6 (R7): the type that holds the keys, and everything holding it,
+    /// renders without them; two sets are equal only when they are one set.
+    #[test]
+    fn credentials_redact_themselves() {
+        let (key, secret, token) = planted();
+        let c = keys(&key, &secret, &token);
+        let launch = Launch { command: "uvx".into(), ..Default::default() }.with_credentials(c.clone());
+        let renderings = [
+            format!("{c:?}"),
+            format!("{c:#?}"),
+            format!("{c}"),
+            format!("{launch:?}"),
+            format!("{launch:#?}"),
+        ];
+        for r in &renderings {
+            for v in [&key, &secret, &token] {
+                assert!(!r.contains(v.as_str()), "{r}");
+            }
+        }
+        assert_eq!(renderings[0], "Credentials(redacted)");
+        assert_eq!(*c, *c.clone(), "one set equals itself");
+        let again = keys(&key, &secret, &token);
+        assert_ne!(*c, *again, "the same values set again are a new set");
+        let same = Launch { command: "uvx".into(), ..Default::default() }.with_credentials(c);
+        assert_eq!(launch, same);
+    }
+
+    /// The buffers are overwritten, not merely released.
+    #[test]
+    fn wipe_overwrites_the_bytes() {
+        let mut s = String::from("prc-a6-wipe");
+        let ptr = s.as_ptr();
+        let len = s.len();
+        wipe(&mut s);
+        assert!(s.is_empty());
+        // SAFETY: the string still owns its allocation; only its length changed.
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+        assert!(bytes.iter().all(|b| *b == 0), "{bytes:?}");
     }
 
     #[test]
