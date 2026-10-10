@@ -513,35 +513,17 @@
       *> Set WS-ANIM-NAME before calling this paragraph.
            EVALUATE WS-ANIM-NAME
                WHEN "appear"
-                   INVOKE Panel-8 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnAbrirNew 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnAlterarNew 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnExcluirNew 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnAprovarNew 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnRejeitarNew 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnEncaminharNew 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnArquivarNew 'PlayAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE ToolBar-1 'PlayAnimation'
-                       USING BY VALUE "appear"
+                   INVOKE Panel-8 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE btnAbrirNew 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE btnAlterarNew 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE btnExcluirNew 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE btnAprovarNew 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE btnRejeitarNew 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE btnEncaminharNew 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE btnArquivarNew 'PlayAnimation' USING BY VALUE "appear"
+                   INVOKE ToolBar-1 'PlayAnimation' USING BY VALUE "appear"
                WHEN "anim1"
-                   INVOKE TreeView-1 'PlayAnimation'
-                       USING BY VALUE "anim1"
+                   INVOKE TreeView-1 'PlayAnimation' USING BY VALUE "anim1"
                WHEN OTHER
                    CONTINUE
            END-EVALUATE.
@@ -550,78 +532,50 @@
       *> Set WS-ANIM-NAME before calling this paragraph.
            EVALUATE WS-ANIM-NAME
                WHEN "appear"
-                   INVOKE Panel-8 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnAbrirNew 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnAlterarNew 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnExcluirNew 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnAprovarNew 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnRejeitarNew 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnEncaminharNew 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE btnArquivarNew 'StopAnimation'
-                       USING BY VALUE "appear"
-               WHEN "appear"
-                   INVOKE ToolBar-1 'StopAnimation'
-                       USING BY VALUE "appear"
+                   INVOKE Panel-8 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE btnAbrirNew 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE btnAlterarNew 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE btnExcluirNew 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE btnAprovarNew 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE btnRejeitarNew 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE btnEncaminharNew 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE btnArquivarNew 'StopAnimation' USING BY VALUE "appear"
+                   INVOKE ToolBar-1 'StopAnimation' USING BY VALUE "appear"
                WHEN "anim1"
-                   INVOKE TreeView-1 'StopAnimation'
-                       USING BY VALUE "anim1"
+                   INVOKE TreeView-1 'StopAnimation' USING BY VALUE "anim1"
                WHEN OTHER
                    CONTINUE
            END-EVALUATE.
 
        Panel-8-PLAY-APPEAR.
-           INVOKE Panel-8 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE Panel-8 'PlayAnimation' USING BY VALUE "appear".
 
        btnAbrirNew-PLAY-APPEAR.
-           INVOKE btnAbrirNew 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE btnAbrirNew 'PlayAnimation' USING BY VALUE "appear".
 
        btnAlterarNew-PLAY-APPEAR.
-           INVOKE btnAlterarNew 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE btnAlterarNew 'PlayAnimation' USING BY VALUE "appear".
 
        btnExcluirNew-PLAY-APPEAR.
-           INVOKE btnExcluirNew 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE btnExcluirNew 'PlayAnimation' USING BY VALUE "appear".
 
        btnAprovarNew-PLAY-APPEAR.
-           INVOKE btnAprovarNew 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE btnAprovarNew 'PlayAnimation' USING BY VALUE "appear".
 
        btnRejeitarNew-PLAY-APPEAR.
-           INVOKE btnRejeitarNew 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE btnRejeitarNew 'PlayAnimation' USING BY VALUE "appear".
 
        btnEncaminharNew-PLAY-APPEAR.
-           INVOKE btnEncaminharNew 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE btnEncaminharNew 'PlayAnimation' USING BY VALUE "appear".
 
        btnArquivarNew-PLAY-APPEAR.
-           INVOKE btnArquivarNew 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE btnArquivarNew 'PlayAnimation' USING BY VALUE "appear".
 
        ToolBar-1-PLAY-APPEAR.
-           INVOKE ToolBar-1 'PlayAnimation'
-               USING BY VALUE "appear".
+           INVOKE ToolBar-1 'PlayAnimation' USING BY VALUE "appear".
 
        TreeView-1-PLAY-ANIM1.
-           INVOKE TreeView-1 'PlayAnimation'
-               USING BY VALUE "anim1".
+           INVOKE TreeView-1 'PlayAnimation' USING BY VALUE "anim1".
 
 
       *> ── Nested event-handler programs (COBOL-85) ─────────────────────

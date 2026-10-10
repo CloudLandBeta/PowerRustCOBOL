@@ -175,11 +175,9 @@
       *> Set WS-ANIM-NAME before calling this paragraph.
            EVALUATE WS-ANIM-NAME
                WHEN "rust"
-                   INVOKE PictureBox-1 'PlayAnimation'
-                       USING BY VALUE "rust"
+                   INVOKE PictureBox-1 'PlayAnimation' USING BY VALUE "rust"
                WHEN "chibiin"
-                   INVOKE PictureBox-2 'PlayAnimation'
-                       USING BY VALUE "chibiin"
+                   INVOKE PictureBox-2 'PlayAnimation' USING BY VALUE "chibiin"
                WHEN OTHER
                    CONTINUE
            END-EVALUATE.
@@ -188,22 +186,18 @@
       *> Set WS-ANIM-NAME before calling this paragraph.
            EVALUATE WS-ANIM-NAME
                WHEN "rust"
-                   INVOKE PictureBox-1 'StopAnimation'
-                       USING BY VALUE "rust"
+                   INVOKE PictureBox-1 'StopAnimation' USING BY VALUE "rust"
                WHEN "chibiin"
-                   INVOKE PictureBox-2 'StopAnimation'
-                       USING BY VALUE "chibiin"
+                   INVOKE PictureBox-2 'StopAnimation' USING BY VALUE "chibiin"
                WHEN OTHER
                    CONTINUE
            END-EVALUATE.
 
        PictureBox-1-PLAY-RUST.
-           INVOKE PictureBox-1 'PlayAnimation'
-               USING BY VALUE "rust".
+           INVOKE PictureBox-1 'PlayAnimation' USING BY VALUE "rust".
 
        PictureBox-2-PLAY-CHIBIIN.
-           INVOKE PictureBox-2 'PlayAnimation'
-               USING BY VALUE "chibiin".
+           INVOKE PictureBox-2 'PlayAnimation' USING BY VALUE "chibiin".
 
 
       *> ── Nested event-handler programs (COBOL-85) ─────────────────────

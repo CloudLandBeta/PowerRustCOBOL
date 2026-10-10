@@ -247,17 +247,14 @@
       *> </WEB-SEARCH>
        COBOL-PLAY-ANIMATION.
       *> Set WS-ANIM-NAME before calling this paragraph.
-           INVOKE Pic-Robot 'PlayAnimation'
-               USING BY VALUE "anim1".
+           INVOKE Pic-Robot 'PlayAnimation' USING BY VALUE "anim1".
 
        COBOL-STOP-ANIMATION.
       *> Set WS-ANIM-NAME before calling this paragraph.
-           INVOKE Pic-Robot 'StopAnimation'
-               USING BY VALUE "anim1".
+           INVOKE Pic-Robot 'StopAnimation' USING BY VALUE "anim1".
 
        Pic-Robot-PLAY-ANIM1.
-           INVOKE Pic-Robot 'PlayAnimation'
-               USING BY VALUE "anim1".
+           INVOKE Pic-Robot 'PlayAnimation' USING BY VALUE "anim1".
 
 
       *> ── Nested event-handler programs (COBOL-85) ─────────────────────

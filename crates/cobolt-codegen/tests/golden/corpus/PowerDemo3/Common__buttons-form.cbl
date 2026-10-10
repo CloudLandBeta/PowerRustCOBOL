@@ -226,35 +226,18 @@
       *> Set WS-ANIM-NAME before calling this paragraph.
            EVALUATE WS-ANIM-NAME
                WHEN "bt1"
-                   INVOKE Button-1 'PlayAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-2 'PlayAnimation'
-                       USING BY VALUE "bt1"
+                   INVOKE Button-1 'PlayAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-2 'PlayAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-5 'PlayAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-6 'PlayAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-7 'PlayAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-8 'PlayAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-9 'PlayAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-10 'PlayAnimation' USING BY VALUE "bt1"
                WHEN "anim2"
-                   INVOKE Button-3 'PlayAnimation'
-                       USING BY VALUE "anim2"
+                   INVOKE Button-3 'PlayAnimation' USING BY VALUE "anim2"
                WHEN "1"
-                   INVOKE Button-4 'PlayAnimation'
-                       USING BY VALUE "1"
-               WHEN "bt1"
-                   INVOKE Button-5 'PlayAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-6 'PlayAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-7 'PlayAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-8 'PlayAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-9 'PlayAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-10 'PlayAnimation'
-                       USING BY VALUE "bt1"
+                   INVOKE Button-4 'PlayAnimation' USING BY VALUE "1"
                WHEN OTHER
                    CONTINUE
            END-EVALUATE.
@@ -263,78 +246,51 @@
       *> Set WS-ANIM-NAME before calling this paragraph.
            EVALUATE WS-ANIM-NAME
                WHEN "bt1"
-                   INVOKE Button-1 'StopAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-2 'StopAnimation'
-                       USING BY VALUE "bt1"
+                   INVOKE Button-1 'StopAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-2 'StopAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-5 'StopAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-6 'StopAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-7 'StopAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-8 'StopAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-9 'StopAnimation' USING BY VALUE "bt1"
+                   INVOKE Button-10 'StopAnimation' USING BY VALUE "bt1"
                WHEN "anim2"
-                   INVOKE Button-3 'StopAnimation'
-                       USING BY VALUE "anim2"
+                   INVOKE Button-3 'StopAnimation' USING BY VALUE "anim2"
                WHEN "1"
-                   INVOKE Button-4 'StopAnimation'
-                       USING BY VALUE "1"
-               WHEN "bt1"
-                   INVOKE Button-5 'StopAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-6 'StopAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-7 'StopAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-8 'StopAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-9 'StopAnimation'
-                       USING BY VALUE "bt1"
-               WHEN "bt1"
-                   INVOKE Button-10 'StopAnimation'
-                       USING BY VALUE "bt1"
+                   INVOKE Button-4 'StopAnimation' USING BY VALUE "1"
                WHEN OTHER
                    CONTINUE
            END-EVALUATE.
 
        Button-1-PLAY-BT1.
-           INVOKE Button-1 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-1 'PlayAnimation' USING BY VALUE "bt1".
 
        Button-2-PLAY-BT1.
-           INVOKE Button-2 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-2 'PlayAnimation' USING BY VALUE "bt1".
 
        Button-3-PLAY-ANIM2.
-           INVOKE Button-3 'PlayAnimation'
-               USING BY VALUE "anim2".
+           INVOKE Button-3 'PlayAnimation' USING BY VALUE "anim2".
 
        Button-4-PLAY-1.
-           INVOKE Button-4 'PlayAnimation'
-               USING BY VALUE "1".
+           INVOKE Button-4 'PlayAnimation' USING BY VALUE "1".
 
        Button-5-PLAY-BT1.
-           INVOKE Button-5 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-5 'PlayAnimation' USING BY VALUE "bt1".
 
        Button-6-PLAY-BT1.
-           INVOKE Button-6 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-6 'PlayAnimation' USING BY VALUE "bt1".
 
        Button-7-PLAY-BT1.
-           INVOKE Button-7 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-7 'PlayAnimation' USING BY VALUE "bt1".
 
        Button-8-PLAY-BT1.
-           INVOKE Button-8 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-8 'PlayAnimation' USING BY VALUE "bt1".
 
        Button-9-PLAY-BT1.
-           INVOKE Button-9 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-9 'PlayAnimation' USING BY VALUE "bt1".
 
        Button-10-PLAY-BT1.
-           INVOKE Button-10 'PlayAnimation'
-               USING BY VALUE "bt1".
+           INVOKE Button-10 'PlayAnimation' USING BY VALUE "bt1".
 
 
       *> ── Nested event-handler programs (COBOL-85) ─────────────────────
