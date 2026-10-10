@@ -120,7 +120,10 @@ scored.
 **DB (Debug)** is scored on compile only. Its 14 programs are accepted; the
 debug module's *runtime* semantics are not implemented, and the execution axis
 for it has not been ruled in. It is listed here rather than hidden, so the gap
-stays visible.
+stays visible. The programs do run, and the gap shows when they do: measured
+2026‑10‑09 at 1.90.54, 3 of the 14 run clean, their 50 failing assertions are
+the only failures anywhere in the suite, and **DB104A times out after 20 s** —
+the only timeout in the suite.
 
 #### The DELETED count — 24, and what it means
 
@@ -403,7 +406,8 @@ file. The damage now stops at the newline.
 `RELEASE` `RETURN`
 ✅ `ALTER para-1 TO [PROCEED TO] para-2` (redirects para-1's `GO TO`) ·
 `UNLOCK file` (releases the file's record locks) · `OPEN … SHARING/WITH LOCK` ·
-`READ … WITH [NO] LOCK` (file sharing/locking — advisory in the single run unit)
+`READ … WITH [NO] LOCK` (file sharing/locking — see File verbs for what holds
+across processes)
 ✅ `COMMIT` / `ROLLBACK` (program-controlled INDEXED-file transactions — see
 File verbs) · `CANCEL` (re‑initialises the program's storage) ·
 ✅ `INVOKE` — drives GUI/runtime objects (windows, forms, control methods); a no‑op only for **COBOL** objects, since class/method definitions are out of scope
@@ -695,8 +699,13 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
 ### File verbs (the supported phrases — full coverage is in the file‑I/O suite)
 - ✅ `OPEN {INPUT|OUTPUT|I-O|EXTEND} f … [SHARING WITH {ALL OTHER|NO OTHER|READ
   ONLY}] [WITH LOCK] [WITH REGISTERED [USER] {literal|data-item}]`; `CLOSE f …`.
-  (`SHARING` / `WITH LOCK` parse and are honoured where meaningful — advisory in
-  the single‑run‑unit model.)
+  On an **INDEXED** file, `WITH LOCK` and `SHARING WITH NO OTHER` open it
+  exclusively **across processes**: while one program holds it that way,
+  another program's `OPEN` gets status `93`, and so does an exclusive `OPEN`
+  while anyone else has the file open. `SHARING WITH ALL OTHER`, or no phrase
+  at all, shares it. ⚠️ `SHARING WITH READ ONLY` is treated as `ALL OTHER`, so
+  it does not keep writers out. On SEQUENTIAL and RELATIVE files the phrases
+  have no effect across processes.
 - ✅ **One `OPEN` may carry several mode groups**, each with its own files:
   `OPEN INPUT SQ-FS1, SQ-FS3 OUTPUT SQ-FS4.` Every group is opened in its own
   mode; `SHARING` / `WITH LOCK` / `REGISTERED USER` apply to the statement.
@@ -778,9 +787,18 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   is how a program asks for a different one.
 - ✅ `START f [KEY IS {= | > | >= | < | <= | NOT … | GREATER [THAN] [OR EQUAL TO]
   | LESS [THAN] [OR EQUAL TO]} k] [INVALID KEY …][END-START]`.
-- ⚠️ Cross‑*process* file sharing is not enforced (single run unit); the
-  `SHARING`/`LOCK` phrases parse and the INDEXED engine's per‑run record locks
-  are honoured.
+- ⚠️ **Cross‑*process* sharing is enforced for whole INDEXED files only**,
+  since 1.70.21 (before that no phrase reached another process): a conflicting `OPEN`
+  gets status `93`, as the `OPEN` entry above describes. **Record** locks are
+  not shared between processes — `READ … WITH LOCK` and `UNLOCK` act within one
+  run unit, so another program can read and rewrite a record you hold — and
+  neither are the phrases on SEQUENTIAL and RELATIVE files. On the `redb`
+  engine a writer needs the file to itself whatever the phrase: while one
+  program has it open `I-O`, `OUTPUT` or `EXTEND`, any other program's `OPEN`,
+  `INPUT` included, gets `93`, and so does a writer's `OPEN` while others read
+  it; programs that only read share it.
+  [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md) compares the
+  engines.
 
 ### SORT / MERGE / RELEASE / RETURN  ✅ (functional, in‑memory work buffer)
 - ✅ `SORT f [ON] {ASCENDING|DESCENDING} KEY k … {USING f1 … | INPUT PROCEDURE p}
@@ -864,6 +882,15 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   USUBSTR, UVALID, UWIDTH, USUPPLEMENTARY` (spec 077, below).
   (Date conversions use the standard base 1601‑01‑01 = day 1.) The **complete
   COBOL‑85 standard intrinsic set** is implemented.
+  ⚠️ `FUNCTION LENGTH` of a data item is read from its declaration (since
+  1.70.20; before that a numeric item answered the length of its current
+  value), but it counts the positions RustCOBOL stores, and that follows
+  `USAGE` only as far as `USAGE` itself is honoured (see `USAGE` under DATA
+  DIVISION clauses): `PIC 9(7)V99 COMP-3` gives 9 where a compiler that packs
+  it gives 5, and a `COMP-1` or `COMP-2` item gives 1. `FUNCTION BYTE-LENGTH`
+  still measures the current value of a numeric item — 10 for
+  `PIC 9(7)V99 VALUE 1234567.89` and 4 for the same item with no `VALUE`,
+  where 9 is right.
 - ✅ **The date and time registers read the LOCAL clock.** `ACCEPT … FROM DATE /
   TIME / DAY / DAY-OF-WEEK` and `FUNCTION CURRENT-DATE` all report the machine's
   own time of day, not UTC — including the date, which differs either side of
@@ -1031,8 +1058,18 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   digits is a signed literal opening the next subscript — and
   `ELEM1 (IN1 - 1, 3)`, where the operator is spaced on both sides, is relative
   indexing.
-- ✅ `USAGE [IS] {DISPLAY | BINARY | COMP | COMP-1 | COMP-2 | COMP-3 |
-  PACKED-DECIMAL | COMP-5}` (and `COMP-4`→COMP, `COMP-X`→COMP-5).
+- ⚠️ `USAGE [IS] {DISPLAY | BINARY | COMP | COMP-1 | COMP-2 | COMP-3 |
+  PACKED-DECIMAL | COMP-5}` (and `COMP-4`→COMP, `COMP-X`→COMP-5) — all are
+  accepted and compute by their PICTURE, but **only `DISPLAY` is stored as
+  declared**. `COMP-3`/`PACKED-DECIMAL` and `BINARY`/`COMP`/`COMP-4`/
+  `COMP-5`/`COMP-X` items are stored as DISPLAY digits: `PIC 9(7)V99 COMP-3`
+  occupies 9 bytes instead of 5, and `PIC S9(4) COMP` 4 instead of 2.
+  ⚠️ **Records holding them are byte‑incompatible with other COBOL**: a file
+  written by another compiler does not read correctly here, and one written
+  here does not read correctly there. `COMP-1` and `COMP-2` compute as floating
+  point, but a file record gives them no bytes of their own — a `WRITE` spills
+  the value into the next field and a `READ` does not bring it back — so keep
+  them out of FD records.
 - ✅ `VALUE` (numeric/signed/alphanumeric/figurative/`ALL`). **`VALUE ALL
   "literal"` repeats its unit across the whole item** — `PIC X(6) VALUE ALL
   "ABC"` is `"ABCABC"` and `PIC X(9) VALUE ALL "XY"` is `"XYXYXYXYX"`.
@@ -1143,10 +1180,15 @@ gaps above, which are defects being worked through:
    are executed (ANSI) in CLI mode, but full field‑level SCREEN SECTION editing
    (auto‑tab, field validation, colour maps) is **superseded by the form
    designer** in GUI mode.
-2. **Cross‑*process* file sharing** — `OPEN … SHARING/WITH LOCK`,
-   `READ … WITH [NO] LOCK`, and `UNLOCK` parse and drive the INDEXED engine's
-   per‑run record locks, but locks are not enforced across separate OS processes
-   (single run‑unit model).
+2. ✅ **Resolved (1.70.21) — cross‑*process* file sharing.** This item said
+   `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO] LOCK` and `UNLOCK` drove only
+   per‑run record locks and were not enforced across OS processes. Unlike items
+   1, 3 and 7, that was never a boundary by intent: it was a defect, and for
+   whole INDEXED files it is closed — `OPEN … WITH LOCK` and `SHARING WITH NO
+   OTHER` keep other programs out with status `93`. Still open, and kept here
+   so they stay visible: `SHARING WITH READ ONLY` acts as `ALL OTHER`, and
+   record locks, like the phrases on SEQUENTIAL and RELATIVE files, still act
+   within one run unit (see the File verbs caveat).
 3. **Object‑Oriented COBOL** (class/method definitions) — `INVOKE` is a no‑op
    for COBOL objects (it drives GUI/runtime objects only).
 4. ✅ **Resolved (1.62.15).** An unrecognised intrinsic‑function name used to

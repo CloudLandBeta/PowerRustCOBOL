@@ -238,7 +238,7 @@ immediately. Wrap a unit of work in `BEGIN … COMMIT` to make it atomic.
 
 In PowerRustCOBOL's form designer, an **SqlDatabase** control generates the
 boilerplate paragraphs (`<id>-CONNECT`, `<id>-EXEC`, `<id>-FETCH-ALL`,
-`<id>-CLOSE`) automatically. Two properties matter:
+`<id>-CLOSE`) automatically. Three properties describe its connection:
 
 - **`ConnectionString`** — any of the connection strings above. This is what
   actually selects the backend at runtime.

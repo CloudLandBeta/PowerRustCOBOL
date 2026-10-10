@@ -15,12 +15,13 @@ that backs `ORGANIZATION IS INDEXED` files declared with `STORAGE IS DISK`
 (the default). It is a B+tree / slotted-page design that reads records on demand
 so RAM stays bounded regardless of file size.
 
-> ⚠️ **This is no longer the default engine.** `STORAGE IS DISK` is still the
-> default *storage mode*, but since **1.62.73** the engine serving it is **redb**
-> (`crates/cobolt-runtime/src/indexed.rs:126`) — see
-> [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md). Everything below
-> remains accurate for the paged engine, which is still reachable with
-> `--indexed-engine rust`; it is simply not what a program gets by default.
+> **This is the default engine.** A `STORAGE IS DISK` file is served by it unless
+> you choose another: `PRCIDXD1` has been the default again since **1.70.24**,
+> after the redb engine held that place from 1.62.73 to 1.70.23 — see
+> [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md) for why it was
+> handed back and how to choose per file. The redb engine stays available with
+> `--indexed-engine redb`, and an existing file always opens with the engine
+> that wrote it.
 >
 > **Scope.** This describes the *physical engine* (`DiskIndexedFile`, container
 > magic `PRCIDXD1`). It is a different artifact from the single-blob,
@@ -30,9 +31,9 @@ so RAM stays bounded regardless of file size.
 > `IndexedFile`) is a simplified subset of the same logical model (BTreeMaps
 > instead of on-disk B+trees).
 >
-> A second, **crash-safe** `STORAGE IS DISK` engine (opt-in, on the pure-Rust
-> redb ACID store) addresses this engine's RAM-bound directory and CLOSE-only
-> persistence — see [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md).
+> A second `STORAGE IS DISK` engine (opt-in, on the pure-Rust redb ACID store)
+> makes a different trade — one process owns the file, and nothing uncommitted
+> survives a crash — see [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md).
 
 Implementation:
 [`crates/cobolt-runtime/src/indexed_disk.rs`](../crates/cobolt-runtime/src/indexed_disk.rs),
@@ -71,7 +72,8 @@ disk does **not** track logical record order.
 | `2` | `PT_LEAF`     | B+tree leaf node (doubly linked to siblings)  |
 | `3` | `PT_DATA`     | slotted page packing several record images    |
 | `4` | `PT_OVERFLOW` | continuation for a record too big to fit inline |
-| `5` | `PT_DIR`      | a slice of the RecordId directory             |
+| `5` | `PT_DIR`      | a leaf of the RecordId directory (255 locations) |
+| `6` | `PT_DIRIDX`   | an index page of the RecordId directory (510 children) |
 
 ---
 
@@ -92,11 +94,14 @@ little-endian, in this order:
  KEY SCHEMA:  key_count (u16) → for each key (primary first, then alternates):
      duplicates_allowed (u8)
      part_count (u16) → [ offset:u32, length:u32 ] × parts   (composite-key parts)
+ ──────────────────────────────────────────────────────────────────────
+ next_alt_seq (u64)      dir_root (u64)    dir_height (u8)   (versions 2 and 3)
+ crc32 (u32)             covers every byte of the header before it
 ```
 
 | Header field      | Meaning                                                       |
 |-------------------|---------------------------------------------------------------|
-| `version`         | Format version (currently `1`).                               |
+| `version`         | Format version (currently `3`).                               |
 | `page_size`       | Page size in bytes (4096).                                    |
 | `rec_fmt`         | Record format: `1` = fixed length.                            |
 | `compressing`     | `1` if record payloads are RLE-compressed on disk.            |
@@ -106,8 +111,11 @@ little-endian, in this order:
 | `record_count`    | Number of live records.                                       |
 | `data_tail`       | Current `PT_DATA` page accepting inline writes (`0` = none). |
 | `primary_root`    | Root page of the primary-key B+tree.                          |
-| `dir_head`        | First `PT_DIR` page of the RecordId directory (`0` = none).  |
+| `dir_head`        | First page of the old directory chain — read only to migrate a version 1 or 2 container; `0` in a version 3 one. |
 | `directory_len`   | Number of directory entries (RecordIds ever allocated).      |
+| `next_alt_seq`    | Next creation-order sequence for a duplicate alternate key (version 2). |
+| `dir_root`, `dir_height` | Root page of the radix RecordId directory and its number of levels; `1` means the root is a leaf (version 3). |
+| `crc32`           | CRC-32 of the header bytes before it — what makes a torn header detectable. |
 | `alt_root[k]`     | Root page of alternate key *k*'s B+tree.                      |
 | KEY SCHEMA        | Per-key duplicate policy + composite-part byte ranges.        |
 
@@ -201,10 +209,17 @@ the chain head.
  directory[RecordId]  →  RecLoc { kind:u8, page:u64, slot:u16, len:u32 }   (15 bytes/entry)
 ```
 
-The directory is held in RAM as a `Vec<RecLoc>` while the file is open (so a
-RecordId lookup is an O(1) index) and is persisted as a chain of `PT_DIR` pages
-(starting at `dir_head`) on close. The B+trees store RecordIds, never physical
-addresses, so a record can be moved on disk without touching any index.
+Since container version 3 (1.70.31) the directory is a **radix page table**, not
+a chain held whole in RAM: a `PT_DIR` leaf holds 255 locations of 16 bytes, a
+`PT_DIRIDX` index page 510 child pointers, and three seeks reach any of 66
+million RecordIds (`dir_root` and `dir_height` in the header say where the
+descent starts). RecordIds are dense from 0, allocated monotonically and never
+reused, so a RecordId addresses itself; growth is strictly additive — a page,
+once written, is never freed, relocated or reinterpreted — and an append touches
+one leaf. A handful of the pages from the last descent are remembered so a scan
+does not re-read the same root and leaf for every record. The B+trees store
+RecordIds, never physical addresses, so a record can be moved on disk without
+touching any index.
 
 ---
 
@@ -277,9 +292,18 @@ last `COMMIT`/`OPEN`:
   and starts a new one; `ROLLBACK` replays the inverses in reverse order; `CLOSE`
   flushes (implicit commit). A `tx_replay` guard stops the inverse operations
   from re-logging themselves.
-- This is **program-level** rollback. Crash-recovery via a durable write-ahead
-  log is future work. See the COBOL `COMMIT`/`ROLLBACK` verbs in the language
-  reference; note those verbs act on **INDEXED files**, not SQL connections.
+- This is **program-level** rollback. Crash safety is separate and per
+  operation (since 1.70.32): the previous image of every page a `WRITE`,
+  `REWRITE` or `DELETE` is about to change is written to a sidecar journal,
+  `<container>.jrn`, and made durable *before* the container is touched; the
+  pages, then the header, are written; removing the journal is the commit point.
+  A crash anywhere before that is undone in full on the next `OPEN`, and an
+  incomplete journal is discarded without replaying anything. A commit point is taken at `COMMIT`,
+  at `CLOSE` and automatically each time 256 pages (1 MiB) have changed, so an
+  abend never leaves the container structurally wrong — but writes since the
+  last commit point may partly survive. See the COBOL `COMMIT`/`ROLLBACK` verbs
+  in the language reference; note those verbs act on **INDEXED files**, not SQL
+  connections.
 
 ---
 
@@ -301,6 +325,6 @@ the engine's `strict_metadata` flag.)
 | Data-field names              | Program `FD` only                      | not in file |
 | Record bytes                  | `PT_DATA` / `PT_OVERFLOW` pages         | one/record  |
 | key → RecordId                | one B+tree per key                     | one/key     |
-| RecordId → physical location  | RecordId directory (`PT_DIR` chain)    | one/record  |
+| RecordId → physical location  | RecordId directory (`PT_DIRIDX` / `PT_DIR` radix table) | one/record  |
 | Free pages                    | Free list (`free_list_head`)           | —           |
-| Uncommitted change inverses   | In-RAM undo log                        | per-tx      |
+| Uncommitted change inverses   | In-RAM undo log; page images in the `.jrn` sidecar | per-tx / per-operation |
