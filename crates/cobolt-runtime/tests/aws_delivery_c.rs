@@ -198,15 +198,21 @@ impl Run {
 }
 
 fn run(prog: cobolt_ast::program::Program, class: &str, props: &[(&str, &str)]) -> Run {
+    run_with(prog, class, props, &[])
+}
+
+/// [`run`], with other controls on the form beside `AWS-1`.
+fn run_with(prog: cobolt_ast::program::Program, class: &str, props: &[(&str, &str)], others: &[(&str, &str, &[(&str, &str)])]) -> Run {
     let (_event_tx, event_rx) = mpsc::channel::<FormEvent>();
     let (state_tx, _state_rx) = mpsc::channel();
     let (display_tx, display_rx) = mpsc::channel::<String>();
-    let seeded: Vec<(String, String)> = props.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-    let class = class.to_string();
+    let owned = |p: &[(&str, &str)]| -> Vec<(String, String)> { p.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect() };
+    let mut seeded = vec![("AWS-1".to_string(), class.to_string(), owned(props))];
+    seeded.extend(others.iter().map(|(id, class, p)| (id.to_string(), class.to_string(), owned(p))));
     let started = Instant::now();
     let handle = thread::spawn(move || {
         let mut interp = Interpreter::new_with_channels(prog, event_rx, state_tx, display_tx);
-        interp.seed_objects(vec![("AWS-1".to_string(), class, seeded)]);
+        interp.seed_objects(seeded);
         let _ = interp.run();
     });
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -450,6 +456,212 @@ fn vision_and_language_controls_return_rows() {
     drop(f);
     cases.push(refused("stop", "AwsEC2", &[("InstanceIds", "i-1")], &invoke("Stop", &[])));
     report("AwsRekognition, AwsTextract, AwsComprehend, AwsS3Vectors, AwsEC2", &cases);
+}
+
+/// Spec 092 R1, R2: the celebrities in a picture, each with the box its face
+/// fills — and the same box on every `DetectFaces` row — as ratios of the
+/// picture, from a local file or an S3 object. Read-only: AllowWrite stays off.
+#[test]
+fn rekognition_recognizes_celebrities_and_places_every_face() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cases = Vec::new();
+    let img = std::env::temp_dir().join(format!("prc-092-star-{}.png", std::process::id()));
+    std::fs::write(&img, [0x89, b'P', b'N', b'G']).unwrap();
+
+    // The answer as the shipped script shapes it: AWS's CelebrityFaces, with
+    // each celebrity's links joined into one text.
+    let star = json!({"CelebrityFaces": [{
+        "Name": "Ada Lovelace", "Id": "1a2B3c", "MatchConfidence": 99.5,
+        "Urls": "www.wikidata.org/wiki/Q7259 www.imdb.com/name/nm0000001",
+        "Face": {"BoundingBox": {"Left": 0.25, "Top": 0.125, "Width": 0.5, "Height": 0.625}, "Confidence": 99.9}
+    }], "UnrecognizedFaces": []});
+    let f = fake("celebs", envelope(star));
+    let mut read: String = [("NAME", "Name"), ("ID", "Id"), ("MATCH", "MatchConfidence"), ("URLS", "Urls"), ("LEFT", "Left"), ("TOP", "Top"), ("WIDTH", "Width"), ("HEIGHT", "Height")]
+        .iter()
+        .map(|(label, name)| field(label, 1, name))
+        .collect();
+    // The box drawn over the picture, as the Guide shows it: the ratios
+    // times the size the picture is shown at, straight into a Shape.
+    read.push_str(concat!(
+        "                       COMPUTE SHP-1::X = PIC-1::X + AWS-1::GetField(1, \"Left\") * PIC-1::Width\n",
+        "                       COMPUTE SHP-1::Y = PIC-1::Y + AWS-1::GetField(1, \"Top\") * PIC-1::Height\n",
+        "                       COMPUTE SHP-1::Width = AWS-1::GetField(1, \"Width\") * PIC-1::Width\n",
+        "                       COMPUTE SHP-1::Height = AWS-1::GetField(1, \"Height\") * PIC-1::Height\n",
+        "                       DISPLAY \"BOX \" SHP-1::X \" \" SHP-1::Y \" \" SHP-1::Width \" \" SHP-1::Height\n",
+    ));
+    let img_path = img.to_str().unwrap();
+    let picture: &[(&str, &str)] = &[("ImagePath", img_path), ("X", "10"), ("Y", "20"), ("Width", "400"), ("Height", "320")];
+    let r = run_with(
+        program("           INVOKE AWS-1::RecognizeCelebrities(PIC-1::ImagePath)\n", &read),
+        "AwsRekognition",
+        &props(&f, "false", &[]),
+        &[("PIC-1", "PictureBox", picture), ("SHP-1", "Shape", &[("X", "0"), ("Y", "0"), ("Width", "10"), ("Height", "10")])],
+    );
+    assert_eq!(r.events(), ["onCelebrities", "onComplete"], "{:?}", r.lines);
+    assert_eq!((r.line("ROWS"), r.line("NAME"), r.line("ID"), r.line("MATCH")), ("1".into(), "Ada Lovelace".into(), "1a2B3c".into(), "99.5".into()));
+    assert_eq!(r.line("URLS"), "www.wikidata.org/wiki/Q7259 www.imdb.com/name/nm0000001");
+    assert_eq!(
+        (r.line("LEFT"), r.line("TOP"), r.line("WIDTH"), r.line("HEIGHT")),
+        ("0.25".into(), "0.125".into(), "0.5".into(), "0.625".into())
+    );
+    assert_eq!(r.line("BOX"), "110 60 200 200", "x = 10 + 0.25 × 400, y = 20 + 0.125 × 320, 0.5 × 400, 0.625 × 320: {:?}", r.lines);
+    let code = sent(&f, "rekognition", "RecognizeCelebrities", &[r#"_source("b64:iVBORw==")"#]);
+    assert!(code.contains("' '.join("), "the links are joined into one text:\n{code}");
+    cases.push(("AwsRekognition.RecognizeCelebrities(PIC-1::ImagePath)".into(), "1 row: Name, Id, MatchConfidence, Urls, Left/Top/Width/Height; box 110 60 200 200".into(), r.millis));
+    drop(f);
+    let _ = std::fs::remove_file(&img);
+
+    let f = fake("celebs-s3", envelope(json!({"CelebrityFaces": [], "UnrecognizedFaces": [{"BoundingBox": {"Left": 0.1}}]})));
+    let r = run(program(&invoke("RecognizeCelebrities", &["s3://photos/team.jpg"]), ""), "AwsRekognition", &props(&f, "false", &[]));
+    assert_eq!((r.events(), r.line("ROWS")), (vec!["onCelebrities", "onComplete"], "0".into()), "{:?}", r.lines);
+    sent(&f, "rekognition", "RecognizeCelebrities", &[r#"_source("s3://photos/team.jpg")"#]);
+    cases.push(("AwsRekognition.RecognizeCelebrities(s3://…), nobody known".into(), "0 rows, onCelebrities all the same".into(), r.millis));
+    drop(f);
+
+    let f = fake("faces-box", envelope(json!({"FaceDetails": [{"Confidence": 99.9, "AgeRange": {"Low": 30, "High": 40}, "BoundingBox": {"Left": 0.1, "Top": 0.2, "Width": 0.3, "Height": 0.4}}]})));
+    let read: String = [("LEFT", "Left"), ("TOP", "Top"), ("WIDTH", "Width"), ("HEIGHT", "Height"), ("AGELOW", "AgeLow")]
+        .iter()
+        .map(|(label, name)| field(label, 1, name))
+        .collect();
+    let r = run(program(&invoke("DetectFaces", &["s3://photos/team.jpg"]), &read), "AwsRekognition", &props(&f, "false", &[]));
+    assert_eq!(r.events(), ["onFaces", "onComplete"], "{:?}", r.lines);
+    assert_eq!(
+        (r.line("LEFT"), r.line("TOP"), r.line("WIDTH"), r.line("HEIGHT"), r.line("AGELOW")),
+        ("0.1".into(), "0.2".into(), "0.3".into(), "0.4".into(), "30".into())
+    );
+    sent(&f, "rekognition", "DetectFaces", &[]);
+    cases.push(("AwsRekognition.DetectFaces, the face's box".into(), "Left 0.1, Top 0.2, Width 0.3, Height 0.4".into(), r.millis));
+    report("AwsRekognition (spec 092)", &cases);
+}
+
+/// Spec 092 R3: the account's buckets, each with its creation date written
+/// in ISO 8601. Needs no `Bucket`, and is read-only.
+#[test]
+fn s3_lists_the_accounts_buckets() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let f = fake(
+        "buckets",
+        envelope(json!({"Buckets": [{"Name": "photos", "CreationDate": "2026-10-01T09:30:00+00:00"}, {"Name": "reports", "CreationDate": "2025-02-14T18:00:00+00:00"}]})),
+    );
+    let read = format!("{}{}", field("NAME2", 2, "Name"), field("CREATED1", 1, "CreationDate"));
+    let r = run(program(&invoke("ListBuckets", &[]), &read), "AwsS3", &props(&f, "false", &[]));
+    assert_eq!(r.events(), ["onBucketsListed", "onComplete"], "{:?}", r.lines);
+    assert_eq!((r.line("ROWS"), r.line("NAME2"), r.line("CREATED1")), ("2".into(), "reports".into(), "2026-10-01T09:30:00+00:00".into()));
+    let code = sent(&f, "s3", "ListBuckets", &["_iso(b.get('CreationDate'"]);
+    assert!(code.contains("def _iso("), "the date is written by the shipped _iso:\n{code}");
+    report("AwsS3 (spec 092)", &[("AwsS3.ListBuckets()".into(), "2 rows: Name, CreationDate (ISO 8601)".into(), r.millis)]);
+}
+
+/// The COBOL that makes one `AwsCall`, written inline as a method of the control.
+fn aws_call(service: &str, operation: &str, params: &str) -> String {
+    format!("           MOVE '{params}' TO WS-A\n           INVOKE AWS-1::AwsCall(\"{service}\", \"{operation}\", WS-A)\n")
+}
+
+/// Spec 092 R4 (AC2): one AWS API call by name through the hosted server. The
+/// service, the operation and the parameters enter the shipped script only
+/// as quoted literals; it changes AWS, so it needs AllowWrite; and an API
+/// call that fails raises `onError` with AWS's error code — whether the
+/// script caught it or the sandbox did.
+#[test]
+fn aws_call_reaches_one_api_by_name_with_literals_only() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let mut cases = Vec::new();
+    cases.push(refused("awscall", "AwsMcp", &[], &aws_call("cloudformation", "DescribeStacks", "{}")));
+
+    let stack = json!({"StackName": "powercloud", "StackStatus": "CREATE_COMPLETE"});
+    let f = fake("awscall", envelope(json!({"Answer": {"Stacks": [stack]}, "Rows": [stack]})));
+    let read = format!("{}{}", field("STATUS", 1, "StackStatus"), prop("BODY", "ResponseBody"));
+    let r = run(program(&aws_call("cloudformation", "DescribeStacks", r#"{"StackName": "powercloud"}"#), &read), "AwsMcp", &props(&f, "true", &[]));
+    assert_eq!(r.events(), ["onAwsCalled", "onComplete"], "{:?}", r.lines);
+    assert_eq!((r.line("ROWS"), r.line("STATUS")), ("1".into(), "CREATE_COMPLETE".into()));
+    assert!(r.line("BODY").contains(r#""Stacks""#), "ResponseBody is the API's answer: {}", r.line("BODY"));
+    let code = &f.scripts()[0];
+    for want in [r#"service_name="cloudformation", operation_name="DescribeStacks""#, r#"params=json.loads("{\"StackName\":\"powercloud\"}")"#, r#"region_name="eu-west-1""#] {
+        assert!(code.contains(want), "{want} not in:\n{code}");
+    }
+    cases.push(("AwsMcp.AwsCall(\"cloudformation\", \"DescribeStacks\", params)".into(), "1 row, StackStatus; the answer in ResponseBody".into(), r.millis));
+    drop(f);
+
+    // No parameters: the empty object. A service or operation that tries to
+    // break out of its literal stays inside it.
+    let f = fake("awscall-escape", envelope(json!({"Answer": {}, "Rows": [{}]})));
+    let r = run(program(&aws_call("s3', operation_name='DeleteBucket", "ListBuckets", ""), ""), "AwsMcp", &props(&f, "true", &[]));
+    assert_eq!(r.events(), ["onAwsCalled", "onComplete"], "{:?}", r.lines);
+    let code = &f.scripts()[0];
+    assert!(code.contains(r#"service_name="s3', operation_name='DeleteBucket", operation_name="ListBuckets""#), "the value must stay one quoted literal:\n{code}");
+    assert!(code.contains(r#"params=json.loads("{}")"#), "no parameters is the empty object:\n{code}");
+    cases.push(("AwsMcp.AwsCall, a service name that tries to escape".into(), "kept inside its literal; params {}".into(), r.millis));
+    drop(f);
+
+    // The script caught the API's error: AWS's code reaches LastError.
+    let f = fake("awscall-caught", envelope(json!({"Status": "error", "Error": "ValidationException: Stack with id nope does not exist"})));
+    let r = run(program(&aws_call("cloudformation", "DescribeStacks", r#"{"StackName": "nope"}"#), ""), "AwsMcp", &props(&f, "true", &[]));
+    assert_eq!(r.events(), ["onError"], "{:?}", r.lines);
+    assert!(r.line("ERROR").starts_with("ValidationException: Stack with id nope"), "{}", r.line("ERROR"));
+    cases.push(("AwsMcp.AwsCall, the API answers an error".into(), "onError, LastError starts with ValidationException".into(), r.millis));
+    drop(f);
+
+    // The sandbox reported the failure itself.
+    let f = fake("awscall-sandbox", failed("AccessDeniedException: User is not authorized to perform: cloudformation:CreateStack"));
+    let r = run(program(&aws_call("cloudformation", "CreateStack", r#"{"StackName": "x"}"#), ""), "AwsMcp", &props(&f, "true", &[]));
+    assert_eq!(r.events(), ["onError"], "{:?}", r.lines);
+    assert!(r.line("ERROR").contains("AccessDeniedException"), "{}", r.line("ERROR"));
+    cases.push(("AwsMcp.AwsCall, the sandbox reports a failure".into(), "onError with AccessDeniedException".into(), r.millis));
+    drop(f);
+
+    // Parameters that are not JSON: refused, naming the argument, nothing sent.
+    let f = fake("awscall-json", envelope(json!({})));
+    let r = run(program(&aws_call("dynamodb", "CreateTable", "{nope"), ""), "AwsMcp", &props(&f, "true", &[]));
+    assert_eq!(r.events(), ["onError"], "{:?}", r.lines);
+    assert!(r.line("ERROR").contains("argument 3"), "{}", r.line("ERROR"));
+    assert!(!f.started(), "invalid parameters must not start the server");
+    cases.push(("AwsMcp.AwsCall, parameters not JSON".into(), "refused naming argument 3, nothing sent".into(), r.millis));
+    report("AwsMcp.AwsCall (spec 092)", &cases);
+}
+
+/// Spec 092 Q3 (T5): a control's `Connection` is read on every call, so a
+/// program that moves another connection's name into it sends the NEXT call
+/// through that connection — its own server, its own region. PowerCloud's EC2
+/// region dropdown is built on exactly this (spec 092 D6).
+#[test]
+fn moving_a_connection_name_switches_the_next_call() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let a = fake_on("q3-a", "conn-c-q3-a", envelope(json!({"Instances": [{"InstanceId": "i-ireland", "State": "running"}]})));
+    let mut b = fake_on("q3-b", "conn-c-q3-b", envelope(json!({"Instances": [{"InstanceId": "i-oregon", "State": "stopped"}]})));
+    b.conn.region = "us-west-2".into();
+    connections::publish(vec![a.conn.clone(), b.conn.clone()]);
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AWSQ3.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-RC             PIC X(200).
+       PROCEDURE DIVISION.
+       MAIN.
+           INVOKE AWS-1::Describe()
+           MOVE AWS-1::GetField(1, "InstanceId") TO WS-RC
+           DISPLAY "FIRST " WS-RC
+           MOVE "conn-c-q3-b" TO AWS-1::Connection
+           INVOKE AWS-1::Describe()
+           MOVE AWS-1::GetField(1, "InstanceId") TO WS-RC
+           DISPLAY "SECOND " WS-RC
+           MOVE AWS-1::LastError TO WS-RC
+           DISPLAY "ERROR " WS-RC
+           STOP RUN.
+"#;
+    let parsed = parse(tokenize(src, SourceFormat::Free));
+    assert!(parsed.diagnostics.iter().all(|d| d.severity != Severity::Error), "parse errors: {:?}", parsed.diagnostics);
+    let own = [("Connection", "conn-c-q3-a"), ("Mode", "Sync"), ("TimeoutMs", "5000"), ("StartTimeoutMs", "10000")];
+    let r = run(parsed.program.expect("no program"), "AwsEC2", &own);
+    assert_eq!((r.line("FIRST"), r.line("SECOND"), r.line("ERROR")), ("i-ireland".into(), "i-oregon".into(), String::new()), "{:?}", r.lines);
+    let (sa, sb) = (a.scripts(), b.scripts());
+    assert_eq!((sa.len(), sb.len()), (1, 1), "one call through each connection");
+    assert!(sa[0].contains(r#"region_name="eu-west-1""#), "the first call used the first connection's region");
+    assert!(sb[0].contains(r#"region_name="us-west-2""#), "the second call used the second connection's region");
+    report(
+        "Connection switched at run time (spec 092 Q3)",
+        &[("MOVE \"conn-c-q3-b\" TO AWS-1::Connection, then Describe()".into(), "the next call went to that connection's server, in us-west-2".into(), r.millis)],
+    );
 }
 
 /// Q6: a sign-in's tokens never reach a property, a row, ResultJson, a
