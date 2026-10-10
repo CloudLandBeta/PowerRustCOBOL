@@ -17,6 +17,14 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.90.55] — 2026-10-09
+
+### Fixed
+- **An animation name that several controls share now starts on every one of them, and the generated dispatch reads as one test per name.**
+  The generated `COBOL-PLAY-ANIMATION` and `COBOL-STOP-ANIMATION` paragraphs choose by the name in `WS-ANIM-NAME`, and wrote one `WHEN` per control. An `EVALUATE` runs only the **first** `WHEN` that matches, so four controls carrying `"intro"` produced four `WHEN "intro"` branches of which only the first could ever run — the other three controls never started. There is now one `WHEN` per name, in the order the names first appear, holding every control's `INVOKE` in the order the controls are declared; a name only the form has stays a `CONTINUE`, and `WHEN OTHER` is unchanged. Each `INVOKE obj 'PlayAnimation' USING BY VALUE "name"` is on a single line, in the two dispatch paragraphs and in the per-trigger `<CONTROL>-PLAY-<NAME>` paragraphs alike. One helper writes both paragraphs, so they can no longer drift apart.
+  Five of the codegen corpus goldens changed and nothing in them but the animation paragraphs: the Buttons demo's `"bt1"`, shared by eight buttons, went from eight `WHEN` branches — seven of them unreachable — to one holding eight `INVOKE`s, and the five files together shrank by 102 lines. A form regenerated before this keeps the old dispatch until it is regenerated; PowerChat's `welcome-form` has animations, so its local `generated/` (git-ignored) reads as stale until `cargo run -p cobolt-ide --example powerchat_regen`.
+  New `crates/cobolt-codegen/tests/animation_dispatch.rs` (5 tests): one `WHEN` per name holding every control's `INVOKE` for both paragraphs, in declaration order; no `INVOKE` split over two lines; a lone animation stays one unconditional line; a form-only name is a `CONTINUE`; the program still parses clean.
+
 ## [PowerRustCOBOL 1.90.54] — 2026-10-09
 
 ### Changed

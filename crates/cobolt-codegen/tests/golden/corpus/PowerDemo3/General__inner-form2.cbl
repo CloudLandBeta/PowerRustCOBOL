@@ -189,17 +189,14 @@
       *> </WEB-SEARCH>
        COBOL-PLAY-ANIMATION.
       *> Set WS-ANIM-NAME before calling this paragraph.
-           INVOKE PictureBox-2 'PlayAnimation'
-               USING BY VALUE "1".
+           INVOKE PictureBox-2 'PlayAnimation' USING BY VALUE "1".
 
        COBOL-STOP-ANIMATION.
       *> Set WS-ANIM-NAME before calling this paragraph.
-           INVOKE PictureBox-2 'StopAnimation'
-               USING BY VALUE "1".
+           INVOKE PictureBox-2 'StopAnimation' USING BY VALUE "1".
 
        PictureBox-2-PLAY-1.
-           INVOKE PictureBox-2 'PlayAnimation'
-               USING BY VALUE "1".
+           INVOKE PictureBox-2 'PlayAnimation' USING BY VALUE "1".
 
       *> ── Chart INVOKE verb paragraphs ─────────────────────────────────
 

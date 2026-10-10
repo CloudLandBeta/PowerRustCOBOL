@@ -1476,6 +1476,52 @@ fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
     }
 }
 
+/// One of the two dispatch paragraphs: `INVOKE` every control's `method` for the
+/// animation whose name is in `WS-ANIM-NAME`.
+///
+/// An `EVALUATE` runs only the first `WHEN` that matches, and several controls
+/// may carry the same animation name. So there is **one `WHEN` per name**, in the
+/// order the names first appear, holding every control's `INVOKE` in declaration
+/// order — a `WHEN` per control played the first and never reached the rest.
+/// A name only the form has is a `CONTINUE`: the form's own animations are
+/// driven by the host, not by an `INVOKE`.
+fn write_animation_dispatch(out: &mut String, paragraph: &str, method: &str, entries: &[(String, String)]) {
+    out.push_str(&format!("       {paragraph}.\n"));
+    out.push_str("      *> Set WS-ANIM-NAME before calling this paragraph.\n");
+    if let [(ctrl_id, anim_name)] = entries {
+        if ctrl_id != "FORM" {
+            out.push_str(&format!("           INVOKE {ctrl_id} '{method}' USING BY VALUE \"{anim_name}\".\n"));
+        } else {
+            out.push_str("           CONTINUE.\n");
+        }
+    } else {
+        let mut names: Vec<&str> = Vec::new();
+        for (_, name) in entries {
+            if !names.contains(&name.as_str()) {
+                names.push(name);
+            }
+        }
+        out.push_str("           EVALUATE WS-ANIM-NAME\n");
+        for name in names {
+            out.push_str(&format!("               WHEN \"{name}\"\n"));
+            let mut any = false;
+            for (ctrl_id, _) in entries.iter().filter(|(_, n)| n == name) {
+                if ctrl_id != "FORM" {
+                    out.push_str(&format!("                   INVOKE {ctrl_id} '{method}' USING BY VALUE \"{name}\"\n"));
+                    any = true;
+                }
+            }
+            if !any {
+                out.push_str("                   CONTINUE\n");
+            }
+        }
+        out.push_str("               WHEN OTHER\n");
+        out.push_str("                   CONTINUE\n");
+        out.push_str("           END-EVALUATE.\n");
+    }
+    out.push('\n');
+}
+
 // ── Animation play / stop stub generator ─────────────────────────────────────
 
 fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control]) {
@@ -1493,70 +1539,10 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
         return;
     }
 
-    // ── COBOL-PLAY-ANIMATION ─────────────────────────────────────────────────
-    // Dispatches to the correct INVOKE based on WS-ANIM-NAME.
-    out.push_str("       COBOL-PLAY-ANIMATION.\n");
-    out.push_str("      *> Set WS-ANIM-NAME before calling this paragraph.\n");
-    if entries.len() == 1 {
-        let (ctrl_id, anim_name) = &entries[0];
-        if ctrl_id != "FORM" {
-            out.push_str(&format!("           INVOKE {ctrl_id} 'PlayAnimation'\n"));
-            out.push_str(&format!("               USING BY VALUE \"{anim_name}\".\n"));
-        } else {
-            out.push_str("           CONTINUE.\n");
-        }
-    } else {
-        out.push_str("           EVALUATE WS-ANIM-NAME\n");
-        for (ctrl_id, anim_name) in &entries {
-            out.push_str(&format!("               WHEN \"{anim_name}\"\n"));
-            if ctrl_id != "FORM" {
-                out.push_str(&format!(
-                    "                   INVOKE {ctrl_id} 'PlayAnimation'\n"
-                ));
-                out.push_str(&format!(
-                    "                       USING BY VALUE \"{anim_name}\"\n"
-                ));
-            } else {
-                out.push_str("                   CONTINUE\n");
-            }
-        }
-        out.push_str("               WHEN OTHER\n");
-        out.push_str("                   CONTINUE\n");
-        out.push_str("           END-EVALUATE.\n");
-    }
-    out.push('\n');
-
-    // ── COBOL-STOP-ANIMATION ──────────────────────────────────────────────────
-    out.push_str("       COBOL-STOP-ANIMATION.\n");
-    out.push_str("      *> Set WS-ANIM-NAME before calling this paragraph.\n");
-    if entries.len() == 1 {
-        let (ctrl_id, anim_name) = &entries[0];
-        if ctrl_id != "FORM" {
-            out.push_str(&format!("           INVOKE {ctrl_id} 'StopAnimation'\n"));
-            out.push_str(&format!("               USING BY VALUE \"{anim_name}\".\n"));
-        } else {
-            out.push_str("           CONTINUE.\n");
-        }
-    } else {
-        out.push_str("           EVALUATE WS-ANIM-NAME\n");
-        for (ctrl_id, anim_name) in &entries {
-            out.push_str(&format!("               WHEN \"{anim_name}\"\n"));
-            if ctrl_id != "FORM" {
-                out.push_str(&format!(
-                    "                   INVOKE {ctrl_id} 'StopAnimation'\n"
-                ));
-                out.push_str(&format!(
-                    "                       USING BY VALUE \"{anim_name}\"\n"
-                ));
-            } else {
-                out.push_str("                   CONTINUE\n");
-            }
-        }
-        out.push_str("               WHEN OTHER\n");
-        out.push_str("                   CONTINUE\n");
-        out.push_str("           END-EVALUATE.\n");
-    }
-    out.push('\n');
+    // ── COBOL-PLAY-ANIMATION / COBOL-STOP-ANIMATION ─────────────────────────
+    // Dispatch to the INVOKEs of the animation named in WS-ANIM-NAME.
+    write_animation_dispatch(out, "COBOL-PLAY-ANIMATION", "PlayAnimation", &entries);
+    write_animation_dispatch(out, "COBOL-STOP-ANIMATION", "StopAnimation", &entries);
 
     // ── Per-trigger auto-call paragraphs ──────────────────────────────────────
     // Emit OnLoad / OnClick / OnFocus trigger helpers for each control's anims.
@@ -1575,10 +1561,9 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
                     .replace('-', "-")
             );
             out.push_str(&format!("       {para}.\n"));
-            out.push_str(&format!("           INVOKE {} 'PlayAnimation'\n", ctrl.id));
             out.push_str(&format!(
-                "               USING BY VALUE \"{}\".\n\n",
-                anim.name
+                "           INVOKE {} 'PlayAnimation' USING BY VALUE \"{}\".\n\n",
+                ctrl.id, anim.name
             ));
         }
     }
