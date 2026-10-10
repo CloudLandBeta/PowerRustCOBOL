@@ -781,8 +781,8 @@ decomposition, ownership, dependencies, documentation governance, evidence,
 cross-agent integration, failures, and completion claims. The project-local
 reviewer prompts remain editable in Agents Manager and fixed-agent repair
 preserves those edits. Give each reviewer a model in the runtime table before
-enabling its review connection; a primary and its Pedantic companion cannot use
-the same model.
+enabling its review connection; it may be the same model as the agent it
+reviews.
 
 **When Grace asks instead of acting.** A request that admits more than one
 reading gets a question rather than a guess — a red balloon in the same chat,
@@ -1335,9 +1335,9 @@ statement catches it like any other; with no `CATCH`, it reaches
   Spatial theme: 43,750 investment funds read from a spreadsheet into an
   in-memory SQLite database, glass panels that zoom in one after another, charts
   that grow from zero (bar, line, donut and the RadarChart, up to three series
-  each), search fields with a type-ahead list of ticks, range filters, a
-  Dashboard / Data menu with a data grid, and a layout that adapts down to a
-  phone's width. It is the example to copy for a data dashboard.
+  each), search fields with a type-ahead list whose entries you tick, range
+  filters, a Dashboard / Data menu with a data grid, and a layout that adapts
+  down to a phone's width. It is the example to copy for a data dashboard.
 
 The IDE finds each project itself, so you do not need to know where it lives:
 beside the executable in an installed build, or in the tree the IDE was built
@@ -1356,7 +1356,7 @@ never overwritten.
 `examples/PowerChat` is a second, complete application rather than a gallery:
 a chatbot that answers questions about **one topic at a time**, from that
 topic's own documents, through a model the application's users choose. Copy it
-to start your own. Everything in it is COBOL in its twelve forms:
+to start your own. Everything in it is COBOL in its fourteen forms:
 
 | Form | What it shows you how to do |
 |---|---|
@@ -1372,7 +1372,8 @@ to start your own. Everything in it is COBOL in its twelve forms:
 | `prompts-form` | **The CRUD pattern** for the versions of a topic's system prompt, newest first with the active one marked; a promote icon button per row makes a version the active prompt after a confirmation, and the active version cannot be deleted. **Main prompt** switches it to the prompt every topic shares — every instruction the models get, in English, in named sections (`=== SYSTEM ===`, `ASSISTANT`, `NO SOURCES`, `PLAN`, `TASK`, `COMPOSE`, `TEMPLATE`) with `{…}` words the chat fills in — kept in the same version file under the topic id `*MAIN`; **Restore default** saves `samples/main-prompt.md` as a new version. The versions moved from `prompts.idx` to `prompt-versions.idx` (32,000-character texts) and are copied over the first time |
 | `files-form` | **The CRUD pattern** for a topic's own indexed files, registered by path with `RegisterFile`: each one is tried as it is saved, so a missing file or a `.cidx` that does not describe it is refused on the spot with its reason; the chat form registers the topic's files when it opens and names any it cannot use |
 | `confirm-form` | A yes/no question any form can ask: the caller sets `ConfirmText` (and translated `ConfirmYes` / `ConfirmNo`) on itself with `ME::"SetProperty"`, opens it with `OpenFormSync`, and reads `ConfirmAnswer` when it returns. Left unset, the question and both buttons show the dialog's own "Are you sure?", "Yes" and "No", in the user's language |
-| `pick-form` | "Choose one of these", the same way: the caller sets `PickItems` (one per line), `PickSelected` (0 = the first) and translated `PickTitle` / `PickOk` / `PickCancel`, opens it with `OpenFormSync`, and reads `PickAnswer` — the chosen item, 1 = the first, or 0 when cancelled. Left unset, the title and buttons show the dialog's own "Choose one", "OK" and "Cancel", in the user's language |
+| `pick-form` | "Choose one of these", the same way: the caller sets `PickItems` (one per line), `PickSelected` (1 = the first) and translated `PickTitle` / `PickOk` / `PickCancel`, opens it with `OpenFormSync`, and reads `PickAnswer` — the chosen item, 1 = the first, or 0 when cancelled. Left unset, the title and buttons show the dialog's own "Choose one", "OK" and "Cancel", in the user's language |
+| `preview-form` | A document shown as it is, the same way: the caller sets `PreviewPath` (the file), `PreviewTitle` and translated `PreviewClose` on itself and opens it with `OpenFormSync`; the form reads them back with `super::"GetProperty"` into a `Viewer`, which shows Markdown, text, HTML, PDF and images as they are, and Word, PowerPoint, Excel and OpenDocument files as their text. Nothing comes back — it only shows |
 
 **The CRUD pattern.** Every form that keeps a list of records — topics, data
 files, prompt versions, provider connections — is built the same way, so an
@@ -2333,7 +2334,7 @@ font scale along its bottom edge as you resize it.
 > window twice: once wide (about 1400 px) and once narrow (about 550 px). Place
 > the two side by side.
 
-Three things these forms had to be built around, which your own forms will
+Four things these forms had to be built around, which your own forms will
 meet too:
 
 - **An `fr` track is never narrower than its widest item as you drew it.** A
@@ -2725,7 +2726,6 @@ What you do **not** set is where they sit: the division line decides that.
 - **What the contents do when the line moves** is each pane's own choice,
   set on the pane (not the splitter) as **Pane Left/Right Resize Behavior**:
 
-
   | Behaviour                            | What the controls inside that pane do                                                                                                                                                                                                                        |
   | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
   | **Translate with divider** (default) | Every control keeps its distance from the division line, in both panes: drag the line 40pt right and everything in both halves moves 40pt right. A control can be carried past its pane's far edge, where it is clipped.                                     |
@@ -2753,13 +2753,11 @@ What you do **not** set is where they sit: the division line decides that.
   on both axes. The Resize Behavior above applies only when the line moves
   while the form runs.
 
-
   > **A pane never resizes what is in it.** Moving the division changes the
   > pane's own rectangle and the *positions* of its contents — never their
   > `Width` or `Height` (only a responsive window resize does, through the
   > controls' own anchors and docks). The pane is a **viewport**: a control too big for it
   > is clipped by the pane's edge, not shrunk to fit.
-  >
 
   Dragging the division **in the designer really moves the controls**: their
   X/Y are rewritten and saved, and the whole drag — the line and everything
@@ -2777,6 +2775,7 @@ What you do **not** set is where they sit: the division line decides that.
 > round, and its `SplitPosition` (which used to be a pixel offset) is reset
 > to 50 %. Set the orientation you want and drag the line back into place —
 > it is a one-time correction, and nothing you put on the form is lost.
+
 A **StatusBar** is the width of its window, always. You do not set its `X` or
 its `Width` — they are the form's, they follow a form resize on their own (and,
 at run time, the running window as the operator widens it), and
@@ -2852,7 +2851,6 @@ includes a column of greys. Line and area charts honour the **Smooth** property
 (Catmull-Rom curve).
 A chart also honours its own **captions, labels and legend**:
 
-
 | Property                    | What it does                                                                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `Title`                     | The caption printed above the plot. Empty draws none, and takes no room.                                                                                |
@@ -2864,7 +2862,7 @@ A chart also honours its own **captions, labels and legend**:
 | `LabelFormat`               | What that label says: `percent` (the slice's share), `value` (the number), or `label` (its name).                                                       |
 | `SeriesColors`              | The series' colours (a pie's slices), comma-separated, in order. The seeded list means "not chosen" — the theme's palette paints the chart until you change it. |
 | `SeriesLabels`              | The names the legend gives the series, comma-separated; an unnamed series shows as `Series n`.                                                          |
-| `ShowPoints`                | A marker on every point of a line **or area** chart, and on every vertex of a radar chart's polygons.                                                    |
+| `ShowPoints`                | A marker on every point of a line **or area** chart, and on every vertex of a radar chart's polygons. **Ticked by default.**                              |
 | `PointRadius`               | Line and area marker radius (4), a radar vertex marker's radius (3), and a scatter point's radius when it has no bubble sizes, in pixels.                |
 | `BubbleScale`               | A scatter chart's largest bubble radius; the others are sized in proportion to their sizes (see below).                                                  |
 | `ShowTooltips`              | In the running form, the bar, point or slice under the pointer — a radar's nearest vertex — shows `label: value`. **Ticked by default.**                 |
@@ -3038,7 +3036,7 @@ work as on any chart. Its text and lines are drawn solid whatever the
 >   rim, and the circle shrinks on a small control to keep every name inside it.
 >   A larger control, a shorter label or a smaller `FontSize` gives the circle
 >   more room.
-> - **No X/Y axes, captions, `Horizontal` or `Stacked`.** A radar has none of
+> - **No X/Y axes, axis captions, `Horizontal` or `Stacked`.** A radar has none of
 >   `ShowXAxis`, `ShowYAxis`, `XAxisLabel`, `YAxisLabel`, `Horizontal` or
 >   `Stacked`; a property it does not carry is never read.
 > - The generated `<id>-ADD-POINT` paragraph carries a label and ONE value (the
@@ -3081,7 +3079,8 @@ TabControl page, and so on).
   form; drag it over a different container to move it there. Dropping a control
   over a **non-container** control makes it a sibling (same parent) of that
   control.
-- **Clipping & corners** — children are clipped to the container's content area.
+- **Clipping & corners** — children are clipped to the container's content area,
+  and a child at a rounded corner is kept inside the arc.
   Every control has a **Corner radius** property (see *Corner radius* below) that
   rounds the container's frame.
 - **Opacity** — a container's **Opacity** (0–100) fades the container *and its
@@ -3102,8 +3101,9 @@ TabControl page, and so on).
   inside it**, so you can still select, move and edit every control of a card
   your program shows a moment after the form opens. (Before 1.90.13 the
   designer drew only the card's face and left its contents out.)
-- **Auto-scroll** — turn **Auto-scroll** on for a container whose children may
-  overflow its bounds. (When off, overflowing content is simply clipped.)
+- **Scrolling** — turn **H-Scroll** and **V-Scroll** (`HScroll`, `VScroll`) on
+  for a container whose children may overflow its bounds. (When off,
+  overflowing content is simply clipped.)
 - **TabControl pages** — each tab owns its own set of children. Click a tab in
   the designer to edit that page; only the selected tab's controls are shown and
   interactive, at design time and at run time.
@@ -3223,12 +3223,12 @@ charts, and the containers — has a **Corner radius** property:
 The same radius and clipping apply identically on the design canvas, the live
 preview, and the running form. *Limitation:* the editable text/scroll layer of
 run-time inputs (e.g. a TextBox while typing) stays square inside its rounded
-frame, and container **children** are clipped to the rectangular content area
-(the rounded corners are cosmetic on the frame).
+frame. Container **children** are not cut square: one that reaches a rounded
+corner of its container is kept inside the arc.
 
 **Every border style follows that radius**, on every control that has one.
-`BorderStyle` takes six values in the properties pane:
-
+`BorderStyle` takes six values in the properties pane (`Fixed3D` and `Raised`
+draw alike, so they share a row):
 
 | Style               | What it draws                                                                                                                                                           |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -3296,7 +3296,7 @@ Your program drives it too, with or without the icon:
        INVOKE CARD-SALES::Expand()
        INVOKE CARD-SALES::Collapse()
 
-       IF CARD-SALES::Expanded IS true
+       IF CARD-SALES::Expanded IS TRUE
            MOVE "Back to the dashboard" TO LBL-HINT::Caption
        END-IF
 ```
@@ -3402,14 +3402,14 @@ however large its padding, it starts after the top-left corner's radius and
 ends before the top-right one's, so the corners keep their shape. A `Full`
 caption opens the whole straight part of the top edge.
 
-> **Note:** with `CaptionBackgroundStyle` left at `None`, `CaptionShape` draws
+> **Note.** With `CaptionBackgroundStyle` left at `None`, `CaptionShape` draws
 > nothing — only `CaptionSize`, `CaptionAlignment` and the padding still decide
 > where the text sits and how wide the opening in the border is.
 
-📷 Screenshot needed — groupbox-caption-styles.png: four GroupBoxes on one
-form showing a Flat Rectangle `Text` caption, a Gradient Pill `Inner` caption,
-an AngledLeft `Full` caption and an AngledRight caption with `Right`
-alignment.
+> 📷 **Screenshot needed — `groupbox-caption-styles.png`.** Four GroupBoxes on
+> one form showing a Flat Rectangle `Text` caption, a Gradient Pill `Inner`
+> caption, an AngledLeft `Full` caption and an AngledRight caption with
+> `Right` alignment.
 
 #### Repeating groups (GroupBox arrays)
 
@@ -3430,9 +3430,10 @@ A **Repeating Group** section then appears in the properties pane:
 - **Placement effect** — optional card placement animation: *None*, *Deal*,
   *FadeIn*, *ZoomIn*, or *ZoomOut*. Zoom effects keep each card anchored at its
   final layout position and scale the whole card group with elastic easing.
-- **Auto-scroll parent** — let the parent container scroll when instances
-  overflow (place the group inside a **Panel**, **GroupBox** or **TabControl**
-  with **HScroll**/**VScroll** on — all three scroll their children).
+- **Scrolling** — the group has no scroll setting of its own: to let the
+  instances overflow and scroll, place the group inside a **Panel**,
+  **GroupBox** or **TabControl** with **H-Scroll**/**V-Scroll** on — all three
+  scroll their children.
 - **Clone events** — on (the default), all instances of a child control share
   one event handler, told which card fired by `CONTROL-ARRAY-INDEX`. Off, only
   the designed card (1) runs its handlers; the clones are display only.
@@ -3737,7 +3738,7 @@ Name the column by the **id** you gave it in the settings:
 
 **Other features**
 
-- Virtual scrolling, resizable columns/rows, reorder (display order only; source
+- Virtual scrolling, resizable columns/rows, column reorder (display order only; source
   field identity preserved), AND-chained filters, freeze panes, gauges, style
   rules, selectable text + `CopySelection`, `ExportCSV`, `RefreshBinding()`,
   etc.
@@ -4015,7 +4016,7 @@ at the ends rather than wrapping or running off:
 | Gesture            | What it does                                                                                                                                                                                                      |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Click**          | Makes the row active and starts a one-row selection.                                                                                                                                                              |
-| **Press and drag** | Anchors on the row pressed and extends to the row under the pointer —*up or down*. Reversing direction **shrinks** the range back. Dragging above the first row holds at the first; below the last, at the last. |
+| **Press and drag** | Anchors on the row pressed and extends to the row under the pointer — *up or down*. Reversing direction **shrinks** the range back. Dragging above the first row holds at the first; below the last, at the last. |
 | **↑ / ↓**        | Moves the active row one line, once the list has been clicked (or Tabbed to).                                                                                                                                     |
 
 With `ShowCheckBoxes` on there is a fourth: **Space** ticks the active row, or
@@ -4067,9 +4068,11 @@ designer canvas, the preview, Run Form and the compiled binary.
 >   Bolts	wrench
 > ```
 >
-> Since 1.61.161 you **pick** those three rather than spelling them: each row
-> in the inspector carries a **…** button that opens the icon catalogue — the
-> same one the toolbar editor uses — and a **✕** that clears the row back to
+> Since 1.61.161 you **pick** the tree's three default icons —
+> **Folder icon (shut)**, **(open)** and **Leaf icon**, described below —
+> rather than spelling them: each row in the inspector carries a **…** button
+> that opens the icon catalogue — the same one the toolbar editor uses — and a
+> **✕** that clears the row back to
 > the platform's own default. Clearing writes *empty*, not today's default
 > name, so the row keeps following the platform rather than freezing an answer
 > into the `.cfrm`. The preview, both buttons and the name all sit in the one
@@ -4199,7 +4202,7 @@ designer canvas, the preview, Run Form and the compiled binary.
 > `TREE-1::AddNode(1, "Overdue", "alert", "#C81E1E", " ")`.
 >
 > **The tick box is dressed like a CheckBox, since 1.61.159.** It wears the same
-> five properties, meaning the same things: **Box colour**, **Box border** (with
+> six properties, meaning the same things: **Box colour**, **Box border** (with
 > its colour and width), **Tick colour** and **Tick size %** — and it draws the
 > same tick mark. Before this it was a black well, a 1px rim and a tick at 28 %
 > of the box: three numbers in the painter, none of them reachable.
@@ -4392,8 +4395,8 @@ Enter picks it.
 > must choose from, set **DropDownStyle** to `DropDownList`, as you would in
 > PowerCOBOL or isCOBOL.
 
-> ⚠️ **Caveat.** Until 1.70.232 neither property was read: every combo behaved as
-> a pick-only list whatever it declared. A form built then with the default
+> ⚠️ **Caveat.** Until 1.70.232 neither `DropDownStyle` nor `Editable` was
+> read: every combo behaved as a pick-only list whatever it declared. A form built then with the default
 > `DropDown` now lets the operator type. Set `DropDownList` where that is not
 > what you want.
 
@@ -4457,7 +4460,9 @@ means none** — nothing selected, no match, no such node.
 ```
 
 > ⚠️ **Coming from an earlier version.** Until 1.80.148 these counted from 0,
-> with `-1` for none. A form saved before then is converted the first time it
+> with `-1` for none — except a TreeView's node handles, which have counted
+> from 1 since 1.70.156; its depths, and `0` for no node, changed at 1.80.148.
+> A form saved before then is converted the first time it
 > opens — the values the designer stored (`SelectedIndex`, `SelectedTab`, each
 > control's `Tab` page) move up by one, and the next save marks the file as
 > converted — so your forms look and open as before. **Your COBOL is never
@@ -4834,15 +4839,15 @@ arrives under, and it is how your COBOL addresses the button:
 
 ##### Trying a toolbar in Preview
 
-You do not have to run the form to press a button. **Preview carries out the six
-platform actions itself** — `print`, `run-app`, `open-terminal`, `copy`, `cut`
-and `paste` — and writes what happened, or why it could not, into the **Output**
-pane. That is where a toolbar gets built, so that is where its buttons have to
-work.
+You do not have to run the form to press a button. **Preview carries out six of
+the eight platform actions itself** — `print`, `run-app`, `open-terminal`,
+`copy`, `cut` and `paste` — and writes what happened, or why it could not, into
+the **Output** pane. That is where a toolbar gets built, so that is where its
+buttons have to work.
 
-The other five do **not** run in Preview — and each says so in the Output pane
-rather than leaving you to guess:
-
+The other five actions — the two window captures and the three that run your
+COBOL — do **not** run in Preview, and each says so in the Output pane rather
+than leaving you to guess:
 
 | Action                             | Why not                                                                                                                                                                                                                           |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -4885,10 +4890,9 @@ the normal way once the event fires:
 The zone has exactly one method, `CommitFiles()`, and it belongs to the
 confirm-before-copying flow described further down.
 
-**What the zone accepts, and where it puts it.** Three design-time
+**What the zone accepts, and where it puts it.** Five design-time
 properties decide, and both routes in — a drop and the file picker — obey
 them, so a file is judged the same way however it arrived:
-
 
 | Property            | Meaning                                                                                                                                                   |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -5087,8 +5091,8 @@ for wiring events and setting properties from code. The handlers are written in
 the **extended dialect** rather than the long form (an inline call on a control,
 a direct write to a property, `::` chaining, block literals), and 30 of the
 forms carry a comment above every line that uses an extension, in all six
-interface languages: 462 of them apiece in English, Portuguese, Spanish, French,
-Japanese and Chinese.
+interface languages: 461 such comments in each of English, Portuguese, Spanish,
+French, Japanese and Chinese.
 
 Open the project with **File ▸ Open Project** and run it — it starts on a
 sidebar form that reaches every demo. Any single form also runs on its own from
@@ -5247,7 +5251,7 @@ day click closes it, as it always has.
 > **Note.** A `Value` the control cannot read as a date or a time is displayed
 > exactly as you set it, not blanked. It is your data, and hiding it would look
 > like the control had lost it.
->
+
 **Limits.** `MinimumDate` and `MaximumDate` (`YYYY-MM-DD`, empty = no limit)
 bound what the operator can pick: days outside them are dimmed in the calendar
 and refuse a click, and a stepped or committed date never leaves them. A
@@ -5317,7 +5321,6 @@ reorder items up to 3 levels deep. Each item has:
   > flags that differ only in colour look the same here. `flag-it` and `flag-ie`
   > are both three vertical bands. Use them where the country is already named in
   > the row beside them, not as the only way to tell one country from another.
-  >
 
   > **An icon for every control (1.62.132).** Building a demo, a palette or a
   > help page *about* the controls used to mean having no picture of them: the
@@ -5353,7 +5356,7 @@ reorder items up to 3 levels deep. Each item has:
   >
   > No existing icon was removed or renamed to make room: **names are a stable
   > API**, and a name you already wrote in a `.menu.yaml` still resolves.
-  >
+
 - **Moving items.** Besides *Move Up*/*Move Down*, the **Indent** button makes
   the selected item a child of the item above it, and **Outdent** promotes it
   back beside its parent — together they move an item between any sections and
@@ -5531,9 +5534,10 @@ message never has it vanish under the cursor. Turn that off with
 of `Category` or whatever buttons you declared. This is the operator's own
 way to dismiss ONE message, including a `Critical` one that never times out
 on its own. It fires its own dismissal reason, `User` — distinct from
-`Timeout` (expired on its own), `Action` (a button's `dismiss=true`) and
-`Programmatic` (`DismissAll()`) — so a handler reading the dismissal reason
-can always tell the four apart. It is a UI affordance only: there is no
+`Timeout` (expired on its own), `Action` (a button's `dismiss=true`),
+`Programmatic` (`DismissAll()`) and `Overflow` (pushed out to make room — see
+`OverflowBehavior`) — so a handler reading the dismissal reason can always
+tell the five apart. It is a UI affordance only: there is no
 COBOL-callable equivalent for dismissing a single notification by CALL;
 `DismissAll()` remains the only programmatic dismissal, and it clears every
 live notification this control raised, not just one.
@@ -5829,7 +5833,7 @@ for some formats.
 | PDF | Its text, its basic line and rectangle drawing, its page sizes, its page breaks, and Find over all of it | A faithful picture of a complex page; unusual embedded font encodings; forms; annotations; a scanned page beyond the image it embeds |
 | HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images — **styled by the page's own CSS**, flex rows and grids included (see *HTML and its CSS* below) | Floats and positioning; animation and transforms; `@media`; anything fetched; JavaScript. **It is not a browser** |
 | Video | Nothing — out of scope. Animated GIF, WebP and APNG are covered above as images | Any format needing an external codec |
-| Word, PowerPoint, Excel, OpenDocument | Their **text**, as Markdown: headings, lists and tables kept; page layout, fonts and pictures not | The Knowledge Base's own converter — a document reads the same here as the chat reads it |
+| Word, PowerPoint, Excel, OpenDocument | Their **text**, as Markdown — headings, lists and tables kept — made by the Knowledge Base's own converter, so a document reads the same here as the chat reads it | Page layout, fonts and pictures |
 
 > **Note — where the boundary shows.** A format's limits are visible rather
 > than silent. A Mermaid diagram the Viewer does not draw says so, by name,
@@ -5987,7 +5991,7 @@ no capability in this control that COBOL cannot reach.
        MOVE 150 TO VWR-1::Zoom
        MOVE 4 TO VWR-1::Page
        MOVE 1 TO VWR-1::Fullscreen
-       MOVE "Cards" TO VWR-1::View1ViewMode
+       MOVE "Cards" TO VWR-1::ViewMode
 ```
 
 - **Fullscreen means the screen.** Turning it on puts your form's own window
@@ -6006,7 +6010,7 @@ no capability in this control that COBOL cannot reach.
   larger than its view scrolls like any other document. The slider comes to
   rest on the usual stops — 50, 75, 100, 125, 150, 200 and so on — rather than
   on whatever percentage the pointer happened to be over.
-- **View mode** is `Full` (the document) or `Cards` (a grid of one card per
+- **View mode** (`ViewMode`) is `Full` (the document) or `Cards` (a grid of one card per
   page, replacing the document). The grid reflows to **the control's own
   width** — make the control wider and you get more columns; making the
   *window* wider changes nothing, because a control should not depend on
@@ -6178,9 +6182,10 @@ offering the PDF type. With a path, that path is written. The events are
 > It runs off the drawing, so a slow spooler never stops your form
 > repainting.
 
-> ⚠️ **Caveat — Save As writes the original bytes, and only those.** It copies
-> the file; it never writes out what the Viewer drew. That is deliberate, and
-> it matters most for a PDF: the Viewer reads a PDF's structure in order to
+> ⚠️ **Caveat — `SaveAs` writes the original bytes, and only those.** It copies
+> the file; it never writes out what the Viewer drew — `SaveAsPdf`, above, is
+> the call that does. That is deliberate, and it matters most for a PDF: the
+> Viewer reads a PDF's structure in order to
 > paint it, and a saver that wrote *that* reading back would hand your operator
 > a different document with the same name. The Viewer also never modifies the
 > document it is showing.
@@ -6200,10 +6205,11 @@ operating system's to report, and that is where the events come from:
            .
 ```
 
-> ⚠️ **Caveat — only the dialog knows.** `onPrintComplete` and
+> ⚠️ **Caveat — only the operating system knows.** `onPrintComplete` and
 > `onPrintCancelled` (and the Save pair beside them) report what the
-> operating system told the Viewer. Your program cannot tell in advance which
-> one it will get, and should not assume the cheerful one.
+> operating system told the Viewer — for `Print`, whether the spooler accepted
+> the job, not whether a page came out. Your program cannot tell in advance
+> which one it will get, and should not assume the cheerful one.
 
 #### Hosting a conversation
 
@@ -8081,8 +8087,10 @@ extensions. Highlights a working COBOL programmer will rely on:
 > `docs/cobol85-verb-test-matrix-en.md`. When in doubt, those files (and the test
 > suite) are definitive.
 
-> ⚠️ **Out of scope (today):** cross-process record locking and OO
-> `CLASS`/`METHOD` definitions are not implemented. **RELATIVE file
+> ⚠️ **Out of scope (today):** cross-process **record** locking and OO
+> `CLASS`/`METHOD` definitions are not implemented. A whole INDEXED file opened
+> `WITH LOCK` or `SHARING WITH NO OTHER` *is* exclusive across processes —
+> another program's `OPEN` gets status `93`. **RELATIVE file
 > organisation is implemented** — see
 > [Addressing records by number](#addressing-records-by-number-organization-is-relative).
 

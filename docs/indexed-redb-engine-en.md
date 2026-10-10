@@ -24,10 +24,13 @@ scale.
 (`crates/cobolt-runtime/src/indexed.rs`), and a test holds it there.
 
 The reason is **concurrency**: a redb container open for *writing* takes an
-exclusive `flock(LOCK_EX)` with no shared variant, so exactly one process may
-hold it open at a time. `PRCIDXD1` admits concurrent readers. redb remains the
+exclusive `flock(LOCK_EX)` with no shared variant, so while one process writes
+it no other process may open it at all. Programs that only read (`OPEN INPUT`)
+have shared a container since 1.70.35, but `PRCIDXD1` also admits readers
+alongside a writer. redb remains the
 right choice wherever durability and crash-safety outrank concurrent access —
-choose it by name:
+choose it by name (the trade-offs are laid out in
+[Choosing an engine](#choosing-an-engine-redb-or-prcidxd1)):
 
 ```bash
 rcrun run program.cbl --indexed-engine redb
@@ -71,10 +74,88 @@ Implementation:
 | **Up to 250 M records (data unbounded)** | Resident RAM is the working set (redb's cache), **not** the record count. There is no `O(records)` structure held in memory. |
 | **Safety is paramount** | redb is fully ACID. `COMMIT` is a durable transaction commit (fsync); `ROLLBACK` is a transaction abort. A power loss can never expose a torn index — redb falls back to the last good commit via its dual meta pages. No data loss, no index corruption. |
 
-Contrast with the `PRCIDXD1` engine, whose RecordId directory is loaded entirely
-into RAM on OPEN (≈16 bytes × every RecordId ever allocated) and whose
-transactions were an in-RAM undo log persisted only on CLOSE — so it could
-neither OPEN instantly at scale nor survive a mid-run power loss.
+Contrast with the `PRCIDXD1` engine as it stood when this one was written: its
+RecordId directory was loaded entirely into RAM on OPEN (≈16 bytes × every
+RecordId ever allocated) and its transactions were an in-RAM undo log persisted
+only on CLOSE — so it could neither OPEN instantly at scale nor survive a
+mid-run power loss. Both have changed since (1.70.31 and 1.70.32); the next
+section says where the two engines stand today.
+
+---
+
+## Choosing an engine: redb or PRCIDXD1
+
+Both engines implement the same COBOL verbs and the same FILE STATUS codes.
+They differ in what happens when **several programs open one file at once**,
+and in what a crash leaves behind. Neither is right for every file, so choose
+per file, deliberately.
+
+| | **redb** (`--indexed-engine redb`) | **PRCIDXD1** (the default) |
+|---|---|---|
+| Two programs reading (`OPEN INPUT`) | Both open | Both open |
+| A reader while another program writes | Refused, status **93** | Admitted |
+| Two plain `OPEN I-O` writers | Second refused, **93** | **Both succeed** — see the warning below |
+| Two writers `OPEN I-O … WITH LOCK` | Second refused, **93** | Second refused, **93** |
+| Crash before `COMMIT` | Back to the last `COMMIT` — nothing uncommitted survives | File intact, but writes since the last `COMMIT` may **partly** survive |
+| `COMMIT` / `ROLLBACK` | ACID; `COMMIT` survives power loss | `COMMIT` and `CLOSE` are durable; `ROLLBACK` works within the run |
+| `OPEN` cost | Meta page only, ~5 ms at 200 000 records | Directory read on demand; no slower at 200 000 records than at one |
+| A one-record file on disk | **1 056 768 bytes** (~1 MB) | 16 384 bytes |
+
+The crash row was measured by stopping a program with `kill -9` after 30 000
+`WRITE`s and no `COMMIT`, on a file holding one committed record. Reopened,
+the redb file held that one record. The PRCIDXD1 file opened cleanly and held
+26 131: besides `COMMIT` and `CLOSE`, the engine makes its own commit point
+each time 1 MiB of pages has changed, and those survive.
+
+### Why a redb writer has the file to itself
+
+redb takes an exclusive advisory lock on its container when a program opens it
+`I-O`, `OUTPUT` or `EXTEND`, and there is no shared variant of a writing open.
+`OPEN INPUT` takes a shared, read-only lock instead, so readers coexist with
+each other — but never with a writer. Whichever side comes second is refused at
+`OPEN`, before it reaches a record, with **file status 93**, whether the conflict
+is the engine's lock or a COBOL sharing phrase. No `SHARING` phrase relaxes it.
+
+⚠️ **A copy of a live container is not a way round the lock.** A byte copy taken
+while a program is writing holds the file as of its last `COMMIT`, but redb
+must recover it before it can be read: `OPEN INPUT` of such a copy answers
+**90**, while `OPEN I-O` recovers it and then reads it. The copy is also of the
+**whole** container, which on a large file is not viable.
+
+### ⚠️ PRCIDXD1 permits unguarded concurrent writers
+
+The permissiveness that lets PRCIDXD1 serve readers alongside a writer also
+lets **two programs open the same file `OPEN I-O` and both succeed**, with no
+coordination between them. Record locks do not cross processes either: one
+program can read and `REWRITE` a record another holds `WITH LOCK`.
+
+There are two ways to stay safe, and they are not equivalent:
+
+- **Open every updating program `WITH LOCK`** (or `SHARING WITH NO OTHER`).
+  That is enforced across processes: a second opener is refused with **file
+  status 93**. It also refuses readers while the update runs, so the file then
+  shares exactly as a redb file does — without redb's crash guarantee.
+- **Let only one program update the file at a time**, by arrangement — a batch
+  window, a single server program — while readers open `INPUT`. This is what
+  only PRCIDXD1 offers: a reader scanning the file during an update reads it
+  cleanly, and sees the writer's records up to its latest commit point. The
+  engine does **not** enforce the arrangement: nothing stops a second updater.
+
+### How to choose
+
+- **Durability matters, and readers can wait while the file is updated** —
+  choose **redb**.
+- **Readers must keep working while the file is updated** — keep **PRCIDXD1**,
+  and make sure only one program updates it at a time. You are trading
+  atomicity across a crash for that concurrency, knowingly.
+- **You need both, on one file** — neither engine gives you that today.
+  Serialise access in the application, or split the file.
+
+> **Note.** `SHARING WITH READ ONLY` — others may read but not write — is the
+> phrase that would enforce the one-updater arrangement, but it is currently
+> treated as `SHARING WITH ALL OTHER`. A single advisory lock cannot admit
+> readers while refusing writers; expressing it needs a second lock covering
+> the writer set.
 
 ---
 
