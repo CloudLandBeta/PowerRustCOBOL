@@ -7415,7 +7415,11 @@ zero, everything else to spaces, in every occurrence of a table — skips its
 `FILLER` items, and a `REDEFINES` item follows its target; `INITIALIZE WS-ROW (2)`
 resets that occurrence only. `INITIALIZE group REPLACING NUMERIC DATA BY 0`
 touches only the categories it names. Before 1.91.4 a handler's own item was
-taken for a control and left as it was.
+taken for a control and left as it was. Every program takes the same walk: since
+1.91.5 the outermost program's tables reset every occurrence written before
+the statement (before, only the untouched ones were reset), a child name that
+two groups share is reset in both, and an item that carries an 88-level
+condition-name is reset like any other (before, it was skipped).
 
 ### Property access via the `COBOL` object (also supported)
 

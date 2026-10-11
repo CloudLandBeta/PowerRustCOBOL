@@ -3884,13 +3884,21 @@ impl CobolEnvironment {
     }
 
     /// The storage keys of the **elementary items** `INITIALIZE name` reaches,
-    /// in declaration order — read off the symbol table, so it works for an
-    /// item no AST is at hand for (what a contained program declares).
+    /// in declaration order — read off the symbol table, so the same walk serves
+    /// the outermost program and a contained program's items (an event handler's
+    /// own storage, under activation keys).
     ///
     /// * an elementary item is itself;
     /// * a **group** is the leaves under it, recursively;
-    /// * a **table** — or a group inside one — is every occurrence the
-    ///   subscripts leave open (`T` for `T OCCURS 3` is `T(1)`, `T(2)`, `T(3)`);
+    /// * a **table** — or a group inside one, named without a subscript — is its
+    ///   **template** (the unsubscripted slot an occurrence nobody has written
+    ///   yet takes its value from) **plus every occurrence stored so far**. The
+    ///   untouched ones are not materialised: resetting the template is what
+    ///   resets them, and a 100,000-occurrence table costs one write, not
+    ///   100,000, however often it is initialised;
+    /// * a table named with *some* subscripts (`T (2)` of a two-dimensional `T`)
+    ///   is exactly the slice those subscripts leave open, because the template
+    ///   cannot stand in for a part of the table;
     /// * an unnamed `FILLER` is left out, as `INITIALIZE` leaves it alone;
     /// * a `REDEFINES` item is left out too: [`ItemSym::layout_keys`] never lists
     ///   one, and its target's bytes are the ones it reads.
@@ -3913,14 +3921,39 @@ impl CobolEnvironment {
         };
         let prefix = key_indices(key);
         if sym.is_group && !sym.layout_keys.is_empty() {
-            for child in self.occurrence_keys(sym, &prefix) {
-                self.collect_initialize_leaves(&child, out);
+            if prefix.is_empty() {
+                // The description itself: every table inside it answers for
+                // itself below, as template plus stored occurrences.
+                for child in &sym.layout_keys {
+                    self.collect_initialize_leaves(child, out);
+                }
+            } else {
+                for child in self.occurrence_keys(sym, &prefix) {
+                    self.collect_initialize_leaves(&child, out);
+                }
             }
         } else if sym.dims.len() > prefix.len() {
-            out.extend(self.expand_occurrences(base_name(key), &prefix));
+            let base = base_name(key);
+            if prefix.is_empty() {
+                out.push(base.to_string());
+                out.extend(self.stored_occurrences(base));
+            } else {
+                out.extend(self.expand_occurrences(base, &prefix));
+            }
         } else {
             out.push(key.to_string());
         }
+    }
+
+    /// The subscripted keys of `base` that hold a value now: `T(1)`, `T(3,2)` …
+    /// — the occurrences somebody has written, as opposed to the ones that still
+    /// follow the template.
+    fn stored_occurrences(&self, base: &str) -> Vec<String> {
+        self.store
+            .keys()
+            .filter(|k| k.len() > base.len() && k.starts_with(base) && k.as_bytes()[base.len()] == b'(')
+            .cloned()
+            .collect()
     }
 
     /// Iterate all data items in declaration order.
