@@ -97,6 +97,13 @@ pub struct ItemSym {
     /// holds characters — a group `MOVE` puts `"123456"` into both `PIC 9(6)`
     /// and `PIC 9(4)V99`, and those are 123456 and 1234.56.
     pub pic_decimals: u16,
+    /// The category of the item's PICTURE; `None` for a group, an index and
+    /// anything declared without one.
+    ///
+    /// `INITIALIZE … REPLACING <category> DATA` picks the items it touches by
+    /// this, and a contained program's items have no AST to ask — only the
+    /// symbol, which travels with them into the shared environment.
+    pub pic_kind: Option<PicKind>,
     /// Program/form/procedure that declared this item.
     pub origin: String,
     /// The `OCCURS … DEPENDING ON` item (uppercased), for a variable-length
@@ -1367,6 +1374,7 @@ impl CobolEnvironment {
                             is_global: inherited_global || decl.is_global,
                             pic: String::new(),
                             pic_decimals: 0,
+                            pic_kind: None,
                             origin: origin.to_owned(),
                             depending_on: None,
                             char_class: None,
@@ -1504,6 +1512,7 @@ impl CobolEnvironment {
                         .map(|pic| pic.template.clone())
                         .unwrap_or_default(),
                     pic_decimals: decl.picture.as_ref().map_or(0, |pic| pic.decimals),
+                    pic_kind: decl.picture.as_ref().map(|pic| pic.kind),
                     origin: origin.to_owned(),
                     depending_on: decl
                         .occurs
@@ -1591,6 +1600,7 @@ impl CobolEnvironment {
                                 is_global: inherited_global || decl.is_global,
                                 pic: String::new(),
                                 pic_decimals: 0,
+                                pic_kind: None,
                                 origin: origin.to_owned(),
                                 depending_on: None,
                                 char_class: None,
@@ -3834,9 +3844,83 @@ impl CobolEnvironment {
     }
 
     /// `true` if the named data item is declared.
+    ///
+    /// This is a **flat** lookup of the name as written, which is the whole
+    /// answer only for a unique name in the outermost program. Use
+    /// [`is_declared`](Self::is_declared) when the name came from a statement
+    /// and has to be found the way the statement would find it.
     pub fn contains(&self, name: &str) -> bool {
         let key = self.storage_key(name.to_ascii_uppercase());
         self.store.contains_key(&key)
+    }
+
+    /// `true` if `name` — with its `OF`/`IN` qualifiers, innermost first —
+    /// names a declared data item **as the running program sees it**.
+    ///
+    /// [`contains`](Self::contains) looks the bare name up in the store, and two
+    /// kinds of item are not stored under it:
+    ///
+    /// * what a **contained program** declares in its own storage lives under
+    ///   `PROGRAM-ID` + `\u{4}` + `NAME` and is reached through a divert alias
+    ///   installed for the length of the call — every event handler of a form
+    ///   is such a program;
+    /// * a name declared **more than once** is keyed by its path
+    ///   (`LEAF\u{1}GROUP`), so `LEAF OF GROUP` finds it and a bare `LEAF`
+    ///   does not.
+    ///
+    /// Both are what [`resolve_name`](Self::resolve_name) resolves and what every
+    /// read and write goes through; only a test built on `contains` disagreed
+    /// with them, which is how `INITIALIZE LK-FILE` did nothing in a handler.
+    /// The flat answer still counts, so nothing `contains` finds is lost.
+    ///
+    /// A **group** or a table's base name owns no storage slot in a contained
+    /// program (`push_local_scope` carries it as a symbol only), so the symbol
+    /// table is consulted as well as the store.
+    pub fn is_declared(&self, name: &str, quals: &[String]) -> bool {
+        self.contains(name) || {
+            let key = self.storage_key(self.resolve_name(name, quals));
+            self.store.contains_key(&key) || self.symbols.contains_key(&key)
+        }
+    }
+
+    /// The storage keys of the **elementary items** `INITIALIZE name` reaches,
+    /// in declaration order — read off the symbol table, so it works for an
+    /// item no AST is at hand for (what a contained program declares).
+    ///
+    /// * an elementary item is itself;
+    /// * a **group** is the leaves under it, recursively;
+    /// * a **table** — or a group inside one — is every occurrence the
+    ///   subscripts leave open (`T` for `T OCCURS 3` is `T(1)`, `T(2)`, `T(3)`);
+    /// * an unnamed `FILLER` is left out, as `INITIALIZE` leaves it alone;
+    /// * a `REDEFINES` item is left out too: [`ItemSym::layout_keys`] never lists
+    ///   one, and its target's bytes are the ones it reads.
+    ///
+    /// A key the symbol table has never heard of is answered as itself, so the
+    /// caller treats it exactly as it would have without this walk.
+    pub fn initialize_leaves(&self, name: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        self.collect_initialize_leaves(&name.to_ascii_uppercase(), &mut out);
+        out
+    }
+
+    fn collect_initialize_leaves(&self, key: &str, out: &mut Vec<String>) {
+        if is_filler_key(key) {
+            return;
+        }
+        let Some(sym) = self.symbols.get(base_name(key)) else {
+            out.push(key.to_string());
+            return;
+        };
+        let prefix = key_indices(key);
+        if sym.is_group && !sym.layout_keys.is_empty() {
+            for child in self.occurrence_keys(sym, &prefix) {
+                self.collect_initialize_leaves(&child, out);
+            }
+        } else if sym.dims.len() > prefix.len() {
+            out.extend(self.expand_occurrences(base_name(key), &prefix));
+        } else {
+            out.push(key.to_string());
+        }
     }
 
     /// Iterate all data items in declaration order.

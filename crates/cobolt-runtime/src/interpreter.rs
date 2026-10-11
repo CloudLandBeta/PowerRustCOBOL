@@ -6914,8 +6914,14 @@ impl Interpreter {
             // a control object: `INITIALIZE obj` implicitly resets its `Value`
             // property (spec 011). `INITIALIZE obj name` thus inits each operand
             // by its own rules (control → Value, data item → PIC default).
+            //
+            // "Declared" is asked the way a read asks it. A contained program's
+            // own storage — every event handler's — lives under an activation
+            // key behind a divert alias, which the flat `contains` cannot see:
+            // `INITIALIZE LK-FILE` in a handler reset a control's `Value` that
+            // nothing owns and left the item as it was.
             if let Expr::Identifier(id, _) = item {
-                if !self.env.contains(id) {
+                if !self.env.is_declared(id, &[]) {
                     let path = vec![PathSeg::Prop("Value".into())];
                     let def = self.init_default_for_member(id, &path);
                     self.set_member(id, &path, def);
@@ -6934,10 +6940,68 @@ impl Interpreter {
             match decl {
                 Some(d) if repl.is_empty() => self.init_decl(&d),
                 Some(d) => self.init_decl_replacing(&d, &repl),
+                // An activation key names an item of a CONTAINED program — an
+                // event handler's own storage. The DATA DIVISION above is the
+                // outermost program's and never declared it, so only the symbol
+                // table can say what is a group, a table or a FILLER.
+                None if name.contains('\u{4}') => self.init_contained(&name, &repl),
                 None => self.init_by_caps(&name),
             }
         }
         Ok(())
+    }
+
+    /// `INITIALIZE` for an item a contained program declares: the leaves under
+    /// `key` come from the symbol table ([`CobolEnvironment::initialize_leaves`])
+    /// and each gets the rule the outermost program's walk gives it.
+    fn init_contained(&mut self, key: &str, repl: &[(cobolt_ast::stmt::InitCategory, CobolValue)]) {
+        for leaf in self.env.initialize_leaves(key) {
+            let (kind, decimals) = match self.env.symbol(crate::environment::base_name(&leaf)) {
+                Some(sym) => (sym.pic_kind, sym.pic_decimals),
+                // Not a declared item (a synthetic or unknown key): what the
+                // statement did before it could reach this far.
+                None => {
+                    self.init_by_caps(&leaf);
+                    continue;
+                }
+            };
+            if repl.is_empty() {
+                self.init_elementary(&leaf, kind, decimals);
+            } else if let Some(cat) = kind.map(init_category) {
+                if let Some((_, val)) = repl.iter().find(|(c, _)| *c == cat) {
+                    self.replace_item(&leaf, val);
+                }
+            }
+        }
+    }
+
+    /// Reset one elementary item: ZERO for a numeric or numeric-edited one,
+    /// SPACES (at its current width) for everything else.
+    fn init_elementary(
+        &mut self,
+        key: &str,
+        kind: Option<cobolt_ast::data::PicKind>,
+        decimals: u16,
+    ) {
+        use cobolt_ast::data::PicKind;
+        if matches!(kind, Some(PicKind::Numeric) | Some(PicKind::NumericEdited)) {
+            let decimals = decimals.min(u8::MAX as u16) as u8;
+            self.env
+                .set(key, CobolValue::Numeric(CobolNumeric::new(0, decimals)));
+        } else {
+            let width = self.env.display_string(key).map(|s| s.len()).unwrap_or(0);
+            self.env.set_str(key, &" ".repeat(width));
+        }
+    }
+
+    /// `INITIALIZE … REPLACING`: store `val` in one item the way its category
+    /// holds a value — left-justified text for an alphanumeric field.
+    fn replace_item(&mut self, key: &str, val: &CobolValue) {
+        if self.env.is_alphanumeric_field(key) {
+            self.env.set_str_left(key, &val.as_display_string());
+        } else {
+            self.env.set(key, val.clone());
+        }
     }
 
     /// The category default for a control property being `INITIALIZE`d: a
@@ -6963,8 +7027,6 @@ impl Interpreter {
         d: &cobolt_ast::data::DataDecl,
         repl: &[(cobolt_ast::stmt::InitCategory, CobolValue)],
     ) {
-        use cobolt_ast::data::PicKind;
-        use cobolt_ast::stmt::InitCategory;
         if !d.children.is_empty() {
             for c in &d.children {
                 if c.level != 88 && c.level != 66 {
@@ -6974,53 +7036,27 @@ impl Interpreter {
             return;
         }
         let Some(name) = &d.name else { return };
-        let cat = match d.picture.as_ref().map(|p| p.kind) {
-            Some(PicKind::Alphabetic) => InitCategory::Alphabetic,
-            Some(PicKind::Alphanumeric) => InitCategory::Alphanumeric,
-            Some(PicKind::Numeric) => InitCategory::Numeric,
-            Some(PicKind::AlphanumericEdited) => InitCategory::AlphanumericEdited,
-            Some(PicKind::NumericEdited) => InitCategory::NumericEdited,
-            Some(PicKind::National) => InitCategory::National,
-            Some(PicKind::Utf8) => InitCategory::Utf8,
-            None => return,
+        let Some(cat) = d.picture.as_ref().map(|p| init_category(p.kind)) else {
+            return;
         };
         if let Some((_, val)) = repl.iter().find(|(c, _)| *c == cat) {
             let key = self.env.resolve_name(name, &[]);
-            if self.env.is_alphanumeric_field(&key) {
-                self.env.set_str_left(&key, &val.as_display_string());
-            } else {
-                self.env.set(&key, val.clone());
-            }
+            self.replace_item(&key, val);
         }
     }
 
     /// Recursively initialise a declaration: groups recurse; elementary items
     /// reset to ZERO (numeric) or SPACES (everything else).
     fn init_decl(&mut self, d: &cobolt_ast::data::DataDecl) {
-        use cobolt_ast::data::PicKind;
         if !d.children.is_empty() {
             for c in &d.children {
                 self.init_decl(c);
             }
         } else if let Some(name) = &d.name {
             let key = name.to_ascii_uppercase();
-            let numeric = matches!(
-                d.picture.as_ref().map(|p| p.kind),
-                Some(PicKind::Numeric) | Some(PicKind::NumericEdited)
-            );
-            if numeric {
-                let decimals = d
-                    .picture
-                    .as_ref()
-                    .map(|p| p.decimals)
-                    .unwrap_or(0)
-                    .min(u8::MAX as u16) as u8;
-                self.env
-                    .set(&key, CobolValue::Numeric(CobolNumeric::new(0, decimals)));
-            } else {
-                let width = self.env.display_string(&key).map(|s| s.len()).unwrap_or(0);
-                self.env.set_str(&key, &" ".repeat(width));
-            }
+            let kind = d.picture.as_ref().map(|p| p.kind);
+            let decimals = d.picture.as_ref().map(|p| p.decimals).unwrap_or(0);
+            self.init_elementary(&key, kind, decimals);
         }
     }
 
@@ -19282,6 +19318,21 @@ fn find_decl_in_division<'a>(
         }
     }
     None
+}
+
+/// The `INITIALIZE … REPLACING` category a PICTURE kind answers to.
+fn init_category(kind: cobolt_ast::data::PicKind) -> cobolt_ast::stmt::InitCategory {
+    use cobolt_ast::data::PicKind;
+    use cobolt_ast::stmt::InitCategory;
+    match kind {
+        PicKind::Alphabetic => InitCategory::Alphabetic,
+        PicKind::Alphanumeric => InitCategory::Alphanumeric,
+        PicKind::Numeric => InitCategory::Numeric,
+        PicKind::AlphanumericEdited => InitCategory::AlphanumericEdited,
+        PicKind::NumericEdited => InitCategory::NumericEdited,
+        PicKind::National => InitCategory::National,
+        PicKind::Utf8 => InitCategory::Utf8,
+    }
 }
 
 fn find_decl<'a>(
