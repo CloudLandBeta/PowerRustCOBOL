@@ -443,7 +443,7 @@ fn is_declared_counts_a_group_that_owns_no_storage_slot() {
 
 #[test]
 fn initialize_leaves_walks_groups_tables_and_skips_filler_and_redefines() {
-    let env = env_of(
+    let mut env = env_of(
         r#"
        IDENTIFICATION DIVISION.
        PROGRAM-ID. P.
@@ -461,19 +461,39 @@ fn initialize_leaves_walks_groups_tables_and_skips_filler_and_redefines() {
              10 UC PIC 9.
              10 US PIC X.
        01 S PIC X.
+       01 H.
+          05 HE PIC 9(4) OCCURS 100000.
        PROCEDURE DIVISION.
            STOP RUN.
     "#,
     );
-    let leaves = |name: &str| env.initialize_leaves(name);
-    assert_eq!(leaves("G"), vec!["A", "N"]);
-    assert_eq!(leaves("T"), vec!["TE(1)", "TE(2)", "TE(3)"]);
-    assert_eq!(leaves("TE(2)"), vec!["TE(2)"]);
-    assert_eq!(leaves("U"), vec!["UC(1)", "US(1)", "UC(2)", "US(2)"]);
-    assert_eq!(leaves("UE(2)"), vec!["UC(2)", "US(2)"]);
-    assert_eq!(leaves("S"), vec!["S"]);
+    let leaves = |env: &CobolEnvironment, name: &str| env.initialize_leaves(name);
+    assert_eq!(leaves(&env, "G"), vec!["A", "N"]);
+    assert_eq!(leaves(&env, "S"), vec!["S"]);
     // A key the symbol table has never heard of is answered as itself.
-    assert_eq!(leaves("NO-SUCH"), vec!["NO-SUCH"]);
+    assert_eq!(leaves(&env, "NO-SUCH"), vec!["NO-SUCH"]);
+
+    // A table is its TEMPLATE — the slot an occurrence nobody has written
+    // takes its value from — plus the occurrences stored so far. Nothing has
+    // been written yet, so the template alone stands for all of them.
+    assert_eq!(leaves(&env, "T"), vec!["TE"]);
+    assert_eq!(leaves(&env, "U"), vec!["UC", "US"]);
+    assert_eq!(
+        leaves(&env, "H"),
+        vec!["HE"],
+        "100,000 occurrences cost one write, not 100,000"
+    );
+
+    env.set("TE(2)", CobolValue::from_str("x", 1));
+    env.set("UC(2)", CobolValue::from_str("7", 1));
+    assert_eq!(leaves(&env, "T"), vec!["TE", "TE(2)"]);
+    assert_eq!(leaves(&env, "U"), vec!["UC", "UC(2)", "US"]);
+
+    // A subscripted reference is exactly what it names — and a slice the
+    // subscripts leave open is expanded, because the template cannot stand in
+    // for a part of a table.
+    assert_eq!(leaves(&env, "TE(2)"), vec!["TE(2)"]);
+    assert_eq!(leaves(&env, "UE(2)"), vec!["UC(2)", "US(2)"]);
 }
 
 // ── The quantified COBOL program ───────────────────────────────────────────────
@@ -493,7 +513,7 @@ fn the_quantified_cobol_program_passes() {
             .unwrap_or_else(|| panic!("no `{label}` line in:\n{report}"))
             .clone()
     };
-    assert_eq!(line("CASES EXERCISED"), "CASES EXERCISED : 14", "{report}");
+    assert_eq!(line("CASES EXERCISED"), "CASES EXERCISED : 15", "{report}");
     assert_eq!(line("CHECKS FAILED"), "CHECKS FAILED   : 0000", "{report}");
     assert_eq!(line("OVERALL RESULT"), "OVERALL RESULT  : PASS", "{report}");
     println!("{report}");

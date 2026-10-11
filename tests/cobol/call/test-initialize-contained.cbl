@@ -71,8 +71,9 @@
            PERFORM C12-PARAMETER-OF-CONTAINED-ITEM.
            PERFORM C13-EDITED-ITEMS.
            PERFORM C14-BULK.
+           PERFORM C15-BULK-UNTOUCHED.
            DISPLAY "--------------------------------------------".
-           DISPLAY "CASES EXERCISED : 14".
+           DISPLAY "CASES EXERCISED : 15".
            DISPLAY "CHECKS RUN      : " TESTS-RUN.
            DISPLAY "CHECKS PASSED   : " TESTS-PASSED.
            DISPLAY "CHECKS FAILED   : " TESTS-FAILED.
@@ -181,9 +182,36 @@
            MOVE SPACES TO G-GOT.
            CALL "C14".
            ACCEPT PERF-END FROM TIME.
-           MOVE "[0000][      ][      ][done]" TO G-WANT.
-           MOVE "C14 400-group table, 50 passes" TO G-NAME.
+           MOVE "[0000][      ][0000][      ][done]" TO G-WANT.
+           MOVE "C14 400 groups, written then reset x50" TO G-NAME.
            PERFORM CHECK-IT.
+      *> 50 passes x 400 occurrences x 2 leaves, each written first.
+           COMPUTE PERF-LEAVES = 50 * 400 * 2.
+           PERFORM TIME-IT.
+           DISPLAY "  bulk C14: leaves written and reset: "
+               PERF-LEAVES-EDIT.
+           DISPLAY "  bulk C14: elapsed seconds         : "
+               PERF-ELAPSED-EDIT.
+           DISPLAY "  bulk C14: leaves/second           : "
+               PERF-PER-SEC-EDIT.
+       C15-BULK-UNTOUCHED.
+           ACCEPT PERF-START FROM TIME.
+           MOVE SPACES TO G-GOT.
+           CALL "C15".
+           ACCEPT PERF-END FROM TIME.
+           MOVE "[0000][0000][0000][0000]" TO G-WANT.
+           MOVE "C15 100,000 occurrences, untouched x50" TO G-NAME.
+           PERFORM CHECK-IT.
+      *> 50 passes over a table of 100,000 occurrences, one of them
+      *> written: the others follow the table's template, so the
+      *> work does not grow with the table.
+           COMPUTE PERF-LEAVES = 50 * 100000.
+           PERFORM TIME-IT.
+           DISPLAY "  bulk C15: occurrences covered     : "
+               PERF-LEAVES-EDIT.
+           DISPLAY "  bulk C15: elapsed seconds         : "
+               PERF-ELAPSED-EDIT " (clock resolution 0.01 s)".
+       TIME-IT.
            COMPUTE PERF-START-CS = PS-HH * 360000 + PS-MM * 6000
                + PS-SS * 100 + PS-HS.
            COMPUTE PERF-END-CS = PE-HH * 360000 + PE-MM * 6000
@@ -195,16 +223,11 @@
            IF PERF-ELAPSED-CS = ZERO
                MOVE 1 TO PERF-ELAPSED-CS
            END-IF.
-      *> 50 passes x 400 occurrences x 2 resettable leaves each.
-           COMPUTE PERF-LEAVES = 50 * 400 * 2.
            COMPUTE PERF-PER-SEC = PERF-LEAVES * 100 / PERF-ELAPSED-CS.
            COMPUTE PERF-ELAPSED-SECS = PERF-ELAPSED-CS / 100.
            MOVE PERF-LEAVES TO PERF-LEAVES-EDIT.
            MOVE PERF-PER-SEC TO PERF-PER-SEC-EDIT.
            MOVE PERF-ELAPSED-SECS TO PERF-ELAPSED-EDIT.
-           DISPLAY "  bulk: leaves reset   : " PERF-LEAVES-EDIT.
-           DISPLAY "  bulk: elapsed seconds: " PERF-ELAPSED-EDIT.
-           DISPLAY "  bulk: leaves/second  : " PERF-PER-SEC-EDIT.
 
        CHECK-IT.
            ADD 1 TO TESTS-RUN.
@@ -459,7 +482,7 @@
            GOBACK.
        END PROGRAM C13.
 
-      *> ----- C14: 400 groups, reset 50 times ----------------------
+      *> ----- C14: 400 groups, every occurrence written, reset x50 -
        IDENTIFICATION DIVISION.
        PROGRAM-ID. C14.
        DATA DIVISION.
@@ -469,15 +492,37 @@
              10 L-BN PIC 9(4) VALUE 1234.
              10 L-BX PIC X(6) VALUE "abcdef".
              10 FILLER PIC X VALUE "|".
+       01 L-I PIC 999.
        PROCEDURE DIVISION.
            PERFORM 50 TIMES
-               MOVE 7 TO L-BN (400)
-               MOVE "zz" TO L-BX (1)
+               PERFORM VARYING L-I FROM 1 BY 1 UNTIL L-I > 400
+                   MOVE 7 TO L-BN (L-I)
+                   MOVE "zz" TO L-BX (L-I)
+               END-PERFORM
                INITIALIZE L-B
            END-PERFORM
-           STRING "[" L-BN (400) "][" L-BX (1) "][" L-BX (400) "][done]"
+           STRING "[" L-BN (1) "][" L-BX (1) "][" L-BN (400) "]["
+               L-BX (400) "][done]"
                DELIMITED BY SIZE INTO G-GOT
            GOBACK.
        END PROGRAM C14.
+
+      *> ----- C15: a huge table, one occurrence written, reset x50 -
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. C15.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 L-HUGE.
+          05 L-HE PIC 9(4) OCCURS 100000 VALUE 55.
+       PROCEDURE DIVISION.
+           MOVE 9 TO L-HE (100000)
+           PERFORM 50 TIMES
+               INITIALIZE L-HUGE
+           END-PERFORM
+           STRING "[" L-HE (1) "][" L-HE (50000) "][" L-HE (99999) "]["
+               L-HE (100000) "]"
+               DELIMITED BY SIZE INTO G-GOT
+           GOBACK.
+       END PROGRAM C15.
 
        END PROGRAM TEST-INITIALIZE-CONTAINED.

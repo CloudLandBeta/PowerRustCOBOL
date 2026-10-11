@@ -6929,32 +6929,29 @@ impl Interpreter {
                 }
             }
             let name = self.resolve_lvalue(item);
-            // Walk the DATA DIVISION for the item's declaration so groups recurse
-            // into their elementary children; fall back to field-cap inference.
-            let decl = self
-                .program
-                .data
-                .as_ref()
-                .and_then(|d| find_decl_in_division(d, &name))
-                .cloned();
-            match decl {
-                Some(d) if repl.is_empty() => self.init_decl(&d),
-                Some(d) => self.init_decl_replacing(&d, &repl),
-                // An activation key names an item of a CONTAINED program — an
-                // event handler's own storage. The DATA DIVISION above is the
-                // outermost program's and never declared it, so only the symbol
-                // table can say what is a group, a table or a FILLER.
-                None if name.contains('\u{4}') => self.init_contained(&name, &repl),
-                None => self.init_by_caps(&name),
+            // The leaves under the item come from the environment's symbol
+            // table, which every program shares: a group is the items under it,
+            // a table is its template plus every occurrence written so far, and
+            // a contained program's items (an event handler's own storage) are
+            // there under their activation keys. The outermost program's
+            // DATA DIVISION used to be walked instead — by bare name, so a
+            // name declared twice was reset under a key that holds nothing, and
+            // an occurrence written before the statement kept its value.
+            // A key with no symbol is reset from its field capacity, as before.
+            if self.env.symbol(crate::environment::base_name(&name)).is_some() {
+                self.init_by_symbols(&name, &repl);
+            } else {
+                self.init_by_caps(&name);
             }
         }
         Ok(())
     }
 
-    /// `INITIALIZE` for an item a contained program declares: the leaves under
-    /// `key` come from the symbol table ([`CobolEnvironment::initialize_leaves`])
-    /// and each gets the rule the outermost program's walk gives it.
-    fn init_contained(&mut self, key: &str, repl: &[(cobolt_ast::stmt::InitCategory, CobolValue)]) {
+    /// `INITIALIZE` of a declared item: the leaves under `key` come from the
+    /// symbol table ([`CobolEnvironment::initialize_leaves`]), and each gets its
+    /// category's default — or, with `REPLACING`, the value for its category and
+    /// nothing at all when no entry names it.
+    fn init_by_symbols(&mut self, key: &str, repl: &[(cobolt_ast::stmt::InitCategory, CobolValue)]) {
         for leaf in self.env.initialize_leaves(key) {
             let (kind, decimals) = match self.env.symbol(crate::environment::base_name(&leaf)) {
                 Some(sym) => (sym.pic_kind, sym.pic_decimals),
@@ -7020,48 +7017,8 @@ impl Interpreter {
         }
     }
 
-    /// `INITIALIZE … REPLACING`: set each subordinate elementary item whose
-    /// category matches a REPLACING entry to that value; leave others untouched.
-    fn init_decl_replacing(
-        &mut self,
-        d: &cobolt_ast::data::DataDecl,
-        repl: &[(cobolt_ast::stmt::InitCategory, CobolValue)],
-    ) {
-        if !d.children.is_empty() {
-            for c in &d.children {
-                if c.level != 88 && c.level != 66 {
-                    self.init_decl_replacing(c, repl);
-                }
-            }
-            return;
-        }
-        let Some(name) = &d.name else { return };
-        let Some(cat) = d.picture.as_ref().map(|p| init_category(p.kind)) else {
-            return;
-        };
-        if let Some((_, val)) = repl.iter().find(|(c, _)| *c == cat) {
-            let key = self.env.resolve_name(name, &[]);
-            self.replace_item(&key, val);
-        }
-    }
-
-    /// Recursively initialise a declaration: groups recurse; elementary items
-    /// reset to ZERO (numeric) or SPACES (everything else).
-    fn init_decl(&mut self, d: &cobolt_ast::data::DataDecl) {
-        if !d.children.is_empty() {
-            for c in &d.children {
-                self.init_decl(c);
-            }
-        } else if let Some(name) = &d.name {
-            let key = name.to_ascii_uppercase();
-            let kind = d.picture.as_ref().map(|p| p.kind);
-            let decimals = d.picture.as_ref().map(|p| p.decimals).unwrap_or(0);
-            self.init_elementary(&key, kind, decimals);
-        }
-    }
-
-    /// Initialise an item not found in the AST, using field-capacity inference
-    /// (numeric → 0, otherwise spaces preserving width).
+    /// Initialise an item the symbol table knows nothing about, using
+    /// field-capacity inference (numeric → 0, otherwise spaces preserving width).
     fn init_by_caps(&mut self, name: &str) {
         if self.env.integer_capacity(name).is_some() {
             self.env.set(name, CobolValue::from_i64(0));
@@ -19295,31 +19252,6 @@ impl Interpreter {
     }
 }
 
-// ── DATA DIVISION lookup (for INITIALIZE) ─────────────────────────────────────
-
-/// Find the declaration of `name` anywhere in the WORKING-STORAGE / LOCAL-STORAGE
-/// / LINKAGE sections (recursing into group items).
-fn find_decl_in_division<'a>(
-    div: &'a cobolt_ast::program::DataDivision,
-    name: &str,
-) -> Option<&'a cobolt_ast::data::DataDecl> {
-    use cobolt_ast::program::DataSection;
-    for sec in &div.sections {
-        let decls = match sec {
-            DataSection::WorkingStorage(d)
-            | DataSection::LocalStorage(d)
-            | DataSection::Linkage(d) => d,
-            _ => continue,
-        };
-        for d in decls {
-            if let Some(found) = find_decl(d, name) {
-                return Some(found);
-            }
-        }
-    }
-    None
-}
-
 /// The `INITIALIZE … REPLACING` category a PICTURE kind answers to.
 fn init_category(kind: cobolt_ast::data::PicKind) -> cobolt_ast::stmt::InitCategory {
     use cobolt_ast::data::PicKind;
@@ -19333,25 +19265,6 @@ fn init_category(kind: cobolt_ast::data::PicKind) -> cobolt_ast::stmt::InitCateg
         PicKind::National => InitCategory::National,
         PicKind::Utf8 => InitCategory::Utf8,
     }
-}
-
-fn find_decl<'a>(
-    d: &'a cobolt_ast::data::DataDecl,
-    name: &str,
-) -> Option<&'a cobolt_ast::data::DataDecl> {
-    if d.name
-        .as_deref()
-        .map(|n| n.eq_ignore_ascii_case(name))
-        .unwrap_or(false)
-    {
-        return Some(d);
-    }
-    for c in &d.children {
-        if let Some(f) = find_decl(c, name) {
-            return Some(f);
-        }
-    }
-    None
 }
 
 // ── Debugger span extractor ───────────────────────────────────────────────────
