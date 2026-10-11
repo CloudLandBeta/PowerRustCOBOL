@@ -17,6 +17,36 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.3] — 2026-10-11
+
+### Added
+- **Sound for COBOL: `COBOL::"AUDIO-PLAY"` and four companions (spec 092
+  R15–R18).** `AUDIO-PLAY ( file status )` plays an MP3, OGG Vorbis, WAV or FLAC
+  file on the default output device, replacing whatever was playing;
+  `AUDIO-PAUSE`, `AUDIO-RESUME` and `AUDIO-STOP` ( status ) control it, and
+  `AUDIO-STATE ( state position-ms duration-ms )` reports `IDLE`, `PLAYING`,
+  `PAUSED`, `ENDED` or `ERROR` with the position and the length in
+  milliseconds. The status words are `OK`, `NOFILE`, `BADFORMAT`, `NODEVICE`,
+  `NOFEATURE` and `ERROR`. There is one sound per application, read by every
+  form, and no audio control: a player is composed from buttons, a ProgressBar
+  and a Timer. `COBOLT_AUDIO=null` plays on a null output with a clock, for
+  tests and machines with no sound. The runtime's new `audio` feature (rodio
+  0.22) is linked only by a program that calls one of the verbs, so a program
+  that does not play sound links none of it; on Linux that is also what spares
+  it the ALSA development files.
+  **Linux needs ALSA:** the CI builds with `libasound2-dev`, the `.deb` depends
+  on `libasound2 | libasound2t64` and the `.rpm` on `libasound.so.2()(64bit)` —
+  hard dependencies, because the IDE and `rcrun` carry the verbs and link
+  `libasound.so.2`. macOS and Windows need nothing new. The Developer's Guide
+  (*Playing sound*, the environment variables, Linux requirements), the support
+  matrix, `BUILDING`, `DEPENDENCIES` (rodio's crates and licences), the README
+  and the System KB document it; the KB store is regenerated here.
+  Integrated onto 1.91.2 from `features-pc-audio`: the four commits were
+  rebased, and the conflicts with the picture built-ins (`images`) and the AWS
+  credentials built-ins were all additive — both sides kept, built-ins in
+  alphabetical order. Its sibling `features-pc-grid` needed no integration: its
+  three DataGrid commits were already in `main` under other hashes.
+
 ## [PowerRustCOBOL 1.91.2] — 2026-10-11
 
 ### Fixed
