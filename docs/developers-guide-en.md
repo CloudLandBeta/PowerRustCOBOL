@@ -7408,6 +7408,15 @@ ordinary data items — each operand follows its own rules:
            INITIALIZE Spinner-1 WS-COUNT.   *> control → Value, data item → PIC default
 ```
 
+"Data item" includes one a handler declares in its **own** WORKING-STORAGE (every
+event handler is a program of its own): `INITIALIZE LK-FILE` there resets
+`LK-FILE`. A **group** resets every elementary item under it — numeric items to
+zero, everything else to spaces, in every occurrence of a table — skips its
+`FILLER` items, and a `REDEFINES` item follows its target; `INITIALIZE WS-ROW (2)`
+resets that occurrence only. `INITIALIZE group REPLACING NUMERIC DATA BY 0`
+touches only the categories it names. Before 1.91.4 a handler's own item was
+taken for a control and left as it was.
+
 ### Property access via the `COBOL` object (also supported)
 
 The built-in form remains available and is interchangeable with the syntax
