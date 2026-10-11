@@ -651,15 +651,16 @@ mod flow_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Spec 045 R11/AC7 — a name marked System or System-dependency is
-    /// refused before any network call: the registry here points at an
-    /// unreachable host, so if the check were bypassed the failure would be
-    /// a network/DNS error, not the "cannot be registered" text this test
-    /// asserts on — a regression here fails loudly, not silently. Unlike a
-    /// direct incompatible collision (R1), it is NEVER an alias offer —
-    /// `Ok` in this test is already a failure by itself.
+    /// Spec 045 R11/AC7, as amended 2026-10-11 — a name the application links
+    /// DIRECTLY is refused before any network call, and never with an alias
+    /// offer; a name it only pulls in as a dependency of a linked crate is
+    /// not: it goes on to the registry. The registry here points at an
+    /// unreachable host, so the direct name's refusal must be the
+    /// "cannot be registered" text (a bypassed check would fail as a
+    /// network/DNS error instead), and the transitive name must fail as
+    /// exactly that network error — proof it was let through.
     #[test]
-    fn adding_a_system_dependency_crate_is_refused_without_an_alias_offer() {
+    fn a_directly_linked_crate_is_refused_before_the_network_a_transitive_one_is_not() {
         let registry = Registry::new("https://unreachable.invalid.example");
         let dir = temp_project("system-refused");
         let manifest_path = dir.join("cobolt.toml");
@@ -667,26 +668,59 @@ mod flow_tests {
             direct: ["egui".to_string()].into_iter().collect(),
             transitive: ["epaint".to_string()].into_iter().collect(),
         };
+        let try_add = |name: &str| {
+            add(&registry, &manifest_path, None, name, None, vec![], Some(&closure), &mut quiet())
+        };
 
-        for name in ["egui", "epaint"] {
-            match add(
-                &registry,
-                &manifest_path,
-                None,
-                name,
-                None,
-                vec![],
-                Some(&closure),
-                &mut quiet(),
-            ) {
-                Err(reason) => assert!(
-                    reason.contains("cannot be registered"),
-                    "unexpected refusal text for {name}: {reason}"
-                ),
-                Ok(_) => panic!("{name} is System/System-dependency and must be refused"),
-            }
+        match try_add("egui") {
+            Err(reason) => assert!(reason.contains("cannot be registered"), "direct refusal text: {reason}"),
+            Ok(_) => panic!("egui is directly linked and must be refused"),
+        }
+        match try_add("epaint") {
+            Err(reason) => assert!(
+                reason.contains("registry unreachable or unusable"),
+                "a transitive crate must reach the registry, not be refused: {reason}"
+            ),
+            Ok(_) => panic!("the registry is unreachable, so this cannot have been added"),
         }
         assert!(load_project(&manifest_path).unwrap().crates.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec 045 R11, as amended 2026-10-11 — the positive half, against the
+    /// mock registry with the real resolver: a crate the application only
+    /// pulls in transitively is registered, vendored and pinned like any
+    /// other, and the log says it was already in the application.
+    #[test]
+    fn a_transitive_crate_is_registered_so_a_block_can_use_it() {
+        let mock = start_mock();
+        let registry = Registry::new(&mock.base);
+        let dir = temp_project("transitive");
+        let manifest_path = dir.join("cobolt.toml");
+        let closure = SystemClosure {
+            direct: ["egui".to_string()].into_iter().collect(),
+            transitive: ["mockcrate".to_string()].into_iter().collect(),
+        };
+        let mut notes: Vec<String> = Vec::new();
+        let outcome = add(
+            &registry,
+            &manifest_path,
+            None,
+            "mockcrate",
+            None,
+            vec![],
+            Some(&closure),
+            &mut |n| match n {
+                Note::Info(t) | Note::Warn(t) => notes.push(t),
+            },
+        )
+        .expect("a transitive crate is not refused");
+        assert!(matches!(outcome, AddOutcome::Added(_)), "added, not offered an alias");
+        assert!(notes.iter().any(|n| n.contains("already in the application")), "{notes:?}");
+        let project = load_project(&manifest_path).unwrap();
+        assert_eq!(project.crates.len(), 1);
+        assert_eq!(project.crates[0].name, "mockcrate");
+        assert!(vendor_dir(&dir, "mockcrate", "0.1.0").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

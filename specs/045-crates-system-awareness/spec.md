@@ -8,6 +8,14 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - **Status:** draft → approved → **implemented** (1.60.48, 2026-08-08)
 - **Folder:** specs/045-crates-system-awareness/
 - **Author:** Emerson Lopes (requirements) · drafted with Claude Sonnet 5   **Date:** 2026-08-08
+- **Amendment A1 (operator, 2026-10-11) — a System dependency can be
+  registered.** R11 refused it unconditionally, but a crate the application
+  only carries as a dependency of one it links (`tokio`, `serde_json`) is
+  exactly the one a block cannot `use`: the generated program does not depend
+  on it, so `use tokio::…` fails in rustc, and the refusal left no way to
+  make it work. R11 now refuses only a **System** crate (linked directly — a
+  block can already use it). R6, R8, AC5 and AC7 follow; the amended text is
+  marked *(A1)*.
 
 > **Builds on spec 044.** This closes the open design question left in
 > [`specs/044-external-crates/HANDOFF.md`](../044-external-crates/HANDOFF.md)
@@ -62,9 +70,9 @@ download counts, and column sorting.
     crates — plain names + `[patch.crates-io]` unification (044's existing
     behavior) stays the path for every add that isn't today's narrow refusal
     case.
-  - No aliasing for **transitive** System-dependency collisions — those stay
-    a hard, unconditional refusal (see R11). Only a *direct* platform-linked
-    name at an incompatible version gets the alias offer (R1).
+  - No aliasing for **transitive** System-dependency crates — *(A1)* they need
+    none: they are registered under their own name (see R11). Only a *direct*
+    platform-linked name at an incompatible version gets the alias offer (R1).
   - Not re-litigating any other part of 044 (pinning, updates, removal,
     manifest, R11–R15 conflict machinery beyond what R1 changes).
   - Not sorting/filtering across the full registry result set — sort and the
@@ -115,9 +123,10 @@ download counts, and column sorting.
   directly linked by the platform (**System**), or a dependency of a crate
   the platform directly links (**System dependency**).
 - **R6 (state):** A toggle switch, labeled **"Show System crates"**, sits next
-  to the search button and defaults to **off**. While off, System and System
-  dependency results are excluded from the list and the System column is
-  hidden. While on, they are included and the column is shown.
+  to the search button and defaults to **off**. While off, System results
+  are excluded from the list and the System column is hidden; *(A1)* System
+  dependency results stay, because they can be registered (R11). While on,
+  every result is included and the column is shown.
 - **R7 (event):** A **System** result (direct platform link) renders with a
   dimmed **yellow** marker.
 - **R8 (event):** A **System dependency** result (transitive only, not itself
@@ -131,10 +140,14 @@ download counts, and column sorting.
   Reuse/extend the existing WCAG contrast-ratio check
   (`crates/cobolt-ide/src/flags.rs`, `every_theme_paints_flags_with_high_contrast`)
   rather than inventing a second one.
-- **R11 (event):** Attempting to add a **System** or **System dependency**
-  crate is refused. The **System dependency** refusal is new (044's R12 only
-  checked direct names); it is **unconditional** — no alias is offered for it
-  (R1's alias path applies only to the direct, incompatible-version case).
+- **R11 (event):** Attempting to add a **System** crate is refused, before any
+  network call; no alias is offered for it (R1's alias path applies only to
+  the direct, incompatible-version case). *(A1)* A **System dependency**
+  crate is **not** refused: it is resolved, vendored and pinned like any
+  other, the log says it is already in the application as a dependency of a
+  linked crate, and the resolver probe (044 R13–R15) judges whether the two
+  copies can share a graph. *(The original text refused both, the
+  System-dependency refusal being unconditional.)*
 - **R12 (ubiquitous):** The System/System-dependency classification is
   computed from the platform's own resolved dependency graph — the same
   resolver-probe machinery spec 044 built (`cargo metadata` against the base
@@ -185,20 +198,22 @@ download counts, and column sorting.
       `system_column_classifies_direct_transitive_and_addable` (fixture) +
       `system_closure_splits_direct_from_transitive` (live: 15 direct, 557
       transitive).
-- [x] AC5 — With "Show System crates" off (the default), System and System
-      dependency rows are absent from the results and the System column is
-      not drawn. Toggling it on brings them back with the column.
-      `show_system_toggle_filters_results_and_column`.
+- [x] AC5 — With "Show System crates" off (the default), System rows are
+      absent from the results and the System column is not drawn; *(A1)*
+      System dependency rows stay. Toggling it on brings every row back with
+      the column. `show_system_toggle_filters_results_and_column`.
 - [x] AC6 — The three markers pass the WCAG AA graphical-object contrast
       check (≥3.0:1) in all 16 themes.
       `every_theme_marks_system_crates_with_sufficient_contrast` (worst case
       3.00:1, light-plus/addable — flagged for a manual eyeball, not assumed
       pretty).
-- [x] AC7 — Attempting to add a System or System-dependency crate is refused;
-      the System-dependency refusal never offers an alias.
-      `adding_a_system_dependency_crate_is_refused_without_an_alias_offer`
-      (service layer, proven with an unreachable registry host to confirm no
-      network call happens first).
+- [x] AC7 — Attempting to add a System crate is refused, with no alias offer;
+      *(A1)* a System-dependency crate is not refused and reaches the
+      registry. `a_directly_linked_crate_is_refused_before_the_network_a_transitive_one_is_not`
+      (service layer, proven with an unreachable registry host: the direct
+      name is refused before any network call, the transitive one fails as a
+      network error) and `a_transitive_crate_is_registered_so_a_block_can_use_it`
+      (mock registry, real resolver).
 - [x] AC8 — The crate-name field cannot be typed into; it only changes when a
       result row is clicked. `crate_name_field_is_read_only` (real click+type
       simulation, plus an interactive-control-group check that the harness

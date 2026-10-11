@@ -622,18 +622,29 @@ pub fn add(
     if let Some(reason) = foreign_crates_dir(project_dir, pins) {
         return Err(reason);
     }
-    // Spec 045 R11 — System/System-dependency crates are refused before any
-    // network call; unlike a direct incompatible collision (R1), there is
-    // no alias offer for this case (that only applies to a directly-linked
-    // name that collides — not to something merely pulled in by one).
+    // Spec 045 R11 (relaxed 2026-10-11, operator) — a crate the application
+    // links DIRECTLY is refused before any network call: a block can already
+    // `use` it, and a second copy could only shadow it. Unlike a direct
+    // incompatible collision (R1), there is no alias offer for this case.
+    // A crate the application merely pulls in as a dependency of one it links
+    // is NOT refused: no block can `use` it — the generated program does not
+    // depend on it — so registering it is what makes it usable, and the
+    // resolver probe below judges whether the two can share a graph.
     if let Some(category) = system.and_then(|s| s.classify(&name)) {
-        let what = match category {
-            SystemCategory::Direct => "already part of the application (directly linked)",
-            SystemCategory::Transitive => {
-                "already part of the application (a dependency of a linked crate)"
+        match category {
+            SystemCategory::Direct => {
+                return Err(format!(
+                    "`{name}` is already part of the application (directly linked) — it cannot be registered"
+                ));
             }
-        };
-        return Err(format!("`{name}` is {what} — it cannot be registered"));
+            SystemCategory::Transitive => info(
+                log,
+                format!(
+                    "`{name}` is already in the application as a dependency of a linked crate; \
+                     registering it makes it usable from a block"
+                ),
+            ),
+        }
     }
 
     // Resolve first: the collision verdict depends on the exact version (R12).

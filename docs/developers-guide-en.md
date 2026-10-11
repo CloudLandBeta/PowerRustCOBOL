@@ -10841,12 +10841,15 @@ adding `csv`.)
    A **System** column, hidden by default, marks results already part of
    your application: yellow for a crate PowerRustCOBOL links directly
    (`egui`, `eframe`, …), gray for one only pulled in as a dependency of
-   something linked. Neither can be registered — searching still finds them,
-   but Add refuses without touching the network, since there's nothing to
-   fetch. Tick **Show System crates** next to the search button to see the
-   column and browse them anyway (useful for checking what version of
-   something is already in your app before picking a compatible one of your
-   own).
+   something linked. A yellow one cannot be registered — your block can
+   already use it, and Add refuses without touching the network. A gray one
+   **can**: the application carries it, but your block cannot name it until
+   your project registers it, so registering it is exactly how a block gets
+   to `use tokio::…` or `use serde_json::…`. Gray results are listed even
+   with the column hidden; tick **Show System crates** next to the search
+   button to see the column and the yellow results too (useful for checking
+   what version of something is already in your app before picking a
+   compatible one of your own).
 2. **Version requirement** (optional) — leave it empty to take the newest
    stable release, or write a cargo-style requirement such as `^1.3` or
    `=1.3.6` to hold a line.
@@ -10909,9 +10912,10 @@ own. Accept the offer and your block writes `use prj_egui::…` instead of
 note the alias. This is the *only* situation aliasing is offered — every
 other add still uses the library's own name and unifies normally, and a
 crate that is merely a **dependency** of something linked (the gray
-System-dependency case above) is never offered an alias at all; it is
-always refused outright, since your block was never going to reference it
-by name in the first place.
+System-dependency case above) never needs an alias: it is registered under
+its own name, like any other library. If the version you pin cannot be
+shared with the application's own copy, the dialog warns that two copies
+will exist; otherwise the two unify.
 
 > ⚠️ **An aliased copy does not interoperate with the platform's own.** A
 > value built with `prj_egui::Color32` cannot be handed to a PowerRustCOBOL
@@ -12994,9 +12998,12 @@ The tools the agent has are these:
   links or with your other crates, and records it in the project file with the
   registry it came from. Nothing is built. It refuses, changing nothing, for a
   crate that is already registered, one the registry does not know, one the
-  application already links, or a clash; a crate that has the name of one the
-  application links directly can be registered under an **alias** that the
-  blocks `use` instead. The registry is crates.io — or, when the IDE serves the
+  application links directly (a block can already use it), or a clash; a crate
+  that has the name of one the application links directly, at a version it
+  cannot share, can be registered under an **alias** that the blocks `use`
+  instead. A crate the application only carries as a dependency of one it
+  links — `tokio` and `serde_json` are two — is added like any other, and is
+  how a block gets to use it. The registry is crates.io — or, when the IDE serves the
   tools, the one set in the IDE. It needs the network and takes from a few
   seconds to a minute.
 - **`remove_crate`** — unregisters a crate: deletes its record and its

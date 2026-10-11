@@ -588,14 +588,16 @@ impl ExternalCratesPanel {
                 .clicked()
             {
                 let name = self.sel_name.trim().to_string();
-                // Spec 045 R11 — System/System-dependency refused before any
-                // network call; unlike a direct incompatible collision
-                // (R1), there is no alias offer for this case. Checked here
-                // (fast, translated, no thread spawn) — `service::add`
-                // repeats the same check (plain English, R2's diagnostic-
-                // stream carve-out) as a defense-in-depth for any other
-                // caller.
-                if let Some(_category) = self.system.as_ref().and_then(|s| s.classify(&name)) {
+                // Spec 045 R11 (relaxed 2026-10-11) — a System crate (linked
+                // directly) is refused before any network call; unlike a
+                // direct incompatible collision (R1), there is no alias
+                // offer for this case. A System dependency (only a
+                // dependency of a linked crate) is not: a block cannot use
+                // it until it is registered. Checked here (fast,
+                // translated, no thread spawn) — `service::add` repeats the
+                // same check (plain English, R2's diagnostic-stream
+                // carve-out) as a defense-in-depth for any other caller.
+                if self.system.as_ref().and_then(|s| s.classify(&name)) == Some(SystemCategory::Direct) {
                     self.log.push(LogLine::Error(format!("`{name}` — {}", tr.ec_system_refused)));
                 } else {
                     let req = self.sel_req.trim().to_string();
@@ -737,16 +739,18 @@ impl ExternalCratesPanel {
     }
 
     /// Spec 045 R6/R15–R18 — the current page's rows, System-classified and
-    /// filtered/sorted per the live toggle+sort state. Recomputed each frame
-    /// (cheap: at most `RESULTS_PER_PAGE` rows) rather than cached, so a
-    /// toggle or sort click is visible immediately with no extra state to
-    /// keep in sync.
+    /// filtered/sorted per the live toggle+sort state. The toggle hides the
+    /// System rows (linked directly: a block can already use them); a System
+    /// dependency row stays, since it can be registered (R11, relaxed
+    /// 2026-10-11). Recomputed each frame (cheap: at most `RESULTS_PER_PAGE`
+    /// rows) rather than cached, so a toggle or sort click is visible
+    /// immediately with no extra state to keep in sync.
     fn visible_rows(&self) -> Vec<(&SearchHit, Option<SystemCategory>)> {
         let mut rows: Vec<(&SearchHit, Option<SystemCategory>)> = self
             .hits
             .iter()
             .map(|h| (h, self.system.as_ref().and_then(|s| s.classify(&h.name))))
-            .filter(|(_, cat)| self.show_system || cat.is_none())
+            .filter(|(_, cat)| self.show_system || *cat != Some(SystemCategory::Direct))
             .collect();
         if let Some((col, dir)) = self.sort {
             rows.sort_by(|a, b| {
@@ -1117,11 +1121,12 @@ mod tests {
         assert_eq!(by_name["csv"], None);
     }
 
-    /// Spec 045 R6/AC5 — off (the default) hides System and System-dependency
-    /// rows entirely; on brings them back. The System *column*'s visibility
-    /// is a draw-time decision (`draw_results_table` reads `show_system`
-    /// directly) — this test covers the row-filtering half, which is what
-    /// `visible_rows` controls.
+    /// Spec 045 R6/AC5, as amended 2026-10-11 — off (the default) hides the
+    /// System rows (linked directly) but keeps a System-dependency row, which
+    /// can be registered; on brings every row back. The System *column*'s
+    /// visibility is a draw-time decision (`draw_results_table` reads
+    /// `show_system` directly) — this test covers the row-filtering half,
+    /// which is what `visible_rows` controls.
     #[test]
     fn show_system_toggle_filters_results_and_column() {
         let mut panel = ExternalCratesPanel::new();
@@ -1130,7 +1135,11 @@ mod tests {
 
         panel.show_system = false;
         let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();
-        assert_eq!(names, vec!["csv"], "off must hide System and System-dependency rows");
+        assert_eq!(
+            names,
+            vec!["epaint", "csv"],
+            "off must hide the System row and keep the addable System-dependency one"
+        );
 
         panel.show_system = true;
         let names: Vec<&str> = panel.visible_rows().iter().map(|(h, _)| h.name.as_str()).collect();

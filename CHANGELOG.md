@@ -17,6 +17,29 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.2] — 2026-10-11
+
+### Fixed
+- **A crate the application only carries as a dependency can now be registered
+  (spec 045 R11, relaxed by the operator).** `tokio` and `serde_json` are in the
+  application's dependency graph, because a linked crate needs them, and spec
+  045 R11 therefore refused to register them — yet the generated program does
+  not depend on them, so a block's `use tokio::…` failed in rustc with
+  `cannot find module or crate`, and the refusal left no way to make it work,
+  in the dialog or in `add_crate`. R11 now refuses only a crate the application
+  links **directly** (`egui`, `eframe`, … — a block can already use those);
+  a **System dependency** is resolved, vendored and pinned like any other, the
+  log says it was already in the application, and the resolver probe still
+  judges whether the two copies share a graph. Against the real registry and
+  the real resolver: `tokio` 1.53.2 with `rt` and `macros`, and `serde_json`
+  1.0.152, both resolve clean (780 packages, no coexistence warning), and
+  `egui` is still refused. In the Project's Crates dialog the gray rows are
+  addable and stay in the results with "Show System crates" off; only the
+  yellow ones are hidden. The spec carries the amendment (A1); the Guide and
+  the `add_crate` description say so. **Not run:** a full application build with
+  a transitive crate registered — it leaves tens of GB behind and the disk did
+  not allow it; the pin takes the path every registered crate takes.
+
 ## [PowerRustCOBOL 1.91.1] — 2026-10-11
 
 ### Fixed

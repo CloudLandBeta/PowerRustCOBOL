@@ -189,8 +189,11 @@ impl<H: ProjectHost> ProjectTools<H> {
                      project's crates/ folder, lets cargo's resolver judge whether it clashes with what the \
                      application links or with the project's other crates, and records the pin. Builds \
                      nothing. Refused, changing nothing, for a name already registered, a crate the registry \
-                     does not know, one the application already links, or a clash; a crate named like one \
-                     the application links directly can be added under an `alias`. Third-party code is \
+                     does not know, one the application links directly (a block can already use it), or a \
+                     clash; a crate named like one the application links directly at a version it cannot \
+                     share can be added under an `alias`. A crate the application only carries as a \
+                     dependency of one it links — tokio, serde_json — is added like any other: a block \
+                     cannot `use` it until the project registers it. Third-party code is \
                      compiled into the application: add only what the task needs, and tell the developer \
                      which crates you added and why. Takes seconds to a minute: it downloads and resolves."
                         .into(),
