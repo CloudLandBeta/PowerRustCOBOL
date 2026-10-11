@@ -17,6 +17,35 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.1] — 2026-10-11
+
+### Fixed
+- **A coding agent can register the crates its `EXEC RUST` blocks use, with no
+  IDE.** Only the IDE's Project's Crates dialog registered a crate, so a session
+  that could not reach the IDE — `rcrun mcp` with the IDE closed — could not
+  generate Rust code that names one, and the build failed late with rustc's
+  `cannot find module or crate`. Two tools join the other thirteen, on both
+  servers: **`add_crate`** (`name`, optional `version` requirement, `features`,
+  `alias`) resolves the crate on the registry, vendors its source under
+  `crates/`, lets cargo's resolver judge the clash, and records the pin;
+  **`remove_crate`** takes the pin and the source away. They run the dialog's own
+  code: the registry client and the add, update and remove actions moved from
+  `cobolt-ide` into `cobolt_project_tools::external_crates`, the IDE keeping the
+  same entry points over its project model. Headless, the pin is written with
+  `toml_edit`, so every other byte of the project file stays as the developer
+  left it (comments and the other tables included); in the IDE it goes to the UI
+  thread, which stays the only writer of its manifest, and the registry is the
+  IDE-wide setting. Both refuse, changing nothing, what the dialog refuses.
+  `remove_crate` records the removal before it deletes the source. Every answer
+  lists the crates the project has registered. The kit's instructions, the
+  README and the Developer's Guide name the tools. Tested without the IDE
+  against a mock registry with the real resolver (add 14 s, manifest restored
+  byte for byte by the removal), through the IDE host's channel, and by the
+  dialog's existing flow tests, which now run through the shared code.
+  **Not changed:** the rule that refuses a crate the application already links
+  *transitively* (spec 045 R11) — `tokio` and `serde_json` are refused, here as
+  in the dialog, though a block cannot `use` them either.
+
 ## [PowerRustCOBOL 1.91.0] — 2026-10-10
 
 The first minor of the PowerCloud cycle (operator-raised). It gathers the fixes of 1.90.56–1.90.60 (below), the English documentation regeneration, and the platform pieces PowerCloud (spec 092) needs. The PowerCloud example itself, the sound built-ins, the single-spelling change for the value methods (`Upper()`, `Lower()`, `Len()`) and the translations of the regenerated documents are **not** in this release yet.

@@ -23,6 +23,7 @@ use crate::root::ProjectRoot;
 
 pub mod build;
 pub mod check;
+pub mod crates;
 pub mod kb;
 pub mod list;
 pub mod regenerate;
@@ -175,6 +176,54 @@ impl<H: ProjectHost> ProjectTools<H> {
                                   "description": "Optional manifest list; by default chosen from the extension." }
                     },
                     "required": ["path"],
+                    "additionalProperties": false
+                }),
+                annotations: None,
+            },
+            Tool {
+                name: "add_crate".into(),
+                description: Some(
+                    "Register a third-party Rust crate in the project so that EXEC RUST blocks can `use` \
+                     it — what the IDE's Project's Crates dialog does. Resolves the newest stable release \
+                     (or the newest matching `version`) on the registry, downloads its source into the \
+                     project's crates/ folder, lets cargo's resolver judge whether it clashes with what the \
+                     application links or with the project's other crates, and records the pin. Builds \
+                     nothing. Refused, changing nothing, for a name already registered, a crate the registry \
+                     does not know, one the application already links, or a clash; a crate named like one \
+                     the application links directly can be added under an `alias`. Third-party code is \
+                     compiled into the application: add only what the task needs, and tell the developer \
+                     which crates you added and why. Takes seconds to a minute: it downloads and resolves."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "The crate's name on the registry, e.g. csv or serde_json." },
+                        "version": { "type": "string",
+                                     "description": "Optional Cargo version requirement, e.g. \"1\", \"^0.7\" or \"=1.2.3\"; the newest stable release by default." },
+                        "features": { "type": "array", "items": { "type": "string" },
+                                      "description": "Optional extra Cargo features to enable, e.g. [\"rt\", \"macros\"]." },
+                        "alias": { "type": "string",
+                                   "description": "Optional: the name blocks will `use`, only for a crate named like one the application links directly." }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                }),
+                annotations: None,
+            },
+            Tool {
+                name: "remove_crate".into(),
+                description: Some(
+                    "Unregister a crate: delete its pin and its vendored source under crates/. A block \
+                     that still uses it fails check as unregistered. Never touches COBOL."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "The registered crate's name." }
+                    },
+                    "required": ["name"],
                     "additionalProperties": false
                 }),
                 annotations: None,
@@ -516,6 +565,14 @@ impl<H: ProjectHost> ProjectTools<H> {
                 let path = opt_str(args, "path").ok_or("add_to_project needs a 'path'")?;
                 let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
                 register::run(&mut self.host, &root, &path, opt_str(args, "list").as_deref())
+            }
+            "add_crate" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                crates::add(&mut self.host, &root, args)
+            }
+            "remove_crate" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                crates::remove(&mut self.host, &root, args)
             }
             "build" => build::run(
                 &mut self.host,

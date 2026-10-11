@@ -10931,6 +10931,17 @@ manifest, so the folder never claims code the binary does not contain.
 the downloaded source — never your COBOL. A block still naming the crate
 fails the next Check with a message pointing back at Project's Crates.
 
+**Without the dialog.** A coding agent that works through the PowerRustCOBOL
+AI tools registers a crate itself with `add_crate` and takes it away with
+`remove_crate` (both are described under *Working with a coding agent*, below).
+This is how a session that cannot reach the IDE still gets the libraries its
+`EXEC RUST` blocks name. The tools do what the dialog does — the same search of
+the same registry, the same download into `crates/`, the same conflict check,
+the same record in the project file — and add only the crates the agent names,
+one call each. Third-party code is compiled into your application, so the agent
+is told to say which crates it added and why, and every answer lists what the
+project now has registered; look at it.
+
 > **Notes**
 >
 > - Adding and updating need the network; building does not (the source is
@@ -12975,6 +12986,21 @@ The tools the agent has are these:
   beside whatever you are doing, with PowerChat's own side menu working
   there. It refuses, changing nothing, if PowerChat is already in the
   project or one of your forms has one of its names.
+- **`add_crate`** — registers a third-party library for your `EXEC RUST`
+  blocks, as the **Project's Crates** dialog does (see *Project's Crates*,
+  earlier in this guide). It takes the newest stable release — or the newest
+  one matching the version the agent names — downloads its source into
+  `crates/`, checks that it does not clash with what the application already
+  links or with your other crates, and records it in the project file with the
+  registry it came from. Nothing is built. It refuses, changing nothing, for a
+  crate that is already registered, one the registry does not know, one the
+  application already links, or a clash; a crate that has the name of one the
+  application links directly can be registered under an **alias** that the
+  blocks `use` instead. The registry is crates.io — or, when the IDE serves the
+  tools, the one set in the IDE. It needs the network and takes from a few
+  seconds to a minute.
+- **`remove_crate`** — unregisters a crate: deletes its record and its
+  downloaded source, never your COBOL. A block still naming it fails Check.
 - **`create_project`** — creates a new project in an empty folder, as
   **File ▸ New Project** does, and opens it. A project the agent creates starts
   in **Spatial**, for the IDE and as its forms' default theme.

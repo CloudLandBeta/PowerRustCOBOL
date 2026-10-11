@@ -60,8 +60,11 @@ if the bundle would carry an API key or a personal path. The plugin brings:
   token; it works on the project open in the IDE, which reloads what the agent changes.
   When the IDE is closed, Claude Code starts `rcrun mcp` instead and works on the project
   in its own folder.
-- **Thirteen tools** that act through the product itself, never around it:
-  `create_project` and `open_project`; `add_to_project`; `regenerate` (the IDE's own
+- **Fifteen tools** that act through the product itself, never around it:
+  `create_project` and `open_project`; `add_to_project`; `add_crate` and `remove_crate`,
+  which register and unregister a third-party Rust crate for `EXEC RUST` blocks as the IDE's
+  Project's Crates dialog does, so a session that cannot reach the IDE can still do it;
+  `regenerate` (the IDE's own
   generator); `check` (the IDE's own Check, which names the form, the control ▸ event
   and the handler line of each error); `validate`; `build`; `list_files`; `kb_lookup`
   and `kb_search` over the same Knowledge Base the IDE's assistant uses; `render_form`,

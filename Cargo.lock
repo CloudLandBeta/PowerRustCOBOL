@@ -1721,9 +1721,14 @@ dependencies = [
  "cobolt-runtime",
  "cobolt-semantic",
  "dirs",
+ "flate2",
+ "native-tls",
+ "semver 1.0.28",
  "serde",
  "serde_json",
+ "tar",
  "toml_edit 0.22.27",
+ "ureq",
 ]
 
 [[package]]

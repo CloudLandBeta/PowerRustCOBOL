@@ -37,3 +37,12 @@ serde_json = { workspace = true }
 # Manifest edits that keep every byte the tools do not own (comments, key
 # order, unknown tables). The 0.22 line is the one `toml` 0.8 already pulls.
 toml_edit  = "0.22"
+# The External Crates registry client (spec 044), moved down from the IDE so
+# `add_crate` can register a crate without it: the blocking HTTP stack the IDE
+# uses (ureq + an explicit native-tls, never rustls/ring), the `.crate`
+# unpacker and cargo's own version semantics.
+ureq       = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"] }
+native-tls = "0.2"
+tar        = "0.4"
+flate2     = { workspace = true }
+semver     = "1"

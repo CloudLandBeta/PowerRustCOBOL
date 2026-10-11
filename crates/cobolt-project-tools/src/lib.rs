@@ -29,6 +29,9 @@ pub mod binding_guardian;
 pub mod content;
 /// A new project, exactly as the IDE's New Project makes it (spec 084 R15).
 pub mod create;
+/// The External Crates registry client and actions (spec 044), shared by the
+/// IDE's Project's Crates dialog and the `add_crate` / `remove_crate` tools.
+pub mod external_crates;
 pub mod gen_paths;
 pub mod host;
 pub mod http;

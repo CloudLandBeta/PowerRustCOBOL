@@ -70,6 +70,13 @@ pub enum HostRequest {
         list: FileList,
         reply: Sender<Result<(), String>>,
     },
+    /// Record the project's External Crates as `pins` — the whole list — and
+    /// save the project (`add_crate`, `remove_crate`); the answer goes back on
+    /// `reply`.
+    RecordCrates {
+        pins: Vec<cobolt_compiler::ExternalCrate>,
+        reply: Sender<Result<(), String>>,
+    },
     /// These files were written: reload any editor tab showing them.
     Written(Vec<PathBuf>),
     /// A tool was called (one Output line), and open forms that changed on
@@ -222,6 +229,22 @@ impl ProjectHost for IdeHost {
         answer
             .recv_timeout(RECORD_TIMEOUT)
             .unwrap_or_else(|_| Err("the IDE did not record the file in time; try again".to_owned()))
+    }
+
+    fn record_crates(&mut self, pins: &[cobolt_compiler::ExternalCrate]) -> Result<(), String> {
+        let (reply, answer) = mpsc::channel();
+        if !self.shared.send(HostRequest::RecordCrates { pins: pins.to_vec(), reply }) {
+            return Err("the IDE is closing".to_owned());
+        }
+        answer
+            .recv_timeout(RECORD_TIMEOUT)
+            .unwrap_or_else(|_| Err("the IDE did not record the crates in time; try again".to_owned()))
+    }
+
+    /// The registry the IDE is set to search — spec 044 R4's IDE-wide setting,
+    /// so a team mirror serves the tools as it serves the dialog.
+    fn crates_registry(&self) -> String {
+        crate::external_crates_service::ExternalCratesSettings::load().registry
     }
 
     fn unsaved(&self, abs: &Path) -> bool {
@@ -497,6 +520,19 @@ pub fn handle_record(
     save(project)
 }
 
+/// The UI thread's half of [`HostRequest::RecordCrates`]: the project model
+/// takes the new pin list, then `save` — the IDE's `save_project` — writes it,
+/// so the IDE stays the only writer of its manifest while it is open.
+pub fn handle_record_crates(
+    project: Option<&mut CoboltProject>,
+    pins: Vec<cobolt_compiler::ExternalCrate>,
+    save: impl FnOnce(&CoboltProject) -> Result<(), String>,
+) -> Result<(), String> {
+    let project = project.ok_or_else(|| NoProject::NoneOpen.message().to_owned())?;
+    project.crates = pins;
+    save(project)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -672,6 +708,63 @@ mod tests {
         assert_eq!(r.unwrap_err(), "no project open");
     }
 
+    /// `remove_crate` through the IDE's host (operator, 2026-10-11): the changed
+    /// pin list goes to the UI thread, which puts it in the project model and
+    /// saves — the IDE stays the only writer of its manifest while it is open —
+    /// and only then is the vendored source deleted.
+    #[test]
+    fn crate_pins_are_recorded_through_the_ui_thread() {
+        let dir = temp_project("crates");
+        let manifest = dir.join("Demo.project.toml");
+        let pin = cobolt_compiler::ExternalCrate {
+            name: "csv".into(),
+            requirement: "1".into(),
+            version: "1.4.0".into(),
+            features: vec![],
+            url: "https://crates.io/crates/csv".into(),
+            alias: None,
+        };
+        let mut proj = crate::project_model::load_project(&manifest).unwrap();
+        proj.crates.push(pin.clone());
+        crate::project_model::save_project(&proj, &manifest).unwrap();
+        let vendored = cobolt_compiler::external_crates::vendor_dir(&dir, "csv", "1.4.0");
+        std::fs::create_dir_all(&vendored).unwrap();
+
+        let (shared, rx) = IdeShared::new(None);
+        shared.publish(Snapshot { manifest: Some(manifest.clone()), ..Default::default() });
+        let mut project = crate::project_model::load_project(&manifest).unwrap();
+
+        let tool_shared = Arc::clone(&shared);
+        let worker = std::thread::spawn(move || {
+            let mut tools = IdeTools::new(tool_shared);
+            call(&mut tools, "remove_crate", json!({"name": "csv"}))
+        });
+        let mut saves = 0;
+        while !worker.is_finished() {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(HostRequest::RecordCrates { pins, reply }) => {
+                    let r = handle_record_crates(Some(&mut project), pins, |p| {
+                        saves += 1;
+                        crate::project_model::save_project(p, &manifest).map_err(|e| e.to_string())
+                    });
+                    reply.send(r).unwrap();
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+        let (text, err) = worker.join().unwrap();
+        assert!(!err, "{text}");
+        assert_eq!(saves, 1, "the manifest is saved once, by the UI thread");
+        assert!(project.crates.is_empty(), "the model has no crate left");
+        assert!(crate::project_model::load_project(&manifest).unwrap().crates.is_empty(), "nor does the file");
+        assert!(!vendored.exists(), "the vendored source went after the record");
+
+        // No project model on the UI side: refused, nothing saved.
+        let r = handle_record_crates(None, vec![pin], |_| panic!("no save"));
+        assert_eq!(r.unwrap_err(), "no project open");
+        println!("ide_host: remove_crate via the channel → 1 save on the UI thread, model and file empty, source deleted after the record");
+    }
+
     /// Gate 3's manual check, automated (the GUI is never driven): the
     /// listener `CoboltApp::new` starts — `start_listener`, on a real port —
     /// answers `tools/list` with every tool, with no project open, to the
@@ -687,7 +780,7 @@ mod tests {
         let out = post_raw(port, "Authorization: Bearer tok-gate\r\n", body);
         let v: Value = serde_json::from_str(out.split_once("\r\n\r\n").unwrap().1).unwrap();
         let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names.len(), 13, "{out}");
+        assert_eq!(names.len(), 15, "{out}");
         use std::io::{Read, Write};
         let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         write!(s, "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();

@@ -297,7 +297,7 @@ impl ExternalCratesPanel {
         self.busy = Some(label);
         let base = self.settings.registry.clone();
         std::thread::spawn(move || {
-            let registry = Registry::new(&base);
+            let registry = service::new_registry(&base);
             match work(registry, tx.clone()) {
                 Ok(SpawnOutcome::AlreadyHandled) => {}
                 Ok(SpawnOutcome::Done(text)) => {

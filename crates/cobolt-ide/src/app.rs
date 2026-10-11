@@ -5102,7 +5102,7 @@ impl CoboltApp {
     /// clean open form whose `.cfrm` changed on disk (T3.3), so the IDE never
     /// regenerates or saves over the agent's edit from a stale copy.
     fn drain_agent_tools(&mut self) {
-        use crate::agent_kit::ide_host::{handle_record, HostRequest};
+        use crate::agent_kit::ide_host::{handle_record, handle_record_crates, HostRequest};
         while let Ok(req) = self.agent_tools_rx.try_recv() {
             match req {
                 HostRequest::Record { rel, list, reply } => {
@@ -5117,6 +5117,14 @@ impl CoboltApp {
                             self.project.refresh_form(&abs);
                         }
                     }
+                    let _ = reply.send(result);
+                }
+                HostRequest::RecordCrates { pins, reply } => {
+                    let path = self.project_path.clone();
+                    let result = handle_record_crates(self.cobolt_project.as_mut(), pins, |p| match &path {
+                        Some(path) => save_project(p, path).map_err(|e| e.to_string()),
+                        None => Err("the project has not been saved yet".to_owned()),
+                    });
                     let _ = reply.send(result);
                 }
                 HostRequest::Written(paths) => {

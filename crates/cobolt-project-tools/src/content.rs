@@ -396,12 +396,15 @@ fn architecture() -> String {
      (`EXEC SQL … END-EXEC` with `:host` variables, connecting by the name of one of the \
      project's SQL connections) or a SqlDatabase control. A model is asked through an \
      AgentObject.\n\
-     - Common Code in `src/` holds COBOL programs several forms `CALL`.\n"
+     - Common Code in `src/` holds COBOL programs several forms `CALL`.\n\
+     - An `EXEC RUST` block may `use` std, egui and eframe, and the third-party crates the project \
+     has registered under `crates/`. `add_crate` registers one (and `remove_crate` takes it away) \
+     — never edit the manifest or `crates/` by hand, and add only what the task needs.\n"
         .to_owned()
 }
 
 /// Spec 084 R34 — which resource or tool answers which question.
-pub const RESOURCE_MAP: [(&str, &str); 13] = [
+pub const RESOURCE_MAP: [(&str, &str); 14] = [
     ("Does this control, property, method, event or built-in exist? (exact name)", "kb_lookup"),
     ("How do I …? (plain words)", "kb_search"),
     ("Every control, with its properties, events and methods", "powerrustcobol://reference/controls.md"),
@@ -415,6 +418,7 @@ pub const RESOURCE_MAP: [(&str, &str); 13] = [
     ("What does my form look like?", "render_form (in_shell for a ContentPane form; width and height for another window size)"),
     ("Does my form do what it should?", "run_form"),
     ("Add an AI chat assistant to the application (only when asked)", "add_powerchat"),
+    ("An EXEC RUST block needs a third-party crate (`use csv::…`)", "add_crate (remove_crate undoes it)"),
 ];
 
 fn resource_map() -> String {
