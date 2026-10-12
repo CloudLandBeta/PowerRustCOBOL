@@ -1650,6 +1650,31 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
   </Control>
+  <Control id="Lbl-Under" type="Label" x="42" y="430" w="348" h="14" tab-order="35" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
+    <Property name="Caption">UNDER 10 MIN</Property>
+    <Property name="FontSize">9</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ForegroundColor">#FFFFFFAA</Property>
+    <Property name="GridColumn">1</Property>
+    <Property name="GridRow">4</Property>
+    <Property name="ColumnSpan">3</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+  </Control>
   <Control id="Lbl-Min" type="Label" x="42" y="456" w="116" h="16" tab-order="36" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
     <Property name="Caption">16°C</Property>
     <Property name="FontSize">9</Property>

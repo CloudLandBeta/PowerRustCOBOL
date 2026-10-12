@@ -17,6 +17,11 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.12] — 2026-10-12
+
+### Fixed
+- **PowerSpatial builds again: the `UNDER 10 MIN` label is back.** The snapshot of 2026-10-08 (`3c6f261`) saved the main form without `Lbl-Under`, the small caption under the dial's temperature, while the form's handlers still set its text (`Lbl-Under::Caption`, in the language block) and showed or hid it with the air conditioner's switch (`Lbl-Under::Visible`, twice). The semantic check rejects a call that would reach no control, so Build stopped at `generated/main-form.cbl` with "this form has no control or object named 'LBL-UNDER'". The control is restored from `eba0ae5`, the last version before the deletion — same place (`Pnl-Dial`, 42, 430), same size, same look — and the handlers are untouched. The font sizes the same snapshot gave `Lbl-Cooling` and `Lbl-Target` are kept. Check reports 0 errors and 0 warnings; the form picture shows the caption under `28°C`.
+
 ## [PowerRustCOBOL 1.91.11] — 2026-10-12
 
 ### Fixed
