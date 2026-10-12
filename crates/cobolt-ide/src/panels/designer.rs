@@ -2425,26 +2425,12 @@ fn validate_handler_members(form: &Form, code: &str) -> Vec<crate::runner::DiagM
     out
 }
 
-/// Semantically validate a candidate handler body **in the context of the whole
-/// form**. Isolated parsing (see [`validate_handler_syntax`]) can't catch a data
-/// name that the handler *uses* but no longer *declares* — e.g. when the assistant
-/// drops the DATA DIVISION while "only" translating comments, leaving a
-/// PROCEDURE-only program that parses fine but references an undeclared item. Here
-/// the candidate is spliced into a clone of the form, the whole program is
-/// regenerated, and the same semantic analyser the runner uses resolves every
-/// identifier — so form-global data items resolve (no false positives) while a
-/// genuinely undeclared name is reported. Only the errors falling inside this
-/// handler's generated nested program are returned, mapped back to editor lines.
-fn validate_handler_semantics(
-    form: &Form,
-    ctrl_id: &str,
-    event_name: &str,
-    program_id: &str,
-    candidate: &str,
-) -> Vec<crate::runner::DiagMsg> {
-    use crate::runner::{DiagMsg, DiagSeverity};
-
-    // Splice the candidate into a clone and regenerate the complete program.
+/// A clone of `form` with `candidate` as the code of the handler `event_name` of
+/// `ctrl_id` (empty = the form's own event; a toolbar button's id reaches into
+/// its toolbar's definition). The program the analyser sees if the candidate
+/// were saved — shared by the save gate and by the value-method rewrite, which
+/// must judge a handler by the same program.
+fn form_with_handler(form: &Form, ctrl_id: &str, event_name: &str, candidate: &str) -> Form {
     let mut probe = form.clone();
     if ctrl_id.is_empty() {
         if let Some(ev) = probe.form_events.iter_mut().find(|e| e.event == event_name) {
@@ -2481,6 +2467,30 @@ fn validate_handler_semantics(
             ev.code = candidate.to_string();
         }
     }
+    probe
+}
+
+/// Semantically validate a candidate handler body **in the context of the whole
+/// form**. Isolated parsing (see [`validate_handler_syntax`]) can't catch a data
+/// name that the handler *uses* but no longer *declares* — e.g. when the assistant
+/// drops the DATA DIVISION while "only" translating comments, leaving a
+/// PROCEDURE-only program that parses fine but references an undeclared item. Here
+/// the candidate is spliced into a clone of the form, the whole program is
+/// regenerated, and the same semantic analyser the runner uses resolves every
+/// identifier — so form-global data items resolve (no false positives) while a
+/// genuinely undeclared name is reported. Only the errors falling inside this
+/// handler's generated nested program are returned, mapped back to editor lines.
+fn validate_handler_semantics(
+    form: &Form,
+    ctrl_id: &str,
+    event_name: &str,
+    program_id: &str,
+    candidate: &str,
+) -> Vec<crate::runner::DiagMsg> {
+    use crate::runner::{DiagMsg, DiagSeverity};
+
+    // Splice the candidate into a clone and regenerate the complete program.
+    let probe = form_with_handler(form, ctrl_id, event_name, candidate);
     let src = cobolt_codegen::generate(&probe);
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
         &src,
@@ -2952,6 +2962,13 @@ pub struct DesignerPanel {
     /// developer loses work without knowing it; the app drains this every
     /// frame and prints one line per item.
     pub orphan_notices: Vec<String>,
+    /// Older value-method spellings the designer's editors wrote as the single
+    /// spelling (`UpperCase` → `Upper` …) when a handler or procedure was saved
+    /// or an agent's code landed, waiting to be reported in the Output panel —
+    /// the same contract as [`Self::orphan_notices`]: a rewrite of the
+    /// developer's code that leaves no trace is not allowed. Drained by
+    /// [`Self::take_canon_notices`].
+    pub canon_notices: Vec<crate::value_methods::Notice>,
     /// Prompt-box height, user-authoritative: 0 = "never dragged" (renders at
     /// the 3-row default); only the box's corner-grip drag writes it, clamped
     /// between the 1-row and 6-row limits.
@@ -3139,6 +3156,7 @@ impl DesignerPanel {
             ai_error_font_size: 13.0,
             global_ai_prompt: String::new(),
             orphan_notices: Vec::new(),
+            canon_notices: Vec::new(),
             ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
             event_ai_prompt_height: 0.0, // idem, for the event editor's prompt
             event_editor_height: 0.0,    // idem, for its code box
@@ -3845,12 +3863,15 @@ impl DesignerPanel {
                                 .map(|b| b.code.clone())
                         })
                     };
+                    // Normalise `*` comments to `*>` deterministically, and the
+                    // value methods to their single spelling.
+                    let new = crate::llm::normalize_comments(code);
+                    let new = self.canonical_agent_handler(control_id, event, new);
                     cmds.push(Cmd::SetEventCode {
                         control_id: control_id.clone(),
                         event: event.clone(),
                         old,
-                        // Normalise `*` comments to `*>` deterministically.
-                        new: crate::llm::normalize_comments(code),
+                        new,
                     });
                 }
                 AgentOp::CreateProcedure { name, code } => {
@@ -3860,10 +3881,12 @@ impl DesignerPanel {
                         .iter()
                         .find(|p| p.name.eq_ignore_ascii_case(name))
                         .map(|p| p.code.clone());
+                    let new = crate::llm::normalize_comments(code);
+                    let new = self.canonical_agent_procedure(name, new);
                     cmds.push(Cmd::SetProcedure {
                         name: name.clone(),
                         old,
-                        new: crate::llm::normalize_comments(code),
+                        new,
                     });
                 }
                 AgentOp::AddLayer { name } => {
@@ -6347,6 +6370,18 @@ impl DesignerPanel {
                 event: event_name.to_string(),
             }
         };
+        // Beautify in this editor writes the single spelling of the value
+        // methods too; only the form can say which names are data items.
+        {
+            let snapshot = self.form.clone();
+            let (cid, ev) = (ctrl_id.to_owned(), event_name.to_owned());
+            self.event_editor.canon_host = Some(crate::value_methods::CanonHost {
+                place: site.display_path(&self.form.name),
+                rewrite: std::sync::Arc::new(move |text| {
+                    crate::value_methods::rewrite_handler_text(&form_with_handler(&snapshot, &cid, &ev, text), text)
+                }),
+            });
+        }
         self.handler_sites.insert(program_id.clone(), site);
         self.event_modal = Some(EventEditorModal::new(
             ctrl_id, display, event_name, program_id, source,
@@ -6463,6 +6498,131 @@ impl DesignerPanel {
             self.event_modal = None;
         }
         ctx.request_repaint();
+    }
+
+    // ── One spelling for the value methods (operator, 2026-10-10) ─────────────
+
+    /// Everything the designer's editors rewrote and have not yet reported,
+    /// the embedded editors' Beautify included.
+    pub fn take_canon_notices(&mut self) -> Vec<crate::value_methods::Notice> {
+        let mut all = std::mem::take(&mut self.canon_notices);
+        all.append(&mut self.event_editor.canon_notices);
+        all.append(&mut self.cs_editor.canon_notices);
+        all
+    }
+
+    /// A handler's code as the form holds it now (a toolbar button's lives in
+    /// its toolbar's definition).
+    fn committed_handler_text(&self, ctrl_id: &str, event_name: &str) -> Option<String> {
+        if ctrl_id.is_empty() {
+            return self.form.form_events.iter().find(|e| e.event == event_name).map(|e| e.code.clone());
+        }
+        if let Some(found) = cobolt_forms::toolbar::find_button(&self.form.controls, ctrl_id) {
+            return self
+                .form
+                .find_control(&found.toolbar_id)
+                .map(cobolt_forms::toolbar::ToolbarDef::from_control)
+                .and_then(|d| d.button(&found.button_id).and_then(|b| b.event(event_name).map(|e| e.code.clone())));
+        }
+        self.form
+            .find_control(ctrl_id)?
+            .events
+            .iter()
+            .find(|e| e.event == event_name)
+            .map(|e| e.code.clone())
+    }
+
+    /// Where a handler is, as the Output line names it: `form ▸ control ▸ event`.
+    fn handler_place(&self, ctrl_id: &str, event_name: &str) -> String {
+        let site = if ctrl_id.is_empty() {
+            cobolt_forms::code_site::CodeSite::FormEvent { event: event_name.to_owned() }
+        } else {
+            cobolt_forms::code_site::CodeSite::ControlEvent {
+                control_id: ctrl_id.to_owned(),
+                event: event_name.to_owned(),
+            }
+        };
+        site.display_path(&self.form.name)
+    }
+
+    /// The handler has just been saved into the form: write the single spelling
+    /// of the value methods into it ([`crate::value_methods`]), as ITS OWN step —
+    /// so that one Undo gives back exactly the spellings the developer typed —
+    /// and report it. `program_id` names the open editor buffer, which is kept
+    /// equal to the form so that nothing on screen disagrees with what is saved.
+    ///
+    /// Code that does not parse cleanly is left alone.
+    pub fn canonicalize_saved_handler(&mut self, ctrl_id: &str, event_name: &str, program_id: &str) {
+        let Some(text) = self.committed_handler_text(ctrl_id, event_name) else {
+            return;
+        };
+        let Some(rewritten) = crate::value_methods::rewrite_handler_text(&self.form, &text) else {
+            return;
+        };
+        let place = self.handler_place(ctrl_id, event_name);
+        if cobolt_forms::toolbar::find_button(&self.form.controls, ctrl_id).is_some() {
+            // A toolbar button's save is already one undoable property write.
+            self.save_event_handler(ctrl_id, event_name, rewritten.text.clone());
+        } else {
+            self.apply(Cmd::SetEventCode {
+                control_id: ctrl_id.to_owned(),
+                event: event_name.to_owned(),
+                old: Some(text.clone()),
+                new: rewritten.text.clone(),
+            });
+        }
+        let key = std::path::PathBuf::from(format!("{program_id}.handler"));
+        if let Some(tab) = self.event_editor.tabs.iter_mut().find(|t| t.path == key && t.content == text) {
+            tab.content = rewritten.text.clone();
+        }
+        self.canon_notices.push(crate::value_methods::Notice::new(&rewritten, place));
+    }
+
+    /// The same for a user procedure (`index` into [`Form::user_procedures`]),
+    /// after the structure window saved it.
+    pub fn canonicalize_saved_procedure(&mut self, index: usize) {
+        let Some((name, text)) = self.form.user_procedures.get(index).map(|p| (p.name.clone(), p.code.clone())) else {
+            return;
+        };
+        let Some(rewritten) = crate::value_methods::rewrite_handler_text(&self.form, &text) else {
+            return;
+        };
+        let place = cobolt_forms::code_site::CodeSite::Procedure { name: name.trim().to_owned() }
+            .display_path(&self.form.name);
+        self.apply(Cmd::SetProcedure { name, old: Some(text), new: rewritten.text.clone() });
+        self.canon_notices.push(crate::value_methods::Notice::new(&rewritten, place));
+    }
+
+    /// Code an agent's change-set is about to put into handler `event_name` of
+    /// `ctrl_id` (or of the form, when `ctrl_id` is a form id), already in the
+    /// single spelling. Stored that way in the step, so that undo and redo
+    /// replay the exact text — the way `normalize_comments` already is.
+    fn canonical_agent_handler(&mut self, ctrl_id: &str, event_name: &str, code: String) -> String {
+        let id = if crate::agent::is_form_id(&self.form.name, ctrl_id) { "" } else { ctrl_id };
+        let probe = form_with_handler(&self.form, id, event_name, &code);
+        match crate::value_methods::rewrite_handler_text(&probe, &code) {
+            Some(r) => {
+                let place = self.handler_place(id, event_name);
+                self.canon_notices.push(crate::value_methods::Notice::new(&r, place));
+                r.text
+            }
+            None => code,
+        }
+    }
+
+    /// [`Self::canonical_agent_handler`] for a procedure.
+    fn canonical_agent_procedure(&mut self, name: &str, code: String) -> String {
+        let mut probe = self.form.clone();
+        set_form_procedure(&mut probe, name, Some(code.clone()));
+        match crate::value_methods::rewrite_handler_text(&probe, &code) {
+            Some(r) => {
+                let place = cobolt_forms::code_site::CodeSite::Procedure { name: name.trim().to_owned() }
+                    .display_path(&self.form.name);
+                self.canon_notices.push(crate::value_methods::Notice::new(&r, place));
+                r.text
+            }
+            None => code,
+        }
     }
 
     /// Commit the modal editor's content back into the form's event binding.
@@ -12563,6 +12723,11 @@ impl DesignerPanel {
                 if content != orig_source {
                     self.save_event_handler(&ctrl_id, &event_name, content);
                 }
+                // The single spelling of the value methods, as a step of its
+                // own. Also for a handler saved without a change: opening an
+                // old handler and pressing Save is "the editor saw the older
+                // spellings", and a template has none to find.
+                self.canonicalize_saved_handler(&ctrl_id, &event_name, &program_id);
                 self.event_modal = None;
             } else if let Some(m) = self.event_modal.as_mut() {
                 m.syntax_errors = Some(errs);
@@ -12691,6 +12856,24 @@ impl DesignerPanel {
                 text,
             );
             self.cs_editor.known_controls = super::editor::build_known_controls(&self.form);
+            // A procedure's Beautify writes the single spelling of the value
+            // methods; a structure section is declarations, with none to write.
+            self.cs_editor.canon_host = match target {
+                cs::CsTarget::Procedure(i) => self.form.user_procedures.get(i).map(|p| {
+                    let snapshot = self.form.clone();
+                    let name = p.name.clone();
+                    crate::value_methods::CanonHost {
+                        place: cobolt_forms::code_site::CodeSite::Procedure { name: name.trim().to_owned() }
+                            .display_path(&self.form.name),
+                        rewrite: std::sync::Arc::new(move |text| {
+                            let mut probe = snapshot.clone();
+                            set_form_procedure(&mut probe, &name, Some(text.to_owned()));
+                            crate::value_methods::rewrite_handler_text(&probe, text)
+                        }),
+                    }
+                }),
+                _ => None,
+            };
             self.cs_loaded = Some(target);
         }
         // A navigation queued a caret for this block (spec 053 R13) — place it
@@ -12901,6 +13084,11 @@ impl DesignerPanel {
                             if cs::set_block_text(&mut self.form, target, content) {
                                 self.dirty = true;
                             }
+                        }
+                        // Only a procedure holds statements that can call a
+                        // method; the structure sections are declarations.
+                        if let cs::CsTarget::Procedure(i) = target {
+                            self.canonicalize_saved_procedure(i);
                         }
                         close = true;
                     }
@@ -25119,6 +25307,178 @@ mod event_editor_drag_tests {
         // Released on the window, it is the window's: nothing is placed behind it.
         let over = controls_after_dropping(|code| code.center());
         assert_eq!(over, 1, "released over the event editor, nothing is placed behind the window");
+    }
+}
+
+/// One spelling for the value methods (operator, 2026-10-10). Saving a handler
+/// or a procedure writes `Upper()` / `Lower()` / `Len()` for the older
+/// spellings, reports it, and makes it a step of its own that one Undo takes
+/// back.
+#[cfg(test)]
+mod value_method_tests {
+    use super::*;
+
+    const HANDLER: &str = "       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-NAME   PIC X(20) VALUE \"ada\".
+       01  WS-OUT    PIC X(20).
+       01  WS-N      PIC 9(4).
+       PROCEDURE DIVISION.
+           MOVE WS-NAME::Trim()::UpperCase() TO WS-OUT.
+           COMPUTE WS-N = WS-NAME::Length.
+           MOVE TXT-A::GetText()::toLowerCase() TO WS-OUT.
+           MOVE TXT-A::Length TO WS-N.
+           MOVE \"keep ::UpperCase() here\" TO WS-OUT. *> and ::Length here
+           CONTINUE.";
+
+    fn form() -> Form {
+        let mut f = Form::new("F", "T", 400, 300);
+        f.controls.push(Control::new("TXT-A", ControlType::TextBox, 0, 0));
+        f
+    }
+
+    fn saved_handler(dp: &mut DesignerPanel, code: &str) {
+        dp.save_event_handler("TXT-A", "onClick", code.to_owned());
+        dp.canonicalize_saved_handler("TXT-A", "onClick", "TXT-A--ONCLICK");
+    }
+
+    fn code_of(dp: &DesignerPanel) -> String {
+        dp.form.find_control("TXT-A").unwrap().events.iter().find(|e| e.event == "onClick").unwrap().code.clone()
+    }
+
+    #[test]
+    fn saving_a_handler_writes_the_single_spelling_and_says_so() {
+        let mut dp = DesignerPanel::new(form());
+        saved_handler(&mut dp, HANDLER);
+        let code = code_of(&dp);
+        assert!(code.contains("MOVE WS-NAME::Trim()::Upper() TO WS-OUT."), "{code}");
+        assert!(code.contains("COMPUTE WS-N = WS-NAME::Len."), "{code}");
+        // The result of a method that returns a value is a value.
+        assert!(code.contains("MOVE TXT-A::GetText()::Lower() TO WS-OUT."), "{code}");
+        // A control's own member, a literal and a comment are the developer's, untouched.
+        assert!(code.contains("MOVE TXT-A::Length TO WS-N."), "{code}");
+        assert!(code.contains("\"keep ::UpperCase() here\" TO WS-OUT. *> and ::Length here"), "{code}");
+        // Reported once, in one line, with where.
+        let notices = dp.take_canon_notices();
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert_eq!(notices[0].count, 3);
+        assert_eq!(notices[0].place, "F ▸ TXT-A ▸ onClick");
+        let line = notices[0].text(&crate::i18n::Language::English.tr());
+        assert_eq!(line, "Value methods: 3 spellings changed to Upper()/Lower()/Len() in F ▸ TXT-A ▸ onClick");
+        assert!(dp.take_canon_notices().is_empty(), "taken means taken");
+        println!("  {line}");
+    }
+
+    #[test]
+    fn one_undo_gives_back_the_spellings_the_developer_typed() {
+        let mut dp = DesignerPanel::new(form());
+        saved_handler(&mut dp, HANDLER);
+        assert_ne!(code_of(&dp), HANDLER);
+        dp.undo();
+        assert_eq!(code_of(&dp), HANDLER, "exactly what was saved, older spellings and all");
+        dp.redo();
+        assert!(code_of(&dp).contains("WS-NAME::Len."));
+        // The rewrite is idempotent: saving the canonical text again changes nothing and reports nothing.
+        dp.take_canon_notices();
+        let canonical = code_of(&dp);
+        saved_handler(&mut dp, &canonical);
+        assert_eq!(code_of(&dp), canonical);
+        assert!(dp.take_canon_notices().is_empty());
+    }
+
+    #[test]
+    fn a_form_event_and_a_handler_that_does_not_parse() {
+        let mut f = form();
+        f.form_events.push(cobolt_forms::EventBinding::new("onLoad", "F--ONLOAD"));
+        let mut dp = DesignerPanel::new(f);
+        let load = HANDLER.replace("TXT-A::GetText()::toLowerCase()", "WS-NAME::ToLowerCase()");
+        dp.save_event_handler("", "onLoad", load);
+        dp.canonicalize_saved_handler("", "onLoad", "F--ONLOAD");
+        let code = dp.form.form_events.iter().find(|e| e.event == "onLoad").unwrap().code.clone();
+        assert!(code.contains("WS-NAME::Lower()") && code.contains("WS-NAME::Len."), "{code}");
+        assert_eq!(dp.take_canon_notices()[0].place, "F ▸ onLoad");
+
+        // Text the parser rejects is left exactly as typed — never guessed at.
+        let broken = format!("{HANDLER}\n           IF WS-NAME::UpperCase( THEN THEN ((");
+        let mut dp = DesignerPanel::new(form());
+        saved_handler(&mut dp, &broken);
+        assert_eq!(code_of(&dp), broken);
+        assert!(dp.take_canon_notices().is_empty());
+    }
+
+    #[test]
+    fn a_name_the_form_owns_is_the_control_not_a_data_item() {
+        // `TXT-A` is declared as a data item too; the control wins (the analyser's rule).
+        let code = HANDLER.replace("01  WS-N ", "01  TXT-A    PIC X(5).\n       01  WS-N ");
+        let mut dp = DesignerPanel::new(form());
+        saved_handler(&mut dp, &code);
+        assert!(code_of(&dp).contains("MOVE TXT-A::Length TO WS-N."));
+    }
+
+    #[test]
+    fn a_procedure_is_rewritten_and_its_undo_asks_first() {
+        let mut f = form();
+        f.user_procedures.push(cobolt_forms::model::UserProcedure {
+            name: "SHOUT".into(),
+            code: "       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-T  PIC X(10) VALUE \"x\".
+       PROCEDURE DIVISION.
+           MOVE WS-T::ToUpperCase() TO WS-T.
+           EXIT PROGRAM."
+                .into(),
+        });
+        let original = f.user_procedures[0].code.clone();
+        let mut dp = DesignerPanel::new(f);
+        dp.canonicalize_saved_procedure(0);
+        assert!(dp.form.user_procedures[0].code.contains("WS-T::Upper()"));
+        let n = dp.take_canon_notices();
+        assert_eq!((n.len(), n[0].count, n[0].place.as_str()), (1, 1, "F ▸ SHOUT"));
+        // Undoing a step that changes procedure code is confirmed first, as it always was.
+        dp.undo();
+        assert!(dp.pending_history_confirm.is_some());
+        dp.confirm_pending_history(true);
+        assert_eq!(dp.form.user_procedures[0].code, original);
+    }
+
+    #[test]
+    fn code_an_agent_writes_lands_in_the_single_spelling_and_replays_exactly() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut dp = DesignerPanel::new(form());
+        let applied = dp.apply_agent_change_set(&AgentChangeSet {
+            operations: vec![AgentOp::GenerateEventHandler {
+                control_id: "TXT-A".into(),
+                event: "onClick".into(),
+                // (The agent gate refuses `TXT-A::Length`: a TextBox has no such property.)
+                code: HANDLER.replace("           MOVE TXT-A::Length TO WS-N.\n", ""),
+            }],
+            note: None,
+        });
+        assert_eq!(applied, 1, "{}", dp.last_change_outcome);
+        let landed = code_of(&dp);
+        assert!(landed.contains("WS-NAME::Trim()::Upper()") && landed.contains("WS-NAME::Len."), "{landed}");
+        assert_eq!(dp.take_canon_notices().len(), 1);
+        dp.undo();
+        assert!(dp.form.find_control("TXT-A").unwrap().events.iter().all(|e| e.event != "onClick" || e.code.is_empty()));
+        dp.redo();
+        assert_eq!(code_of(&dp), landed, "redo replays the stored text exactly");
+    }
+
+    #[test]
+    fn the_event_editors_beautify_uses_the_same_rewrite() {
+        let mut dp = DesignerPanel::new(form());
+        dp.save_event_handler("TXT-A", "onClick", HANDLER.to_owned());
+        dp.open_event_modal("TXT-A", "onClick");
+        let host = dp.event_editor.canon_host.clone().expect("the modal gives its editor the form's view");
+        assert_eq!(host.place, "F ▸ TXT-A ▸ onClick");
+        let r = (host.rewrite)(HANDLER).expect("three spellings to change");
+        assert_eq!(r.edits.len(), 3);
+        dp.event_editor.canonicalize_value_methods(dp.event_editor.active);
+        let text = dp.event_editor.buffer_content().unwrap().to_owned();
+        assert!(text.contains("WS-NAME::Trim()::Upper()") && text.contains("WS-NAME::Len."), "{text}");
+        assert_eq!(dp.take_canon_notices().len(), 1);
     }
 }
 

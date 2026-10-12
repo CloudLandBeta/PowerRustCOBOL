@@ -6512,7 +6512,7 @@ rows, a list's items, a row's columns); a bare name is a property; a name with
 ```cobol
       *> read a nested cell, then a method on its value
            DISPLAY Grid-1::Rows(I)::Columns(2)::Value.
-           DISPLAY Grid-1::Rows(I)::Columns(2)::Value::toUpperCase().
+           DISPLAY Grid-1::Rows(I)::Columns(2)::Value::Upper().
 
       *> write a nested cell — the structure is created on demand
            MOVE "Total" TO Grid-1::Rows(0)::Columns(0)::Value.
@@ -6539,14 +6539,15 @@ content-changing verb may write to it, not just `MOVE`/`SET`:
 A chain that ends in a **method call** `()` is a value only:
 
 ```cobol
-           MOVE name TO obj::UpperCase().   *> INVALID — not a receiving field
-           SET  name TO obj::UpperCase().   *> valid — reads the transformed value
-           obj::UpperCase().                *> valid as a statement, but changes nothing
+           MOVE name TO obj::Upper().   *> INVALID — not a receiving field
+           SET  name TO obj::Upper().   *> valid — reads the transformed value
+           obj::Upper().                *> valid as a statement, but changes nothing
 ```
 
 **Collection / value helper methods** available on a chain element:
 `Count` / `Size` (number of entries), `Delete` / `Remove`, `Clear`, `Add` /
-`Append`, and the value transforms `toUpperCase`, `toLowerCase`, `trim`, `len`.
+`Append`, and the value methods `Upper`, `Lower`, `Trim` and `Len` (the older spellings
+`UpperCase` / `ToUpperCase`, `LowerCase` / `ToLowerCase` and `Length` still run).
 
 **INITIALIZE on a control.** Initialising a control resets its **`Value`**
 property; you can also target one property explicitly, and mix controls with

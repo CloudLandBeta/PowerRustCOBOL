@@ -58,6 +58,16 @@ pub struct DataItemInfo {
 }
 
 impl DataItemInfo {
+    /// `true` for an ordinary item that holds a value — the receiver of the value
+    /// methods (`WS-TEXT::Trim()`). An `OBJECT REFERENCE` or a `POINTER` is a
+    /// handle to something that has methods of its own, so it is not one.
+    ///
+    /// The one place this is decided: the analyser's data-item method check and
+    /// [`value_item_names`](crate::value_item_names) both ask it.
+    pub fn holds_a_value(&self) -> bool {
+        !matches!(self.usage, Usage::ObjectReference | Usage::Pointer)
+    }
+
     /// Convert a COBOL data-item name to its Rust snake_case equivalent.
     ///
     /// `WS-MY-FIELD` → `ws_my_field`

@@ -72,6 +72,7 @@ pub mod toolchain;
 pub mod ollama_setup;
 pub mod ui_prefs;
 mod update_check;
+pub mod value_methods;
 pub mod version;
 pub mod welcome;
 

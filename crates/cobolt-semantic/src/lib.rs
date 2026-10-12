@@ -213,6 +213,57 @@ impl FormLoadFormat {
     }
 }
 
+/// The names of the ordinary data items of a compilation unit — the receivers
+/// of a data item's value methods (`WS-TEXT::Trim()`), UPPERCASE.
+///
+/// This is the analyser's own rule for "is this a data item" (the one behind
+/// "a data item has no method …"): the name is declared by the unit's DATA
+/// DIVISIONs, is not an `OBJECT REFERENCE` or a `POINTER`, and is not a name the
+/// form's own objects share (`known_objects` — the control wins). The unit is
+/// the program and every program contained in it, so a form's `GLOBAL` items
+/// and its handlers' own are all seen. A name declared as a value in one program
+/// and as a handle in another is ambiguous, and an ambiguous name is left out:
+/// the caller uses this to decide what may be *rewritten*, and a wrong "yes"
+/// there changes a program, where a wrong "no" changes nothing.
+pub fn value_item_names(
+    program: &Program,
+    known_objects: Option<&std::collections::HashSet<String>>,
+) -> std::collections::HashSet<String> {
+    value_item_names_in(&[program], known_objects)
+}
+
+/// [`value_item_names`] over several units read together — a form's whole
+/// generated program and the one handler being edited, which may declare items
+/// the form does not hold yet.
+pub fn value_item_names_in(
+    programs: &[&Program],
+    known_objects: Option<&std::collections::HashSet<String>>,
+) -> std::collections::HashSet<String> {
+    fn walk(
+        program: &Program,
+        values: &mut std::collections::HashSet<String>,
+        handles: &mut std::collections::HashSet<String>,
+    ) {
+        for (name, info) in symbol_table::SymbolTable::build(program).data_items() {
+            if info.holds_a_value() {
+                values.insert(name.to_ascii_uppercase());
+            } else {
+                handles.insert(name.to_ascii_uppercase());
+            }
+        }
+        for nested in &program.nested_programs {
+            walk(nested, values, handles);
+        }
+    }
+    let mut values = std::collections::HashSet::new();
+    let mut handles = std::collections::HashSet::new();
+    for program in programs {
+        walk(program, &mut values, &mut handles);
+    }
+    values.retain(|n| !handles.contains(n) && !known_objects.is_some_and(|k| k.contains(n)));
+    values
+}
+
 /// [`analyze`], with project context (spec 044).
 pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult {
     // The outermost program of a compilation unit inherits nothing: there is no

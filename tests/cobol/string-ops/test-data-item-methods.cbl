@@ -3,13 +3,23 @@
       *> TEST-DATA-ITEM-METHODS
       *> The value methods of an ordinary data item (a PIC X field,
       *> a group, a table occurrence, a reference-modified slice):
-      *>   Trim · UpperCase / ToUpperCase / Upper
-      *>   LowerCase / ToLowerCase / Lower · Replace
-      *>   Len / Length (method and bare property)
+      *>   Trim · Upper · Lower · Replace
+      *>   Len (method and bare property)
       *>   Split(sep) · Split(sep)(n) · chains of them.
-      *> Two worked examples of each, in every spelling the language
+      *>
+      *> CANONICAL SPELLINGS: Upper(), Lower() and Len() are the
+      *> spellings to WRITE. UpperCase() / ToUpperCase(), LowerCase()
+      *> / ToLowerCase() and Length() are ACCEPTED ALIASES: they run
+      *> exactly as before so no program breaks, and the IDE rewrites
+      *> them to the canonical spelling when a file is saved. This
+      *> test keeps the aliases honest, so it uses them ON PURPOSE in
+      *> forms 2, 3, 5, 6, 10, 11 and 20 -- do not "tidy" them, and
+      *> do not open and save this file in the IDE (the IDE would).
+      *>
+      *> Two worked examples of each form, in every spelling the language
       *> accepts. Self-checking: a case prints only if it FAILS; one
-      *> result block at the end lists every form and its tally.
+      *> result block at the end lists every form, its tally, and how many
+      *> alias spellings ran.
       *>
       *> The same eleven names (thirteen forms) are then run from
       *> CONTAINED programs - a form's event handlers are such
@@ -19,6 +29,7 @@
       *>   18  one name declared by TWO contained programs (SUB-DUP-1
       *>       and SUB-DUP-2, with different values and widths)
       *>   19  an item the outermost program declares GLOBAL
+      *>   20  the aliases, on purpose            21  ::Len / ::Length as properties
       *> They report into the outermost program's GLOBAL tally.
       *> ============================================================
        PROGRAM-ID. TEST-DATA-ITEM-METHODS.
@@ -38,15 +49,18 @@
        01  WS-TOT-RUN              PIC 9(4)  VALUE 0 GLOBAL.
        01  WS-TOT-OK               PIC 9(4)  VALUE 0 GLOBAL.
        01  WS-TOT-BAD              PIC 9(4)  VALUE 0 GLOBAL.
+       01  WS-ALIAS-RUN            PIC 9(4)  VALUE 0.
+       01  WS-ALIAS-OK             PIC 9(4)  VALUE 0.
        01  WS-GLB-A                PIC X(20) VALUE SPACES GLOBAL.
        01  WS-GLB-CSV              PIC X(30) VALUE SPACES GLOBAL.
        01  WS-GLB-S5               PIC X(5)  VALUE "ab" GLOBAL.
        01  WS-GLB-S8               PIC X(8)  VALUE "abc" GLOBAL.
        01  WS-GROUPS GLOBAL.
-           05 WS-G OCCURS 19 TIMES.
+           05 WS-G OCCURS 21 TIMES.
               10 WS-G-NAME         PIC X(26).
               10 WS-G-RUN          PIC 9(3) VALUE 0.
               10 WS-G-OK           PIC 9(3) VALUE 0.
+              10 WS-G-ALIAS        PIC 9    VALUE 0.
        PROCEDURE DIVISION.
        MAIN-PARA.
            PERFORM INIT-NAMES.
@@ -205,9 +219,9 @@
 
            MOVE 14 TO WS-GI.
            MOVE "  hi there  " TO WS-A.
-           MOVE "Chain #1 Trim()::UpperCase()" TO WS-LABEL.
+           MOVE "Chain #1 Trim()::Upper()" TO WS-LABEL.
            MOVE "HI THERE" TO WS-EXP.
-           MOVE WS-A::Trim()::UpperCase() TO WS-RES.
+           MOVE WS-A::Trim()::Upper() TO WS-RES.
            PERFORM CHECK-TEXT.
            MOVE "  hi  " TO WS-A.
            MOVE "Chain #2 Trim()::Len()" TO WS-LABEL.
@@ -217,9 +231,9 @@
 
            MOVE 15 TO WS-GI.
            MOVE "abc-def" TO WS-A.
-           MOVE "Slice #1 (5:3)::UpperCase()" TO WS-LABEL.
+           MOVE "Slice #1 (5:3)::Upper()" TO WS-LABEL.
            MOVE "DEF" TO WS-EXP.
-           MOVE WS-A(5:3)::UpperCase() TO WS-RES.
+           MOVE WS-A(5:3)::Upper() TO WS-RES.
            PERFORM CHECK-TEXT.
            MOVE "  pad  " TO WS-A.
            MOVE "Slice #2 (1:7)::Trim()" TO WS-LABEL.
@@ -250,6 +264,44 @@
            CALL "SUB-DUP-2".
            CALL "SUB-GLOBAL".
 
+           MOVE 20 TO WS-GI.
+           MOVE "MiXeD" TO WS-A.
+           MOVE "UpperCase = Upper" TO WS-LABEL.
+           MOVE WS-A::Upper() TO WS-EXP.
+           MOVE WS-A::UpperCase() TO WS-RES.
+           PERFORM CHECK-TEXT.
+           MOVE "ToUpperCase = Upper" TO WS-LABEL.
+           MOVE WS-A::Upper() TO WS-EXP.
+           MOVE WS-A::ToUpperCase() TO WS-RES.
+           PERFORM CHECK-TEXT.
+           MOVE "LowerCase = Lower" TO WS-LABEL.
+           MOVE WS-A::Lower() TO WS-EXP.
+           MOVE WS-A::LowerCase() TO WS-RES.
+           PERFORM CHECK-TEXT.
+           MOVE "ToLowerCase = Lower" TO WS-LABEL.
+           MOVE WS-A::Lower() TO WS-EXP.
+           MOVE WS-A::ToLowerCase() TO WS-RES.
+           PERFORM CHECK-TEXT.
+           MOVE "Length() = Len()" TO WS-LABEL.
+           COMPUTE WS-EXPN = WS-A::Len().
+           COMPUTE WS-N = WS-A::Length().
+           PERFORM CHECK-NUM.
+           MOVE "Length = Len (properties)" TO WS-LABEL.
+           COMPUTE WS-EXPN = WS-A::Len.
+           COMPUTE WS-N = WS-A::Length.
+           PERFORM CHECK-NUM.
+
+           MOVE 21 TO WS-GI.
+           MOVE "x" TO WS-A.
+           MOVE "Len property #1 (X(20))" TO WS-LABEL.
+           MOVE 20 TO WS-EXPN.
+           COMPUTE WS-N = WS-A::Len.
+           PERFORM CHECK-NUM.
+           MOVE "Len property #2 (X(5))" TO WS-LABEL.
+           MOVE 5 TO WS-EXPN.
+           COMPUTE WS-N = WS-S5::Len.
+           PERFORM CHECK-NUM.
+
            PERFORM SHOW-RESULTS.
            STOP RUN.
 
@@ -273,13 +325,29 @@
            MOVE "contained: unique name"  TO WS-G-NAME (17).
            MOVE "contained: same name x2" TO WS-G-NAME (18).
            MOVE "contained: outer GLOBAL" TO WS-G-NAME (19).
+           MOVE "alias = canonical"       TO WS-G-NAME (20).
+           MOVE "::Len (property)"        TO WS-G-NAME (21).
+      *>   The forms that exercise an ALIAS spelling on purpose.
+           MOVE 1 TO WS-G-ALIAS (2).
+           MOVE 1 TO WS-G-ALIAS (3).
+           MOVE 1 TO WS-G-ALIAS (5).
+           MOVE 1 TO WS-G-ALIAS (6).
+           MOVE 1 TO WS-G-ALIAS (10).
+           MOVE 1 TO WS-G-ALIAS (11).
+           MOVE 1 TO WS-G-ALIAS (20).
 
        CHECK-TEXT.
            ADD 1 TO WS-TOT-RUN.
            ADD 1 TO WS-G-RUN (WS-GI).
+           IF WS-G-ALIAS (WS-GI) = 1
+               ADD 1 TO WS-ALIAS-RUN
+           END-IF.
            IF WS-RES = WS-EXP
                ADD 1 TO WS-TOT-OK
                ADD 1 TO WS-G-OK (WS-GI)
+               IF WS-G-ALIAS (WS-GI) = 1
+                   ADD 1 TO WS-ALIAS-OK
+               END-IF
            ELSE
                ADD 1 TO WS-TOT-BAD
                DISPLAY "FAIL " WS-LABEL
@@ -290,9 +358,15 @@
        CHECK-NUM.
            ADD 1 TO WS-TOT-RUN.
            ADD 1 TO WS-G-RUN (WS-GI).
+           IF WS-G-ALIAS (WS-GI) = 1
+               ADD 1 TO WS-ALIAS-RUN
+           END-IF.
            IF WS-N = WS-EXPN
                ADD 1 TO WS-TOT-OK
                ADD 1 TO WS-G-OK (WS-GI)
+               IF WS-G-ALIAS (WS-GI) = 1
+                   ADD 1 TO WS-ALIAS-OK
+               END-IF
            ELSE
                ADD 1 TO WS-TOT-BAD
                DISPLAY "FAIL " WS-LABEL
@@ -307,12 +381,17 @@
            DISPLAY "each form (passed / run); rows 17-19 run all".
            DISPLAY "13 forms from contained programs:".
            DISPLAY "--------------------------------------------".
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 19
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 21
                DISPLAY "  " WS-G-NAME (WS-I) " "
                    WS-G-OK (WS-I) " / " WS-G-RUN (WS-I)
            END-PERFORM.
            DISPLAY "--------------------------------------------".
-           DISPLAY "FORMS EXERCISED : 19".
+           DISPLAY "FORMS EXERCISED : 21".
+           DISPLAY "CANONICAL       : Upper() Lower() Len()".
+           DISPLAY "ALIASES CHECKED : 5 (UpperCase ToUpperCase".
+           DISPLAY "                  LowerCase ToLowerCase Length)".
+           DISPLAY "ALIAS CHECKS    : " WS-ALIAS-OK " passed of "
+               WS-ALIAS-RUN " run, in 7 forms".
            DISPLAY "TESTS RUN       : " WS-TOT-RUN.
            DISPLAY "TESTS PASSED    : " WS-TOT-OK.
            DISPLAY "TESTS FAILED    : " WS-TOT-BAD.

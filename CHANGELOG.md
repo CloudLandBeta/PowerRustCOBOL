@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.10] — 2026-10-12
+
+*(Written 2026-10-10 on a base before 1.91.0 and left uncommitted; brought up to date with `main` and versioned when it was merged.)*
+
+### Changed
+- **One spelling for the value methods of a data item: `Upper`, `Lower`, `Len` (operator, 2026-10-10).** `UpperCase` and `ToUpperCase` are written `Upper`, `LowerCase` and `ToLowerCase` are written `Lower`, `Length` is written `Len`. **Every older spelling keeps running** — `DATA_ITEM_METHODS` still lists all of them, and the new `CANONICAL_DATA_ITEM_METHODS` is the six that are written — so this changes how a program is written, never what it does.
+  - *The rewrite* (`cobolt-ast::value_methods`). Token-aware and exact: only a word straight after `::` is a candidate; strings, hexadecimal and national literals, comments, `PICTURE`s, `EXEC … END-EXEC`, ```` ``` ```` block literals and pseudo-text are never looked into, and neither are names that merely contain the words (`WS-LENGTH`) or the intrinsic functions (`FUNCTION LENGTH`).
+  - *Which names are data items* (`cobolt_semantic::value_item_names`). Asked of the analyser, on the program the text belongs to, never guessed — so a control's own member, `Txt-1::Length`, is left alone.
+  - *In the IDE* (`value_methods.rs`). Saving a COBOL file, an event handler or a procedure, running Beautify, and code an agent writes all end in the single spelling. The Output panel says so in one line, in all six languages (`vm_rewritten_one` / `vm_rewritten_many`); one Undo gives back exactly what was typed; code that does not parse, and generated code, are left as typed.
+  - *Tests.* 51 new. 22 on the rewriter; `test_value_methods_corpus` runs it over **every COBOL file in the repository** with the most permissive receiver rule and proves the tokens are the same but for the spellings and that a second pass finds nothing; 4 on `value_item_names`; 5 in the IDE module; 6 in the editor and 7 in the designer (saving a handler writes the single spelling and says so, one Undo, a form event and a handler that does not parse, a name the form owns is the control, a procedure, agent code, the event editor's Beautify). `test-data-item-methods.cbl` gains forms 20 and 21, which use the older spellings *on purpose* (it must not be saved in the IDE); the merged program prints `TESTS RUN : 0092` and `ALIAS CHECKS : 0018 passed of 0018 run`.
+  - *Docs, plugin and examples.* Developer's Guide (*Value methods of a data item*), support matrix §4.1, the plugin's code-style rule, and the listbox demo's handler (its six-language comment and `toUpperCase()` → `Upper()`).
+  - *Merging.* The results table of the COBOL test program was renumbered: the contained-program rows 17–19 of 1.91.9 keep their numbers and the alias rows are 20 and 21.
+
 ## [PowerRustCOBOL 1.91.9] — 2026-10-12
 
 *(Written on 2026-10-09 as 1.90.56, while `main` was at 1.90.54, and renumbered 1.91.9 when it was merged.)*

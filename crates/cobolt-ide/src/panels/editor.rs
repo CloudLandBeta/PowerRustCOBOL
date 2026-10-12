@@ -347,23 +347,22 @@ pub fn cobol_object_known_control() -> KnownControl {
 /// The type IntelliSense gives an ordinary DATA ITEM used as a receiver —
 /// `WS-TEXT::`. It is not a control: it has none of a control's methods (no
 /// `Show`, no `MoveTo`), only the value methods of
-/// [`cobolt_ast::methods::DATA_ITEM_METHODS`], and one property, `Length`.
+/// [`cobolt_ast::methods::CANONICAL_DATA_ITEM_METHODS`], and one property, `Len`.
+/// Only the spelling that is written is offered: the older ones (`UpperCase`,
+/// `ToUpperCase`, `LowerCase`, `ToLowerCase`, `Length`) still run, and the
+/// editor rewrites them on save, but suggesting them would teach them.
 pub(crate) const DATA_ITEM_TYPE: &str = "DataItem";
 
 /// What each value method of a data item does, for the popup. The NAMES are the
-/// language's own list, `cobolt_ast::methods::DATA_ITEM_METHODS`, which the
-/// analyser and the evaluator read too; a test keeps this table equal to it.
+/// language's own canonical list, `cobolt_ast::methods::CANONICAL_DATA_ITEM_METHODS`
+/// (the analyser and the evaluator read the full `DATA_ITEM_METHODS`); a test
+/// keeps this table equal to it.
 const DATA_ITEM_METHOD_DOCS: &[Method] = &[
     ("Trim", "Remove the blanks at both ends"),
-    ("UpperCase", "Capital letters"),
-    ("ToUpperCase", "Capital letters (same as UpperCase)"),
-    ("Upper", "Capital letters (same as UpperCase)"),
-    ("LowerCase", "Small letters"),
-    ("ToLowerCase", "Small letters (same as LowerCase)"),
-    ("Lower", "Small letters (same as LowerCase)"),
+    ("Upper", "Capital letters"),
+    ("Lower", "Small letters"),
     ("Replace", "Replace(from, to) — every occurrence of from becomes to"),
     ("Len", "The field's declared length, as a number"),
-    ("Length", "The field's declared length, as a number (same as Len)"),
     ("Split", "Split(sep) — the first piece; Split(sep)(n) — the n-th piece"),
 ];
 
@@ -374,7 +373,7 @@ fn receiver_known_control(id: &str, ctrl_type: &str) -> KnownControl {
     KnownControl {
         id: id.to_owned(),
         ctrl_type: ctrl_type.to_owned(),
-        properties: if ctrl_type == DATA_ITEM_TYPE { vec!["Length".to_owned()] } else { vec![] },
+        properties: if ctrl_type == DATA_ITEM_TYPE { vec!["Len".to_owned()] } else { vec![] },
         extra_methods: vec![],
     }
 }
@@ -1348,6 +1347,24 @@ pub struct EditorPanel {
     beautify_align_comments: bool,
     /// The PowerRustCOBOL layout style (operator, 2026-10-12).
     beautify_style: bool,
+
+    // ── One spelling for the value methods (operator, 2026-10-10) ───────────
+    /// What the editor rewrote on its own — an older value-method spelling
+    /// (`UpperCase`, `Length` …) written as `Upper` / `Len` when a file was saved
+    /// or beautified — and has not yet told the developer. The app drains it
+    /// into the Output panel; a rewrite that is not reported is not allowed.
+    pub canon_notices: Vec<crate::value_methods::Notice>,
+    /// Set by a host that edits one handler of a form (the designer's event and
+    /// procedure editors): such a buffer is a piece of a larger program, so only
+    /// the host can say which names in it are data items. Without one, the tab
+    /// is a whole program on disk and is judged by its own text.
+    pub canon_host: Option<crate::value_methods::CanonHost>,
+    /// The active tab's text from before the editor replaced it on its own (the
+    /// single spelling of the value methods, Beautify): the next frame makes it
+    /// an undo point of the text widget, so that ONE Ctrl+Z gives back exactly
+    /// that text. Without it the widget merges a replacement into whatever the
+    /// developer typed in the last second, and one Ctrl+Z takes both.
+    undo_checkpoint: Option<String>,
 }
 
 impl Default for EditorPanel {
@@ -1387,6 +1404,9 @@ impl Default for EditorPanel {
             beautify_verb_case: crate::panels::beautify::VerbCase::Upper,
             beautify_align_comments: false,
             beautify_style: true,
+            canon_notices: Vec::new(),
+            canon_host: None,
+            undo_checkpoint: None,
         }
     }
 }
@@ -2180,6 +2200,9 @@ impl EditorPanel {
 
     pub fn save_active(&mut self) -> std::io::Result<()> {
         let trim = self.trim_on_save;
+        if self.tabs.get(self.active).is_some_and(|t| !t.read_only) {
+            self.canonicalize_value_methods(self.active);
+        }
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return Ok(());
         };
@@ -2206,6 +2229,11 @@ impl EditorPanel {
     /// flow ("Save before close"). Stops at the first I/O error.
     pub fn save_all_dirty(&mut self) -> std::io::Result<()> {
         let trim = self.trim_on_save;
+        for idx in 0..self.tabs.len() {
+            if !self.tabs[idx].read_only && self.tabs[idx].dirty {
+                self.canonicalize_value_methods(idx);
+            }
+        }
         for tab in &mut self.tabs {
             if tab.read_only || !tab.dirty {
                 continue;
@@ -2241,13 +2269,49 @@ impl EditorPanel {
         match crate::panels::beautify::beautify_with_rules(&tab.content, &opts) {
             crate::panels::beautify::Beautified::Formatted(tidy) => {
                 if tidy != tab.content {
+                    self.undo_checkpoint.get_or_insert_with(|| tab.content.clone());
                     tab.content = tidy;
                     tab.dirty = true;
                 }
+                // The same pass writes the single spelling of the value
+                // methods — one replacement of the text, so one undo step.
+                self.canonicalize_value_methods(self.active);
             }
             crate::panels::beautify::Beautified::Rejected(errors) => {
                 self.beautify_errors = errors;
             }
+        }
+    }
+
+    /// Write the single spelling of the value methods into tab `idx`
+    /// (`Upper()`, `Lower()`, `Len()` for `UpperCase`/`ToUpperCase`,
+    /// `LowerCase`/`ToLowerCase`, `Length` — [`crate::value_methods`]), in the
+    /// buffer itself, so that what is on screen is what is written. Reported in
+    /// [`Self::canon_notices`]. Code that does not parse cleanly, a file that is
+    /// not COBOL, and generated code are left exactly as they are.
+    pub fn canonicalize_value_methods(&mut self, idx: usize) {
+        let host = self.canon_host.clone();
+        let Some(tab) = self.tabs.get_mut(idx) else {
+            return;
+        };
+        if tab.read_only || tab.is_markdown() {
+            return;
+        }
+        let (rewritten, place) = match &host {
+            Some(h) => ((h.rewrite)(&tab.content), h.place.clone()),
+            None if crate::value_methods::is_cobol_source(&tab.path) => (
+                crate::value_methods::rewrite_program(&tab.content, &tab.path),
+                tab.path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_owned(),
+            ),
+            None => return,
+        };
+        if let Some(r) = rewritten {
+            self.canon_notices.push(crate::value_methods::Notice::new(&r, place));
+            if idx == self.active {
+                self.undo_checkpoint.get_or_insert_with(|| tab.content.clone());
+            }
+            tab.content = r.text;
+            tab.dirty = true;
         }
     }
 
@@ -3738,6 +3802,20 @@ impl EditorPanel {
                         }
                     }
 
+                    // The editor replaced the text on its own since the last
+                    // frame: what was there becomes an undo point first.
+                    if let Some(before) = self.undo_checkpoint.take() {
+                        if let Some(mut state) = egui::TextEdit::load_state(ctx, editor_id) {
+                            let caret = state
+                                .cursor
+                                .char_range()
+                                .unwrap_or_else(|| egui::text::CCursorRange::one(egui::text::CCursor::new(0)));
+                            let mut undoer = state.undoer();
+                            undoer.add_undo(&(caret, before));
+                            state.set_undoer(undoer);
+                            state.store(ctx, editor_id);
+                        }
+                    }
                     let tab = &mut self.tabs[self.active];
                     let te_out = TextEdit::multiline(&mut tab.content)
                         .id(editor_id)
@@ -6806,27 +6884,32 @@ END-EVALUATE
         let mut names: Vec<&str> = got.iter().map(|(l, _)| l.as_str()).collect();
         names.sort_unstable();
         names.dedup();
-        let mut want: Vec<&str> = cobolt_ast::methods::DATA_ITEM_METHODS.to_vec();
+        let mut want: Vec<&str> = cobolt_ast::methods::CANONICAL_DATA_ITEM_METHODS.to_vec();
         want.sort_unstable();
-        assert_eq!(names, want, "exactly the language's value methods (Length is both a method and a property)");
+        assert_eq!(names, want, "exactly the language's canonical value methods (Len is both a method and a property)");
+        for older in ["UpperCase", "ToUpperCase", "LowerCase", "ToLowerCase", "Length"] {
+            assert!(!names.contains(&older), "{older} still runs but is never suggested");
+        }
         for control_only in ["Show", "Hide", "MoveTo", "SetFocus", "Resize", "BringToFront", "SetProperty"] {
             assert!(!names.contains(&control_only), "{control_only} is a control's method, not a data item's");
         }
-        // `Length` is offered as a property too: `WS-TEXT::Length` needs no parentheses.
-        assert!(got.iter().any(|(l, d)| l == "Length" && d == "property"), "{got:?}");
-        println!("  WS-TEXT:: offers {} value methods + the Length property: {names:?}", names.len());
+        // `Len` is offered as a property too: `WS-TEXT::Len` needs no parentheses.
+        assert!(got.iter().any(|(l, d)| l == "Len" && d == "property"), "{got:?}");
+        assert!(!got.iter().any(|(l, _)| l == "Length"), "the older spelling is not offered as a property either: {got:?}");
+        println!("  WS-TEXT:: offers {} value methods + the Len property: {names:?}", names.len());
     }
 
     #[test]
     fn the_value_methods_filter_by_prefix_and_follow_a_chain() {
         let (_, got) = offered("           MOVE WS-TEXT::up", &[]).unwrap();
         let labels: Vec<&str> = got.iter().map(|(l, _)| l.as_str()).collect();
-        assert!(labels.contains(&"UpperCase") && labels.contains(&"Upper") && labels.len() == 2, "{labels:?}");
+        assert_eq!(labels, vec!["Upper"], "typing `up` offers the one spelling, not UpperCase as well");
         // Every link after a data item is a value method, so the tail of a chain
         // offers the same list.
         let (ty, chain) = offered("           MOVE WS-TEXT::Trim()::", &[]).expect("a chain tail completes");
         assert_eq!(ty, DATA_ITEM_TYPE);
-        assert!(chain.iter().any(|(l, _)| l == "UpperCase"), "{chain:?}");
+        assert!(chain.iter().any(|(l, _)| l == "Upper"), "{chain:?}");
+        assert!(!chain.iter().any(|(l, _)| l == "UpperCase"), "{chain:?}");
         // A group and a table occurrence answer them too.
         assert_eq!(offered("           MOVE WS-GROUP::", &[]).unwrap().0, DATA_ITEM_TYPE);
         assert_eq!(offered("           MOVE WS-TEXT(2:3)::", &[]).unwrap().0, DATA_ITEM_TYPE);
@@ -6883,10 +6966,15 @@ END-EVALUATE
     #[test]
     fn the_popup_table_lists_exactly_the_languages_value_methods() {
         let mut docs: Vec<&str> = DATA_ITEM_METHOD_DOCS.iter().map(|(n, _)| *n).collect();
-        let mut lang: Vec<&str> = cobolt_ast::methods::DATA_ITEM_METHODS.to_vec();
+        let mut lang: Vec<&str> = cobolt_ast::methods::CANONICAL_DATA_ITEM_METHODS.to_vec();
         docs.sort_unstable();
         lang.sort_unstable();
         assert_eq!(docs, lang, "a method the language has but the popup lacks (or the reverse) is the bug this guards");
+        // The older spellings are the language's too, and are not in the popup.
+        for older in cobolt_ast::methods::DATA_ITEM_METHOD_ALIASES {
+            assert!(cobolt_ast::methods::is_data_item_method(older.0), "{} still runs", older.0);
+            assert!(!docs.contains(&older.0), "{} must not be suggested", older.0);
+        }
         // …and each is one the analyser accepts.
         for (n, d) in DATA_ITEM_METHOD_DOCS {
             assert!(cobolt_ast::methods::is_data_item_method(n), "{n}");
@@ -7285,6 +7373,219 @@ mod encoding_tests {
         assert!(String::from_utf8(saved).unwrap().contains("Ação\n      *> 日本"), "UTF-8 rather than lose 日本");
         assert!(!ed.tabs[0].windows_1252);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// One spelling for the value methods (operator, 2026-10-10): saving or
+/// beautifying a COBOL file writes `Upper()` / `Lower()` / `Len()` for the older
+/// spellings — in the buffer, on disk, reported, and undone by one Ctrl+Z.
+#[cfg(test)]
+mod value_method_tests {
+    use super::*;
+
+    const PROGRAM: &str = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DEMO.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-NAME   PIC X(20) VALUE \"  ada  \".
+       01  WS-OUT    PIC X(20).
+       01  WS-N      PIC 9(4).
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           MOVE WS-NAME::Trim()::UpperCase() TO WS-OUT.
+           COMPUTE WS-N = WS-NAME::Length().
+           MOVE WS-NAME::ToLowerCase() TO WS-OUT. *> ::Length stays in a comment
+           STOP RUN.
+";
+
+    fn in_dir(dir: &std::path::Path, name: &str, text: &str) -> EditorPanel {
+        let path = dir.join(name);
+        std::fs::write(&path, text).unwrap();
+        let mut ed = EditorPanel::new();
+        ed.open_file_ro(path, false);
+        ed
+    }
+
+    #[test]
+    fn saving_a_cobol_file_writes_the_single_spelling_to_the_buffer_the_disk_and_the_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ed = in_dir(dir.path(), "demo.cbl", PROGRAM);
+        ed.tabs[0].dirty = true;
+        ed.save_active().unwrap();
+
+        let on_disk = std::fs::read_to_string(dir.path().join("demo.cbl")).unwrap();
+        assert_eq!(on_disk, ed.tabs[0].content, "what is on screen is what is on disk");
+        assert!(on_disk.contains("MOVE WS-NAME::Trim()::Upper() TO WS-OUT."), "{on_disk}");
+        assert!(on_disk.contains("COMPUTE WS-N = WS-NAME::Len()."), "{on_disk}");
+        assert!(on_disk.contains("MOVE WS-NAME::Lower() TO WS-OUT. *> ::Length stays in a comment"), "{on_disk}");
+        assert!(!ed.tabs[0].dirty);
+        // Everything else is byte for byte what it was.
+        assert_eq!(on_disk.replace("Upper()", "UpperCase()").replace("::Len()", "::Length()").replace("::Lower()", "::ToLowerCase()"), PROGRAM);
+
+        assert_eq!(ed.canon_notices.len(), 1);
+        assert_eq!((ed.canon_notices[0].count, ed.canon_notices[0].place.as_str()), (3, "demo.cbl"));
+        // Saved again, it has nothing to change and says nothing.
+        ed.canon_notices.clear();
+        ed.tabs[0].dirty = true;
+        ed.save_active().unwrap();
+        assert!(ed.canon_notices.is_empty());
+    }
+
+    #[test]
+    fn save_all_covers_every_dirty_cobol_tab_and_only_those() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ed = in_dir(dir.path(), "a.cbl", PROGRAM);
+        for (name, text) in [("b.cob", PROGRAM), ("notes.txt", PROGRAM), ("README.md", PROGRAM), ("clean.cbl", PROGRAM)] {
+            std::fs::write(dir.path().join(name), text).unwrap();
+            ed.open_file_ro(dir.path().join(name), false);
+        }
+        // clean.cbl is not dirty: save-all does not touch what the developer did not change.
+        for t in ed.tabs.iter_mut().filter(|t| !t.path.ends_with("clean.cbl")) {
+            t.dirty = true;
+        }
+        ed.save_all_dirty().unwrap();
+        let read = |n: &str| std::fs::read_to_string(dir.path().join(n)).unwrap();
+        assert!(read("a.cbl").contains("::Upper()") && read("b.cob").contains("::Upper()"));
+        assert_eq!(read("notes.txt"), PROGRAM, "not COBOL");
+        assert_eq!(read("README.md"), PROGRAM, "not COBOL");
+        assert_eq!(read("clean.cbl"), PROGRAM, "not dirty, not written");
+        assert_eq!(ed.canon_notices.len(), 2);
+    }
+
+    #[test]
+    fn code_that_does_not_parse_and_generated_code_are_left_exactly_as_typed() {
+        let dir = tempfile::tempdir().unwrap();
+        let broken = PROGRAM.replace("STOP RUN.", "IF WS-N::Length THEN THEN ((");
+        let mut ed = in_dir(dir.path(), "broken.cbl", &broken);
+        ed.tabs[0].dirty = true;
+        ed.save_active().unwrap();
+        assert_eq!(std::fs::read_to_string(dir.path().join("broken.cbl")).unwrap(), broken);
+        assert!(ed.canon_notices.is_empty());
+
+        let mut ed = in_dir(dir.path(), "gen.cbl", PROGRAM);
+        ed.tabs[0].read_only = true;
+        ed.tabs[0].dirty = true;
+        ed.save_all_dirty().unwrap();
+        ed.save_active().unwrap();
+        assert_eq!(ed.tabs[0].content, PROGRAM, "generated code is regenerated, never edited");
+        assert!(ed.canon_notices.is_empty());
+    }
+
+    #[test]
+    fn beautify_writes_the_single_spelling_in_the_same_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ed = in_dir(dir.path(), "demo.cbl", PROGRAM);
+        ed.beautify_active();
+        assert!(ed.beautify_errors.is_empty(), "{:?}", ed.beautify_errors);
+        let text = &ed.tabs[0].content;
+        assert!(text.to_ascii_uppercase().contains("WS-NAME::TRIM()::UPPER()"), "{text}");
+        assert!(!text.contains("UpperCase") && !text.contains("ToLowerCase"), "{text}");
+        assert!(text.contains("*> ::Length stays in a comment"), "{text}");
+        assert!(ed.tabs[0].dirty);
+        assert_eq!(ed.canon_notices.len(), 1);
+    }
+
+    /// The receiver rule rests on this: a name a developer could mean as a
+    /// control's own member must not be one the rewrite changes or lands on.
+    /// Every built-in control type's properties (design-time and runtime) and
+    /// methods, the form's own methods and properties and a layer's properties
+    /// are checked against the older spellings AND the canonical ones; a control a
+    /// developer defines (User Control, plugin) is judged by the receiver rule
+    /// instead — the rewrite never touches a link that follows a control.
+    #[test]
+    fn no_built_in_member_is_spelled_like_a_value_method() {
+        let value_methods: Vec<&str> = cobolt_ast::methods::DATA_ITEM_METHODS.to_vec();
+        let mut checked = 0usize;
+        let mut check = |owner: &str, member: &str| {
+            for v in &value_methods {
+                assert!(!member.eq_ignore_ascii_case(v), "{owner} has a member '{member}' spelled like the value method '{v}'");
+            }
+            checked += 1;
+        };
+        for ty in cobolt_forms::ControlType::ALL {
+            let name = format!("{ty:?}");
+            for p in cobolt_forms::model::property_names_for(&name) {
+                check(&name, &p);
+            }
+            for p in cobolt_forms::model::runtime_property_names_for(&name) {
+                check(&name, p);
+            }
+            for m in method_names_for_type(&name) {
+                check(&name, &m);
+            }
+        }
+        for (m, _) in cobolt_runtime::form_host::FORM_METHODS {
+            check("a form", m);
+        }
+        for p in cobolt_semantic::resolver::UNIVERSAL_FORM_PROPS {
+            check("a form", p);
+        }
+        for p in cobolt_forms::model::LAYER_PROPS {
+            check("a layer", p);
+        }
+        for b in cobolt_runtime::builtins::BUILTINS {
+            check("the COBOL object", b.name);
+        }
+        println!("  receiver safety: {checked} built-in control/form/layer members checked against the {} value-method spellings: none collides", value_methods.len());
+        assert!(checked > 500, "the sweep must actually sweep: {checked}");
+    }
+
+    // ── Undo ─────────────────────────────────────────────────────────────────
+
+    fn frame(ctx: &egui::Context, ed: &mut EditorPanel, time: f64, events: Vec<egui::Event>) {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0)));
+        input.time = Some(time);
+        input.events = events;
+        ctx.run_ui(input, |root| {
+            let c = root.ctx().clone();
+            egui::CentralPanel::default().show_inside(root, |ui| ed.render_code_area(&c, ui));
+        })
+        .textures_delta
+        .clear();
+    }
+
+    fn ctrl_z() -> egui::Event {
+        egui::Event::Key {
+            key: Key::Z,
+            physical_key: Some(Key::Z),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }
+    }
+
+    /// The developer types, saves within the second, and presses Ctrl+Z once:
+    /// the single spelling goes, the typing stays. (Without the checkpoint the
+    /// text widget would have merged the rewrite into the typing, and one
+    /// Ctrl+Z would have taken both.)
+    #[test]
+    fn one_ctrl_z_gives_back_the_spellings_that_were_saved_and_keeps_the_typing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ed = in_dir(dir.path(), "demo.cbl", PROGRAM);
+        let ctx = egui::Context::default();
+        let id = ed.ui_id("editor");
+        frame(&ctx, &mut ed, 0.0, vec![]);
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&ctx, &mut ed, 0.1, vec![]);
+        frame(&ctx, &mut ed, 2.0, vec![]); // the file as opened is an undo point
+
+        // The developer types a line (a change between frames, like an edit) …
+        ed.tabs[0].content = ed.tabs[0].content.replace("STOP RUN.", "DISPLAY \"typed\".\n           STOP RUN.");
+        ed.tabs[0].dirty = true;
+        let typed = ed.tabs[0].content.clone();
+        assert!(typed.contains("UpperCase") && typed.contains("typed"));
+        frame(&ctx, &mut ed, 2.2, vec![]);
+        // … and saves at once (0.2 s later: far inside the widget's 1 s window).
+        ed.save_active().unwrap();
+        let saved = ed.tabs[0].content.clone();
+        assert!(saved.contains("::Upper()") && !saved.contains("UpperCase") && saved.contains("typed"));
+        frame(&ctx, &mut ed, 2.4, vec![]);
+        assert_eq!(ed.tabs[0].content, saved, "the widget does not disturb it");
+
+        frame(&ctx, &mut ed, 2.6, vec![ctrl_z()]);
+        assert_eq!(ed.tabs[0].content, typed, "one Ctrl+Z: the spellings the developer typed, and the typing");
     }
 }
 
