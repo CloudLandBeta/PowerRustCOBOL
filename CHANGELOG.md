@@ -17,6 +17,12 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.7] — 2026-10-12
+
+### Fixed
+- **Verb casing no longer recases a member name or a receiver.** `NUD-AGE::Value` became `NUD-AGE::VALUE`, `Timer-1::Start()` became `::START()` and `super::GetProperty` became `SUPER::GetProperty`, because the words matched reserved words. A word right before or right after `::` keeps its spelling.
+- **A lone call ending in a period is no paragraph header.** `Txt-Log::AppendText(WS-NL).` is one word with a period, and Beautify took it for a paragraph name: it put it in column 8 and added a period to the line before. About 150 handlers have that shape. A paragraph name is letters, digits, hyphens and underscores.
+
 ## [PowerRustCOBOL 1.91.6] — 2026-10-12
 
 ### Added

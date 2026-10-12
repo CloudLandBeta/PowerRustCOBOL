@@ -403,8 +403,16 @@ fn case_reserved(s: &str, reserved: &HashSet<&'static str>, mode: VerbCase) -> S
     let mut word = String::new();
     let mut quote: Option<char> = None;
 
-    let flush = |out: &mut String, word: &mut String| {
+    let flush = |out: &mut String, word: &mut String, receiver: bool| {
         if word.is_empty() {
+            return;
+        }
+        // A member name (`NUD-AGE::Value`, `Timer-1::Start()`) and a receiver
+        // (`super::GetProperty`, `me::Close`) are the developer's own spelling,
+        // never a verb, even when they match a reserved word.
+        if receiver || out.ends_with("::") {
+            out.push_str(word);
+            word.clear();
             return;
         }
         let trailing_period = word.ends_with('.');
@@ -438,7 +446,8 @@ fn case_reserved(s: &str, reserved: &HashSet<&'static str>, mode: VerbCase) -> S
         word.clear();
     };
 
-    for c in s.chars() {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
         if let Some(q) = quote {
             out.push(c);
             if c == q {
@@ -447,17 +456,18 @@ fn case_reserved(s: &str, reserved: &HashSet<&'static str>, mode: VerbCase) -> S
             continue;
         }
         if c == '"' || c == '\'' {
-            flush(&mut out, &mut word);
+            flush(&mut out, &mut word, false);
             quote = Some(c);
             out.push(c);
         } else if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
             word.push(c);
         } else {
-            flush(&mut out, &mut word);
+            let receiver = c == ':' && chars.get(i + 1) == Some(&':');
+            flush(&mut out, &mut word, receiver);
             out.push(c);
         }
     }
-    flush(&mut out, &mut word);
+    flush(&mut out, &mut word, false);
     out
 }
 
@@ -955,6 +965,7 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                         // its sentence (`END-IF.`, `ELSE.`, `END-TRY.`).
                         let is_paragraph = words.len() == 1
                             && words[0].ends_with('.')
+                            && first.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
                             && !reserved.contains(first)
                             && !first.starts_with("END-")
                             && !matches!(first, "ELSE" | "WHEN" | "CATCH" | "FINALLY");
@@ -1564,5 +1575,26 @@ mod tests {
         assert_eq!(col_of(lines[3]), if_col, "ELSE: {out}");
         assert_eq!(col_of(lines[4]), if_col + 4, "else body: {out}");
         assert_eq!(col_of(lines[5]), if_col, "END-IF: {out}");
+    }
+
+    // Member names keep their spelling whatever the verb casing.
+    #[test]
+    fn member_names_are_never_recased() {
+        let out = fmt("MAIN-P.\n    move nud-age::Value to lbl-1::Text\n    Timer-1::Start()\n");
+        assert!(out.contains("nud-age::Value"), "{out}");
+        assert!(out.contains("lbl-1::Text"), "{out}");
+        assert!(out.contains("Timer-1::Start()"), "{out}");
+        let out = fmt("MAIN-P.\n    invoke super::GetProperty(\"A\") returning ws-x\n    me::Close()\n");
+        assert!(out.contains("super::GetProperty"), "a receiver keeps its spelling:\n{out}");
+        assert!(out.contains("me::Close()"), "{out}");
+    }
+
+    // A bare call is not a paragraph header, with or without the style.
+    #[test]
+    fn a_lone_call_ending_in_a_period_is_no_paragraph() {
+        let out = fmt("MAIN-P.\n    DISPLAY \"A\"\n    Txt-Log::AppendText(WS-NL).\n");
+        let call = out.lines().find(|l| l.contains("AppendText")).unwrap();
+        assert_eq!(col_of(call), 12, "{out}");
+        assert!(out.contains("DISPLAY \"A\"\n"), "no period was added before it:\n{out}");
     }
 }
