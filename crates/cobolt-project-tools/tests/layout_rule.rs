@@ -61,6 +61,27 @@ fn lint(src: &str) -> Vec<String> {
             }
         }
 
+        // (3) every other verb: 4 spaces before its predicate.
+        for verb in ["DISPLAY", "ADD", "IF", "PERFORM", "CALL", "STRING", "COMPUTE", "OPEN", "CLOSE", "READ"] {
+            if t.starts_with(&format!("{verb} ")) {
+                let at = indent(line) + verb.len();
+                if !(line[at..].starts_with("    ") && !line[at + 4..].starts_with(' ')) {
+                    breaches.push(format!("line {n}: `{verb}` is not followed by 4 spaces"));
+                }
+            }
+        }
+
+        // Data entries: the first clause after the name starts in column 50.
+        let words: Vec<&str> = t.split_whitespace().collect();
+        let level = words.first().is_some_and(|w| w.len() == 2 && w.chars().all(|c| c.is_ascii_digit()));
+        if level && words.len() >= 3 && ["PIC", "PICTURE", "OCCURS", "VALUE", "REDEFINES"].contains(&words[2].trim_end_matches('.')) {
+            let after_name = indent(line) + words[0].len() + 1 + words[1].len();
+            let clause_at = after_name + line[after_name..].len() - line[after_name..].trim_start().len();
+            if clause_at != 49 {
+                breaches.push(format!("line {n}: the first data clause is not in column 50: {t}"));
+            }
+        }
+
         // (7) a method is a statement of its own: no INVOKE before object::method().
         if t.starts_with("INVOKE ") && t.contains("::") {
             breaches.push(format!("line {n}: INVOKE before a method call: {t}"));
@@ -112,9 +133,9 @@ fn the_layout_program_obeys_the_layout() {
 /// The lint is not vacuous: it names each breach it is built to find.
 #[test]
 fn the_lint_finds_what_it_is_built_to_find() {
-    let bad = "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       PROCEDURE DIVISION.\n           MOVE 1 TO WS-A\n           INVOKE TXT-1::Clear()\n           *> comment\n           SET     WS-B                          TO    2\n";
+    let bad = "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01 WS-A PIC X.\n       PROCEDURE DIVISION.\n           DISPLAY \"X\"\n           MOVE 1 TO WS-A\n           INVOKE TXT-1::Clear()\n           *> comment\n           SET     WS-B                          TO    2\n";
     let breaches = lint(bad);
-    for needle in ["no blank line before `WORKING-STORAGE SECTION.`", "`MOVE` is not followed by 4 spaces", "TO is not in column 50", "INVOKE before a method call", "no blank line"] {
+    for needle in ["no blank line before `WORKING-STORAGE SECTION.`", "`MOVE` is not followed by 4 spaces", "TO is not in column 50", "INVOKE before a method call", "no blank line", "`DISPLAY` is not followed by 4 spaces", "first data clause is not in column 50"] {
         assert!(breaches.iter().any(|b| b.contains(needle)), "missing `{needle}` in {breaches:#?}");
     }
 }

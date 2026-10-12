@@ -194,29 +194,34 @@
        PROGRAM-ID. FILEDROPZONE-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "ready - " Fdz-Docs::Hint INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "ready - " Fdz-Docs::Hint INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -243,54 +248,62 @@
        PROGRAM-ID. FDZ-DOCS--ONFILESDROPPED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> DroppedFiles is written by the engine: the accepted files, one per line.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "accepted:" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> DroppedFiles is written by the engine: the accepted files, one per line.
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
 
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           MOVE Fdz-Docs::DroppedFiles TO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).
+           STRING    "accepted:" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL)
+
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           SET     WS-LINE                       TO    Fdz-Docs::DroppedFiles
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL)
+
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Btn-Commit::Enable().
 
            GOBACK.
@@ -301,31 +314,36 @@
        PROGRAM-ID. FDZ-DOCS--ONFILESREJECTED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> A file is turned away for its extension or its size - never silently.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "rejected - only " Fdz-Docs::AllowedExtensions
-                  " up to " Fdz-Docs::MaximumFileSizeKB " KB are taken" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> A file is turned away for its extension or its size - never silently.
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "rejected - only " Fdz-Docs::AllowedExtensions
+               " up to " Fdz-Docs::MaximumFileSizeKB " KB are taken" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -336,37 +354,43 @@
        PROGRAM-ID. BTN-COMMIT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> CommitFiles copies the staged files into DestinationFolder.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Fdz-Docs::CommitFiles().
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           MOVE Fdz-Docs::CommitSummary TO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> CommitFiles copies the staged files into DestinationFolder.
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Fdz-Docs::CommitFiles()
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           SET     WS-LINE                       TO    Fdz-Docs::CommitSummary
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -377,31 +401,36 @@
        PROGRAM-ID. BTN-RULES--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "extensions=" Fdz-Docs::AllowedExtensions
-                  "  max KB=" Fdz-Docs::MaximumFileSizeKB
-                  "  stage only=" Fdz-Docs::StageOnly INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "extensions=" Fdz-Docs::AllowedExtensions
+               "  max KB=" Fdz-Docs::MaximumFileSizeKB
+               "  stage only=" Fdz-Docs::StageOnly INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -412,18 +441,22 @@
        PROGRAM-ID. BTN-CLEAR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Txt-Log::Clear().
 
            GOBACK.

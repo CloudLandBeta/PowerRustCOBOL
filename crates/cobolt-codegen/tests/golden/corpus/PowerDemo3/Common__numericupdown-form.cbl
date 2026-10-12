@@ -218,37 +218,43 @@
        PROGRAM-ID. NUMERICUPDOWN-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
-      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
-      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
-      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
-      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
-      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
-           COMPUTE Num-Total::Value = Num-Qty::Value * Num-Price::Value.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "ready - " Num-Qty::Value " x " Num-Price::Value
-                  " = " Num-Total::Value INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+           *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+           *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+           *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+           *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+           *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
+
+           COMPUTE    Num-Total::Value = Num-Qty::Value * Num-Price::Value
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "ready - " Num-Qty::Value " x " Num-Price::Value
+               " = " Num-Total::Value INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -275,54 +281,62 @@
        PROGRAM-ID. NUM-QTY--ONVALUECHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> Re-price the order the moment the quantity moves.
-      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
-      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
-      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
-      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
-      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
-      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
-           COMPUTE Num-Total::Value = Num-Qty::Value * Num-Price::Value.
-      *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
-      *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
-      *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
-      *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
-      *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
-      *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
-           IF Num-Qty::Value > 50
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE "Bulk order - ask for a quote." TO Lbl-Hint::Caption
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> Re-price the order the moment the quantity moves.
+           *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+           *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+           *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+           *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+           *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+           *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
+
+           COMPUTE    Num-Total::Value = Num-Qty::Value * Num-Price::Value
+           *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
+           *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
+           *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
+           *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
+           *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
+           *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
+
+           IF    Num-Qty::Value > 50
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Lbl-Hint::Caption         TO    "Bulk order - ask for a quote."
            ELSE
-               MOVE SPACES TO Lbl-Hint::Caption
-           END-IF.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "qty=" Num-Qty::Value "  total=" Num-Total::Value INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+               SET     Lbl-Hint::Caption         TO    SPACES
+           END-IF
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "qty=" Num-Qty::Value "  total=" Num-Total::Value INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -333,19 +347,23 @@
        PROGRAM-ID. NUM-PRICE--ONVALUECHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
-      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
-      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
-      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
-      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
-      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
-           COMPUTE Num-Total::Value = Num-Qty::Value * Num-Price::Value.
+           *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+           *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+           *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+           *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+           *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+           *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
+
+           COMPUTE    Num-Total::Value = Num-Qty::Value * Num-Price::Value.
 
            GOBACK.
 
@@ -355,19 +373,23 @@
        PROGRAM-ID. BTN-UP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Increment moves by the control's own Step and stops at Maximum.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> Increment moves by the control's own Step and stops at Maximum.
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Num-Qty::Increment().
 
            GOBACK.
@@ -378,18 +400,22 @@
        PROGRAM-ID. BTN-DOWN--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Num-Qty::Decrement().
 
            GOBACK.
@@ -400,27 +426,32 @@
        PROGRAM-ID. BTN-RESET--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Reset puts the value back to Minimum; INITIALIZE zeroes it instead.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Num-Qty::Reset().
-      *> EN: EXTENSION - INITIALIZE on a control resets its Value property.
-      *> PT: EXTENSAO - INITIALIZE em um controle redefine a propriedade Value dele.
-      *> ES: EXTENSION - INITIALIZE sobre un control reinicia su propiedad Value.
-      *> FR: EXTENSION - INITIALIZE sur un controle reinitialise sa propriete Value.
-      *> JP: EXTENSION - コントロールに対する INITIALIZE は Value プロパティを初期化する。
-      *> CN: EXTENSION - 对控件执行 INITIALIZE 会重置其 Value 属性。
-           INITIALIZE Num-Price.
+           *> Reset puts the value back to Minimum; INITIALIZE zeroes it instead.
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Num-Qty::Reset()
+           *> EN: EXTENSION - INITIALIZE on a control resets its Value property.
+           *> PT: EXTENSAO - INITIALIZE em um controle redefine a propriedade Value dele.
+           *> ES: EXTENSION - INITIALIZE sobre un control reinicia su propiedad Value.
+           *> FR: EXTENSION - INITIALIZE sur un controle reinitialise sa propriete Value.
+           *> JP: EXTENSION - コントロールに対する INITIALIZE は Value プロパティを初期化する。
+           *> CN: EXTENSION - 对控件执行 INITIALIZE 会重置其 Value 属性。
+
+           INITIALIZE    Num-Price.
 
            GOBACK.
 
@@ -430,18 +461,22 @@
        PROGRAM-ID. BTN-CLEAR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Txt-Log::Clear().
 
            GOBACK.

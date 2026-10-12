@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="RESPONSIVE-COLLIDE-FORM" title="Responsive - the window stops before controls touch" width="900" height="560" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
   <FormLayout MinFormHeight="540" MinFormWidth="640"/>
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -55,57 +55,70 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="COL-SHOW-INFO" paragraph="COL-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-COLLIDE-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "COL-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "COL-SHOW-INFO"
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-COLLIDE-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-COLLIDE-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "COL-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "COL-SHOW-INFO"
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-COLLIDE-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "COL-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "COL-SHOW-INFO"
 ]]></Event>
   </form-events>
   <Control id="LBL-TITLE" type="Label" x="24" y="14" w="852" h="32" tab-order="0" z-order="0" visible="true" enabled="true">

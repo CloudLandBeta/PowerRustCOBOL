@@ -47,56 +47,64 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="RESTAPI-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Everything the control will use, read back from the control itself.
-      *> The token is NEVER printed - only whether one is configured.
+           *> Everything the control will use, read back from the control itself.
+           *> The token is NEVER printed - only whether one is configured.
 
-           INVOKE TextBox-LOG::AppendText("RestClient-1 configuration")
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText("RestClient-1 configuration")
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           TextBox-LOG::AppendText(WS-NL)
 
-           MOVE RestClient-1::BaseURL TO WS-LINE
-           INVOKE TextBox-LOG::AppendText("   BaseURL:   ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           SET     WS-LINE                       TO    RestClient-1::BaseURL
 
-           MOVE RestClient-1::DefaultMethod TO WS-LINE
-           INVOKE TextBox-LOG::AppendText("   Method:    ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText("   BaseURL:   ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(WS-NL)
 
-           MOVE RestClient-1::AuthType TO WS-LINE
-           INVOKE TextBox-LOG::AppendText("   AuthType:  ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           SET     WS-LINE                       TO    RestClient-1::DefaultMethod
 
-           MOVE RestClient-1::AuthToken TO WS-LINE
-           IF FUNCTION TRIM(WS-LINE) = SPACES
-               INVOKE TextBox-LOG::AppendText("   AuthToken: (none configured)")
+           TextBox-LOG::AppendText("   Method:    ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-LINE                       TO    RestClient-1::AuthType
+
+           TextBox-LOG::AppendText("   AuthType:  ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-LINE                       TO    RestClient-1::AuthToken
+           IF    FUNCTION TRIM(WS-LINE) = SPACES
+               TextBox-LOG::AppendText("   AuthToken: (none configured)")
            ELSE
-               INVOKE TextBox-LOG::AppendText("   AuthToken: (configured, sent as X-API-Key)")
+               TextBox-LOG::AppendText("   AuthToken: (configured, sent as X-API-Key)")
            END-IF
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText(WS-NL)
 
-           MOVE RestClient-1::Mode TO WS-LINE
-           INVOKE TextBox-LOG::AppendText("   Mode:      ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(" (Async returns at once; the answer arrives as an event)")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           SET     WS-LINE                       TO    RestClient-1::Mode
 
-           MOVE "ready" TO Label-STATUS::Caption
-           DISPLAY "restapi-form ready".
+           TextBox-LOG::AppendText("   Mode:      ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(" (Async returns at once; the answer arrives as an event)")
+           TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     Label-STATUS::Caption         TO    "ready"
+           DISPLAY    "restapi-form ready".
 ]]></Event>
     <Event name="onClose" paragraph="RESTAPI-FORM--ONCLOSE">
     </Event>
@@ -174,46 +182,58 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-GET--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The idiomatic call: the address is configured in the designer and the
-      *> handler asks for it with NO argument. Before 1.62.144 this requested
-      *> the empty string and could only fail.
-      *> Mode is Async, so Get() RETURNS IMMEDIATELY and the answer arrives at
-      *> onComplete / onError / onTimeout. Nothing below this line has the
-      *> response yet - that is what the log is for.
+           *> The idiomatic call: the address is configured in the designer and the
+           *> handler asks for it with NO argument. Before 1.62.144 this requested
+           *> the empty string and could only fail.
+           *> Mode is Async, so Get() RETURNS IMMEDIATELY and the answer arrives at
+           *> onComplete / onError / onTimeout. Nothing below this line has the
+           *> response yet - that is what the log is for.
 
-           MOVE "calling..." TO Label-STATUS::Caption
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- GET (BaseURL, no argument)")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE RestClient-1::BaseURL TO WS-LINE
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   url:     ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE RestClient-1::AuthType TO WS-LINE
-           INVOKE TextBox-LOG::AppendText("   auth:    ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE RestClient-1::TimeoutMs TO WS-LINE
-           INVOKE TextBox-LOG::AppendText("   timeout: ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(" ms")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           SET     Label-STATUS::Caption         TO    "calling..."
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
 
-           INVOKE RestClient-1::Get()
+           TextBox-LOG::AppendText("-- GET (BaseURL, no argument)")
+           TextBox-LOG::AppendText(WS-NL)
 
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   sent - waiting for onComplete / onError / onTimeout")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST: GET issued".
+           SET     WS-LINE                       TO    RestClient-1::BaseURL
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   url:     ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-LINE                       TO    RestClient-1::AuthType
+
+           TextBox-LOG::AppendText("   auth:    ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-LINE                       TO    RestClient-1::TimeoutMs
+
+           TextBox-LOG::AppendText("   timeout: ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(" ms")
+           TextBox-LOG::AppendText(WS-NL)
+
+           RestClient-1::Get()
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   sent - waiting for onComplete / onError / onTimeout")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST: GET issued".
 ]]></Event>
   </Control>
   <Control id="Button-REST-GETURL" type="Button" x="340" y="96" w="300" h="40" tab-order="0" z-order="3" visible="true" enabled="true">
@@ -241,28 +261,35 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-GETURL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> An argument that carries its own scheme WINS over BaseURL, so a
-      *> handler can go somewhere else without disturbing the designed address.
+           *> An argument that carries its own scheme WINS over BaseURL, so a
+           *> handler can go somewhere else without disturbing the designed address.
 
-           MOVE "calling..." TO Label-STATUS::Caption
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- GET (explicit url)")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/api/users?page=2")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE RestClient-1::Get("https://reqres.in/api/users?page=2")
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   sent")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST: GET explicit issued".
+           SET     Label-STATUS::Caption         TO    "calling..."
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("-- GET (explicit url)")
+           TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText("   url:     https://reqres.in/api/users?page=2")
+           TextBox-LOG::AppendText(WS-NL)
+           RestClient-1::Get("https://reqres.in/api/users?page=2")
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   sent")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST: GET explicit issued".
 ]]></Event>
   </Control>
   <Control id="Button-REST-POST" type="Button" x="656" y="96" w="300" h="40" tab-order="0" z-order="4" visible="true" enabled="true">
@@ -290,34 +317,42 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-POST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
-       01 WS-BODY PIC X(200).
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+       01 WS-BODY                                PIC    X(200).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> POST carries a body; GET and DELETE do not. Build the payload in
-      *> COBOL first - it is data, not a format string.
+           *> POST carries a body; GET and DELETE do not. Build the payload in
+           *> COBOL first - it is data, not a format string.
 
-           MOVE "calling..." TO Label-STATUS::Caption
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- POST")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE '{"name":"morpheus","job":"leader"}' TO WS-BODY
-           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/users")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE TextBox-LOG::AppendText("   payload: ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-BODY))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           SET     Label-STATUS::Caption         TO    "calling..."
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
 
-           INVOKE RestClient-1::Post("https://reqres.in/users", FUNCTION TRIM(WS-BODY))
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   sent")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST: POST issued".
+           TextBox-LOG::AppendText("-- POST")
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-BODY                       TO    '{"name":"morpheus","job":"leader"}'
+
+           TextBox-LOG::AppendText("   url:     https://reqres.in/users")
+           TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText("   payload: ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-BODY))
+           TextBox-LOG::AppendText(WS-NL)
+
+           RestClient-1::Post("https://reqres.in/users", FUNCTION TRIM(WS-BODY))
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   sent")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST: POST issued".
 ]]></Event>
   </Control>
   <Control id="Button-REST-404" type="Button" x="972" y="96" w="284" h="40" tab-order="0" z-order="5" visible="true" enabled="true">
@@ -345,29 +380,36 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-404--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> A 4xx is a REAL RESPONSE, not a transport failure: it arrives at
-      *> onComplete with its own StatusCode and body. onError is for the call
-      *> never completing at all - DNS, TLS, a refused connection.
+           *> A 4xx is a REAL RESPONSE, not a transport failure: it arrives at
+           *> onComplete with its own StatusCode and body. onError is for the call
+           *> never completing at all - DNS, TLS, a refused connection.
 
-           MOVE "calling..." TO Label-STATUS::Caption
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- GET a path that does not exist")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/unknown/99999")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE RestClient-1::Get("https://reqres.in/unknown/99999")
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   sent - expect onComplete with status 404")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST: 404 probe issued".
+           SET     Label-STATUS::Caption         TO    "calling..."
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("-- GET a path that does not exist")
+           TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText("   url:     https://reqres.in/unknown/99999")
+           TextBox-LOG::AppendText(WS-NL)
+           RestClient-1::Get("https://reqres.in/unknown/99999")
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   sent - expect onComplete with status 404")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST: 404 probe issued".
 ]]></Event>
   </Control>
   <Control id="Button-REST-BADHOST" type="Button" x="24" y="152" w="300" h="40" tab-order="0" z-order="6" visible="true" enabled="true">
@@ -395,28 +437,35 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-BADHOST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> A host that cannot be resolved never produces an HTTP status at all,
-      *> so this is the onError path. LastError carries the reason.
+           *> A host that cannot be resolved never produces an HTTP status at all,
+           *> so this is the onError path. LastError carries the reason.
 
-           MOVE "calling..." TO Label-STATUS::Caption
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- GET a host that does not resolve")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE TextBox-LOG::AppendText("   url:     https://no-such-host.invalid/x")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE RestClient-1::Get("https://no-such-host.invalid/x")
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   sent - expect onError")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST: bad host issued".
+           SET     Label-STATUS::Caption         TO    "calling..."
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("-- GET a host that does not resolve")
+           TextBox-LOG::AppendText(WS-NL)
+           TextBox-LOG::AppendText("   url:     https://no-such-host.invalid/x")
+           TextBox-LOG::AppendText(WS-NL)
+           RestClient-1::Get("https://no-such-host.invalid/x")
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   sent - expect onError")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST: bad host issued".
 ]]></Event>
   </Control>
   <Control id="Button-REST-TIMEOUT" type="Button" x="340" y="152" w="300" h="40" tab-order="0" z-order="7" visible="true" enabled="true">
@@ -444,30 +493,37 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-TIMEOUT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> SetTimeout is in SECONDS. One second against a deliberately slow
-      *> endpoint gives onTimeout rather than onComplete. The timeout is put
-      *> back afterwards so the other buttons still work.
+           *> SetTimeout is in SECONDS. One second against a deliberately slow
+           *> endpoint gives onTimeout rather than onComplete. The timeout is put
+           *> back afterwards so the other buttons still work.
 
-           MOVE "calling..." TO Label-STATUS::Caption
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- GET with a 1 second timeout")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE RestClient-1::SetTimeout(1)
-           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/users?delay=6")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE RestClient-1::Get("https://reqres.in/users?delay=6")
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   sent - expect onTimeout")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST: timeout probe issued".
+           SET     Label-STATUS::Caption         TO    "calling..."
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("-- GET with a 1 second timeout")
+           TextBox-LOG::AppendText(WS-NL)
+           RestClient-1::SetTimeout(1)
+           TextBox-LOG::AppendText("   url:     https://reqres.in/users?delay=6")
+           TextBox-LOG::AppendText(WS-NL)
+           RestClient-1::Get("https://reqres.in/users?delay=6")
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   sent - expect onTimeout")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST: timeout probe issued".
 ]]></Event>
   </Control>
   <Control id="Button-REST-CANCEL" type="Button" x="656" y="152" w="300" h="40" tab-order="0" z-order="8" visible="true" enabled="true">
@@ -495,26 +551,33 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Cancel() abandons whatever is running on THIS control. It fires
-      *> onCancelled; the response, if it ever arrives, is discarded.
+           *> Cancel() abandons whatever is running on THIS control. It fires
+           *> onCancelled; the response, if it ever arrives, is discarded.
 
-           MOVE "cancelling..." TO Label-STATUS::Caption
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- Cancel()")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           INVOKE RestClient-1::Cancel()
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   cancel requested")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST: cancel issued".
+           SET     Label-STATUS::Caption         TO    "cancelling..."
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("-- Cancel()")
+           TextBox-LOG::AppendText(WS-NL)
+           RestClient-1::Cancel()
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   cancel requested")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST: cancel issued".
 ]]></Event>
   </Control>
   <Control id="Button-REST-CLEAR" type="Button" x="972" y="152" w="284" h="40" tab-order="0" z-order="9" visible="true" enabled="true">
@@ -542,19 +605,23 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-REST-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Clear() on a TextBox empties its Text - unlike Clear() on a Snackbar,
-      *> which empties its button row and leaves the message alone.
+           *> Clear() on a TextBox empties its Text - unlike Clear() on a Snackbar,
+           *> which empties its button row and leaves the message alone.
 
-           INVOKE TextBox-LOG::Clear()
-           INVOKE TextBox-BODY::Clear()
-           MOVE "ready" TO Label-STATUS::Caption
-           DISPLAY "REST: log cleared".
+           TextBox-LOG::Clear()
+           TextBox-BODY::Clear()
+
+           SET     Label-STATUS::Caption         TO    "ready"
+           DISPLAY    "REST: log cleared".
 ]]></Event>
   </Control>
   <Control id="Label-STATUSCAP" type="Label" x="24" y="208" w="72" h="30" tab-order="0" z-order="10" visible="true" enabled="true">
@@ -731,101 +798,135 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Event name="onComplete" paragraph="RESTCLIENT-1--ONCOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
-       01 WS-N PIC X(12).
-       01 WS-BODY PIC X(4000).
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    X(12).
+       01 WS-BODY                                PIC    X(4000).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The call finished and produced an HTTP STATUS - including 4xx and 5xx.
-      *> StatusCode and ResponseBody are written BEFORE this handler runs.
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("++ onComplete")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE RestClient-1::StatusCode TO WS-N
-           INVOKE TextBox-LOG::AppendText("   status:  ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
+           *> The call finished and produced an HTTP STATUS - including 4xx and 5xx.
+           *> StatusCode and ResponseBody are written BEFORE this handler runs.
 
-           MOVE RestClient-1::ResponseBody TO WS-BODY
-           INVOKE TextBox-BODY::Clear()
-           INVOKE TextBox-BODY::AppendText(FUNCTION TRIM(WS-BODY))
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
 
-           IF FUNCTION TRIM(WS-N) = "200" OR FUNCTION TRIM(WS-N) = "201"
-               MOVE "success" TO Label-STATUS::Caption
+           TextBox-LOG::AppendText("++ onComplete")
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-N                          TO    RestClient-1::StatusCode
+
+           TextBox-LOG::AppendText("   status:  ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-BODY                       TO    RestClient-1::ResponseBody
+
+           TextBox-BODY::Clear()
+           TextBox-BODY::AppendText(FUNCTION TRIM(WS-BODY))
+
+           *> Only 200 and 201 count as success. Any other status, even another
+           *> 2xx such as 204, takes the ELSE branch.
+
+           IF    FUNCTION TRIM(WS-N) = "200" OR FUNCTION TRIM(WS-N) = "201"
+               SET     Label-STATUS::Caption     TO    "success"
            ELSE
-               MOVE "the server answered, but not with 2xx"
-                 TO Label-STATUS::Caption
+               SET     Label-STATUS::Caption     TO    "the server answered, but not with 2xx"
            END-IF
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("   body shown in the panel on the right")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           DISPLAY "REST onComplete".
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("   body shown in the panel on the right")
+           TextBox-LOG::AppendText(WS-NL)
+
+           DISPLAY    "REST onComplete".
 ]]></Event>
     <Event name="onError" paragraph="RESTCLIENT-1--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
-       01 WS-N PIC X(12).
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    X(12).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The call never produced a status: DNS, TLS, a refused connection, a
-      *> malformed URL. LastError carries the reason.
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("!! onError")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE RestClient-1::LastError TO WS-LINE
-           INVOKE TextBox-LOG::AppendText("   reason:  ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE "FAILED - see the log" TO Label-STATUS::Caption
-           DISPLAY "REST onError".
+           *> The call never produced a status: DNS, TLS, a refused connection, a
+           *> malformed URL. LastError carries the reason.
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("!! onError")
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-LINE                       TO    RestClient-1::LastError
+
+           TextBox-LOG::AppendText("   reason:  ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     Label-STATUS::Caption         TO    "FAILED - see the log"
+           DISPLAY    "REST onError".
 ]]></Event>
     <Event name="onTimeout" paragraph="RESTCLIENT-1--ONTIMEOUT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
-       01 WS-N PIC X(12).
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    X(12).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The call outlived its timeout. Nothing is retried automatically.
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("!! onTimeout")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE RestClient-1::TimeoutMs TO WS-N
-           INVOKE TextBox-LOG::AppendText("   after:   ")
-           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
-           INVOKE TextBox-LOG::AppendText(" ms")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE "TIMED OUT" TO Label-STATUS::Caption
-           DISPLAY "REST onTimeout".
+           *> The call outlived its timeout. Nothing is retried automatically.
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("!! onTimeout")
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     WS-N                          TO    RestClient-1::TimeoutMs
+
+           TextBox-LOG::AppendText("   after:   ")
+           TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
+           TextBox-LOG::AppendText(" ms")
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     Label-STATUS::Caption         TO    "TIMED OUT"
+           DISPLAY    "REST onTimeout".
 ]]></Event>
     <Event name="onCancelled" paragraph="RESTCLIENT-1--ONCANCELLED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(200).
-       01 WS-NL   PIC X.
-       01 WS-N PIC X(12).
+       01 WS-LINE                                PIC    X(200).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    X(12).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Cancel() was called while this control had something in flight.
-           MOVE FUNCTION CHAR(11) TO WS-NL
-           INVOKE TextBox-LOG::AppendText("-- onCancelled")
-           INVOKE TextBox-LOG::AppendText(WS-NL)
-           MOVE "cancelled" TO Label-STATUS::Caption
-           DISPLAY "REST onCancelled".
+           *> Cancel() was called while this control had something in flight.
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           TextBox-LOG::AppendText("-- onCancelled")
+           TextBox-LOG::AppendText(WS-NL)
+
+           SET     Label-STATUS::Caption         TO    "cancelled"
+           DISPLAY    "REST onCancelled".
 ]]></Event>
   </Control>
 </Form>

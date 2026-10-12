@@ -47,35 +47,40 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="GAUGE-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "ready - " Gau-Cpu::Text " warns at " Gau-Cpu::WarningThreshold
-                  " and is critical at " Gau-Cpu::CriticalThreshold INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
 
+           STRING    "ready - " Gau-Cpu::Text " warns at " Gau-Cpu::WarningThreshold
+               " and is critical at " Gau-Cpu::CriticalThreshold INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL).
 ]]></Event>
     <Event name="onClose" paragraph="GAUGE-FORM--ONCLOSE">
     </Event>
@@ -429,96 +434,110 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-LOAD--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> A gauge is written to, never clicked - this is the whole of its API.
-      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
-      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
-      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
-      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
-      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
-      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
-           ADD 17 TO Gau-Cpu::Value.
-           ADD  6 TO Gau-Mem::Value.
-           ADD 11 TO Gau-Disk::Value.
-      *> Keep every dial inside its own scale.
-      *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
-      *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
-      *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
-      *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
-      *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
-      *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
-           IF Gau-Cpu::Value > Gau-Cpu::Maximum
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Gau-Cpu::Maximum TO Gau-Cpu::Value
-           END-IF.
-      *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
-      *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
-      *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
-      *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
-      *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
-      *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
-           IF Gau-Mem::Value > Gau-Mem::Maximum
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Gau-Mem::Maximum TO Gau-Mem::Value
-           END-IF.
-      *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
-      *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
-      *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
-      *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
-      *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
-      *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
-           IF Gau-Disk::Value > Gau-Disk::Maximum
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Gau-Disk::Maximum TO Gau-Disk::Value
-           END-IF.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "cpu=" Gau-Cpu::Value Gau-Cpu::Unit
-                  "  mem=" Gau-Mem::Value Gau-Mem::Unit
-                  "  disk=" Gau-Disk::Value Gau-Disk::Unit INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> A gauge is written to, never clicked - this is the whole of its API.
+           *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+           *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+           *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+           *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+           *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+           *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
 
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE WS-LINE TO Lbl-Reading::Caption.
+           ADD    17 TO Gau-Cpu::Value
+           ADD    6 TO Gau-Mem::Value
+           ADD    11 TO Gau-Disk::Value
+
+           *> Keep every dial inside its own scale.
+           *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
+           *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
+           *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
+           *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
+           *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
+           *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
+
+           IF    Gau-Cpu::Value > Gau-Cpu::Maximum
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Gau-Cpu::Value            TO    Gau-Cpu::Maximum
+           END-IF
+           *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
+           *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
+           *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
+           *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
+           *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
+           *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
+
+           IF    Gau-Mem::Value > Gau-Mem::Maximum
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Gau-Mem::Value            TO    Gau-Mem::Maximum
+           END-IF
+           *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
+           *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
+           *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
+           *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
+           *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
+           *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
+
+           IF    Gau-Disk::Value > Gau-Disk::Maximum
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Gau-Disk::Value           TO    Gau-Disk::Maximum
+           END-IF
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "cpu=" Gau-Cpu::Value Gau-Cpu::Unit
+               "  mem=" Gau-Mem::Value Gau-Mem::Unit
+               "  disk=" Gau-Disk::Value Gau-Disk::Unit INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL)
+
+           *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+           *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+           *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+           *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+           *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+           *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+           SET     Lbl-Reading::Caption          TO    WS-LINE.
 ]]></Event>
   </Control>
   <Control id="Btn-Idle" type="Button" x="204" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -559,28 +578,34 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-IDLE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE 22 TO Gau-Cpu::Value.
-           MOVE 18 TO Gau-Mem::Value.
-           MOVE 41 TO Gau-Disk::Value.
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE "idle" TO Lbl-Reading::Caption.
+           *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+           *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+           *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+           *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+           *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+           *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+           SET     Gau-Cpu::Value                TO    22
+           SET     Gau-Mem::Value                TO    18
+           SET     Gau-Disk::Value               TO    41
+
+           *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+           *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+           *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+           *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+           *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+           *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+           SET     Lbl-Reading::Caption          TO    "idle".
 ]]></Event>
   </Control>
   <Control id="Btn-Crit" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -621,21 +646,25 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-CRIT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Push each dial past its critical mark to see the colour change.
-      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
-      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
-      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
-      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
-      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
-      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
-           COMPUTE Gau-Cpu::Value  = Gau-Cpu::CriticalThreshold  + 5.
-           COMPUTE Gau-Disk::Value = Gau-Disk::CriticalThreshold + 3.
+           *> Push each dial past its critical mark to see the colour change.
+           *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+           *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+           *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+           *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+           *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+           *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
+
+           COMPUTE    Gau-Cpu::Value = Gau-Cpu::CriticalThreshold + 5
+           COMPUTE    Gau-Disk::Value = Gau-Disk::CriticalThreshold + 3.
 ]]></Event>
   </Control>
   <Control id="Btn-Clear" type="Button" x="548" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -676,18 +705,22 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Txt-Log::Clear().
 ]]></Event>
   </Control>

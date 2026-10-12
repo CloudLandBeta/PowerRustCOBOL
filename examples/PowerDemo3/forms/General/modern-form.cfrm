@@ -47,7 +47,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="MODERN-FORM--ONLOAD">
     </Event>

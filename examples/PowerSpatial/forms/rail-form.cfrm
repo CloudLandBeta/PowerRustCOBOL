@@ -1,98 +1,116 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="RAIL-FORM" background="40404008" transparency="50" title="PowerSpatial" width="70" height="348" grid-size="8" snap-to-grid="true" target="Custom" form-format="Standalone" responsive="true" index-base="1" title-visible="false" corner-radius="35" resizable="false" dock-to-opener="Left" dock-gap="14" dock-length="58">
   <FormLayout FontScaling="Fluid" MinFontScale="1" MaxFontScale="1.6"/>
-  <working-storage><![CDATA[       01 WS-PICKED GLOBAL PIC 9 VALUE 1.
-       01 WS-SET-NAME  GLOBAL PIC X(20).
-       01 WS-SET-VALUE GLOBAL PIC X(200).
-       01 WS-LANG-IX   GLOBAL PIC 9 VALUE 0.
-       01 WS-NEW-IX    GLOBAL PIC 9 VALUE 1.
-      *>   The texts the operator reads, one row per text and one
-      *>   column per language - en, pt, es, fr, jp, cn.
-       01 PS-TEXT-DATA GLOBAL.
-      *>   Home
-           05 FILLER PIC X(80) VALUE "Home".
-           05 FILLER PIC X(80) VALUE "Início".
-           05 FILLER PIC X(80) VALUE "Inicio".
-           05 FILLER PIC X(80) VALUE "Accueil".
-           05 FILLER PIC X(80) VALUE "ホーム".
-           05 FILLER PIC X(80) VALUE "主页".
-      *>   Rooms
-           05 FILLER PIC X(80) VALUE "Rooms".
-           05 FILLER PIC X(80) VALUE "Cômodos".
-           05 FILLER PIC X(80) VALUE "Habitaciones".
-           05 FILLER PIC X(80) VALUE "Pièces".
-           05 FILLER PIC X(80) VALUE "部屋".
-           05 FILLER PIC X(80) VALUE "房间".
-      *>   Security
-           05 FILLER PIC X(80) VALUE "Security".
-           05 FILLER PIC X(80) VALUE "Segurança".
-           05 FILLER PIC X(80) VALUE "Seguridad".
-           05 FILLER PIC X(80) VALUE "Sécurité".
-           05 FILLER PIC X(80) VALUE "セキュリティ".
-           05 FILLER PIC X(80) VALUE "安防".
-      *>   Cameras
-           05 FILLER PIC X(80) VALUE "Cameras".
-           05 FILLER PIC X(80) VALUE "Câmeras".
-           05 FILLER PIC X(80) VALUE "Cámaras".
-           05 FILLER PIC X(80) VALUE "Caméras".
-           05 FILLER PIC X(80) VALUE "カメラ".
-           05 FILLER PIC X(80) VALUE "摄像头".
-      *>   Energy
-           05 FILLER PIC X(80) VALUE "Energy".
-           05 FILLER PIC X(80) VALUE "Energia".
-           05 FILLER PIC X(80) VALUE "Energía".
-           05 FILLER PIC X(80) VALUE "Énergie".
-           05 FILLER PIC X(80) VALUE "エネルギー".
-           05 FILLER PIC X(80) VALUE "能源".
-      *>   Settings
-           05 FILLER PIC X(80) VALUE "Settings".
-           05 FILLER PIC X(80) VALUE "Configurações".
-           05 FILLER PIC X(80) VALUE "Ajustes".
-           05 FILLER PIC X(80) VALUE "Paramètres".
-           05 FILLER PIC X(80) VALUE "設定".
-           05 FILLER PIC X(80) VALUE "设置".
-       01 PS-TEXT-TABLE REDEFINES PS-TEXT-DATA GLOBAL.
-           05 PS-TEXT-ROW OCCURS 6.
-              10 PS-TEXT PIC X(80) OCCURS 6.
+  <working-storage><![CDATA[       01 WS-PICKED                              GLOBAL    PIC 9    VALUE 1.
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 0.
+       01 WS-NEW-IX                              GLOBAL    PIC 9    VALUE 1.
+       *>   The texts the operator reads, one row per text and one
+       *>   column per language - en, pt, es, fr, jp, cn.
+
+       01 PS-TEXT-DATA                           GLOBAL.
+           *>   Home
+
+           05 FILLER                             PIC    X(80)    VALUE "Home".
+           05 FILLER                             PIC    X(80)    VALUE "Início".
+           05 FILLER                             PIC    X(80)    VALUE "Inicio".
+           05 FILLER                             PIC    X(80)    VALUE "Accueil".
+           05 FILLER                             PIC    X(80)    VALUE "ホーム".
+           05 FILLER                             PIC    X(80)    VALUE "主页".
+           *>   Rooms
+
+           05 FILLER                             PIC    X(80)    VALUE "Rooms".
+           05 FILLER                             PIC    X(80)    VALUE "Cômodos".
+           05 FILLER                             PIC    X(80)    VALUE "Habitaciones".
+           05 FILLER                             PIC    X(80)    VALUE "Pièces".
+           05 FILLER                             PIC    X(80)    VALUE "部屋".
+           05 FILLER                             PIC    X(80)    VALUE "房间".
+           *>   Security
+
+           05 FILLER                             PIC    X(80)    VALUE "Security".
+           05 FILLER                             PIC    X(80)    VALUE "Segurança".
+           05 FILLER                             PIC    X(80)    VALUE "Seguridad".
+           05 FILLER                             PIC    X(80)    VALUE "Sécurité".
+           05 FILLER                             PIC    X(80)    VALUE "セキュリティ".
+           05 FILLER                             PIC    X(80)    VALUE "安防".
+           *>   Cameras
+
+           05 FILLER                             PIC    X(80)    VALUE "Cameras".
+           05 FILLER                             PIC    X(80)    VALUE "Câmeras".
+           05 FILLER                             PIC    X(80)    VALUE "Cámaras".
+           05 FILLER                             PIC    X(80)    VALUE "Caméras".
+           05 FILLER                             PIC    X(80)    VALUE "カメラ".
+           05 FILLER                             PIC    X(80)    VALUE "摄像头".
+           *>   Energy
+
+           05 FILLER                             PIC    X(80)    VALUE "Energy".
+           05 FILLER                             PIC    X(80)    VALUE "Energia".
+           05 FILLER                             PIC    X(80)    VALUE "Energía".
+           05 FILLER                             PIC    X(80)    VALUE "Énergie".
+           05 FILLER                             PIC    X(80)    VALUE "エネルギー".
+           05 FILLER                             PIC    X(80)    VALUE "能源".
+           *>   Settings
+
+           05 FILLER                             PIC    X(80)    VALUE "Settings".
+           05 FILLER                             PIC    X(80)    VALUE "Configurações".
+           05 FILLER                             PIC    X(80)    VALUE "Ajustes".
+           05 FILLER                             PIC    X(80)    VALUE "Paramètres".
+           05 FILLER                             PIC    X(80)    VALUE "設定".
+           05 FILLER                             PIC    X(80)    VALUE "设置".
+       01 PS-TEXT-TABLE                          REDEFINES    PS-TEXT-DATA    GLOBAL.
+           05 PS-TEXT-ROW                        OCCURS    6.
+               10 PS-TEXT                        PIC    X(80)    OCCURS 6.
 ]]></working-storage>
   <user-procedures>
     <Event name="PS-RAIL-SHOW" paragraph="PS-RAIL-SHOW"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The picked destination wears the light disc.
-           IF WS-PICKED = 1
-               MOVE 0 TO Btn-Home::Transparency
+           *>   The picked destination wears the light disc.
+
+           IF    WS-PICKED = 1
+               SET     Btn-Home::Transparency    TO    0
            ELSE
-               MOVE 100 TO Btn-Home::Transparency
+               SET     Btn-Home::Transparency    TO    100
            END-IF
-           IF WS-PICKED = 2
-               MOVE 0 TO Btn-Rooms::Transparency
+           IF    WS-PICKED = 2
+               SET     Btn-Rooms::Transparency   TO    0
            ELSE
-               MOVE 100 TO Btn-Rooms::Transparency
+               SET     Btn-Rooms::Transparency   TO    100
            END-IF
-           IF WS-PICKED = 3
-               MOVE 0 TO Btn-Security::Transparency
+           IF    WS-PICKED = 3
+               SET     Btn-Security::Transparency
+                                                 TO    0
            ELSE
-               MOVE 100 TO Btn-Security::Transparency
+               SET     Btn-Security::Transparency
+                                                 TO    100
            END-IF
-           IF WS-PICKED = 4
-               MOVE 0 TO Btn-Cameras::Transparency
+           IF    WS-PICKED = 4
+               SET     Btn-Cameras::Transparency TO    0
            ELSE
-               MOVE 100 TO Btn-Cameras::Transparency
+               SET     Btn-Cameras::Transparency TO    100
            END-IF
-           IF WS-PICKED = 5
-               MOVE 0 TO Btn-Energy::Transparency
+           IF    WS-PICKED = 5
+               SET     Btn-Energy::Transparency  TO    0
            ELSE
-               MOVE 100 TO Btn-Energy::Transparency
+               SET     Btn-Energy::Transparency  TO    100
            END-IF
 ]]></Event>
     <Event name="PS-LANG-CHECK" paragraph="PS-LANG-CHECK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language kept in the settings; the texts follow it.
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
-           EVALUATE WS-SET-VALUE(1:2)
+           *>   The language kept in the settings; the texts follow it.
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+           *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
+           *> A setting never kept, or any other code, means English.
+
+           EVALUATE    WS-SET-VALUE(1:2)
                WHEN "pt" MOVE 2 TO WS-NEW-IX
                WHEN "es" MOVE 3 TO WS-NEW-IX
                WHEN "fr" MOVE 4 TO WS-NEW-IX
@@ -100,28 +118,35 @@
                WHEN "cn" MOVE 6 TO WS-NEW-IX
                WHEN OTHER MOVE 1 TO WS-NEW-IX
            END-EVALUATE
-           IF WS-NEW-IX NOT = WS-LANG-IX
-               MOVE WS-NEW-IX TO WS-LANG-IX
-               CALL "PS-APPLY-TEXT"
+           *> Tmr-Lang calls this every second. WS-LANG-IX starts at 0, so the first
+           *> call always applies the texts; later ones only when the language moved.
+
+           IF    WS-NEW-IX NOT = WS-LANG-IX
+               SET     WS-LANG-IX                TO    WS-NEW-IX
+               CALL    "PS-APPLY-TEXT"
            END-IF
 ]]></Event>
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Btn-Home::Tooltip
-           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Btn-Rooms::Tooltip
-           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Btn-Security::Tooltip
-           MOVE PS-TEXT(4, WS-LANG-IX)::Trim() TO Btn-Cameras::Tooltip
-           MOVE PS-TEXT(5, WS-LANG-IX)::Trim() TO Btn-Energy::Tooltip
-           MOVE PS-TEXT(6, WS-LANG-IX)::Trim() TO Btn-Settings::Tooltip
+           SET     Btn-Home::Tooltip             TO    PS-TEXT(1, WS-LANG-IX)::Trim()
+           SET     Btn-Rooms::Tooltip            TO    PS-TEXT(2, WS-LANG-IX)::Trim()
+           SET     Btn-Security::Tooltip         TO    PS-TEXT(3, WS-LANG-IX)::Trim()
+           SET     Btn-Cameras::Tooltip          TO    PS-TEXT(4, WS-LANG-IX)::Trim()
+           SET     Btn-Energy::Tooltip           TO    PS-TEXT(5, WS-LANG-IX)::Trim()
+           SET     Btn-Settings::Tooltip         TO    PS-TEXT(6, WS-LANG-IX)::Trim()
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RAIL-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-LANG-CHECK"
-           CALL "PS-RAIL-SHOW"
+           CALL    "PS-LANG-CHECK"
+           CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </form-events>
   <Control id="Pnl-Rail" type="Panel" x="0" y="0" w="70" h="348" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -148,10 +173,12 @@
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Event name="onClick" paragraph="BTN-HOME--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO WS-PICKED
-           CALL "PS-RAIL-SHOW"
+           SET     WS-PICKED                     TO    1
+           CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
   <Control id="Btn-Rooms" type="Button" x="13" y="70" w="44" h="44" tab-order="2" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
@@ -168,10 +195,12 @@
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Event name="onClick" paragraph="BTN-ROOMS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 2 TO WS-PICKED
-           CALL "PS-RAIL-SHOW"
+           SET     WS-PICKED                     TO    2
+           CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
   <Control id="Btn-Security" type="Button" x="13" y="124" w="44" h="44" tab-order="3" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
@@ -188,10 +217,12 @@
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Event name="onClick" paragraph="BTN-SECURITY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 3 TO WS-PICKED
-           CALL "PS-RAIL-SHOW"
+           SET     WS-PICKED                     TO    3
+           CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
   <Control id="Btn-Cameras" type="Button" x="13" y="180" w="44" h="44" tab-order="4" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
@@ -208,10 +239,12 @@
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Event name="onClick" paragraph="BTN-CAMERAS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 4 TO WS-PICKED
-           CALL "PS-RAIL-SHOW"
+           SET     WS-PICKED                     TO    4
+           CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
   <Control id="Btn-Energy" type="Button" x="13" y="234" w="44" h="44" tab-order="5" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
@@ -228,10 +261,12 @@
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Event name="onClick" paragraph="BTN-ENERGY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 5 TO WS-PICKED
-           CALL "PS-RAIL-SHOW"
+           SET     WS-PICKED                     TO    5
+           CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
   <Control id="Btn-Settings" type="Button" x="13" y="288" w="44" h="44" tab-order="6" z-order="0" visible="true" enabled="true" parent="Pnl-Rail">
@@ -248,17 +283,21 @@
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Event name="onClick" paragraph="BTN-SETTINGS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           INVOKE me::OpenFormSync("SETTINGS-FORM")
+           INVOKE    me::OpenFormSync("SETTINGS-FORM")
 ]]></Event>
   </Control>
   <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="7" z-order="0" visible="true" enabled="true">
     <Property name="Interval">1000</Property>
     <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-LANG-CHECK"
+           CALL    "PS-LANG-CHECK"
 ]]></Event>
   </Control>
 </Form>

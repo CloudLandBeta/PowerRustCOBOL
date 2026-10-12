@@ -47,7 +47,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="BUTTONS-FORM--ONLOAD">
     </Event>
@@ -91,9 +92,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           Label-1::SetCaption("Button-1 clicked!").]]></Event>
+           Label-1::SetCaption("Button-1 clicked!").
+]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Button-2" type="Button" x="928" y="40" w="264" h="80" tab-order="0" z-order="1" visible="true" enabled="true">
@@ -133,9 +137,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           Label-1::SetCaption("Button-2 clicked!").]]></Event>
+           Label-1::SetCaption("Button-2 clicked!").
+]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Button-3" type="Button" x="32" y="216" w="264" h="80" tab-order="0" z-order="2" visible="true" enabled="true">
@@ -175,12 +182,16 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
            *> Deliberately uses this control's own identifier, Button-3,
            *> and NOT its Caption property (Caption is mismatched to
            *> 'Button-2' on this control and must not be propagated).
-           Label-1::SetCaption("Button-3 with wait cursor (don't) clicked!").]]></Event>
+
+           Label-1::SetCaption("Button-3 with wait cursor (don't) clicked!").
+]]></Event>
     <Animation name="anim2" trigger="OnFormLoad" kind="FadeIn" duration="400" delay="0" easing="EaseOut" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Button-4" type="Button" x="928" y="208" w="264" h="80" tab-order="0" z-order="3" visible="true" enabled="true">
@@ -220,9 +231,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-4--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           Label-1::SetCaption("Button-4 clicked!").]]></Event>
+           Label-1::SetCaption("Button-4 clicked!").
+]]></Event>
     <Animation name="1" trigger="OnFormLoad" kind="Bounce" duration="1200" delay="0" easing="EaseOut" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Label-1" type="Label" x="40" y="800" w="1155" h="32" tab-order="0" z-order="4" visible="true" enabled="true">
@@ -298,12 +312,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BUTTON-5--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 1 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 1 clicked!"
            CONTINUE.
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -346,12 +363,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BUTTON-6--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 2 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 2 clicked!"
            CONTINUE.
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -394,21 +414,27 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onHoverEnter" paragraph="BUTTON-7--ONHOVERENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Hover Button with icon 3!"
+           SET     Label-1::Caption              TO    "Hover Button with icon 3!"
            CONTINUE.
 ]]></Event>
     <Event name="onHoverLeave" paragraph="BUTTON-7--ONHOVERLEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Label 1"
+           SET     Label-1::Caption              TO    "Label 1"
            CONTINUE.
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -451,12 +477,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BUTTON-8--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 4 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 4 clicked!"
            CONTINUE.
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -499,12 +528,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BUTTON-9--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 5 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 5 clicked!"
            CONTINUE.
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -547,12 +579,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BUTTON-10--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 6 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 6 clicked!"
            CONTINUE.
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>

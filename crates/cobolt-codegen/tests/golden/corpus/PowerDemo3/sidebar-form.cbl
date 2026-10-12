@@ -616,15 +616,16 @@
        PROGRAM-ID. BTNABRIRNEW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
 
-           IF CheckBox-1::Checked IS true
-              SET CheckBox-1::Checked TO false
+           IF    CheckBox-1::Checked IS true
+               SET     CheckBox-1::Checked       TO    false
            ELSE
-              SET CheckBox-1::Checked TO true
+               SET     CheckBox-1::Checked       TO    true
            END-IF
-
 
            CONTINUE.
 
@@ -636,12 +637,15 @@
        PROGRAM-ID. BTNALTERARNEW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET panel-7::BackgroundColor to "0000FFFF"
+           SET     panel-7::BackgroundColor      TO    "0000FFFF"
            CONTINUE.
 
            GOBACK.
@@ -652,12 +656,15 @@
        PROGRAM-ID. BTNEXCLUIRNEW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET  CheckBox-2::Visible TO  false
+           SET     CheckBox-2::Visible           TO    false
            CONTINUE.
 
            GOBACK.
@@ -668,12 +675,15 @@
        PROGRAM-ID. BTNAPROVARNEW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET  CheckBox-2::Visible  TO  true
+           SET     CheckBox-2::Visible           TO    true
            CONTINUE.
 
            GOBACK.
@@ -684,13 +694,17 @@
        PROGRAM-ID. BTNREJEITARNEW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET Knob-2::Value  TO  false
-           SET Timer-1::Enabled TO false
+           SET     Knob-2::Value                 TO    false
+           SET     Timer-1::Enabled              TO    false
+
            CONTINUE.
 
            GOBACK.
@@ -701,12 +715,15 @@
        PROGRAM-ID. BTNENCAMINHARNEW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET Timer-1::Enabled  TO  true
+           SET     Timer-1::Enabled              TO    true
            CONTINUE.
 
            GOBACK.
@@ -717,18 +734,21 @@
        PROGRAM-ID. SWITCH-1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           DISPLAY Switch-1::Checked " - " Label-7::Visible
+           DISPLAY    Switch-1::Checked " - " Label-7::Visible
 
-           if Switch-1::Checked is false
-              SET Label-7::Visible TO  false
+           IF    Switch-1::Checked IS false
+               SET     Label-7::Visible          TO    false
            ELSE
-              SET Label-7::Visible TO  true
-           end-if
+               SET     Label-7::Visible          TO    true
+           END-IF
 
            CONTINUE.
 
@@ -740,14 +760,17 @@
        PROGRAM-ID. TOOLBAR-1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-      *>   in the TOOLBAR-1 onClick handler:
-       DISPLAY  "TOOLBAR-1::LastButton = " TOOLBAR-1::LastButton
+           *>   in the TOOLBAR-1 onClick handler:
 
-       GOBACK.
+           DISPLAY    "TOOLBAR-1::LastButton = " TOOLBAR-1::LastButton
+
+           GOBACK.
 
            GOBACK.
 
@@ -757,6 +780,7 @@
        PROGRAM-ID. KNOB-2--ONCHANGE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
@@ -764,9 +788,10 @@
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET ProgressBar-1::VALUE
-               Gauge-1::VALUE
-               Gauge-2::VALUE         TO Knob-2::VALUE
+           SET     ProgressBar-1::VALUE
+
+           Gauge-1::VALUE
+           Gauge-2::VALUE TO Knob-2::VALUE
 
            CONTINUE.
 
@@ -778,12 +803,15 @@
        PROGRAM-ID. RADIOBUTTON-1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 12
+           SET     TextBox-2::FontSize           TO    12
            CONTINUE.
 
            GOBACK.
@@ -794,12 +822,15 @@
        PROGRAM-ID. RADIOBUTTON-2--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 14
+           SET     TextBox-2::FontSize           TO    14
            CONTINUE.
 
            GOBACK.
@@ -810,12 +841,15 @@
        PROGRAM-ID. RADIOBUTTON-3--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 16
+           SET     TextBox-2::FontSize           TO    16
            CONTINUE.
 
            GOBACK.
@@ -826,12 +860,15 @@
        PROGRAM-ID. RADIOBUTTON-4--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 18
+           SET     TextBox-2::FontSize           TO    18
 
            CONTINUE.
 
@@ -843,23 +880,29 @@
        PROGRAM-ID. TIMER-1--ONTICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           if Knob-2::Value < 100
-              COMPUTE  Knob-2::Value = Knob-2::Value + 1
-              COMPUTE  ProgressBar-1::Value = Knob-2::Value
-              COMPUTE  Gauge-1::Value = Knob-2::Value
-              COMPUTE  Gauge-2::Value = Knob-2::Value
-              COMPUTE  Gauge-3::Value = Knob-2::Value
+           *> The knob is the master value: the bar and the three gauges copy it.
+           *> At 100 it wraps to 0, so the demo animates forever.
 
-              IF Knob-2::Value = 100
-                 SET Knob-2::Value to 0
-              END-iF
+           IF    Knob-2::Value < 100
+               COMPUTE    Knob-2::Value = Knob-2::Value + 1
+               COMPUTE    ProgressBar-1::Value = Knob-2::Value
+               COMPUTE    Gauge-1::Value = Knob-2::Value
+               COMPUTE    Gauge-2::Value = Knob-2::Value
+               COMPUTE    Gauge-3::Value = Knob-2::Value
 
-           CONTINUE.
+               IF    Knob-2::Value = 100
+                   SET     Knob-2::Value         TO    0
+               END-IF
+
+               CONTINUE.
 
            GOBACK.
 

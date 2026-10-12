@@ -253,38 +253,45 @@
        PROGRAM-ID. RADIOBUTTONS-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> Seed one choice per group so the form never opens undecided.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Rad-Std::Select().
-           Rad-Card::Select().
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "ready - " Rad-Std::Caption " and " Rad-Card::Caption " preselected" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> Seed one choice per group so the form never opens undecided.
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Rad-Std::Select()
+           Rad-Card::Select()
+
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "ready - " Rad-Std::Caption " and " Rad-Card::Caption " preselected" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -311,47 +318,54 @@
        PROGRAM-ID. RAD-STD--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> Only the button that just became selected reports itself.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF Rad-Std::Selected = 1
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-               STRING "shipping -> " Rad-Std::Caption INTO WS-LINE
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Rad-Std::Caption TO Lbl-Shipping::Caption
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> Only the button that just became selected reports itself.
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           IF    Rad-Std::Selected = 1
+               *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+               *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+               *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+               *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+               *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+               *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+               STRING    "shipping -> " Rad-Std::Caption INTO WS-LINE
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Lbl-Shipping::Caption     TO    Rad-Std::Caption
            ELSE
-               MOVE SPACES TO WS-LINE
-           END-IF.
-           IF WS-LINE NOT = SPACES
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+               SET     WS-LINE                   TO    SPACES
+           END-IF
+           IF    WS-LINE NOT = SPACES
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
                Txt-Log::AppendText(WS-NL)
            END-IF.
@@ -364,47 +378,54 @@
        PROGRAM-ID. RAD-EXP--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> Only the button that just became selected reports itself.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF Rad-Exp::Selected = 1
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-               STRING "shipping -> " Rad-Exp::Caption INTO WS-LINE
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Rad-Exp::Caption TO Lbl-Shipping::Caption
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> Only the button that just became selected reports itself.
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           IF    Rad-Exp::Selected = 1
+               *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+               *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+               *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+               *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+               *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+               *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+               STRING    "shipping -> " Rad-Exp::Caption INTO WS-LINE
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Lbl-Shipping::Caption     TO    Rad-Exp::Caption
            ELSE
-               MOVE SPACES TO WS-LINE
-           END-IF.
-           IF WS-LINE NOT = SPACES
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+               SET     WS-LINE                   TO    SPACES
+           END-IF
+           IF    WS-LINE NOT = SPACES
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
                Txt-Log::AppendText(WS-NL)
            END-IF.
@@ -417,47 +438,54 @@
        PROGRAM-ID. RAD-NEXT--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> Only the button that just became selected reports itself.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF Rad-Next::Selected = 1
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-               STRING "shipping -> " Rad-Next::Caption INTO WS-LINE
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Rad-Next::Caption TO Lbl-Shipping::Caption
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> Only the button that just became selected reports itself.
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           IF    Rad-Next::Selected = 1
+               *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+               *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+               *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+               *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+               *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+               *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+               STRING    "shipping -> " Rad-Next::Caption INTO WS-LINE
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Lbl-Shipping::Caption     TO    Rad-Next::Caption
            ELSE
-               MOVE SPACES TO WS-LINE
-           END-IF.
-           IF WS-LINE NOT = SPACES
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+               SET     WS-LINE                   TO    SPACES
+           END-IF
+           IF    WS-LINE NOT = SPACES
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
                Txt-Log::AppendText(WS-NL)
            END-IF.
@@ -470,42 +498,49 @@
        PROGRAM-ID. RAD-CARD--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF Rad-Card::Selected = 1
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Rad-Card::Caption TO Lbl-Payment::Caption
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-               STRING "payment  -> " Rad-Card::Caption INTO WS-LINE
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           IF    Rad-Card::Selected = 1
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Lbl-Payment::Caption      TO    Rad-Card::Caption
+               *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+               *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+               *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+               *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+               *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+               *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+               STRING    "payment  -> " Rad-Card::Caption INTO WS-LINE
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
                Txt-Log::AppendText(WS-NL)
            END-IF.
@@ -518,42 +553,49 @@
        PROGRAM-ID. RAD-PIX--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF Rad-Pix::Selected = 1
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Rad-Pix::Caption TO Lbl-Payment::Caption
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-               STRING "payment  -> " Rad-Pix::Caption INTO WS-LINE
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           IF    Rad-Pix::Selected = 1
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Lbl-Payment::Caption      TO    Rad-Pix::Caption
+               *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+               *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+               *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+               *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+               *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+               *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+               STRING    "payment  -> " Rad-Pix::Caption INTO WS-LINE
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
                Txt-Log::AppendText(WS-NL)
            END-IF.
@@ -566,42 +608,52 @@
        PROGRAM-ID. RAD-BOLETO--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF Rad-Boleto::Selected = 1
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-               MOVE Rad-Boleto::Caption TO Lbl-Payment::Caption
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-               STRING "payment  -> " Rad-Boleto::Caption INTO WS-LINE
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> CHAR counts from 1, so CHAR(11) is the byte 0A (LF): the line break
+           *> that Txt-Log::AppendText(WS-NL) adds after each logged line.
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           IF    Rad-Boleto::Selected = 1
+               *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+               *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+               *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+               *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+               *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+               *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+               SET     Lbl-Payment::Caption      TO    Rad-Boleto::Caption
+               *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+               *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+               *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+               *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+               *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+               *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+               STRING    "payment  -> " Rad-Boleto::Caption INTO WS-LINE
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
                Txt-Log::AppendText(WS-NL)
            END-IF.
@@ -614,19 +666,23 @@
        PROGRAM-ID. BTN-EXPRESS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Selecting one radio clears its group - the engine, not the handler, does that.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> Selecting one radio clears its group - the engine, not the handler, does that.
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Rad-Exp::Select().
 
            GOBACK.
@@ -637,18 +693,22 @@
        PROGRAM-ID. BTN-PIX--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Rad-Pix::Select().
 
            GOBACK.
@@ -659,29 +719,34 @@
        PROGRAM-ID. BTN-READ--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "chosen: " Lbl-Shipping::Caption " / " Lbl-Payment::Caption INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "chosen: " Lbl-Shipping::Caption " / " Lbl-Payment::Caption INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -692,18 +757,22 @@
        PROGRAM-ID. BTN-CLEAR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Txt-Log::Clear().
 
            GOBACK.

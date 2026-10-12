@@ -29,9 +29,17 @@
 //!     entry); never duplicated.
 //! 10. Verb casing and comment alignment are caller options (the modal).
 //! 11. Undo restores the pre-beautify text (the text widget's own undo).
+//!
+//! On top of those, [`BeautifyOptions::style`] switches on the PowerRustCOBOL
+//! layout style (operator, 2026-10-12; see `beautify_style`): 4-space data
+//! levels, the first data clause and the `TO` of `MOVE`/`SET` in column 50,
+//! blank lines around divisions, comments and blocks of repeated verbs, and —
+//! only when proved harmless — `SET` for `MOVE`, no `INVOKE` on a plain call and
+//! no sentence periods inside the procedure.
 
 use std::collections::HashSet;
 
+use super::beautify_style;
 use super::editor::{COBOL2002_KEYWORDS, DATA_KEYWORDS, DIVISION_KEYWORDS, VERBS};
 
 /// How reserved words are re-cased (rule 10a). `Leave` keeps the author's
@@ -51,6 +59,9 @@ pub(crate) struct BeautifyOptions {
     /// `false` leaves every comment exactly as authored. Classic column-7
     /// `*` / `/` indicator comments stay pinned at column 7 in both modes.
     pub align_comments: bool,
+    /// The PowerRustCOBOL layout style (operator, 2026-10-12). Off keeps the
+    /// spec-043 behaviour exactly.
+    pub style: bool,
 }
 
 impl Default for BeautifyOptions {
@@ -58,6 +69,7 @@ impl Default for BeautifyOptions {
         Self {
             verb_case: VerbCase::Upper,
             align_comments: false,
+            style: false,
         }
     }
 }
@@ -68,6 +80,62 @@ impl Default for BeautifyOptions {
 pub(crate) enum Beautified {
     Formatted(String),
     Rejected(Vec<String>),
+}
+
+/// What an emitted line is. The style's layout pass reads this rather than
+/// guessing from the text, which cannot tell a `MOVE` inside a block literal
+/// from a `MOVE` statement.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Kind {
+    Blank,
+    /// A blank line the style wants *unless* the next line closes a scope
+    /// (`END-IF`, `ELSE`) or ends the code: the one after a wrapped `TO`.
+    Gap,
+    /// A free-form `*>` comment the style may move to the code's column.
+    Comment,
+    /// A comment that stays where it is (classic column-7, or "leave as written").
+    Pinned,
+    Division,
+    Section,
+    Paragraph,
+    Data,
+    /// First line of a procedure statement; `verb` keys the repeated-verb rule.
+    Stmt { depth: usize, verb: &'static str },
+    /// A further line of the same statement (`INTO …`, `AT END …`, `TO …`).
+    Cont { depth: usize },
+    /// A scope marker: `ELSE`, `WHEN …`, `CATCH`, `END-IF`, …
+    Marker { depth: usize },
+    /// A line of a ``` block literal: byte for byte, never wrapped.
+    Verbatim,
+    Other,
+}
+
+/// The emitted lines, each with its [`Kind`].
+pub(super) struct Out {
+    pub lines: Vec<String>,
+    pub kinds: Vec<Kind>,
+}
+
+impl Out {
+    pub fn new() -> Self {
+        Self { lines: Vec::new(), kinds: Vec::new() }
+    }
+    pub fn push(&mut self, line: String, kind: Kind) {
+        self.lines.push(line);
+        self.kinds.push(kind);
+    }
+    /// Push `content` starting in 1-based column `col`.
+    fn put(&mut self, col: usize, content: &str, kind: Kind) {
+        let mut line = " ".repeat(col.saturating_sub(1));
+        line.push_str(content);
+        self.push(line, kind);
+    }
+    fn len(&self) -> usize {
+        self.lines.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
 }
 
 /// Longest line the beautifier will emit (rule 6).
@@ -403,8 +471,16 @@ fn case_reserved(s: &str, reserved: &HashSet<&'static str>, mode: VerbCase) -> S
     let mut word = String::new();
     let mut quote: Option<char> = None;
 
-    let flush = |out: &mut String, word: &mut String| {
+    let flush = |out: &mut String, word: &mut String, receiver: bool| {
         if word.is_empty() {
+            return;
+        }
+        // A member name (`NUD-AGE::Value`, `Timer-1::Start()`) and a receiver
+        // (`super::GetProperty`, `me::Close`) are the developer's own spelling,
+        // never a verb, even when they match a reserved word.
+        if receiver || out.ends_with("::") {
+            out.push_str(word);
+            word.clear();
             return;
         }
         let trailing_period = word.ends_with('.');
@@ -438,7 +514,8 @@ fn case_reserved(s: &str, reserved: &HashSet<&'static str>, mode: VerbCase) -> S
         word.clear();
     };
 
-    for c in s.chars() {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
         if let Some(q) = quote {
             out.push(c);
             if c == q {
@@ -447,17 +524,18 @@ fn case_reserved(s: &str, reserved: &HashSet<&'static str>, mode: VerbCase) -> S
             continue;
         }
         if c == '"' || c == '\'' {
-            flush(&mut out, &mut word);
+            flush(&mut out, &mut word, false);
             quote = Some(c);
             out.push(c);
         } else if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
             word.push(c);
         } else {
-            flush(&mut out, &mut word);
+            let receiver = c == ':' && chars.get(i + 1) == Some(&':');
+            flush(&mut out, &mut word, receiver);
             out.push(c);
         }
     }
-    flush(&mut out, &mut word);
+    flush(&mut out, &mut word, false);
     out
 }
 
@@ -512,24 +590,28 @@ enum Scope {
     When,
     Perform,
     Try,
+    /// A statement with conditional phrases, up to its `END-<verb>` (style only).
+    Phrase(&'static str),
+    /// The body of a phrase that stands alone on its line — `NOT AT END` (style only).
+    PhraseBody,
 }
 
 /// Column of the first word of a data entry, per rule 3. `01`/`77`/`78`
 /// reset to column 8; `66`/`88` sit one step under their item; everything
 /// else nests +3 per depth step.
-fn level_column(level: u32, levels: &mut Vec<u32>) -> usize {
+fn level_column(level: u32, levels: &mut Vec<u32>, step: usize) -> usize {
     if matches!(level, 1 | 77 | 78) {
         levels.clear();
         levels.push(level);
         return 8;
     }
     if matches!(level, 66 | 88) {
-        return 8 + levels.len() * 3;
+        return 8 + levels.len() * step;
     }
     while levels.last().is_some_and(|prev| *prev >= level) {
         levels.pop();
     }
-    let col = 8 + levels.len() * 3;
+    let col = 8 + levels.len() * step;
     levels.push(level);
     col
 }
@@ -543,6 +625,8 @@ fn leading_level(s: &str) -> Option<u32> {
 /// One joined data entry, split for column alignment (rule 5).
 struct DataEntry {
     col: usize,
+    /// The joined entry without its period (the style lays it out itself).
+    body: String,
     left: String,
     pic: Option<String>,
     value: Option<String>,
@@ -626,8 +710,22 @@ fn split_entry(entry: &str) -> (String, Option<String>, Option<String>, bool) {
 /// column. A row too wide for the shared column falls back to one space —
 /// same line, never the next (the columns are maxima, so only the 256-char
 /// cap can force that).
-fn flush_data_run(run: &mut Vec<DataEntry>, out: &mut Vec<String>) {
+fn flush_data_run(run: &mut Vec<DataEntry>, out: &mut Out, style: bool) {
     if run.is_empty() {
+        return;
+    }
+    if style {
+        // The style needs no run: the first clause of every entry sits in
+        // column 50, whatever its neighbours look like.
+        for e in run.drain(..) {
+            let (lines, blank_after) = beautify_style::data_entry(e.col, &e.body, e.period);
+            for line in lines {
+                out.push(line, Kind::Data);
+            }
+            if blank_after {
+                out.push(String::new(), Kind::Gap);
+            }
+        }
         return;
     }
     let pic_col = run
@@ -666,7 +764,7 @@ fn flush_data_run(run: &mut Vec<DataEntry>, out: &mut Vec<String>) {
         if e.period {
             line.push('.');
         }
-        out.push(line);
+        out.push(line, Kind::Data);
     }
 }
 
@@ -679,16 +777,10 @@ fn pad_to_col(line: &mut String, col: usize) {
     }
 }
 
-fn put(out: &mut Vec<String>, col: usize, content: &str) {
-    let mut line = " ".repeat(col.saturating_sub(1));
-    line.push_str(content);
-    out.push(line);
-}
-
 /// Wrap every emitted line to `MAX_LINE` chars (rule 6): outside literals at
 /// a word boundary (continuation indented 4 deeper); inside a literal via a
 /// column-7 `-` continuation with the remainder re-quoted.
-fn wrap_lines(lines: Vec<String>, verbatim: &std::collections::HashSet<usize>) -> Vec<String> {
+fn wrap_lines(lines: Vec<String>, verbatim: &std::collections::HashSet<usize>, whole_literals: bool) -> Vec<String> {
     let mut out = Vec::with_capacity(lines.len());
     for (i, line) in lines.into_iter().enumerate() {
         // A block literal's line is never wrapped: splitting it with a
@@ -698,25 +790,29 @@ fn wrap_lines(lines: Vec<String>, verbatim: &std::collections::HashSet<usize>) -
             out.push(line);
             continue;
         }
-        wrap_one(line, &mut out);
+        wrap_one(line, &mut out, whole_literals);
     }
     out
 }
 
-fn wrap_one(line: String, out: &mut Vec<String>) {
+fn wrap_one(line: String, out: &mut Vec<String>, whole_literals: bool) {
     if line.chars().count() <= MAX_LINE {
         out.push(line);
         return;
     }
     let chars: Vec<char> = line.chars().collect();
     let mut quote: Option<char> = None;
+    let mut literal_start = 0usize;
     let mut last_space_outside: Option<usize> = None;
     let mut quote_at_limit: Option<char> = None;
     for (i, &c) in chars.iter().enumerate().take(MAX_LINE) {
         match quote {
             Some(q) if c == q => quote = None,
             Some(_) => {}
-            None if c == '"' || c == '\'' => quote = Some(c),
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                literal_start = i;
+            }
             None if c == ' ' => last_space_outside = Some(i),
             None => {}
         }
@@ -725,6 +821,23 @@ fn wrap_one(line: String, out: &mut Vec<String>) {
         }
     }
     let indent: String = chars.iter().take_while(|c| **c == ' ').collect();
+    // Style: a literal that fits on a line of its own is never cut in two —
+    // the line breaks before it. A cut changes nothing the developer wrote only
+    // if the lexer rejoins it exactly, and a value is not worth that risk.
+    if let (true, Some(q)) = (whole_literals, quote_at_limit) {
+        let end = chars[literal_start + 1..].iter().position(|c| *c == q).map(|p| literal_start + 1 + p);
+        let fits = end.is_some_and(|e| e - literal_start + 1 + indent.chars().count() + 4 <= MAX_LINE);
+        if let (true, Some(sp)) = (fits, last_space_outside.filter(|sp| *sp > indent.chars().count() && *sp < literal_start)) {
+            let head: String = chars[..sp].iter().collect();
+            let rest: String = chars[sp + 1..].iter().collect();
+            out.push(head.trim_end().to_owned());
+            let mut next = indent;
+            next.push_str("    ");
+            next.push_str(&rest);
+            wrap_one(next, out, whole_literals);
+            return;
+        }
+    }
     if let Some(q) = quote_at_limit {
         // Split inside the literal: the remainder re-opens on a column-7
         // continuation line, quote-enclosed (rule 6).
@@ -734,7 +847,7 @@ fn wrap_one(line: String, out: &mut Vec<String>) {
         let mut cont = String::from("      -    ");
         cont.push(q);
         cont.push_str(&rest);
-        wrap_one(cont, out);
+        wrap_one(cont, out, whole_literals);
     } else if let Some(sp) = last_space_outside.filter(|sp| *sp > indent.chars().count()) {
         let head: String = chars[..sp].iter().collect();
         let rest: String = chars[sp + 1..].iter().collect();
@@ -742,7 +855,7 @@ fn wrap_one(line: String, out: &mut Vec<String>) {
         let mut next = indent;
         next.push_str("    ");
         next.push_str(&rest);
-        wrap_one(next, out);
+        wrap_one(next, out, whole_literals);
     } else {
         out.push(chars.into_iter().collect());
     }
@@ -752,7 +865,96 @@ fn wrap_one(line: String, out: &mut Vec<String>) {
 
 /// Beautify `text` per the spec-043 rules, or reject it with the list of
 /// errors that make formatting unsafe (rule 8).
+///
+/// With [`BeautifyOptions::style`] the layout style is applied as well. Three of
+/// its rules change tokens rather than whitespace — no sentence periods, no
+/// `INVOKE` before a plain call, `SET` for `MOVE` — and those are kept only when
+/// the formatted text parses to the same program as the original. Otherwise the
+/// text is formatted again with the layout rules alone.
 pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautified {
+    beautify_checked(text, opts).0
+}
+
+/// [`beautify_with_rules`], also saying whether the style's token-changing rules
+/// were refused (`true`) because the result could not be proved to parse to the
+/// same program, so only the layout was applied.
+pub(crate) fn beautify_checked(text: &str, opts: &BeautifyOptions) -> (Beautified, bool) {
+    let first = beautify_once(text, opts, opts.style);
+    if !opts.style {
+        return (first, false);
+    }
+    match &first {
+        Beautified::Formatted(out) if beautify_style::programs_equivalent(text, out) != Some(true) => {
+            (beautify_once(text, opts, false), true)
+        }
+        _ => (first, false),
+    }
+}
+
+/// A lone dotted name that is no reserved word: a paragraph header. A lone
+/// call such as `Txt-Log::AppendText(WS-NL).` also ends in a period but is no
+/// name — a paragraph name is letters, digits, hyphens and underscores.
+fn is_paragraph_header(words: &[&str], first: &str, reserved: &HashSet<&'static str>) -> bool {
+    words.len() == 1
+        && words[0].ends_with('.')
+        && first.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && !reserved.contains(first)
+        && !first.starts_with("END-")
+        && !matches!(first, "ELSE" | "WHEN" | "CATCH" | "FINALLY")
+}
+
+/// Does this code line start a new division, section or paragraph?
+fn is_boundary(code: &str, reserved: &HashSet<&'static str>) -> bool {
+    let up = code.to_ascii_uppercase();
+    let words: Vec<&str> = up.split_whitespace().collect();
+    let first = words.first().copied().unwrap_or("").trim_end_matches('.');
+    let second = words.get(1).copied().unwrap_or("").trim_end_matches('.');
+    second == "DIVISION" || second == "SECTION" || is_paragraph_header(&words, first, reserved)
+}
+
+/// For every unit: is the next unit that matters (past blanks and comments) a
+/// division, section or paragraph header, or the end of the text? A sentence
+/// period right before one of those stays (style rule 7).
+fn period_stays(units: &[Unit], reserved: &HashSet<&'static str>) -> Vec<bool> {
+    let mut stays = vec![true; units.len()];
+    let mut next_is_boundary = true;
+    for (i, unit) in units.iter().enumerate().rev() {
+        stays[i] = next_is_boundary;
+        match unit {
+            Unit::Blank | Unit::Comment(_) => {}
+            Unit::Code(c) => next_is_boundary = is_boundary(c, reserved),
+            Unit::Exec(_) | Unit::Fence(_) => next_is_boundary = false,
+        }
+    }
+    stays
+}
+
+/// A `MOVE`/`SET` written over two lines (`MOVE x` / `TO y`) is one statement:
+/// join it, so the style can place its `TO`.
+fn join_split_statements(units: Vec<Unit>) -> Vec<Unit> {
+    let mut out: Vec<Unit> = Vec::with_capacity(units.len());
+    for unit in units {
+        if let Unit::Code(next) = &unit {
+            let starts_with_to = next.split_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case("TO"));
+            if let Some(Unit::Code(prev)) = out.last_mut() {
+                // `MOVE x` / `TO y`, and `MOVE x TO a` / `b` / `c`.
+                if (starts_with_to && beautify_style::lacks_to(prev))
+                    || beautify_style::continues_targets(prev, next)
+                    || beautify_style::continues_invoke(prev, next)
+                {
+                    prev.push(' ');
+                    prev.push_str(next);
+                    continue;
+                }
+            }
+        }
+        out.push(unit);
+    }
+    out
+}
+
+fn beautify_once(text: &str, opts: &BeautifyOptions, rewrite: bool) -> Beautified {
+    let style = opts.style;
     let (units, seg_errors) = segment(text);
     let errors = gate(text, &units, seg_errors);
     if !errors.is_empty() {
@@ -760,11 +962,11 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
     }
 
     let reserved = reserved_set();
-    let mut out: Vec<String> = Vec::new();
-    // Output lines that must reach the file exactly as they are — the interior
-    // of a block literal. `out` is only ever appended to, so an index recorded
-    // here stays valid.
-    let mut verbatim: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let units = if style { join_split_statements(units) } else { units };
+    let stays = if style { period_stays(&units, &reserved) } else { Vec::new() };
+    let scoped = if style { phrase_scoped(&units, &reserved) } else { Vec::new() };
+    let level_step = if style { 4 } else { 3 };
+    let mut out = Out::new();
     let mut div = infer_initial_div(&units, &reserved);
     let mut scopes: Vec<Scope> = Vec::new();
     let mut data_levels: Vec<u32> = Vec::new();
@@ -773,13 +975,19 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
     /// Index in `out` of the last emitted procedure code line.
     let mut last_code: Option<usize> = None;
     let mut prev_blank = false;
+    // Style rule 7: a conditional phrase (`AT END`, `INVALID KEY`, …) is open
+    // until its `END-<verb>`; a period would close it, so the period stays.
+    let mut phrase_open = false;
+    // Style: the clauses of a `SELECT` (`ORGANIZATION …`, `RECORD KEY …`) sit
+    // one level under it.
+    let mut in_select = false;
 
     let flush_pending_entry =
         |pending: &mut Option<String>,
          data_levels: &mut Vec<u32>,
          run: &mut Vec<DataEntry>| {
             if let Some(entry) = pending.take() {
-                push_data_entry(&entry, true, data_levels, run);
+                push_data_entry(&entry, true, data_levels, run, level_step);
             }
         };
 
@@ -787,36 +995,45 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
         match unit {
             Unit::Blank => {
                 flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
-                flush_data_run(&mut data_run, &mut out);
+                flush_data_run(&mut data_run, &mut out, style);
                 if !prev_blank && !out.is_empty() {
-                    out.push(String::new());
+                    out.push(String::new(), Kind::Blank);
                     prev_blank = true;
                 }
                 continue;
             }
             Unit::Comment(raw) => {
                 flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
-                flush_data_run(&mut data_run, &mut out);
+                flush_data_run(&mut data_run, &mut out, style);
                 prev_blank = false;
                 let t = raw.trim();
-                if opts.align_comments && t.starts_with("*>") {
+                if style {
+                    // Style rule 5: a free-form comment sits in the column of
+                    // the code below it (the layout pass places it). A classic
+                    // column-7 comment stays pinned.
+                    if t.starts_with("*>") {
+                        out.push(t.to_owned(), Kind::Comment);
+                    } else {
+                        out.put(7, t, Kind::Pinned);
+                    }
+                } else if opts.align_comments && t.starts_with("*>") {
                     let col = match div {
                         Div::Proc => 12 + scopes.len() * 4,
                         Div::Data => 8 + data_levels.len() * 3,
                         _ => 8,
                     };
-                    put(&mut out, col, t);
+                    out.put(col, t, Kind::Other);
                 } else if t.starts_with("*>") {
                     // Leave free-form comments exactly as authored.
-                    out.push(raw.clone());
+                    out.push(raw.clone(), Kind::Other);
                 } else {
-                    put(&mut out, 7, t);
+                    out.put(7, t, Kind::Other);
                 }
                 continue;
             }
             Unit::Exec(lines) => {
                 flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
-                flush_data_run(&mut data_run, &mut out);
+                flush_data_run(&mut data_run, &mut out, style);
                 prev_blank = false;
                 // Rule 1: the interior is untouchable. The opening line is
                 // placed by context; the rest keep their own columns.
@@ -827,26 +1044,24 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                         } else {
                             12
                         };
-                        put(&mut out, col, raw.trim());
+                        out.put(col, raw.trim(), Kind::Other);
                     } else {
-                        out.push(raw.trim_end().to_owned());
+                        out.push(raw.trim_end().to_owned(), Kind::Other);
                     }
                 }
                 continue;
             }
             Unit::Fence(lines) => {
                 flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
-                flush_data_run(&mut data_run, &mut out);
+                flush_data_run(&mut data_run, &mut out, style);
                 prev_blank = false;
                 // Byte for byte, fences included. Not even `trim_end`: trailing
                 // spaces on a line inside a block literal are part of its
                 // value, and re-indenting the opening line would move the fence
                 // itself — which is what the operator asked be left alone.
-                let start = out.len();
                 for raw in lines {
-                    out.push(raw.clone());
+                    out.push(raw.clone(), Kind::Verbatim);
                 }
-                verbatim.extend(start..out.len());
                 continue;
             }
             Unit::Code(code) => {
@@ -865,8 +1080,8 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                     )
                 {
                     flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
-                    flush_data_run(&mut data_run, &mut out);
-                    close_sentence(&mut out, last_code.take());
+                    flush_data_run(&mut data_run, &mut out, style);
+                    close_sentence(&mut out.lines, last_code.take());
                     div = match first {
                         "PROCEDURE" => Div::Proc,
                         "DATA" => Div::Data,
@@ -875,14 +1090,17 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                     };
                     scopes.clear();
                     data_levels.clear();
-                    put(&mut out, 8, &collapse_spaces(&cased));
+                    phrase_open = false;
+                    in_select = false;
+                    out.put(8, &collapse_spaces(&cased), Kind::Division);
                     continue;
                 }
                 if second == "SECTION" {
                     flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
-                    flush_data_run(&mut data_run, &mut out);
+                    flush_data_run(&mut data_run, &mut out, style);
                     scopes.clear();
                     data_levels.clear();
+                    in_select = false;
                     div = match first {
                         "WORKING-STORAGE" | "LOCAL-STORAGE" | "LINKAGE" | "FILE"
                         | "SCREEN" | "REPORT" | "COMMUNICATION" => Div::Data,
@@ -892,10 +1110,10 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                     // A SECTION header is preceded by one blank line
                     // (operator rule, 2026-08-07) — added only when the
                     // previous line has content, so it never doubles up.
-                    if out.last().is_some_and(|l| !l.trim().is_empty()) {
-                        out.push(String::new());
+                    if out.lines.last().is_some_and(|l| !l.trim().is_empty()) {
+                        out.push(String::new(), Kind::Blank);
                     }
-                    put(&mut out, 8, &collapse_spaces(&cased));
+                    out.put(8, &collapse_spaces(&cased), Kind::Section);
                     continue;
                 }
 
@@ -911,16 +1129,16 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                                 &mut data_levels,
                                 &mut data_run,
                             );
-                            flush_data_run(&mut data_run, &mut out);
+                            flush_data_run(&mut data_run, &mut out, style);
                             data_levels.clear();
-                            put(&mut out, 8, &collapse_spaces(&cased));
+                            out.put(8, &collapse_spaces(&cased), Kind::Data);
                             continue;
                         }
                         let starts_entry = leading_level(&cased).is_some();
                         if let Some(pending) = data_pending.as_mut() {
                             if starts_entry {
                                 let entry = data_pending.take().unwrap();
-                                push_data_entry(&entry, true, &mut data_levels, &mut data_run);
+                                push_data_entry(&entry, true, &mut data_levels, &mut data_run, level_step);
                             } else {
                                 pending.push(' ');
                                 pending.push_str(cased.trim());
@@ -931,6 +1149,7 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                                         false,
                                         &mut data_levels,
                                         &mut data_run,
+                                        level_step,
                                     );
                                 }
                                 continue;
@@ -938,14 +1157,14 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                         }
                         if starts_entry {
                             if ends_with_period(&cased) {
-                                push_data_entry(&cased, false, &mut data_levels, &mut data_run);
+                                push_data_entry(&cased, false, &mut data_levels, &mut data_run, level_step);
                             } else {
                                 data_pending = Some(cased.clone());
                             }
                         } else {
                             // A stray clause with no open entry: emit as-is.
-                            flush_data_run(&mut data_run, &mut out);
-                            put(&mut out, 12, &collapse_spaces(&cased));
+                            flush_data_run(&mut data_run, &mut out, style);
+                            out.put(12, &collapse_spaces(&cased), Kind::Data);
                         }
                     }
                     Div::Proc => {
@@ -953,18 +1172,30 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                         // A paragraph is a lone dotted name — never a scope
                         // terminator or phase marker that happens to close
                         // its sentence (`END-IF.`, `ELSE.`, `END-TRY.`).
-                        let is_paragraph = words.len() == 1
-                            && words[0].ends_with('.')
-                            && !reserved.contains(first)
-                            && !first.starts_with("END-")
-                            && !matches!(first, "ELSE" | "WHEN" | "CATCH" | "FINALLY");
-                        if is_paragraph {
+                        if is_paragraph_header(&words, first, &reserved) {
                             // Rule 9: the sentence before a paragraph must
                             // close; rule 2: the header sits at column 8.
-                            close_sentence(&mut out, last_code.take());
+                            close_sentence(&mut out.lines, last_code.take());
                             scopes.clear();
-                            put(&mut out, 8, &content);
+                            phrase_open = false;
+                            out.put(8, &content, Kind::Paragraph);
                             continue;
+                        }
+
+                        // Style: a phrase statement is a scope. `END-READ` closes it;
+                        // a phrase marker (`AT END`) sits one level inside it.
+                        let mut phrase_line = false;
+                        if style {
+                            if let Some(v) = first.strip_prefix("END-").and_then(phrase_verb) {
+                                if let Some(pos) = scopes.iter().rposition(|s| *s == Scope::Phrase(v)) {
+                                    scopes.truncate(pos);
+                                }
+                            } else if phrase_marker(&upper).is_some() {
+                                if matches!(scopes.last(), Some(Scope::PhraseBody)) {
+                                    scopes.pop();
+                                }
+                                phrase_line = matches!(scopes.last(), Some(Scope::Phrase(_)));
+                            }
                         }
 
                         if let Some(kind) = terminator_kind(first) {
@@ -976,20 +1207,44 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                         } else if matches!(first, "CATCH" | "FINALLY") {
                             // Rule 9: the last sentence of the previous
                             // phase closes; the marker aligns with TRY.
-                            close_sentence(&mut out, last_code);
+                            close_sentence(&mut out.lines, last_code);
                             while scopes.last().is_some_and(|s| *s != Scope::Try) {
                                 scopes.pop();
                             }
                         }
 
+                        let top_before = scopes.last().copied();
                         let mut depth = scopes.len();
                         if first == "ELSE" {
                             depth = depth.saturating_sub(1);
                         } else if matches!(first, "CATCH" | "FINALLY") {
                             depth = depth.saturating_sub(1);
                         }
-                        put(&mut out, 12 + depth * 4, &content);
-                        last_code = Some(out.len() - 1);
+                        // Style: a line that starts no statement and is no marker
+                        // (`INTO …`, `WITH POINTER …`, `AND …`) belongs to the
+                        // statement above and sits one level in — except inside a
+                        // phrase scope, which already put it there. A condition
+                        // continuation (`AND`/`OR`) sits two levels in from its
+                        // header, clear of the body.
+                        let marker_like = matches!(first, "ELSE" | "WHEN" | "CATCH" | "FINALLY")
+                            || first.starts_with("END-")
+                            || phrase_line;
+                        let continuation =
+                            style && !marker_like && beautify_style::statement_verb(&content).is_none();
+                        let condition_line = continuation && matches!(first, "AND" | "OR");
+                        if continuation && !condition_line && !matches!(top_before, Some(Scope::Phrase(_))) {
+                            depth += 1;
+                        }
+                        let mut col = 12 + depth * 4;
+                        if condition_line {
+                            if let Some(j) = out
+                                .kinds
+                                .iter()
+                                .rposition(|k| matches!(k, Kind::Stmt { .. } | Kind::Marker { .. }))
+                            {
+                                col = out.lines[j].chars().take_while(|c| *c == ' ').count() + 1 + 8;
+                            }
+                        }
 
                         let ends_period = ends_with_period(&content);
                         if !ends_period {
@@ -1008,6 +1263,16 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                                 {
                                     scopes.push(Scope::Perform)
                                 }
+                                v if style
+                                    && scoped.get(i).copied().unwrap_or(false)
+                                    && phrase_verb(v).is_some()
+                                    && !upper.contains(&format!("END-{v}")) =>
+                                {
+                                    scopes.push(Scope::Phrase(phrase_verb(v).unwrap_or("READ")))
+                                }
+                                _ if phrase_line && phrase_marker(&upper) == Some(true) => {
+                                    scopes.push(Scope::PhraseBody)
+                                }
                                 _ => {}
                             }
                         }
@@ -1020,6 +1285,67 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                                 None => scopes.clear(),
                             }
                         }
+
+                        if !style {
+                            out.put(col, &content, Kind::Other);
+                            last_code = Some(out.len() - 1);
+                            let _ = i;
+                            continue;
+                        }
+
+                        // ── the PowerRustCOBOL style ──
+                        let mut text = beautify_style::restyle(&content, rewrite);
+                        if beautify_style::PHRASE_WORDS.iter().any(|p| upper.contains(p)) {
+                            phrase_open = true;
+                        }
+                        if first.starts_with("END-") && terminator_kind(first).is_none() {
+                            phrase_open = false;
+                        }
+                        // Rule 7: the period goes when nothing depends on it —
+                        // no scope or phrase left open by it, the line is not a
+                        // one-line IF/EVALUATE/PERFORM that the period closes,
+                        // and nothing (paragraph, section, end of code) follows.
+                        let closes_itself = match first {
+                            "IF" | "EVALUATE" | "SEARCH" | "TRY" => {
+                                !upper.contains(&format!("END-{first}"))
+                            }
+                            "PERFORM" => {
+                                is_inline_perform_words(&words) && !upper.contains("END-PERFORM")
+                            }
+                            _ => false,
+                        };
+                        if rewrite
+                            && ends_period
+                            && text.trim() != "."
+                            && scopes.is_empty()
+                            && !phrase_open
+                            && !closes_itself
+                            && !stays[i]
+                        {
+                            text = text.trim_end().trim_end_matches('.').trim_end().to_owned();
+                        }
+                        if ends_period {
+                            phrase_open = false;
+                        }
+
+                        let stmt_verb = beautify_style::statement_verb(&text);
+                        let marker = marker_like;
+                        let kind = if marker {
+                            Kind::Marker { depth }
+                        } else if let Some(verb) = stmt_verb {
+                            Kind::Stmt { depth, verb }
+                        } else {
+                            Kind::Cont { depth }
+                        };
+                        let (pieces, blank_after) = beautify_style::place(col, &text);
+                        for (n, (line, continuation)) in pieces.into_iter().enumerate() {
+                            let k = if n == 0 || !continuation { kind } else { Kind::Cont { depth } };
+                            out.push(line, k);
+                        }
+                        if blank_after {
+                            out.push(String::new(), Kind::Gap);
+                        }
+                        last_code = out.lines.iter().rposition(|l| !l.trim().is_empty());
                     }
                     Div::Env | Div::Ident => {
                         let content = collapse_spaces(&cased);
@@ -1027,18 +1353,23 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                             continue;
                         }
                         if words[0].ends_with('.') && words.len() <= 2 {
-                            put(&mut out, 8, &content);
+                            in_select = false;
+                            out.put(8, &content, Kind::Other);
                         } else if leading_level(&content).is_some() {
                             // A fragment that opens with data entries.
                             div = Div::Data;
-                            flush_data_run(&mut data_run, &mut out);
+                            flush_data_run(&mut data_run, &mut out, style);
                             if ends_with_period(&content) {
-                                push_data_entry(&content, false, &mut data_levels, &mut data_run);
+                                push_data_entry(&content, false, &mut data_levels, &mut data_run, level_step);
                             } else {
                                 data_pending = Some(content);
                             }
                         } else {
-                            put(&mut out, 12, &content);
+                            if style && first == "SELECT" {
+                                in_select = true;
+                            }
+                            let col = if style && in_select && first != "SELECT" { 16 } else { 12 };
+                            out.put(col, &content, Kind::Other);
                         }
                     }
                 }
@@ -1047,9 +1378,18 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
         }
     }
     flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
-    flush_data_run(&mut data_run, &mut out);
+    flush_data_run(&mut data_run, &mut out, style);
 
-    let mut lines = wrap_lines(out, &verbatim);
+    let out = if style { beautify_style::finish(out) } else { out };
+    // The lines of a block literal reach the file exactly as they are.
+    let verbatim: std::collections::HashSet<usize> = out
+        .kinds
+        .iter()
+        .enumerate()
+        .filter(|(_, k)| **k == Kind::Verbatim)
+        .map(|(n, _)| n)
+        .collect();
+    let mut lines = wrap_lines(out.lines, &verbatim, style);
     while lines.last().is_some_and(|l| l.trim().is_empty()) {
         lines.pop();
     }
@@ -1075,15 +1415,21 @@ fn push_data_entry(
     add_period: bool,
     data_levels: &mut Vec<u32>,
     run: &mut Vec<DataEntry>,
+    step: usize,
 ) {
     let level = leading_level(entry).unwrap_or(1);
-    let col = level_column(level, data_levels);
+    let col = level_column(level, data_levels, step);
     let (left, pic, value, mut period) = split_entry(entry);
     if add_period {
         period = true; // rule 9: a data entry must close before the next one
     }
+    let body = {
+        let t = entry.trim_end();
+        collapse_spaces(if ends_with_period(entry) { t.trim_end_matches('.').trim_end() } else { t })
+    };
     run.push(DataEntry {
         col,
+        body,
         left,
         pic,
         value,
@@ -1099,6 +1445,68 @@ fn terminator_kind(first: &str) -> Option<Scope> {
         "END-TRY" => Some(Scope::Try),
         _ => None,
     }
+}
+
+/// Verbs whose conditional phrases (`AT END`, `INVALID KEY`, `ON SIZE ERROR` …)
+/// may hold statements; each closes with `END-<verb>`.
+const PHRASE_VERBS: &[&str] = &[
+    "ACCEPT", "ADD", "CALL", "COMPUTE", "DELETE", "DISPLAY", "DIVIDE", "MULTIPLY", "READ",
+    "RETURN", "REWRITE", "SEARCH", "START", "STRING", "SUBTRACT", "UNSTRING", "WRITE",
+];
+
+fn phrase_verb(word: &str) -> Option<&'static str> {
+    PHRASE_VERBS.iter().copied().find(|v| *v == word)
+}
+
+/// A conditional-phrase marker at the start of a line. `Some(true)` when the
+/// line is the marker alone, so its body follows on the lines below.
+fn phrase_marker(upper: &str) -> Option<bool> {
+    const MARKERS: &[&str] = &[
+        "NOT AT END", "AT END", "NOT INVALID KEY", "INVALID KEY", "NOT ON SIZE ERROR",
+        "ON SIZE ERROR", "NOT ON OVERFLOW", "ON OVERFLOW", "NOT ON EXCEPTION", "ON EXCEPTION",
+    ];
+    let t = upper.trim().trim_end_matches('.').trim_end();
+    MARKERS.iter().find_map(|m| {
+        if t == *m {
+            Some(true)
+        } else if t.strip_prefix(m).is_some_and(|rest| rest.starts_with(' ')) {
+            Some(false)
+        } else {
+            None
+        }
+    })
+}
+
+/// For every unit: is it the first line of a phrase statement that is closed by
+/// its own `END-<verb>`? Only those open a scope — a plain `ADD 1 TO X` or
+/// `STRING … INTO Y` has no terminator and holds nothing. The nearest opener of
+/// the verb pairs with the terminator, which is how the compiler reads it too.
+fn phrase_scoped(units: &[Unit], reserved: &HashSet<&'static str>) -> Vec<bool> {
+    let mut scoped = vec![false; units.len()];
+    let mut stack: Vec<(usize, &'static str)> = Vec::new();
+    for (i, unit) in units.iter().enumerate() {
+        let Unit::Code(c) = unit else { continue };
+        if is_boundary(c, reserved) {
+            stack.clear();
+            continue;
+        }
+        let up = c.to_ascii_uppercase();
+        let first = up.split_whitespace().next().unwrap_or("").trim_end_matches('.');
+        if let Some(v) = first.strip_prefix("END-").and_then(phrase_verb) {
+            if let Some(pos) = stack.iter().rposition(|(_, sv)| *sv == v) {
+                scoped[stack[pos].0] = true;
+                stack.truncate(pos);
+            }
+        } else if let Some(v) = phrase_verb(first) {
+            if !up.contains(&format!("END-{v}")) {
+                stack.push((i, v));
+            }
+        }
+        if ends_with_period(c) {
+            stack.clear();
+        }
+    }
+    scoped
 }
 
 /// Pop up to and including the opener `kind` (a trailing WHEN body closes
@@ -1460,6 +1868,7 @@ mod tests {
             BeautifyOptions {
                 verb_case: VerbCase::Upper,
                 align_comments: false,
+                style: false,
             },
         );
         assert!(upper.contains("DISPLAY \"Hi\""), "{upper}");
@@ -1468,6 +1877,7 @@ mod tests {
             BeautifyOptions {
                 verb_case: VerbCase::Lower,
                 align_comments: false,
+                style: false,
             },
         );
         assert!(lower.contains("display \"Hi\""), "{lower}");
@@ -1476,6 +1886,7 @@ mod tests {
             BeautifyOptions {
                 verb_case: VerbCase::Capitalize,
                 align_comments: false,
+                style: false,
             },
         );
         assert!(cap.contains("Display \"Hi\""), "{cap}");
@@ -1484,6 +1895,7 @@ mod tests {
             BeautifyOptions {
                 verb_case: VerbCase::Leave,
                 align_comments: false,
+                style: false,
             },
         );
         assert!(leave.contains("dIsPlAy \"Hi\""), "{leave}");
@@ -1500,6 +1912,7 @@ mod tests {
             BeautifyOptions {
                 verb_case: VerbCase::Upper,
                 align_comments: true,
+                style: false,
             },
         );
         let line = aligned
@@ -1564,5 +1977,372 @@ mod tests {
         assert_eq!(col_of(lines[3]), if_col, "ELSE: {out}");
         assert_eq!(col_of(lines[4]), if_col + 4, "else body: {out}");
         assert_eq!(col_of(lines[5]), if_col, "END-IF: {out}");
+    }
+
+    // ── The PowerRustCOBOL layout style (operator, 2026-10-12) ────────────────
+
+    const STYLE: BeautifyOptions = BeautifyOptions {
+        verb_case: VerbCase::Upper,
+        align_comments: true,
+        style: true,
+    };
+
+    fn styled(text: &str) -> String {
+        fmt_opts(text, STYLE)
+    }
+
+    /// The operator's own snippet, in the order they wrote it.
+    const OPERATORS_SNIPPET: &str = concat!(
+        "ENVIRONMENT DIVISION.\n",
+        "       DATA DIVISION.\n",
+        "       WORKING-STORAGE SECTION.\n",
+        "       01 WS-NL PIC X.\n",
+        "      \n",
+        "       PROCEDURE DIVISION.\n",
+        "           MOVE FUNCTION CHAR(11) TO WS-NL.\n",
+        "           MOVE \"Page\" TO VWR-1::Layout.\n",
+        "           MOVE \"None\" TO VWR-1::SplitMode.\n",
+        "           MOVE \"Full\" TO VWR-1::View1ViewMode.\n",
+        "           MOVE 100 TO VWR-1::View1Zoom.\n",
+        "           MOVE 14 TO VWR-1::FontSize.\n",
+        "      *> Something to look at before anything is picked. The sample\n",
+        "      *> ships with the project, so the demo does not depend on where\n",
+        "      *> the repository happens to sit, and it exercises headings,\n",
+        "      *> tables, lists, quotes and fenced code all at once.\n",
+        "           MOVE \"assets/docs/viewer-sample.md\" TO VWR-1::View1Source.\n",
+        "           MOVE \"Ready. Pick a file, or press Start stream.\" TO Lbl-Status::Caption.\n",
+        "       SETTING-VIEWER.    \n",
+        "           INVOKE Txt-Log::AppendText(\"Viewer demo ready.\").\n",
+        "           INVOKE Txt-Log::AppendText(WS-NL).\n",
+    );
+
+    #[test]
+    fn the_style_formats_the_operators_snippet() {
+        let expected = concat!(
+            "       ENVIRONMENT DIVISION.\n",
+            "\n",
+            "       DATA DIVISION.\n",
+            "\n",
+            "       WORKING-STORAGE SECTION.\n",
+            "       01 WS-NL                                  PIC    X.\n",
+            "\n",
+            "       PROCEDURE DIVISION.\n",
+            "           SET     WS-NL                         TO    FUNCTION CHAR(11)\n",
+            "           SET     VWR-1::Layout                 TO    \"Page\"\n",
+            "           SET     VWR-1::SplitMode              TO    \"None\"\n",
+            "           SET     VWR-1::View1ViewMode          TO    \"Full\"\n",
+            "           SET     VWR-1::View1Zoom              TO    100\n",
+            "           SET     VWR-1::FontSize               TO    14\n",
+            "\n",
+            "           *> Something to look at before anything is picked. The sample\n",
+            "           *> ships with the project, so the demo does not depend on where\n",
+            "           *> the repository happens to sit, and it exercises headings,\n",
+            "           *> tables, lists, quotes and fenced code all at once.\n",
+            "\n",
+            "           SET     VWR-1::View1Source            TO    \"assets/docs/viewer-sample.md\"\n",
+            "           SET     Lbl-Status::Caption           TO    \"Ready. Pick a file, or press Start stream.\".\n",
+            "\n",
+            "       SETTING-VIEWER.\n",
+            "           Txt-Log::AppendText(\"Viewer demo ready.\")\n",
+            "           Txt-Log::AppendText(WS-NL).\n",
+        );
+        assert_eq!(styled(OPERATORS_SNIPPET), expected);
+    }
+
+    #[test]
+    fn the_style_is_a_fixed_point() {
+        for src in [
+            OPERATORS_SNIPPET,
+            "MAIN-P.\nIF A = 1\nMOVE 1 TO B\nMOVE 2 TO C\nELSE\nDISPLAY \"X\"\nEND-IF.\n",
+            "01 REC.\n05 A PIC X.\n05 LONG-NAME-OF-A-FIELD-THAT-NEEDS-ROOM-TO-BREATHE PIC X(10) VALUE \"A\".\n88 A-ON VALUE \"Y\".\n",
+            "MAIN-P.\nMOVE \"a long literal that cannot reach column fifty\" TO WS-TARGET-NAME\nMOVE 1 TO B\n",
+        ] {
+            let once = styled(src);
+            assert_eq!(styled(&once), once, "not a fixed point for:\n{src}\n--- first pass ---\n{once}");
+        }
+    }
+
+    // Rule 1 — 4 spaces per data level (spec 043 had 3), 88s one step under.
+    #[test]
+    fn style_data_levels_nest_four_spaces() {
+        let out = styled("01 A.\n05 B PIC X.\n10 C PIC X.\n88 C-ON VALUE \"Y\".\n05 D PIC X.\n");
+        let cols: Vec<usize> = out.lines().map(col_of).collect();
+        assert_eq!(cols, [8, 12, 16, 20, 12], "{out}");
+    }
+
+    // The gutter — the first clause after the name starts in column 50.
+    #[test]
+    fn style_puts_the_first_data_clause_in_column_fifty() {
+        let out = styled("01 REC.\n05 A PIC X.\n05 LONG-NAME-HERE PIC X(10) VALUE \"A\".\n05 T OCCURS 12 TIMES.\n88 A-ON VALUE \"Y\".\n");
+        for line in out.lines().skip(1) {
+            let first = line.split_whitespace().nth(2).unwrap_or("");
+            let at = line.find(&format!(" {first}")).unwrap() + 2;
+            if ["PIC", "OCCURS", "VALUE"].contains(&first) {
+                assert_eq!(at, 50, "{line:?} in\n{out}");
+            }
+        }
+        assert!(out.contains("PIC    X(10)    VALUE \"A\"."), "{out}");
+        assert!(out.contains("OCCURS    12 TIMES."), "{out}");
+    }
+
+    #[test]
+    fn style_sends_clauses_of_a_long_name_to_the_next_line() {
+        let out = styled("01 G.\n05 T OCCURS 3.\n10 WS-G-CUSTOMER-STATUS-LINE-CAPTION PIC X(60).\n");
+        let lines: Vec<&str> = out.lines().collect();
+        let at = lines.iter().position(|l| l.contains("WS-G-CUSTOMER-STATUS-LINE-CAPTION")).unwrap();
+        assert_eq!(col_of(lines[at + 1]), 50, "{out}");
+        assert!(lines[at + 1].trim_start().starts_with("PIC    X(60)."), "{out}");
+        assert!(lines.get(at + 2).is_none_or(|l| l.trim().is_empty()), "blank line after:\n{out}");
+    }
+
+    // Rule 2 — a blank line before every DIVISION except ENVIRONMENT DIVISION.
+    #[test]
+    fn style_puts_a_blank_line_before_divisions_but_not_environment() {
+        let out = styled("IDENTIFICATION DIVISION.\nPROGRAM-ID. P.\nENVIRONMENT DIVISION.\nDATA DIVISION.\nPROCEDURE DIVISION.\nMAIN-P.\nDISPLAY \"A\".\n");
+        let lines: Vec<&str> = out.lines().collect();
+        for (i, l) in lines.iter().enumerate() {
+            if l.trim() == "DATA DIVISION." || l.trim() == "PROCEDURE DIVISION." {
+                assert!(lines[i - 1].trim().is_empty(), "no blank before {l:?}:\n{out}");
+            }
+            if l.trim() == "ENVIRONMENT DIVISION." {
+                assert!(!lines[i - 1].trim().is_empty(), "blank before ENVIRONMENT:\n{out}");
+            }
+        }
+    }
+
+    // Rule 3 — a verb, 4 spaces, its predicate (SET takes 5).
+    #[test]
+    fn style_separates_verb_and_predicate_by_four_spaces() {
+        let out = styled("MAIN-P.\nDISPLAY \"A\"\nADD 1 TO WS-N\nIF WS-N > 1\nPERFORM SHOW\nEND-IF.\nEXIT PROGRAM.\n");
+        assert!(out.contains("DISPLAY    \"A\""), "{out}");
+        assert!(out.contains("ADD    1 TO WS-N"), "{out}");
+        assert!(out.contains("IF    WS-N > 1"), "{out}");
+        assert!(out.contains("PERFORM    SHOW"), "{out}");
+        assert!(out.contains("EXIT PROGRAM."), "a verb with no predicate is left alone:\n{out}");
+    }
+
+    // Rule 4 — TO in column 50; too long → column 50 of the next line + blank.
+    #[test]
+    fn style_puts_to_in_column_fifty() {
+        let out = styled("MAIN-P.\nMOVE 1 TO WS-A\nMOVE ALL \"-\" TO WS-LINE\nADD 1 TO WS-N\n");
+        for line in out.lines().filter(|l| l.trim_start().starts_with("SET") || l.trim_start().starts_with("MOVE")) {
+            assert_eq!(line.find("TO").unwrap() + 1, 50, "{line:?}\n{out}");
+        }
+        assert!(out.contains("ADD    1 TO WS-N"), "only MOVE and SET are aligned:\n{out}");
+    }
+
+    #[test]
+    fn style_moves_a_far_to_to_the_next_line_and_keeps_it_on_a_second_pass() {
+        let src = "MAIN-P.\nMOVE CORRESPONDING WS-A-GROUP-WITH-A-LONG-NAME TO WS-B-GROUP\nDISPLAY \"NEXT\"\n";
+        let out = styled(src);
+        let lines: Vec<&str> = out.lines().collect();
+        let at = lines.iter().position(|l| l.contains("CORRESPONDING")).unwrap();
+        assert_eq!(col_of(lines[at + 1]), 50, "{out}");
+        assert!(lines[at + 1].trim_start().starts_with("TO    WS-B-GROUP"), "{out}");
+        assert!(lines[at + 2].trim().is_empty(), "blank line after the statement:\n{out}");
+        assert_eq!(styled(&out), out);
+    }
+
+    // Rules 5 and 6 — a comment sits in the column of the code below it, and a
+    // blank line separates the two.
+    #[test]
+    fn style_aligns_a_comment_with_the_code_below_and_blanks_after_it() {
+        let out = styled("MAIN-P.\nIF A = 1\n*> why this is done\nDISPLAY \"X\"\nEND-IF.\n");
+        let lines: Vec<&str> = out.lines().collect();
+        let at = lines.iter().position(|l| l.contains("why this")).unwrap();
+        assert_eq!(col_of(lines[at]), 16, "{out}");
+        assert!(lines[at + 1].trim().is_empty(), "{out}");
+        assert_eq!(col_of(lines[at + 2]), 16, "{out}");
+    }
+
+    // Rule 7 — periods only where necessary; scopes closed by END-<verb>.
+    #[test]
+    fn style_drops_a_sentence_period_that_nothing_depends_on() {
+        let out = styled("MAIN-P.\nDISPLAY \"A\".\nDISPLAY \"B\".\nNEXT-P.\nDISPLAY \"C\".\n");
+        assert!(out.contains("DISPLAY    \"A\"\n"), "{out}");
+        assert!(out.contains("DISPLAY    \"B\".\n"), "the period before a paragraph stays:\n{out}");
+        assert!(out.trim_end().ends_with("DISPLAY    \"C\"."), "the last element keeps its period:\n{out}");
+    }
+
+    #[test]
+    fn style_keeps_a_period_that_closes_a_scope() {
+        // A one-line IF closed by its period: dropping it would pull the next
+        // statement into the IF.
+        let src = "MAIN-P.\nIF A = 1 DISPLAY \"X\".\nDISPLAY \"ALWAYS\".\nREAD F AT END MOVE 1 TO WS-EOF.\nDISPLAY \"AFTER\".\n";
+        let out = styled(src);
+        assert!(out.contains("IF    A = 1 DISPLAY \"X\"."), "{out}");
+        assert!(out.contains("AT END MOVE 1 TO WS-EOF."), "{out}");
+    }
+
+    // Rule 8 — a blank line before and after a block of repeated verbs.
+    #[test]
+    fn style_sets_a_block_of_repeated_verbs_apart() {
+        let out = styled("MAIN-P.\nDISPLAY \"A\"\nMOVE 1 TO X\nMOVE 2 TO Y\nMOVE 3 TO Z\nDISPLAY \"B\"\n");
+        let lines: Vec<&str> = out.lines().collect();
+        let first = lines.iter().position(|l| l.contains("SET     X")).unwrap();
+        assert!(lines[first - 1].trim().is_empty(), "blank before the block:\n{out}");
+        assert!(lines[first + 3].trim().is_empty(), "blank after the block:\n{out}");
+        // A single statement is no block.
+        assert!(!lines[first - 2].trim().is_empty(), "{out}");
+    }
+
+    #[test]
+    fn style_does_not_blank_the_start_or_end_of_a_scope() {
+        let out = styled("MAIN-P.\nIF A = 1\nMOVE 1 TO X\nMOVE 2 TO Y\nEND-IF.\n");
+        assert!(!out.contains("IF    A = 1\n\n"), "{out}");
+        assert!(!out.contains("\n\n           END-IF"), "{out}");
+    }
+
+    // Rule 9 — no INVOKE on a plain call; the other spellings are kept.
+    #[test]
+    fn style_drops_invoke_only_from_a_plain_call() {
+        let out = styled("MAIN-P.\nINVOKE Txt-Log::AppendText(WS-NL)\nINVOKE ME::\"OpenFormSync\"(\"X\")\nINVOKE Obj::Get() RETURNING WS-V\n");
+        assert!(out.contains("\n           Txt-Log::AppendText(WS-NL)"), "{out}");
+        assert!(out.contains("INVOKE    ME::\"OpenFormSync\"(\"X\")"), "{out}");
+        assert!(out.contains("RETURNING WS-V"), "{out}");
+    }
+
+    // Rule 10 — SET in place of MOVE, except where SET has no equal.
+    #[test]
+    fn style_prefers_set_to_move() {
+        let out = styled("MAIN-P.\nMOVE WS-A TO WS-B\nMOVE CORRESPONDING G1 TO G2\nMOVE ALL \"*\" TO WS-LINE\n");
+        assert!(out.contains("SET     WS-B"), "{out}");
+        assert!(out.contains("MOVE    CORRESPONDING"), "{out}");
+        assert!(out.contains("MOVE    ALL"), "{out}");
+    }
+
+    // With the style off, nothing of the above happens.
+    #[test]
+    fn without_the_style_the_old_rules_hold() {
+        let out = fmt("MAIN-P.\n    MOVE 1 TO X.\n    INVOKE Txt::Go().\n");
+        assert!(out.contains("MOVE 1 TO X."), "{out}");
+        assert!(out.contains("INVOKE Txt::Go()."), "a member name keeps its spelling:\n{out}");
+    }
+
+    // The token-changing rules are kept only when the program is unchanged.
+    #[test]
+    fn style_falls_back_to_layout_alone_when_it_cannot_prove_the_program_unchanged() {
+        // Not parseable as a whole, so no rewrite can be proved: layout only.
+        let out = styled("MAIN-P.\nMOVE 1 TO X.\nDISPLAY \"A\" +\nDISPLAY \"B\".\n");
+        assert!(out.contains("MOVE    1"), "the MOVE stays a MOVE:\n{out}");
+        assert!(out.contains("X."), "and its period stays:\n{out}");
+    }
+
+    // A bare call is not a paragraph header, with or without the style.
+    #[test]
+    fn a_lone_call_ending_in_a_period_is_no_paragraph() {
+        let out = fmt("MAIN-P.\n    DISPLAY \"A\"\n    Txt-Log::AppendText(WS-NL).\n");
+        let call = out.lines().find(|l| l.contains("AppendText")).unwrap();
+        assert_eq!(col_of(call), 12, "{out}");
+        assert!(out.contains("DISPLAY \"A\"\n"), "no period was added before it:\n{out}");
+    }
+
+    // A statement with conditional phrases is a scope: its phrases sit one level
+    // in, their bodies two, and `END-READ` comes back to the verb's column.
+    #[test]
+    fn style_indents_a_phrase_statement_like_a_scope() {
+        let src = "MAIN-P.\nREAD CONVS-FILE\nINVALID KEY CONTINUE\nNOT INVALID KEY\nADD WS-A TO WS-B\nIF WS-B > 1\nDISPLAY \"BIG\"\nEND-IF\nEND-READ\nCLOSE CONVS-FILE\n";
+        let out = styled(src);
+        let col = |needle: &str| col_of(out.lines().find(|l| l.contains(needle)).unwrap_or_else(|| panic!("{needle} in\n{out}")));
+        assert_eq!(col("READ    CONVS"), 12, "{out}");
+        assert_eq!(col("INVALID KEY CONTINUE"), 16, "{out}");
+        assert_eq!(col("NOT INVALID KEY"), 16, "{out}");
+        assert_eq!(col("ADD    WS-A"), 20, "{out}");
+        assert_eq!(col("IF    WS-B"), 20, "{out}");
+        assert_eq!(col("DISPLAY"), 24, "{out}");
+        assert_eq!(col("END-READ"), 12, "{out}");
+        assert_eq!(col("CLOSE"), 12, "the statement after the scope is back at the verb's column:\n{out}");
+        assert_eq!(styled(&out), out, "fixed point");
+    }
+
+    #[test]
+    fn style_indents_the_continuation_lines_of_a_plain_statement() {
+        let out = styled("MAIN-P.\nSTRING WS-A DELIMITED BY SIZE\nINTO WS-B\nADD 1 TO WS-N\n");
+        let col = |needle: &str| col_of(out.lines().find(|l| l.contains(needle)).unwrap());
+        assert_eq!(col("STRING    WS-A"), 12, "{out}");
+        assert_eq!(col("INTO WS-B"), 16, "{out}");
+        assert_eq!(col("ADD"), 12, "{out}");
+    }
+
+    #[test]
+    fn style_sets_a_condition_continuation_clear_of_the_body() {
+        let out = styled("MAIN-P.\nIF WS-A = 1\nAND WS-B = 2\nDISPLAY \"BOTH\"\nEND-IF\n");
+        let col = |needle: &str| col_of(out.lines().find(|l| l.contains(needle)).unwrap());
+        assert_eq!(col("IF    WS-A"), 12, "{out}");
+        assert_eq!(col("AND WS-B"), 20, "{out}");
+        assert_eq!(col("DISPLAY"), 16, "{out}");
+    }
+
+    // A RETURNING clause on the next line belongs to its INVOKE: with it the
+    // call is not a plain one, and INVOKE stays.
+    #[test]
+    fn style_keeps_invoke_when_returning_is_on_the_next_line() {
+        let out = styled("MAIN-P.\nINVOKE Obj::GetProperty(\"Answer\")\nRETURNING WS-ANSWER\n");
+        assert!(out.contains("INVOKE    Obj::GetProperty(\"Answer\") RETURNING WS-ANSWER"), "{out}");
+    }
+
+    // A multi-line MOVE keeps all its targets.
+    #[test]
+    fn style_keeps_every_target_of_a_multi_line_move() {
+        let out = styled("MAIN-P.\nMOVE WS-A TO WS-B\n   WS-C\n   WS-D\nDISPLAY \"X\"\n");
+        assert!(out.contains("SET     WS-B WS-C WS-D"), "{out}");
+        assert!(out.contains("TO    WS-A"), "{out}");
+    }
+
+    // Member names keep their spelling whatever the verb casing.
+    #[test]
+    fn member_names_are_never_recased() {
+        let out = fmt("MAIN-P.\n    move nud-age::Value to lbl-1::Text\n    Timer-1::Start()\n");
+        assert!(out.contains("nud-age::Value"), "{out}");
+        assert!(out.contains("lbl-1::Text"), "{out}");
+        assert!(out.contains("Timer-1::Start()"), "{out}");
+        let out = fmt("MAIN-P.\n    invoke super::GetProperty(\"A\") returning ws-x\n    me::Close()\n");
+        assert!(out.contains("super::GetProperty"), "a receiver keeps its spelling:\n{out}");
+        assert!(out.contains("me::Close()"), "{out}");
+    }
+
+    // The blank line after a wrapped `TO` is for what follows, not for the end
+    // of a scope.
+    #[test]
+    fn style_leaves_no_blank_line_between_a_wrapped_to_and_a_scope_end() {
+        let src = "MAIN-P.\nIF A = 1\nMOVE CORRESPONDING WS-A-GROUP-WITH-A-LONG-NAME TO WS-B-GROUP\nEND-IF\nDISPLAY \"X\"\n";
+        let out = styled(src);
+        let lines: Vec<&str> = out.lines().collect();
+        let at = lines.iter().position(|l| l.trim_start().starts_with("TO    WS-B-GROUP")).unwrap();
+        assert_eq!(lines[at + 1].trim(), "END-IF", "{out}");
+    }
+
+    #[test]
+    fn style_indents_the_clauses_of_a_select() {
+        let out = styled("ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\nSELECT F ASSIGN TO WS-P\nORGANIZATION IS INDEXED\nRECORD KEY IS K.\nSELECT G ASSIGN TO WS-Q.\n");
+        let col = |needle: &str| col_of(out.lines().find(|l| l.contains(needle)).unwrap());
+        assert_eq!(col("SELECT F"), 12, "{out}");
+        assert_eq!(col("ORGANIZATION"), 16, "{out}");
+        assert_eq!(col("RECORD KEY"), 16, "{out}");
+        assert_eq!(col("SELECT G"), 12, "{out}");
+        assert_eq!(styled(&out), out);
+    }
+
+    // A long VALUE keeps its literal whole: the line breaks before it.
+    #[test]
+    fn style_breaks_before_a_long_literal_instead_of_through_it() {
+        let literal = format!("\"{}\"", "abc ".repeat(55).trim_end());
+        let out = styled(&format!("01 WS-TYPES GLOBAL PIC X(300) VALUE {literal}.\n"));
+        assert!(out.lines().all(|l| l.chars().count() <= 256), "{out}");
+        assert!(out.contains(&literal), "the literal must be unbroken:\n{out}");
+        assert!(!out.lines().any(|l| l.as_bytes().get(6) == Some(&b'-')), "no continuation line:\n{out}");
+    }
+
+    // The plugin tells a coding agent to write this layout, and shows a model
+    // of it. ✨ Beautify must leave that model exactly as it is — one layout, in
+    // the rule and in the IDE.
+    #[test]
+    fn beautify_leaves_the_plugins_model_untouched() {
+        let (_, rule) = cobolt_project_tools::content::APPLICATION_RULES
+            .iter()
+            .find(|(id, _)| *id == "layout")
+            .expect("a layout rule");
+        let model = rule.split_once("The model:\n").expect("a model").1;
+        assert_eq!(styled(model), model);
     }
 }

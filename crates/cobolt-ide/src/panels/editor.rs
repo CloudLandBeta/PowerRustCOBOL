@@ -1346,6 +1346,8 @@ pub struct EditorPanel {
     beautify_errors: Vec<String>,
     beautify_verb_case: crate::panels::beautify::VerbCase,
     beautify_align_comments: bool,
+    /// The PowerRustCOBOL layout style (operator, 2026-10-12).
+    beautify_style: bool,
 }
 
 impl Default for EditorPanel {
@@ -1384,6 +1386,7 @@ impl Default for EditorPanel {
             beautify_errors: Vec::new(),
             beautify_verb_case: crate::panels::beautify::VerbCase::Upper,
             beautify_align_comments: false,
+            beautify_style: true,
         }
     }
 }
@@ -2227,6 +2230,7 @@ impl EditorPanel {
         let opts = crate::panels::beautify::BeautifyOptions {
             verb_case: self.beautify_verb_case,
             align_comments: self.beautify_align_comments,
+            style: self.beautify_style,
         };
         let Some(tab) = self.tabs.get_mut(self.active) else {
             return;
@@ -2250,9 +2254,10 @@ impl EditorPanel {
     /// Rule 10: the ✨ Beautify click opens the options modal (verb casing,
     /// comment alignment), seeded from the machine-local preferences.
     fn open_beautify_modal(&mut self) {
-        let (verbs, align) = crate::ui_prefs::load_beautify();
+        let (verbs, align, style) = crate::ui_prefs::load_beautify();
         self.beautify_verb_case = verbs;
         self.beautify_align_comments = align;
+        self.beautify_style = style;
         self.beautify_modal_open = true;
     }
 
@@ -2281,8 +2286,15 @@ impl EditorPanel {
                     ui.radio_value(&mut self.beautify_verb_case, VerbCase::Capitalize, tr.bt_verbs_cap);
                     ui.add_space(6.0);
                     ui.label(egui::RichText::new(tr.bt_comments).strong());
-                    ui.radio_value(&mut self.beautify_align_comments, false, tr.bt_comments_leave);
-                    ui.radio_value(&mut self.beautify_align_comments, true, tr.bt_comments_align);
+                    // The style always aligns comments with the code (rule 5),
+                    // so the choice only applies without it.
+                    ui.add_enabled_ui(!self.beautify_style, |ui| {
+                        ui.radio_value(&mut self.beautify_align_comments, false, tr.bt_comments_leave);
+                        ui.radio_value(&mut self.beautify_align_comments, true, tr.bt_comments_align);
+                    });
+                    ui.add_space(6.0);
+                    ui.checkbox(&mut self.beautify_style, tr.bt_style)
+                        .on_hover_text(tr.bt_style_hint);
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         if ui.button(tr.bt_apply).clicked() {
@@ -2296,7 +2308,11 @@ impl EditorPanel {
             );
             if run {
                 self.beautify_modal_open = false;
-                crate::ui_prefs::save_beautify(self.beautify_verb_case, self.beautify_align_comments);
+                crate::ui_prefs::save_beautify(
+                    self.beautify_verb_case,
+                    self.beautify_align_comments,
+                    self.beautify_style,
+                );
                 self.beautify_active();
             }
             if cancel {

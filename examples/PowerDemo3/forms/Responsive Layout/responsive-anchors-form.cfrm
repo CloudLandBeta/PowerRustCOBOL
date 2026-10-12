@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="RESPONSIVE-ANCHORS-FORM" title="Responsive - anchors and size limits" width="1000" height="700" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-ANCHOR GLOBAL PIC X(40).
-       01 WS-PTR GLOBAL PIC 99.
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-ANCHOR                              GLOBAL    PIC X(40).
+       01 WS-PTR                                 GLOBAL    PIC 99.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -56,89 +56,109 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="ANC-SHOW-INFO" paragraph="ANC-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 ]]></Event>
     <Event name="ANC-APPLY-LIVE" paragraph="ANC-APPLY-LIVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Build the anchor text from the four check boxes and give it
-      *> to the live block. An empty text means no edge on either axis.
-           MOVE SPACES TO WS-ANCHOR
-           MOVE 1 TO WS-PTR
-           IF CHK-TOP::Checked = 1
-               STRING "Top," INTO WS-ANCHOR
+           *> Build the anchor text from the four check boxes and give it
+           *> to the live block. An empty text means no edge on either axis.
+
+           SET     WS-ANCHOR                     TO    SPACES
+           SET     WS-PTR                        TO    1
+
+           *> WITH POINTER makes each name append after the previous one; without
+           *> it every STRING would restart at column 1 and overwrite the text.
+
+           IF    CHK-TOP::Checked = 1
+               STRING    "Top," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           IF CHK-BOTTOM::Checked = 1
-               STRING "Bottom," INTO WS-ANCHOR
+           IF    CHK-BOTTOM::Checked = 1
+               STRING    "Bottom," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           IF CHK-LEFT::Checked = 1
-               STRING "Left," INTO WS-ANCHOR
+           IF    CHK-LEFT::Checked = 1
+               STRING    "Left," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           IF CHK-RIGHT::Checked = 1
-               STRING "Right," INTO WS-ANCHOR
+           IF    CHK-RIGHT::Checked = 1
+               STRING    "Right," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           MOVE WS-ANCHOR TO A-LIVE::Anchor
-           IF WS-ANCHOR = SPACES
-               MOVE "Live: (none)" TO A-LIVE::Caption
+           SET     A-LIVE::Anchor                TO    WS-ANCHOR
+           IF    WS-ANCHOR = SPACES
+               SET     A-LIVE::Caption           TO    "Live: (none)"
            ELSE
-               MOVE SPACES TO WS-LINE
-               STRING "Live: " WS-ANCHOR DELIMITED BY SIZE INTO WS-LINE
-               MOVE WS-LINE TO A-LIVE::Caption
+               SET     WS-LINE                   TO    SPACES
+               STRING    "Live: " WS-ANCHOR DELIMITED BY SIZE INTO WS-LINE
+               SET     A-LIVE::Caption           TO    WS-LINE
            END-IF
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-ANCHORS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "ANC-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "ANC-SHOW-INFO"
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-ANCHORS-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-ANCHORS-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "ANC-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "ANC-SHOW-INFO"
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-ANCHORS-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "ANC-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "ANC-SHOW-INFO"
 ]]></Event>
   </form-events>
   <Control id="LBL-TITLE" type="Label" x="24" y="14" w="952" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -759,9 +779,11 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
     <Event name="onCheckedChanged" paragraph="CHK-TOP--ONCHECKEDCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 ]]></Event>
   </Control>
   <Control id="CHK-BOTTOM" type="CheckBox" x="808" y="146" w="140" h="28" tab-order="2" z-order="17" visible="true" enabled="true" parent="PNL-LIVE">
@@ -807,9 +829,11 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
     <Event name="onCheckedChanged" paragraph="CHK-BOTTOM--ONCHECKEDCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 ]]></Event>
   </Control>
   <Control id="CHK-LEFT" type="CheckBox" x="656" y="182" w="140" h="28" tab-order="3" z-order="18" visible="true" enabled="true" parent="PNL-LIVE">
@@ -855,9 +879,11 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
     <Event name="onCheckedChanged" paragraph="CHK-LEFT--ONCHECKEDCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 ]]></Event>
   </Control>
   <Control id="CHK-RIGHT" type="CheckBox" x="808" y="182" w="140" h="28" tab-order="4" z-order="19" visible="true" enabled="true" parent="PNL-LIVE">
@@ -903,9 +929,11 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
     <Event name="onCheckedChanged" paragraph="CHK-RIGHT--ONCHECKEDCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 ]]></Event>
   </Control>
   <Control id="BTN-RESET" type="Button" x="656" y="226" w="180" h="32" tab-order="5" z-order="20" visible="true" enabled="true" parent="PNL-LIVE">
@@ -947,13 +975,16 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="BTN-RESET--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO CHK-TOP::Checked
-           MOVE 0 TO CHK-BOTTOM::Checked
-           MOVE 1 TO CHK-LEFT::Checked
-           MOVE 0 TO CHK-RIGHT::Checked
-           CALL "ANC-APPLY-LIVE"
+           SET     CHK-TOP::Checked              TO    1
+           SET     CHK-BOTTOM::Checked           TO    0
+           SET     CHK-LEFT::Checked             TO    1
+           SET     CHK-RIGHT::Checked            TO    0
+
+           CALL    "ANC-APPLY-LIVE"
 ]]></Event>
   </Control>
   <Control id="LIV-NOTE" type="Label" x="656" y="274" w="304" h="190" tab-order="0" z-order="21" visible="true" enabled="true" parent="PNL-LIVE">

@@ -1,46 +1,56 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="SETTINGS-FORM" background="40404008" transparency="50" title="PowerSpatial" width="440" height="240" grid-size="8" snap-to-grid="true" target="Custom" form-format="Standalone" responsive="true" index-base="1" title-visible="false" corner-radius="28" resizable="false" start-position="Center">
-  <working-storage><![CDATA[       01 WS-PICK GLOBAL PIC 9.
-       01 WS-SET-NAME  GLOBAL PIC X(20).
-       01 WS-SET-VALUE GLOBAL PIC X(200).
-       01 WS-LANG-IX   GLOBAL PIC 9 VALUE 0.
-       01 WS-NEW-IX    GLOBAL PIC 9 VALUE 1.
-      *>   The texts the operator reads, one row per text and one
-      *>   column per language - en, pt, es, fr, jp, cn.
-       01 PS-TEXT-DATA GLOBAL.
-      *>   TITLE
-           05 FILLER PIC X(80) VALUE "Settings".
-           05 FILLER PIC X(80) VALUE "Configurações".
-           05 FILLER PIC X(80) VALUE "Ajustes".
-           05 FILLER PIC X(80) VALUE "Paramètres".
-           05 FILLER PIC X(80) VALUE "設定".
-           05 FILLER PIC X(80) VALUE "设置".
-      *>   LANGUAGE
-           05 FILLER PIC X(80) VALUE "Language".
-           05 FILLER PIC X(80) VALUE "Idioma".
-           05 FILLER PIC X(80) VALUE "Idioma".
-           05 FILLER PIC X(80) VALUE "Langue".
-           05 FILLER PIC X(80) VALUE "言語".
-           05 FILLER PIC X(80) VALUE "语言".
-      *>   CLOSE
-           05 FILLER PIC X(80) VALUE "Close".
-           05 FILLER PIC X(80) VALUE "Fechar".
-           05 FILLER PIC X(80) VALUE "Cerrar".
-           05 FILLER PIC X(80) VALUE "Fermer".
-           05 FILLER PIC X(80) VALUE "閉じる".
-           05 FILLER PIC X(80) VALUE "关闭".
-       01 PS-TEXT-TABLE REDEFINES PS-TEXT-DATA GLOBAL.
-           05 PS-TEXT-ROW OCCURS 3.
-              10 PS-TEXT PIC X(80) OCCURS 6.
+  <working-storage><![CDATA[       01 WS-PICK                                GLOBAL    PIC 9.
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 0.
+       01 WS-NEW-IX                              GLOBAL    PIC 9    VALUE 1.
+       *>   The texts the operator reads, one row per text and one
+       *>   column per language - en, pt, es, fr, jp, cn.
+
+       01 PS-TEXT-DATA                           GLOBAL.
+           *>   TITLE
+
+           05 FILLER                             PIC    X(80)    VALUE "Settings".
+           05 FILLER                             PIC    X(80)    VALUE "Configurações".
+           05 FILLER                             PIC    X(80)    VALUE "Ajustes".
+           05 FILLER                             PIC    X(80)    VALUE "Paramètres".
+           05 FILLER                             PIC    X(80)    VALUE "設定".
+           05 FILLER                             PIC    X(80)    VALUE "设置".
+           *>   LANGUAGE
+
+           05 FILLER                             PIC    X(80)    VALUE "Language".
+           05 FILLER                             PIC    X(80)    VALUE "Idioma".
+           05 FILLER                             PIC    X(80)    VALUE "Idioma".
+           05 FILLER                             PIC    X(80)    VALUE "Langue".
+           05 FILLER                             PIC    X(80)    VALUE "言語".
+           05 FILLER                             PIC    X(80)    VALUE "语言".
+           *>   CLOSE
+
+           05 FILLER                             PIC    X(80)    VALUE "Close".
+           05 FILLER                             PIC    X(80)    VALUE "Fechar".
+           05 FILLER                             PIC    X(80)    VALUE "Cerrar".
+           05 FILLER                             PIC    X(80)    VALUE "Fermer".
+           05 FILLER                             PIC    X(80)    VALUE "閉じる".
+           05 FILLER                             PIC    X(80)    VALUE "关闭".
+       01 PS-TEXT-TABLE                          REDEFINES    PS-TEXT-DATA    GLOBAL.
+           05 PS-TEXT-ROW                        OCCURS    3.
+               10 PS-TEXT                        PIC    X(80)    OCCURS 6.
 ]]></working-storage>
   <user-procedures>
     <Event name="PS-LANG-CHECK" paragraph="PS-LANG-CHECK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language kept in the settings; the texts follow it.
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
-           EVALUATE WS-SET-VALUE(1:2)
+           *>   The language kept in the settings; the texts follow it.
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+           *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
+           *> A setting never kept, or any other code, means English.
+
+           EVALUATE    WS-SET-VALUE(1:2)
                WHEN "pt" MOVE 2 TO WS-NEW-IX
                WHEN "es" MOVE 3 TO WS-NEW-IX
                WHEN "fr" MOVE 4 TO WS-NEW-IX
@@ -48,26 +58,38 @@
                WHEN "cn" MOVE 6 TO WS-NEW-IX
                WHEN OTHER MOVE 1 TO WS-NEW-IX
            END-EVALUATE
-           IF WS-NEW-IX NOT = WS-LANG-IX
-               MOVE WS-NEW-IX TO WS-LANG-IX
-               CALL "PS-APPLY-TEXT"
+           *> Tmr-Lang calls this every second. WS-LANG-IX starts at 0, so the first
+           *> call always applies the texts; later ones only when the language moved.
+
+           IF    WS-NEW-IX NOT = WS-LANG-IX
+               SET     WS-LANG-IX                TO    WS-NEW-IX
+               CALL    "PS-APPLY-TEXT"
            END-IF
 ]]></Event>
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Lbl-Title::Caption
-           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Lbl-Language::Caption
-           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Btn-Close::Caption
-           MOVE WS-LANG-IX TO Cmb-Language::SelectedIndex
+           SET     Lbl-Title::Caption            TO    PS-TEXT(1, WS-LANG-IX)::Trim()
+           SET     Lbl-Language::Caption         TO    PS-TEXT(2, WS-LANG-IX)::Trim()
+           SET     Btn-Close::Caption            TO    PS-TEXT(3, WS-LANG-IX)::Trim()
+           SET     Cmb-Language::SelectedIndex   TO    WS-LANG-IX
 ]]></Event>
     <Event name="PS-SAVE-LANGUAGE" paragraph="PS-SAVE-LANGUAGE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language picked is kept; every window follows within a second.
-           MOVE Cmb-Language::SelectedIndex TO WS-PICK
-           MOVE "LANG" TO WS-SET-NAME
-           EVALUATE WS-PICK
+           *>   The language picked is kept; every window follows within a second.
+
+           SET     WS-PICK                       TO    Cmb-Language::SelectedIndex
+           SET     WS-SET-NAME                   TO    "LANG"
+
+           *> The combo lists the languages in PS-TEXT column order, so its index
+           *> maps straight to the two-letter code kept in the settings.
+
+           EVALUATE    WS-PICK
                WHEN 2 MOVE "pt" TO WS-SET-VALUE
                WHEN 3 MOVE "es" TO WS-SET-VALUE
                WHEN 4 MOVE "fr" TO WS-SET-VALUE
@@ -75,15 +97,21 @@
                WHEN 6 MOVE "cn" TO WS-SET-VALUE
                WHEN OTHER MOVE "en" TO WS-SET-VALUE
            END-EVALUATE
-           CALL "PS-SETTING-PUT" USING WS-SET-NAME WS-SET-VALUE
-           CALL "PS-LANG-CHECK"
+
+           CALL    "PS-SETTING-PUT" USING WS-SET-NAME WS-SET-VALUE
+           *> Re-read at once so this window follows now; the other windows catch
+           *> up on their one-second Tmr-Lang tick.
+
+           CALL    "PS-LANG-CHECK"
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="SETTINGS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-LANG-CHECK"
+           CALL    "PS-LANG-CHECK"
 ]]></Event>
   </form-events>
   <Control id="Pnl-Settings" type="Panel" x="0" y="0" w="440" h="240" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -122,9 +150,11 @@ Français
     <Property name="CornerRadius">12</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Event name="onSelectedIndexChanged" paragraph="CMB-LANGUAGE--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-SAVE-LANGUAGE"
+           CALL    "PS-SAVE-LANGUAGE"
 ]]></Event>
   </Control>
   <Control id="Btn-Close" type="Button" x="292" y="172" w="120" h="44" tab-order="4" z-order="0" visible="true" enabled="true" parent="Pnl-Settings">
@@ -135,17 +165,21 @@ Français
     <Property name="BackgroundColor">#0A84FFFF</Property>
     <Property name="AlignSelf">End</Property>
     <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           INVOKE me::Close()
+           INVOKE    me::Close()
 ]]></Event>
   </Control>
   <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="5" z-order="0" visible="true" enabled="true">
     <Property name="Interval">1000</Property>
     <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-LANG-CHECK"
+           CALL    "PS-LANG-CHECK"
 ]]></Event>
   </Control>
 </Form>

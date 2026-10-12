@@ -80,15 +80,15 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-NESTED-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-LEFT GLOBAL PIC X VALUE "Y".
-       01 WS-PAD GLOBAL PIC X VALUE "Y".
-       01 WS-COLS GLOBAL PIC X VALUE "2".
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-LEFT                                GLOBAL    PIC X    VALUE "Y".
+       01 WS-PAD                                 GLOBAL    PIC X    VALUE "Y".
+       01 WS-COLS                                GLOBAL    PIC X    VALUE "2".
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-NS-HEAD.
@@ -372,15 +372,18 @@
        PROGRAM-ID. RESPONSIVE-NESTED-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "NST-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "NST-SHOW-INFO"
 
            GOBACK.
 
@@ -406,15 +409,18 @@
        PROGRAM-ID. RESPONSIVE-NESTED-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "NST-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "NST-SHOW-INFO"
 
            GOBACK.
 
@@ -424,15 +430,18 @@
        PROGRAM-ID. RESPONSIVE-NESTED-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "NST-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "NST-SHOW-INFO"
 
            GOBACK.
 
@@ -442,22 +451,25 @@
        PROGRAM-ID. NS-T-LEFT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> A COBOL write wins over the breakpoint's override. Hidden,
-      *> the box is laid out as absent; the right column spans both.
-           IF WS-LEFT = "Y"
-               MOVE 0 TO NS-LEFT::Visible
-               MOVE 1 TO NS-RIGHT::GridColumn
-               MOVE 2 TO NS-RIGHT::ColumnSpan
-               MOVE "Show the Flow box" TO NS-T-LEFT::Caption
-               MOVE "N" TO WS-LEFT
+           *> A COBOL write wins over the breakpoint's override. Hidden,
+           *> the box is laid out as absent; the right column spans both.
+
+           IF    WS-LEFT = "Y"
+               SET     NS-LEFT::Visible          TO    0
+               SET     NS-RIGHT::GridColumn      TO    1
+               SET     NS-RIGHT::ColumnSpan      TO    2
+               SET     NS-T-LEFT::Caption        TO    "Show the Flow box"
+               SET     WS-LEFT                   TO    "N"
            ELSE
-               MOVE 1 TO NS-LEFT::Visible
-               MOVE 2 TO NS-RIGHT::GridColumn
-               MOVE 1 TO NS-RIGHT::ColumnSpan
-               MOVE "Hide the Flow box" TO NS-T-LEFT::Caption
-               MOVE "Y" TO WS-LEFT
+               SET     NS-LEFT::Visible          TO    1
+               SET     NS-RIGHT::GridColumn      TO    2
+               SET     NS-RIGHT::ColumnSpan      TO    1
+               SET     NS-T-LEFT::Caption        TO    "Hide the Flow box"
+               SET     WS-LEFT                   TO    "Y"
            END-IF
 
            GOBACK.
@@ -468,18 +480,23 @@
        PROGRAM-ID. NS-T-PAD--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-PAD = "Y"
-               MOVE 0 TO NS-RIGHT::Padding
-               MOVE "0" TO NS-RIGHT::PaddingLeft
-               MOVE "Padding 12 / 24" TO NS-T-PAD::Caption
-               MOVE "N" TO WS-PAD
+           *> A set PaddingLeft overrides Padding on the left edge only, so the
+           *> 12 / 24 state needs both; reset both to get back to a plain 0.
+
+           IF    WS-PAD = "Y"
+               SET     NS-RIGHT::Padding         TO    0
+               SET     NS-RIGHT::PaddingLeft     TO    "0"
+               SET     NS-T-PAD::Caption         TO    "Padding 12 / 24"
+               SET     WS-PAD                    TO    "N"
            ELSE
-               MOVE 12 TO NS-RIGHT::Padding
-               MOVE "24" TO NS-RIGHT::PaddingLeft
-               MOVE "Padding 0" TO NS-T-PAD::Caption
-               MOVE "Y" TO WS-PAD
+               SET     NS-RIGHT::Padding         TO    12
+               SET     NS-RIGHT::PaddingLeft     TO    "24"
+               SET     NS-T-PAD::Caption         TO    "Padding 0"
+               SET     WS-PAD                    TO    "Y"
            END-IF
 
            GOBACK.
@@ -490,17 +507,18 @@
        PROGRAM-ID. NS-T-COLS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-COLS = "2"
-               MOVE "1fr" TO NS-PG::GridColumns
-               MOVE "Inner grid: 2 columns" TO NS-T-COLS::Caption
-               MOVE "1" TO WS-COLS
+           IF    WS-COLS = "2"
+               SET     NS-PG::GridColumns        TO    "1fr"
+               SET     NS-T-COLS::Caption        TO    "Inner grid: 2 columns"
+               SET     WS-COLS                   TO    "1"
            ELSE
-               MOVE "MinMax(150px, 1fr) MinMax(150px, 1fr)"
-                   TO NS-PG::GridColumns
-               MOVE "Inner grid: 1 column" TO NS-T-COLS::Caption
-               MOVE "2" TO WS-COLS
+               SET     NS-PG::GridColumns        TO    "MinMax(150px, 1fr) MinMax(150px, 1fr)"
+               SET     NS-T-COLS::Caption        TO    "Inner grid: 1 column"
+               SET     WS-COLS                   TO    "2"
            END-IF
 
            GOBACK.
@@ -511,17 +529,20 @@
        PROGRAM-ID. NST-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 

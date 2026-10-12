@@ -86,20 +86,21 @@
 
        DATA DIVISION.
        FILE SECTION.
-       FD  SETTINGS-FILE IS GLOBAL.
-       01  SETTINGS-REC.
-           05 SET-NAME          PIC X(20).
-           05 SET-VALUE         PIC X(200).
-       FD  MODELS-FILE IS GLOBAL.
-       01  MODEL-REC.
-           05 MDL-NAME          PIC X(30).
-           05 MDL-API           PIC X(12).
-           05 MDL-URL           PIC X(200).
-           05 MDL-MODEL         PIC X(80).
-      *>   The capability table (spec 071 R31, 063 R72): whether the model
-      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
-           05 MDL-TOOLS         PIC X.
-           05 MDL-RANK          PIC 9.
+       FD SETTINGS-FILE IS GLOBAL.
+       01 SETTINGS-REC.
+           05 SET-NAME                           PIC    X(20).
+           05 SET-VALUE                          PIC    X(200).
+       FD MODELS-FILE IS GLOBAL.
+       01 MODEL-REC.
+           05 MDL-NAME                           PIC    X(30).
+           05 MDL-API                            PIC    X(12).
+           05 MDL-URL                            PIC    X(200).
+           05 MDL-MODEL                          PIC    X(80).
+           *>   The capability table (spec 071 R31, 063 R72): whether the model
+           *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+
+           05 MDL-TOOLS                          PIC    X.
+           05 MDL-RANK                           PIC    9.
        WORKING-STORAGE SECTION.
       *>── Cobolt runtime fields ─────────────────────────────────────
        01 COBOL-QUIT             PIC 9        VALUE 0.
@@ -109,204 +110,227 @@
        01 FORM-NAME               PIC X(64)   VALUE 'MODEL-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-FS              GLOBAL PIC XX VALUE "00".
-       01 WS-DATA-DIR        GLOBAL PIC X(200).
-       01 WS-SET-NAME        GLOBAL PIC X(20).
-       01 WS-SET-VALUE       GLOBAL PIC X(200).
-       01 WS-EOF             GLOBAL PIC X.
-       01 WS-OK              GLOBAL PIC X(4).
-       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
-       01 WS-MODELS-PATH     GLOBAL PIC X(240).
-      *>   The interface texts (spec 071 R44): one row per text, one column
-      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
-      *>   only the values are translated.
-       01 WS-LANG            GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
-       01 WS-TX-I            GLOBAL PIC 9(4).
-       01 PC-TEXT-DATA       GLOBAL.
-      *>   MODEL-SEL-TITLE
-          05 FILLER PIC X(120) VALUE "Model selection".
-          05 FILLER PIC X(120) VALUE "Seleção de modelo".
-          05 FILLER PIC X(120) VALUE "Selección de modelo".
-          05 FILLER PIC X(120) VALUE "Choix du modèle".
-          05 FILLER PIC X(120) VALUE "モデルの選択".
-          05 FILLER PIC X(120) VALUE "模型选择".
-      *>   CONNECTION
-          05 FILLER PIC X(120) VALUE "Connection".
-          05 FILLER PIC X(120) VALUE "Conexão".
-          05 FILLER PIC X(120) VALUE "Conexión".
-          05 FILLER PIC X(120) VALUE "Connexion".
-          05 FILLER PIC X(120) VALUE "接続".
-          05 FILLER PIC X(120) VALUE "连接".
-      *>   MODEL
-          05 FILLER PIC X(120) VALUE "Model".
-          05 FILLER PIC X(120) VALUE "Modelo".
-          05 FILLER PIC X(120) VALUE "Modelo".
-          05 FILLER PIC X(120) VALUE "Modèle".
-          05 FILLER PIC X(120) VALUE "モデル".
-          05 FILLER PIC X(120) VALUE "模型".
-      *>   RANK
-          05 FILLER PIC X(120) VALUE "Rank".
-          05 FILLER PIC X(120) VALUE "Nível".
-          05 FILLER PIC X(120) VALUE "Nivel".
-          05 FILLER PIC X(120) VALUE "Rang".
-          05 FILLER PIC X(120) VALUE "ランク".
-          05 FILLER PIC X(120) VALUE "等级".
-      *>   CALLS-TOOLS
-          05 FILLER PIC X(120) VALUE "Calls tools".
-          05 FILLER PIC X(120) VALUE "Chama ferramentas".
-          05 FILLER PIC X(120) VALUE "Usa herramientas".
-          05 FILLER PIC X(120) VALUE "Appelle des outils".
-          05 FILLER PIC X(120) VALUE "ツールを呼び出す".
-          05 FILLER PIC X(120) VALUE "可调用工具".
-      *>   SAVE
-          05 FILLER PIC X(120) VALUE "Save".
-          05 FILLER PIC X(120) VALUE "Salvar".
-          05 FILLER PIC X(120) VALUE "Guardar".
-          05 FILLER PIC X(120) VALUE "Enregistrer".
-          05 FILLER PIC X(120) VALUE "保存".
-          05 FILLER PIC X(120) VALUE "保存".
-      *>   CANCEL
-          05 FILLER PIC X(120) VALUE "Cancel".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Annuler".
-          05 FILLER PIC X(120) VALUE "キャンセル".
-          05 FILLER PIC X(120) VALUE "取消".
-      *>   STATUS
-          05 FILLER PIC X(120) VALUE "Status".
-          05 FILLER PIC X(120) VALUE "Status".
-          05 FILLER PIC X(120) VALUE "Estado".
-          05 FILLER PIC X(120) VALUE "État".
-          05 FILLER PIC X(120) VALUE "ステータス".
-          05 FILLER PIC X(120) VALUE "状态".
-      *>   LISTING
-          05 FILLER PIC X(120) VALUE "Asking &1 for its models...".
-          05 FILLER PIC X(120) VALUE "Pedindo a lista de modelos a &1...".
-          05 FILLER PIC X(120) VALUE "Pidiendo a &1 sus modelos...".
-          05 FILLER PIC X(120) VALUE "Demande des modèles à &1...".
-          05 FILLER PIC X(120) VALUE "&1 にモデルを問い合わせ中...".
-          05 FILLER PIC X(120) VALUE "正在向 &1 获取模型...".
-      *>   MODELS-AVAILABLE
-          05 FILLER PIC X(120) VALUE "&1 models available.".
-          05 FILLER PIC X(120) VALUE "&1 modelos disponíveis.".
-          05 FILLER PIC X(120) VALUE "&1 modelos disponibles.".
-          05 FILLER PIC X(120) VALUE "&1 modèles disponibles.".
-          05 FILLER PIC X(120) VALUE "利用可能なモデル: &1".
-          05 FILLER PIC X(120) VALUE "可用模型：&1 个".
-      *>   MODEL-SAVED
-          05 FILLER PIC X(120) VALUE "Model saved.".
-          05 FILLER PIC X(120) VALUE "Modelo salvo.".
-          05 FILLER PIC X(120) VALUE "Modelo guardado.".
-          05 FILLER PIC X(120) VALUE "Modèle enregistré.".
-          05 FILLER PIC X(120) VALUE "モデルを保存しました。".
-          05 FILLER PIC X(120) VALUE "模型已保存。".
-      *>   PICK-CONN
-          05 FILLER PIC X(120) VALUE "Pick a saved connection first.".
-          05 FILLER PIC X(120) VALUE "Escolha primeiro uma conexão salva.".
-          05 FILLER PIC X(120) VALUE "Primero elige una conexión guardada.".
-          05 FILLER PIC X(120) VALUE "Choisissez d'abord une connexion enregistrée.".
-          05 FILLER PIC X(120) VALUE "先に保存済みの接続を選んでください。".
-          05 FILLER PIC X(120) VALUE "请先选择一个已保存的连接。".
-      *>   PICK-MODEL
-          05 FILLER PIC X(120) VALUE "Pick a model first.".
-          05 FILLER PIC X(120) VALUE "Escolha um modelo primeiro.".
-          05 FILLER PIC X(120) VALUE "Primero elige un modelo.".
-          05 FILLER PIC X(120) VALUE "Choisissez d'abord un modèle.".
-          05 FILLER PIC X(120) VALUE "先にモデルを選んでください。".
-          05 FILLER PIC X(120) VALUE "请先选择一个模型。".
-      *>   SUM-NEED-PROVIDER
-          05 FILLER PIC X(120) VALUE "Set up a model provider first.".
-          05 FILLER PIC X(120) VALUE "Configure antes um provedor de modelos.".
-          05 FILLER PIC X(120) VALUE "Configura antes un proveedor de modelos.".
-          05 FILLER PIC X(120) VALUE "Configurez d'abord un fournisseur de modèles.".
-          05 FILLER PIC X(120) VALUE "先にモデルプロバイダーを設定してください。".
-          05 FILLER PIC X(120) VALUE "请先配置模型提供商。".
-      *>   TIP-CONN-MODEL
-          05 FILLER PIC X(120) VALUE "The saved connection whose model you choose. Its models are listed on opening.".
-          05 FILLER PIC X(120) VALUE "A conexão salva cujo modelo você escolhe. Os modelos dela são listados ao abrir.".
-          05 FILLER PIC X(120) VALUE "La conexión guardada cuyo modelo eliges. Sus modelos se listan al abrir.".
-          05 FILLER PIC X(120) VALUE "La connexion dont vous choisissez le modèle. Ses modèles sont listés à l'ouverture.".
-          05 FILLER PIC X(120) VALUE "モデルを選ぶ保存済みの接続。開くとモデル一覧を取得します。".
-          05 FILLER PIC X(120) VALUE "要为其选择模型的已保存连接。打开时会列出其模型。".
-      *>   TIP-MODEL-LIST
-          05 FILLER PIC X(120) VALUE "The model to use, from the list the provider offers.".
-          05 FILLER PIC X(120) VALUE "O modelo a usar, da lista que o provedor oferece.".
-          05 FILLER PIC X(120) VALUE "El modelo a usar, de la lista que ofrece el proveedor.".
-          05 FILLER PIC X(120) VALUE "Le modèle à utiliser, parmi ceux que propose le fournisseur.".
-          05 FILLER PIC X(120) VALUE "プロバイダーが提供する一覧から使うモデルを選びます。".
-          05 FILLER PIC X(120) VALUE "从提供商提供的列表中选择要使用的模型。".
-      *>   TIP-RANK
-          05 FILLER PIC X(120) VALUE "How well this model coordinates the other agents, from 1 (poorly) to 9 (best).".
-          05 FILLER PIC X(120) VALUE "Quão bem este modelo coordena os outros agentes, de 1 (mal) a 9 (melhor).".
-          05 FILLER PIC X(120) VALUE "Qué tan bien coordina este modelo a los demás agentes, de 1 (mal) a 9 (mejor).".
-          05 FILLER PIC X(120) VALUE "À quel point ce modèle coordonne les autres agents, de 1 (mal) à 9 (le mieux).".
-          05 FILLER PIC X(120) VALUE "他のエージェントを調整する力。1（低い）から 9（最高）まで。".
-          05 FILLER PIC X(120) VALUE "此模型协调其他代理的能力，从 1（差）到 9（最好）。".
-      *>   TIP-TOOLS
-          05 FILLER PIC X(120) VALUE "Tick when the model can call tools, such as searching the Knowledge Base.".
-          05 FILLER PIC X(120) VALUE "Marque se o modelo sabe chamar ferramentas, como a busca na base de conhecimento.".
-          05 FILLER PIC X(120) VALUE "Márcalo si el modelo puede usar herramientas, como buscar en la base de conocimiento.".
-          05 FILLER PIC X(120) VALUE "Cochez si le modèle sait appeler des outils, comme la recherche dans la base.".
-          05 FILLER PIC X(120) VALUE "ナレッジベース検索などのツールを呼び出せるモデルならチェックします。".
-          05 FILLER PIC X(120) VALUE "如果模型能调用工具（例如搜索知识库），请勾选。".
-       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 18.
-             10 PC-TEXT      PIC X(120) OCCURS 6.
-      *>   The texts in the current language, by name.
-       01 PC-TEXTS-NOW       GLOBAL.
-          05 T-MODEL-SEL-TITLE PIC X(120).
-          05 T-CONNECTION PIC X(120).
-          05 T-MODEL PIC X(120).
-          05 T-RANK PIC X(120).
-          05 T-CALLS-TOOLS PIC X(120).
-          05 T-SAVE PIC X(120).
-          05 T-CANCEL PIC X(120).
-          05 T-STATUS PIC X(120).
-          05 T-LISTING PIC X(120).
-          05 T-MODELS-AVAILABLE PIC X(120).
-          05 T-MODEL-SAVED PIC X(120).
-          05 T-PICK-CONN PIC X(120).
-          05 T-PICK-MODEL PIC X(120).
-          05 T-SUM-NEED-PROVIDER PIC X(120).
-          05 T-TIP-CONN-MODEL PIC X(120).
-          05 T-TIP-MODEL-LIST PIC X(120).
-          05 T-TIP-RANK PIC X(120).
-          05 T-TIP-TOOLS PIC X(120).
-       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 18.
-      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
-       01 WS-FMT             GLOBAL PIC X(120).
-       01 WS-ARG1            GLOBAL PIC X(300).
-       01 WS-ARG2            GLOBAL PIC X(300).
-       01 WS-ARG3            GLOBAL PIC X(300).
-       01 WS-ARG4            GLOBAL PIC X(300).
-       01 WS-FMT-OUT         GLOBAL PIC X(1200).
-      *>   The saved connections, in name order.
-       01 WS-CONN-COUNT      GLOBAL PIC 9(4) VALUE 0.
-       01 WS-CONN-NAMES      GLOBAL.
-          05 WS-CONN-NAME    PIC X(30) OCCURS 200.
-       01 WS-INDEX           GLOBAL PIC S9(4).
-       01 WS-P               GLOBAL PIC 9(3).
-      *>   The connection on screen, and what its provider offers.
-       01 WS-PROV-COUNT      GLOBAL PIC 9(3) VALUE 0.
-       01 WS-PROV-IX         GLOBAL PIC S9(3) VALUE 0.
-       01 WS-PROV-ID         GLOBAL PIC X(20).
-       01 WS-PROV-LABEL      GLOBAL PIC X(40).
-       01 WS-PROV-EP         GLOBAL PIC X(200).
-       01 WS-PROV-NEEDS      GLOBAL PIC X.
-       01 WS-XNAME           GLOBAL PIC X(20).
-       01 WS-XVAL            GLOBAL PIC X(300).
-       01 WS-CUR-NAME        GLOBAL PIC X(30).
-       01 WS-CUR-URL         GLOBAL PIC X(200).
-       01 WS-MODEL-ID        GLOBAL PIC X(80).
-       01 WS-KEY             GLOBAL PIC X(300).
-       01 WS-LONG            GLOBAL PIC X(600).
-       01 WS-N               GLOBAL PIC 9(4).
-       01 WS-M               GLOBAL PIC 9(4).
-       01 WS-NE              GLOBAL PIC Z(3)9.
-       01 WS-RANK-TEXT       GLOBAL PIC X.
-       01 WS-TOOLS           GLOBAL PIC X(4).
+       01 WS-FS                                  GLOBAL    PIC XX    VALUE "00".
+       01 WS-DATA-DIR                            GLOBAL    PIC X(200).
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-EOF                                 GLOBAL    PIC X.
+       01 WS-OK                                  GLOBAL    PIC X(4).
+       01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
+       01 WS-MODELS-PATH                         GLOBAL    PIC X(240).
+       *>   The interface texts (spec 071 R44): one row per text, one column
+       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+       *>   only the values are translated.
+
+       01 WS-LANG                                GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 1.
+       01 WS-TX-I                                GLOBAL    PIC 9(4).
+       01 PC-TEXT-DATA                           GLOBAL.
+           *>   MODEL-SEL-TITLE
+
+           05 FILLER                             PIC    X(120)    VALUE "Model selection".
+           05 FILLER                             PIC    X(120)    VALUE "Seleção de modelo".
+           05 FILLER                             PIC    X(120)    VALUE "Selección de modelo".
+           05 FILLER                             PIC    X(120)    VALUE "Choix du modèle".
+           05 FILLER                             PIC    X(120)    VALUE "モデルの選択".
+           05 FILLER                             PIC    X(120)    VALUE "模型选择".
+           *>   CONNECTION
+
+           05 FILLER                             PIC    X(120)    VALUE "Connection".
+           05 FILLER                             PIC    X(120)    VALUE "Conexão".
+           05 FILLER                             PIC    X(120)    VALUE "Conexión".
+           05 FILLER                             PIC    X(120)    VALUE "Connexion".
+           05 FILLER                             PIC    X(120)    VALUE "接続".
+           05 FILLER                             PIC    X(120)    VALUE "连接".
+           *>   MODEL
+
+           05 FILLER                             PIC    X(120)    VALUE "Model".
+           05 FILLER                             PIC    X(120)    VALUE "Modelo".
+           05 FILLER                             PIC    X(120)    VALUE "Modelo".
+           05 FILLER                             PIC    X(120)    VALUE "Modèle".
+           05 FILLER                             PIC    X(120)    VALUE "モデル".
+           05 FILLER                             PIC    X(120)    VALUE "模型".
+           *>   RANK
+
+           05 FILLER                             PIC    X(120)    VALUE "Rank".
+           05 FILLER                             PIC    X(120)    VALUE "Nível".
+           05 FILLER                             PIC    X(120)    VALUE "Nivel".
+           05 FILLER                             PIC    X(120)    VALUE "Rang".
+           05 FILLER                             PIC    X(120)    VALUE "ランク".
+           05 FILLER                             PIC    X(120)    VALUE "等级".
+           *>   CALLS-TOOLS
+
+           05 FILLER                             PIC    X(120)    VALUE "Calls tools".
+           05 FILLER                             PIC    X(120)    VALUE "Chama ferramentas".
+           05 FILLER                             PIC    X(120)    VALUE "Usa herramientas".
+           05 FILLER                             PIC    X(120)    VALUE "Appelle des outils".
+           05 FILLER                             PIC    X(120)    VALUE "ツールを呼び出す".
+           05 FILLER                             PIC    X(120)    VALUE "可调用工具".
+           *>   SAVE
+
+           05 FILLER                             PIC    X(120)    VALUE "Save".
+           05 FILLER                             PIC    X(120)    VALUE "Salvar".
+           05 FILLER                             PIC    X(120)    VALUE "Guardar".
+           05 FILLER                             PIC    X(120)    VALUE "Enregistrer".
+           05 FILLER                             PIC    X(120)    VALUE "保存".
+           05 FILLER                             PIC    X(120)    VALUE "保存".
+           *>   CANCEL
+
+           05 FILLER                             PIC    X(120)    VALUE "Cancel".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Annuler".
+           05 FILLER                             PIC    X(120)    VALUE "キャンセル".
+           05 FILLER                             PIC    X(120)    VALUE "取消".
+           *>   STATUS
+
+           05 FILLER                             PIC    X(120)    VALUE "Status".
+           05 FILLER                             PIC    X(120)    VALUE "Status".
+           05 FILLER                             PIC    X(120)    VALUE "Estado".
+           05 FILLER                             PIC    X(120)    VALUE "État".
+           05 FILLER                             PIC    X(120)    VALUE "ステータス".
+           05 FILLER                             PIC    X(120)    VALUE "状态".
+           *>   LISTING
+
+           05 FILLER                             PIC    X(120)    VALUE "Asking &1 for its models...".
+           05 FILLER                             PIC    X(120)    VALUE "Pedindo a lista de modelos a &1...".
+           05 FILLER                             PIC    X(120)    VALUE "Pidiendo a &1 sus modelos...".
+           05 FILLER                             PIC    X(120)    VALUE "Demande des modèles à &1...".
+           05 FILLER                             PIC    X(120)    VALUE "&1 にモデルを問い合わせ中...".
+           05 FILLER                             PIC    X(120)    VALUE "正在向 &1 获取模型...".
+           *>   MODELS-AVAILABLE
+
+           05 FILLER                             PIC    X(120)    VALUE "&1 models available.".
+           05 FILLER                             PIC    X(120)    VALUE "&1 modelos disponíveis.".
+           05 FILLER                             PIC    X(120)    VALUE "&1 modelos disponibles.".
+           05 FILLER                             PIC    X(120)    VALUE "&1 modèles disponibles.".
+           05 FILLER                             PIC    X(120)    VALUE "利用可能なモデル: &1".
+           05 FILLER                             PIC    X(120)    VALUE "可用模型：&1 个".
+           *>   MODEL-SAVED
+
+           05 FILLER                             PIC    X(120)    VALUE "Model saved.".
+           05 FILLER                             PIC    X(120)    VALUE "Modelo salvo.".
+           05 FILLER                             PIC    X(120)    VALUE "Modelo guardado.".
+           05 FILLER                             PIC    X(120)    VALUE "Modèle enregistré.".
+           05 FILLER                             PIC    X(120)    VALUE "モデルを保存しました。".
+           05 FILLER                             PIC    X(120)    VALUE "模型已保存。".
+           *>   PICK-CONN
+
+           05 FILLER                             PIC    X(120)    VALUE "Pick a saved connection first.".
+           05 FILLER                             PIC    X(120)    VALUE "Escolha primeiro uma conexão salva.".
+           05 FILLER                             PIC    X(120)    VALUE "Primero elige una conexión guardada.".
+           05 FILLER                             PIC    X(120)    VALUE "Choisissez d'abord une connexion enregistrée.".
+           05 FILLER                             PIC    X(120)    VALUE "先に保存済みの接続を選んでください。".
+           05 FILLER                             PIC    X(120)    VALUE "请先选择一个已保存的连接。".
+           *>   PICK-MODEL
+
+           05 FILLER                             PIC    X(120)    VALUE "Pick a model first.".
+           05 FILLER                             PIC    X(120)    VALUE "Escolha um modelo primeiro.".
+           05 FILLER                             PIC    X(120)    VALUE "Primero elige un modelo.".
+           05 FILLER                             PIC    X(120)    VALUE "Choisissez d'abord un modèle.".
+           05 FILLER                             PIC    X(120)    VALUE "先にモデルを選んでください。".
+           05 FILLER                             PIC    X(120)    VALUE "请先选择一个模型。".
+           *>   SUM-NEED-PROVIDER
+
+           05 FILLER                             PIC    X(120)    VALUE "Set up a model provider first.".
+           05 FILLER                             PIC    X(120)    VALUE "Configure antes um provedor de modelos.".
+           05 FILLER                             PIC    X(120)    VALUE "Configura antes un proveedor de modelos.".
+           05 FILLER                             PIC    X(120)    VALUE "Configurez d'abord un fournisseur de modèles.".
+           05 FILLER                             PIC    X(120)    VALUE "先にモデルプロバイダーを設定してください。".
+           05 FILLER                             PIC    X(120)    VALUE "请先配置模型提供商。".
+           *>   TIP-CONN-MODEL
+
+           05 FILLER                             PIC    X(120)    VALUE "The saved connection whose model you choose. Its models are listed on opening.".
+           05 FILLER                             PIC    X(120)    VALUE "A conexão salva cujo modelo você escolhe. Os modelos dela são listados ao abrir.".
+           05 FILLER                             PIC    X(120)    VALUE "La conexión guardada cuyo modelo eliges. Sus modelos se listan al abrir.".
+           05 FILLER                             PIC    X(120)    VALUE "La connexion dont vous choisissez le modèle. Ses modèles sont listés à l'ouverture.".
+           05 FILLER                             PIC    X(120)    VALUE "モデルを選ぶ保存済みの接続。開くとモデル一覧を取得します。".
+           05 FILLER                             PIC    X(120)    VALUE "要为其选择模型的已保存连接。打开时会列出其模型。".
+           *>   TIP-MODEL-LIST
+
+           05 FILLER                             PIC    X(120)    VALUE "The model to use, from the list the provider offers.".
+           05 FILLER                             PIC    X(120)    VALUE "O modelo a usar, da lista que o provedor oferece.".
+           05 FILLER                             PIC    X(120)    VALUE "El modelo a usar, de la lista que ofrece el proveedor.".
+           05 FILLER                             PIC    X(120)    VALUE "Le modèle à utiliser, parmi ceux que propose le fournisseur.".
+           05 FILLER                             PIC    X(120)    VALUE "プロバイダーが提供する一覧から使うモデルを選びます。".
+           05 FILLER                             PIC    X(120)    VALUE "从提供商提供的列表中选择要使用的模型。".
+           *>   TIP-RANK
+
+           05 FILLER                             PIC    X(120)    VALUE "How well this model coordinates the other agents, from 1 (poorly) to 9 (best).".
+           05 FILLER                             PIC    X(120)    VALUE "Quão bem este modelo coordena os outros agentes, de 1 (mal) a 9 (melhor).".
+           05 FILLER                             PIC    X(120)    VALUE "Qué tan bien coordina este modelo a los demás agentes, de 1 (mal) a 9 (mejor).".
+           05 FILLER                             PIC    X(120)    VALUE "À quel point ce modèle coordonne les autres agents, de 1 (mal) à 9 (le mieux).".
+           05 FILLER                             PIC    X(120)    VALUE "他のエージェントを調整する力。1（低い）から 9（最高）まで。".
+           05 FILLER                             PIC    X(120)    VALUE "此模型协调其他代理的能力，从 1（差）到 9（最好）。".
+           *>   TIP-TOOLS
+
+           05 FILLER                             PIC    X(120)    VALUE "Tick when the model can call tools, such as searching the Knowledge Base.".
+           05 FILLER                             PIC    X(120)    VALUE "Marque se o modelo sabe chamar ferramentas, como a busca na base de conhecimento.".
+           05 FILLER                             PIC    X(120)    VALUE "Márcalo si el modelo puede usar herramientas, como buscar en la base de conocimiento.".
+           05 FILLER                             PIC    X(120)    VALUE "Cochez si le modèle sait appeler des outils, comme la recherche dans la base.".
+           05 FILLER                             PIC    X(120)    VALUE "ナレッジベース検索などのツールを呼び出せるモデルならチェックします。".
+           05 FILLER                             PIC    X(120)    VALUE "如果模型能调用工具（例如搜索知识库），请勾选。".
+       01 PC-TEXT-TABLE                          REDEFINES    PC-TEXT-DATA    GLOBAL.
+           05 PC-TEXT-ROW                        OCCURS    18.
+               10 PC-TEXT                        PIC    X(120)    OCCURS 6.
+       *>   The texts in the current language, by name.
+
+       01 PC-TEXTS-NOW                           GLOBAL.
+           05 T-MODEL-SEL-TITLE                  PIC    X(120).
+           05 T-CONNECTION                       PIC    X(120).
+           05 T-MODEL                            PIC    X(120).
+           05 T-RANK                             PIC    X(120).
+           05 T-CALLS-TOOLS                      PIC    X(120).
+           05 T-SAVE                             PIC    X(120).
+           05 T-CANCEL                           PIC    X(120).
+           05 T-STATUS                           PIC    X(120).
+           05 T-LISTING                          PIC    X(120).
+           05 T-MODELS-AVAILABLE                 PIC    X(120).
+           05 T-MODEL-SAVED                      PIC    X(120).
+           05 T-PICK-CONN                        PIC    X(120).
+           05 T-PICK-MODEL                       PIC    X(120).
+           05 T-SUM-NEED-PROVIDER                PIC    X(120).
+           05 T-TIP-CONN-MODEL                   PIC    X(120).
+           05 T-TIP-MODEL-LIST                   PIC    X(120).
+           05 T-TIP-RANK                         PIC    X(120).
+           05 T-TIP-TOOLS                        PIC    X(120).
+       01 PC-TEXTS-NOW-R                         REDEFINES    PC-TEXTS-NOW    GLOBAL.
+           05 PC-TEXT-NOW                        PIC    X(120)    OCCURS 18.
+       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+
+       01 WS-FMT                                 GLOBAL    PIC X(120).
+       01 WS-ARG1                                GLOBAL    PIC X(300).
+       01 WS-ARG2                                GLOBAL    PIC X(300).
+       01 WS-ARG3                                GLOBAL    PIC X(300).
+       01 WS-ARG4                                GLOBAL    PIC X(300).
+       01 WS-FMT-OUT                             GLOBAL    PIC X(1200).
+       *>   The saved connections, in name order.
+
+       01 WS-CONN-COUNT                          GLOBAL    PIC 9(4)    VALUE 0.
+       01 WS-CONN-NAMES                          GLOBAL.
+           05 WS-CONN-NAME                       PIC    X(30)    OCCURS 200.
+       01 WS-INDEX                               GLOBAL    PIC S9(4).
+       01 WS-P                                   GLOBAL    PIC 9(3).
+       *>   The connection on screen, and what its provider offers.
+
+       01 WS-PROV-COUNT                          GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-PROV-IX                             GLOBAL    PIC S9(3)    VALUE 0.
+       01 WS-PROV-ID                             GLOBAL    PIC X(20).
+       01 WS-PROV-LABEL                          GLOBAL    PIC X(40).
+       01 WS-PROV-EP                             GLOBAL    PIC X(200).
+       01 WS-PROV-NEEDS                          GLOBAL    PIC X.
+       01 WS-XNAME                               GLOBAL    PIC X(20).
+       01 WS-XVAL                                GLOBAL    PIC X(300).
+       01 WS-CUR-NAME                            GLOBAL    PIC X(30).
+       01 WS-CUR-URL                             GLOBAL    PIC X(200).
+       01 WS-MODEL-ID                            GLOBAL    PIC X(80).
+       01 WS-KEY                                 GLOBAL    PIC X(300).
+       01 WS-LONG                                GLOBAL    PIC X(600).
+       01 WS-N                                   GLOBAL    PIC 9(4).
+       01 WS-M                                   GLOBAL    PIC 9(4).
+       01 WS-NE                                  GLOBAL    PIC Z(3)9.
+       01 WS-RANK-TEXT                           GLOBAL    PIC X.
+       01 WS-TOOLS                               GLOBAL    PIC X(4).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -435,24 +459,28 @@
        PROGRAM-ID. MODEL-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-PATHS"
-           CALL "PC-TEXTS"
+           CALL    "PC-PATHS"
+           CALL    "PC-TEXTS"
+
            COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
-           MOVE SPACES TO WS-CUR-NAME
-           CALL "PC-LOAD-CONNS"
-           MOVE Cmb-Conn::Clear() TO WS-OK
-           IF WS-CONN-COUNT = 0
-               MOVE T-SUM-NEED-PROVIDER::Trim() TO Lbl-Status::Caption
+           SET     WS-CUR-NAME                   TO    SPACES
+           CALL    "PC-LOAD-CONNS"
+           SET     WS-OK                         TO    Cmb-Conn::Clear()
+           IF    WS-CONN-COUNT = 0
+               SET     Lbl-Status::Caption       TO    T-SUM-NEED-PROVIDER::Trim()
                EXIT PROGRAM
            END-IF
-           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               MOVE Cmb-Conn::AddItem(WS-CONN-NAME(WS-P)::Trim()) TO WS-OK
+           PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
+               SET     WS-OK                     TO    Cmb-Conn::AddItem(WS-CONN-NAME(WS-P)::Trim())
            END-PERFORM
-      *>   Opening connects: the first connection and its models, at once.
-           MOVE Cmb-Conn::SetSelectedIndex(1) TO WS-OK
-           CALL "PC-OPEN-CONN"
+           *>   Opening connects: the first connection and its models, at once.
+
+           SET     WS-OK                         TO    Cmb-Conn::SetSelectedIndex(1)
+           CALL    "PC-OPEN-CONN"
 
            GOBACK.
 
@@ -478,9 +506,11 @@
        PROGRAM-ID. CMB-CONN--ONSELECTEDINDEXCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-OPEN-CONN"
+           CALL    "PC-OPEN-CONN"
 
            GOBACK.
 
@@ -490,10 +520,13 @@
        PROGRAM-ID. BTN-CANCEL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The same code as the Cancel button at the top.
-           CALL "PC-CANCEL"
+           *>   The same code as the Cancel button at the top.
+
+           CALL    "PC-CANCEL"
 
            GOBACK.
 
@@ -503,10 +536,13 @@
        PROGRAM-ID. BTN-SAVE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The same code as the Save button at the top.
-           CALL "PC-SAVE"
+           *>   The same code as the Save button at the top.
+
+           CALL    "PC-SAVE"
 
            GOBACK.
 
@@ -516,9 +552,11 @@
        PROGRAM-ID. BTN-CANCELTOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-CANCEL"
+           CALL    "PC-CANCEL"
 
            GOBACK.
 
@@ -528,9 +566,11 @@
        PROGRAM-ID. BTN-SAVETOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-SAVE"
+           CALL    "PC-SAVE"
 
            GOBACK.
 
@@ -540,18 +580,21 @@
        PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
-           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
-           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
-           IF WS-DATA-DIR = SPACES
-               MOVE "data" TO WS-DATA-DIR
+           *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+
+           DISPLAY    "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-DATA-DIR = SPACES
+               SET     WS-DATA-DIR               TO    "data"
            END-IF
-           MOVE SPACES TO WS-SETTINGS-PATH
-           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
-           MOVE SPACES TO WS-MODELS-PATH
-           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
+           SET     WS-SETTINGS-PATH              TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
+           SET     WS-MODELS-PATH                TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
 
            GOBACK.
 
@@ -561,114 +604,137 @@
        PROGRAM-ID. PC-SYNC-MODELS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 SY-N          PIC 9(3).
-       01 SY-I          PIC 9(3).
-       01 SY-J          PIC 9(3).
-       01 SY-NAME       PIC X(30).
-       01 SY-API        PIC X(12).
-       01 SY-URL        PIC X(200).
-       01 SY-MODEL      PIC X(80).
-       01 SY-FOUND      PIC X.
-       01 SY-EOF        PIC X.
-       01 SY-GONE-N     PIC 9(3).
+       01 SY-N                                   PIC    9(3).
+       01 SY-I                                   PIC    9(3).
+       01 SY-J                                   PIC    9(3).
+       01 SY-NAME                                PIC    X(30).
+       01 SY-API                                 PIC    X(12).
+       01 SY-URL                                 PIC    X(200).
+       01 SY-MODEL                               PIC    X(80).
+       01 SY-FOUND                               PIC    X.
+       01 SY-EOF                                 PIC    X.
+       01 SY-GONE-N                              PIC    9(3).
        01 SY-GONE-TABLE.
-          05 SY-GONE    PIC X(30) OCCURS 200 TIMES.
+           05 SY-GONE                            PIC    X(30)    OCCURS 200 TIMES.
+
        PROCEDURE DIVISION.
-      *>   The models are the APPLICATION's (spec 085): the runtime keeps the
-      *>   list for every form of it, the application's own agents included.
-      *>   MODELS mirrors that list and adds what only PowerChat knows of each
-      *>   model - whether it calls tools, how well it orchestrates. Once, the
-      *>   models PowerChat kept before are handed to the application's list.
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
+           *>   The models are the APPLICATION's (spec 085): the runtime keeps the
+           *>   list for every form of it, the application's own agents included.
+           *>   MODELS mirrors that list and adds what only PowerChat knows of each
+           *>   model - whether it calls tools, how well it orchestrates. Once, the
+           *>   models PowerChat kept before are handed to the application's list.
+
+           OPEN    I-O MODELS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT MODELS-FILE
+               CLOSE    MODELS-FILE
+               OPEN    I-O MODELS-FILE
            END-IF
-           MOVE "MODELS-ADOPTED" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           IF WS-SET-VALUE NOT = "Y"
-               MOVE LOW-VALUES TO MDL-NAME
-               MOVE "N" TO SY-EOF
-               START MODELS-FILE KEY IS >= MDL-NAME
+           SET     WS-SET-NAME                   TO    "MODELS-ADOPTED"
+           CALL    "PC-SETTING-GET"
+           IF    WS-SET-VALUE NOT = "Y"
+               SET     MDL-NAME                  TO    LOW-VALUES
+               SET     SY-EOF                    TO    "N"
+
+               START    MODELS-FILE KEY IS >= MDL-NAME
                    INVALID KEY MOVE "Y" TO SY-EOF
                END-START
-               PERFORM UNTIL SY-EOF = "Y"
-                   READ MODELS-FILE NEXT RECORD
+               PERFORM    UNTIL SY-EOF = "Y"
+                   READ    MODELS-FILE NEXT RECORD
                        AT END MOVE "Y" TO SY-EOF
                        NOT AT END
                            COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
                    END-READ
                END-PERFORM
-               MOVE "MODELS-ADOPTED" TO WS-SET-NAME
-               MOVE "Y" TO WS-SET-VALUE
-               CALL "PC-SETTING-PUT"
+
+               SET     WS-SET-NAME               TO    "MODELS-ADOPTED"
+               SET     WS-SET-VALUE              TO    "Y"
+
+               CALL    "PC-SETTING-PUT"
            END-IF
-      *>   Every model of the application's is here, with its own metadata.
+           *>   Every model of the application's is here, with its own metadata.
+
            COBOL::"MODEL-COUNT" ( SY-N )
-           PERFORM VARYING SY-I FROM 1 BY 1 UNTIL SY-I > SY-N
-               MOVE SPACES TO SY-NAME SY-API SY-URL SY-MODEL
+           PERFORM    VARYING SY-I FROM 1 BY 1 UNTIL SY-I > SY-N
+               SET     SY-NAME SY-API SY-URL SY-MODEL
+                                                 TO    SPACES
+
                COBOL::"MODEL-GET" ( SY-I SY-NAME SY-API SY-URL SY-MODEL )
-               MOVE SY-NAME TO MDL-NAME
-               READ MODELS-FILE
+               SET     MDL-NAME                  TO    SY-NAME
+               *> A model new to PowerChat starts with tools off and rank 5 (of 1-9);
+               *> a known one only has the runtime's fields refreshed, so its tools
+               *> and rank stay as the user set them.
+
+               READ    MODELS-FILE
                    INVALID KEY
-                       MOVE SY-API TO MDL-API
-                       MOVE SY-URL TO MDL-URL
-                       MOVE SY-MODEL TO MDL-MODEL
-                       MOVE "N" TO MDL-TOOLS
-                       MOVE 5 TO MDL-RANK
-                       WRITE MODEL-REC
+                       SET     MDL-API           TO    SY-API
+                       SET     MDL-URL           TO    SY-URL
+                       SET     MDL-MODEL         TO    SY-MODEL
+                       SET     MDL-TOOLS         TO    "N"
+                       SET     MDL-RANK          TO    5
+
+                       WRITE    MODEL-REC
                            INVALID KEY CONTINUE
                        END-WRITE
                    NOT INVALID KEY
-                       IF MDL-API NOT = SY-API OR MDL-URL NOT = SY-URL
-                          OR MDL-MODEL NOT = SY-MODEL
-                           MOVE SY-API TO MDL-API
-                           MOVE SY-URL TO MDL-URL
-                           MOVE SY-MODEL TO MDL-MODEL
-                           REWRITE MODEL-REC
+                       IF    MDL-API NOT = SY-API OR MDL-URL NOT = SY-URL
+                               OR MDL-MODEL NOT = SY-MODEL
+
+                           SET     MDL-API       TO    SY-API
+                           SET     MDL-URL       TO    SY-URL
+                           SET     MDL-MODEL     TO    SY-MODEL
+
+                           REWRITE    MODEL-REC
                                INVALID KEY CONTINUE
                            END-REWRITE
                        END-IF
                END-READ
            END-PERFORM
-      *>   ...and none the application has withdrawn.
-           MOVE 0 TO SY-GONE-N
-           MOVE LOW-VALUES TO MDL-NAME
-           MOVE "N" TO SY-EOF
-           START MODELS-FILE KEY IS >= MDL-NAME
+           *>   ...and none the application has withdrawn.
+
+           SET     SY-GONE-N                     TO    0
+           SET     MDL-NAME                      TO    LOW-VALUES
+           SET     SY-EOF                        TO    "N"
+
+           START    MODELS-FILE KEY IS >= MDL-NAME
                INVALID KEY MOVE "Y" TO SY-EOF
            END-START
-           PERFORM UNTIL SY-EOF = "Y"
-               READ MODELS-FILE NEXT RECORD
+           PERFORM    UNTIL SY-EOF = "Y"
+               READ    MODELS-FILE NEXT RECORD
                    AT END MOVE "Y" TO SY-EOF
                    NOT AT END
-                       MOVE "N" TO SY-FOUND
-                       PERFORM VARYING SY-J FROM 1 BY 1
+                       SET     SY-FOUND          TO    "N"
+                       PERFORM    VARYING SY-J FROM 1 BY 1
                                UNTIL SY-J > SY-N OR SY-FOUND = "Y"
-                           MOVE SPACES TO SY-NAME
+                           SET     SY-NAME       TO    SPACES
                            COBOL::"MODEL-GET" ( SY-J SY-NAME )
-                           IF FUNCTION UPPER-CASE(SY-NAME)
-                              = FUNCTION UPPER-CASE(MDL-NAME)
-                               MOVE "Y" TO SY-FOUND
+                           IF    FUNCTION UPPER-CASE(SY-NAME)
+                                   = FUNCTION UPPER-CASE(MDL-NAME)
+                               SET     SY-FOUND  TO    "Y"
                            END-IF
                        END-PERFORM
-                       IF SY-FOUND = "N" AND SY-GONE-N < 200
-                           ADD 1 TO SY-GONE-N
-                           MOVE MDL-NAME TO SY-GONE(SY-GONE-N)
+                       IF    SY-FOUND = "N" AND SY-GONE-N < 200
+                           ADD    1 TO SY-GONE-N
+                           SET     SY-GONE(SY-GONE-N)
+                                                 TO    MDL-NAME
                        END-IF
                END-READ
            END-PERFORM
-           PERFORM VARYING SY-J FROM 1 BY 1 UNTIL SY-J > SY-GONE-N
-               MOVE SY-GONE(SY-J) TO MDL-NAME
-               DELETE MODELS-FILE
+           *> Deleted after the scan, from the names collected in SY-GONE: no record
+           *> is removed while READ NEXT is still walking the file.
+
+           PERFORM    VARYING SY-J FROM 1 BY 1 UNTIL SY-J > SY-GONE-N
+               SET     MDL-NAME                  TO    SY-GONE(SY-J)
+               DELETE    MODELS-FILE
                    INVALID KEY CONTINUE
                END-DELETE
            END-PERFORM
            COMMIT
-           CLOSE MODELS-FILE
+           CLOSE    MODELS-FILE
 
            GOBACK.
 
@@ -678,22 +744,28 @@
        PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
-           MOVE SPACES TO WS-SET-VALUE
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+
+           SET     WS-SET-VALUE                  TO    SPACES
+           *> Status 35 is a missing file (first run): create it empty and reopen
+           *> I-O, so the read below simply finds no record.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    WS-SET-NAME
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -703,22 +775,27 @@
        PROGRAM-ID. PC-SETTING-PUT IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           MOVE WS-SET-VALUE TO SET-VALUE
-           WRITE SETTINGS-REC
+
+           SET     SET-NAME                      TO    WS-SET-NAME
+           SET     SET-VALUE                     TO    WS-SET-VALUE
+
+           WRITE    SETTINGS-REC
                INVALID KEY REWRITE SETTINGS-REC
            END-WRITE
            COMMIT
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -728,34 +805,40 @@
        PROGRAM-ID. PC-LOAD-CONNS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Every saved connection's name, in key order, into WS-CONN-NAME -
-      *>   the application's models, mirrored first (spec 085).
-           CALL "PC-SYNC-MODELS"
-           MOVE 0 TO WS-CONN-COUNT
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
+           *>   Every saved connection's name, in key order, into WS-CONN-NAME -
+           *>   the application's models, mirrored first (spec 085).
+
+           CALL    "PC-SYNC-MODELS"
+           SET     WS-CONN-COUNT                 TO    0
+           OPEN    I-O MODELS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT MODELS-FILE
+               CLOSE    MODELS-FILE
+               OPEN    I-O MODELS-FILE
            END-IF
-           MOVE LOW-VALUES TO MDL-NAME
-           MOVE "N" TO WS-EOF
-           START MODELS-FILE KEY IS >= MDL-NAME
+
+           SET     MDL-NAME                      TO    LOW-VALUES
+           SET     WS-EOF                        TO    "N"
+
+           START    MODELS-FILE KEY IS >= MDL-NAME
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
-           PERFORM UNTIL WS-EOF = "Y"
-               READ MODELS-FILE NEXT RECORD
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    MODELS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF WS-CONN-COUNT < 200
-                           ADD 1 TO WS-CONN-COUNT
-                           MOVE MDL-NAME TO WS-CONN-NAME(WS-CONN-COUNT)
+                       IF    WS-CONN-COUNT < 200
+                           ADD    1 TO WS-CONN-COUNT
+                           SET     WS-CONN-NAME(WS-CONN-COUNT)
+                                                 TO    MDL-NAME
                        END-IF
                END-READ
            END-PERFORM
-           CLOSE MODELS-FILE
+           CLOSE    MODELS-FILE
 
            GOBACK.
 
@@ -765,28 +848,35 @@
        PROGRAM-ID. PC-PROVIDER-LABEL IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-PROV-ID in (any case - older entries say "Ollama", "OpenAI");
-      *>   out: WS-PROV-IX (1-based, 0 = unknown) and the provider's label,
-      *>   default endpoint and whether it needs a key.
-           MOVE 0 TO WS-PROV-IX
-           MOVE WS-PROV-ID TO WS-XVAL
-           MOVE FUNCTION LOWER-CASE(WS-XVAL) TO WS-XVAL
-           PERFORM VARYING WS-P FROM 1 BY 1
+           *>   WS-PROV-ID in (any case - older entries say "Ollama", "OpenAI");
+           *>   out: WS-PROV-IX (1-based, 0 = unknown) and the provider's label,
+           *>   default endpoint and whether it needs a key.
+
+           SET     WS-PROV-IX                    TO    0
+           SET     WS-XVAL                       TO    WS-PROV-ID
+           SET     WS-XVAL                       TO    FUNCTION LOWER-CASE(WS-XVAL)
+
+           PERFORM    VARYING WS-P FROM 1 BY 1
                    UNTIL WS-P > WS-PROV-COUNT OR WS-PROV-IX > 0
                COBOL::"PROVIDER-GET" ( WS-P WS-XNAME WS-PROV-LABEL
-                    WS-PROV-EP WS-PROV-NEEDS )
-               IF WS-XNAME = WS-XVAL(1:20)
-                   MOVE WS-P TO WS-PROV-IX
+                   WS-PROV-EP WS-PROV-NEEDS )
+               IF    WS-XNAME = WS-XVAL(1:20)
+                   SET     WS-PROV-IX            TO    WS-P
                END-IF
            END-PERFORM
-           IF WS-PROV-IX = 0
-               MOVE WS-PROV-ID TO WS-PROV-LABEL
-               MOVE SPACES TO WS-PROV-EP
-               MOVE "N" TO WS-PROV-NEEDS
+           *> A match also rewrites WS-PROV-ID to the provider's own id, so older
+           *> spellings ("Ollama") leave normalised; unknown ids show as stored.
+
+           IF    WS-PROV-IX = 0
+               SET     WS-PROV-LABEL             TO    WS-PROV-ID
+               SET     WS-PROV-EP                TO    SPACES
+               SET     WS-PROV-NEEDS             TO    "N"
            ELSE
-               MOVE WS-XNAME TO WS-PROV-ID
+               SET     WS-PROV-ID                TO    WS-XNAME
            END-IF
 
            GOBACK.
@@ -797,82 +887,106 @@
        PROGRAM-ID. PC-OPEN-CONN IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The picked connection: its rank and tools on screen, then connect
-      *>   and list the models its provider offers, the saved one selected.
-      *>   The stored key is used, never read (COBOL-MODEL-LIST's entry).
-      *>   The picker's items are the connections in order, from 1.
-           MOVE Cmb-Conn::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 1 OR WS-INDEX > WS-CONN-COUNT
+           *>   The picked connection: its rank and tools on screen, then connect
+           *>   and list the models its provider offers, the saved one selected.
+           *>   The stored key is used, never read (COBOL-MODEL-LIST's entry).
+           *>   The picker's items are the connections in order, from 1.
+
+           SET     WS-INDEX                      TO    Cmb-Conn::GetSelectedIndex()
+           IF    WS-INDEX < 1 OR WS-INDEX > WS-CONN-COUNT
                EXIT PROGRAM
            END-IF
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
+           OPEN    I-O MODELS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT MODELS-FILE
+               CLOSE    MODELS-FILE
+               OPEN    I-O MODELS-FILE
            END-IF
-           MOVE WS-CONN-NAME(WS-INDEX) TO MDL-NAME
-           READ MODELS-FILE
+           SET     MDL-NAME                      TO    WS-CONN-NAME(WS-INDEX)
+           READ    MODELS-FILE
                INVALID KEY MOVE SPACES TO MODEL-REC
            END-READ
-           CLOSE MODELS-FILE
-           MOVE MDL-NAME TO WS-CUR-NAME
-           MOVE MDL-URL TO WS-CUR-URL
-           MOVE MDL-MODEL TO WS-MODEL-ID
-           MOVE MDL-API TO WS-PROV-ID
-           IF MDL-RANK IS NUMERIC AND MDL-RANK > 0
-               MOVE MDL-RANK TO Txt-Rank::Text
+           CLOSE    MODELS-FILE
+
+           SET     WS-CUR-NAME                   TO    MDL-NAME
+           SET     WS-CUR-URL                    TO    MDL-URL
+           SET     WS-MODEL-ID                   TO    MDL-MODEL
+           SET     WS-PROV-ID                    TO    MDL-API
+
+           *> Blank or 0 means no rank was set: show 5, the default PC-SYNC-MODELS
+           *> gives a new model (ranks run 1 to 9).
+
+           IF    MDL-RANK IS NUMERIC AND MDL-RANK > 0
+               SET     Txt-Rank::Text            TO    MDL-RANK
            ELSE
-               MOVE "5" TO Txt-Rank::Text
+               SET     Txt-Rank::Text            TO    "5"
            END-IF
-           IF MDL-TOOLS = "Y"
-               MOVE "true" TO Chk-Tools::Checked
+           IF    MDL-TOOLS = "Y"
+               SET     Chk-Tools::Checked        TO    "true"
            ELSE
-               MOVE "false" TO Chk-Tools::Checked
+               SET     Chk-Tools::Checked        TO    "false"
            END-IF
-           CALL "PC-PROVIDER-LABEL"
-           MOVE T-LISTING TO WS-FMT
-           MOVE WS-PROV-LABEL TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
-           MOVE Cmb-Model::Clear() TO WS-OK
-           MOVE SPACES TO WS-KEY
+           CALL    "PC-PROVIDER-LABEL"
+
+           SET     WS-FMT                        TO    T-LISTING
+           SET     WS-ARG1                       TO    WS-PROV-LABEL
+
+           CALL    "PC-FMT"
+
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
+           SET     WS-OK                         TO    Cmb-Model::Clear()
+
+           *> A blank key plus the connection's name (WS-CUR-NAME) makes the runtime
+           *> use the key stored for it; this form can never read that key.
+
+           SET     WS-KEY                        TO    SPACES
+
            COBOL::"MODEL-LIST" ( WS-PROV-ID WS-CUR-URL WS-KEY WS-N
-                WS-LONG WS-CUR-NAME )
-           IF WS-LONG NOT = "OK"
-      *>       No list: what went wrong, and the saved model still on offer.
-               MOVE WS-LONG TO Lbl-Status::Caption
-               IF WS-MODEL-ID NOT = SPACES
-                   MOVE Cmb-Model::AddItem(WS-MODEL-ID::Trim()) TO WS-OK
-                   MOVE Cmb-Model::SetSelectedIndex(1) TO WS-OK
+               WS-LONG WS-CUR-NAME )
+           IF    WS-LONG NOT = "OK"
+               *>       No list: what went wrong, and the saved model still on offer.
+
+               SET     Lbl-Status::Caption       TO    WS-LONG
+               IF    WS-MODEL-ID NOT = SPACES
+                   SET     WS-OK                 TO    Cmb-Model::AddItem(WS-MODEL-ID::Trim())
+                   SET     WS-OK                 TO    Cmb-Model::SetSelectedIndex(1)
                END-IF
-               MOVE WS-MODEL-ID TO Cmb-Model::Value
+               SET     Cmb-Model::Value          TO    WS-MODEL-ID
                EXIT PROGRAM
            END-IF
-           MOVE 0 TO WS-INDEX
-           PERFORM VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
+           *> WS-INDEX ends as the saved model's place in the list, or 0 when the
+           *> provider no longer offers it.
+
+           SET     WS-INDEX                      TO    0
+           PERFORM    VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
                COBOL::"MODEL-LIST-GET" ( WS-M WS-XVAL )
-               MOVE Cmb-Model::AddItem(WS-XVAL::Trim()) TO WS-OK
-               IF WS-XVAL = WS-MODEL-ID
-                   MOVE WS-M TO WS-INDEX
+               SET     WS-OK                     TO    Cmb-Model::AddItem(WS-XVAL::Trim())
+               IF    WS-XVAL = WS-MODEL-ID
+                   SET     WS-INDEX              TO    WS-M
                END-IF
            END-PERFORM
-      *>   Keep the saved model when the provider still offers it.
-           IF WS-INDEX = 0
-               MOVE 1 TO WS-INDEX
-               MOVE 1 TO WS-M
+           *>   Keep the saved model when the provider still offers it.
+
+           IF    WS-INDEX = 0
+               SET     WS-INDEX                  TO    1
+               SET     WS-M                      TO    1
+
                COBOL::"MODEL-LIST-GET" ( WS-M WS-MODEL-ID )
            END-IF
-           MOVE WS-INDEX TO WS-P
-           MOVE Cmb-Model::SetSelectedIndex(WS-P) TO WS-OK
-           MOVE WS-MODEL-ID TO Cmb-Model::Value
-           MOVE T-MODELS-AVAILABLE TO WS-FMT
-           MOVE WS-N TO WS-NE
-           MOVE WS-NE TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+
+           SET     WS-P                          TO    WS-INDEX
+           SET     WS-OK                         TO    Cmb-Model::SetSelectedIndex(WS-P)
+           SET     Cmb-Model::Value              TO    WS-MODEL-ID
+           SET     WS-FMT                        TO    T-MODELS-AVAILABLE
+           SET     WS-NE                         TO    WS-N
+           SET     WS-ARG1                       TO    WS-NE
+
+           CALL    "PC-FMT"
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
 
            GOBACK.
 
@@ -882,14 +996,17 @@
        PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language the user picked (LANG), the texts in it, and every
-      *>   designed caption and hint that shows one (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:2) TO WS-LANG
-           EVALUATE WS-LANG
+           *>   The language the user picked (LANG), the texts in it, and every
+           *>   designed caption and hint that shows one (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
+           EVALUATE    WS-LANG
                WHEN "en" MOVE 1 TO WS-LANG-IX
                WHEN "pt" MOVE 2 TO WS-LANG-IX
                WHEN "es" MOVE 3 TO WS-LANG-IX
@@ -897,25 +1014,29 @@
                WHEN "jp" MOVE 5 TO WS-LANG-IX
                WHEN "cn" MOVE 6 TO WS-LANG-IX
                WHEN OTHER MOVE "en" TO WS-LANG
-                          MOVE 1 TO WS-LANG-IX
+                   SET     WS-LANG-IX            TO    1
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 18
-               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           *> PC-TEXT-NOW overlays the T- names, so row N of the table becomes the
+           *> Nth name. The bound is the number of texts (the OCCURS of the table).
+
+           PERFORM    VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 18
+               SET     PC-TEXT-NOW(WS-TX-I)      TO    PC-TEXT(WS-TX-I, WS-LANG-IX)
            END-PERFORM
-           MOVE T-MODEL-SEL-TITLE::Trim() TO Lbl-Title::Caption
-           MOVE T-CONNECTION::Trim() TO Lbl-Conn::Caption
-           MOVE T-MODEL::Trim() TO Lbl-Model::Caption
-           MOVE T-RANK::Trim() TO Lbl-Rank::Caption
-           MOVE T-CALLS-TOOLS::Trim() TO Chk-Tools::Caption
-           MOVE T-SAVE::Trim() TO Btn-Save::Caption
-           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
-           MOVE T-SAVE::Trim() TO Btn-SaveTop::Caption
-           MOVE T-CANCEL::Trim() TO Btn-CancelTop::Caption
-           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
-           MOVE T-TIP-CONN-MODEL::Trim() TO Cmb-Conn::Tooltip
-           MOVE T-TIP-MODEL-LIST::Trim() TO Cmb-Model::Tooltip
-           MOVE T-TIP-RANK::Trim() TO Txt-Rank::Tooltip
-           MOVE T-TIP-TOOLS::Trim() TO Chk-Tools::Tooltip
+
+           SET     Lbl-Title::Caption            TO    T-MODEL-SEL-TITLE::Trim()
+           SET     Lbl-Conn::Caption             TO    T-CONNECTION::Trim()
+           SET     Lbl-Model::Caption            TO    T-MODEL::Trim()
+           SET     Lbl-Rank::Caption             TO    T-RANK::Trim()
+           SET     Chk-Tools::Caption            TO    T-CALLS-TOOLS::Trim()
+           SET     Btn-Save::Caption             TO    T-SAVE::Trim()
+           SET     Btn-Cancel::Caption           TO    T-CANCEL::Trim()
+           SET     Btn-SaveTop::Caption          TO    T-SAVE::Trim()
+           SET     Btn-CancelTop::Caption        TO    T-CANCEL::Trim()
+           SET     Lbl-Status::Caption           TO    T-STATUS::Trim()
+           SET     Cmb-Conn::Tooltip             TO    T-TIP-CONN-MODEL::Trim()
+           SET     Cmb-Model::Tooltip            TO    T-TIP-MODEL-LIST::Trim()
+           SET     Txt-Rank::Tooltip             TO    T-TIP-RANK::Trim()
+           SET     Chk-Tools::Tooltip            TO    T-TIP-TOOLS::Trim()
 
            GOBACK.
 
@@ -925,34 +1046,42 @@
        PROGRAM-ID. PC-FMT IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-PT              PIC 9(4).
-       01 WS-FROM            PIC 9(4).
-       01 WS-CNT             PIC 9(4).
-       01 WS-PART            PIC X(120).
-       01 WS-DELIM           PIC XX.
+       01 WS-PT                                  PIC    9(4).
+       01 WS-FROM                                PIC    9(4).
+       01 WS-CNT                                 PIC    9(4).
+       01 WS-PART                                PIC    X(120).
+       01 WS-DELIM                               PIC    XX.
+
        PROCEDURE DIVISION.
-      *>   A message whose words go round numbers and names differently in each
-      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
-           MOVE SPACES TO WS-FMT-OUT
-           MOVE 1 TO WS-PT
-           MOVE 1 TO WS-FROM
-           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
-               MOVE SPACES TO WS-PART WS-DELIM
-               MOVE 0 TO WS-CNT
-               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+           *>   A message whose words go round numbers and names differently in each
+           *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+
+           SET     WS-FMT-OUT                    TO    SPACES
+           SET     WS-PT                         TO    1
+           SET     WS-FROM                       TO    1
+
+           PERFORM    UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               SET     WS-PART WS-DELIM          TO    SPACES
+               SET     WS-CNT                    TO    0
+
+               UNSTRING    WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
                    INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
                    WITH POINTER WS-FROM
                END-UNSTRING
-               IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
+               IF    WS-CNT > 0
+                   STRING    WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
-               EVALUATE WS-DELIM
+               EVALUATE    WS-DELIM
                    WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   *> No &n left: the tail was copied above, so move the pointer past the
+                   *> end to stop the loop.
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
@@ -965,51 +1094,62 @@
        PROGRAM-ID. PC-SAVE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Save - shared by the Save buttons at the top and at the bottom.
-      *>   The model, its rank and whether it calls tools, onto the connection.
-           IF WS-CUR-NAME = SPACES
-               MOVE T-PICK-CONN::Trim() TO Lbl-Status::Caption
+           *>   Save - shared by the Save buttons at the top and at the bottom.
+           *>   The model, its rank and whether it calls tools, onto the connection.
+
+           IF    WS-CUR-NAME = SPACES
+               SET     Lbl-Status::Caption       TO    T-PICK-CONN::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE Cmb-Model::Value TO WS-MODEL-ID
-           IF WS-MODEL-ID = SPACES
-               MOVE T-PICK-MODEL::Trim() TO Lbl-Status::Caption
+           SET     WS-MODEL-ID                   TO    Cmb-Model::Value
+           IF    WS-MODEL-ID = SPACES
+               SET     Lbl-Status::Caption       TO    T-PICK-MODEL::Trim()
                EXIT PROGRAM
            END-IF
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
+           OPEN    I-O MODELS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT MODELS-FILE
+               CLOSE    MODELS-FILE
+               OPEN    I-O MODELS-FILE
            END-IF
-           MOVE WS-CUR-NAME TO MDL-NAME
-           READ MODELS-FILE
+           SET     MDL-NAME                      TO    WS-CUR-NAME
+           READ    MODELS-FILE
                INVALID KEY
-                   CLOSE MODELS-FILE
-                   MOVE T-PICK-CONN::Trim() TO Lbl-Status::Caption
+                   CLOSE    MODELS-FILE
+                   SET     Lbl-Status::Caption   TO    T-PICK-CONN::Trim()
                    EXIT PROGRAM
            END-READ
-           MOVE WS-MODEL-ID TO MDL-MODEL
-           MOVE Chk-Tools::IsChecked() TO WS-TOOLS
-           IF WS-TOOLS(1:1) = "1"
-               MOVE "Y" TO MDL-TOOLS
+
+           SET     MDL-MODEL                     TO    WS-MODEL-ID
+           SET     WS-TOOLS                      TO    Chk-Tools::IsChecked()
+
+           IF    WS-TOOLS(1:1) = "1"
+               SET     MDL-TOOLS                 TO    "Y"
            ELSE
-               MOVE "N" TO MDL-TOOLS
+               SET     MDL-TOOLS                 TO    "N"
            END-IF
-           MOVE Txt-Rank::Text TO WS-RANK-TEXT
-           IF WS-RANK-TEXT IS NUMERIC AND WS-RANK-TEXT NOT = "0"
-               MOVE WS-RANK-TEXT TO MDL-RANK
+           *> WS-RANK-TEXT holds one character: only the first one typed counts.
+           *> Blank, 0 or a non-digit falls back to the default rank, 5.
+
+           SET     WS-RANK-TEXT                  TO    Txt-Rank::Text
+           IF    WS-RANK-TEXT IS NUMERIC AND WS-RANK-TEXT NOT = "0"
+               SET     MDL-RANK                  TO    WS-RANK-TEXT
            ELSE
-               MOVE 5 TO MDL-RANK
+               SET     MDL-RANK                  TO    5
            END-IF
-           REWRITE MODEL-REC
+           REWRITE    MODEL-REC
            COMMIT
-           CLOSE MODELS-FILE
+           CLOSE    MODELS-FILE
+           *> The runtime's list is the master (spec 085): PC-SYNC-MODELS copies its
+           *> model back over MODELS, so the choice has to be handed to it as well.
+
            COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
-           MOVE T-MODEL-SAVED::Trim() TO Lbl-Status::Caption
-           INVOKE ME::Close()
+           SET     Lbl-Status::Caption           TO    T-MODEL-SAVED::Trim()
+           INVOKE    ME::Close()
 
            GOBACK.
 
@@ -1019,11 +1159,14 @@
        PROGRAM-ID. PC-CANCEL IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Cancel - shared by the Cancel buttons at the top and at the bottom.
-      *>   Nothing is written: the dialog closes as it was opened.
-           INVOKE ME::Close()
+           *>   Cancel - shared by the Cancel buttons at the top and at the bottom.
+           *>   Nothing is written: the dialog closes as it was opened.
+
+           INVOKE    ME::Close()
 
            GOBACK.
 

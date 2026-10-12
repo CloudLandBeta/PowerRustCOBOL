@@ -218,29 +218,34 @@
        PROGRAM-ID. COMBOBOX-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "ready - " Cbo-City::GetCount() " destinations loaded" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "ready - " Cbo-City::GetCount() " destinations loaded" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -267,31 +272,36 @@
        PROGRAM-ID. CBO-CITY--ONSELECTEDINDEXCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> GetSelected() gives the text; GetIndex() gives the position.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "city -> " Cbo-City::GetSelected()
-                  "  (index " Cbo-City::GetIndex() ")" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> GetSelected() gives the text; GetIndex() gives the position.
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "city -> " Cbo-City::GetSelected()
+               "  (index " Cbo-City::GetIndex() ")" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -302,29 +312,34 @@
        PROGRAM-ID. CBO-CITY--ONDROPDOWN IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "drop-down opened over " Cbo-City::GetCount() " entries" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "drop-down opened over " Cbo-City::GetCount() " entries" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -335,29 +350,34 @@
        PROGRAM-ID. CBO-CLASS--ONSELECTEDINDEXCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "class -> " Cbo-Class::GetSelected() INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "class -> " Cbo-Class::GetSelected() INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -368,42 +388,49 @@
        PROGRAM-ID. BTN-ADD--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF Txt-New::Text NOT = SPACES
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+
+           IF    Txt-New::Text NOT = SPACES
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Cbo-City::AddItem(Txt-New::Text::Trim())
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-               STRING "added " Txt-New::Text INTO WS-LINE
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+               *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+               *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+               *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+               *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+               *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+               *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+               STRING    "added " Txt-New::Text INTO WS-LINE
+               *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+               *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+               *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+               *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+               *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+               *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
                Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
                Txt-Log::AppendText(WS-NL)
                Txt-New::Clear()
@@ -417,19 +444,23 @@
        PROGRAM-ID. BTN-REMOVE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> RemoveAt takes the position (from 1), which is what GetIndex() returns.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> RemoveAt takes the position (from 1), which is what GetIndex() returns.
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Cbo-City::RemoveAt(Cbo-City::GetIndex()).
 
            GOBACK.
@@ -440,28 +471,33 @@
        PROGRAM-ID. BTN-COUNT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-TEXT PIC X(80).
+       01 WS-TEXT                                PIC    X(80).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING Cbo-City::GetCount() " destinations, "
-                  Cbo-Class::GetCount() " travel classes" INTO WS-TEXT.
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE WS-TEXT TO Lbl-Count::Caption.
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    Cbo-City::GetCount() " destinations, "
+           Cbo-Class::GetCount() " travel classes" INTO WS-TEXT
+           *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+           *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+           *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+           *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+           *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+           *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+           SET     Lbl-Count::Caption            TO    WS-TEXT.
 
            GOBACK.
 
@@ -471,18 +507,22 @@
        PROGRAM-ID. BTN-CLEAR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Txt-Log::Clear().
 
            GOBACK.

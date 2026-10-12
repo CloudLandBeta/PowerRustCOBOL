@@ -80,17 +80,15 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-BREAKPOINTS-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-TA-1 GLOBAL PIC X(44)
-           VALUE "Phone:0:0.9;Tablet:600:0.95;Laptop:900:0.95;".
-       01 WS-TA-2 GLOBAL PIC X(28)
-           VALUE "Desktop:1200:1;Wide:1600:1.2".
-       01 WS-TABLE GLOBAL PIC X(80).
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-TA-1                                GLOBAL    PIC X(44)    VALUE "Phone:0:0.9;Tablet:600:0.95;Laptop:900:0.95;".
+       01 WS-TA-2                                GLOBAL    PIC X(28)    VALUE "Desktop:1200:1;Wide:1600:1.2".
+       01 WS-TABLE                               GLOBAL    PIC X(80).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-PNL-TOP.
@@ -352,18 +350,24 @@
        PROGRAM-ID. RESPONSIVE-BREAKPOINTS-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "BPT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO BP-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "BPT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-BP is blank-padded to 20 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
+           SET     BP-NOW::Caption               TO    WS-LINE
 
            GOBACK.
 
@@ -389,18 +393,24 @@
        PROGRAM-ID. RESPONSIVE-BREAKPOINTS-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "BPT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO BP-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "BPT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-BP is blank-padded to 20 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
+           SET     BP-NOW::Caption               TO    WS-LINE
 
            GOBACK.
 
@@ -410,18 +420,24 @@
        PROGRAM-ID. RESPONSIVE-BREAKPOINTS-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "BPT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO BP-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "BPT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-BP is blank-padded to 20 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
+           SET     BP-NOW::Caption               TO    WS-LINE
 
            GOBACK.
 
@@ -431,9 +447,11 @@
        PROGRAM-ID. SD-PHONE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Phone" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Phone"
 
            GOBACK.
 
@@ -443,9 +461,11 @@
        PROGRAM-ID. SD-TABLET--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Tablet" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Tablet"
 
            GOBACK.
 
@@ -455,9 +475,11 @@
        PROGRAM-ID. SD-LAPTOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Laptop" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Laptop"
 
            GOBACK.
 
@@ -467,9 +489,11 @@
        PROGRAM-ID. SD-DESKTOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Desktop" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Desktop"
 
            GOBACK.
 
@@ -479,9 +503,11 @@
        PROGRAM-ID. SD-WIDE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Wide" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Wide"
 
            GOBACK.
 
@@ -491,10 +517,13 @@
        PROGRAM-ID. SD-AUTO--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> SPACES unpins: the width chooses again.
-           MOVE SPACES TO me::Breakpoint
+           *> SPACES unpins: the width chooses again.
+
+           SET     me::Breakpoint                TO    SPACES
 
            GOBACK.
 
@@ -504,11 +533,14 @@
        PROGRAM-ID. SD-SWAP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> A different table. The overrides of names it does not
-      *> have are kept, but inactive until the names come back.
-           MOVE "Narrow:0:1;Broad:800:1.15" TO me::Breakpoints
+           *> A different table. The overrides of names it does not
+           *> have are kept, but inactive until the names come back.
+
+           SET     me::Breakpoints               TO    "Narrow:0:1;Broad:800:1.15"
 
            GOBACK.
 
@@ -518,10 +550,16 @@
        PROGRAM-ID. SD-RESTORE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           STRING WS-TA-1 WS-TA-2 DELIMITED BY SIZE INTO WS-TABLE
-           MOVE WS-TABLE TO me::Breakpoints
+           *> Back to the original five names, so the overrides kept for them come
+           *> alive again. Both pieces fit their text exactly (44 and 28 bytes), so
+           *> the join leaves no blank between entries.
+
+           STRING    WS-TA-1 WS-TA-2 DELIMITED BY SIZE INTO WS-TABLE
+           SET     me::Breakpoints               TO    WS-TABLE
 
            GOBACK.
 
@@ -531,17 +569,20 @@
        PROGRAM-ID. BPT-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 

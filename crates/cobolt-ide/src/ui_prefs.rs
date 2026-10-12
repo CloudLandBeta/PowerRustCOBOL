@@ -30,6 +30,9 @@ pub struct UiPrefs {
     pub beautify_verbs: String,
     /// Beautify: align `*>` comments with the surrounding code (rule 10b).
     pub beautify_align_comments: bool,
+    /// Beautify: the PowerRustCOBOL layout style. Absent (an older `ui.toml`)
+    /// reads as on — it is what the operator asked ✨ Beautify to do.
+    pub beautify_style: Option<bool>,
     /// The first-run Rust question has been settled — a usable toolchain was
     /// found, one was installed, or the developer declined twice. False (the
     /// default, and what an older `ui.toml` reads as) means "not asked yet",
@@ -101,8 +104,8 @@ pub fn save_language(lang: Language) {
 }
 
 /// The remembered Beautify choices (spec 043 rule 10), defaulting to
-/// UPPERCASE verbs and comments left as written.
-pub fn load_beautify() -> (crate::panels::beautify::VerbCase, bool) {
+/// UPPERCASE verbs, comments left as written and the PowerRustCOBOL style on.
+pub fn load_beautify() -> (crate::panels::beautify::VerbCase, bool, bool) {
     use crate::panels::beautify::VerbCase;
     let prefs = UiPrefs::load();
     let verbs = match prefs.beautify_verbs.as_str() {
@@ -111,12 +114,12 @@ pub fn load_beautify() -> (crate::panels::beautify::VerbCase, bool) {
         "capitalize" => VerbCase::Capitalize,
         _ => VerbCase::Upper,
     };
-    (verbs, prefs.beautify_align_comments)
+    (verbs, prefs.beautify_align_comments, prefs.beautify_style.unwrap_or(true))
 }
 
 /// Remember the Beautify choices for next time (load-then-save, like
 /// [`save_language`]).
-pub fn save_beautify(verbs: crate::panels::beautify::VerbCase, align_comments: bool) {
+pub fn save_beautify(verbs: crate::panels::beautify::VerbCase, align_comments: bool, style: bool) {
     use crate::panels::beautify::VerbCase;
     let mut prefs = UiPrefs::load();
     prefs.beautify_verbs = match verbs {
@@ -127,6 +130,7 @@ pub fn save_beautify(verbs: crate::panels::beautify::VerbCase, align_comments: b
     }
     .to_owned();
     prefs.beautify_align_comments = align_comments;
+    prefs.beautify_style = Some(style);
     prefs.save();
 }
 
@@ -222,6 +226,7 @@ mod tests {
             language: "pt".into(),
             beautify_verbs: "capitalize".into(),
             beautify_align_comments: true,
+            beautify_style: Some(false),
             rust_check_done: true,
             ollama_check_done: true,
             walkthrough_shown: true,

@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="RESPONSIVE-RUNTIME-FORM" title="Responsive - driven from COBOL" width="1100" height="720" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-E-X GLOBAL PIC -(4)9.
-       01 WS-E-Y GLOBAL PIC -(4)9.
-       01 WS-E-W GLOBAL PIC Z(4)9.
-       01 WS-E-H GLOBAL PIC Z(4)9.
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-E-X                                 GLOBAL    PIC -(4)9.
+       01 WS-E-Y                                 GLOBAL    PIC -(4)9.
+       01 WS-E-W                                 GLOBAL    PIC Z(4)9.
+       01 WS-E-H                                 GLOBAL    PIC Z(4)9.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -58,57 +58,70 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="RTM-SHOW-INFO" paragraph="RTM-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-RUNTIME-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "RTM-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "RTM-SHOW-INFO"
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-RUNTIME-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-RUNTIME-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "RTM-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "RTM-SHOW-INFO"
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-RUNTIME-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "RTM-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "RTM-SHOW-INFO"
 ]]></Event>
   </form-events>
   <Control id="LBL-TITLE" type="Label" x="24" y="14" w="1052" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -477,10 +490,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-ABS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Absolute" TO RT-STAGE::LayoutMode
-           MOVE "Last: Absolute" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Absolute"
+           SET     RT-LOG::Caption               TO    "Last: Absolute"
 ]]></Event>
   </Control>
   <Control id="RC-ROW" type="Button" x="882" y="112" w="182" h="34" tab-order="2" z-order="10" visible="true" enabled="true" parent="RT-CMDS">
@@ -522,11 +537,13 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-ROW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Flex" TO RT-STAGE::LayoutMode
-           MOVE "Row" TO RT-STAGE::FlexDirection
-           MOVE "Last: Flex row" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Flex"
+           SET     RT-STAGE::FlexDirection       TO    "Row"
+           SET     RT-LOG::Caption               TO    "Last: Flex row"
 ]]></Event>
   </Control>
   <Control id="RC-COL" type="Button" x="692" y="154" w="182" h="34" tab-order="3" z-order="11" visible="true" enabled="true" parent="RT-CMDS">
@@ -568,11 +585,13 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-COL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Flex" TO RT-STAGE::LayoutMode
-           MOVE "Column" TO RT-STAGE::FlexDirection
-           MOVE "Last: Flex column" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Flex"
+           SET     RT-STAGE::FlexDirection       TO    "Column"
+           SET     RT-LOG::Caption               TO    "Last: Flex column"
 ]]></Event>
   </Control>
   <Control id="RC-GRID" type="Button" x="882" y="154" w="182" h="34" tab-order="4" z-order="12" visible="true" enabled="true" parent="RT-CMDS">
@@ -614,12 +633,14 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-GRID--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Grid" TO RT-STAGE::LayoutMode
-           MOVE "Repeat(3, 1fr)" TO RT-STAGE::GridColumns
-           MOVE "1fr 1fr" TO RT-STAGE::GridRows
-           MOVE "Last: Grid 3 x 2" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Grid"
+           SET     RT-STAGE::GridColumns         TO    "Repeat(3, 1fr)"
+           SET     RT-STAGE::GridRows            TO    "1fr 1fr"
+           SET     RT-LOG::Caption               TO    "Last: Grid 3 x 2"
 ]]></Event>
   </Control>
   <Control id="RC-FLOW" type="Button" x="692" y="196" w="182" h="34" tab-order="5" z-order="13" visible="true" enabled="true" parent="RT-CMDS">
@@ -661,10 +682,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-FLOW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Flow" TO RT-STAGE::LayoutMode
-           MOVE "Last: Flow" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Flow"
+           SET     RT-LOG::Caption               TO    "Last: Flow"
 ]]></Event>
   </Control>
   <Control id="RC-CENTER" type="Button" x="882" y="196" w="182" h="34" tab-order="6" z-order="14" visible="true" enabled="true" parent="RT-CMDS">
@@ -706,10 +729,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-CENTER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Center" TO RT-STAGE::JustifyContent
-           MOVE "Last: Justify center" TO RT-LOG::Caption
+           SET     RT-STAGE::JustifyContent      TO    "Center"
+           SET     RT-LOG::Caption               TO    "Last: Justify center"
 ]]></Event>
   </Control>
   <Control id="RC-GAP24" type="Button" x="692" y="238" w="182" h="34" tab-order="7" z-order="15" visible="true" enabled="true" parent="RT-CMDS">
@@ -751,10 +776,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-GAP24--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 24 TO RT-STAGE::Gap
-           MOVE "Last: Gap 24" TO RT-LOG::Caption
+           SET     RT-STAGE::Gap                 TO    24
+           SET     RT-LOG::Caption               TO    "Last: Gap 24"
 ]]></Event>
   </Control>
   <Control id="RC-GAP0" type="Button" x="882" y="238" w="182" h="34" tab-order="8" z-order="16" visible="true" enabled="true" parent="RT-CMDS">
@@ -796,10 +823,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-GAP0--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO RT-STAGE::Gap
-           MOVE "Last: Gap 0" TO RT-LOG::Caption
+           SET     RT-STAGE::Gap                 TO    0
+           SET     RT-LOG::Caption               TO    "Last: Gap 0"
 ]]></Event>
   </Control>
   <Control id="RC-GROW" type="Button" x="692" y="280" w="182" h="34" tab-order="9" z-order="17" visible="true" enabled="true" parent="RT-CMDS">
@@ -841,10 +870,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-GROW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO RT-1::FlexGrow
-           MOVE "Last: Chip 1 grows" TO RT-LOG::Caption
+           SET     RT-1::FlexGrow                TO    1
+           SET     RT-LOG::Caption               TO    "Last: Chip 1 grows"
 ]]></Event>
   </Control>
   <Control id="RC-MAXW" type="Button" x="882" y="280" w="182" h="34" tab-order="10" z-order="18" visible="true" enabled="true" parent="RT-CMDS">
@@ -886,10 +917,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-MAXW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 120 TO RT-1::MaxWidth
-           MOVE "Last: Chip 1 MaxWidth 120" TO RT-LOG::Caption
+           SET     RT-1::MaxWidth                TO    120
+           SET     RT-LOG::Caption               TO    "Last: Chip 1 MaxWidth 120"
 ]]></Event>
   </Control>
   <Control id="RC-MOVE" type="Button" x="692" y="322" w="182" h="34" tab-order="11" z-order="19" visible="true" enabled="true" parent="RT-CMDS">
@@ -931,14 +964,18 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-MOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> On a responsive form a geometry write is ON-SCREEN:
-      *> what COBOL writes is what it reads back (R38).
-           MOVE RT-1::X TO WS-NUM
-           ADD 20 TO WS-NUM
-           MOVE WS-NUM TO RT-1::X
-           MOVE "Last: Move chip 1 by 20" TO RT-LOG::Caption
+           *> On a responsive form a geometry write is ON-SCREEN:
+           *> what COBOL writes is what it reads back (R38).
+
+           SET     WS-NUM                        TO    RT-1::X
+           ADD    20 TO WS-NUM
+
+           SET     RT-1::X                       TO    WS-NUM
+           SET     RT-LOG::Caption               TO    "Last: Move chip 1 by 20"
 ]]></Event>
   </Control>
   <Control id="RC-READ" type="Button" x="882" y="322" w="182" h="34" tab-order="12" z-order="20" visible="true" enabled="true" parent="RT-CMDS">
@@ -980,23 +1017,27 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-READ--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Reads the LAID-OUT rectangle, not the designed one.
-           MOVE RT-1::X TO WS-NUM
-           MOVE WS-NUM TO WS-E-X
-           MOVE RT-1::Y TO WS-NUM
-           MOVE WS-NUM TO WS-E-Y
-           MOVE RT-1::Width TO WS-NUM
-           MOVE WS-NUM TO WS-E-W
-           MOVE RT-1::Height TO WS-NUM
-           MOVE WS-NUM TO WS-E-H
-           MOVE SPACES TO WS-LINE
-           STRING "Chip 1 is at " WS-E-X::Trim()
+           *> Reads the LAID-OUT rectangle, not the designed one.
+
+           SET     WS-NUM                        TO    RT-1::X
+           SET     WS-E-X                        TO    WS-NUM
+           SET     WS-NUM                        TO    RT-1::Y
+           SET     WS-E-Y                        TO    WS-NUM
+           SET     WS-NUM                        TO    RT-1::Width
+           SET     WS-E-W                        TO    WS-NUM
+           SET     WS-NUM                        TO    RT-1::Height
+           SET     WS-E-H                        TO    WS-NUM
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    "Chip 1 is at " WS-E-X::Trim()
                ", " WS-E-Y::Trim() ", size "
-               WS-E-W::Trim() " x " WS-E-H::Trim()
+           WS-E-W::Trim() " x " WS-E-H::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO RT-LOG::Caption
+           SET     RT-LOG::Caption               TO    WS-LINE
 ]]></Event>
   </Control>
   <Control id="RC-OFF" type="Button" x="692" y="364" w="182" h="34" tab-order="13" z-order="21" visible="true" enabled="true" parent="RT-CMDS">
@@ -1038,11 +1079,14 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-OFF--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Off: the designed size, scrolling - as before 1.80.
-           MOVE 0 TO me::Responsive
-           MOVE "Last: Responsive off" TO RT-LOG::Caption
+           *> Off: the designed size, scrolling - as before 1.80.
+
+           SET     me::Responsive                TO    0
+           SET     RT-LOG::Caption               TO    "Last: Responsive off"
 ]]></Event>
   </Control>
   <Control id="RC-ON" type="Button" x="882" y="364" w="182" h="34" tab-order="14" z-order="22" visible="true" enabled="true" parent="RT-CMDS">
@@ -1084,10 +1128,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-ON--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO me::Responsive
-           MOVE "Last: Responsive on" TO RT-LOG::Caption
+           SET     me::Responsive                TO    1
+           SET     RT-LOG::Caption               TO    "Last: Responsive on"
 ]]></Event>
   </Control>
   <Control id="RC-MIN900" type="Button" x="692" y="406" w="182" h="34" tab-order="15" z-order="23" visible="true" enabled="true" parent="RT-CMDS">
@@ -1129,10 +1175,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-MIN900--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 900 TO me::MinFormWidth
-           MOVE "Last: MinFormWidth 900" TO RT-LOG::Caption
+           SET     me::MinFormWidth              TO    900
+           SET     RT-LOG::Caption               TO    "Last: MinFormWidth 900"
 ]]></Event>
   </Control>
   <Control id="RC-MIN64" type="Button" x="882" y="406" w="182" h="34" tab-order="16" z-order="24" visible="true" enabled="true" parent="RT-CMDS">
@@ -1174,10 +1222,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="RC-MIN64--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 64 TO me::MinFormWidth
-           MOVE "Last: MinFormWidth 64" TO RT-LOG::Caption
+           SET     me::MinFormWidth              TO    64
+           SET     RT-LOG::Caption               TO    "Last: MinFormWidth 64"
 ]]></Event>
   </Control>
   <Control id="RT-LOG" type="Label" x="24" y="616" w="1052" h="40" tab-order="0" z-order="25" visible="true" enabled="true">

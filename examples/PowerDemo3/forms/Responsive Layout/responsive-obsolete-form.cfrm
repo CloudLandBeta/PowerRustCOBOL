@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="RESPONSIVE-OBSOLETE-FORM" title="Responsive - obsolete scaling style (migrated form)" width="800" height="560" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" control-style="modern" index-base="1">
   <FormLayout MinFormHeight="400" MinFormWidth="560" ObsoleteScalingStyle="7"/>
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -55,57 +55,70 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="OBS-SHOW-INFO" paragraph="OBS-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO OB-STATUS::Caption
+           SET     OB-STATUS::Caption            TO    WS-LINE
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-OBSOLETE-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "OBS-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "OBS-SHOW-INFO"
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-OBSOLETE-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-OBSOLETE-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "OBS-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "OBS-SHOW-INFO"
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-OBSOLETE-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "OBS-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "OBS-SHOW-INFO"
 ]]></Event>
   </form-events>
   <Control id="OB-TOOLBAR" type="Panel" x="0" y="0" w="800" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -223,11 +236,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S0--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO me::ObsoleteScalingStyle
-           MOVE "Style 0: None - anchors as usual"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    0
+           SET     OB-STYLE::Caption             TO    "Style 0: None - anchors as usual"
 ]]></Event>
   </Control>
   <Control id="OB-S1" type="Button" x="204" y="8" w="34" h="32" tab-order="2" z-order="3" visible="true" enabled="true" parent="OB-TOOLBAR">
@@ -270,11 +284,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO me::ObsoleteScalingStyle
-           MOVE "Style 1: Resize only"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    1
+           SET     OB-STYLE::Caption             TO    "Style 1: Resize only"
 ]]></Event>
   </Control>
   <Control id="OB-S2" type="Button" x="244" y="8" w="34" h="32" tab-order="3" z-order="4" visible="true" enabled="true" parent="OB-TOOLBAR">
@@ -317,11 +332,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 2 TO me::ObsoleteScalingStyle
-           MOVE "Style 2: Reposition only"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    2
+           SET     OB-STYLE::Caption             TO    "Style 2: Reposition only"
 ]]></Event>
   </Control>
   <Control id="OB-S3" type="Button" x="284" y="8" w="34" h="32" tab-order="4" z-order="5" visible="true" enabled="true" parent="OB-TOOLBAR">
@@ -364,11 +380,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 3 TO me::ObsoleteScalingStyle
-           MOVE "Style 3: Resize and reposition"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    3
+           SET     OB-STYLE::Caption             TO    "Style 3: Resize and reposition"
 ]]></Event>
   </Control>
   <Control id="OB-S4" type="Button" x="324" y="8" w="34" h="32" tab-order="5" z-order="6" visible="true" enabled="true" parent="OB-TOOLBAR">
@@ -411,11 +428,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S4--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 4 TO me::ObsoleteScalingStyle
-           MOVE "Style 4: Font only"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    4
+           SET     OB-STYLE::Caption             TO    "Style 4: Font only"
 ]]></Event>
   </Control>
   <Control id="OB-S5" type="Button" x="364" y="8" w="34" h="32" tab-order="6" z-order="7" visible="true" enabled="true" parent="OB-TOOLBAR">
@@ -458,11 +476,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S5--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 5 TO me::ObsoleteScalingStyle
-           MOVE "Style 5: Resize and font"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    5
+           SET     OB-STYLE::Caption             TO    "Style 5: Resize and font"
 ]]></Event>
   </Control>
   <Control id="OB-S6" type="Button" x="404" y="8" w="34" h="32" tab-order="7" z-order="8" visible="true" enabled="true" parent="OB-TOOLBAR">
@@ -505,11 +524,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S6--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 6 TO me::ObsoleteScalingStyle
-           MOVE "Style 6: Reposition and font"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    6
+           SET     OB-STYLE::Caption             TO    "Style 6: Reposition and font"
 ]]></Event>
   </Control>
   <Control id="OB-S7" type="Button" x="444" y="8" w="34" h="32" tab-order="8" z-order="9" visible="true" enabled="true" parent="OB-TOOLBAR">
@@ -552,11 +572,12 @@
     <Property name="CornerRadius">6</Property>
     <Property name="FlexShrink">0</Property>
     <Event name="onClick" paragraph="OB-S7--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 7 TO me::ObsoleteScalingStyle
-           MOVE "Style 7: Resize, reposition and font"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    7
+           SET     OB-STYLE::Caption             TO    "Style 7: Resize, reposition and font"
 ]]></Event>
   </Control>
   <Control id="OB-STYLE" type="Label" x="484" y="12" w="308" h="24" tab-order="0" z-order="10" visible="true" enabled="true" parent="OB-TOOLBAR">

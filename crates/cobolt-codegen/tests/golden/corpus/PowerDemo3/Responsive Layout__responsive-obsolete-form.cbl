@@ -80,12 +80,12 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-OBSOLETE-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-OB-TOOLBAR.
@@ -325,15 +325,18 @@
        PROGRAM-ID. RESPONSIVE-OBSOLETE-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "OBS-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "OBS-SHOW-INFO"
 
            GOBACK.
 
@@ -359,15 +362,18 @@
        PROGRAM-ID. RESPONSIVE-OBSOLETE-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "OBS-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "OBS-SHOW-INFO"
 
            GOBACK.
 
@@ -377,15 +383,18 @@
        PROGRAM-ID. RESPONSIVE-OBSOLETE-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "OBS-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "OBS-SHOW-INFO"
 
            GOBACK.
 
@@ -395,11 +404,12 @@
        PROGRAM-ID. OB-S0--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO me::ObsoleteScalingStyle
-           MOVE "Style 0: None - anchors as usual"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    0
+           SET     OB-STYLE::Caption             TO    "Style 0: None - anchors as usual"
 
            GOBACK.
 
@@ -409,11 +419,12 @@
        PROGRAM-ID. OB-S1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO me::ObsoleteScalingStyle
-           MOVE "Style 1: Resize only"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    1
+           SET     OB-STYLE::Caption             TO    "Style 1: Resize only"
 
            GOBACK.
 
@@ -423,11 +434,12 @@
        PROGRAM-ID. OB-S2--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 2 TO me::ObsoleteScalingStyle
-           MOVE "Style 2: Reposition only"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    2
+           SET     OB-STYLE::Caption             TO    "Style 2: Reposition only"
 
            GOBACK.
 
@@ -437,11 +449,12 @@
        PROGRAM-ID. OB-S3--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 3 TO me::ObsoleteScalingStyle
-           MOVE "Style 3: Resize and reposition"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    3
+           SET     OB-STYLE::Caption             TO    "Style 3: Resize and reposition"
 
            GOBACK.
 
@@ -451,11 +464,12 @@
        PROGRAM-ID. OB-S4--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 4 TO me::ObsoleteScalingStyle
-           MOVE "Style 4: Font only"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    4
+           SET     OB-STYLE::Caption             TO    "Style 4: Font only"
 
            GOBACK.
 
@@ -465,11 +479,12 @@
        PROGRAM-ID. OB-S5--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 5 TO me::ObsoleteScalingStyle
-           MOVE "Style 5: Resize and font"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    5
+           SET     OB-STYLE::Caption             TO    "Style 5: Resize and font"
 
            GOBACK.
 
@@ -479,11 +494,12 @@
        PROGRAM-ID. OB-S6--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 6 TO me::ObsoleteScalingStyle
-           MOVE "Style 6: Reposition and font"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    6
+           SET     OB-STYLE::Caption             TO    "Style 6: Reposition and font"
 
            GOBACK.
 
@@ -493,11 +509,12 @@
        PROGRAM-ID. OB-S7--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 7 TO me::ObsoleteScalingStyle
-           MOVE "Style 7: Resize, reposition and font"
-               TO OB-STYLE::Caption
+           SET     me::ObsoleteScalingStyle      TO    7
+           SET     OB-STYLE::Caption             TO    "Style 7: Resize, reposition and font"
 
            GOBACK.
 
@@ -507,17 +524,20 @@
        PROGRAM-ID. OBS-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO OB-STATUS::Caption
+           SET     OB-STATUS::Caption            TO    WS-LINE
 
            GOBACK.
 

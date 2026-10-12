@@ -331,7 +331,9 @@
        PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
            Label-1::SetCaption("Button-1 clicked!").
 
@@ -343,7 +345,9 @@
        PROGRAM-ID. BUTTON-2--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
            Label-1::SetCaption("Button-2 clicked!").
 
@@ -355,11 +359,14 @@
        PROGRAM-ID. BUTTON-3--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
            *> Deliberately uses this control's own identifier, Button-3,
            *> and NOT its Caption property (Caption is mismatched to
            *> 'Button-2' on this control and must not be propagated).
+
            Label-1::SetCaption("Button-3 with wait cursor (don't) clicked!").
 
            GOBACK.
@@ -370,7 +377,9 @@
        PROGRAM-ID. BUTTON-4--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
            Label-1::SetCaption("Button-4 clicked!").
 
@@ -382,12 +391,15 @@
        PROGRAM-ID. BUTTON-5--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 1 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 1 clicked!"
            CONTINUE.
 
            GOBACK.
@@ -398,12 +410,15 @@
        PROGRAM-ID. BUTTON-6--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 2 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 2 clicked!"
            CONTINUE.
 
            GOBACK.
@@ -414,12 +429,15 @@
        PROGRAM-ID. BUTTON-7--ONHOVERENTER IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Hover Button with icon 3!"
+           SET     Label-1::Caption              TO    "Hover Button with icon 3!"
            CONTINUE.
 
            GOBACK.
@@ -430,12 +448,15 @@
        PROGRAM-ID. BUTTON-7--ONHOVERLEAVE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Label 1"
+           SET     Label-1::Caption              TO    "Label 1"
            CONTINUE.
 
            GOBACK.
@@ -446,12 +467,15 @@
        PROGRAM-ID. BUTTON-8--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 4 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 4 clicked!"
            CONTINUE.
 
            GOBACK.
@@ -462,12 +486,15 @@
        PROGRAM-ID. BUTTON-9--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 5 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 5 clicked!"
            CONTINUE.
 
            GOBACK.
@@ -478,12 +505,15 @@
        PROGRAM-ID. BUTTON-10--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           set Label-1::Caption to "Button with icon 6 clicked!"
+           SET     Label-1::Caption              TO    "Button with icon 6 clicked!"
            CONTINUE.
 
            GOBACK.

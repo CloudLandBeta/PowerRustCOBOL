@@ -26,12 +26,12 @@
     </Breakpoint>
     <Breakpoint name="Expanded" min-width="1024" font-factor="1"/>
   </Breakpoints>
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -80,83 +80,99 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="DSH-SHOW-INFO" paragraph="DSH-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 ]]></Event>
     <Event name="DSH-CHARTS" paragraph="DSH-CHARTS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Sample data for the three charts.
-           INVOKE DB-BAR::Clear()
-           INVOKE DB-BAR::AddPoint("Mon", 182)
-           INVOKE DB-BAR::AddPoint("Tue", 214)
-           INVOKE DB-BAR::AddPoint("Wed", 199)
-           INVOKE DB-BAR::AddPoint("Thu", 241)
-           INVOKE DB-BAR::AddPoint("Fri", 276)
-           INVOKE DB-BAR::AddPoint("Sat", 133)
-           INVOKE DB-LINE::Clear()
-           INVOKE DB-LINE::AddPoint("W1", 31)
-           INVOKE DB-LINE::AddPoint("W2", 35)
-           INVOKE DB-LINE::AddPoint("W3", 33)
-           INVOKE DB-LINE::AddPoint("W4", 41)
-           INVOKE DB-LINE::AddPoint("W5", 44)
-           INVOKE DB-LINE::AddPoint("W6", 40)
-           INVOKE DB-LINE::AddPoint("W7", 47)
-           INVOKE DB-LINE::AddPoint("W8", 52)
-           INVOKE DB-PIE::Clear()
-           INVOKE DB-PIE::AddPoint("Shop", 46)
-           INVOKE DB-PIE::AddPoint("Web", 38)
-           INVOKE DB-PIE::AddPoint("Phone", 16)
+           *> Sample data for the three charts.
+
+           DB-BAR::Clear()
+           DB-BAR::AddPoint("Mon", 182)
+           DB-BAR::AddPoint("Tue", 214)
+           DB-BAR::AddPoint("Wed", 199)
+           DB-BAR::AddPoint("Thu", 241)
+           DB-BAR::AddPoint("Fri", 276)
+           DB-BAR::AddPoint("Sat", 133)
+           DB-LINE::Clear()
+           DB-LINE::AddPoint("W1", 31)
+           DB-LINE::AddPoint("W2", 35)
+           DB-LINE::AddPoint("W3", 33)
+           DB-LINE::AddPoint("W4", 41)
+           DB-LINE::AddPoint("W5", 44)
+           DB-LINE::AddPoint("W6", 40)
+           DB-LINE::AddPoint("W7", 47)
+           DB-LINE::AddPoint("W8", 52)
+           DB-PIE::Clear()
+           DB-PIE::AddPoint("Shop", 46)
+           DB-PIE::AddPoint("Web", 38)
+           DB-PIE::AddPoint("Phone", 16)
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-DASHBOARD-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DSH-SHOW-INFO"
-           CALL "DSH-CHARTS"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DSH-SHOW-INFO"
+           CALL    "DSH-CHARTS"
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-DASHBOARD-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-DASHBOARD-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DSH-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DSH-SHOW-INFO"
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-DASHBOARD-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DSH-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DSH-SHOW-INFO"
 ]]></Event>
   </form-events>
   <Control id="DB-HEAD" type="Panel" x="0" y="0" w="1360" h="64" tab-order="0" z-order="0" visible="true" enabled="true">

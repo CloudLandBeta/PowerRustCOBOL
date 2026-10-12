@@ -80,10 +80,10 @@
 
        DATA DIVISION.
        FILE SECTION.
-       FD  SETTINGS-FILE IS GLOBAL.
-       01  SETTINGS-REC.
-           05 SET-NAME          PIC X(20).
-           05 SET-VALUE         PIC X(200).
+       FD SETTINGS-FILE IS GLOBAL.
+       01 SETTINGS-REC.
+           05 SET-NAME                           PIC    X(20).
+           05 SET-VALUE                          PIC    X(200).
        WORKING-STORAGE SECTION.
       *>── Cobolt runtime fields ─────────────────────────────────────
        01 COBOL-QUIT             PIC 9        VALUE 0.
@@ -93,56 +93,61 @@
        01 FORM-NAME               PIC X(64)   VALUE 'PICK-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-01 WS-FS              GLOBAL PIC XX VALUE "00".
-       01 WS-DATA-DIR        GLOBAL PIC X(200).
-       01 WS-SET-NAME        GLOBAL PIC X(20).
-       01 WS-SET-VALUE       GLOBAL PIC X(200).
-       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
-      *>   The interface texts (spec 071 R44): one row per text, one column
-      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
-      *>   only the values are translated. A caller's own text wins.
-       01 WS-LANG            GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
-       01 WS-TX-I            GLOBAL PIC 9(4).
-       01 PC-TEXT-DATA       GLOBAL.
-      *>   CHOOSE-ONE
-          05 FILLER PIC X(120) VALUE "Choose one".
-          05 FILLER PIC X(120) VALUE "Escolha um".
-          05 FILLER PIC X(120) VALUE "Elija uno".
-          05 FILLER PIC X(120) VALUE "Choisissez-en un".
-          05 FILLER PIC X(120) VALUE "1 つ選んでください".
-          05 FILLER PIC X(120) VALUE "请选择一项".
-      *>   OK
-          05 FILLER PIC X(120) VALUE "OK".
-          05 FILLER PIC X(120) VALUE "OK".
-          05 FILLER PIC X(120) VALUE "Aceptar".
-          05 FILLER PIC X(120) VALUE "OK".
-          05 FILLER PIC X(120) VALUE "OK".
-          05 FILLER PIC X(120) VALUE "确定".
-      *>   CANCEL
-          05 FILLER PIC X(120) VALUE "Cancel".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Annuler".
-          05 FILLER PIC X(120) VALUE "キャンセル".
-          05 FILLER PIC X(120) VALUE "取消".
-       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 3.
-             10 PC-TEXT      PIC X(120) OCCURS 6.
-      *>   The texts in the current language, by name.
-       01 PC-TEXTS-NOW       GLOBAL.
-          05 T-CHOOSE-ONE PIC X(120).
-          05 T-OK PIC X(120).
-          05 T-CANCEL PIC X(120).
-       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 3.
-       01 WS-TEXT            GLOBAL PIC X(300).
-       01 WS-ITEMS           GLOBAL PIC X(8400).
-       01 WS-ITEM            GLOBAL PIC X(120).
-       01 WS-PTR             GLOBAL PIC 9(5).
-       01 WS-OK              GLOBAL PIC X(4).
-       01 WS-IDX             GLOBAL PIC S9(4).
-       01 WS-ANSWER          GLOBAL PIC 9(4).
+       01 WS-FS                                  GLOBAL    PIC XX    VALUE "00".
+       01 WS-DATA-DIR                            GLOBAL    PIC X(200).
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
+       *>   The interface texts (spec 071 R44): one row per text, one column
+       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+       *>   only the values are translated. A caller's own text wins.
+
+       01 WS-LANG                                GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 1.
+       01 WS-TX-I                                GLOBAL    PIC 9(4).
+       01 PC-TEXT-DATA                           GLOBAL.
+           *>   CHOOSE-ONE
+
+           05 FILLER                             PIC    X(120)    VALUE "Choose one".
+           05 FILLER                             PIC    X(120)    VALUE "Escolha um".
+           05 FILLER                             PIC    X(120)    VALUE "Elija uno".
+           05 FILLER                             PIC    X(120)    VALUE "Choisissez-en un".
+           05 FILLER                             PIC    X(120)    VALUE "1 つ選んでください".
+           05 FILLER                             PIC    X(120)    VALUE "请选择一项".
+           *>   OK
+
+           05 FILLER                             PIC    X(120)    VALUE "OK".
+           05 FILLER                             PIC    X(120)    VALUE "OK".
+           05 FILLER                             PIC    X(120)    VALUE "Aceptar".
+           05 FILLER                             PIC    X(120)    VALUE "OK".
+           05 FILLER                             PIC    X(120)    VALUE "OK".
+           05 FILLER                             PIC    X(120)    VALUE "确定".
+           *>   CANCEL
+
+           05 FILLER                             PIC    X(120)    VALUE "Cancel".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Annuler".
+           05 FILLER                             PIC    X(120)    VALUE "キャンセル".
+           05 FILLER                             PIC    X(120)    VALUE "取消".
+       01 PC-TEXT-TABLE                          REDEFINES    PC-TEXT-DATA    GLOBAL.
+           05 PC-TEXT-ROW                        OCCURS    3.
+               10 PC-TEXT                        PIC    X(120)    OCCURS 6.
+       *>   The texts in the current language, by name.
+
+       01 PC-TEXTS-NOW                           GLOBAL.
+           05 T-CHOOSE-ONE                       PIC    X(120).
+           05 T-OK                               PIC    X(120).
+           05 T-CANCEL                           PIC    X(120).
+       01 PC-TEXTS-NOW-R                         REDEFINES    PC-TEXTS-NOW    GLOBAL.
+           05 PC-TEXT-NOW                        PIC    X(120)    OCCURS 3.
+       01 WS-TEXT                                GLOBAL    PIC X(300).
+       01 WS-ITEMS                               GLOBAL    PIC X(8400).
+       01 WS-ITEM                                GLOBAL    PIC X(120).
+       01 WS-PTR                                 GLOBAL    PIC 9(5).
+       01 WS-OK                                  GLOBAL    PIC X(4).
+       01 WS-IDX                                 GLOBAL    PIC S9(4).
+       01 WS-ANSWER                              GLOBAL    PIC 9(4).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Question.
@@ -208,50 +213,59 @@
        PROGRAM-ID. PICK-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Choose one of a list, for any form (operator, 2026-09-27):
-      *>   the caller sets PickItems - one item per line - and, translated,
-      *>   PickTitle / PickOk / PickCancel on itself, PickSelected (the
-      *>   item preselected, 1 = the first) and PickAnswer = 0; opens this
-      *>   with OpenFormSync; and reads PickAnswer when it returns: the
-      *>   chosen item, 1 = the first, or 0 when nothing was chosen.
-      *>   The designed texts in the user's language first; what the
-      *>   caller hands over below replaces them.
-           CALL "PC-PATHS"
-           CALL "PC-TEXTS"
-           INVOKE super::GetProperty("PickTitle") RETURNING WS-TEXT
-           IF WS-TEXT NOT = SPACES
-               MOVE WS-TEXT::Trim() TO Lbl-Question::Caption
+           *>   Choose one of a list, for any form (operator, 2026-09-27):
+           *>   the caller sets PickItems - one item per line - and, translated,
+           *>   PickTitle / PickOk / PickCancel on itself, PickSelected (the
+           *>   item preselected, 1 = the first) and PickAnswer = 0; opens this
+           *>   with OpenFormSync; and reads PickAnswer when it returns: the
+           *>   chosen item, 1 = the first, or 0 when nothing was chosen.
+           *>   The designed texts in the user's language first; what the
+           *>   caller hands over below replaces them.
+
+           CALL    "PC-PATHS"
+           CALL    "PC-TEXTS"
+
+           INVOKE    super::GetProperty("PickTitle") RETURNING WS-TEXT
+           IF    WS-TEXT NOT = SPACES
+               SET     Lbl-Question::Caption     TO    WS-TEXT::Trim()
            END-IF
-           INVOKE super::GetProperty("PickOk") RETURNING WS-TEXT
-           IF WS-TEXT NOT = SPACES
-               MOVE WS-TEXT::Trim() TO Btn-Ok::Caption
+           INVOKE    super::GetProperty("PickOk") RETURNING WS-TEXT
+           IF    WS-TEXT NOT = SPACES
+               SET     Btn-Ok::Caption           TO    WS-TEXT::Trim()
            END-IF
-           INVOKE super::GetProperty("PickCancel") RETURNING WS-TEXT
-           IF WS-TEXT NOT = SPACES
-               MOVE WS-TEXT::Trim() TO Btn-Cancel::Caption
+           INVOKE    super::GetProperty("PickCancel") RETURNING WS-TEXT
+           IF    WS-TEXT NOT = SPACES
+               SET     Btn-Cancel::Caption       TO    WS-TEXT::Trim()
            END-IF
-           INVOKE super::GetProperty("PickItems") RETURNING WS-ITEMS
-           MOVE Lst-Items::Clear() TO WS-OK
-           MOVE 1 TO WS-PTR
-           PERFORM UNTIL WS-PTR > 8400
-               MOVE SPACES TO WS-ITEM
-               UNSTRING WS-ITEMS DELIMITED BY X"0A"
+           INVOKE    super::GetProperty("PickItems") RETURNING WS-ITEMS
+
+           SET     WS-OK                         TO    Lst-Items::Clear()
+           SET     WS-PTR                        TO    1
+
+           *> 8400 is the size of WS-ITEMS. The first blank piece ends the list: the
+           *> unused tail of the field, but also an empty line inside PickItems.
+
+           PERFORM    UNTIL WS-PTR > 8400
+               SET     WS-ITEM                   TO    SPACES
+               UNSTRING    WS-ITEMS DELIMITED BY X"0A"
                    INTO WS-ITEM WITH POINTER WS-PTR
                END-UNSTRING
-               IF WS-ITEM = SPACES
+               IF    WS-ITEM = SPACES
                    EXIT PERFORM
                END-IF
-               MOVE Lst-Items::AddItem(WS-ITEM::Trim()) TO WS-OK
+               SET     WS-OK                     TO    Lst-Items::AddItem(WS-ITEM::Trim())
            END-PERFORM
-           INVOKE super::GetProperty("PickSelected") RETURNING WS-TEXT
-           IF WS-TEXT = SPACES
-               MOVE 1 TO WS-IDX
+           INVOKE    super::GetProperty("PickSelected") RETURNING WS-TEXT
+           IF    WS-TEXT = SPACES
+               SET     WS-IDX                    TO    1
            ELSE
-               MOVE FUNCTION NUMVAL(WS-TEXT) TO WS-IDX
+               SET     WS-IDX                    TO    FUNCTION NUMVAL(WS-TEXT)
            END-IF
-           MOVE WS-IDX TO Lst-Items::SelectedIndex
+           SET     Lst-Items::SelectedIndex      TO    WS-IDX
 
            GOBACK.
 
@@ -277,10 +291,13 @@
        PROGRAM-ID. BTN-CANCEL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   No choice: PickAnswer keeps the caller's own 0.
-           INVOKE ME::Close()
+           *>   No choice: PickAnswer keeps the caller's own 0.
+
+           INVOKE    ME::Close()
 
            GOBACK.
 
@@ -290,16 +307,20 @@
        PROGRAM-ID. BTN-OK--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The chosen item, 1 = the first; nothing chosen, nothing to do.
-           MOVE Lst-Items::SelectedIndex TO WS-IDX
-           IF WS-IDX < 1
+           *>   The chosen item, 1 = the first; nothing chosen, nothing to do.
+
+           SET     WS-IDX                        TO    Lst-Items::SelectedIndex
+           IF    WS-IDX < 1
                EXIT PROGRAM
            END-IF
-           MOVE WS-IDX TO WS-ANSWER
-           INVOKE super::SetProperty("PickAnswer", WS-ANSWER)
-           INVOKE ME::Close()
+           SET     WS-ANSWER                     TO    WS-IDX
+
+           INVOKE    super::SetProperty("PickAnswer", WS-ANSWER)
+           INVOKE    ME::Close()
 
            GOBACK.
 
@@ -309,16 +330,19 @@
        PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
-           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
-           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
-           IF WS-DATA-DIR = SPACES
-               MOVE "data" TO WS-DATA-DIR
+           *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+
+           DISPLAY    "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-DATA-DIR = SPACES
+               SET     WS-DATA-DIR               TO    "data"
            END-IF
-           MOVE SPACES TO WS-SETTINGS-PATH
-           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
+           SET     WS-SETTINGS-PATH              TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
 
            GOBACK.
 
@@ -328,22 +352,28 @@
        PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
-           MOVE SPACES TO WS-SET-VALUE
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+
+           SET     WS-SET-VALUE                  TO    SPACES
+           *> Status 35 is a missing file (first run): create it empty and reopen
+           *> I-O, so the read below simply finds no record.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    WS-SET-NAME
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -353,14 +383,17 @@
        PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language the user picked (LANG), the texts in it, and every
-      *>   designed caption that shows one (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:2) TO WS-LANG
-           EVALUATE WS-LANG
+           *>   The language the user picked (LANG), the texts in it, and every
+           *>   designed caption that shows one (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
+           EVALUATE    WS-LANG
                WHEN "en" MOVE 1 TO WS-LANG-IX
                WHEN "pt" MOVE 2 TO WS-LANG-IX
                WHEN "es" MOVE 3 TO WS-LANG-IX
@@ -368,14 +401,18 @@
                WHEN "jp" MOVE 5 TO WS-LANG-IX
                WHEN "cn" MOVE 6 TO WS-LANG-IX
                WHEN OTHER MOVE "en" TO WS-LANG
-                          MOVE 1 TO WS-LANG-IX
+                   SET     WS-LANG-IX            TO    1
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 3
-               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           *> PC-TEXT-NOW overlays the T- names, so row N of the table becomes the
+           *> Nth name. The bound is the number of texts (the OCCURS of the table).
+
+           PERFORM    VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 3
+               SET     PC-TEXT-NOW(WS-TX-I)      TO    PC-TEXT(WS-TX-I, WS-LANG-IX)
            END-PERFORM
-           MOVE T-CHOOSE-ONE::Trim() TO Lbl-Question::Caption
-           MOVE T-OK::Trim() TO Btn-Ok::Caption
-           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
+
+           SET     Lbl-Question::Caption         TO    T-CHOOSE-ONE::Trim()
+           SET     Btn-Ok::Caption               TO    T-OK::Trim()
+           SET     Btn-Cancel::Caption           TO    T-CANCEL::Trim()
 
            GOBACK.
 

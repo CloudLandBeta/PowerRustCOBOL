@@ -47,7 +47,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="DATAGRID-FORM--ONLOAD">
     </Event>
@@ -273,33 +274,38 @@ programmatic interface for creating content directly in code.</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">13</Property>
     <Event name="onClick" paragraph="BUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-ROW-COUNT      PIC 9(9).
-       01 WS-ROW-COUNT-TEXT PIC ZZZ,ZZZ,ZZ9.
-       01 WS-MESSAGE        PIC X(80).
+       01 WS-ROW-COUNT                           PIC    9(9).
+       01 WS-ROW-COUNT-TEXT                      PIC    ZZZ,ZZZ,ZZ9.
+       01 WS-MESSAGE                             PIC    X(80).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The grid is bound to ACTORS-FILE (indexed/actors.cidx), so the rows
-      *> already arrived when the form loaded — an indexed source has no fill
-      *> step to wait for. RefreshBinding re-reads the file and returns how
-      *> many records it put in the grid, which is what this button is for:
-      *> picking up records another program has written since.
-           MOVE DataGrid-1::RefreshBinding() TO WS-ROW-COUNT
-           MOVE WS-ROW-COUNT TO WS-ROW-COUNT-TEXT
+           *> The grid is bound to ACTORS-FILE (indexed/actors.cidx), so the rows
+           *> already arrived when the form loaded — an indexed source has no fill
+           *> step to wait for. RefreshBinding re-reads the file and returns how
+           *> many records it put in the grid, which is what this button is for:
+           *> picking up records another program has written since.
 
-           STRING "Loaded "
-                  FUNCTION TRIM(WS-ROW-COUNT-TEXT)
-                  " actors from ACTORS-FILE"
-                  INTO WS-MESSAGE
+           SET     WS-ROW-COUNT                  TO    DataGrid-1::RefreshBinding()
+           SET     WS-ROW-COUNT-TEXT             TO    WS-ROW-COUNT
+
+           STRING    "Loaded "
+               FUNCTION TRIM(WS-ROW-COUNT-TEXT)
+               " actors from ACTORS-FILE"
+               INTO WS-MESSAGE
            END-STRING
 
-           SET Snackbar-1::Category TO "Info"
-           SET Snackbar-1::Text TO FUNCTION TRIM(WS-MESSAGE)
-           INVOKE Snackbar-1::Show()
-           DISPLAY FUNCTION TRIM(WS-MESSAGE).
+           SET     Snackbar-1::Category          TO    "Info"
+           SET     Snackbar-1::Text              TO    FUNCTION TRIM(WS-MESSAGE)
+
+           Snackbar-1::Show()
+           DISPLAY    FUNCTION TRIM(WS-MESSAGE).
 ]]></Event>
   </Control>
   <Control id="Snackbar-1" type="Snackbar" x="48" y="40" w="56" h="56" tab-order="0" z-order="90" visible="true" enabled="true">
@@ -332,39 +338,53 @@ later|Later||None|false</Property>
     <Property name="ShadowBlur">12</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Event name="onShown" paragraph="SNACKBAR-1--ONSHOWN"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           DISPLAY "onShown".
+           DISPLAY    "onShown".
 ]]></Event>
     <Event name="onClosed" paragraph="SNACKBAR-1--ONCLOSED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The reason arrives as the event value: Timeout / User / Action /
-      *> Programmatic / Overflow.
-           DISPLAY "onClosed".
+           *> The reason arrives as the event value: Timeout / User / Action /
+           *> Programmatic / Overflow.
+
+           DISPLAY    "onClosed".
 ]]></Event>
     <Event name="onButtonClick" paragraph="SNACKBAR-1--ONBUTTONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           EVALUATE SNACKBAR-1::LastButtonId
+           *> One handler serves every button: LastButtonId is the id from the
+           *> Snackbar's Buttons property. Whether a click also dismisses the
+           *> message is set there (retry: yes, later: no), not decided here.
+
+           EVALUATE    SNACKBAR-1::LastButtonId
                WHEN "retry"
-                   DISPLAY "button: retry (this one dismisses)"
+                   DISPLAY    "button: retry (this one dismisses)"
                WHEN "later"
-                   DISPLAY "button: later (this one stays up)"
+                   DISPLAY    "button: later (this one stays up)"
                WHEN OTHER
-                   DISPLAY "button: " SNACKBAR-1::LastButtonId
+                   DISPLAY    "button: " SNACKBAR-1::LastButtonId
            END-EVALUATE.
 ]]></Event>
   </Control>
@@ -409,12 +429,19 @@ later|Later||None|false</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">15</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-4--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           *> The ``` fences make a block literal: the text between them is taken
+           *> verbatim, line breaks included, so no escaping or continuation.
+           *> This is the Portuguese text, for the Portugues radio of lang-grp.
+
+           SET     label-2::Caption TO
 ```
 Os DataGrids do PowerRustCOBOL são ferramentas poderosas, capazes de carregar praticamente
 qualquer quantidade de linhas.
@@ -424,7 +451,8 @@ de arquivos CSV, vinculação de dados (data binding) com arquivos indexados, it
 e tabelas SQL, além de uma interface programática para a criação de conteúdo diretamente por
 código.
 ```
-           CONTINUE.]]></Event>
+           CONTINUE.
+]]></Event>
   </Control>
   <Control id="RadioButton-5" type="RadioButton" x="988" y="24" w="120" h="45" tab-order="0" z-order="92" visible="true" enabled="true">
     <Property name="Caption">Español</Property>
@@ -467,12 +495,19 @@ código.
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">15</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-5--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           *> The ``` fences make a block literal: the text between them is taken
+           *> verbatim, line breaks included, so no escaping or continuation.
+           *> This is the Spanish text, for the Espanol radio of lang-grp.
+
+           SET     label-2::Caption TO
 ```
 Los DataGrids de PowerRustCOBOL son herramientas potentes capaces de cargar prácticamente
 cualquier cantidad de filas.
@@ -481,7 +516,8 @@ Ofrecen numerosas opciones de configuración, filtros opcionales por columna, im
 de archivos CSV, enlace de datos con archivos indexados, elementos de datos COBOL y tablas SQL, además de una
 interfaz programática para crear contenido directamente mediante código.
 ```
-           CONTINUE.]]></Event>
+           CONTINUE.
+]]></Event>
   </Control>
   <Control id="RadioButton-6" type="RadioButton" x="864" y="24" w="120" h="45" tab-order="0" z-order="93" visible="true" enabled="true">
     <Property name="Caption">English</Property>
@@ -524,12 +560,19 @@ interfaz programática para crear contenido directamente mediante código.
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">15</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-6--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           *> The ``` fences make a block literal: the text between them is taken
+           *> verbatim, line breaks included, so no escaping or continuation.
+           *> This is the English text, for the English radio of lang-grp.
+
+           SET     label-2::Caption TO
 ```
 PowerRustCOBOL DataGrids are powerful tools capable of loading virtually any number of rows.
 
@@ -544,140 +587,163 @@ programmatic interface for creating content directly in code.
   <deleted-controls>
     <DeletedControl id="Button-SNACK-CLEAR" deleted-at="designer-delete-1788393774-12">
       <Event name="onClick" paragraph="BUTTON-SNACK-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Clears every notification THIS control raised, with reason
-      *> Programmatic, and discards anything it had queued.
-           INVOKE SNACKBAR-1::DismissAll()
-           DISPLAY "dismissed all".
+           *> Clears every notification THIS control raised, with reason
+           *> Programmatic, and discards anything it had queued.
+
+           SNACKBAR-1::DismissAll()
+           DISPLAY    "dismissed all".
 ]]></Event>
     </DeletedControl>
     <DeletedControl id="Button-SNACK-HOLD" deleted-at="designer-delete-1788393774-11">
       <Event name="onClick" paragraph="BUTTON-SNACK-HOLD--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> MANUAL CHECK 3 — reflow on dismiss.
-      *> Raises three that never expire (Timeout 0). Click "Retry" on the
-      *> MIDDLE one: it dismisses, and the other two must close the gap
-      *> IMMEDIATELY - no hole, still 8pt apart, still hugging the anchor.
-      *> "Later" does not dismiss, so it is the one to press when you want
-      *> the message to stay.
-      *>
-      *> MANUAL CHECK 4 — hover-pause.
-      *> Press "Raise 3" instead (those DO expire), then rest the pointer on
-      *> one. Its countdown must HOLD while the pointer is on it and resume
-      *> with exactly what was left when the pointer leaves - so a message
-      *> being read never vanishes under the cursor.
-      *>
-      *> Use "Dismiss all" to clear what this leaves behind.
+           *> MANUAL CHECK 3 — reflow on dismiss.
+           *> Raises three that never expire (Timeout 0). Click "Retry" on the
+           *> MIDDLE one: it dismisses, and the other two must close the gap
+           *> IMMEDIATELY - no hole, still 8pt apart, still hugging the anchor.
+           *> "Later" does not dismiss, so it is the one to press when you want
+           *> the message to stay.
+           *>
+           *> MANUAL CHECK 4 — hover-pause.
+           *> Press "Raise 3" instead (those DO expire), then rest the pointer on
+           *> one. Its countdown must HOLD while the pointer is on it and resume
+           *> with exactly what was left when the pointer leaves - so a message
+           *> being read never vanishes under the cursor.
+           *>
+           *> Use "Dismiss all" to clear what this leaves behind.
 
-           MOVE 0 TO SNACKBAR-1::Timeout
+           SET     SNACKBAR-1::Timeout           TO    0
 
-           MOVE "First - oldest" TO SNACKBAR-1::Text
-           MOVE "Info" TO SNACKBAR-1::Category
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "First - oldest"
+           SET     SNACKBAR-1::Category          TO    "Info"
 
-           MOVE "Second - dismiss THIS one" TO SNACKBAR-1::Text
-           MOVE "Question" TO SNACKBAR-1::Category
-           INVOKE SNACKBAR-1::Show()
+           SNACKBAR-1::Show()
 
-           MOVE "Third - newest" TO SNACKBAR-1::Text
-           MOVE "Critical" TO SNACKBAR-1::Category
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "Second - dismiss THIS one"
+           SET     SNACKBAR-1::Category          TO    "Question"
 
-      *> Back to the category default (-1), so "Raise 3" expires again.
-           MOVE -1 TO SNACKBAR-1::Timeout
-           DISPLAY "3 pinned - dismiss the middle one to see the reflow".
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Text              TO    "Third - newest"
+           SET     SNACKBAR-1::Category          TO    "Critical"
+
+           SNACKBAR-1::Show()
+
+           *> Back to the category default (-1), so "Raise 3" expires again.
+
+           SET     SNACKBAR-1::Timeout           TO    -1
+           DISPLAY    "3 pinned - dismiss the middle one to see the reflow".
 ]]></Event>
     </DeletedControl>
     <DeletedControl id="Button-SNACK-ANCHOR" deleted-at="designer-delete-1788393774-10">
       <Event name="onClick" paragraph="BUTTON-SNACK-ANCHOR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-ANCHOR PIC X(12).
+       01 WS-ANCHOR                              PIC    X(12).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> MANUAL CHECK 2 — growth direction, per anchor.
-      *> Each press moves to the next of the nine positions. Raise three
-      *> after each press: a TOP anchor grows DOWNWARD (newest at the top),
-      *> a BOTTOM anchor grows UPWARD (newest at the bottom), and the CENTRE
-      *> row places the newest first and grows down. In every case the run
-      *> must stay inside this form's ContentPane (check 5).
+           *> MANUAL CHECK 2 — growth direction, per anchor.
+           *> Each press moves to the next of the nine positions. Raise three
+           *> after each press: a TOP anchor grows DOWNWARD (newest at the top),
+           *> a BOTTOM anchor grows UPWARD (newest at the bottom), and the CENTRE
+           *> row places the newest first and grows down. In every case the run
+           *> must stay inside this form's ContentPane (check 5).
 
-           MOVE SNACKBAR-1::StackAnchor TO WS-ANCHOR
-           EVALUATE FUNCTION TRIM(WS-ANCHOR)
-               WHEN "BottomRight"  MOVE "BottomCenter" TO WS-ANCHOR
-               WHEN "BottomCenter" MOVE "BottomLeft"   TO WS-ANCHOR
-               WHEN "BottomLeft"   MOVE "CenterLeft"   TO WS-ANCHOR
-               WHEN "CenterLeft"   MOVE "Center"       TO WS-ANCHOR
-               WHEN "Center"       MOVE "CenterRight"  TO WS-ANCHOR
-               WHEN "CenterRight"  MOVE "TopRight"     TO WS-ANCHOR
-               WHEN "TopRight"     MOVE "TopCenter"    TO WS-ANCHOR
-               WHEN "TopCenter"    MOVE "TopLeft"      TO WS-ANCHOR
-               WHEN OTHER          MOVE "BottomRight"  TO WS-ANCHOR
+           SET     WS-ANCHOR                     TO    SNACKBAR-1::StackAnchor
+           EVALUATE    FUNCTION TRIM(WS-ANCHOR)
+               WHEN "BottomRight" MOVE "BottomCenter" TO WS-ANCHOR
+               WHEN "BottomCenter" MOVE "BottomLeft" TO WS-ANCHOR
+               WHEN "BottomLeft" MOVE "CenterLeft" TO WS-ANCHOR
+               WHEN "CenterLeft" MOVE "Center" TO WS-ANCHOR
+               WHEN "Center" MOVE "CenterRight" TO WS-ANCHOR
+               WHEN "CenterRight" MOVE "TopRight" TO WS-ANCHOR
+               WHEN "TopRight" MOVE "TopCenter" TO WS-ANCHOR
+               WHEN "TopCenter" MOVE "TopLeft" TO WS-ANCHOR
+               WHEN OTHER MOVE "BottomRight" TO WS-ANCHOR
            END-EVALUATE
 
-           MOVE FUNCTION TRIM(WS-ANCHOR) TO SNACKBAR-1::StackAnchor
-           DISPLAY "StackAnchor = " FUNCTION TRIM(WS-ANCHOR).
+           SET     SNACKBAR-1::StackAnchor       TO    FUNCTION TRIM(WS-ANCHOR)
+           DISPLAY    "StackAnchor = " FUNCTION TRIM(WS-ANCHOR).
 ]]></Event>
     </DeletedControl>
     <DeletedControl id="Button-SNACK-RAISE" deleted-at="designer-delete-1788393774-9">
       <Event name="onClick" paragraph="BUTTON-SNACK-RAISE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> MANUAL CHECK 1 — vertical stacking.
-      *> Three Show() calls in ONE handler must put up THREE notifications,
-      *> stacked vertically 8pt apart (StackSpacing). The control is a
-      *> TEMPLATE: each Show() mints from the values current at that moment,
-      *> so the first message keeps saying "Saved" after Text changes.
-      *>
-      *> MANUAL CHECK 2 — growth direction.
-      *> StackAnchor is BottomRight by default, so the stack grows UPWARD and
-      *> the NEWEST ("Could not reach the server") is the one nearest the
-      *> bottom. Press "Anchor: cycle" to walk the nine positions: a Top
-      *> anchor must flip this, growing DOWNWARD with the newest at the top.
-      *>
-      *> MANUAL CHECK 5 — the ContentPane.
-      *> This form is Embedded, so all three must land inside its pane and
-      *> never over the shell's rail or breadcrumb.
+           *> MANUAL CHECK 1 — vertical stacking.
+           *> Three Show() calls in ONE handler must put up THREE notifications,
+           *> stacked vertically 8pt apart (StackSpacing). The control is a
+           *> TEMPLATE: each Show() mints from the values current at that moment,
+           *> so the first message keeps saying "Saved" after Text changes.
+           *>
+           *> MANUAL CHECK 2 — growth direction.
+           *> StackAnchor is BottomRight by default, so the stack grows UPWARD and
+           *> the NEWEST ("Could not reach the server") is the one nearest the
+           *> bottom. Press "Anchor: cycle" to walk the nine positions: a Top
+           *> anchor must flip this, growing DOWNWARD with the newest at the top.
+           *>
+           *> MANUAL CHECK 5 — the ContentPane.
+           *> This form is Embedded, so all three must land inside its pane and
+           *> never over the shell's rail or breadcrumb.
 
-           MOVE "Saved" TO SNACKBAR-1::Text
-           MOVE "Info" TO SNACKBAR-1::Category
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "Saved"
+           SET     SNACKBAR-1::Category          TO    "Info"
 
-           MOVE "Index rebuilt with warnings" TO SNACKBAR-1::Text
-           MOVE "Warning" TO SNACKBAR-1::Category
-           INVOKE SNACKBAR-1::Show()
+           SNACKBAR-1::Show()
 
-           MOVE "Could not reach the server" TO SNACKBAR-1::Text
-           MOVE "Error" TO SNACKBAR-1::Category
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "Index rebuilt with warnings"
+           SET     SNACKBAR-1::Category          TO    "Warning"
 
-           DISPLAY "raised 3 - newest is 'Could not reach the server'".
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Text              TO    "Could not reach the server"
+           SET     SNACKBAR-1::Category          TO    "Error"
+
+           SNACKBAR-1::Show()
+
+           DISPLAY    "raised 3 - newest is 'Could not reach the server'".
 ]]></Event>
     </DeletedControl>
     <DeletedControl id="RadioButton-3" deleted-at="designer-delete-1788475691-6">
       <Event name="onClick" paragraph="RADIOBUTTON-3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           SET     label-2::Caption TO
 ```
 Os DataGrids do PowerRustCOBOL são ferramentas poderosas, capazes de carregar praticamente
 qualquer quantidade de linhas.
@@ -687,16 +753,20 @@ de arquivos CSV, vinculação de dados (data binding) com arquivos indexados, it
 e tabelas SQL, além de uma interface programática para a criação de conteúdo diretamente por
 código.
 ```
-           CONTINUE.]]></Event>
+           CONTINUE.
+]]></Event>
     </DeletedControl>
     <DeletedControl id="RadioButton-2" deleted-at="designer-delete-1788475730-5">
       <Event name="onClick" paragraph="RADIOBUTTON-2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           SET     label-2::Caption TO
 ```
 Los DataGrids de PowerRustCOBOL son herramientas potentes capaces de cargar prácticamente
 cualquier cantidad de filas.
@@ -705,16 +775,20 @@ Ofrecen numerosas opciones de configuración, filtros opcionales por columna, im
 de archivos CSV, enlace de datos con archivos indexados, elementos de datos COBOL y tablas SQL, además de una
 interfaz programática para crear contenido directamente mediante código.
 ```
-           CONTINUE.]]></Event>
+           CONTINUE.
+]]></Event>
     </DeletedControl>
     <DeletedControl id="RadioButton-1" deleted-at="designer-delete-1788475755-4">
       <Event name="onClick" paragraph="RADIOBUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           SET     label-2::Caption TO
 ```
 PowerRustCOBOL DataGrids are powerful tools capable of loading virtually any number of rows.
 

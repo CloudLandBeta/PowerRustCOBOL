@@ -47,7 +47,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="CALL-FORM-DEMO--ONLOAD">
     </Event>
@@ -162,16 +163,18 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
 
            *> Call the form in modal (Sync)
 
-           INVOKE ME::OpenFormSync("CALLED-FORM-DEMO")
+           INVOKE    ME::OpenFormSync("CALLED-FORM-DEMO")
 
            *> Retrieve data set by the modal window
 
-           INVOKE ME::GetProperty("ResultText") RETURNING Lbl-Result::Caption.
+           INVOKE    ME::GetProperty("ResultText") RETURNING Lbl-Result::Caption.
 ]]></Event>
   </Control>
   <Control id="Label-3" type="Label" x="40" y="304" w="500" h="32" tab-order="0" z-order="3" visible="true" enabled="true">
@@ -247,22 +250,25 @@
   <deleted-controls>
     <DeletedControl id="Tmr-Refresh" deleted-at="designer-delete-1789808046-5">
       <Event name="onTick" paragraph="TMR-REFRESH--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-RESULT PIC X(60).
+       01 WS-RESULT                              PIC    X(60).
+
        PROCEDURE DIVISION.
-      *> The called form publishes its answer with
-      *> INVOKE super::"SetProperty"("ResultText", ...) — a write-through to
-      *> this form's own property surface (developers-guide-en.md, "super —
-      *> the form that loaded me"; SetProperty/GetProperty are the generic,
-      *> any-name accessor pair — a BARE me::ResultText/super::ResultText
-      *> would fail to build, since a bare property is checked against the
-      *> fixed universal form surface only: Name, Title, Width, Height, ...).
-      *> That write is only folded into this form's own property store on
-      *> the next COBOL-WAIT-EVENT, so a plain onClick handler reading it
-      *> right after OpenFormSync returns would still see the old value;
-      *> this timer's onTick is itself a COBOL-WAIT-EVENT dispatch, so it
-      *> always sees the current one.
+       *> The called form publishes its answer with
+       *> INVOKE super::"SetProperty"("ResultText", ...) — a write-through to
+       *> this form's own property surface (developers-guide-en.md, "super —
+       *> the form that loaded me"; SetProperty/GetProperty are the generic,
+       *> any-name accessor pair — a BARE me::ResultText/super::ResultText
+       *> would fail to build, since a bare property is checked against the
+       *> fixed universal form surface only: Name, Title, Width, Height, ...).
+       *> That write is only folded into this form's own property store on
+       *> the next COBOL-WAIT-EVENT, so a plain onClick handler reading it
+       *> right after OpenFormSync returns would still see the old value;
+       *> this timer's onTick is itself a COBOL-WAIT-EVENT dispatch, so it
+       *> always sees the current one.
 ]]></Event>
     </DeletedControl>
   </deleted-controls>

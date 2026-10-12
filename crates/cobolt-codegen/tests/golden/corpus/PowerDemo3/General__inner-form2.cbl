@@ -231,12 +231,16 @@
        PROGRAM-ID. INNER-FORM2--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           move 0 to Gauge-1::Value Gauge-2::Value Gauge-3::Value
+           SET     Gauge-1::Value Gauge-2::Value Gauge-3::Value
+                                                 TO    0
 
            CONTINUE.
 
@@ -264,8 +268,11 @@
        PROGRAM-ID. INNER-FORM2--ONCREATE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
@@ -279,12 +286,15 @@
        PROGRAM-ID. INNER-FORM2--ONINITIALIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 712 TO Panel-1::Y
+           SET     Panel-1::Y                    TO    712
            CONTINUE.
 
            GOBACK.
@@ -295,29 +305,33 @@
        PROGRAM-ID. TIMER-1--ONTICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 incdec  PIC s9(3)V99 VALUE 1.
+       01 incdec                                 PIC    s9(3)V99    VALUE 1.
 
        PROCEDURE DIVISION.
-           IF Panel-1::Y > 50
-               SUBTRACT 1 FROM Panel-1::Y
+           IF    Panel-1::Y > 50
+               SUBTRACT    1 FROM Panel-1::Y
            END-IF
 
-           IF Panel-1::Y < 712
-               MOVE 5 TO Panel-1::Transparency
+           IF    Panel-1::Y < 712
+               SET     Panel-1::Transparency     TO    5
            END-IF
 
-           COMPUTE Gauge-1::VALUE = Gauge-1::VALUE + incdec
-           COMPUTE Gauge-2::VALUE = Gauge-2::VALUE + incdec
-           COMPUTE Gauge-3::VALUE = Gauge-3::VALUE + (incdec / 2)
+           *> Each tick moves the gauges by incdec (Gauge-3 by half of it). When any
+           *> gauge leaves 0..100 the step flips sign, so they sweep back and forth.
 
-           IF (Gauge-1::VALUE < 0 or > 100) OR (Gauge-2::VALUE < 0 or > 100) OR (Gauge-3::VALUE < 0 or > 100)
-               COMPUTE incdec = incdec * -1
+           COMPUTE    Gauge-1::VALUE = Gauge-1::VALUE + incdec
+           COMPUTE    Gauge-2::VALUE = Gauge-2::VALUE + incdec
+           COMPUTE    Gauge-3::VALUE = Gauge-3::VALUE + (incdec / 2)
+
+           IF    (Gauge-1::VALUE < 0 or > 100) OR (Gauge-2::VALUE < 0 or > 100) OR (Gauge-3::VALUE < 0 or > 100)
+               COMPUTE    incdec = incdec * -1
            END-IF
 
-           DISPLAY "1-" Gauge-1::VALUE "2-" Gauge-1::VALUE "3-" Gauge-1::VALUE
+           DISPLAY    "1-" Gauge-1::VALUE "2-" Gauge-1::VALUE "3-" Gauge-1::VALUE
 
            CONTINUE.
 

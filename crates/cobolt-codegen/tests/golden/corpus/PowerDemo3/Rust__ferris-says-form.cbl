@@ -238,28 +238,35 @@
        PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 cobol-text  USAGE IS OBJECT REFERENCE RUST-STRING.
-       01 rust-result USAGE IS OBJECT REFERENCE RUST-STRING.
+       01 cobol-text                             USAGE    IS OBJECT REFERENCE RUST-STRING.
+       01 rust-result                            USAGE    IS OBJECT REFERENCE RUST-STRING.
 
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
        MAIN.
-           SET cobol-text TO TextBox-1::Text
+           *> Only OBJECT REFERENCE items can cross into a Rust block, so the text
+           *> travels in a RUST-STRING, not in a PIC field.
+
+           SET     cobol-text                    TO    TextBox-1::Text
 
            TRY
+               *> Bound items are &mut String in Rust (hyphens become underscores), so
+               *> the result is assigned through the deref. A panic in the block lands
+               *> in CATCH RUST-EXCEPTION; a plain CATCH EXCEPTION would miss it.
+
                EXEC RUST
                    *rust_result = ferris_say(cobol_text);
                END-EXEC
 
-               SET Label-1::Caption TO rust-result
-
+               SET     Label-1::Caption          TO    rust-result.
 
            CATCH RUST-EXCEPTION ws-error
-               DISPLAY "FFI failed: " ws-error
+               DISPLAY    "FFI failed: " ws-error
            END-TRY
 
            GOBACK.

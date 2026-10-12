@@ -233,29 +233,37 @@
        PROGRAM-ID. LINE-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "ready - four dash styles, " Lin-Solid::LineThickness " px to start" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           *> CHAR counts from 1, so CHAR(11) is the byte 0A (LF): the line break
+           *> that Txt-Log::AppendText(WS-NL) adds after each logged line.
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "ready - four dash styles, " Lin-Solid::LineThickness " px to start" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -282,38 +290,45 @@
        PROGRAM-ID. BTN-THICK--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> A rule has no events, so a button next to it is how it changes.
-      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
-      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
-      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
-      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
-      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
-      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
-           ADD 1 TO Lin-Solid::LineThickness.
-           ADD 1 TO Lin-Dash::LineThickness.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "solid rule is now " Lin-Solid::LineThickness " px" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> A rule has no events, so a button next to it is how it changes.
+           *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+           *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+           *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+           *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+           *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+           *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
+
+           ADD    1 TO Lin-Solid::LineThickness
+           ADD    1 TO Lin-Dash::LineThickness
+
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "solid rule is now " Lin-Solid::LineThickness " px" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -324,26 +339,31 @@
        PROGRAM-ID. BTN-THIN--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
-      *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
-      *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
-      *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
-      *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
-      *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
-           IF Lin-Solid::LineThickness > 1
-      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
-      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
-      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
-      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
-      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
-      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
-               SUBTRACT 1 FROM Lin-Solid::LineThickness
+           *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
+           *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
+           *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
+           *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
+           *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
+           *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
+
+           IF    Lin-Solid::LineThickness > 1
+               *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+               *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+               *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+               *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+               *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+               *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
+
+               SUBTRACT    1 FROM Lin-Solid::LineThickness
            END-IF.
 
            GOBACK.
@@ -354,20 +374,24 @@
        PROGRAM-ID. BTN-RED--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE "#C4341C" TO Lin-Solid::LineColor.
-           MOVE "#C4341C" TO Lin-Vert::LineColor.
+           *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+           *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+           *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+           *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+           *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+           *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+           SET     Lin-Solid::LineColor          TO    "#C4341C"
+           SET     Lin-Vert::LineColor           TO    "#C4341C".
 
            GOBACK.
 
@@ -377,19 +401,23 @@
        PROGRAM-ID. BTN-HIDE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - universal control method: every visible control understands it.
-      *> PT: EXTENSAO - metodo universal de controle: todo controle visivel o entende.
-      *> ES: EXTENSION - metodo universal de control: todo control visible lo entiende.
-      *> FR: EXTENSION - methode universelle de controle: tout controle visible la comprend.
-      *> JP: EXTENSION - 共通コントロール メソッド。すべての可視コントロールが理解する。
-      *> CN: EXTENSION - 通用控件方法：所有可见控件都支持。
-           Lin-Dot::Hide().
+           *> EN: EXTENSION - universal control method: every visible control understands it.
+           *> PT: EXTENSAO - metodo universal de controle: todo controle visivel o entende.
+           *> ES: EXTENSION - metodo universal de control: todo control visible lo entiende.
+           *> FR: EXTENSION - methode universelle de controle: tout controle visible la comprend.
+           *> JP: EXTENSION - 共通コントロール メソッド。すべての可視コントロールが理解する。
+           *> CN: EXTENSION - 通用控件方法：所有可见控件都支持。
+
+           Lin-Dot::Hide()
            Lin-DashDot::Hide().
 
            GOBACK.
@@ -400,19 +428,23 @@
        PROGRAM-ID. BTN-SHOW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - universal control method: every visible control understands it.
-      *> PT: EXTENSAO - metodo universal de controle: todo controle visivel o entende.
-      *> ES: EXTENSION - metodo universal de control: todo control visible lo entiende.
-      *> FR: EXTENSION - methode universelle de controle: tout controle visible la comprend.
-      *> JP: EXTENSION - 共通コントロール メソッド。すべての可視コントロールが理解する。
-      *> CN: EXTENSION - 通用控件方法：所有可见控件都支持。
-           Lin-Dot::Show().
+           *> EN: EXTENSION - universal control method: every visible control understands it.
+           *> PT: EXTENSAO - metodo universal de controle: todo controle visivel o entende.
+           *> ES: EXTENSION - metodo universal de control: todo control visible lo entiende.
+           *> FR: EXTENSION - methode universelle de controle: tout controle visible la comprend.
+           *> JP: EXTENSION - 共通コントロール メソッド。すべての可視コントロールが理解する。
+           *> CN: EXTENSION - 通用控件方法：所有可见控件都支持。
+
+           Lin-Dot::Show()
            Lin-DashDot::Show().
 
            GOBACK.

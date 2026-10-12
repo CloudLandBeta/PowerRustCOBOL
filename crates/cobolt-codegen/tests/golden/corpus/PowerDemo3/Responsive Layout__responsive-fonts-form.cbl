@@ -80,12 +80,12 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-FONTS-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-LBL-TITLE.
@@ -283,18 +283,24 @@
        PROGRAM-ID. RESPONSIVE-FONTS-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FNT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO FS-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FNT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-FSC is blank-padded to 12 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
+           SET     FS-NOW::Caption               TO    WS-LINE
 
            GOBACK.
 
@@ -320,18 +326,24 @@
        PROGRAM-ID. RESPONSIVE-FONTS-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FNT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO FS-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FNT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-FSC is blank-padded to 12 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
+           SET     FS-NOW::Caption               TO    WS-LINE
 
            GOBACK.
 
@@ -341,18 +353,24 @@
        PROGRAM-ID. RESPONSIVE-FONTS-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FNT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO FS-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FNT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-FSC is blank-padded to 12 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
+           SET     FS-NOW::Caption               TO    WS-LINE
 
            GOBACK.
 
@@ -362,9 +380,11 @@
        PROGRAM-ID. FC-NONE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "None" TO me::FontScaling
+           SET     me::FontScaling               TO    "None"
 
            GOBACK.
 
@@ -374,9 +394,11 @@
        PROGRAM-ID. FC-FLUID--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Fluid" TO me::FontScaling
+           SET     me::FontScaling               TO    "Fluid"
 
            GOBACK.
 
@@ -386,11 +408,14 @@
        PROGRAM-ID. FC-STEP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Each breakpoint's factor: Compact 0.85, Medium 1,
-      *> Expanded 1.25.
-           MOVE "Stepped" TO me::FontScaling
+           *> Each breakpoint's factor: Compact 0.85, Medium 1,
+           *> Expanded 1.25.
+
+           SET     me::FontScaling               TO    "Stepped"
 
            GOBACK.
 
@@ -400,10 +425,13 @@
        PROGRAM-ID. FC-PIN14--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Pins the TOTAL factor: it reads back as written.
-           MOVE 1.4 TO me::FontScale
+           *> Pins the TOTAL factor: it reads back as written.
+
+           SET     me::FontScale                 TO    1.4
 
            GOBACK.
 
@@ -413,9 +441,11 @@
        PROGRAM-ID. FC-PIN08--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0.8 TO me::FontScale
+           SET     me::FontScale                 TO    0.8
 
            GOBACK.
 
@@ -425,9 +455,11 @@
        PROGRAM-ID. FC-AUTO--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO me::FontScale
+           SET     me::FontScale                 TO    0
 
            GOBACK.
 
@@ -437,10 +469,12 @@
        PROGRAM-ID. FC-WIDE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0.5 TO me::MinFontScale
-           MOVE 2.0 TO me::MaxFontScale
+           SET     me::MinFontScale              TO    0.5
+           SET     me::MaxFontScale              TO    2.0
 
            GOBACK.
 
@@ -450,10 +484,12 @@
        PROGRAM-ID. FC-NARROW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0.8 TO me::MinFontScale
-           MOVE 1.6 TO me::MaxFontScale
+           SET     me::MinFontScale              TO    0.8
+           SET     me::MaxFontScale              TO    1.6
 
            GOBACK.
 
@@ -463,17 +499,20 @@
        PROGRAM-ID. FNT-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 

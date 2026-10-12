@@ -74,3 +74,64 @@ error-gated; its emitted columns must agree with rules 3 and 5).
   programmatic replacement as one undo step).
 - Verb casing touches reserved words only — never identifiers, literals,
   comments, or PIC masks.
+
+## Addendum — the PowerRustCOBOL style (operator, 2026-10-12)
+
+The modal of rule 10 gains a third choice, **PowerRustCOBOL style**, remembered
+like the other two and **on by default**. Off, every rule above holds unchanged.
+On, it replaces rules 3 and 5 and adds the following (the numbers are the
+operator's own list for COBOL the agent writes; `layout` golden rule of the
+plugin):
+
+1. **Data levels** indent **4** spaces per depth step (rule 3 said 3); an 88
+   sits one step under its item.
+2. **The gutter.** The first clause after a data name — `PIC`, `OCCURS`, the
+   `VALUE` of an 88, `REDEFINES`, … — starts in **column 50**, followed by 4
+   spaces and its operand; later clauses follow after 4 spaces. A name too long
+   to reach it sends the clauses to column 50 of the next line, with a blank
+   line after (unless a scope end follows). This replaces rule 5's per-run
+   alignment, and its "never move PIC to the next line".
+3. **Blank lines.** Before every `DIVISION` except `ENVIRONMENT DIVISION`; after
+   a comment, before the code below it; before and after a block of two or more
+   consecutive statements of the same verb at the same level — never at the start
+   or end of a scope, and never two in a row.
+4. **Comments** (`*>`) sit in the column of the code below them; the comment
+   choice of rule 10b is moot with the style on. Classic column-7 comments stay.
+5. **Verbs.** 4 spaces between a verb and its predicate (`SET` takes 5, so it
+   lines up with `MOVE`); `EXIT PERFORM`, `STOP RUN`, `GO TO` are one verb. `TO`
+   of `MOVE`/`SET` in column 50, or in column 50 of the next line when the operand
+   before it is too long, with a blank line after.
+6. **Structure.** A statement with conditional phrases (`READ … AT END … END-READ`,
+   `STRING … END-STRING`, …) is a scope: its phrases sit one level in, their
+   bodies two. A line that continues a statement (`INTO …`, `WITH POINTER …`)
+   sits one level in; an `AND`/`OR` condition line two levels in from its
+   header. The clauses of a `SELECT` sit one level under it. A statement split
+   over lines (`MOVE x` / `TO y`, a list of targets, `INVOKE … RETURNING`) is
+   treated as one.
+7. **Statements** — the only rules that change tokens, kept only when proved
+   harmless (below): a sentence period is dropped when no scope or phrase depends
+   on it and nothing (paragraph, section, end of code) follows; `INVOKE obj::m(…)`
+   becomes `obj::m(…)` — except on `ME`/`SUPER`, whose window calls run through
+   a path the bare statement does not take; `MOVE` becomes `SET`, except
+   `MOVE CORRESPONDING` and `MOVE ALL`.
+8. **Long lines** break before a string literal that fits on a line of its own
+   instead of through it (rule 6 still splits a literal that cannot).
+
+### Recorded decisions
+
+- **The proof.** After formatting, the text before and after are read by the real
+  parser as programs (a fragment gets an identification header, and a procedure
+  header when it has none) and compared with positions and sentence-end markers
+  removed, and with `INVOKE obj::m(a)` and `obj::m(a)` read as one call. Equal ⇒
+  the rule-7 changes stay. Unequal, or the original does not parse ⇒ the text is
+  formatted again with layout alone. Layout never changes tokens.
+- **Names keep their spelling.** Verb casing (rule 10a) no longer touches a word
+  right before or right after `::` — `NUD-AGE::Value`, `super::GetProperty`. It
+  used to turn `Value` into `VALUE`.
+- **A lone call ending in a period** (`Txt-Log::AppendText(WS-NL).`) is not a
+  paragraph header; a paragraph name is letters, digits, hyphens and underscores.
+- **Surfaces.** Every surface that offers Beautify, not only the event editor,
+  gets the style: they share the engine. The Indexed editor's Beautify, which
+  regenerates canonical text, is unchanged.
+- **Not done by Beautify:** *comments before complex code* — that is judgment,
+  not layout.
