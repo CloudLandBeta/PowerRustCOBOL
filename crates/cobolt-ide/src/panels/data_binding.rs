@@ -116,6 +116,8 @@ pub fn source_descriptor_for_editor(
             fields,
             key_fields,
             writable: true,
+            query: String::new(),
+            table_name: String::new(),
         },
         BindingEditorSourceKind::CobolTable => BindingSourceDescriptor::CobolTable {
             table_name: format!("{}-TABLE", normalized_id(control_id)),

@@ -7172,6 +7172,10 @@ impl CoboltApp {
                 // Spec 091 R5, R40 — a form that holds a name twice, or a layer it
                 // does not define, says so in the Output panel; nothing is repaired.
                 dp.report_load_problems();
+                // Spec 094 R2 — a bound DataGrid that has no columns is seeded
+                // once with its binding's sample data; one with columns is the
+                // developer's and is left as saved.
+                dp.seed_bound_grids_without_columns();
                 if let Some(closed) = self.closed_handler_marks.remove(&path) {
                     dp.restore_handler_marks(closed.marks);
                 }
@@ -20007,12 +20011,45 @@ pub(crate) fn apply_data_binding_to_form(form: &mut Form, binding: DataBindingDe
     form.data_bindings.push(binding);
 }
 
+/// The per-frame refresh of what a binding mirrors onto its target: a chart's
+/// label and series, a control array's item count.
+///
+/// **A DataGrid is not refreshed** (spec 094 D1, R1). The Designer draws a grid
+/// from its own `Columns`, `Rows` and `AdvancedGrid` — fake data, whether or not
+/// the grid is bound — and the developer edits them on the canvas; a binding that
+/// rewrote them every frame undid every edit the next frame. They are seeded once,
+/// by [`apply_data_binding_to_form`] (and so by the undoable `ApplyDataBinding`
+/// command, which *Reset sample data* and the open-time fix-up also go through).
 pub(crate) fn refresh_data_binding_target_properties(form: &mut Form) {
     let bindings = form.data_bindings.clone();
     tracing::debug!(target: "databinding", "refresh_data_binding_target_properties count={}", bindings.len());
     for binding in &bindings {
+        if matches!(binding.target, BindingTargetDescriptor::DataGrid { .. }) {
+            continue;
+        }
         apply_data_binding_target_properties(form, binding);
     }
+}
+
+/// The bindings whose DataGrid target has nothing to draw yet: no `Columns` and
+/// no column in `AdvancedGrid`, while the binding does name fields (spec 094 R2,
+/// "a saved form whose bound grid has no columns shall be seeded once when it
+/// opens"). A grid that has any column is the developer's and is left alone.
+pub(crate) fn bound_grids_without_columns(form: &Form) -> Vec<DataBindingDef> {
+    form.data_bindings
+        .iter()
+        .filter(|binding| {
+            let BindingTargetDescriptor::DataGrid { control_id } = &binding.target else {
+                return false;
+            };
+            !binding.source.fields().is_empty()
+                && form.find_control(control_id).is_some_and(|grid| {
+                    grid.get_prop("Columns").map_or(true, |c| c.as_str().trim().is_empty())
+                        && DataGridAdvanced::from_control(grid).columns.is_empty()
+                })
+        })
+        .cloned()
+        .collect()
 }
 
 fn same_binding_target(left: &BindingTargetDescriptor, right: &BindingTargetDescriptor) -> bool {
@@ -20025,31 +20062,25 @@ fn apply_data_binding_target_properties(form: &mut Form, binding: &DataBindingDe
     tracing::debug!(target: "databinding", "APPLY binding id={} source={:?} target={:?} mappings={:?}",
         binding.id, binding.source, binding.target, binding.mappings);
 
+    // The one-shot seed of a bound grid's sample columns and rows (spec 094 R2).
+    // Reached only through `apply_data_binding_to_form` — the per-frame refresh
+    // skips a DataGrid (see `refresh_data_binding_target_properties`).
     if let BindingTargetDescriptor::DataGrid { control_id } = &binding.target {
         let fields = binding.source.fields();
-        let columns = fields
-            .iter()
-            .map(|field| {
-                let display_name = field.display_name.trim();
-                let name = if display_name.is_empty() {
-                    field.name.as_str()
-                } else {
-                    display_name
-                };
-                format!("{name}:{}", datagrid_column_type(&field.data_type))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
         let data_source = binding_source_basic_label(&binding.source);
         let preview_rows = data_binding_preview_rows(form, binding);
         tracing::debug!(target: "databinding", "[DataGrid] control={} fields={:?}",
             control_id, fields.iter().map(|f| &f.name).collect::<Vec<_>>());
         if let Some(control) = form.find_control_mut(control_id) {
-            let advanced_grid = datagrid_advanced_for_binding(control, binding);
+            let advanced = datagrid_columns_for_binding(control, binding);
+            // `Columns` names each field by the title its column now carries, so a
+            // title the developer typed (R5) still finds its data — the renderer
+            // matches a `Columns` name against a column's source name, title or id.
+            let columns = datagrid_columns_text(fields, advanced.as_ref());
             control.set_prop("Columns", PropValue::String(columns));
             control.set_prop("DataSource", PropValue::String(data_source));
             control.set_prop("Rows", PropValue::String(preview_rows));
-            if let Some(adv) = advanced_grid {
+            if let Some(adv) = advanced.and_then(|a| a.to_json().ok()) {
                 control.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(adv));
             }
         }
@@ -20219,10 +20250,51 @@ pub(crate) fn seed_control_array_binding_preview_values(
     }
 }
 
+/// The `Columns` property text for a seed: one `Name:type` line per bound field,
+/// in the field order the sample rows are written in. The name is the title the
+/// field's column carries (so a renamed title is found again by the renderer),
+/// unless that title cannot sit before a `:` — then the field's own name, which
+/// the column keeps as its source name.
+fn datagrid_columns_text(fields: &[BindingField], advanced: Option<&DataGridAdvanced>) -> String {
+    fields
+        .iter()
+        .map(|field| {
+            let title = advanced
+                .and_then(|a| {
+                    a.columns
+                        .iter()
+                        .find(|c| c.source_name.eq_ignore_ascii_case(&field.name))
+                })
+                .map(|c| c.title.trim())
+                .filter(|t| !t.is_empty() && !t.contains([':', '\n', '\r']));
+            let name = title.unwrap_or_else(|| {
+                let display_name = field.display_name.trim();
+                if display_name.is_empty() {
+                    field.name.as_str()
+                } else {
+                    display_name
+                }
+            });
+            format!("{name}:{}", datagrid_column_type(&field.data_type))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn datagrid_advanced_for_binding(
     control: &cobolt_forms::Control,
     binding: &DataBindingDef,
 ) -> Option<String> {
+    datagrid_columns_for_binding(control, binding).and_then(|a| a.to_json().ok())
+}
+
+/// The grid's column set after the binding is applied to it: the columns it has
+/// that match a bound field (keeping what the developer set on them), then a
+/// new column for every field that has none. `None` for a binding with no fields.
+fn datagrid_columns_for_binding(
+    control: &cobolt_forms::Control,
+    binding: &DataBindingDef,
+) -> Option<DataGridAdvanced> {
     let fields = binding.source.fields();
     if fields.is_empty() {
         return None;
@@ -20258,7 +20330,7 @@ fn datagrid_advanced_for_binding(
     }
 
     advanced.columns = next_columns;
-    advanced.to_json().ok()
+    Some(advanced)
 }
 
 fn merge_datagrid_binding_column(
@@ -20267,11 +20339,18 @@ fn merge_datagrid_binding_column(
     field: &BindingField,
 ) -> DataGridColumn {
     column.id = datagrid_binding_column_id(binding, field);
-    column.title = if field.display_name.trim().is_empty() {
+    // The field's display name is only the title a column STARTS with. A title
+    // that differs from it is one the developer typed (on the canvas, or in Edit
+    // DataGrid settings) and survives re-applying the binding (spec 094 R5); an
+    // empty one — a column the grid did not have — takes the default.
+    let default_title = if field.display_name.trim().is_empty() {
         field.name.clone()
     } else {
         field.display_name.clone()
     };
+    if column.title.trim().is_empty() {
+        column.title = default_title;
+    }
     column.source_name = field.name.clone();
     column.value_type = datagrid_column_type(&field.data_type).to_owned();
     // Seed the COBOL mask from the bound field's PICTURE only when the column has
@@ -22255,10 +22334,13 @@ mod manifest_name_tests {
                 control_id: "ActorGrid".to_owned(),
             },
         );
-        apply_data_binding_to_form(&mut form, binding);
+        apply_data_binding_to_form(&mut form, binding.clone());
 
-        // Simulate the save/run refresh that previously wiped the override.
+        // The per-frame refresh that used to wipe the override no longer touches a
+        // grid at all (spec 094 D1); what still can is APPLYING the binding again,
+        // so that is the case this test now pins.
         refresh_data_binding_target_properties(&mut form);
+        apply_data_binding_to_form(&mut form, binding);
 
         let grid = form.find_control("ActorGrid").expect("grid should exist");
         let parsed = DataGridAdvanced::from_control(grid);
@@ -22338,10 +22420,11 @@ mod manifest_name_tests {
                 control_id: "ActorGrid".to_owned(),
             },
         );
+        apply_data_binding_to_form(&mut form, binding.clone());
+        // Applying the binding again, twice (the per-frame refresh leaves a grid
+        // alone since spec 094 D1): a kind must survive each one.
+        apply_data_binding_to_form(&mut form, binding.clone());
         apply_data_binding_to_form(&mut form, binding);
-        // The save/run refresh, twice: a kind must survive each one.
-        refresh_data_binding_target_properties(&mut form);
-        refresh_data_binding_target_properties(&mut form);
 
         let parsed = DataGridAdvanced::from_control(form.find_control("ActorGrid").expect("grid"));
         let kind_of = |source: &str| {
@@ -22363,6 +22446,87 @@ mod manifest_name_tests {
             "a field the binding editor made a Dropdown still decides"
         );
         assert_eq!(kind_of("ACTOR-NEW"), "Textbox", "a new column takes the field's control");
+    }
+
+    /// Spec 094 D1/R1: the per-frame refresh leaves a bound grid's own columns
+    /// and rows alone, while a bound chart still gets its mirror (R2: a grid is
+    /// seeded once, when its binding is applied).
+    #[test]
+    fn the_per_frame_refresh_leaves_a_bound_grid_alone_but_still_serves_a_chart() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        form.add_control(Control::new("ActorGrid", ControlType::DataGrid, 0, 0));
+        form.add_control(Control::new("CHART-1", ControlType::BarChart, 0, 300));
+        let mut caption = BindingField::new("ACTOR-CAPTION", BindingDataType::Text);
+        caption.display_name = "Actor Caption".to_owned();
+        let grid_binding = DataBindingDef::new(
+            "BIND-ACTORS",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields: vec![caption],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::DataGrid { control_id: "ActorGrid".to_owned() },
+        );
+        apply_data_binding_to_form(&mut form, grid_binding);
+        let seeded = |form: &Form| {
+            let g = form.find_control("ActorGrid").unwrap();
+            (
+                g.get_prop("Columns").map(PropValue::as_str).unwrap_or_default().to_owned(),
+                g.get_prop("Rows").map(PropValue::as_str).unwrap_or_default().to_owned(),
+            )
+        };
+        assert_eq!(seeded(&form).0, "Actor Caption:string", "applying seeds the columns once");
+
+        // The developer's own fake data on the grid.
+        let g = form.find_control_mut("ActorGrid").unwrap();
+        g.set_prop("Rows", PropValue::String("mine 1\nmine 2".into()));
+        g.set_prop("Columns", PropValue::String("Mine:string".into()));
+        // A chart binding, added directly so only the refresh can mirror it.
+        form.data_bindings.push(
+            DataBindingDef::new(
+                "BIND-SALES",
+                "Sales",
+                BindingSourceDescriptor::CobolTable {
+                    table_name: "SALES-TABLE".into(),
+                    occurs_item: "SALES-ROW".into(),
+                    fields: vec![
+                        BindingField::new("S-MONTH", BindingDataType::Text),
+                        BindingField::new("S-AMOUNT", BindingDataType::Integer),
+                    ],
+                    key_fields: vec![],
+                    writable: false,
+                },
+                BindingTargetDescriptor::Chart {
+                    control_id: "CHART-1".into(),
+                    chart_kind: cobolt_forms::BindingChartKind::Bar,
+                },
+            )
+            .with_mappings(vec![
+                cobolt_forms::FieldMapping::new("S-MONTH", BindingTargetPath::ChartCategory { control_id: "CHART-1".into() }),
+                cobolt_forms::FieldMapping::new(
+                    "S-AMOUNT",
+                    BindingTargetPath::ChartValueSeries { control_id: "CHART-1".into(), series_id: "S-AMOUNT".into() },
+                ),
+            ]),
+        );
+        for _ in 0..5 {
+            refresh_data_binding_target_properties(&mut form);
+        }
+        assert_eq!(
+            seeded(&form),
+            ("Mine:string".to_owned(), "mine 1\nmine 2".to_owned()),
+            "five refreshes did not touch the grid"
+        );
+        let chart = form.find_control("CHART-1").unwrap();
+        assert_eq!(chart.get_prop("LabelField").map(PropValue::as_str), Some("S-MONTH"), "the chart is still mirrored");
+
+        // Only applying the binding again reaches the grid.
+        let again = form.data_bindings[0].clone();
+        apply_data_binding_to_form(&mut form, again);
+        assert_eq!(seeded(&form).0, "Actor Caption:string");
     }
 
     #[test]

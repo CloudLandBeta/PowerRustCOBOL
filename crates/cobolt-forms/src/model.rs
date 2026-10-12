@@ -1498,8 +1498,20 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // `onCellEdited` (row and column numbered from 1).
     // …and the cell a click landed on, written before `onCellClick` /
     // `onCellDoubleClick`.
-    const DATA_GRID: &[&str] =
-        &["EditedRow", "EditedColumn", "EditedValue", "PreviousValue", "ClickedRow", "ClickedColumn"];
+    // Spec 094 — what a write-back left: `CommitStatus` (the source's code, `00`
+    // when it was written), `LastError` (its message) and, for the renderer's
+    // marker, the cells still pending (`_PendingCells`, row,column pairs from 1).
+    const DATA_GRID: &[&str] = &[
+        "EditedRow",
+        "EditedColumn",
+        "EditedValue",
+        "PreviousValue",
+        "ClickedRow",
+        "ClickedColumn",
+        "CommitStatus",
+        "LastError",
+        "_PendingCells",
+    ];
     // `AllowEdit` — a renamed node's old label, written before `onNodeRenamed`
     // (the new one is the node payload's `CONTROL-NODE`).
     const TREE_VIEW: &[&str] = &["PreviousNodeText"];
@@ -2017,6 +2029,15 @@ pub enum BindingSourceDescriptor {
         fields: Vec<BindingField>,
         key_fields: Vec<String>,
         writable: bool,
+        /// Spec 094: the SELECT that fills the grid, run on the connection of
+        /// `source_control_id`. Its columns are matched to `fields` by name.
+        #[serde(default)]
+        query: String,
+        /// Spec 094: the table an edit updates (`UPDATE <table> SET … WHERE
+        /// <key fields> = …`). A plain name — a letter or `_`, then letters,
+        /// digits, `_` and `.`.
+        #[serde(default)]
+        table_name: String,
     },
     CobolTable {
         table_name: String,
@@ -3648,6 +3669,7 @@ impl ControlType {
                 "onCellClick",
                 "onCellDoubleClick",
                 "onCellEdited",
+                "onCommitError",
                 "onRowSelect",
                 "onRowDoubleClick",
                 "onColumnClick",
@@ -5356,6 +5378,10 @@ impl Control {
                 // `ReadOnly` was seeded false on every grid and is retired, so
                 // editing is a switch of its own nobody has turned on yet.
                 props.insert("AllowCellEditing".into(), PropValue::Bool(false));
+                // Spec 094: on a bound grid whose binding is writable, a kept edit is
+                // written to the source — at once when this is on, or held pending
+                // until `CommitEdit()` / `DiscardEdit()` when it is off.
+                props.insert("AutoCommit".into(), PropValue::Bool(true));
                 props.insert(DATAGRID_ADVANCED_PROP.into(), PropValue::String("".into()));
                 props.insert("ShowRowNumbers".into(), PropValue::Bool(false));
                 props.insert("ShowColumnFilters".into(), PropValue::Bool(false));
@@ -10278,6 +10304,8 @@ mod tests {
                 fields: fields.clone(),
                 key_fields: vec!["CUSTOMER-ID".into()],
                 writable: true,
+                query: String::new(),
+                table_name: String::new(),
             },
             BindingSourceDescriptor::CobolTable {
                 table_name: "CUSTOMER-TABLE".into(),

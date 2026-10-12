@@ -24,6 +24,7 @@ pub mod editor;
 pub mod empty_blocks;
 pub mod external_crates;
 pub mod forms_list;
+pub(crate) mod grid_edit;
 pub mod icon_picker;
 pub mod item_ids;
 pub mod grace_chat;

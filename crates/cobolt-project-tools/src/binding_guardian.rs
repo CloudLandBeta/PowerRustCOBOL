@@ -603,6 +603,59 @@ fn validate_writable_identity(binding: &DataBindingDef, findings: &mut Vec<Guard
             "Writable binding has no source key or row identity",
         );
     }
+    validate_writable_sql(binding, findings);
+}
+
+/// Spec 094 R25: what a writable SQL binding needs for an edit to be written.
+/// A binding saved before the source had a table or a query is **warned**, not
+/// blocked — it ran (without writing) before, and must keep running.
+fn validate_writable_sql(binding: &DataBindingDef, findings: &mut Vec<GuardianFinding>) {
+    let BindingSourceDescriptor::Sql { fields, key_fields, query, table_name, .. } = &binding.source else {
+        return;
+    };
+    let table = table_name.trim();
+    if table.is_empty() {
+        findings.push(GuardianFinding::new(
+            GuardianSeverity::Warning,
+            "missing-sql-table",
+            "Writable SQL binding names no table: edits are not written back until it does",
+            binding.id.clone(),
+        ));
+    } else if !is_plain_sql_name(table) {
+        blocker(findings, binding, "invalid-sql-identifier", format!("'{table}' is not a plain table name"));
+    }
+    if query.trim().is_empty() {
+        findings.push(GuardianFinding::new(
+            GuardianSeverity::Warning,
+            "missing-sql-query",
+            "SQL binding has no query: the grid has nothing to load at run time",
+            binding.id.clone(),
+        ));
+    }
+    for name in fields.iter().map(|f| f.name.as_str()).chain(key_fields.iter().map(String::as_str)) {
+        if !is_plain_sql_name(name) {
+            blocker(findings, binding, "invalid-sql-identifier", format!("'{name}' is not a plain column name"));
+        }
+    }
+    for key in key_fields {
+        if !fields.iter().any(|f| f.name.eq_ignore_ascii_case(key)) {
+            findings.push(GuardianFinding::new(
+                GuardianSeverity::Warning,
+                "sql-key-not-in-fields",
+                format!("Key field '{key}' is not among the bound fields: a row cannot be identified for an edit"),
+                binding.id.clone(),
+            ));
+        }
+    }
+}
+
+/// A name the runtime may put in a statement unquoted: a letter or `_`, then
+/// letters, digits, `_` and `.`, at most 128 characters.
+pub fn is_plain_sql_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && name.len() <= 128
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
 fn validate_rest_agent_safety(binding: &DataBindingDef, findings: &mut Vec<GuardianFinding>) {

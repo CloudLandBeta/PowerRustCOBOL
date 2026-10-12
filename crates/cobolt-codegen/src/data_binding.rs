@@ -139,6 +139,9 @@ fn sorted_mappings(binding: &DataBindingDef) -> Vec<&cobolt_forms::FieldMapping>
 }
 
 fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindingDef) {
+    if let BindingTargetDescriptor::DataGrid { control_id } = &binding.target {
+        write_grid_write_seed(out, control_id, binding);
+    }
     match &binding.target {
         BindingTargetDescriptor::ScalarControl { control_id } => {
             write_scalar_binding_seed(out, form, control_id, binding);
@@ -152,6 +155,12 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             if matches!(&binding.source, BindingSourceDescriptor::IndexedFile { .. }) =>
         {
             write_indexed_file_binding_seed(out, control_id, binding);
+            return;
+        }
+        BindingTargetDescriptor::DataGrid { control_id }
+            if matches!(&binding.source, BindingSourceDescriptor::Sql { .. }) =>
+        {
+            write_sql_binding_seed(out, control_id, binding);
             return;
         }
         BindingTargetDescriptor::ComboBox { control_id } | BindingTargetDescriptor::ListBox { control_id }
@@ -304,6 +313,72 @@ fn write_chart_binding_seed(out: &mut String, control_id: &str, binding: &DataBi
         let names = series.iter().map(|(_, id)| *id).collect::<Vec<_>>().join(",");
         out.push_str(&format!(
             "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingSeriesNames\" BY CONTENT \"{names}\"\n"
+        ));
+    }
+    out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
+}
+
+/// Spec 094: what a bound grid needs to write an edit back — which binding it
+/// is, whether the binding may be written, and the fields that identify a row —
+/// seeded the way the other `_Binding*` properties are, so a compiled binary has
+/// them too. (`cobolt-form-host`'s `grid_write_seed` is the same list for the
+/// interpreted Run Form.)
+fn write_grid_write_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+    let writable = binding.mode == BindingMode::Writable && binding.source.is_writable();
+    let keys: Vec<String> = match &binding.source {
+        BindingSourceDescriptor::IndexedFile { key_field, .. } => key_field.iter().cloned().collect(),
+        BindingSourceDescriptor::Sql { key_fields, .. } | BindingSourceDescriptor::CobolTable { key_fields, .. } => {
+            key_fields.clone()
+        }
+        _ => Vec::new(),
+    };
+    for (name, value) in [
+        ("_BindingId", binding.id.clone()),
+        ("_BindingWritable", if writable { "1" } else { "0" }.to_owned()),
+        ("_BindingKeyFields", keys.join(",")),
+    ] {
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"{name}\" BY CONTENT \"{value}\"\n"
+        ));
+    }
+}
+
+/// Spec 094: a `Sql` source -> `DataGrid` target. The connection is the
+/// `SqlDatabase` control `source_control_id`; its query fills the grid and an
+/// edit updates `table_name`. The program opens the connection, so the first
+/// `RefreshBinding` here finds none and leaves the grid alone — the program
+/// calls `RefreshBinding()` itself once the connection is open.
+fn write_sql_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+    use cobolt_forms::BindingDataType as T;
+    let BindingSourceDescriptor::Sql { source_control_id, fields, query, table_name, .. } = &binding.source else {
+        return;
+    };
+    if fields.is_empty() {
+        return;
+    }
+    // A COBOL literal holds no line break, and a quote inside one is doubled.
+    let literal = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ").replace('"', "\"\"");
+    let names = fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(",");
+    let types = fields
+        .iter()
+        .map(|f| match f.data_type {
+            T::Integer | T::Decimal => "number",
+            T::Boolean => "boolean",
+            _ => "text",
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    for (name, value) in [
+        ("_BindingKind", "Sql".to_owned()),
+        ("_BindingSqlControl", source_control_id.clone()),
+        ("_BindingSql", query.clone()),
+        ("_BindingTable", table_name.clone()),
+        ("_BindingFields", names),
+        ("_BindingFieldTypes", types),
+    ] {
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"{name}\" BY CONTENT \"{}\"\n",
+            literal(&value)
         ));
     }
     out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));

@@ -720,6 +720,9 @@ struct BindingEditorState {
     cobol_tables: Vec<CobolTableBindingMeta>,
     selected_indexed_file: String,
     selected_sql_control: String,
+    /// Spec 094: the SELECT that fills a SQL-bound grid, and the table an edit updates.
+    sql_query: String,
+    sql_table: String,
     selected_cobol_table: String,
     selected_cobol_field_to_add: String,
     rest_endpoint: String,
@@ -799,6 +802,8 @@ impl BindingEditorState {
                 .cloned()
                 .unwrap_or_else(|| "CUSTOMER-DATA (CUSTDAT)".to_owned()),
             selected_sql_control: "SQL-CUSTOMERS".to_owned(),
+            sql_query: String::new(),
+            sql_table: String::new(),
             selected_cobol_table,
             selected_cobol_field_to_add: String::new(),
             rest_endpoint: "https://api.example.com/v1/products".to_owned(),
@@ -847,9 +852,14 @@ impl BindingEditorState {
                 s.selected_indexed_file = definition_path.clone();
             }
             Src::Sql {
-                source_control_id, ..
+                source_control_id,
+                query,
+                table_name,
+                ..
             } if !source_control_id.trim().is_empty() => {
                 s.selected_sql_control = source_control_id.clone();
+                s.sql_query = query.clone();
+                s.sql_table = table_name.clone();
             }
             Src::CobolTable { table_name, .. } => {
                 s.selected_cobol_table = table_name.clone();
@@ -1008,6 +1018,8 @@ impl BindingEditorState {
                 fields,
                 key_fields,
                 writable: true,
+                query: self.sql_query.trim().to_owned(),
+                table_name: self.sql_table.trim().to_owned(),
             },
             BindingEditorSourceKind::CobolTable => BindingSourceDescriptor::CobolTable {
                 table_name: self.selected_cobol_table.trim().to_owned(),
@@ -1186,6 +1198,8 @@ impl BindingEditorState {
         self.selected_source = None;
         self.selected_indexed_file.clear();
         self.selected_sql_control.clear();
+        self.sql_query.clear();
+        self.sql_table.clear();
         self.selected_cobol_table.clear();
         self.rest_endpoint.clear();
         self.rest_headers.clear();
@@ -2255,7 +2269,7 @@ fn show_indexed_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
     show_preview_grid(ui);
 }
 
-fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr) {
     ui.heading("SQL control");
     ui.add_space(8.0);
     egui::ComboBox::from_id_salt("data_binding_sql_control")
@@ -2280,6 +2294,21 @@ fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                 }
             }
         });
+    ui.add_space(8.0);
+    // Spec 094: what fills the grid, and what an edit updates.
+    ui.label(tr.dg_sql_query);
+    ui.add(
+        egui::TextEdit::multiline(&mut editor.sql_query)
+            .id_salt("data_binding_sql_query")
+            .desired_rows(3)
+            .desired_width(330.0)
+            .font(egui::TextStyle::Monospace),
+    );
+    ui.add_space(4.0);
+    ui.label(tr.dg_sql_table);
+    ui.add(egui::TextEdit::singleline(&mut editor.sql_table).id_salt("data_binding_sql_table").desired_width(330.0));
+    ui.add_space(4.0);
+    ui.label(RichText::new(tr.dg_sql_hint).small().color(Color32::GRAY));
     ui.add_space(8.0);
     ui.label(
         RichText::new(
@@ -5476,6 +5505,12 @@ impl PropertiesPanel {
                                 ui.end_row();
                                 bool_row(ui, id, "AllowCellEditing", "Allow cell editing", ctrl, action);
                                 ui.end_row();
+                                // Spec 094: what a kept edit does on a bound grid.
+                                bool_row(ui, id, "AutoCommit", tr.dg_auto_commit, ctrl, action);
+                                ui.end_row();
+                                ui.label("");
+                                ui.label(RichText::new(tr.dg_writes_back_note).small().color(Color32::GRAY));
+                                ui.end_row();
                                 bool_row(ui, id, "ShowColumnFilters", "Show column filters", ctrl, action);
                                 ui.end_row();
                                 bool_row(ui, id, "SelectableText", "Selectable text", ctrl, action);
@@ -5908,7 +5943,7 @@ impl PropertiesPanel {
                             show_source_fields_section(ui, editor);
                         }
                         Some(BindingEditorSourceKind::Sql) => {
-                            show_sql_source_section(ui, editor);
+                            show_sql_source_section(ui, editor, tr);
                             ui.add_space(16.0);
                             show_source_fields_section(ui, editor);
                         }

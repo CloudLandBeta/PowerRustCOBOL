@@ -451,6 +451,18 @@ impl DbConn {
         self.rows.len()
     }
 
+    /// Whether this is a MySQL connection (see [`DbRegistry::is_mysql`]).
+    fn is_mysql(&self) -> bool {
+        #[cfg(feature = "sql")]
+        {
+            matches!(self.backend, Backend::MySql(_))
+        }
+        #[cfg(not(feature = "sql"))]
+        {
+            false
+        }
+    }
+
     /// `true` when the cursor is past the last row.
     fn is_exhausted(&self) -> bool {
         self.exhausted
@@ -596,6 +608,13 @@ impl DbRegistry {
             .get_mut(&handle)
             .map(|c| c.next_row())
             .unwrap_or(false)
+    }
+
+    /// `true` when `handle` is a MySQL connection — the one engine whose string
+    /// literals treat a backslash as an escape (spec 094 writes edited values as
+    /// literals, so it must know).
+    pub fn is_mysql(&self, handle: u32) -> bool {
+        self.connections.get(&handle).is_some_and(|c| c.is_mysql())
     }
 
     /// Total rows in the last query result.

@@ -1681,6 +1681,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "允许操作员就地编辑单元格：双击或按 F2，Enter 保留，Esc 取消。新文本写入 Rows 并触发 onCellEdited。默认 false。",
         "Permet à l'opérateur de modifier une cellule sur place : double-clic ou F2, Entrée pour garder, Échap pour annuler. Le texte va dans Rows et onCellEdited se déclenche. Faux par défaut.",
     ] },
+    PropHelp { ty: "DataGrid", prop: "AutoCommit", text: [
+        "When a bound grid's source can be written and Allow cell editing is on: on, a kept edit is written to the source after the onCellEdited handler returns; off, it stays pending until your code calls CommitEdit() or DiscardEdit(). Default on.",
+        "Cuando el origen de un grid enlazado se puede escribir y Allow cell editing está activo: activado, la edición se escribe en el origen cuando termina el manejador de onCellEdited; desactivado, queda pendiente hasta que su código llame a CommitEdit() o DiscardEdit(). Activo por defecto.",
+        "Quando a origem de uma grade vinculada pode ser gravada e Allow cell editing está ativo: ligado, a edição é gravada na origem quando o manipulador de onCellEdited termina; desligado, fica pendente até seu código chamar CommitEdit() ou DiscardEdit(). Padrão ativo.",
+        "バインドされたグリッドの接続元が書き込み可能で、セル編集が有効な場合：オンなら、onCellEdited ハンドラーの終了後に確定した編集が接続元へ書き込まれます。オフなら、コードが CommitEdit() または DiscardEdit() を呼ぶまで保留されます。既定はオンです。",
+        "当绑定网格的数据源可写且启用了单元格编辑时：开启则在 onCellEdited 处理程序返回后将保留的编辑写入数据源；关闭则保持待定，直到代码调用 CommitEdit() 或 DiscardEdit()。默认开启。",
+        "Lorsque la source d'une grille liée peut être écrite et que l'édition de cellule est activée : activé, la modification conservée est écrite dans la source après le retour du gestionnaire onCellEdited ; désactivé, elle reste en attente jusqu'à ce que votre code appelle CommitEdit() ou DiscardEdit(). Actif par défaut.",
+    ] },
     PropHelp { ty: "DataGrid", prop: "AllowColumnReorder", text: [
         "Shows small ‹ › arrows in each column header (when at least 58 points wide) to move the column left or right at run time. Default on.",
         "Muestra pequeñas flechas ‹ › en la cabecera de cada columna (de al menos 58 puntos de ancho) para moverla a izquierda o derecha en ejecución. Activo por defecto.",

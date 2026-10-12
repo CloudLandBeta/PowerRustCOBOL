@@ -7192,6 +7192,10 @@ struct TreeRename {
     fresh: bool,
 }
 
+/// The small square in a cell's corner while its edit is kept and not yet
+/// written to the source (spec 094): amber, readable on every grid theme.
+const DATAGRID_PENDING_MARK: Color32 = Color32::from_rgb(255, 176, 0);
+
 /// A DataGrid cell open for editing (`AllowCellEditing`).
 #[derive(Clone, Debug, Default)]
 struct DataGridEdit {
@@ -10760,6 +10764,16 @@ fn render_interactive(
             // `AllowCellEditing`: a double-click or F2 opens the cell in a text
             // box; Enter or leaving it commits, Escape cancels. Off by default.
             let allow_cell_edit = enabled && prop_bool(ctrl, "AllowCellEditing", false);
+            // Spec 094: the cells whose edit is kept and not yet written (the
+            // runtime's `_PendingCells`, `row,column` pairs from 1 — data
+            // positions, so a sorted or filtered grid marks the right cell).
+            let pending_cells: std::collections::HashSet<(usize, usize)> = sv(ctrl, "_PendingCells")
+                .split(';')
+                .filter_map(|pair| {
+                    let (row, col) = pair.split_once(',')?;
+                    Some((row.trim().parse::<usize>().ok()?.checked_sub(1)?, col.trim().parse::<usize>().ok()?.checked_sub(1)?))
+                })
+                .collect();
             let edit_id = ctrl_id.with("datagrid-edit");
             let editing: Option<DataGridEdit> =
                 if allow_cell_edit { ui.data(|d| d.get_temp(edit_id)) } else { None };
@@ -11498,6 +11512,12 @@ fn render_interactive(
                     painter.rect_filled(sub, 0.0, color);
                 }
             };
+            // Where the last row ends (the body's top when there is none): below it
+            // the grid still has an area, and its background belongs there too.
+            let rows_bottom = rows_to_draw
+                .iter()
+                .map(|(_, y, h, _)| *y + *h)
+                .fold(scroll_body_rect.min.y, f32::max);
             for (display_row, y, row_h, scroll_clipped) in rows_to_draw {
                 // `row_h` is THIS row's height from here on — every rect below
                 // is measured from it.
@@ -11567,6 +11587,13 @@ fn render_interactive(
                         Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h));
                     // Content/image/frame stay inset so cells keep a small gutter.
                     let cell_rect = col_rect.shrink2(vec2(2.0, 0.0));
+                    if pending_cells.contains(&(row_index, *source_index)) {
+                        body_painter.rect_filled(
+                            Rect::from_min_size(pos2(cell_rect.max.x - 8.0, cell_rect.min.y + 1.0), vec2(6.0, 6.0)),
+                            1.0,
+                            DATAGRID_PENDING_MARK,
+                        );
+                    }
                     // Alternating-column highlight: fill every other column's full
                     // width for this row segment, beneath any per-cell/column colour.
                     if alt_cols && col.index % 2 == 1 {
@@ -12141,6 +12168,70 @@ fn render_interactive(
                     }
                 } else {
                     ui.data_mut(|d| d.insert_temp(edit_id, edit));
+                }
+            }
+            // The grid's background is the whole GRID's, not its rows' (operator,
+            // 2026-10-12: "the datagrid background must be applied to the whole
+            // datagrid area, not only valid rows/columns"). Below the last row —
+            // or in a grid with none — each column carries on with its own
+            // background colour (else the grid's), the number gutter with the
+            // header's, and the row stripes carry on as a spreadsheet's blank
+            // rows do. Painted behind the separators, the scrollbar and the
+            // filler, which come after.
+            if rows_bottom < body_rect.max.y - 0.5 {
+                if gutter > 0.0 {
+                    let gutter_rect = Rect::from_min_max(
+                        pos2(screen.min.x, rows_bottom),
+                        pos2(screen.min.x + gutter, body_rect.max.y),
+                    );
+                    fill_confined(&body_painter_base, gutter_rect, header_bg);
+                }
+                if alt_rows {
+                    let mut top = rows_bottom;
+                    let mut stripe = displayed_row_indices.len();
+                    while top < body_rect.max.y && stripe < displayed_row_indices.len() + 600 {
+                        if stripe % 2 == 1 {
+                            let band = Rect::from_min_max(
+                                pos2(cx, top),
+                                pos2(screen.max.x, (top + row_h).min(body_rect.max.y)),
+                            );
+                            fill_confined(&body_painter_base, band, alt_bg);
+                        }
+                        top += row_h;
+                        stripe += 1;
+                    }
+                }
+                for col in layout
+                    .frozen_columns
+                    .iter()
+                    .chain(layout.scrollable_columns.iter())
+                {
+                    // A scrollable column slides behind the frozen band, as its
+                    // rows' cells do.
+                    let painter_c = if col.frozen {
+                        body_painter_base.clone()
+                    } else {
+                        body_painter_base.with_clip_rect(Rect::from_min_max(
+                            pos2(cx + layout.frozen_columns_width, body_rect.min.y),
+                            pos2(screen.max.x, body_rect.max.y),
+                        ))
+                    };
+                    let col_rect = Rect::from_min_max(
+                        pos2(cx + col.x, rows_bottom),
+                        pos2(cx + col.x + col.width, body_rect.max.y),
+                    );
+                    if alt_cols && col.index % 2 == 1 {
+                        fill_confined(&painter_c, col_rect, alt_bg);
+                    }
+                    let column_bg = advanced_grid
+                        .columns
+                        .get(col.index)
+                        .and_then(|column| paint::parse_hex(&column.background_color))
+                        .filter(|c| c.a() > 0)
+                        .or(grid_bg_underlay_faded);
+                    if let Some(bg) = column_bg.filter(|c| c.a() > 0) {
+                        fill_confined(&painter_c, col_rect, bg);
+                    }
                 }
             }
             // Filler area to the right of the last column (when the columns are
@@ -25436,6 +25527,135 @@ mod tests {
         assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none(), "off by default");
         assert!(!events.iter().any(|e| e.event == "onCellEdited"));
         println!("\n  DataGrid AllowCellEditing -- double-click, type, Enter: Rows + EditedRow/Column/Value/PreviousValue + onCellEdited; Escape and off change nothing\n");
+    }
+
+    /// Spec 094: a cell whose edit is kept and not yet written carries a mark.
+    #[test]
+    fn a_datagrid_marks_the_cells_whose_edit_is_still_pending() {
+        let marks = |pending: &str| -> usize {
+            let painted = drive_painted(&[audit_grid(&[("_PendingCells", pending)])], vec![(0.0, vec![]), (0.05, vec![])]);
+            painted.fills.iter().filter(|(_, c)| *c == DATAGRID_PENDING_MARK).count()
+        };
+        assert_eq!(marks(""), 0, "nothing pending, nothing marked");
+        assert_eq!(marks("2,1"), 1, "one pending cell, one mark");
+        assert_eq!(marks("1,1;3,2"), 2, "two pending cells, two marks");
+        assert_eq!(marks("9,9"), 0, "a cell that is not there is not marked");
+        println!("\n  DataGrid pending edits -- _PendingCells marks exactly the cells it names (0, 1 and 2 marks; a missing cell none)\n");
+    }
+
+    /// The grid's background belongs to the whole grid area (operator,
+    /// 2026-10-12), not to the cells of the rows it happens to have: below the
+    /// last row, and in a grid with no rows at all, the columns carry on.
+    #[test]
+    fn a_datagrids_background_fills_the_area_below_its_last_row() {
+        let bg = Color32::from_rgb(0x33, 0x66, 0x99);
+        let grid = |rows: &str| {
+            ctrlp(
+                "DG",
+                ControlType::DataGrid,
+                20,
+                20,
+                300,
+                200,
+                &[
+                    ("Columns", "Name:string\nAge:number"),
+                    ("Rows", rows),
+                    ("ShowCSVExportButton", "false"),
+                    ("RowHeight", "22"),
+                    ("BackgroundColor", "#336699FF"),
+                ],
+            )
+        };
+        // The area under the rows, as filled by the background colour: the grid
+        // is 300 x 200 at (20, 20); the titles take 20..42, each row 22 more.
+        let filled_below = |rows: &str, top: f32| -> f32 {
+            let painted = drive_painted(&[grid(rows)], vec![(0.0, vec![]), (0.05, vec![])]);
+            // What the colour covers of the area below `top` (the filler beside
+            // the columns starts higher, so each fill is cut to that area).
+            let area = Rect::from_min_max(pos2(20.0, top), pos2(320.0, 220.0));
+            painted
+                .fills
+                .iter()
+                .filter(|(_, c)| *c == bg)
+                .map(|(r, _)| {
+                    let cut = r.intersect(area);
+                    cut.width().max(0.0) * cut.height().max(0.0)
+                })
+                .sum()
+        };
+        let one_row = filled_below("Bob\t30", 64.0);
+        let wanted = 300.0 * (220.0 - 64.0);
+        assert!(one_row >= wanted * 0.95, "one row: {one_row} of {wanted} square points below it filled");
+        let no_rows = filled_below("", 42.0);
+        let wanted = 300.0 * (220.0 - 42.0);
+        assert!(no_rows >= wanted * 0.95, "no rows: {no_rows} of {wanted} square points filled");
+        println!("\n  DataGrid background -- one row: {one_row:.0} of {:.0} sq pt below it filled; no rows: {no_rows:.0} of {wanted:.0}\n", 300.0 * (220.0 - 64.0));
+    }
+
+    /// The Non-Visuals tab names every card: its name, and its type under it,
+    /// centred, white on a near-black plate (operator, 2026-10-12).
+    #[test]
+    fn a_non_visual_card_shows_its_name_and_its_type_under_it() {
+        fn faces(labelled: bool) -> (Vec<(String, Rect)>, Vec<(Rect, Color32)>) {
+            let mut snack = Control::new("Snackbar-1", ControlType::Snackbar, 16, 16);
+            snack.rect = crate::model::Rect::new(16, 16, 112, 134);
+            if labelled {
+                snack.set_prop(crate::paint::NV_LABELS_PROP, true);
+            }
+            let controls = vec![snack];
+            let ctx = egui::Context::default();
+            crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+            let active: crate::containers::ActiveTabs = Default::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedVisibility,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Static,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    render_faces(ui.painter(), pos2(0.0, 0.0), &rin);
+                });
+            });
+            full.textures_delta.clear();
+            fn walk(shape: &egui::Shape, texts: &mut Vec<(String, Rect)>, fills: &mut Vec<(Rect, Color32)>) {
+                match shape {
+                    egui::Shape::Text(t) => texts.push((t.galley.text().to_owned(), t.galley.rect.translate(t.pos.to_vec2()))),
+                    egui::Shape::Rect(r) if r.fill.a() > 0 => fills.push((r.rect, r.fill)),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, texts, fills)),
+                    _ => {}
+                }
+            }
+            let (mut texts, mut fills) = (Vec::new(), Vec::new());
+            for clipped in &full.shapes {
+                walk(&clipped.shape, &mut texts, &mut fills);
+            }
+            (texts, fills)
+        }
+
+        let (texts, fills) = faces(true);
+        let name = texts.iter().find(|(t, _)| t == "Snackbar-1").map(|(_, r)| *r).expect("the name is painted");
+        let kind = texts.iter().find(|(t, _)| t == "Snackbar").map(|(_, r)| *r).expect("the type is painted");
+        assert!(name.min.y >= 16.0 + crate::paint::NV_CARD_H, "the name sits under the card: {name:?}");
+        assert!(kind.min.y >= name.max.y - 1.0, "the type sits under the name: {name:?} / {kind:?}");
+        let card_centre = 16.0 + 112.0 / 2.0;
+        assert!((name.center().x - card_centre).abs() <= 1.0 && (kind.center().x - card_centre).abs() <= 1.0, "both are centred on the card: {name:?} / {kind:?}");
+        // A near-black plate behind both: white on it reads at well over AAA.
+        let plate = fills
+            .iter()
+            .find(|(r, c)| r.contains_rect(name) && r.contains_rect(kind) && c.r() < 40 && c.g() < 40 && c.b() < 40)
+            .expect("a dark plate behind the two lines");
+        let ratio = crate::paint::contrast_ratio(Color32::WHITE, Color32::from_rgb(plate.1.r(), plate.1.g(), plate.1.b()));
+        assert!(ratio >= 12.0, "contrast of the name on its plate: {ratio:.1}:1");
+        // Off the Non-Visuals tab (no labels asked for) nothing is added.
+        let (plain, _) = faces(false);
+        assert!(!plain.iter().any(|(t, _)| t == "Snackbar-1" || t == "Snackbar"), "{plain:?}");
+        println!("\n  Non-Visuals tab -- name at y={:.0}, type at y={:.0}, both centred on the card (x={card_centre}), {ratio:.1}:1 on the plate\n", name.min.y, kind.min.y);
     }
 
     /// `RowHeightOverrides`: a row with a height of its own pushes every row

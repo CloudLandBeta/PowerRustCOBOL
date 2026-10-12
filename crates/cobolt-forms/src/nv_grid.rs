@@ -28,9 +28,10 @@ use crate::model::{Control, Form, Rect};
 /// Cards per row (R49).
 pub const COLUMNS: usize = 5;
 /// A cell's width and height, in canvas pixels: room for the card's icon and its
-/// label (R49).
+/// label (R49) — a 112 x 96 card — and under it the control's name and its type,
+/// two lines on a plate (operator, 2026-10-12).
 pub const CELL_W: i32 = 112;
-pub const CELL_H: i32 = 96;
+pub const CELL_H: i32 = 96 + 38;
 /// Space between neighbouring cells, and between the grid and the canvas edge.
 pub const GAP: i32 = 12;
 pub const MARGIN: i32 = 16;

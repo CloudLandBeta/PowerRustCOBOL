@@ -430,6 +430,26 @@ pub fn append_data_binding_seed_props(
     let Some(binding) = binding else {
         return;
     };
+    // Spec 094 — what a bound grid needs to write an edit back: which binding
+    // it is (`BINDING-UPDATE` names a binding, not a grid), whether the binding
+    // may be written at all, and which fields identify a row.
+    if matches!(&binding.target, cobolt_forms::BindingTargetDescriptor::DataGrid { .. }) {
+        for (name, value) in grid_write_seed(binding) {
+            props.push((name.to_owned(), value));
+        }
+    }
+    // Spec 094: a SQL source — what to run, on which connection, and the table
+    // an edit updates.
+    if let (
+        cobolt_forms::BindingSourceDescriptor::Sql { source_control_id, fields, query, table_name, .. },
+        cobolt_forms::BindingTargetDescriptor::DataGrid { .. },
+    ) = (&binding.source, &binding.target)
+    {
+        for (name, value) in sql_grid_seed(source_control_id, fields, query, table_name) {
+            props.push((name.to_owned(), value));
+        }
+        return;
+    }
     // Only a DataGrid target is wired up for IndexedFile so far (matching
     // codegen's `write_indexed_file_binding_seed`) — the Designer's binding
     // editor does not actually stop a developer aiming an IndexedFile source
@@ -560,6 +580,71 @@ mod tests {
         form.controls.push(label);
         let flat = form.controls.clone();
         (form, flat)
+    }
+
+    /// Spec 094: what a bound grid needs to write an edit back — the same
+    /// triples the generated COBOL seeds for a compiled binary
+    /// (`cobolt-codegen`'s `a_bound_grid_is_seeded_to_write_back`).
+    #[test]
+    fn a_bound_grid_is_seeded_with_what_it_needs_to_write_back() {
+        use cobolt_forms::{
+            BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor,
+            DataBindingDef,
+        };
+        let fields = vec![
+            BindingField::new("ACTOR-ID", BindingDataType::Integer).key(),
+            BindingField::new("ACTOR-NAME", BindingDataType::Text),
+        ];
+        let grid = |source: BindingSourceDescriptor, mode: BindingMode| {
+            let mut form = Form::new("F", "F", 400, 300);
+            form.controls.push(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+            let mut binding = DataBindingDef::new("BIND-1", "b", source, BindingTargetDescriptor::DataGrid { control_id: "GRID-1".into() });
+            binding.mode = mode;
+            form.data_bindings.push(binding);
+            let mut props = Vec::new();
+            append_data_binding_seed_props(&form, "GRID-1", &mut props);
+            props
+        };
+        let value = |props: &[(String, String)], name: &str| props.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
+
+        let indexed = |writable| BindingSourceDescriptor::IndexedFile {
+            definition_path: "indexed/actors.cidx".into(),
+            record_name: "ACTOR-RECORD".into(),
+            fields: fields.clone(),
+            key_field: Some("ACTOR-ID".into()),
+            writable,
+        };
+        let on = grid(indexed(true), BindingMode::Writable);
+        assert_eq!(value(&on, "_BindingId").as_deref(), Some("BIND-1"));
+        assert_eq!(value(&on, "_BindingWritable").as_deref(), Some("1"));
+        assert_eq!(value(&on, "_BindingKeyFields").as_deref(), Some("ACTOR-ID"));
+        assert_eq!(value(&on, "_BindingKind").as_deref(), Some("IndexedFile"));
+
+        // A read-only binding, or a source that says it cannot be written, is not writable.
+        assert_eq!(value(&grid(indexed(true), BindingMode::ReadOnly), "_BindingWritable").as_deref(), Some("0"));
+        assert_eq!(value(&grid(indexed(false), BindingMode::Writable), "_BindingWritable").as_deref(), Some("0"));
+
+        let sql = grid(
+            BindingSourceDescriptor::Sql {
+                source_control_id: "SQL-1".into(),
+                query_name: "q".into(),
+                result_set_name: "r".into(),
+                fields: fields.clone(),
+                key_fields: vec!["ACTOR-ID".into()],
+                writable: true,
+                query: "SELECT ACTOR-ID, ACTOR-NAME FROM actors".into(),
+                table_name: "actors".into(),
+            },
+            BindingMode::Writable,
+        );
+        assert_eq!(value(&sql, "_BindingKind").as_deref(), Some("Sql"));
+        assert_eq!(value(&sql, "_BindingSqlControl").as_deref(), Some("SQL-1"));
+        assert_eq!(value(&sql, "_BindingSql").as_deref(), Some("SELECT ACTOR-ID, ACTOR-NAME FROM actors"));
+        assert_eq!(value(&sql, "_BindingTable").as_deref(), Some("actors"));
+        assert_eq!(value(&sql, "_BindingFields").as_deref(), Some("ACTOR-ID\nACTOR-NAME"));
+        assert_eq!(value(&sql, "_BindingFieldTypes").as_deref(), Some("number,text"));
+        assert_eq!(value(&sql, "_BindingWritable").as_deref(), Some("1"));
+        assert_eq!(value(&sql, "_BindingKeyFields").as_deref(), Some("ACTOR-ID"));
     }
 
     /// **A control on LOCAL settings gets its credential from the environment,
@@ -1087,4 +1172,54 @@ mod tests_091 {
         let form = Form::new("F", "F", 640, 480);
         assert!(build_object_seed(&form, &[], None, None).iter().all(|(_, c, _)| c != "Layer"));
     }
+}
+
+/// The seeds of a grid bound to a SQL source (spec 094): `_BindingKind`,
+/// the control whose connection runs the query, the query, the table, the
+/// fields in column order and their types (a number is written bare, text
+/// quoted).
+pub fn sql_grid_seed(
+    control: &str,
+    fields: &[cobolt_forms::BindingField],
+    query: &str,
+    table: &str,
+) -> Vec<(&'static str, String)> {
+    use cobolt_forms::BindingDataType as T;
+    let types = fields
+        .iter()
+        .map(|f| match f.data_type {
+            T::Integer | T::Decimal => "number",
+            T::Boolean => "boolean",
+            _ => "text",
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    vec![
+        ("_BindingKind", "Sql".to_owned()),
+        ("_BindingSqlControl", control.to_owned()),
+        ("_BindingSql", query.to_owned()),
+        ("_BindingTable", table.to_owned()),
+        ("_BindingFields", fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join("\n")),
+        ("_BindingFieldTypes", types),
+    ]
+}
+
+/// The seeds that let a bound grid write an edit back (spec 094): `_BindingId`,
+/// `_BindingWritable` (`1` only for a writable binding over a source that can
+/// be written) and `_BindingKeyFields` (the names that identify a row).
+pub fn grid_write_seed(binding: &cobolt_forms::DataBindingDef) -> Vec<(&'static str, String)> {
+    use cobolt_forms::{BindingMode, BindingSourceDescriptor};
+    let writable = binding.mode == BindingMode::Writable && binding.source.is_writable();
+    let keys: Vec<String> = match &binding.source {
+        BindingSourceDescriptor::IndexedFile { key_field, .. } => key_field.iter().cloned().collect(),
+        BindingSourceDescriptor::Sql { key_fields, .. } | BindingSourceDescriptor::CobolTable { key_fields, .. } => {
+            key_fields.clone()
+        }
+        _ => Vec::new(),
+    };
+    vec![
+        ("_BindingId", binding.id.clone()),
+        ("_BindingWritable", if writable { "1" } else { "0" }.to_owned()),
+        ("_BindingKeyFields", keys.join(",")),
+    ]
 }

@@ -2392,6 +2392,12 @@ pub fn nv_ink_on(derived: Color32, tone: Color32, a: u8) -> Color32 {
 /// The card's own radius, before any container lift.
 pub const NV_CARD_RADIUS: f32 = 12.0;
 
+/// A render-only property the Non-Visuals tab sets on the copy of each control it
+/// draws (never saved): it asks for the card's NAME and TYPE under it.
+pub const NV_LABELS_PROP: &str = "_NvLabels";
+/// The card's height when it is labelled: the rest of its cell is the labels'.
+pub const NV_CARD_H: f32 = 96.0;
+
 pub fn nv_card(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -2455,6 +2461,46 @@ pub fn nv_label(painter: &egui::Painter, rect: egui::Rect, text: &str, a: u8, to
         egui::FontId::proportional(12.8),
         nv_ink_on(NV_LABEL_INK, tone, a),
     );
+}
+
+/// A non-visual card's name, and under it its type — centred in `below`, white
+/// on a near-black plate so they read on any form background (operator,
+/// 2026-10-12). A name too long for the cell is cut with an ellipsis.
+pub fn nv_name_and_type(painter: &egui::Painter, below: egui::Rect, name: &str, type_name: &str, a: u8) {
+    let fade = |c: Color32| c.gamma_multiply(a as f32 / 255.0);
+    let max_w = (below.width() - 14.0).max(24.0);
+    let lay = |text: &str, size: f32, ink: Color32| {
+        let font = egui::FontId::proportional(size);
+        let mut shown: Vec<char> = text.chars().collect();
+        loop {
+            let line: String = if shown.len() < text.chars().count() {
+                format!("{}…", shown.iter().collect::<String>())
+            } else {
+                text.to_owned()
+            };
+            let galley = painter.layout_no_wrap(line, font.clone(), fade(ink));
+            if galley.size().x <= max_w || shown.len() <= 1 {
+                return galley;
+            }
+            shown.pop();
+        }
+    };
+    let name_g = lay(name, 13.0, Color32::WHITE);
+    let type_g = lay(type_name, 11.0, Color32::from_rgb(226, 230, 240));
+    let w = name_g.size().x.max(type_g.size().x) + 12.0;
+    let h = name_g.size().y + type_g.size().y + 6.0;
+    let plate = Rect::from_center_size(
+        egui::pos2(below.center().x, below.min.y + 4.0 + h / 2.0),
+        Vec2::new(w, h),
+    );
+    painter.rect_filled(plate, 6.0, fade(Color32::from_rgba_unmultiplied(12, 12, 16, 232)));
+    let mut y = plate.min.y + 3.0;
+    for galley in [name_g, type_g] {
+        let x = plate.center().x - galley.size().x / 2.0;
+        let height = galley.size().y;
+        painter.galley(egui::pos2(x, y), galley, Color32::WHITE);
+        y += height;
+    }
 }
 
 pub fn nv_ellipse(painter: &egui::Painter, cx: f32, cy: f32, rw: f32, rh: f32, st: Stroke) {
@@ -3440,6 +3486,15 @@ fn draw_control_body(
     // 2026-09-08). `render.rs` learned the same lesson on 2026-09-01 and
     // switched to the same predicate; this is the other half of it.
     if ctrl.control_type.is_non_visual() {
+        // On the Non-Visuals tab the cell is taller than the card: the card keeps
+        // its place at the top and its name and type go under it.
+        let labelled = ctrl.get_prop(NV_LABELS_PROP).is_some_and(|v| v.as_bool());
+        let full = rect;
+        let rect = if labelled {
+            Rect::from_min_size(full.min, Vec2::new(full.width(), NV_CARD_H.min(full.height())))
+        } else {
+            full
+        };
         nv_card(
             painter,
             rect,
@@ -3517,6 +3572,10 @@ fn draw_control_body(
             other => other.as_str().to_owned(),
         };
         nv_label(painter, rect, &label, a, tone);
+        if labelled {
+            let below = Rect::from_min_max(egui::pos2(full.min.x, rect.max.y), full.max);
+            nv_name_and_type(painter, below, &ctrl.id, ctrl.control_type.as_str(), a);
+        }
         return;
     }
 

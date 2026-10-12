@@ -156,6 +156,8 @@ pub fn is_known_method(name: &str) -> bool {
             | "COMMITFILES"
         // Databound controls (DataGrid + repeating GroupBox/ControlArray)
             | "REFRESHBINDING"
+        // DataGrid write-back (spec 094): confirm or discard the pending edits.
+            | "COMMITEDIT" | "DISCARDEDIT"
         // Charts (AddPoint appends one label/value point; Clear/Refresh above)
             | "ADDPOINT" | "ADD-POINT"
         // Snackbar (055) — `Show()` mints a notification, `DismissAll()` clears
