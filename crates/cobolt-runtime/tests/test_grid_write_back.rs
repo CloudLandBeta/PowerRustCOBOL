@@ -650,3 +650,69 @@ fn a_sql_edit_pending_is_confirmed_by_the_code() {
     assert_eq!(the_row(&ran), "99");
     assert_eq!(ran.last("CommitStatus"), Some("00"));
 }
+
+// ── The report (Golden Rule 7) ───────────────────────────────────────────────
+
+/// The five cases of spec 094 AC10 over an indexed file, run through the same
+/// helpers as the tests above, with one result block at the end: what was
+/// exercised, how long it took, and the tally. (A console COBOL program has no
+/// event loop to carry a grid's report, so the block is printed from here.)
+#[test]
+fn write_back_report() {
+    let started = std::time::Instant::now();
+    let mut cases: Vec<(&str, bool, u128)> = Vec::new();
+    let mut case = |name: &'static str, check: &dyn Fn() -> bool| {
+        let t = std::time::Instant::now();
+        let ok = check();
+        cases.push((name, ok, t.elapsed().as_millis()));
+    };
+
+    case("auto-commit on: the edit is in the file", &|| {
+        let w = world(3);
+        let mut rows = w.grid_rows(&[1, 2, 3]);
+        let edit = edit_cell(&mut rows, 2, 2, "Joseph Pesci");
+        let ran = run(&w, &[], &Handlers::NONE, Some(edit), &[]);
+        w.rows_in_file()[1][1] == "Joseph Pesci" && ran.last("CommitStatus") == Some("00")
+    });
+    case("auto-commit off + confirm: written by CommitEdit()", &|| {
+        let w = world(3);
+        let mut rows = w.grid_rows(&[1, 2, 3]);
+        let edit = edit_cell(&mut rows, 3, 2, "Bob De Niro");
+        let confirm = Handlers { cell: "SET WS-STATUS TO GRID-1::CommitEdit()", click: "CONTINUE" };
+        run(&w, &[("AutoCommit", "false")], &confirm, Some(edit), &[]);
+        w.rows_in_file()[2][1] == "Bob De Niro"
+    });
+    case("auto-commit off + discard: the file never changed", &|| {
+        let w = world(3);
+        let mut rows = w.grid_rows(&[1, 2, 3]);
+        let edit = edit_cell(&mut rows, 1, 2, "Somebody Else");
+        let discard = Handlers { cell: "SET WS-STATUS TO GRID-1::DiscardEdit()", click: "CONTINUE" };
+        let ran = run(&w, &[("AutoCommit", "false")], &discard, Some(edit), &[]);
+        w.rows_in_file() == w.grid_rows(&[1, 2, 3]) && ran.last("Rows").is_some_and(|r| r.contains("Leonardo DiCaprio"))
+    });
+    case("a value too long for its PICTURE: refused (92)", &|| {
+        let w = world(3);
+        let mut rows = w.grid_rows(&[1, 2, 3]);
+        let edit = edit_cell(&mut rows, 2, 2, "A name that is far longer than twenty characters");
+        let ran = run(&w, &[], &Handlers::NONE, Some(edit), &[]);
+        w.rows_in_file() == w.grid_rows(&[1, 2, 3]) && ran.last("CommitStatus") == Some("92")
+    });
+    case("a record that is gone: not written to another (23)", &|| {
+        let w = world(2);
+        let mut rows = w.grid_rows(&[1, 2, 3]);
+        let edit = edit_cell(&mut rows, 3, 2, "Ghost");
+        let ran = run(&w, &[], &Handlers::NONE, Some(edit), &[]);
+        w.rows_in_file() == w.grid_rows(&[1, 2]) && ran.last("CommitStatus") == Some("23")
+    });
+
+    let failed = cases.iter().filter(|(_, ok, _)| !ok).count();
+    println!("\n  DATAGRID WRITE-BACK -- indexed file, 3 records, one edited cell per case");
+    for (name, ok, ms) in &cases {
+        println!("    {} {name:<58} {ms:>4} ms", if *ok { "PASS" } else { "FAIL" });
+    }
+    println!("  TESTS RUN      : {:04}", cases.len());
+    println!("  TESTS FAILED   : {failed:04}");
+    println!("  ELAPSED        : {} ms", started.elapsed().as_millis());
+    println!("  OVERALL RESULT : {}\n", if failed == 0 { "PASS" } else { "FAIL" });
+    assert_eq!(failed, 0);
+}

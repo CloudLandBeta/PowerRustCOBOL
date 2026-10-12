@@ -14188,6 +14188,8 @@ impl DesignerPanel {
                 c.rect = cell.rect;
                 // A card sits in its own cell, never inside a container.
                 c.parent = None;
+                // The tab names every card: its name, and its type under it.
+                c.set_prop(cobolt_forms::paint::NV_LABELS_PROP, true);
                 Some(c)
             })
             .collect()

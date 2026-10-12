@@ -2439,7 +2439,7 @@ a closed eye) and the `+`.
 
 | Tab | What it is |
 |-----|------------|
-| **Non-Visuals** | A fixed tab at the far left, always there. Every non-visual control — Timer, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, WebSearch, Snackbar and the AWS controls — lives here and nowhere else. |
+| **Non-Visuals** | A fixed tab at the far left, always there. Every non-visual control — Timer, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, WebSearch, Snackbar and the AWS controls — lives here and nowhere else. Each is a card, with its **name** under it and its **type** under that, centred, white on a dark plate so they read on any background. |
 | **Form** | The base. It cannot be moved, renamed or deleted. Like a layer it has an **eye**: open by default, so its controls are shown; close it to hide the form's own controls while you design (the ones you **lock** stay — see below). It has no ✕. |
 | **Layer-1, Layer-2 …** | One tab per layer, left to right from the layer nearest `Form` to the one on top. Each has an **eye** — open when the layer is shown, closed when it is hidden — and a red **✕**. |
 | **+** | Adds a layer. |
@@ -3687,7 +3687,9 @@ background/foreground).
   handler reads `EditedRow` and `EditedColumn` (the data row and column,
   numbered from 1 like `GetCellValue`), `EditedValue` and `PreviousValue`. The
   grid only *shows* the new text — storing it is your handler's job, and so is
-  refusing it: put `PreviousValue` back with `SetCellValue`. A column with no
+  refusing it: put `PreviousValue` back with `SetCellValue`. (A grid **bound to a
+  source that can be written** saves the edit itself — see *Saving an edit back
+  to the source*, below.) A column with no
   data behind it, or one that shows its value as an image, is not editable.
   (The old `ReadOnly` is retired and does not control this — it was switched
   off on every grid before editing existed.)
@@ -3711,6 +3713,94 @@ background/foreground).
                PERFORM SAVE-CUSTOMER-ROW
            END-IF.
 ```
+
+**Saving an edit back to the source — `AutoCommit`, `CommitEdit()`,
+`DiscardEdit()`.** A grid bound to a source that can be written — a
+**writable** binding over an indexed file, a COBOL table or a SQL table, or a
+grid whose **`DataSource`** names an indexed file that has a primary key — with
+**`AllowCellEditing`** on, writes the operator's edit back to that source. Any
+other grid behaves exactly as described above: it shows the edit and leaves the
+rest to your handler.
+
+What happens to the edit is the grid's **`AutoCommit`** property (on by default,
+beside *Allow cell editing* in **Edit DataGrid settings…**):
+
+| `AutoCommit` | What the runtime does |
+|---|---|
+| **On** | `onCellEdited` fires and your handler runs. **When it returns**, the cell's *current* value is written to the source and committed. So a handler that puts `PreviousValue` back with `SetCellValue` has **refused** the edit, and nothing is written. |
+| **Off** | `onCellEdited` fires and the edit stays **pending**: the cell wears a small amber mark and **nothing is written**. Your code decides — `DG::CommitEdit()` writes every pending edit, `DG::DiscardEdit()` puts each cell back as the source has it. |
+
+```cobol
+      *> AutoCommit on: validate, and refuse by putting the old value back.
+       DG-ACTORS--ONCELLEDITED.
+           IF DG-ACTORS::EditedColumn = 4
+              AND FUNCTION TEST-NUMVAL(DG-ACTORS::EditedValue) NOT = 0
+               DG-ACTORS::SetCellValue(DG-ACTORS::EditedRow, 4,
+                   DG-ACTORS::PreviousValue)
+           END-IF.
+
+      *> AutoCommit off: the operator edits several cells, then presses Save.
+       BTN-SAVE--ONCLICK.
+           SET WS-STATUS TO DG-ACTORS::CommitEdit()
+           IF WS-STATUS NOT = "00"
+               DISPLAY "Not saved: " DG-ACTORS::LastError
+           END-IF.
+
+       BTN-CANCEL--ONCLICK.
+           SET WS-STATUS TO DG-ACTORS::DiscardEdit().
+```
+
+How a row is found: **by its key**, never by its position. The key cells of the
+edited row — the indexed file's primary key, the binding's key field, the
+table's or SQL table's key fields — are read from the grid at the moment of the
+write, so sorting the grid, filtering it, or a `Sort`/`DeleteRow` in your code
+cannot send an edit to the wrong record. For the same reason **a key column
+cannot be edited**: a REWRITE cannot change the key.
+
+How each source is written:
+
+- **An indexed file** — the record is read by its key, the new text is encoded by
+  the field's PICTURE (text too long for it, or letters in a number, are
+  refused), and the record is REWRITTEN and committed.
+- **A COBOL table** — the item is stored as `MOVE` would store it, PICTURE
+  applied; a number must be a number. A table has no commit, so with
+  `AutoCommit` off the edit waits in the grid until `CommitEdit()`.
+- **A SQL table** — an `UPDATE <table> SET <field> = … WHERE <key> = …` on the
+  connection of the `SqlDatabase` control the binding names, which must be open
+  (the binding editor has a **Query** — the SELECT that fills the grid — and a
+  **Table** — what an edit updates). Every value is written as a literal escaped
+  for the engine; a number is checked first. The statement commits as the
+  connection commits any statement: at once, unless your program has begun a
+  transaction (`BEGIN`), in which case **your** `COMMIT` ends it.
+
+When a write fails the cell shows its old value again, **`CommitStatus`** and
+**`LastError`** say why, and **`onCommitError`** fires (`EditedRow`,
+`EditedColumn`, `EditedValue` and `PreviousValue` name the cell):
+
+| `CommitStatus` | Meaning |
+|---|---|
+| `00` | Written. |
+| `21` | The edit would change a key. |
+| `22`, `23`, `35` … | An indexed file's own FILE STATUS: duplicate key, no such record (it was deleted since the grid loaded), file missing. |
+| `90` | The file, the driver or the connection failed (a SQL connection that is not open is this). |
+| `91` | The grid is not bound to something that can be written, or the binding names no key. |
+| `92` | The value does not fit the field: its PICTURE, or not a number. |
+| `98` | Edits are still pending (see the caveat below). |
+
+> ⚠️ **Caveats.** **`RefreshBinding()` does not throw a pending edit away**: it
+> reloads the rows, puts the pending cells back over them and leaves
+> `CommitStatus` at `98`, so call `CommitEdit()` or `DiscardEdit()` first. A grid
+> bound to **SQL** is loaded when your program calls `RefreshBinding()` after
+> opening the connection — at start-up the connection is not open yet and the
+> grid stays as it is. An edit is written with the file's own locking: a file
+> another process holds open for writing answers `90` or `30` and the cell goes
+> back.
+
+**In the Designer the grid shows fake data.** Whether or not a grid is bound,
+the canvas draws the grid's **own** columns and rows — sample data — and never
+reads the source: you edit the sample in the Designer, and the binding's only
+part is to fill those columns and rows **once**, when it is applied (or when you
+choose *Reset sample data*). At run time the real rows replace them.
 
 **Which cell was clicked, and Edit/Delete buttons per row.** Every click on a
 cell writes **`ClickedRow`** and **`ClickedColumn`** — the data row and data

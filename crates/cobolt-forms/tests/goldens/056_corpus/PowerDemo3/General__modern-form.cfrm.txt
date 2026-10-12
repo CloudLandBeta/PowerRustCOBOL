@@ -30,7 +30,7 @@ TXT-EMAIL rect=[484 216 916 248] font=13
 TXT-NAME rect=[484 144 916 176] font=13
 TXT-PHONE rect=[484 288 916 320] font=13
 TXT-SEARCH rect=[24 64 340 96] font=13
-shapes=79 digest=e0b57b88cfe5f6e7
+shapes=92 digest=3829cd69b1c3ccdb
 ## Preview 0.75x 720x420
 BTN-DELETE rect=[700 344 804 380] font=13
 BTN-NEW rect=[352 64 444 96] font=13
@@ -46,7 +46,7 @@ TXT-EMAIL rect=[484 216 916 248] font=13
 TXT-NAME rect=[484 144 916 176] font=13
 TXT-PHONE rect=[484 288 916 320] font=13
 TXT-SEARCH rect=[24 64 340 96] font=13
-shapes=79 digest=e0b57b88cfe5f6e7
+shapes=92 digest=3829cd69b1c3ccdb
 ## Canvas 1x 960x560
 BTN-DELETE rect=[700 484 804 520] font=13
 BTN-NEW rect=[352 64 444 96] font=13
@@ -78,7 +78,7 @@ TXT-EMAIL rect=[484 216 916 248] font=13
 TXT-NAME rect=[484 144 916 176] font=13
 TXT-PHONE rect=[484 288 916 320] font=13
 TXT-SEARCH rect=[24 64 340 96] font=13
-shapes=79 digest=85be06d88c0331a9
+shapes=100 digest=3b26e5c2310645c6
 ## Preview 1x 960x560
 BTN-DELETE rect=[700 484 804 520] font=13
 BTN-NEW rect=[352 64 444 96] font=13
@@ -94,7 +94,7 @@ TXT-EMAIL rect=[484 216 916 248] font=13
 TXT-NAME rect=[484 144 916 176] font=13
 TXT-PHONE rect=[484 288 916 320] font=13
 TXT-SEARCH rect=[24 64 340 96] font=13
-shapes=79 digest=85be06d88c0331a9
+shapes=100 digest=3b26e5c2310645c6
 ## Canvas 1.5x 1440x840
 BTN-DELETE rect=[1180 764 1284 800] font=13
 BTN-NEW rect=[352 64 444 96] font=13
@@ -126,7 +126,7 @@ TXT-EMAIL rect=[484 216 1396 248] font=13
 TXT-NAME rect=[484 144 1396 176] font=13
 TXT-PHONE rect=[484 288 1396 320] font=13
 TXT-SEARCH rect=[24 64 340 96] font=13
-shapes=79 digest=c41bd8ef451a4e33
+shapes=108 digest=2fa8e7a0b3500b39
 ## Preview 1.5x 1440x840
 BTN-DELETE rect=[1180 764 1284 800] font=13
 BTN-NEW rect=[352 64 444 96] font=13
@@ -142,4 +142,4 @@ TXT-EMAIL rect=[484 216 1396 248] font=13
 TXT-NAME rect=[484 144 1396 176] font=13
 TXT-PHONE rect=[484 288 1396 320] font=13
 TXT-SEARCH rect=[24 64 340 96] font=13
-shapes=79 digest=c41bd8ef451a4e33
+shapes=108 digest=2fa8e7a0b3500b39
