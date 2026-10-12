@@ -2673,6 +2673,11 @@ pub struct DesignerPanel {
     /// Where the form's top-left corner was on screen last frame: what a test
     /// aims a pointer with, and nothing else reads.
     pub(crate) canvas_origin: Option<Pos2>,
+    /// Spec 094 — DataGrid edit mode: the selected grid is drawn through the
+    /// interactive renderer and edited where it is drawn. View state only: never
+    /// saved, never an undo step by itself, and gone when the selection leaves
+    /// the grid.
+    pub(crate) grid_edit: Option<super::grid_edit::GridEditState>,
     /// What the designer has to tell the developer, waiting for the shell to put
     /// it in the Output panel (it drains this every frame).
     pub(crate) notices: Vec<DesignerNotice>,
@@ -3072,6 +3077,7 @@ impl DesignerPanel {
             tabs: Default::default(),
             tab_bar_rect: None,
             canvas_origin: None,
+            grid_edit: None,
             notices: Vec::new(),
             modifier_added_on_press: None,
             active_tabs: std::collections::HashMap::new(),
@@ -7085,6 +7091,490 @@ impl DesignerPanel {
         });
     }
 
+    /// *Reset sample data* (spec 094 R2): seed a bound DataGrid's `Columns`,
+    /// `AdvancedGrid` and sample `Rows` from its binding again, as ONE undoable
+    /// command — the very command applying the binding is, so one undo gives the
+    /// grid back as it was. The binding is the one already saved on the form;
+    /// the canvas never reads the source it names (D1). `false` when `grid_id`
+    /// has no binding.
+    pub fn reset_grid_sample_data(&mut self, grid_id: &str) -> bool {
+        let binding = self
+            .form
+            .data_bindings
+            .iter()
+            .find(|b| {
+                matches!(&b.target, BindingTargetDescriptor::DataGrid { control_id }
+                    if control_id.eq_ignore_ascii_case(grid_id))
+            })
+            .cloned();
+        match binding {
+            Some(binding) => {
+                self.apply_data_binding(binding);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Seed, once, every bound DataGrid that opened with no columns (spec 094
+    /// R2) — each as its own undoable step. A grid with any column is the
+    /// developer's and is not touched. Returns how many it seeded.
+    pub fn seed_bound_grids_without_columns(&mut self) -> usize {
+        let pending = crate::app::bound_grids_without_columns(&self.form);
+        let n = pending.len();
+        for binding in pending {
+            self.apply_data_binding(binding);
+        }
+        n
+    }
+
+    // ── Spec 094 — DataGrid edit mode ─────────────────────────────────────────
+    //
+    // A DataGrid is drawn on the canvas from its own `Columns`, `Rows` and
+    // `AdvancedGrid` — fake data, bound or not (D1). Double-clicking it enters
+    // *grid edit mode*, where that one grid is drawn through the shared
+    // interactive renderer and edited in place (see `panels/grid_edit.rs`).
+
+    /// Enter grid edit mode on the DataGrid `id`: it becomes the one selected
+    /// control and its move/resize handles go. `false` when `id` is not a
+    /// DataGrid or the active tab's controls cannot be edited this way.
+    pub(crate) fn enter_grid_edit(&mut self, id: &str) -> bool {
+        if !self.controls_movable() || !self.is_data_grid(id) {
+            return false;
+        }
+        self.select_only(id);
+        self.drag = DragState::None;
+        self.grid_edit = Some(super::grid_edit::GridEditState::new(id));
+        true
+    }
+
+    fn is_data_grid(&self, id: &str) -> bool {
+        self.form
+            .find_control(id)
+            .is_some_and(|c| c.control_type == ControlType::DataGrid)
+    }
+
+    /// Whether the DataGrid `id` has a data binding on this form.
+    fn grid_is_bound(&self, id: &str) -> bool {
+        self.form.data_bindings.iter().any(|b| {
+            matches!(&b.target, BindingTargetDescriptor::DataGrid { control_id }
+                if control_id.eq_ignore_ascii_case(id))
+        })
+    }
+
+    /// Write several properties of one control as ONE undoable step.
+    fn set_properties_in_one_step(&mut self, id: &str, edits: Vec<(String, PropValue)>) {
+        let before = self.undo_stack.len();
+        for (key, value) in edits {
+            self.set_property(id, &key, value);
+        }
+        let cmds: Vec<Cmd> = self.undo_stack.drain(before..).collect();
+        // Already executed by `set_property`; record without re-executing.
+        match cmds.len() {
+            0 => {}
+            1 => self.undo_stack.extend(cmds),
+            _ => self.undo_stack.push(Cmd::Batch { cmds }),
+        }
+    }
+
+    /// A toolbar action (or a test's), against the grid in edit mode. `true`
+    /// when it changed the form.
+    pub(crate) fn grid_edit_action(
+        &mut self,
+        ctx: &egui::Context,
+        action: super::grid_edit::GridAction,
+    ) -> bool {
+        use super::grid_edit as ge;
+        let Some(id) = self.grid_edit.as_ref().map(|s| s.id.clone()) else {
+            return false;
+        };
+        let Some(grid) = self.form.find_control(&id).cloned() else {
+            self.grid_edit = None;
+            return false;
+        };
+        let edits = match action {
+            ge::GridAction::Done => {
+                self.grid_edit = None;
+                return false;
+            }
+            ge::GridAction::ResetSample => return self.reset_grid_sample_data(&id),
+            ge::GridAction::AddColumn => ge::add_column(&grid),
+            ge::GridAction::AddRow => ge::add_row(&grid),
+            ge::GridAction::RemoveColumn => {
+                // The column of the selected cell, else the last one.
+                let shown = ge::shown_columns(&grid);
+                let at = ge::selected_cell(ctx, &id)
+                    .map(|s| s.display_column_index)
+                    .filter(|i| *i < shown.len())
+                    .or(shown.len().checked_sub(1));
+                ge::clear_selection(ctx, &id);
+                at.map(|i| ge::remove_column(&grid, i)).unwrap_or_default()
+            }
+            ge::GridAction::RemoveRow => {
+                let rows = ge::rows_of(&grid).len();
+                let at = ge::selected_cell(ctx, &id)
+                    .map(|s| s.row_index)
+                    .filter(|i| *i < rows)
+                    .or(rows.checked_sub(1));
+                ge::clear_selection(ctx, &id);
+                at.map(|i| ge::remove_row(&grid, i)).unwrap_or_default()
+            }
+        };
+        let changed = !edits.is_empty();
+        self.set_properties_in_one_step(&id, edits);
+        changed
+    }
+
+    /// A property the renderer reported for the edited grid (`Rows` after a cell
+    /// edit, `AdvancedGrid` after a column drag, …) written as the Designer's
+    /// ordinary property change. A drag reports every frame; `held` says the
+    /// pointer is still down (or was just let go), and then a report that follows
+    /// the last one of the same property amends that step instead of adding one.
+    pub(crate) fn apply_grid_update(&mut self, id: &str, key: &str, text: String, held: bool) {
+        use super::grid_edit as ge;
+        if !ge::accepts(key) {
+            return;
+        }
+        let old = self.form.find_control(id).and_then(|c| c.get_prop(key).cloned());
+        if old.as_ref().map(|v| v.to_xml_string()).unwrap_or_default() == text {
+            return;
+        }
+        let value = ge::typed_like(old.as_ref(), text);
+        let tick = self.grid_edit.as_ref().map_or(0, |s| s.tick);
+        let amend = held
+            && self.grid_edit.as_ref().and_then(|s| s.gesture.as_ref()).is_some_and(|g| {
+                g.id == id
+                    && g.key == key
+                    && g.undo_len == self.undo_stack.len()
+                    && tick.saturating_sub(g.tick) <= 1
+            })
+            && matches!(self.undo_stack.last(), Some(Cmd::SetProperty { id: i, key: k, .. }) if i == id && k == key);
+        if amend {
+            if let Some(Cmd::SetProperty { new, .. }) = self.undo_stack.last_mut() {
+                *new = value.clone();
+            }
+            if let Some(c) = self.form.find_control_mut(id) {
+                c.set_prop(key.to_owned(), value);
+            }
+            self.dirty = true;
+        } else {
+            self.set_property(id, key, value);
+        }
+        let undo_len = self.undo_stack.len();
+        if let Some(s) = self.grid_edit.as_mut() {
+            s.gesture = Some(ge::Gesture { id: id.to_owned(), key: key.to_owned(), undo_len, tick });
+        }
+    }
+
+    /// Every DataGrid the canvas shows this frame, in the engine's draw order,
+    /// as owned data (the canvas holds the control list it drew from, and
+    /// drawing the grids needs `&mut self` afterwards). A grid is left out where
+    /// the static pass leaves a control out: its tab, a closed `Form` eye, a
+    /// hidden layer, a container that is not showing it.
+    fn grid_frames(
+        &self,
+        controls: &[Control],
+        origin: Pos2,
+        state: &dyn cobolt_forms::render::FormState,
+    ) -> Vec<super::grid_edit::GridFrame> {
+        // `render_faces`' own question (its `visible_in`): the state's word on a
+        // control, and — for one at the root of the form — its layer being shown.
+        let shown = |c: &Control| {
+            state.visible(c)
+                && (c.parent.is_some()
+                    || c.layer
+                        .as_deref()
+                        .and_then(|l| self.form.layers.iter().find(|x| x.name.eq_ignore_ascii_case(l)))
+                        .is_none_or(|layer| state.layer_visible(&layer.name)))
+        };
+        let at = |r: cobolt_forms::model::Rect| {
+            Rect::from_min_size(
+                origin + Vec2::new(r.x as f32, r.y as f32),
+                Vec2::new(r.w as f32, r.h as f32),
+            )
+        };
+        cobolt_forms::containers::render_order_in(controls, &self.form.layers)
+            .into_iter()
+            .filter(|&idx| {
+                controls[idx].control_type == ControlType::DataGrid
+                    && shown(&controls[idx])
+                    && super::containers::is_shown_when(controls, idx, &self.active_tabs, &|c| shown(c))
+            })
+            .filter_map(|idx| {
+                let c = &controls[idx];
+                Some(super::grid_edit::GridFrame {
+                    grid: self.form.find_control(&c.id)?.clone(),
+                    screen: at(c.rect),
+                    clip: super::containers::clip_rect(controls, idx).map(at),
+                    container_clip: c
+                        .parent
+                        .as_deref()
+                        .and_then(|p| controls.iter().find(|x| x.id == p))
+                        .and_then(|parent| super::grid_edit::container_clip_for(parent, at(parent.rect))),
+                })
+            })
+            .collect()
+    }
+
+    /// What the pointer does around the grid in edit mode, before the canvas
+    /// reads it: Esc, a press away from the grid, or a double-click on the
+    /// frame band leaves the mode; over the grid, its frame band or its toolbar
+    /// the pointer belongs to the mode, and the canvas's own gestures (select,
+    /// move, resize, rubber band, open the handler) are skipped. Returns whether
+    /// it did take the pointer.
+    fn grid_edit_pointer(&mut self, ctx: &egui::Context, resp: &egui::Response, canvas: Rect) -> bool {
+        use super::grid_edit as ge;
+        let Some(state) = self.grid_edit.as_mut() else {
+            return false;
+        };
+        // `text_editing` is what the LAST frame ended with: egui lets go of the
+        // focus when the Escape arrives, before this frame runs, so asking now
+        // would never find the text box that Escape is meant for.
+        // The mode follows its grid: another control selected, or the grid gone.
+        let still_selected = self.selected_ids.first().is_some_and(|s| *s == state.id);
+        // …unless it is already ending: the press that ends it usually changes the
+        // selection, and the mode lives one more frame to take in what was typed.
+        if state.leave_at.is_none()
+            && (!still_selected || self.form.find_control(&state.id).is_none())
+        {
+            self.grid_edit = None;
+            return false;
+        }
+        let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        if esc && !state.text_editing && state.rename.is_none() {
+            state.begin_leaving();
+        }
+        let Some(p) = ctx.input(|i| i.pointer.interact_pos()) else {
+            return false;
+        };
+        let grid = state.screen;
+        let in_band = grid.is_some_and(|g| g.expand(ge::FRAME_BAND).contains(p));
+        let on_toolbar = state.toolbar.is_some_and(|t| t.contains(p));
+        // A double-click on the frame band — outside the grid proper, so a
+        // cell's own double-click is never taken for it.
+        if resp.double_clicked() && in_band && !grid.is_some_and(|g| g.contains(p)) {
+            state.begin_leaving();
+            return true;
+        }
+        // A press anywhere else on the canvas ends the mode and goes on to act
+        // as an ordinary press.
+        if ctx.input(|i| i.pointer.primary_pressed()) && canvas.contains(p) && !in_band && !on_toolbar {
+            state.begin_leaving();
+            return false;
+        }
+        in_band || on_toolbar
+    }
+
+    /// Carry out what was done to the grid in edit mode, and draw the mode's own
+    /// chrome. The grid itself was drawn with the others ([`ge::draw_grids`]),
+    /// through the shared interactive renderer, and `reported` is what that
+    /// renderer reported for it (R6: the in-cell editor, the column-edge drag
+    /// and the reorder arrows that ran are the grid's own). Called once per
+    /// canvas frame, after the faces and the chrome, so the mode's frame and
+    /// toolbar are on top.
+    fn show_grid_edit(
+        &mut self,
+        ui: &mut Ui,
+        frame: super::grid_edit::GridFrame,
+        reported: Vec<(String, String, String)>,
+        canvas: Rect,
+    ) {
+        use super::grid_edit as ge;
+        let ctx = ui.ctx().clone();
+        let id = frame.grid.id.clone();
+        let screen = frame.screen;
+        let accent = crate::theme::active().accent;
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(screen));
+        child.set_clip_rect(frame.clip.unwrap_or(canvas).intersect(ui.clip_rect()));
+        child.set_min_size(screen.size());
+        if let Some(s) = self.grid_edit.as_mut() {
+            s.tick += 1;
+            s.screen = Some(screen);
+        }
+
+        // What it reported becomes ordinary, undoable property changes (R4):
+        // the last value of each design property this frame.
+        let mut latest: Vec<(String, String)> = Vec::new();
+        for (cid, key, value) in reported {
+            if cid != id || !ge::accepts(&key) {
+                continue;
+            }
+            match latest.iter_mut().find(|(k, _)| *k == key) {
+                Some(slot) => slot.1 = value,
+                None => latest.push((key, value)),
+            }
+        }
+        let held = ctx.input(|i| i.pointer.primary_down() || i.pointer.any_released());
+        for (key, value) in latest {
+            self.apply_grid_update(&id, &key, value, held);
+        }
+
+        // Gestures the renderer does not have: a title renamed, a title dragged.
+        let grid_now = self.form.find_control(&id).cloned().unwrap_or(frame.grid);
+        self.grid_edit_title_gestures(&mut child, &ctx, &grid_now, screen, accent);
+
+        // The mode's frame, outside the grid.
+        let painter = ui.painter();
+        painter.rect_stroke(
+            screen.expand(ge::FRAME_BAND / 2.0),
+            6.0,
+            egui::Stroke::new(ge::FRAME_BAND, accent.gamma_multiply(0.22)),
+            egui::StrokeKind::Middle,
+        );
+        painter.rect_stroke(
+            screen.expand(1.0),
+            2.0,
+            egui::Stroke::new(1.5, accent),
+            egui::StrokeKind::Outside,
+        );
+
+        // The floating toolbar.
+        let tr = crate::i18n::current_tr(&ctx);
+        let grid_now = self.form.find_control(&id).cloned().unwrap_or(grid_now);
+        let bound = self.grid_is_bound(&id);
+        let (pressed, bar) = ge::show_toolbar(
+            &ctx,
+            egui::Id::new(("dg-edit-toolbar", &self.form.name)),
+            ge::toolbar_pos(screen, canvas),
+            &grid_now,
+            bound,
+            &tr,
+            accent,
+        );
+        if let Some(s) = self.grid_edit.as_mut() {
+            s.toolbar = Some(bar);
+        }
+        if let Some(action) = pressed {
+            self.grid_edit_action(&ctx, action);
+        }
+        if let Some(s) = self.grid_edit.as_mut() {
+            s.text_editing = ctx.text_edit_focused();
+        }
+        if self.grid_edit.as_ref().is_some_and(|s| s.is_over()) {
+            self.grid_edit = None;
+        }
+    }
+
+    /// Double-click a title to rename it; press a title and drag to move the
+    /// column (R3). Both are hit-tested against the header cells the renderer
+    /// lays out ([`super::grid_edit::header_cells`]); the reorder arrows, the
+    /// column-edge resize and the filter boxes keep their own gestures.
+    fn grid_edit_title_gestures(
+        &mut self,
+        child: &mut Ui,
+        ctx: &egui::Context,
+        grid: &Control,
+        screen: Rect,
+        accent: Color32,
+    ) {
+        use super::grid_edit as ge;
+        let cells = ge::header_cells_live(ctx, grid, screen);
+        let ptr = ctx.input(|i| i.pointer.latest_pos());
+        let (pressed, down, released, double) = ctx.input(|i| {
+            (
+                i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
+                i.pointer.primary_released(),
+                i.pointer.button_double_clicked(egui::PointerButton::Primary),
+            )
+        });
+        let shown = ge::shown_columns(grid);
+        let id = grid.id.clone();
+        let Some(state) = self.grid_edit.as_mut() else {
+            return;
+        };
+
+        // A rename in progress: a text box over the title.
+        if let Some(rename) = state.rename.as_mut() {
+            let Some(cell) = cells.iter().find(|c| c.display_index == rename.display_index) else {
+                state.rename = None;
+                return;
+            };
+            let rect = cell.rect.shrink2(Vec2::new(3.0, 1.0));
+            let text_id = ge::scope().with(("rename", &id));
+            let resp = child.put(
+                rect,
+                egui::TextEdit::singleline(&mut rename.text)
+                    .id(text_id)
+                    .font(egui::FontId::proportional(12.0))
+                    .margin(Vec2::new(3.0, 1.0)),
+            );
+            if rename.fresh {
+                resp.request_focus();
+                rename.fresh = false;
+            }
+            let (enter, escape) =
+                ctx.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
+            let (index, text) = (rename.display_index, rename.text.clone());
+            if escape {
+                state.rename = None;
+            } else if resp.lost_focus() || enter {
+                state.rename = None;
+                let edits = ge::rename_column(grid, index, &text);
+                self.set_properties_in_one_step(&id, edits);
+            }
+            return;
+        }
+
+        // Double-click on a title: rename it.
+        if double {
+            if let Some(ix) = ptr.and_then(|p| ge::title_at(grid, &cells, p)) {
+                if let Some(column) = shown.get(ix) {
+                    state.drag = None;
+                    state.rename = Some(ge::Rename {
+                        display_index: ix,
+                        text: column.title.clone(),
+                        fresh: true,
+                    });
+                    return;
+                }
+            }
+        }
+
+        // Press on a title, drag, release: move the column.
+        if pressed && state.drag.is_none() {
+            if let Some((p, ix)) = ptr.and_then(|p| ge::title_at(grid, &cells, p).map(|ix| (p, ix))) {
+                state.drag = Some(ge::TitleDrag { from: ix, start: p, moving: false });
+            }
+        }
+        if let Some(drag) = state.drag.as_mut() {
+            if down {
+                if let Some(p) = ptr {
+                    if !drag.moving && p.distance(drag.start) > ge::DRAG_SLOP {
+                        drag.moving = true;
+                    }
+                    if drag.moving {
+                        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                        if let Some(to) = ge::drop_target(&cells, p) {
+                            if let Some(cell) = cells.iter().find(|c| c.display_index == to) {
+                                // The bar goes on the side the column will land on.
+                                let x = if to > drag.from { cell.rect.max.x } else { cell.rect.min.x };
+                                child.painter().line_segment(
+                                    [egui::pos2(x, cell.rect.min.y), egui::pos2(x, cell.rect.max.y)],
+                                    egui::Stroke::new(2.5, accent),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            if released {
+                let drag = *drag;
+                state.drag = None;
+                if drag.moving {
+                    if let Some(to) = ptr.and_then(|p| ge::drop_target(&cells, p)) {
+                        if to != drag.from {
+                            let edits = ge::move_column(grid, drag.from, to);
+                            self.set_properties_in_one_step(&id, edits);
+                        }
+                    }
+                }
+            } else if !down {
+                state.drag = None;
+            }
+        }
+    }
+
     /// Remove the form-level binding that targets `target_id`, as an undoable
     /// command. Nothing happens when the control has no binding.
     pub fn remove_data_binding(&mut self, target_id: &str) {
@@ -9259,20 +9749,35 @@ impl DesignerPanel {
                 // the middle — before `handle_drag`, so the gesture is spent
                 // here rather than starting a division drag that ends where it
                 // began.
-                if resp.double_clicked() {
+                //
+                // Spec 094 — grid edit mode, when it is on, takes the pointer over
+                // its grid, its frame band and its toolbar first (and ends on Esc,
+                // a press away from it, or a double-click on its frame).
+                let grid_edit_has_pointer = self.grid_edit_pointer(ui.ctx(), &resp, resp.rect);
+                if resp.double_clicked() && !grid_edit_has_pointer {
                     if let Some((cx, cy)) = ptr_canvas {
                         if let Some(id) = self.splitter_division_at(cx, cy) {
                             self.centre_splitter_division(&id);
                         } else if let Some(id) = self.hit_top_id(cx, cy) {
-                            // Double-clicking a control opens its code, the way
-                            // every RAD this product is aimed at behaves.
-                            self.open_double_click_handler(&id);
+                            if self.grid_edit.is_none() && self.is_data_grid(&id) && self.controls_movable() {
+                                // Double-clicking a DataGrid edits it where it is
+                                // drawn (spec 094 R3): the grid's code is one
+                                // click away in the Properties pane.
+                                self.enter_grid_edit(&id);
+                                selection_changed = true;
+                            } else if self.grid_edit.is_none() {
+                                // Double-clicking a control opens its code, the way
+                                // every RAD this product is aimed at behaves.
+                                self.open_double_click_handler(&id);
+                            }
                         }
                     }
                 }
 
                 // Handle drag input
-                self.handle_drag(&resp, &painter, origin, ptr_canvas, &mut selection_changed);
+                if !grid_edit_has_pointer {
+                    self.handle_drag(&resp, &painter, origin, ptr_canvas, &mut selection_changed);
+                }
 
                 // A control dragged out of the toolbox: show a ghost at the cursor
                 // and drop it where released (see `handle_toolbox_dnd`).
@@ -9403,8 +9908,32 @@ impl DesignerPanel {
                     self.tabs.is_non_visuals().then(|| self.non_visuals_view());
                 let controls_for_render: &[cobolt_forms::model::Control] =
                     nv_view.as_deref().unwrap_or(controls_for_render);
-                let control_rects = {
+                // Spec 094 — the DataGrids are drawn by the interactive renderer
+                // (below), not as static faces: the face the shared painter has for
+                // a grid is a label ("⊞ DataGrid (5 cols)"), not the grid. They are
+                // left out of this pass and drawn right after it, in the engine's
+                // order among themselves, with their rects put back in the map so
+                // the chrome that reads `control_rects` finds them. A grid is drawn
+                // after every other control's face — a control above it in z-order
+                // that overlaps it is under it on the canvas.
+                let grid_frames = {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
+                    self.grid_frames(controls_for_render, origin, st)
+                };
+                if self
+                    .grid_edit
+                    .as_ref()
+                    .is_some_and(|e| !grid_frames.iter().any(|f| f.grid.id == e.id))
+                {
+                    // Its grid is not on the canvas any more (another tab, a
+                    // hidden container): the mode ends with it.
+                    self.grid_edit = None;
+                }
+                let hidden_grids: HashSet<String> = grid_frames.iter().map(|f| f.grid.id.clone()).collect();
+                let mut control_rects = {
+                    let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
+                    let without = super::grid_edit::Without { inner: st, hide: &hidden_grids };
+                    let st: &dyn cobolt_forms::render::FormState = &without;
                     let input = cobolt_forms::render::RenderInput {
                         controls: controls_for_render,
                         state: st,
@@ -9422,6 +9951,19 @@ impl DesignerPanel {
                     };
                     cobolt_forms::render::render_faces(&painter, origin, &input).control_rects
                 };
+                for f in &grid_frames {
+                    control_rects.insert(f.grid.id.clone(), f.screen);
+                }
+                // …and drawn: every grid display-only, the one in edit mode live.
+                let edit_id = self.grid_edit.as_ref().map(|e| e.id.clone());
+                let grid_reports = super::grid_edit::draw_grids(
+                    ui,
+                    &grid_frames,
+                    edit_id.as_deref(),
+                    self.glass_mode,
+                    resp.rect,
+                    notch_fill,
+                );
 
                 // ── Corner-notch masks (spec 017 / 057) ─────────────────────────
                 // After the faces are drawn, repaint the corner notches of each
@@ -9836,7 +10378,14 @@ impl DesignerPanel {
                 let glass = self.glass_mode;
                 // No knobs on `Non-Visuals` (spec 091 R52): a card is neither moved
                 // nor resized — the grid decides its cell and its size.
-                if let Some(sid) = self.selected_ids.first().cloned().filter(|_| self.controls_movable()) {
+                // …and none on the grid in edit mode (spec 094): its edges belong to
+                // the grid's own columns there.
+                if let Some(sid) = self
+                    .selected_ids
+                    .first()
+                    .cloned()
+                    .filter(|_| self.controls_movable() && self.grid_edit.is_none())
+                {
                     let painted = control_rects.get(&sid).map(|r| {
                         cobolt_forms::model::Rect::new(
                             (r.min.x - origin.x).round() as i32,
@@ -9951,6 +10500,17 @@ impl DesignerPanel {
                         Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 170, 255, 220)),
                         egui::StrokeKind::Middle,
                     );
+                }
+
+                // Spec 094 — the grid in edit mode: what was done to it this frame,
+                // and the mode's own frame and toolbar, drawn last so they are over
+                // everything else on the canvas.
+                if let Some(frame) = edit_id
+                    .as_deref()
+                    .and_then(|id| grid_frames.iter().find(|f| f.grid.id == id))
+                    .cloned()
+                {
+                    self.show_grid_edit(ui, frame, grid_reports, resp.rect);
                 }
 
                 // Right-click context menu
@@ -10248,7 +10808,9 @@ impl DesignerPanel {
         // Accept both so that the delete action works on all platforms.
         // Guard: only fire when no text-input control has keyboard focus (i.e. the user is
         // not editing a property field, animation name, etc. in the properties panel).
-        let no_text_focus = ctx.memory(|m| m.focused().is_none());
+        // Grid edit mode (spec 094) owns the keyboard too: an arrow moves the
+        // grid's cell, not the control, and Delete is the cell editor's.
+        let no_text_focus = ctx.memory(|m| m.focused().is_none()) && self.grid_edit.is_none();
         let want_delete = no_text_focus
             && !self.selected_ids.is_empty()
             && ctx.input(|i| {
@@ -15027,7 +15589,7 @@ impl DesignerPanel {
         // Check if pointer is currently over a resize handle (for cursor feedback).
         // The grab zones sit on the rect the knobs were DRAWN on (see
         // `sel_handle_rect`), so a knob is grabbable exactly where it appears.
-        let handle_hover = if selected_line.is_some() || !self.controls_movable() {
+        let handle_hover = if selected_line.is_some() || !self.controls_movable() || self.grid_edit.is_some() {
             None
         } else {
             self.selected_ids.first().and_then(|sid| {
@@ -25488,3 +26050,9 @@ mod value_method_tests {
 #[cfg(test)]
 #[path = "designer_layers_091_tests.rs"]
 mod layers_091;
+
+// Spec 094 — the DataGrid in the Form Designer: fake data of its own, edited
+// where it is drawn.
+#[cfg(test)]
+#[path = "designer_grid_edit_094_tests.rs"]
+mod grid_edit_094;
