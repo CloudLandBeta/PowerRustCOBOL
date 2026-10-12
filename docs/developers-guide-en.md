@@ -8552,8 +8552,9 @@ and `Replace(",", ";")` are the same call.
    or call the method, where the value is used.
 2. **Treat a property as a data item**: `IF`, `EVALUATE`, `PERFORM UNTIL`,
    `COMPUTE`, `ADD … TO`, `MOVE`, `SET`, `STRING`, `DISPLAY`.
-3. **Put a method call inside the expression that needs it**; use `INVOKE` for
-   a method whose answer you do not need, `RETURNING` only to keep the answer.
+3. **Put a method call inside the expression that needs it**; call a method
+   whose answer you do not need as a statement of its own, without `INVOKE`
+   (`Txt-Log::AppendText(WS-NL)`); `INVOKE … RETURNING` only to keep the answer.
 4. **`MOVE` a returned record into its 01 group**; do not unpack it by hand.
 5. **Chain the value methods** (`::Trim()::Upper()`) rather than writing an
    `INSPECT` or a scratch item for a text clean-up.
@@ -8568,6 +8569,66 @@ and `Replace(",", ";")` are the same call.
     `INSPECT`, `UNSTRING`, reference modification, the intrinsic functions —
     rather than asking a data item for a method it does not have: any other
     name after a data item is an **error**.
+
+#### Layout and comments
+
+The same layout is what the PowerRustCOBOL AI plugin tells a coding agent to
+write (the `layout` golden rule), so the code you read from an agent and the code
+you write by hand look alike.
+
+**Comment before complex code** — a calculation, a loop with an exit condition,
+an `EVALUATE` with several outcomes, a business rule, a workaround. A few lines of
+`*>` that say *why* the code is there and what it must achieve, not what each
+verb does. A comment starts in the same column as the code below it, and a blank
+line separates it from that code.
+
+1. **Indent with 4 spaces** per level.
+2. **A blank line before every `DIVISION` and `SECTION`**, except
+   `ENVIRONMENT DIVISION`.
+3. **4 spaces between a verb and its predicate.** `SET` takes 5, so the predicate
+   of a `SET` lines up with the predicate of a `MOVE` above or below it.
+4. **In `MOVE` and `SET`, `TO` sits in column 50**, followed by 4 spaces. When the
+   operand before it is too long to reach column 50, put `TO` in column 50 of the
+   next line and leave a blank line after the statement.
+5. **Periods only where they are needed** in the `PROCEDURE DIVISION`: the one
+   that ends the last statement before a `SECTION` or paragraph name, and the one
+   that ends the code. Every other verb is closed with its `END-<verb>`.
+6. **A blank line before and after a block of consecutive statements that use the
+   same verb.**
+7. **A method is a statement of its own** — `Txt-Log::AppendText(WS-NL)`, not
+   `INVOKE Txt-Log::AppendText(WS-NL)`.
+8. **Prefer `SET` to `MOVE`**; keep `MOVE` for a record moved into its 01 group.
+
+```cobol
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+
+       PROCEDURE DIVISION.
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::Layout                 TO    "Page"
+           SET     VWR-1::SplitMode              TO    "None"
+           SET     VWR-1::View1ViewMode          TO    "Full"
+           SET     VWR-1::View1Zoom              TO    100
+           SET     VWR-1::FontSize               TO    14
+
+           *> Something to look at before anything is picked. The sample
+           *> ships with the project, so the demo does not depend on where
+           *> the repository happens to sit.
+
+           SET     VWR-1::View1Source            TO    "assets/docs/viewer-sample.md"
+           SET     Lbl-Status::Caption           TO    "Ready. Pick a file, or press Start stream.".
+
+       SETTING-VIEWER.
+           Txt-Log::AppendText("Viewer demo ready.")
+           Txt-Log::AppendText(WS-NL).
+```
+
+`tests/cobol/code-style/test-layout-style.cbl` is a program written in this
+layout and run by the test suite (`test_layout_style.rs`); the lint in
+`crates/cobolt-project-tools/tests/layout_rule.rs` checks it, and the model the
+plugin shows an agent, against rules 2 to 4 and 7 and the comment rules.
 
 ### Value methods of a data item
 
