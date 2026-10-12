@@ -239,7 +239,9 @@ gated on a writable binding (R8).
   `#[serde(default)]` so saved forms load. The binding editor shall offer them,
   the Guardian shall block a writable SQL binding with no `table_name`, no key
   field, a key field that is not among the bound fields, or an identifier that is
-  not a plain name; and the runtime shall build the `UPDATE` with every value
+  not a plain name — **as a warning for a binding saved before the source had these
+  fields, and a blocker only for an identifier that is not a plain name** (a form
+  that ran must keep running); and the runtime shall build the `UPDATE` with every value
   written as a literal escaped for the driver (a quote doubled, a backslash too
   on MySQL, a number validated and left bare) — the `SqlDatabase` handle's
   `exec` takes text only.
@@ -293,8 +295,9 @@ gated on a writable binding (R8).
   run-form`, the child-form host and `run_form_app` each construct.
 - [ ] AC9 — R22–R24: the KB freshness test green with a regenerated
   `chunked.data`; the Guide updated; six languages for every new `Tr` key.
-- [ ] AC10 — Golden Rule 7: a `tests/cobol` program over a bound indexed grid
-  prints the cases it ran (auto-commit on, off+confirm, off+discard, bad
+- [ ] AC10 — Golden Rule 7: a quantified report over a bound indexed grid (printed
+  by `write_back_report`, because a console COBOL program has no event loop to carry
+  a grid's edit) prints the cases it ran (auto-commit on, off+confirm, off+discard, bad
   PICTURE, vanished record) and `TESTS RUN` / `TESTS FAILED` / `OVERALL RESULT`.
 - [ ] AC11 — the PowerDemo3 Datagrid demo, with `AllowCellEditing` on, saves an
   edit of an actor's name into `actors.idx` and shows it after "Load data".

@@ -19,7 +19,11 @@ use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::{parse, Severity};
 use cobolt_runtime::{FormEvent, Interpreter, StateUpdate};
 
-const DEMO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/PowerDemo3");
+/// The demo project, built at run time: a `concat!(env!(…))` of a path outside the
+/// crate would be read as a compile-time asset the staged SDK must ship.
+fn demo() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerDemo3")
+}
 
 const LOOP: &str = r#"
        IDENTIFICATION DIVISION.
@@ -44,14 +48,14 @@ fn scratch_project() -> tempfile::TempDir {
     for relative in ["indexed/actors.cidx", "data/idxfiles/actors.idx"] {
         let to = dir.path().join(relative);
         std::fs::create_dir_all(to.parent().unwrap()).unwrap();
-        std::fs::copy(Path::new(DEMO).join(relative), to).unwrap();
+        std::fs::copy(demo().join(relative), to).unwrap();
     }
     dir
 }
 
 /// The grid's design properties, as text, the way the host seeds them.
 fn grid_seed() -> Vec<(String, String)> {
-    let form = cobolt_forms::load_form(&Path::new(DEMO).join("forms/Data/datagrid-form.cfrm")).expect("the demo form loads");
+    let form = cobolt_forms::load_form(&demo().join("forms/Data/datagrid-form.cfrm")).expect("the demo form loads");
     let grid = form.controls.iter().find(|c| c.id == "DataGrid-1").expect("the demo's grid");
     grid.properties
         .iter()
