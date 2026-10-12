@@ -243,6 +243,11 @@ fn parse_stmt_list(
 /// Try to parse one statement at the current position.
 /// Returns `None` if the current token does not start a known statement.
 pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
+    // COMPUTE written without its verb: `A = B * C`, `A ROUNDED = B / C ON SIZE
+    // ERROR …`. First, because `Ctrl::Property = …` also opens with `ident ::`.
+    if at_assignment(p) {
+        return Some(parse_assignment(p));
+    }
     // Inline OO method call as a statement: `object::method(args)`.
     if matches!(p.peek(), Token::Identifier(_))
         && *p.peek_at(1) == Token::Colon
@@ -746,10 +751,26 @@ fn parse_compute(p: &mut Parser) -> Stmt {
         let t = parse_expr(p);
         let rounded = p.eat(&Token::Rounded);
         targets.push((t, rounded));
-        if !is_expr_start(p) {
+        if !can_start_expr(p) {
             break;
         }
     }
+    finish_compute(p, span, targets)
+}
+
+/// `receiver [ROUNDED] = expression [ON SIZE ERROR …] [NOT ON SIZE ERROR …]
+/// [END-COMPUTE]` — COMPUTE without its verb. It builds the very statement
+/// COMPUTE builds, so nothing after the parser can tell the two spellings apart.
+fn parse_assignment(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    let target = parse_expr(p);
+    let rounded = p.eat(&Token::Rounded);
+    finish_compute(p, span, vec![(target, rounded)])
+}
+
+/// The part of a COMPUTE that follows its receivers: `= expression`, the size
+/// phrases and the optional terminator.
+fn finish_compute(p: &mut Parser, span: cobolt_lexer::Span, targets: Vec<(Expr, bool)>) -> Stmt {
     p.expect(&Token::Eq); // =
     let expr = parse_expr(p);
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndCompute);
@@ -3798,6 +3819,12 @@ fn at_terminating_period(p: &Parser) -> bool {
 }
 
 pub(crate) fn is_expr_start(p: &Parser) -> bool {
+    can_start_expr(p) && !at_assignment(p)
+}
+
+/// [`is_expr_start`] without the assignment test: the one place that needs it is
+/// the receiver list of a COMPUTE, whose second receiver is followed by `=`.
+fn can_start_expr(p: &Parser) -> bool {
     // `COBOL::NAME(…)` is a built-in CALL, which has no value: it can only
     // open the next statement, never continue an operand list. Without this
     // the `DISPLAY` before it took it as one more thing to display, and the
@@ -3853,6 +3880,53 @@ pub(crate) fn at_method_call(p: &Parser) -> bool {
     let Some(member) = member else { return false };
     *p.peek_at(at + 1) == Token::LParen
         && (cobolt_ast::methods::is_known_method(&member) || *p.peek_at(at + 2) == Token::RParen)
+}
+
+/// At `receiver [ROUNDED] =` — a COMPUTE written without its verb: a data name
+/// (qualified with `OF`/`IN`, subscripted or reference-modified in parentheses)
+/// or a control's member (`Ctrl::Property`, `Ctrl::Items(3)`), then `ROUNDED` or
+/// `=`. Nothing else in COBOL puts `=` straight after a word at the start of a
+/// statement — a condition's `=` sits inside an `IF`, `EVALUATE`, `PERFORM
+/// UNTIL` — so the shape is unambiguous, and an operand list ends in front of
+/// one, as it does in front of a method call.
+pub(crate) fn at_assignment(p: &Parser) -> bool {
+    if !matches!(p.peek(), Token::Identifier(_)) {
+        return false;
+    }
+    let mut at = 1;
+    loop {
+        match p.peek_at(at) {
+            Token::Of | Token::In if matches!(p.peek_at(at + 1), Token::Identifier(_)) => at += 2,
+            Token::Colon
+                if *p.peek_at(at + 1) == Token::Colon
+                    && matches!(p.peek_at(at + 2), Token::Identifier(_) | Token::StringLiteral(_)) =>
+            {
+                at += 3
+            }
+            Token::LParen => {
+                let mut depth = 0usize;
+                loop {
+                    match p.peek_at(at) {
+                        Token::LParen => depth += 1,
+                        Token::RParen => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        Token::Eof | Token::Period => return false,
+                        _ => {}
+                    }
+                    at += 1;
+                }
+                at += 1;
+            }
+            // `ROUNDED` alone is not enough: `ADD 1 TO A ROUNDED B ROUNDED` is a receiver series.
+            Token::Eq => return true,
+            Token::Rounded => return *p.peek_at(at + 1) == Token::Eq,
+            _ => return false,
+        }
+    }
 }
 
 /// At `COBOL::` — the built-in CALL object ([`cobol_object_call`]).
