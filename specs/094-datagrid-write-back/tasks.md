@@ -101,14 +101,58 @@ Branch: `features-datagrid-write-back`. Sweeps are `--no-fail-fast`, every
     non-ASCII text round-trips; a failing constraint restores the cell.
 
 ## WP4 — the Designer
-- [ ] **T13 — Spike: an interactive grid on the static canvas** (R3, R6)
+- [x] **T13 — Spike: an interactive grid on the static canvas** (R3, R6) — **done 2026-10-12**
   - Files: `cobolt-ide/src/panels/designer.rs` (read; a scratch test)
   - Do: draw the selected grid through `render_form` (`RenderMode::Interactive`) in a
     child `Ui` at its rect and capture `prop_updates`; check z-order, clipping under a
     rounded Panel, and selection handles.
   - Verify: the note says "works" or names the fallback (overlay over
     `DataGridLayout` driving the in-cell editor's state); the plan is amended.
-- [ ] **T14 — Seed once, never again** (R1, R2, R5)
+  - **Finding — works, no fallback, and it is bigger than the spec assumed.**
+    1. *The premise was wrong.* The canvas never drew the grid at all: `render_faces`
+       is static and reaches `paint::draw_control`, whose `CT::DataGrid` arm is the
+       placeholder `⊞ DataGrid (N cols)` — the real header, rows, filter wells and
+       gutter exist only in the interactive arm of `render.rs`. So R1 ("the Designer
+       draws the grid's own Columns / Rows / AdvancedGrid") needed the real grid drawn
+       on the canvas **always**, not only in edit mode (operator's screenshots,
+       2026-10-12). Chosen route: **every DataGrid is drawn by the shared interactive
+       renderer** (`render_form_scoped`, `RenderMode::Interactive`) in a child `Ui` at
+       its rect (`panels/grid_edit.rs::draw_grids`); no second painter, no edit to
+       `cobolt-forms`.
+    2. *Display-only for every grid but the edited one:* the child `Ui` is
+       `disable()`d — so no widget of the grid (cells, header, filter wells, edges,
+       scrollbar, focus) senses a click or drag and the Designer's select / move /
+       resize / rubber band work over it — then `set_opacity(1.0)`, because `disable`
+       multiplies the painter's opacity (verified: without it every fill halves) —
+       and the frame's input queue and scroll delta are taken away while it draws and
+       handed back after, so the grid reads no key or wheel notch (it would consume the
+       wheel and the arrows whenever the pointer is over it). Tests prove each.
+    3. *Edit mode* draws the one grid live in the same place (own id scope), with
+       `AllowCellEditing` forced on and `AllowSorting` off in a render-only copy; the
+       renderer's `prop_updates` (whitelisted to `Rows`, `AdvancedGrid`, `RowHeight`,
+       `RowHeightOverrides`, `ColumnFilters` — never `EditedValue` & co.) become
+       `Cmd::SetProperty`; a drag amends its own step, so a whole column drag is ONE
+       undo step. Cell editor, column-edge resize and the ‹ › reorder arrows are the
+       grid's own (R6).
+    4. *z-order — the cost of a separate pass.* The static pass draws every face in
+       z-order but cannot draw a grid, so the grids (in the engine's order among
+       themselves) are drawn right after it, **before** the corner-notch masks (the
+       run renderer's order: a grid does not clip itself at a rounded corner, the mask
+       does). A control that is ABOVE a grid in z-order and overlaps it is therefore
+       under the grid on the canvas. Splitting the static pass around each grid was
+       rejected: with layers, every `render_faces` call paints all the remaining layer
+       backgrounds at its end. PowerDemo3's Datagrid form is unaffected (its Labels and
+       Buttons do not overlap the grid).
+    5. *Clipping:* the child `Ui` is clipped to the intersection of the ancestors'
+       content rects (`containers::clip_rect`) and the grid is given the rounded
+       parent's arc through the renderer's own `_ContainerClip` descriptor
+       (`container_clip_geometry`), as a child of a rounded Panel is.
+    6. *Selection handles* are not drawn in edit mode and their hit zones are off; the
+       frame band (8 px outside the grid) takes the pointer, so a double-click there
+       leaves and no gesture starts a move.
+    7. *Double-click used to open the grid's handler;* on a DataGrid it now enters edit
+       mode (the handler stays one click away in the Properties pane).
+- [x] **T14 — Seed once, never again** (R1, R2, R5) — **done 2026-10-12**
   - Files: `cobolt-ide/src/app.rs` (`refresh_data_binding_target_properties`,
     `apply_data_binding_target_properties`, `merge_datagrid_binding_column`),
     `panels/designer.rs`
@@ -118,20 +162,58 @@ Branch: `features-datagrid-write-back`. Sweeps are `--no-fail-fast`, every
     field's display name is kept.
   - Verify: AC1 (first part) — the bound grid draws its own rows a frame later; one
     undo restores; a renamed title survives re-applying.
-- [ ] **T15 — Grid edit mode** (R3, R4, R6)
+  - Done: `refresh_data_binding_target_properties` skips a `DataGrid` target (Chart and
+    ControlArray unchanged); the grid seed lives only in `apply_data_binding_to_form`,
+    reached by `ApplyDataBinding` (one undo restores the controls), by
+    `DesignerPanel::reset_grid_sample_data` (the same command, for *Reset sample data*)
+    and by `seed_bound_grids_without_columns` (on open, `load_form_from_path`; a grid
+    with any column is left alone). `merge_datagrid_binding_column` keeps a non-empty
+    title (R5 — decision: any title that is not empty is the developer's, since an
+    empty one is a column the grid did not have), and `Columns` is written with each
+    field's current title so a kept title still finds its data. Two existing app.rs
+    tests that simulated "the save/run refresh" now re-apply the binding instead —
+    the per-frame refresh no longer touches a grid, so that was the only case left.
+- [x] **T15 — Grid edit mode** (R3, R4, R6) — **done 2026-10-12**
   - Files: `panels/designer.rs`, `panels/data_grid_columns.rs`
   - Do: double-click enters; the cell editor, column resize and reorder run; each
     `prop_update` becomes a `Cmd::SetProperty`; Esc / click outside / frame
     double-click leaves; move and resize handles hidden while on.
   - Verify: Designer tests — a cell edit, a width change and a title rename land in
     the properties and undo.
-- [ ] **T16 — Add and remove a column and a row** (R3)
+  - Done: new `panels/grid_edit.rs` (state, render-only copy, pure property edits,
+    header geometry, toolbar) hosted by `DesignerPanel` (`enter_grid_edit`,
+    `grid_edit_pointer`, `show_grid_edit`). Esc (the next one, when the first was the
+    cell editor's — egui drops the focus before the frame runs, so the state is read as
+    the last frame left it), a press away (the mode lives one more frame so a cell being
+    typed keeps its text), or a double-click on the 8 px frame band leaves it. Handles,
+    arrow-key nudge, Delete and the canvas gestures are off while it is on. The two
+    gestures the renderer does not have — double-click a title to rename, press-and-drag
+    a title to reorder — are hit-tested against `grid_edit::header_cells`, which
+    replicates the renderer's header arithmetic through the same `DataGridLayout`
+    (a test checks the painted titles fall inside those cells for five grid shapes:
+    plain, caption row, row numbers, filters, tall rows). A rename also renames the
+    `Columns` line when that line was matched by the old title, so the column keeps its
+    data. Bound and unbound grids take the same path.
+- [x] **T16 — Add and remove a column and a row** (R3) — **done 2026-10-12**
   - Files: `panels/designer.rs`, `i18n.rs`
   - Do: a floating icon toolbar in edit mode (spec 088's pattern), translated tooltips.
   - Verify: Designer tests; the form still saves and reloads with the new shape.
-- [ ] **T17 — Designer tests** (AC1)
+  - Done: six icon-only buttons in a fixed-size foreground `Area` above the frame band
+    (below when there is no room, clamped to the canvas): add column, remove column,
+    add row, remove row, *Reset sample data* (disabled — not hidden — on an unbound
+    grid), done. Remove acts on the selected cell's column/row, else the last. New
+    columns and rows carry fake data (`Text n`, `0`, a date). Six `Tr` fields
+    (`dg_edit_*`) in all six languages, inserted after `grid_new_row`. Spec 088 is
+    spec-only in this tree (no grid toolbar was ever implemented), so the pattern
+    followed is its R8/R9 text. *Reset sample data* is reachable from this toolbar
+    only (a decision: no Inspector button).
+- [x] **T17 — Designer tests** (AC1) — **done 2026-10-12**
   - Files: `cobolt-ide` tests
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide` green.
+  - Done: `panels/designer_grid_edit_094_tests.rs` (28 tests through real frames of
+    `DesignerPanel::show`), `panels/grid_edit.rs` unit tests (7) and one in `app.rs`.
+    Full sweep: 1602 passed, 1 failed (`docs_embed::…every_document_ships_in_every_language`,
+    the expected one).
 
 ## WP5 — closing
 - [ ] **T18 — System KB** (R22, AC9)
