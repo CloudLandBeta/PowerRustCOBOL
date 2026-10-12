@@ -1,6 +1,13 @@
 # Rust build artifacts (large — ~1.5 GB)
 target/
 
+# A second cargo target directory (the report-quality worktree built into it)
+# and the scan tarballs a bug hunt leaves at the repository root. Both were
+# committed once by accident - 5,957 files and about 1.5 GB - so neither is
+# ever tracked again.
+target-rf/
+/_*.tar.gz
+
 # macOS
 .DS_Store
 

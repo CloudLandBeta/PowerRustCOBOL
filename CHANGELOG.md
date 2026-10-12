@@ -17,6 +17,11 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.11] — 2026-10-12
+
+### Fixed
+- **`target-rf/` and the scan tarballs can no longer be tracked.** `.gitignore` only named `target/`, so a "save work in progress" snapshot took in a second cargo target directory (`target-rf/`, 5,957 files) and eight `_scan_tmp.tar.gz` / `_bugscan_*.tar.gz` archives at the repository root (about 1.5 GB), which GitHub refuses to push. Both patterns are now ignored. Files already tracked stay tracked until they are removed from the history that carries them.
+
 ## [PowerRustCOBOL 1.91.10] — 2026-10-12
 
 *(Written 2026-10-10 on a base before 1.91.0 and left uncommitted; brought up to date with `main` and versioned when it was merged.)*
