@@ -17,6 +17,13 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.17] — 2026-10-12
+
+### Added
+- **The parser accepts `A = B * C` for `COMPUTE A = B * C` — a spike, parser only (spec 093, draft).** A statement that opens with `receiver [ROUNDED] =` (a data name, `OF`/`IN` qualification, subscripts, or `Ctrl::Member`) is parsed into the very `Stmt::Compute` that `COMPUTE` builds, size phrases and `END-COMPUTE` included; an operand list ends in front of one, as it does in front of a method call. The interpreter, the runtime, the semantic pass and the code generator are untouched, so a program in either spelling runs the same and gives the same lines. A `ROUNDED` receiver series (`ADD 1 TO A ROUNDED B ROUNDED`) takes `ROUNDED` only when `=` follows it.
+  - *Measured on the branch.* Parser 190 tests plus 8 new ones, 1,800 across the runtime, semantic, ast, lexer and codegen crates, and the NIST CCVS85 `strict` pass identical to `main` (420/420 in scope, the same 18 failures, the same diagnostics).
+  - *Not done, on purpose — the operator will come back to it.* Beautify still lays the new lines out as continuations, the debugger's breakpoint-line rule, standard flagging, the plugin's layout rule and the Developer's Guide do not know the form yet, and seven questions in the spec are open. Until they are settled the form is **not documented** and nothing in the repository uses it. The spec (`specs/093-assignment-statement/spec.md`) holds the findings, the alternatives rejected and the risks. The merge is one commit, so it reverts as one.
+
 ## [PowerRustCOBOL 1.91.16] — 2026-10-12
 
 *(Written on `fixes-form-paste-menu` from `main` at 1.91.12 and merged after 1.91.13 to 1.91.15, so this entry follows them.)*
