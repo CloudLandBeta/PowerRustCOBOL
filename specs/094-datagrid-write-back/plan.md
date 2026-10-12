@@ -99,6 +99,20 @@ marker from a runtime-only `_PendingCells` property the renderer reads (R12).
    frame leaves the mode; the control's move and resize handles are hidden while
    it is on.
 
+   **Amended by T13 (2026-10-12) — the canvas never drew the grid.** The static face
+   `paint::draw_control` has for a DataGrid is the label `⊞ DataGrid (N cols)`; the
+   header, rows, filter wells and gutter are painted only by the interactive arm in
+   `render.rs`. So the interactive renderer hosts **every** grid on the canvas, not
+   only the edited one: each is drawn right after the static pass (before the corner
+   masks) in a child `Ui` at its rect — the edited one live, the others **display-only**
+   (a disabled `Ui` at full opacity, input queue taken away while it draws), so the
+   Designer's own select / move / resize / rubber band work over them. Fallback (overlay
+   over `DataGridLayout`) was not needed. Cost: the grids are drawn after every other
+   face, so a control above a grid in z-order that overlaps it is under it on the canvas
+   (a separate pass per grid would repeat the layer backgrounds). The two gestures the
+   renderer lacks — rename a title, drag a title — use a replica of the header
+   arithmetic (`grid_edit::header_cells`), guarded by a test against the painted titles.
+
 **WS-E — closing.** KB tables + `chunked.data`, Guide, six-language strings, the
 `tests/cobol` program, the PowerDemo3 demo, version and changelog.
 
