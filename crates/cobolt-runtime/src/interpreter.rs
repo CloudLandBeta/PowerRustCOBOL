@@ -30,6 +30,7 @@ use indexmap::IndexMap;
 mod agent_loop;
 mod aws;
 mod exec_sql;
+mod grid_edit;
 mod kb;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
@@ -1630,6 +1631,8 @@ pub struct Interpreter {
     tool_results: HashMap<String, String>,
     /// Generated data-binding helper CALL state, keyed by binding id.
     binding_states: HashMap<String, BindingRuntimeState>,
+    /// Spec 094: the edits a bound grid has kept and not yet written.
+    grid_edits: grid_edit::GridEdits,
 
     // ── GUI Form Runtime channels (Phase 6) ───────────────────────────────────
     /// Receives UI events (button clicks, text changes, etc.) from the form window.
@@ -2157,6 +2160,7 @@ impl Interpreter {
             plain_asks: HashMap::new(),
             tool_results: HashMap::new(),
             binding_states: HashMap::new(),
+            grid_edits: HashMap::new(),
             event_rx: None,
             input_rx: None,
             state_tx: None,
@@ -11190,6 +11194,9 @@ impl Interpreter {
             // GUI mode: block until the UI sends a FormEvent, then populate the two fields.
             // CLI mode: immediately set COBOL-QUIT = 1 so the event loop exits cleanly.
             "COBOL-WAIT-EVENT" | "COBOLT-WAIT-EVENT" => {
+                // Spec 094: the handler of the last event has returned — write
+                // (or keep pending) what a bound grid's operator edited in it.
+                self.settle_grid_edits();
                 if self.event_rx.is_some() {
                     // Wait for the next thing to present: a real UI event, an
                     // async completion (spec 032), or channel disconnect. While
@@ -11222,6 +11229,9 @@ impl Interpreter {
                             // text edit that produced this event, etc.) into the
                             // object registry so the handler reads the live value.
                             self.drain_input();
+                            // Spec 094: a cell edited in a writable bound grid is
+                            // kept pending before its handler runs.
+                            self.note_grid_edit(&ev.ctrl_id, &ev.event_id);
                             // For array member events, make the 1-based card index
                             // available to the handler (generated as CONTROL-ARRAY-INDEX
                             // in LINKAGE for array-member event handlers).
@@ -12554,6 +12564,14 @@ impl Interpreter {
         state.dirty = false;
         state.pending_value.clear();
         state.last_status.clear();
+        // Spec 094: a binding whose target is a grid writes what the grid kept.
+        if let Some(grid) = self.grid_of_binding(binding_id) {
+            let code = self.commit_edit_method(&grid);
+            if code != grid_edit::OK {
+                self.binding_state_mut(binding_id).last_status = code.clone();
+                return code;
+            }
+        }
         String::new()
     }
 
@@ -13314,6 +13332,10 @@ impl Interpreter {
         if binding_kind.eq_ignore_ascii_case("IndexedFile") {
             return self.refresh_indexed_file_binding(control_id);
         }
+        // Spec 094: a SQL source runs its query on its control's connection.
+        if binding_kind.eq_ignore_ascii_case("Sql") {
+            return self.refresh_sql_binding(control_id);
+        }
         if !binding_kind.eq_ignore_ascii_case("CobolTable") {
             return 0;
         }
@@ -13532,6 +13554,13 @@ impl Interpreter {
                 return 0;
             }
         };
+        // Spec 094: a quick-bind (`DataSource`) has no binding to say it is
+        // writable, so the file does — it can be rewritten by its primary key.
+        // A binding's own mode, seeded before this, is not overridden.
+        if self.obj_get(control_id, "_BindingWritable").trim().is_empty() {
+            let writable = !def.keys.primary.parts.is_empty();
+            self.obj_set(control_id, "_BindingWritable", if writable { "1" } else { "0" }.to_owned());
+        }
         let leaves = def
             .record_root()
             .map(|root| root.all_leaves())
@@ -16539,8 +16568,13 @@ impl Interpreter {
             "REFRESHBINDING" => {
                 tracing::debug!(target: "databinding", "RUN-FORM {} REFRESHBINDING", obj);
                 let n = self.refresh_binding(obj);
+                // Spec 094: edits the code has not decided are not lost to a reload.
+                self.reapply_pending_edits(obj);
                 val(n.to_string())
             }
+            // Spec 094 — confirm or discard what a bound grid kept pending.
+            "COMMITEDIT" => val(self.commit_edit_method(obj)),
+            "DISCARDEDIT" => val(self.discard_edit_method(obj)),
             // ── Snackbar (spec 055) ──
             // `Show()` is a FACTORY (D2): each call raises a NEW notification
             // from the control's current property values, which is the only

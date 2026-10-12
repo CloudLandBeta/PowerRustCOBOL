@@ -3798,6 +3798,8 @@ mod tests {
                     fields: fields.clone(),
                     key_fields: vec!["ID".into()],
                     writable: true,
+                    query: String::new(),
+                    table_name: String::new(),
                 },
                 BindingTargetDescriptor::ControlArray {
                     array_id: "CUSTOMERS".into(),

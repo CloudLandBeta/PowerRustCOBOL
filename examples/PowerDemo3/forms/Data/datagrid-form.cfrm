@@ -159,6 +159,7 @@ Actor Awards:string</Property>
     <Property name="FilterForegroundColor">#EBEEF9B3</Property>
     <Property name="RowHeightOverrides"></Property>
     <Property name="ColumnFilters"></Property>
+    <Property name="AllowCellEditing">true</Property>
   </Control>
   <Control id="Label-1" type="Label" x="40" y="96" w="456" h="120" tab-order="0" z-order="61" visible="true" enabled="true">
     <Property name="Caption">Datagrid Demo</Property>

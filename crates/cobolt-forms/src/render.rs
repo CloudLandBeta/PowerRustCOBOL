@@ -7192,6 +7192,10 @@ struct TreeRename {
     fresh: bool,
 }
 
+/// The small square in a cell's corner while its edit is kept and not yet
+/// written to the source (spec 094): amber, readable on every grid theme.
+const DATAGRID_PENDING_MARK: Color32 = Color32::from_rgb(255, 176, 0);
+
 /// A DataGrid cell open for editing (`AllowCellEditing`).
 #[derive(Clone, Debug, Default)]
 struct DataGridEdit {
@@ -10760,6 +10764,16 @@ fn render_interactive(
             // `AllowCellEditing`: a double-click or F2 opens the cell in a text
             // box; Enter or leaving it commits, Escape cancels. Off by default.
             let allow_cell_edit = enabled && prop_bool(ctrl, "AllowCellEditing", false);
+            // Spec 094: the cells whose edit is kept and not yet written (the
+            // runtime's `_PendingCells`, `row,column` pairs from 1 — data
+            // positions, so a sorted or filtered grid marks the right cell).
+            let pending_cells: std::collections::HashSet<(usize, usize)> = sv(ctrl, "_PendingCells")
+                .split(';')
+                .filter_map(|pair| {
+                    let (row, col) = pair.split_once(',')?;
+                    Some((row.trim().parse::<usize>().ok()?.checked_sub(1)?, col.trim().parse::<usize>().ok()?.checked_sub(1)?))
+                })
+                .collect();
             let edit_id = ctrl_id.with("datagrid-edit");
             let editing: Option<DataGridEdit> =
                 if allow_cell_edit { ui.data(|d| d.get_temp(edit_id)) } else { None };
@@ -11567,6 +11581,13 @@ fn render_interactive(
                         Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h));
                     // Content/image/frame stay inset so cells keep a small gutter.
                     let cell_rect = col_rect.shrink2(vec2(2.0, 0.0));
+                    if pending_cells.contains(&(row_index, *source_index)) {
+                        body_painter.rect_filled(
+                            Rect::from_min_size(pos2(cell_rect.max.x - 8.0, cell_rect.min.y + 1.0), vec2(6.0, 6.0)),
+                            1.0,
+                            DATAGRID_PENDING_MARK,
+                        );
+                    }
                     // Alternating-column highlight: fill every other column's full
                     // width for this row segment, beneath any per-cell/column colour.
                     if alt_cols && col.index % 2 == 1 {
@@ -25436,6 +25457,20 @@ mod tests {
         assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none(), "off by default");
         assert!(!events.iter().any(|e| e.event == "onCellEdited"));
         println!("\n  DataGrid AllowCellEditing -- double-click, type, Enter: Rows + EditedRow/Column/Value/PreviousValue + onCellEdited; Escape and off change nothing\n");
+    }
+
+    /// Spec 094: a cell whose edit is kept and not yet written carries a mark.
+    #[test]
+    fn a_datagrid_marks_the_cells_whose_edit_is_still_pending() {
+        let marks = |pending: &str| -> usize {
+            let painted = drive_painted(&[audit_grid(&[("_PendingCells", pending)])], vec![(0.0, vec![]), (0.05, vec![])]);
+            painted.fills.iter().filter(|(_, c)| *c == DATAGRID_PENDING_MARK).count()
+        };
+        assert_eq!(marks(""), 0, "nothing pending, nothing marked");
+        assert_eq!(marks("2,1"), 1, "one pending cell, one mark");
+        assert_eq!(marks("1,1;3,2"), 2, "two pending cells, two marks");
+        assert_eq!(marks("9,9"), 0, "a cell that is not there is not marked");
+        println!("\n  DataGrid pending edits -- _PendingCells marks exactly the cells it names (0, 1 and 2 marks; a missing cell none)\n");
     }
 
     /// `RowHeightOverrides`: a row with a height of its own pushes every row
