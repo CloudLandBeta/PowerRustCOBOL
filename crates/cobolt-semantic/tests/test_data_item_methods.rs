@@ -148,3 +148,61 @@ fn without_a_data_item_of_that_name_the_old_rules_stand() {
         r.diagnostics
     );
 }
+
+/// A form's event handlers are contained programs, each with a WORKING-STORAGE
+/// of its own, and the analyser checks each against its own symbols.
+fn contained_errors(handler_procedure: &str) -> Vec<String> {
+    let src = format!(
+        "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. OUTER.
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    CLASS RUST-STRING IS \"Rust.String\"
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-TOP PIC X(40) VALUE \"  top  \".
+PROCEDURE DIVISION.
+MAIN.
+    CALL \"HANDLER\"
+    STOP RUN.
+IDENTIFICATION DIVISION.
+PROGRAM-ID. HANDLER.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 LK-FILE PIC X(30).
+01 WS-DEST PIC X(30).
+01 LK-OBJ USAGE IS OBJECT REFERENCE RUST-STRING.
+PROCEDURE DIVISION.
+HANDLE.
+{handler_procedure}
+    GOBACK.
+END PROGRAM HANDLER.
+END PROGRAM OUTER.
+"
+    );
+    let program = parse(tokenize(&src, SourceFormat::Free)).program.expect("program should parse");
+    analyze(&program)
+        .diagnostics
+        .into_iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.message)
+        .collect()
+}
+
+#[test]
+fn an_item_a_contained_program_declares_is_checked_like_any_other() {
+    // Every value method passes on the handler's own item.
+    for m in cobolt_ast::methods::DATA_ITEM_METHODS {
+        let args = if m.eq_ignore_ascii_case("Replace") { "\"a\" \"b\"" } else { "" };
+        let e = contained_errors(&format!("    MOVE LK-FILE::{m}({args}) TO WS-DEST."));
+        assert!(e.is_empty(), "{m} on a handler-local item: {e:?}");
+    }
+    // Any other name is refused, naming the item.
+    let e = contained_errors("    MOVE LK-FILE::Contains(\"x\") TO WS-DEST.");
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert!(e[0].to_ascii_uppercase().contains("'LK-FILE::CONTAINS'"), "{}", e[0]);
+    // The handle of the handler's own OBJECT REFERENCE keeps its class's methods.
+    assert!(contained_errors("    MOVE LK-OBJ::Len() TO WS-DEST.").is_empty());
+}

@@ -6850,6 +6850,37 @@ END-EVALUATE
     }
 
     #[test]
+    fn an_item_a_contained_program_declares_is_offered_the_value_methods_too() {
+        // A form's event handlers are contained programs with a WORKING-STORAGE
+        // of their own (`LK-FILE`); the runtime now answers `LK-FILE::Trim()`,
+        // and the editor must offer it from the same scan.
+        let src = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-TOP    PIC X(20).
+       PROCEDURE DIVISION.
+           STOP RUN.
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 LK-FILE   PIC X(30).
+       PROCEDURE DIVISION.
+           GOBACK.
+       END PROGRAM HANDLER.
+       END PROGRAM OUTER.
+";
+        let items = value_item_names(src, &[]);
+        assert_eq!(items, vec!["WS-TOP", "LK-FILE"]);
+        let line = "           MOVE LK-FILE::";
+        let (id, ty, _) = detect_invoke_context_with(line, line.chars().count(), &[], &items)
+            .expect("`LK-FILE::` opens the list");
+        assert_eq!((id.as_str(), ty.as_str()), ("LK-FILE", DATA_ITEM_TYPE));
+    }
+
+    #[test]
     fn the_popup_table_lists_exactly_the_languages_value_methods() {
         let mut docs: Vec<&str> = DATA_ITEM_METHOD_DOCS.iter().map(|(n, _)| *n).collect();
         let mut lang: Vec<&str> = cobolt_ast::methods::DATA_ITEM_METHODS.to_vec();

@@ -8719,6 +8719,12 @@ They also work on a slice and a table occurrence — `WS-A(5:3)::Upper()`,
 > - The results keep the field's **padding**. `Upper`, `Lower` and `Replace` give
 >   back the whole padded field, and the last piece of a `Split` carries the
 >   blanks that follow it; wrap the call in `::Trim()` when the blanks matter.
+> - They work on **every data item the code can name**: the form's own items, the
+>   items an **event handler** or a common procedure declares in its own
+>   `WORKING-STORAGE` (`LK-FILE::Trim()`, even when another handler declares an
+>   item of the same name), a `GLOBAL` item and a `LINKAGE` parameter — and an
+>   item reached by qualification, `WS-FLD OF REC-A::Trim()`. The answer is the
+>   one `FUNCTION TRIM(LK-FILE)` gives, so the two spellings can be exchanged.
 > - The methods are **read only**: `MOVE x TO WS-A::Upper()` is refused,
 >   because a method's result is not a place to put something. Use
 >   `MOVE WS-A::Upper() TO WS-A` to change the field itself.

@@ -6021,7 +6021,7 @@ impl Interpreter {
                         }
                     }
                 }
-                if self.is_value_item(object) && !cobolt_ast::methods::is_data_item_method(method) {
+                if self.is_value_item(object, &[]) && !cobolt_ast::methods::is_data_item_method(method) {
                     return Err(Self::no_such_value_method(object, method));
                 }
                 let result = self.exec_method(object, method, &vals);
@@ -15038,11 +15038,17 @@ impl Interpreter {
     /// program, and neither an object of the same name (a control, a layer, a
     /// toolbar button — the object wins, as it always has) nor an `OBJECT
     /// REFERENCE`, whose handle answers the methods of its own class.
-    fn is_value_item(&self, name: &str) -> bool {
+    ///
+    /// "Declared" is asked the way a read asks it — through the name's
+    /// resolution, so an item a contained program declares in its own storage,
+    /// or a name declared more than once, is found too (`quals` are the `OF`/`IN`
+    /// qualifiers, innermost first).
+    fn is_value_item(&self, name: &str, quals: &[String]) -> bool {
         let n = name.trim();
-        self.env.contains(n)
+        self.env.is_declared(n, quals)
             && !self.objects.contains(n)
             && !self.object_refs.contains_key(&n.to_ascii_uppercase())
+            && !self.object_refs.contains_key(&self.env.resolve_name(n, quals))
     }
 
     /// The data item a member chain starts from, when it starts from one:
@@ -15055,8 +15061,10 @@ impl Interpreter {
             match cur {
                 Expr::Member { recv, .. } => cur = recv,
                 Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => cur = base,
-                Expr::Identifier(n, _) => return self.is_value_item(n).then(|| n.clone()),
-                Expr::Qualified { name, .. } => return self.is_value_item(name).then(|| name.clone()),
+                Expr::Identifier(n, _) => return self.is_value_item(n, &[]).then(|| n.clone()),
+                Expr::Qualified { name, of, .. } => {
+                    return self.is_value_item(name, &collect_quals(of)).then(|| name.clone());
+                }
                 _ => return None,
             }
         }
@@ -15395,8 +15403,10 @@ impl Interpreter {
         {
             let is_var_or_lit = match recv.as_ref() {
                 Expr::Literal(..) => true,
-                Expr::Identifier(name, _) => self.env.contains(name),
-                Expr::Qualified { name, .. } => self.env.contains(name),
+                Expr::Identifier(name, _) => self.env.is_declared(name, &[]),
+                Expr::Qualified { name, of, .. } => {
+                    self.env.is_declared(name, &collect_quals(of))
+                }
                 Expr::Member { .. } => true,
                 Expr::Subscript { .. } => true,
                 Expr::RefMod { .. } => true,
