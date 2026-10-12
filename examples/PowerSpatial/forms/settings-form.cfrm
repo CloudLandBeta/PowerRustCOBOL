@@ -5,10 +5,12 @@
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 0.
        01 WS-NEW-IX                              GLOBAL    PIC 9    VALUE 1.
+
        *>   The texts the operator reads, one row per text and one
        *>   column per language - en, pt, es, fr, jp, cn.
 
        01 PS-TEXT-DATA                           GLOBAL.
+
            *>   TITLE
 
            05 FILLER                             PIC    X(80)    VALUE "Settings".
@@ -17,6 +19,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Paramètres".
            05 FILLER                             PIC    X(80)    VALUE "設定".
            05 FILLER                             PIC    X(80)    VALUE "设置".
+
            *>   LANGUAGE
 
            05 FILLER                             PIC    X(80)    VALUE "Language".
@@ -25,6 +28,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Langue".
            05 FILLER                             PIC    X(80)    VALUE "言語".
            05 FILLER                             PIC    X(80)    VALUE "语言".
+
            *>   CLOSE
 
            05 FILLER                             PIC    X(80)    VALUE "Close".
@@ -43,10 +47,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
            *> A setting never kept, or any other code, means English.
 
@@ -58,6 +64,7 @@
                WHEN "cn" MOVE 6 TO WS-NEW-IX
                WHEN OTHER MOVE 1 TO WS-NEW-IX
            END-EVALUATE
+
            *> Tmr-Lang calls this every second. WS-LANG-IX starts at 0, so the first
            *> call always applies the texts; later ones only when the language moved.
 
@@ -81,6 +88,7 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The language picked is kept; every window follows within a second.
 
            SET     WS-PICK                       TO    Cmb-Language::SelectedIndex
@@ -99,6 +107,7 @@
            END-EVALUATE
 
            CALL    "PS-SETTING-PUT" USING WS-SET-NAME WS-SET-VALUE
+
            *> Re-read at once so this window follows now; the other windows catch
            *> up on their one-second Tmr-Lang tick.
 

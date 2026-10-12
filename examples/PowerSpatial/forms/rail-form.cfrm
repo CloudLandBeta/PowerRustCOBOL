@@ -6,10 +6,12 @@
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 0.
        01 WS-NEW-IX                              GLOBAL    PIC 9    VALUE 1.
+
        *>   The texts the operator reads, one row per text and one
        *>   column per language - en, pt, es, fr, jp, cn.
 
        01 PS-TEXT-DATA                           GLOBAL.
+
            *>   Home
 
            05 FILLER                             PIC    X(80)    VALUE "Home".
@@ -18,6 +20,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Accueil".
            05 FILLER                             PIC    X(80)    VALUE "ホーム".
            05 FILLER                             PIC    X(80)    VALUE "主页".
+
            *>   Rooms
 
            05 FILLER                             PIC    X(80)    VALUE "Rooms".
@@ -26,6 +29,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Pièces".
            05 FILLER                             PIC    X(80)    VALUE "部屋".
            05 FILLER                             PIC    X(80)    VALUE "房间".
+
            *>   Security
 
            05 FILLER                             PIC    X(80)    VALUE "Security".
@@ -34,6 +38,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Sécurité".
            05 FILLER                             PIC    X(80)    VALUE "セキュリティ".
            05 FILLER                             PIC    X(80)    VALUE "安防".
+
            *>   Cameras
 
            05 FILLER                             PIC    X(80)    VALUE "Cameras".
@@ -42,6 +47,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Caméras".
            05 FILLER                             PIC    X(80)    VALUE "カメラ".
            05 FILLER                             PIC    X(80)    VALUE "摄像头".
+
            *>   Energy
 
            05 FILLER                             PIC    X(80)    VALUE "Energy".
@@ -50,6 +56,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Énergie".
            05 FILLER                             PIC    X(80)    VALUE "エネルギー".
            05 FILLER                             PIC    X(80)    VALUE "能源".
+
            *>   Settings
 
            05 FILLER                             PIC    X(80)    VALUE "Settings".
@@ -68,6 +75,7 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The picked destination wears the light disc.
 
            IF    WS-PICKED = 1
@@ -103,10 +111,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
            *> A setting never kept, or any other code, means English.
 
@@ -118,6 +128,7 @@
                WHEN "cn" MOVE 6 TO WS-NEW-IX
                WHEN OTHER MOVE 1 TO WS-NEW-IX
            END-EVALUATE
+
            *> Tmr-Lang calls this every second. WS-LANG-IX starts at 0, so the first
            *> call always applies the texts; later ones only when the language moved.
 

@@ -1,5 +1,6 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. PS-SETTING-GET.
+
        *>   Reads one of the application's settings by name. A setting
        *>   never written reads as spaces. The settings live in
        *>   data/settings.idx, or under POWERSPATIAL_DATA when it is set.
@@ -43,6 +44,7 @@
                STRING    WS-DIR::Trim() "/settings.idx" INTO WS-PATH
            END-IF
            OPEN    INPUT SETTINGS-FILE
+
            *> No file yet means nothing was ever kept: return the spaces set above,
            *> as for any other open failure.
 
