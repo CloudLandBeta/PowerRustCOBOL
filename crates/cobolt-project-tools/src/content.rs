@@ -246,7 +246,7 @@ pub fn server_instructions(version: &str) -> String {
 
 /// The golden rules for every application a coding agent builds (operator,
 /// 2026-10-03): `(id, rule)`, in the order they are told.
-pub const APPLICATION_RULES: [(&str, &str); 10] = [
+pub const APPLICATION_RULES: [(&str, &str); 11] = [
     (
         "responsive",
         "Responsive. Every form is responsive (`responsive=\"true\"`) and holds together at any screen \
@@ -344,18 +344,58 @@ pub const APPLICATION_RULES: [(&str, &str); 10] = [
         "code-style",
         "Idiomatic RustCOBOL — use the language's extensions, extensively; they exist to remove scratch \
          fields. A control's property is a data item: `IF NUD-AGE::Value > 17`, `COMPUTE SLD-1::Value = \
-         SLD-1::Value * 2`, `ADD 1 TO NUD-AGE::Value`, `MOVE TXT-A::Text TO LBL-B::Caption`, `SET \
+         SLD-1::Value * 2`, `ADD 1 TO NUD-AGE::Value`, `SET LBL-B::Caption TO TXT-A::Text`, `SET \
          CHK-1::Checked TO TRUE` — so never declare a working-storage item only to carry a value from one \
          place to another. A method that returns a value goes inside the expression that needs it (`IF \
          LST-1::GetCount() > 1`; `MOVE TXT-REC::GetText() TO WS-RECORD` puts a returned record straight \
          into its 01 group). A data item has seven value methods — Trim, UpperCase (ToUpperCase, Upper), \
          LowerCase (ToLowerCase, Lower), Replace, Len (Length) and Split (`Split(sep)(n)` for the n-th \
-         piece) — and they chain: `MOVE WS-NAME::Replace(\", MD\", \", M.D.\") TO WS-NAME`, \
+         piece) — and they chain: `SET WS-NAME TO WS-NAME::Replace(\", MD\", \", M.D.\")`, \
          `WS-NAME::Trim()::UpperCase()`. Any other name after a data item is an error, so use INSPECT, \
          UNSTRING, reference modification or an intrinsic FUNCTION for the rest. MOVE, SET and STRING take \
-         an expression (`MOVE WS-N * 2 TO WS-CNT`, `SET WS-CNT TO WS-CNT + 1`). Write the built-ins \
+         an expression (`SET WS-CNT TO WS-N * 2`, `SET WS-CNT TO WS-CNT + 1`). Write the built-ins \
          inline, `COBOL::\"OPEN-DB\" ( … )`, never `CALL \"COBOL-OPEN-DB\" USING …`. Read \"Code style\" in \
          `powerrustcobol://reference/developers-guide.md` before writing COBOL.",
+    ),
+    (
+        "layout",
+        "Readable layout, and comments before complex code — for every piece of COBOL you write: handlers, Common Code, examples. \
+         Comment complex code: a calculation, a loop with an exit condition, an EVALUATE with several outcomes, a business \
+         rule, a workaround. A `*>` comment of a few lines says why the code is there and what it must achieve, never \
+         what each verb does. A comment starts in the same column as the code below it, and a blank line separates it from \
+         that code. Layout: (1) indent with 4 spaces per level; (2) a blank line before every DIVISION and SECTION, except \
+         ENVIRONMENT DIVISION; (3) 4 spaces between a VERB and its predicate (SET takes 5, so its predicate lines up with \
+         MOVE's); (4) in MOVE and SET put `TO` in column 50 followed by 4 spaces — when the operand before it is too long to \
+         reach column 50, put `TO` in column 50 of the next line and leave a blank line after the statement; (5) in the \
+         PROCEDURE DIVISION write a period only where one is needed — to end the last statement before a SECTION or \
+         paragraph name, and the last statement of the code — and close every other verb with its END-<verb> (END-IF, \
+         END-PERFORM, END-EVALUATE …); (6) a blank line before and after a block of consecutive statements that use the \
+         same verb; (7) call a method as a statement of its own, `Txt-Log::AppendText(WS-NL)`, never `INVOKE \
+         Txt-Log::AppendText(WS-NL)`; (8) prefer SET to MOVE — `SET LBL-1::Caption TO \"Ready\"` — and keep MOVE for a \
+         record moved into its 01 group. The model:\n\
+         \x20      DATA DIVISION.\n\
+         \n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 WS-NL PIC X.\n\
+         \n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20          SET     WS-NL                         TO    FUNCTION CHAR(11)\n\
+         \x20          SET     VWR-1::Layout                 TO    \"Page\"\n\
+         \x20          SET     VWR-1::SplitMode              TO    \"None\"\n\
+         \x20          SET     VWR-1::View1ViewMode          TO    \"Full\"\n\
+         \x20          SET     VWR-1::View1Zoom              TO    100\n\
+         \x20          SET     VWR-1::FontSize               TO    14\n\
+         \n\
+         \x20          *> Something to look at before anything is picked. The sample\n\
+         \x20          *> ships with the project, so the demo does not depend on where\n\
+         \x20          *> the repository happens to sit.\n\
+         \n\
+         \x20          SET     VWR-1::View1Source            TO    \"assets/docs/viewer-sample.md\"\n\
+         \x20          SET     Lbl-Status::Caption           TO    \"Ready. Pick a file, or press Start stream.\".\n\
+         \n\
+         \x20      SETTING-VIEWER.\n\
+         \x20          Txt-Log::AppendText(\"Viewer demo ready.\")\n\
+         \x20          Txt-Log::AppendText(WS-NL).\n",
     ),
     (
         "powerchat",
@@ -623,7 +663,7 @@ fn skills(version: &str) -> Vec<Skill> {
                    it needs one, and `PROCEDURE DIVISION.` with the statements. A handler takes no \
                    parameters except where the reference says so."),
                 s("In the handler, read and write controls as `<id>::<Property>` \
-                   (`MOVE TXT-NAME::Text TO WS-NAME`, `SET LBL-TOTAL::Caption TO WS-TOTAL`) and call \
+                   (`SET WS-NAME TO TXT-NAME::Text`, `SET LBL-TOTAL::Caption TO WS-TOTAL`) and call \
                    their methods as statements. Form-level data is visible only when `GLOBAL`."),
                 s("Call `regenerate` with the form, then `check` with it; fix the `.cfrm` until no \
                    error remains. A diagnostic names the control ▸ event and the line inside that \
@@ -635,10 +675,14 @@ fn skills(version: &str) -> Vec<Skill> {
                  <Control id=\"BTN-SAVE\" type=\"Button\" x=\"16\" y=\"200\" w=\"112\" h=\"32\">\n\
                  \x20 <Property name=\"Caption\">Save</Property>\n\
                  \x20 <Event name=\"onClick\" paragraph=\"BTN-SAVE--ONCLICK\"><![CDATA[       ENVIRONMENT DIVISION.\n\
+                 \n\
                  \x20      DATA DIVISION.\n\
+                 \n\
                  \x20      PROCEDURE DIVISION.\n\
-                 \x20          MOVE TXT-NAME::Text TO WS-NAME\n\
-                 \x20          SET LBL-STATUS::Caption TO \"Saved\"\n\
+                 \x20          *> Keep what was typed, then tell the operator it is saved.\n\
+                 \n\
+                 \x20          SET     WS-NAME                       TO    TXT-NAME::Text\n\
+                 \x20          SET     LBL-STATUS::Caption           TO    \"Saved\"\n\
                  ]]></Event>\n\
                  </Control>\n\
                  ```"
@@ -991,6 +1035,10 @@ fn reviewer() -> Reviewer {
                manifest was not edited (files were added with `add_to_project`)."),
             s("Built-ins are written inline (`COBOL::\"NAME\" ( … )`), never `CALL \"COBOL-…\"`."),
             s("Identifiers and source are English COBOL words (letters, digits, hyphens)."),
+            s("The COBOL follows the layout rule in the server instructions: a `*>` comment before \
+               complex code, in the code's column and followed by a blank line; 4-space indent; \
+               `TO` in column 50; SET preferred to MOVE; method calls without `INVOKE`; periods \
+               only where needed, every other verb closed with its END-<verb>."),
             s("Every new handler is bound by an `<Event>` element in its control; form-level data a \
                handler uses is `GLOBAL`, and so is the `FD` of a file it reads."),
             s("Exactly one form carries `main-form=\"true\"`; every control inside a container names \

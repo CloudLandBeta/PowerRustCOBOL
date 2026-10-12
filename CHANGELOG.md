@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.6] — 2026-10-12
+
+### Added
+- **The coding agent writes COBOL in one readable layout, with comments before complex code (operator, 2026-10-12).** The plugin's golden rules — the list the MCP server hands every agent, `APPLICATION_RULES` in `cobolt-project-tools/src/content.rs` — gain an eleventh, `layout`, right after `code-style`:
+  - *Comments.* A `*>` comment of a few lines before any calculation, loop with an exit condition, multi-outcome `EVALUATE`, business rule or workaround, saying why the code is there and not what each verb does; it starts in the code's column and a blank line separates it from the code below.
+  - *Layout.* 4-space indent; a blank line before every `DIVISION` and `SECTION` except `ENVIRONMENT DIVISION`; 4 spaces between a verb and its predicate (`SET` takes 5, so its predicate lines up with `MOVE`'s); `TO` in column 50 of `MOVE` and `SET` (column 50 of the next line, and a blank line after, when the operand before it is too long); periods in the `PROCEDURE DIVISION` only before a `SECTION`/paragraph and at the end of the code, every other verb closed with its `END-<verb>`; a blank line around a block of consecutive statements with the same verb; a method called as a statement of its own, without `INVOKE`; `SET` preferred to `MOVE`. The rule ends with a worked model.
+  - *Where else it shows.* The `code-style` rule's own examples now use `SET` (`SET LBL-B::Caption TO TXT-A::Text`), the `powerrustcobol-add-control` skill's sample handler is in the new layout, and the `powerrustcobol-reviewer` has a check for it. The Developer's Guide gains "Layout and comments" under *Code style* (§13), and its list item 3, which said to use `INVOKE` for a call whose answer is not needed, now says the opposite.
+  - *Tests.* `tests/cobol/code-style/test-layout-style.cbl` is a program written in the layout, run by `crates/cobolt-runtime/tests/test_layout_style.rs`. It parses, then prints a result block that names the seven cases it exercised and the tally (`TESTS RUN : 0007`, `TESTS FAILED : 0000`, `OVERALL RESULT : PASS`); changing two expected values makes it print `TESTS FAILED : 0002`. `crates/cobolt-project-tools/tests/layout_rule.rs` lints that program and the model inside the rule against the column, blank-line, comment and `INVOKE` rules, and checks that the lint finds each breach it is built to find.
+  - *Not changed.* **✨ Beautify** keeps its own rules (statements at column 12, no `TO` alignment) and does not enforce this layout; the `INVOKE me::"…"` and `INVOKE super::"…"` forms in the shell rule and the skills are left as they were.
+
 ## [PowerRustCOBOL 1.91.5] — 2026-10-11
 
 ### Fixed
