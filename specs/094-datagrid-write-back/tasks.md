@@ -72,21 +72,33 @@ Branch: `features-datagrid-write-back`. Sweeps are `--no-fail-fast`, every
   - Verify: AC4 — the WS cell holds the new value after confirm, the old after discard.
 
 ## WP3 — SQL
-- [ ] **T10 — Spike: what the SQL source is** (R15)
-  - Files: read-only; writes a short note into this file
-  - Do: settle which SQL text `query_name` stands for, and how the interpreter reaches
-    the connection of `source_control_id` (`db_runtime` `open`/`exec`/`fetch_col`);
-    size the load path and the update.
-  - Verify: the note says "in this feature" or "second step"; the plan is amended.
-- [ ] **T11 — Load a SQL source into a grid** (R15)
-  - Files: `seeding.rs`, `interpreter.rs` (`refresh_binding`)
-  - Do: `_BindingKind = Sql`; fill `Rows` from the query.
-  - Verify: a grid loads from the in-memory SQLite connection used by the SQL tests.
-- [ ] **T12 — SQL write** (R15, AC5)
-  - Files: `grid_edit.rs`
-  - Do: `UPDATE … SET <field> = :v WHERE <key fields> = :k`; commit; roll back on a
-    failure and set `CommitStatus` (SQLSTATE).
-  - Verify: AC5 — an edit persists; a failing constraint rolls back and restores the cell.
+- [x] **T10 — Spike: what the SQL source is** (R15, R25) — **done 2026-10-12**
+  - Finding: **in this feature**, with two model additions. `query_name` /
+    `result_set_name` are editor placeholders and mean nothing; the `SqlDatabase`
+    control carries no SELECT or table; the connection is reached by
+    `obj_get(source_control_id, "_Handle")` and `DbRegistry::exec(handle, text)`
+    (text only; `esql::Session` has parameters but belongs to embedded SQL and has
+    no route from the control). So `Sql` gains `query` + `table_name` (R25), and the
+    update writes escaped literals. Sizing: model + editor + Guardian (small), load
+    path (small), update (medium). Plan §WS-C amended.
+- [ ] **T11 — The SQL source's model, and loading it** (R15, R25)
+  - Files: `cobolt-forms/src/model.rs` (`query`, `table_name`),
+    `cobolt-ide/src/panels/properties.rs` (two editor fields, ×6 strings),
+    `cobolt-project-tools/src/binding_guardian.rs`, `seeding.rs`,
+    `cobolt-codegen/src/data_binding.rs`, `interpreter.rs` (`refresh_binding`)
+  - Do: the two fields (serde-defaulted); the editor inputs; the Guardian rules; the
+    `_BindingKind = Sql` seeds; run the query on the control's handle and fill `Rows`
+    (an unopened connection leaves `Rows` empty, no fault).
+  - Verify: a grid loads from the in-memory SQLite connection the SQL tests use; a form
+    saved before the change still loads; the Guardian blocks a writable binding with no
+    table or key.
+- [ ] **T12 — SQL write** (R15, R25, AC5)
+  - Files: `grid_edit.rs`, `db_runtime.rs` (a `kind(handle)` accessor)
+  - Do: `UPDATE <table> SET <field> = <literal> WHERE <key> = <literal>` with escaped
+    literals and validated identifiers; on a failure restore the cell and set
+    `CommitStatus` to the driver's message.
+  - Verify: AC5 — an edit persists; a value with a quote, a backslash and a NUL-free
+    non-ASCII text round-trips; a failing constraint restores the cell.
 
 ## WP4 — the Designer
 - [ ] **T13 — Spike: an interactive grid on the static canvas** (R3, R6)

@@ -213,10 +213,12 @@ gated on a writable binding (R8).
   - **COBOL table:** assign the cell of the bound WS table by
     `subscript_key(field, [row])`. A table has no commit; `AutoCommit` off still
     holds the edit pending (R10) and `CommitEdit()` assigns it.
-  - **SQL:** issue an `UPDATE … SET <field> = :v WHERE <key fields> = :k` through
-    the binding's `source_control_id` connection, and commit or roll back on it
-    as `COBOL-EXEC-SQL` does. **A SQL source must first be loadable into a grid
-    at run time (§2.5); that work belongs to this spec's plan.**
+  - **SQL:** issue an `UPDATE <table> SET <field> = <literal> WHERE <key> = <literal>`
+    through the connection of the binding's `source_control_id` (the
+    `SqlDatabase` control's open handle), which commits it as the connection
+    commits any statement. **A SQL source must first be loadable into a grid at
+    run time (§2.5), and the SQL source descriptor has neither a SELECT text nor
+    a table name to update (T10 finding, plan §WS-C) — R25 adds them.**
 - **R16 (constraint):** A quick-bind grid has no `DataBindingDef`, so no mode:
   it shall be writable when `AllowCellEditing` is on and the `.cidx` declares a
   primary key — and the Properties pane shall say so beside the checkbox (D2).
@@ -230,6 +232,17 @@ gated on a writable binding (R8).
 - **R19 (ubiquitous):** The numbers the handler sees — `EditedRow`,
   `EditedColumn`, from 1 — shall be unchanged; the source mapping shall be the
   runtime's.
+
+### 4.3b The SQL source needs two fields it does not have (T10)
+- **R25 (ubiquitous):** `BindingSourceDescriptor::Sql` shall gain `query` (the
+  SELECT that fills the grid) and `table_name` (the table an edit updates), both
+  `#[serde(default)]` so saved forms load. The binding editor shall offer them,
+  the Guardian shall block a writable SQL binding with no `table_name`, no key
+  field, a key field that is not among the bound fields, or an identifier that is
+  not a plain name; and the runtime shall build the `UPDATE` with every value
+  written as a literal escaped for the driver (a quote doubled, a backslash too
+  on MySQL, a number validated and left bare) — the `SqlDatabase` handle's
+  `exec` takes text only.
 
 ### 4.4 Compatibility, parity, documentation
 - **R20 (constraint):** No existing form shall change behaviour (§2.9): a grid

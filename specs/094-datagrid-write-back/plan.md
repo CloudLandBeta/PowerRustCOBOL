@@ -56,14 +56,24 @@ marker from a runtime-only `_PendingCells` property the renderer reads (R12).
 - *COBOL table:* find the table row by `key_fields`, assign through the
   interpreter's own store-into-item path so the PICTURE rules apply, exactly as
   a `MOVE` would.
-- *SQL:* needs two things that do not exist — a run-time **load** path (a
-  `_BindingKind = Sql`, a branch in `refresh_binding`) and the **update**. The
-  binding's `query_name` is a generated label (`<ID>-QUERY`,
-  `data_binding.rs` ≈114); which SQL text it stands for, and how the connection
-  of `source_control_id` is reached from the interpreter (`db_runtime`
-  `open`/`exec`/`fetch_col`), is settled by a spike (T10) before the shape is
-  fixed. If the spike finds it larger than the rest, SQL ships as a second step
-  behind the same contract.
+- *SQL — settled by the T10 spike, in this feature.* What the spike found:
+  `query_name` and `result_set_name` are **placeholders** the editor hard-codes
+  (`"DEFAULT-QUERY"`, `"RESULT-SET"`, `properties.rs` ≈1005); the `SqlDatabase`
+  control has no query or table property (`Driver`, `ConnectionString`,
+  `SqlConnection`, `AutoConnect`, `ConnectionDataItem`, `ResultSetDataItem`,
+  `Mode`, `Busy`, `TimeoutMs`); the program runs SQL itself with
+  `Query`/`Execute` on the control, whose `Open` stores the connection handle in
+  the object's `_Handle`, and `db_runtime`'s `exec(handle, text)` takes **text
+  only**. So the model holds neither a SELECT to load from nor a table to update.
+  The work: `Sql` gains `query` and `table_name` (R25, serde-defaulted); the
+  binding editor gets two fields; the Guardian gets the writable-SQL rules; a
+  seed `_BindingKind = Sql` with `_BindingSqlControl`, `_BindingSql`,
+  `_BindingTable`; `refresh_binding` runs the query on the control's handle and
+  fills `Rows` (a connection that is not open yet leaves `Rows` empty and does not
+  fail — the program opens it, then calls `RefreshBinding()`); the update writes
+  each value as an escaped literal. The UPDATE rides the connection's own
+  transaction state: autocommit unless the program has issued `BEGIN`, in which
+  case the program's `COMMIT` ends it — documented in the Guide.
 
 **WS-D — the Designer (R1–R6).**
 1. `refresh_data_binding_target_properties` (`app.rs` ≈20010, called each frame
