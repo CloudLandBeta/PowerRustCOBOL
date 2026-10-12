@@ -20,6 +20,8 @@
 //! | `intrinsics` | the set of intrinsic functions RustCOBOL implements |
 //! | `stmt`    | `Stmt` and all supporting clause types |
 //! | `sql`     | embedded SQL (`EXEC SQL`, spec 087) |
+//! | `methods` | the closed vocabularies of data-item and control methods |
+//! | `value_methods` | rewriting the older spellings of a value method to the canonical one |
 //!
 //! # Span
 //!
@@ -35,6 +37,7 @@ pub mod program;
 pub mod rust_types;
 pub mod sql;
 pub mod stmt;
+pub mod value_methods;
 
 // Re-export the span types so downstream crates only need one import.
 pub use cobolt_lexer::{Span, SpannedToken};

@@ -348,10 +348,11 @@ pub const APPLICATION_RULES: [(&str, &str); 11] = [
          CHK-1::Checked TO TRUE` — so never declare a working-storage item only to carry a value from one \
          place to another. A method that returns a value goes inside the expression that needs it (`IF \
          LST-1::GetCount() > 1`; `MOVE TXT-REC::GetText() TO WS-RECORD` puts a returned record straight \
-         into its 01 group). A data item has seven value methods — Trim, UpperCase (ToUpperCase, Upper), \
-         LowerCase (ToLowerCase, Lower), Replace, Len (Length) and Split (`Split(sep)(n)` for the n-th \
-         piece) — and they chain: `SET WS-NAME TO WS-NAME::Replace(\", MD\", \", M.D.\")`, \
-         `WS-NAME::Trim()::UpperCase()`. Any other name after a data item is an error, so use INSPECT, \
+         into its 01 group). A data item has six value methods — Trim, Upper, Lower, Replace, Len and Split \
+         (`Split(sep)(n)` for the n-th piece) — and they chain: `SET WS-NAME TO WS-NAME::Replace(\", MD\", \", M.D.\")`, \
+         `WS-NAME::Trim()::Upper()`. Write exactly those spellings: UpperCase, ToUpperCase, \
+         LowerCase, ToLowerCase and Length still run but are older spellings, and the IDE rewrites them \
+         when the file is saved. Any other name after a data item is an error, so use INSPECT, \
          UNSTRING, reference modification or an intrinsic FUNCTION for the rest. MOVE, SET and STRING take \
          an expression (`SET WS-CNT TO WS-N * 2`, `SET WS-CNT TO WS-CNT + 1`). Write the built-ins \
          inline, `COBOL::\"OPEN-DB\" ( … )`, never `CALL \"COBOL-OPEN-DB\" USING …`. Read \"Code style\" in \

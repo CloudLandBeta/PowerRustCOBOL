@@ -158,13 +158,13 @@
            MOVE "C1 Replace on a PIC X item" TO WS-LABEL.
            MOVE "Dr. House, M.D." TO WS-EXP.
            PERFORM CHECK-TEXT.
-           MOVE WS-PERSON-NAME::Trim()::UpperCase() TO WS-RES.
+           MOVE WS-PERSON-NAME::Trim()::Upper() TO WS-RES.
            MOVE "C2 a chain of methods" TO WS-LABEL.
            MOVE "DR. HOUSE, M.D." TO WS-EXP.
            PERFORM CHECK-TEXT.
 
            MOVE 9 TO WS-GI.
-           MOVE PERSON::Name::UpperCase() TO WS-RES.
+           MOVE PERSON::Name::Upper() TO WS-RES.
            MOVE "C3 a value method on a property" TO WS-LABEL.
            MOVE "GREGORY HOUSE" TO WS-EXP.
            PERFORM CHECK-TEXT.

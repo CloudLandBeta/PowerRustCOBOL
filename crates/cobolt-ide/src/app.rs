@@ -15278,6 +15278,16 @@ impl eframe::App for CoboltApp {
         for notice in notices {
             self.output.push_status(notice);
         }
+        // The same contract for the editors' rewrite of an older value-method
+        // spelling (`UpperCase` → `Upper` …): saved COBOL that changed says so.
+        let mut value_method_notices: Vec<crate::value_methods::Notice> =
+            self.editor.canon_notices.drain(..).collect();
+        for (_, d) in self.designers.iter_mut() {
+            value_method_notices.extend(d.take_canon_notices());
+        }
+        for notice in value_method_notices {
+            self.output.push_status(notice.text(&tr));
+        }
         if self.llm_benchmark_rx.is_some() {
             ctx.request_repaint();
         }

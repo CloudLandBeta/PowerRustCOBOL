@@ -4,8 +4,9 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! A DATA ITEM answers a closed set of value methods (Trim, UpperCase …, Replace,
-//! Len, Length, Split — `cobolt_ast::methods::DATA_ITEM_METHODS`). Any other
+//! A DATA ITEM answers a closed set of value methods (Trim, Upper, Lower, Replace,
+//! Len, Split, and the older spellings UpperCase, ToUpperCase, LowerCase,
+//! ToLowerCase, Length — `cobolt_ast::methods::DATA_ITEM_METHODS`). Any other
 //! name after a data item used to evaluate to an empty string and let the
 //! program carry on with it (operator, 2026-10-09: "make unknown methods on
 //! data items raise an error"); the analyser now refuses it, naming the item
@@ -82,7 +83,8 @@ fn a_method_a_data_item_does_not_have_is_an_error() {
             "{code}: {}",
             e[0]
         );
-        assert!(e[0].contains("Trim, UpperCase"), "the message says what a data item does answer: {}", e[0]);
+        assert!(e[0].contains("Trim, Upper, Lower, Replace, Len and Split"), "the message says what a data item does answer: {}", e[0]);
+        assert!(e[0].contains("older spellings that still work"), "{}", e[0]);
         shown.push(e[0].clone());
     }
     println!("data-item method check — {} unknown names refused, e.g.:\n  {}", shown.len(), shown[0]);

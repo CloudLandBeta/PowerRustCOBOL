@@ -484,14 +484,14 @@ Review the "Both" form format on every demo
        PROCEDURE DIVISION.
 
            SET     WS-NL                         TO    FUNCTION CHAR(11)
-           *> EN: EXTENSION - value transforms on a chain: toUpperCase, toLowerCase, trim, len.
+           *> EN: EXTENSION - value methods on a chain: Upper, Lower, Trim, Len.
            *> PT: EXTENSAO - transformacoes de valor na cadeia: toUpperCase, toLowerCase, trim, len.
-           *> ES: EXTENSION - transformaciones de valor en la cadena: toUpperCase, toLowerCase, trim, len.
-           *> FR: EXTENSION - transformations de valeur sur la chaine: toUpperCase, toLowerCase, trim, len.
-           *> JP: EXTENSION - チェーン上の値変換: toUpperCase / toLowerCase / trim / len。
-           *> CN: EXTENSION - 链式取值变换：toUpperCase、toLowerCase、trim、len。
+           *> ES: EXTENSION - metodos de valor en la cadena: Upper, Lower, Trim, Len.
+           *> FR: EXTENSION - methodes de valeur sur la chaine: Upper, Lower, Trim, Len.
+           *> JP: EXTENSION - チェーン上の値メソッド: Upper / Lower / Trim / Len。
+           *> CN: EXTENSION - 链式取值方法：Upper、Lower、Trim、Len。
 
-           SET     WS-LINE                       TO    Lst-Tasks::GetSelected()::toUpperCase()
+           SET     WS-LINE                       TO    Lst-Tasks::GetSelected()::Upper()
            *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
            *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
            *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.

@@ -8662,7 +8662,7 @@ A data item answers **these and nothing else**:
 | `Split(sep)(n)` | text | The *n*-th piece, counting from 1. |
 
 In the editor, typing `WS-A::` after a data item opens IntelliSense with exactly
-these — the methods above, and `Length` as the one property — and the same list
+these — the methods above, and `Len` as the one property — and the same list
 after a method (`WS-A::Trim()::`); it never offers a control's methods
 (`Show`, `Hide`, `MoveTo` …) for a data item.
 
@@ -8730,6 +8730,15 @@ They also work on a slice and a table occurrence — `WS-A(5:3)::Upper()`,
 >   `MOVE WS-A::Upper() TO WS-A` to change the field itself.
 > - A literal cannot be the receiver (`"a-b-c"::Split("-")` is a syntax error);
 >   put it in a data item first.
+
+> **The IDE writes the one spelling for you.** When you save a file, a handler or
+> a procedure — or run Beautify — the older spellings after a data item
+> (`UpperCase`, `ToUpperCase`, `LowerCase`, `ToLowerCase`, `Length`) become
+> `Upper()`, `Lower()` and `Len()`; the Output panel says so in one line
+> (*Value methods: 3 spellings changed to Upper()/Lower()/Len() in …*) and one
+> Undo gives back what you typed. Code that does not yet compile is left exactly
+> as typed, and so is anything the IDE cannot be sure is a data item — a control's
+> own property, a string, a comment. Either way the program runs the same.
 
 > **⚠️ Caveat — any other name after a data item is an error.** `WS-A::Contains("x")`,
 > `WS-A::Reverse()`, `WS-A::Value` and `WS-A::Size` do not exist, and they used

@@ -82,10 +82,12 @@ fn the_worked_examples_all_pass() {
     let src = std::fs::read_to_string(dir.join("test-data-item-methods.cbl")).expect("read .cbl");
     let out = run_source(&src, detect_format(&src), &dir).expect("the examples run").join("\n");
     println!("{out}");
-    // 32 in the outermost program, then the 13 forms from contained programs
-    // in three situations (one program, the same name in two, an outer GLOBAL).
-    assert!(out.contains("TESTS RUN       : 0084"), "{out}");
-    assert!(out.contains("TESTS PASSED    : 0084"), "{out}");
+    // 32 in the outermost program, 8 for the two canonical-spelling forms (20 and 21),
+    // then the 13 forms from contained programs in three situations (one program,
+    // the same name in two, an outer GLOBAL).
+    assert!(out.contains("TESTS RUN       : 0092"), "{out}");
+    assert!(out.contains("TESTS PASSED    : 0092"), "{out}");
+    assert!(out.contains("ALIAS CHECKS    : 0018 passed of 0018 run"), "{out}");
     assert!(out.contains("TESTS FAILED    : 0000"), "{out}");
     assert!(out.contains("OVERALL RESULT  : PASS"), "{out}");
 }
@@ -99,6 +101,50 @@ fn every_listed_value_method_evaluates() {
     }
     run("    MOVE WS-TEXT::Split(\"l\")(2) TO WS-OUT.").expect("Split(sep)(n)");
     run("    COMPUTE WS-N = WS-TEXT::Length.").expect("the bare Length property");
+}
+
+/// The single spelling (`Upper`, `Lower`, `Len`) must work in every FORM the
+/// older spelling did — call, chain, subscript, slice, bare property, statement,
+/// condition — and give the identical answer, so rewriting one into the other
+/// can never change a program (operator, 2026-10-10).
+#[test]
+fn the_canonical_spellings_work_in_every_form_the_aliases_did() {
+    let pairs: [(&str, &[&str]); 3] = [
+        ("Upper", &["UpperCase", "ToUpperCase", "toUpperCase", "UPPERCASE"]),
+        ("Lower", &["LowerCase", "ToLowerCase", "toLowerCase", "lowercase"]),
+        ("Len", &["Length", "LENGTH", "length"]),
+    ];
+    let mut compared = 0;
+    for (canonical, aliases) in pairs {
+        for alias in aliases {
+            for form in [
+                // (a program body with a `{m}` hole, shown by DISPLAY)
+                "    DISPLAY WS-TEXT::{m}().",
+                "    DISPLAY WS-TEXT::Trim()::{m}().",
+                "    DISPLAY WS-ROW(2)::{m}().",
+                "    DISPLAY WS-TEXT(3:4)::{m}().",
+                "    MOVE WS-TEXT::{m}() TO WS-OUT. DISPLAY WS-OUT.",
+                "    IF WS-TEXT::{m}() = WS-TEXT::{m}() DISPLAY \"same\" END-IF.",
+                "    STRING WS-TEXT::{m}() DELIMITED BY SIZE INTO WS-OUT. DISPLAY WS-OUT.",
+                "    INVOKE WS-TEXT::{m}(). DISPLAY \"ran\".",
+            ] {
+                let with_alias = run(&form.replace("{m}", alias)).unwrap_or_else(|e| panic!("{alias} in {form}: {e}"));
+                let with_canonical = run(&form.replace("{m}", canonical)).unwrap_or_else(|e| panic!("{canonical} in {form}: {e}"));
+                assert_eq!(with_alias, with_canonical, "{alias} vs {canonical} in {form}");
+                assert!(!with_canonical.is_empty(), "{canonical} in {form} showed nothing");
+                compared += 1;
+            }
+        }
+    }
+    // The bare property form: no parentheses at all.
+    for (alias, canonical) in [("Length", "Len"), ("LENGTH", "len")] {
+        let a = run(&format!("    COMPUTE WS-N = WS-TEXT::{alias}. DISPLAY WS-N.")).expect(alias);
+        let c = run(&format!("    COMPUTE WS-N = WS-TEXT::{canonical}. DISPLAY WS-N.")).expect(canonical);
+        assert_eq!(a, c, "{alias} vs {canonical} as a property");
+        assert_eq!(c, vec!["0020".to_string()], "WS-TEXT is PIC X(20)");
+        compared += 1;
+    }
+    println!("value-method spellings — {compared} alias/canonical pairs gave identical answers in 8 call forms + the bare property");
 }
 
 #[test]
@@ -119,7 +165,8 @@ fn a_name_a_data_item_does_not_answer_is_a_run_time_error() {
             e.to_ascii_uppercase().contains(&format!("NO METHOD OR PROPERTY '{method}'")),
             "{code}: {e}"
         );
-        assert!(e.contains("A data item answers: Trim, UpperCase"), "{code}: {e}");
+        assert!(e.contains("A data item answers: Trim, Upper, Lower, Replace, Len and Split"), "{code}: {e}");
+        assert!(e.contains("older spellings that still work"), "{code}: {e}");
         shown.push(e);
     }
     println!("run-time data-item method check — {} unknown names stopped the run, e.g.:\n  {}", shown.len(), shown[0]);

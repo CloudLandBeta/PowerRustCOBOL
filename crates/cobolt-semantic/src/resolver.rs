@@ -760,7 +760,7 @@ impl<'a> ResolveCtx<'a> {
         let Some(info) = self.symbols.data_item(name) else {
             return false;
         };
-        if matches!(info.usage, cobolt_ast::data::Usage::ObjectReference | cobolt_ast::data::Usage::Pointer) {
+        if !info.holds_a_value() {
             return false;
         }
         let upper = name.trim().to_ascii_uppercase();

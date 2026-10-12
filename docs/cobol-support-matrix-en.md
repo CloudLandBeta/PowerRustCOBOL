@@ -171,10 +171,10 @@ condition, and inline in a `DISPLAY`. Methods **chain**:
 | Method | Returns | Status | Notes |
 |---|---|:--:|---|
 | `Trim()` | text | ✅ | Leading and trailing spaces removed |
-| `UpperCase()` · `ToUpperCase()` · `Upper()` | text | ✅ | Three accepted spellings of one method |
-| `LowerCase()` · `ToLowerCase()` · `Lower()` | text | ✅ | |
+| `Upper()` | text | ✅ | The spelling to write. `UpperCase()` and `ToUpperCase()` still run; the IDE rewrites them to `Upper()` on save |
+| `Lower()` | text | ✅ | The spelling to write. `LowerCase()` and `ToLowerCase()` still run; the IDE rewrites them to `Lower()` on save |
 | `Replace(from, to)` | text | ✅ | Every occurrence |
-| `Len()` · `Length()` | numeric | ✅ | The **field's** length, so a `PIC X(20)` holding `hello` answers `20`. Chain `::Trim()::Len()` for the length of the content |
+| `Len()` | numeric | ✅ | The spelling to write; `Length()` and the bare `Length` still run and are rewritten to `Len` on save. The **field's** length, so a `PIC X(20)` holding `hello` answers `20`. Chain `::Trim()::Len()` for the length of the content |
 | `Split(sep)` | text | ✅ | The **first** field |
 | `Split(sep)(n)` | text | ✅ | The *n*-th field, 1-based. The subscript is only accepted on a data-item receiver |
 
@@ -200,7 +200,7 @@ scratch working-storage item the standard forces you to declare.
 |---|:--:|:--:|:--:|:--:|---|
 | `MOVE <expression> TO target` | — | — | ● | ✅ | `MOVE WS-N * 2 TO WS-OUT`. The standard allows only an identifier or literal as the sending field |
 | `SET target TO <expression>` | — | — | ● | ✅ | Equivalent to the `COMPUTE` form; the target may be a data item or a control-property lvalue |
-| `STRING <expression> … INTO` | — | — | ● | ✅ | A sending item may be an arithmetic expression (`STRING WS-N * 2 …`) or a value-method call (`STRING WS-A::UpperCase() …`); `DELIMITED BY` and the rest stay standard |
+| `STRING <expression> … INTO` | — | — | ● | ✅ | A sending item may be an arithmetic expression (`STRING WS-N * 2 …`) or a value-method call (`STRING WS-A::Upper() …`); `DELIMITED BY` and the rest stay standard |
 | **Type inference** — a `Ctrl::Property` read is a first-class typed value | — | — | ● | ✅ | The numeric/text type flows through the expression, so a property goes straight into arithmetic, a condition or a sending position with **no `PIC` item in between**: `IF Slider-1::Value > 50`, `COMPUTE Total-Lbl::Value = Qty-Box::Value * Price-Box::Value`. A numeric-looking property value is read back as numeric so comparisons and arithmetic stay algebraic rather than character-wise |
 
 ## 5. Intrinsic functions

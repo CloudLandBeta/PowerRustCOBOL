@@ -13,10 +13,15 @@
 //! statement, not a second receiver of the MOVE.
 
 /// The methods of an ordinary DATA ITEM's value — `WS-TEXT::Trim()`,
-/// `WS-CSV::Split(",")(2)` — in the spellings the evaluator accepts. A data item
-/// has no others: the runtime and the analyser both ask this list, so a name
-/// that is not on it is an error rather than an expression that quietly comes
-/// out empty.
+/// `WS-CSV::Split(",")(2)` — in EVERY spelling the evaluator accepts. A data
+/// item has no others: the runtime and the analyser both ask this list, so a
+/// name that is not on it is an error rather than an expression that quietly
+/// comes out empty.
+///
+/// This is the list of what RUNS. What a developer is told to WRITE is
+/// [`CANONICAL_DATA_ITEM_METHODS`]; the other spellings stay on this list so
+/// that no program written before the single spelling was chosen breaks, and
+/// [`canonical_data_item_method`] maps each of them to the one to write.
 pub const DATA_ITEM_METHODS: &[&str] = &[
     "Trim",
     "UpperCase",
@@ -31,15 +36,49 @@ pub const DATA_ITEM_METHODS: &[&str] = &[
     "Split",
 ];
 
+/// The ONE spelling of each value method of a data item — the one the
+/// documentation teaches, IntelliSense offers and the editor rewrites the
+/// others to (operator, 2026-10-10: "remove the redundancy of method naming").
+pub const CANONICAL_DATA_ITEM_METHODS: &[&str] = &["Trim", "Upper", "Lower", "Replace", "Len", "Split"];
+
+/// The spellings that still run but are no longer written, each with the
+/// canonical spelling it stands for. Matched without regard to case.
+pub const DATA_ITEM_METHOD_ALIASES: &[(&str, &str)] = &[
+    ("UpperCase", "Upper"),
+    ("ToUpperCase", "Upper"),
+    ("LowerCase", "Lower"),
+    ("ToLowerCase", "Lower"),
+    ("Length", "Len"),
+];
+
 /// `true` if `name` is a value method a data item answers (see
 /// [`DATA_ITEM_METHODS`]); case does not matter.
 pub fn is_data_item_method(name: &str) -> bool {
     DATA_ITEM_METHODS.iter().any(|m| m.eq_ignore_ascii_case(name.trim()))
 }
 
-/// What a data item does answer, as the sentence an error ends with.
-pub const DATA_ITEM_METHODS_TEXT: &str = "Trim, UpperCase (ToUpperCase, Upper), \
-LowerCase (ToLowerCase, Lower), Replace, Len (Length) and Split";
+/// The canonical spelling `name` should be written as, when `name` is an older
+/// spelling of a value method: `Some("Upper")` for `UpperCase`, `ToUpperCase`
+/// (and `touppercase`, `UPPERCASE` …), `Some("Lower")` for `LowerCase` and
+/// `ToLowerCase`, `Some("Len")` for `Length`.
+///
+/// `None` for a name that is already canonical — `Upper`, `Trim`, `len` — and
+/// for every name that is not a value method at all. Case is never "corrected"
+/// on a canonical name: COBOL does not distinguish it, and rewriting `upper`
+/// to `Upper` would be churn with no meaning.
+pub fn canonical_data_item_method(name: &str) -> Option<&'static str> {
+    let name = name.trim();
+    DATA_ITEM_METHOD_ALIASES
+        .iter()
+        .find(|(alias, _)| alias.eq_ignore_ascii_case(name))
+        .map(|(_, canonical)| *canonical)
+}
+
+/// What a data item does answer, as the sentence an error ends with. The older
+/// spellings are named so that a developer who meets one in somebody else's
+/// code learns that it works, and which spelling is the current one.
+pub const DATA_ITEM_METHODS_TEXT: &str = "Trim, Upper, Lower, Replace, Len and Split \
+(UpperCase, ToUpperCase, LowerCase, ToLowerCase and Length are older spellings that still work)";
 
 /// `true` if `name` is a recognised control/collection method. A `GET-`/`SET-`
 /// prefix is always a method (explicit accessor, spec 010).
@@ -170,4 +209,67 @@ pub fn is_known_method(name: &str) -> bool {
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"
             | "TOLOWERCASE" | "LOWERCASE" | "LOWER" | "TRIM" | "LEN" | "LENGTH"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_canonical_list_is_a_subset_of_what_runs_and_the_aliases_are_the_rest() {
+        for m in CANONICAL_DATA_ITEM_METHODS {
+            assert!(is_data_item_method(m), "{m} must run");
+            assert_eq!(canonical_data_item_method(m), None, "{m} is already canonical");
+        }
+        for (alias, canonical) in DATA_ITEM_METHOD_ALIASES {
+            assert!(is_data_item_method(alias), "{alias} must still run");
+            assert!(CANONICAL_DATA_ITEM_METHODS.contains(canonical), "{alias} -> {canonical}");
+        }
+        // Every spelling that runs is canonical or an alias of a canonical one — nothing is in neither.
+        for m in DATA_ITEM_METHODS {
+            let canonical = CANONICAL_DATA_ITEM_METHODS.iter().any(|c| c.eq_ignore_ascii_case(m));
+            let alias = canonical_data_item_method(m).is_some();
+            assert!(canonical ^ alias, "{m} must be exactly one of canonical / alias");
+        }
+        assert_eq!(
+            DATA_ITEM_METHODS.len(),
+            CANONICAL_DATA_ITEM_METHODS.len() + DATA_ITEM_METHOD_ALIASES.len()
+        );
+    }
+
+    #[test]
+    fn each_older_spelling_maps_to_its_canonical_one_whatever_the_case() {
+        for (name, want) in [
+            ("UpperCase", "Upper"),
+            ("ToUpperCase", "Upper"),
+            ("toUpperCase", "Upper"),
+            ("UPPERCASE", "Upper"),
+            ("touppercase", "Upper"),
+            ("LowerCase", "Lower"),
+            ("ToLowerCase", "Lower"),
+            ("tolowercase", "Lower"),
+            ("Length", "Len"),
+            ("LENGTH", "Len"),
+            ("length", "Len"),
+            (" Length ", "Len"),
+        ] {
+            assert_eq!(canonical_data_item_method(name), Some(want), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_canonical_or_unknown_name_has_no_canonical_rewrite() {
+        for name in ["Upper", "UPPER", "upper", "Lower", "Len", "len", "Trim", "Replace", "Split", "Contains", "Value", "", "Size"] {
+            assert_eq!(canonical_data_item_method(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_error_sentence_names_the_canonical_set_and_says_the_old_spellings_work() {
+        assert!(DATA_ITEM_METHODS_TEXT.starts_with("Trim, Upper, Lower, Replace, Len and Split"));
+        for alias in ["UpperCase", "ToUpperCase", "LowerCase", "ToLowerCase", "Length"] {
+            assert!(DATA_ITEM_METHODS_TEXT.contains(alias), "{alias}");
+        }
+        assert!(DATA_ITEM_METHODS_TEXT.contains("still work"));
+    }
 }
