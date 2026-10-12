@@ -450,55 +450,58 @@
        PROGRAM-ID. CHARTS-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Fill every chart as the form opens, so it never shows the sample
-      *> preview before the first click.
+           *> Fill every chart as the form opens, so it never shows the sample
+           *> preview before the first click.
 
-           INVOKE BarChart-1::Clear()
-           INVOKE BarChart-1::AddPoint("Q1", 128)
-           INVOKE BarChart-1::AddPoint("Q2", 174)
-           INVOKE BarChart-1::AddPoint("Q3", 151)
-           INVOKE BarChart-1::AddPoint("Q4", 209)
+           BarChart-1::Clear()
+           BarChart-1::AddPoint("Q1", 128)
+           BarChart-1::AddPoint("Q2", 174)
+           BarChart-1::AddPoint("Q3", 151)
+           BarChart-1::AddPoint("Q4", 209)
 
-           INVOKE LineChart-1::Clear()
-           INVOKE LineChart-1::AddPoint("Jan", 42)
-           INVOKE LineChart-1::AddPoint("Feb", 55)
-           INVOKE LineChart-1::AddPoint("Mar", 48)
-           INVOKE LineChart-1::AddPoint("Apr", 71)
-           INVOKE LineChart-1::AddPoint("May", 66)
-           INVOKE LineChart-1::AddPoint("Jun", 88)
+           LineChart-1::Clear()
+           LineChart-1::AddPoint("Jan", 42)
+           LineChart-1::AddPoint("Feb", 55)
+           LineChart-1::AddPoint("Mar", 48)
+           LineChart-1::AddPoint("Apr", 71)
+           LineChart-1::AddPoint("May", 66)
+           LineChart-1::AddPoint("Jun", 88)
 
-           INVOKE PieChart-1::Clear()
-           INVOKE PieChart-1::AddPoint("North", 34)
-           INVOKE PieChart-1::AddPoint("South", 21)
-           INVOKE PieChart-1::AddPoint("East", 28)
-           INVOKE PieChart-1::AddPoint("West", 17)
+           PieChart-1::Clear()
+           PieChart-1::AddPoint("North", 34)
+           PieChart-1::AddPoint("South", 21)
+           PieChart-1::AddPoint("East", 28)
+           PieChart-1::AddPoint("West", 17)
 
-           INVOKE AreaChart-1::Clear()
-           INVOKE AreaChart-1::AddPoint("Wk1", 120)
-           INVOKE AreaChart-1::AddPoint("Wk2", 260)
-           INVOKE AreaChart-1::AddPoint("Wk3", 415)
-           INVOKE AreaChart-1::AddPoint("Wk4", 590)
-           INVOKE AreaChart-1::AddPoint("Wk5", 720)
+           AreaChart-1::Clear()
+           AreaChart-1::AddPoint("Wk1", 120)
+           AreaChart-1::AddPoint("Wk2", 260)
+           AreaChart-1::AddPoint("Wk3", 415)
+           AreaChart-1::AddPoint("Wk4", 590)
+           AreaChart-1::AddPoint("Wk5", 720)
 
-           INVOKE ScatterChart-1::Clear()
-           INVOKE ScatterChart-1::AddPoint("0.4", 12)
-           INVOKE ScatterChart-1::AddPoint("0.9", 19)
-           INVOKE ScatterChart-1::AddPoint("1.3", 26)
-           INVOKE ScatterChart-1::AddPoint("1.8", 24)
-           INVOKE ScatterChart-1::AddPoint("2.4", 37)
-           INVOKE ScatterChart-1::AddPoint("3.1", 41)
+           ScatterChart-1::Clear()
+           ScatterChart-1::AddPoint("0.4", 12)
+           ScatterChart-1::AddPoint("0.9", 19)
+           ScatterChart-1::AddPoint("1.3", 26)
+           ScatterChart-1::AddPoint("1.8", 24)
+           ScatterChart-1::AddPoint("2.4", 37)
+           ScatterChart-1::AddPoint("3.1", 41)
 
-           INVOKE DonutChart-1::Clear()
-           INVOKE DonutChart-1::AddPoint("Used", 68)
-           INVOKE DonutChart-1::AddPoint("Free", 32)
+           DonutChart-1::Clear()
+           DonutChart-1::AddPoint("Used", 68)
+           DonutChart-1::AddPoint("Free", 32)
 
-           DISPLAY "charts loaded".
+           DISPLAY    "charts loaded".
 
            GOBACK.
 
@@ -524,59 +527,62 @@
        PROGRAM-ID. BUTTON-CHART-LOAD--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Every chart takes its data the same way: Clear() drops what it
-      *> holds, then one AddPoint(label, value) per point. Each AddPoint
-      *> pushes the WHOLE series to the renderer, so the chart redraws as it
-      *> fills - there is no separate "commit" step.
-      *> A chart with NO data draws a representative sample instead, which is
-      *> why the designer canvas never looks empty.
+           *> Every chart takes its data the same way: Clear() drops what it
+           *> holds, then one AddPoint(label, value) per point. Each AddPoint
+           *> pushes the WHOLE series to the renderer, so the chart redraws as it
+           *> fills - there is no separate "commit" step.
+           *> A chart with NO data draws a representative sample instead, which is
+           *> why the designer canvas never looks empty.
 
-           INVOKE BarChart-1::Clear()
-           INVOKE BarChart-1::AddPoint("Q1", 128)
-           INVOKE BarChart-1::AddPoint("Q2", 174)
-           INVOKE BarChart-1::AddPoint("Q3", 151)
-           INVOKE BarChart-1::AddPoint("Q4", 209)
+           BarChart-1::Clear()
+           BarChart-1::AddPoint("Q1", 128)
+           BarChart-1::AddPoint("Q2", 174)
+           BarChart-1::AddPoint("Q3", 151)
+           BarChart-1::AddPoint("Q4", 209)
 
-           INVOKE LineChart-1::Clear()
-           INVOKE LineChart-1::AddPoint("Jan", 42)
-           INVOKE LineChart-1::AddPoint("Feb", 55)
-           INVOKE LineChart-1::AddPoint("Mar", 48)
-           INVOKE LineChart-1::AddPoint("Apr", 71)
-           INVOKE LineChart-1::AddPoint("May", 66)
-           INVOKE LineChart-1::AddPoint("Jun", 88)
+           LineChart-1::Clear()
+           LineChart-1::AddPoint("Jan", 42)
+           LineChart-1::AddPoint("Feb", 55)
+           LineChart-1::AddPoint("Mar", 48)
+           LineChart-1::AddPoint("Apr", 71)
+           LineChart-1::AddPoint("May", 66)
+           LineChart-1::AddPoint("Jun", 88)
 
-           INVOKE PieChart-1::Clear()
-           INVOKE PieChart-1::AddPoint("North", 34)
-           INVOKE PieChart-1::AddPoint("South", 21)
-           INVOKE PieChart-1::AddPoint("East", 28)
-           INVOKE PieChart-1::AddPoint("West", 17)
+           PieChart-1::Clear()
+           PieChart-1::AddPoint("North", 34)
+           PieChart-1::AddPoint("South", 21)
+           PieChart-1::AddPoint("East", 28)
+           PieChart-1::AddPoint("West", 17)
 
-           INVOKE AreaChart-1::Clear()
-           INVOKE AreaChart-1::AddPoint("Wk1", 120)
-           INVOKE AreaChart-1::AddPoint("Wk2", 260)
-           INVOKE AreaChart-1::AddPoint("Wk3", 415)
-           INVOKE AreaChart-1::AddPoint("Wk4", 590)
-           INVOKE AreaChart-1::AddPoint("Wk5", 720)
+           AreaChart-1::Clear()
+           AreaChart-1::AddPoint("Wk1", 120)
+           AreaChart-1::AddPoint("Wk2", 260)
+           AreaChart-1::AddPoint("Wk3", 415)
+           AreaChart-1::AddPoint("Wk4", 590)
+           AreaChart-1::AddPoint("Wk5", 720)
 
-           INVOKE ScatterChart-1::Clear()
-           INVOKE ScatterChart-1::AddPoint("0.4", 12)
-           INVOKE ScatterChart-1::AddPoint("0.9", 19)
-           INVOKE ScatterChart-1::AddPoint("1.3", 26)
-           INVOKE ScatterChart-1::AddPoint("1.8", 24)
-           INVOKE ScatterChart-1::AddPoint("2.4", 37)
-           INVOKE ScatterChart-1::AddPoint("3.1", 41)
+           ScatterChart-1::Clear()
+           ScatterChart-1::AddPoint("0.4", 12)
+           ScatterChart-1::AddPoint("0.9", 19)
+           ScatterChart-1::AddPoint("1.3", 26)
+           ScatterChart-1::AddPoint("1.8", 24)
+           ScatterChart-1::AddPoint("2.4", 37)
+           ScatterChart-1::AddPoint("3.1", 41)
 
-           INVOKE DonutChart-1::Clear()
-           INVOKE DonutChart-1::AddPoint("Used", 68)
-           INVOKE DonutChart-1::AddPoint("Free", 32)
+           DonutChart-1::Clear()
+           DonutChart-1::AddPoint("Used", 68)
+           DonutChart-1::AddPoint("Free", 32)
 
-           DISPLAY "charts loaded".
+           DISPLAY    "charts loaded".
 
            GOBACK.
 
@@ -586,56 +592,59 @@
        PROGRAM-ID. BUTTON-CHART-LOAD2--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The same six charts, different numbers. Values are auto-scaled into
-      *> the plot, so nothing here sets a maximum: the tallest point defines
-      *> the top of the band.
+           *> The same six charts, different numbers. Values are auto-scaled into
+           *> the plot, so nothing here sets a maximum: the tallest point defines
+           *> the top of the band.
 
-           INVOKE BarChart-1::Clear()
-           INVOKE BarChart-1::AddPoint("Q1", 96)
-           INVOKE BarChart-1::AddPoint("Q2", 88)
-           INVOKE BarChart-1::AddPoint("Q3", 143)
-           INVOKE BarChart-1::AddPoint("Q4", 261)
+           BarChart-1::Clear()
+           BarChart-1::AddPoint("Q1", 96)
+           BarChart-1::AddPoint("Q2", 88)
+           BarChart-1::AddPoint("Q3", 143)
+           BarChart-1::AddPoint("Q4", 261)
 
-           INVOKE LineChart-1::Clear()
-           INVOKE LineChart-1::AddPoint("Jan", 91)
-           INVOKE LineChart-1::AddPoint("Feb", 77)
-           INVOKE LineChart-1::AddPoint("Mar", 64)
-           INVOKE LineChart-1::AddPoint("Apr", 52)
-           INVOKE LineChart-1::AddPoint("May", 58)
-           INVOKE LineChart-1::AddPoint("Jun", 40)
+           LineChart-1::Clear()
+           LineChart-1::AddPoint("Jan", 91)
+           LineChart-1::AddPoint("Feb", 77)
+           LineChart-1::AddPoint("Mar", 64)
+           LineChart-1::AddPoint("Apr", 52)
+           LineChart-1::AddPoint("May", 58)
+           LineChart-1::AddPoint("Jun", 40)
 
-           INVOKE PieChart-1::Clear()
-           INVOKE PieChart-1::AddPoint("North", 12)
-           INVOKE PieChart-1::AddPoint("South", 44)
-           INVOKE PieChart-1::AddPoint("East", 19)
-           INVOKE PieChart-1::AddPoint("West", 25)
+           PieChart-1::Clear()
+           PieChart-1::AddPoint("North", 12)
+           PieChart-1::AddPoint("South", 44)
+           PieChart-1::AddPoint("East", 19)
+           PieChart-1::AddPoint("West", 25)
 
-           INVOKE AreaChart-1::Clear()
-           INVOKE AreaChart-1::AddPoint("Wk1", 80)
-           INVOKE AreaChart-1::AddPoint("Wk2", 140)
-           INVOKE AreaChart-1::AddPoint("Wk3", 190)
-           INVOKE AreaChart-1::AddPoint("Wk4", 205)
-           INVOKE AreaChart-1::AddPoint("Wk5", 212)
+           AreaChart-1::Clear()
+           AreaChart-1::AddPoint("Wk1", 80)
+           AreaChart-1::AddPoint("Wk2", 140)
+           AreaChart-1::AddPoint("Wk3", 190)
+           AreaChart-1::AddPoint("Wk4", 205)
+           AreaChart-1::AddPoint("Wk5", 212)
 
-           INVOKE ScatterChart-1::Clear()
-           INVOKE ScatterChart-1::AddPoint("0.4", 38)
-           INVOKE ScatterChart-1::AddPoint("0.9", 31)
-           INVOKE ScatterChart-1::AddPoint("1.3", 33)
-           INVOKE ScatterChart-1::AddPoint("1.8", 18)
-           INVOKE ScatterChart-1::AddPoint("2.4", 14)
-           INVOKE ScatterChart-1::AddPoint("3.1", 9)
+           ScatterChart-1::Clear()
+           ScatterChart-1::AddPoint("0.4", 38)
+           ScatterChart-1::AddPoint("0.9", 31)
+           ScatterChart-1::AddPoint("1.3", 33)
+           ScatterChart-1::AddPoint("1.8", 18)
+           ScatterChart-1::AddPoint("2.4", 14)
+           ScatterChart-1::AddPoint("3.1", 9)
 
-           INVOKE DonutChart-1::Clear()
-           INVOKE DonutChart-1::AddPoint("Used", 23)
-           INVOKE DonutChart-1::AddPoint("Free", 77)
+           DonutChart-1::Clear()
+           DonutChart-1::AddPoint("Used", 23)
+           DonutChart-1::AddPoint("Free", 77)
 
-           DISPLAY "charts loaded".
+           DISPLAY    "charts loaded".
 
            GOBACK.
 
@@ -645,26 +654,28 @@
        PROGRAM-ID. BUTTON-CHART-CLEAR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Clear() drops the pushed series. The renderer falls back to its
-      *> representative sample until new points arrive - an empty chart and an
-      *> unpopulated one look the same on purpose.
+           *> Clear() drops the pushed series. The renderer falls back to its
+           *> representative sample until new points arrive - an empty chart and an
+           *> unpopulated one look the same on purpose.
 
-           INVOKE BarChart-1::Clear()
-           INVOKE LineChart-1::Clear()
-           INVOKE PieChart-1::Clear()
-           INVOKE AreaChart-1::Clear()
-           INVOKE ScatterChart-1::Clear()
-           INVOKE DonutChart-1::Clear()
+           BarChart-1::Clear()
+           LineChart-1::Clear()
+           PieChart-1::Clear()
+           AreaChart-1::Clear()
+           ScatterChart-1::Clear()
+           DonutChart-1::Clear()
 
-           MOVE "cleared - the sample preview is back"
-             TO Label-STATUS::Caption
-           DISPLAY "charts cleared".
+           SET     Label-STATUS::Caption         TO    "cleared - the sample preview is back"
+           DISPLAY    "charts cleared".
 
            GOBACK.
 
@@ -674,36 +685,39 @@
        PROGRAM-ID. BUTTON-CHART-MONO--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-FLAG PIC X(8).
-       01 WS-MSG  PIC X(32).
-       01 WS-OUT  PIC X(64).
+       01 WS-FLAG                                PIC    X(8).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Monochrome draws every element in tonal variations of one base
-      *> colour (MonochromeColor) instead of the SeriesColors palette.
+           *> Monochrome draws every element in tonal variations of one base
+           *> colour (MonochromeColor) instead of the SeriesColors palette.
 
-           MOVE BarChart-1::Monochrome TO WS-FLAG
-           IF FUNCTION TRIM(WS-FLAG) = "true"
-               MOVE "false" TO WS-FLAG
+           SET     WS-FLAG                       TO    BarChart-1::Monochrome
+           IF    FUNCTION TRIM(WS-FLAG) = "true"
+               SET     WS-FLAG                   TO    "false"
            ELSE
-               MOVE "true" TO WS-FLAG
+               SET     WS-FLAG                   TO    "true"
            END-IF
 
-           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::Monochrome
-           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::Monochrome
-           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::Monochrome
-           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::Monochrome
-           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::Monochrome
-           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::Monochrome
+           SET     BarChart-1::Monochrome        TO    FUNCTION TRIM(WS-FLAG)
+           SET     LineChart-1::Monochrome       TO    FUNCTION TRIM(WS-FLAG)
+           SET     PieChart-1::Monochrome        TO    FUNCTION TRIM(WS-FLAG)
+           SET     AreaChart-1::Monochrome       TO    FUNCTION TRIM(WS-FLAG)
+           SET     ScatterChart-1::Monochrome    TO    FUNCTION TRIM(WS-FLAG)
+           SET     DonutChart-1::Monochrome      TO    FUNCTION TRIM(WS-FLAG)
 
-           MOVE "Monochrome = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     WS-MSG                        TO    "Monochrome = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -713,37 +727,51 @@
        PROGRAM-ID. BUTTON-CHART-GRADIENT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-FLAG PIC X(8).
-       01 WS-MSG  PIC X(32).
-       01 WS-OUT  PIC X(64).
+       01 WS-FLAG                                PIC    X(8).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> With the gradient on, each element shades from about 20 per cent
-      *> lighter at the top left to 20 per cent darker at the bottom right.
-      *> It only shows while Monochrome is on.
+           *> With the gradient on, each element shades from about 20 per cent
+           *> lighter at the top left to 20 per cent darker at the bottom right.
+           *> It only shows while Monochrome is on.
 
-           MOVE BarChart-1::MonochromeGradient TO WS-FLAG
-           IF FUNCTION TRIM(WS-FLAG) = "true"
-               MOVE "false" TO WS-FLAG
+           SET     WS-FLAG                       TO    BarChart-1::MonochromeGradient
+           IF    FUNCTION TRIM(WS-FLAG) = "true"
+               SET     WS-FLAG                   TO    "false"
            ELSE
-               MOVE "true" TO WS-FLAG
+               SET     WS-FLAG                   TO    "true"
            END-IF
 
-           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::MonochromeGradient
-           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::MonochromeGradient
-           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::MonochromeGradient
-           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::MonochromeGradient
-           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::MonochromeGradient
-           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::MonochromeGradient
+           SET     BarChart-1::MonochromeGradient
+                                                 TO    FUNCTION TRIM(WS-FLAG)
 
-           MOVE "MonochromeGradient = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     LineChart-1::MonochromeGradient
+                                                 TO    FUNCTION TRIM(WS-FLAG)
+
+           SET     PieChart-1::MonochromeGradient
+                                                 TO    FUNCTION TRIM(WS-FLAG)
+
+           SET     AreaChart-1::MonochromeGradient
+                                                 TO    FUNCTION TRIM(WS-FLAG)
+
+           SET     ScatterChart-1::MonochromeGradient
+                                                 TO    FUNCTION TRIM(WS-FLAG)
+
+           SET     DonutChart-1::MonochromeGradient
+                                                 TO    FUNCTION TRIM(WS-FLAG)
+
+           SET     WS-MSG                        TO    "MonochromeGradient = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -753,36 +781,39 @@
        PROGRAM-ID. BUTTON-CHART-GRID--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-FLAG PIC X(8).
-       01 WS-MSG  PIC X(32).
-       01 WS-OUT  PIC X(64).
+       01 WS-FLAG                                PIC    X(8).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The grid, the legend, the two axis lines and the tooltips are four
-      *> independent switches - turning the grid off leaves the axes.
+           *> The grid, the legend, the two axis lines and the tooltips are four
+           *> independent switches - turning the grid off leaves the axes.
 
-           MOVE BarChart-1::ShowGridLines TO WS-FLAG
-           IF FUNCTION TRIM(WS-FLAG) = "true"
-               MOVE "false" TO WS-FLAG
+           SET     WS-FLAG                       TO    BarChart-1::ShowGridLines
+           IF    FUNCTION TRIM(WS-FLAG) = "true"
+               SET     WS-FLAG                   TO    "false"
            ELSE
-               MOVE "true" TO WS-FLAG
+               SET     WS-FLAG                   TO    "true"
            END-IF
 
-           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::ShowGridLines
-           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::ShowGridLines
-           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::ShowGridLines
-           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::ShowGridLines
-           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::ShowGridLines
-           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::ShowGridLines
+           SET     BarChart-1::ShowGridLines     TO    FUNCTION TRIM(WS-FLAG)
+           SET     LineChart-1::ShowGridLines    TO    FUNCTION TRIM(WS-FLAG)
+           SET     PieChart-1::ShowGridLines     TO    FUNCTION TRIM(WS-FLAG)
+           SET     AreaChart-1::ShowGridLines    TO    FUNCTION TRIM(WS-FLAG)
+           SET     ScatterChart-1::ShowGridLines TO    FUNCTION TRIM(WS-FLAG)
+           SET     DonutChart-1::ShowGridLines   TO    FUNCTION TRIM(WS-FLAG)
 
-           MOVE "ShowGridLines = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     WS-MSG                        TO    "ShowGridLines = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -792,36 +823,39 @@
        PROGRAM-ID. BUTTON-CHART-LEGEND--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-FLAG PIC X(8).
-       01 WS-MSG  PIC X(32).
-       01 WS-OUT  PIC X(64).
+       01 WS-FLAG                                PIC    X(8).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> ShowLegend is independent of ShowLabels on the pie and the donut:
-      *> one names the series, the other writes on the slices.
+           *> ShowLegend is independent of ShowLabels on the pie and the donut:
+           *> one names the series, the other writes on the slices.
 
-           MOVE BarChart-1::ShowLegend TO WS-FLAG
-           IF FUNCTION TRIM(WS-FLAG) = "true"
-               MOVE "false" TO WS-FLAG
+           SET     WS-FLAG                       TO    BarChart-1::ShowLegend
+           IF    FUNCTION TRIM(WS-FLAG) = "true"
+               SET     WS-FLAG                   TO    "false"
            ELSE
-               MOVE "true" TO WS-FLAG
+               SET     WS-FLAG                   TO    "true"
            END-IF
 
-           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::ShowLegend
-           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::ShowLegend
-           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::ShowLegend
-           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::ShowLegend
-           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::ShowLegend
-           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::ShowLegend
+           SET     BarChart-1::ShowLegend        TO    FUNCTION TRIM(WS-FLAG)
+           SET     LineChart-1::ShowLegend       TO    FUNCTION TRIM(WS-FLAG)
+           SET     PieChart-1::ShowLegend        TO    FUNCTION TRIM(WS-FLAG)
+           SET     AreaChart-1::ShowLegend       TO    FUNCTION TRIM(WS-FLAG)
+           SET     ScatterChart-1::ShowLegend    TO    FUNCTION TRIM(WS-FLAG)
+           SET     DonutChart-1::ShowLegend      TO    FUNCTION TRIM(WS-FLAG)
 
-           MOVE "ShowLegend = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     WS-MSG                        TO    "ShowLegend = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -831,30 +865,33 @@
        PROGRAM-ID. BUTTON-CHART-HORIZONTAL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-FLAG PIC X(8).
-       01 WS-MSG  PIC X(32).
-       01 WS-OUT  PIC X(64).
+       01 WS-FLAG                                PIC    X(8).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Horizontal is a BAR chart property - the other five do not have it.
-      *> Stacked and BarCornerRadius are its companions.
+           *> Horizontal is a BAR chart property - the other five do not have it.
+           *> Stacked and BarCornerRadius are its companions.
 
-           MOVE BarChart-1::Horizontal TO WS-FLAG
-           IF FUNCTION TRIM(WS-FLAG) = "true"
-               MOVE "false" TO WS-FLAG
+           SET     WS-FLAG                       TO    BarChart-1::Horizontal
+           IF    FUNCTION TRIM(WS-FLAG) = "true"
+               SET     WS-FLAG                   TO    "false"
            ELSE
-               MOVE "true" TO WS-FLAG
+               SET     WS-FLAG                   TO    "true"
            END-IF
-           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::Horizontal
+           SET     BarChart-1::Horizontal        TO    FUNCTION TRIM(WS-FLAG)
 
-           MOVE "BarChart-1 Horizontal = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     WS-MSG                        TO    "BarChart-1 Horizontal = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -864,31 +901,35 @@
        PROGRAM-ID. BUTTON-CHART-SMOOTH--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-FLAG PIC X(8).
-       01 WS-MSG  PIC X(32).
-       01 WS-OUT  PIC X(64).
+       01 WS-FLAG                                PIC    X(8).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Smooth, ShowPoints and PointRadius belong to the LINE and AREA
-      *> charts. Off, the line is drawn as straight segments between points.
+           *> Smooth, ShowPoints and PointRadius belong to the LINE and AREA
+           *> charts. Off, the line is drawn as straight segments between points.
 
-           MOVE LineChart-1::Smooth TO WS-FLAG
-           IF FUNCTION TRIM(WS-FLAG) = "true"
-               MOVE "false" TO WS-FLAG
+           SET     WS-FLAG                       TO    LineChart-1::Smooth
+           IF    FUNCTION TRIM(WS-FLAG) = "true"
+               SET     WS-FLAG                   TO    "false"
            ELSE
-               MOVE "true" TO WS-FLAG
+               SET     WS-FLAG                   TO    "true"
            END-IF
-           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::Smooth
-           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::Smooth
 
-           MOVE "Smooth = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     LineChart-1::Smooth           TO    FUNCTION TRIM(WS-FLAG)
+           SET     AreaChart-1::Smooth           TO    FUNCTION TRIM(WS-FLAG)
+
+           SET     WS-MSG                        TO    "Smooth = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-FLAG) INTO WS-OUT
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -898,47 +939,52 @@
        PROGRAM-ID. BUTTON-CHART-SLICES--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-FMT       PIC X(12).
-       01 WS-HOLE      PIC 9(3).
-       01 WS-HOLE-TEXT PIC ZZ9.
-       01 WS-MSG       PIC X(32).
-       01 WS-OUT       PIC X(80).
+       01 WS-FMT                                 PIC    X(12).
+       01 WS-HOLE                                PIC    9(3).
+       01 WS-HOLE-TEXT                           PIC    ZZ9.
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(80).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> LabelFormat is percent | value | label, and InnerRadius is the
-      *> donut's hole as a percentage of the outer radius. Each press moves
-      *> both on one step.
+           *> LabelFormat is percent | value | label, and InnerRadius is the
+           *> donut's hole as a percentage of the outer radius. Each press moves
+           *> both on one step.
 
-           MOVE PieChart-1::LabelFormat TO WS-FMT
-           EVALUATE FUNCTION TRIM(WS-FMT)
-               WHEN "percent" MOVE "value"   TO WS-FMT
-               WHEN "value"   MOVE "label"   TO WS-FMT
-               WHEN OTHER     MOVE "percent" TO WS-FMT
+           SET     WS-FMT                        TO    PieChart-1::LabelFormat
+           EVALUATE    FUNCTION TRIM(WS-FMT)
+               WHEN "percent" MOVE "value" TO WS-FMT
+               WHEN "value" MOVE "label" TO WS-FMT
+               WHEN OTHER MOVE "percent" TO WS-FMT
            END-EVALUATE
-           MOVE FUNCTION TRIM(WS-FMT) TO PieChart-1::LabelFormat
-           MOVE FUNCTION TRIM(WS-FMT) TO DonutChart-1::LabelFormat
 
-           MOVE DonutChart-1::InnerRadius TO WS-HOLE
-           EVALUATE WS-HOLE
+           SET     PieChart-1::LabelFormat       TO    FUNCTION TRIM(WS-FMT)
+           SET     DonutChart-1::LabelFormat     TO    FUNCTION TRIM(WS-FMT)
+
+           SET     WS-HOLE                       TO    DonutChart-1::InnerRadius
+           EVALUATE    WS-HOLE
                WHEN 40 MOVE 60 TO WS-HOLE
                WHEN 60 MOVE 20 TO WS-HOLE
                WHEN OTHER MOVE 40 TO WS-HOLE
            END-EVALUATE
-           MOVE WS-HOLE TO DonutChart-1::InnerRadius
+           SET     DonutChart-1::InnerRadius     TO    WS-HOLE
 
-           MOVE WS-HOLE TO WS-HOLE-TEXT
-           MOVE "LabelFormat " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG)
-                  FUNCTION TRIM(WS-FMT)
-                  ", InnerRadius "
-                  FUNCTION TRIM(WS-HOLE-TEXT)
-                  INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     WS-HOLE-TEXT                  TO    WS-HOLE
+           SET     WS-MSG                        TO    "LabelFormat "
+
+           STRING    FUNCTION TRIM(WS-MSG)
+               FUNCTION TRIM(WS-FMT)
+               ", InnerRadius "
+               FUNCTION TRIM(WS-HOLE-TEXT)
+               INTO WS-OUT
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -948,66 +994,80 @@
        PROGRAM-ID. BUTTON-CHART-ANIMMS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-ON      PIC X(8).
-       01 WS-MS      PIC 9(5).
-       01 WS-MS-TEXT PIC ZZZZ9.
-       01 WS-MSG     PIC X(32).
-       01 WS-OUT     PIC X(80).
+       01 WS-ON                                  PIC    X(8).
+       01 WS-MS                                  PIC    9(5).
+       01 WS-MS-TEXT                             PIC    ZZZZ9.
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(80).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> AnimateValues travels from the values the chart IS showing to the
-      *> ones just pushed, over AnimationDuration, for the WHOLE series at once
-      *> - so a chart settles in the same time with four points or forty.
-      *> The floor is 250 ms: below that the eye reads a jump, so a smaller
-      *> number is raised rather than honoured as written.
-      *> The FIRST fill is never animated, and could not be. A plot auto-scales
-      *> to its own largest value, so a series rising uniformly from zero would
-      *> paint the same bars the whole way up. Only a change in how the values
-      *> relate to EACH OTHER can be seen - press the two data buttons
-      *> alternately to see it.
+           *> AnimateValues travels from the values the chart IS showing to the
+           *> ones just pushed, over AnimationDuration, for the WHOLE series at once
+           *> - so a chart settles in the same time with four points or forty.
+           *> The floor is 250 ms: below that the eye reads a jump, so a smaller
+           *> number is raised rather than honoured as written.
+           *> The FIRST fill is never animated, and could not be. A plot auto-scales
+           *> to its own largest value, so a series rising uniformly from zero would
+           *> paint the same bars the whole way up. Only a change in how the values
+           *> relate to EACH OTHER can be seen - press the two data buttons
+           *> alternately to see it.
 
-           MOVE BarChart-1::AnimationDuration TO WS-MS
-           MOVE BarChart-1::AnimateValues TO WS-ON
+           SET     WS-MS                         TO    BarChart-1::AnimationDuration
+           SET     WS-ON                         TO    BarChart-1::AnimateValues
 
-           IF FUNCTION TRIM(WS-ON) NOT = "true"
-               MOVE "true" TO WS-ON
-               MOVE 400 TO WS-MS
+           *> One button steps the animation: 400 ms, 2000 ms, 5000 ms, then off,
+           *> then 400 ms again. WHEN OTHER is the 5000 ms step (or any duration
+           *> set elsewhere) and is the one that switches animation off.
+
+           IF    FUNCTION TRIM(WS-ON) NOT = "true"
+               SET     WS-ON                     TO    "true"
+               SET     WS-MS                     TO    400
            ELSE
-               EVALUATE WS-MS
-                   WHEN 400  MOVE 2000 TO WS-MS
+               EVALUATE    WS-MS
+                   WHEN 400 MOVE 2000 TO WS-MS
                    WHEN 2000 MOVE 5000 TO WS-MS
                    WHEN OTHER
-                       MOVE "false" TO WS-ON
-                       MOVE 2000 TO WS-MS
+                       SET     WS-ON             TO    "false"
+                       SET     WS-MS             TO    2000
                END-EVALUATE
            END-IF
 
-           MOVE FUNCTION TRIM(WS-ON) TO BarChart-1::AnimateValues
-           MOVE WS-MS TO BarChart-1::AnimationDuration
-           MOVE FUNCTION TRIM(WS-ON) TO LineChart-1::AnimateValues
-           MOVE WS-MS TO LineChart-1::AnimationDuration
-           MOVE FUNCTION TRIM(WS-ON) TO PieChart-1::AnimateValues
-           MOVE WS-MS TO PieChart-1::AnimationDuration
-           MOVE FUNCTION TRIM(WS-ON) TO AreaChart-1::AnimateValues
-           MOVE WS-MS TO AreaChart-1::AnimationDuration
-           MOVE FUNCTION TRIM(WS-ON) TO ScatterChart-1::AnimateValues
-           MOVE WS-MS TO ScatterChart-1::AnimationDuration
-           MOVE FUNCTION TRIM(WS-ON) TO DonutChart-1::AnimateValues
-           MOVE WS-MS TO DonutChart-1::AnimationDuration
+           SET     BarChart-1::AnimateValues     TO    FUNCTION TRIM(WS-ON)
+           SET     BarChart-1::AnimationDuration TO    WS-MS
+           SET     LineChart-1::AnimateValues    TO    FUNCTION TRIM(WS-ON)
+           SET     LineChart-1::AnimationDuration
+                                                 TO    WS-MS
 
-           MOVE WS-MS TO WS-MS-TEXT
-           IF FUNCTION TRIM(WS-ON) = "true"
-               MOVE "AnimateValues on, " TO WS-MSG
-               STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-MS-TEXT) " ms" INTO WS-OUT
+           SET     PieChart-1::AnimateValues     TO    FUNCTION TRIM(WS-ON)
+           SET     PieChart-1::AnimationDuration TO    WS-MS
+           SET     AreaChart-1::AnimateValues    TO    FUNCTION TRIM(WS-ON)
+           SET     AreaChart-1::AnimationDuration
+                                                 TO    WS-MS
+
+           SET     ScatterChart-1::AnimateValues TO    FUNCTION TRIM(WS-ON)
+           SET     ScatterChart-1::AnimationDuration
+                                                 TO    WS-MS
+
+           SET     DonutChart-1::AnimateValues   TO    FUNCTION TRIM(WS-ON)
+           SET     DonutChart-1::AnimationDuration
+                                                 TO    WS-MS
+
+           SET     WS-MS-TEXT                    TO    WS-MS
+           IF    FUNCTION TRIM(WS-ON) = "true"
+               SET     WS-MSG                    TO    "AnimateValues on, "
+               STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-MS-TEXT) " ms" INTO WS-OUT
            ELSE
-               MOVE "AnimateValues off - data changes are instant" TO WS-OUT
+               SET     WS-OUT                    TO    "AnimateValues off - data changes are instant"
            END-IF
-           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     Label-STATUS::Caption         TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 

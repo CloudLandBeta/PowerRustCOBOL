@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="PREVIEW-FORM" title="PowerChat" width="960" height="640" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed">
-  <working-storage><![CDATA[       01 WS-TEXT            GLOBAL PIC X(400).
-       01 WS-OK              GLOBAL PIC X(4).
+  <working-storage><![CDATA[       01 WS-TEXT                                GLOBAL    PIC X(400).
+       01 WS-OK                                  GLOBAL    PIC X(4).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -50,23 +50,27 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="PREVIEW-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A document shown as it is, for any form (operator, 2026-09-27):
-      *>   the caller sets, on itself, PreviewPath (the file), PreviewTitle
-      *>   (its name) and, translated, PreviewClose; then opens this with
-      *>   OpenFormSync. The Viewer shows Markdown, text, HTML, PDF and
-      *>   images as they are, and Word, PowerPoint, Excel and OpenDocument
-      *>   files as their text. Nothing comes back: it only shows.
-           INVOKE super::GetProperty("PreviewTitle") RETURNING WS-TEXT
-           MOVE WS-TEXT::Trim() TO Lbl-Title::Caption
-           INVOKE super::GetProperty("PreviewClose") RETURNING WS-TEXT
-           MOVE WS-TEXT::Trim() TO Btn-Close::Caption
-           INVOKE super::GetProperty("PreviewPath") RETURNING WS-TEXT
-           MOVE WS-TEXT::Trim() TO Vwr-Doc::Source
+           *>   A document shown as it is, for any form (operator, 2026-09-27):
+           *>   the caller sets, on itself, PreviewPath (the file), PreviewTitle
+           *>   (its name) and, translated, PreviewClose; then opens this with
+           *>   OpenFormSync. The Viewer shows Markdown, text, HTML, PDF and
+           *>   images as they are, and Word, PowerPoint, Excel and OpenDocument
+           *>   files as their text. Nothing comes back: it only shows.
+
+           INVOKE    super::GetProperty("PreviewTitle") RETURNING WS-TEXT
+           SET     Lbl-Title::Caption            TO    WS-TEXT::Trim()
+           INVOKE    super::GetProperty("PreviewClose") RETURNING WS-TEXT
+           SET     Btn-Close::Caption            TO    WS-TEXT::Trim()
+           INVOKE    super::GetProperty("PreviewPath") RETURNING WS-TEXT
+           SET     Vwr-Doc::Source               TO    WS-TEXT::Trim()
 ]]></Event>
     <Event name="onClose" paragraph="PREVIEW-FORM--ONCLOSE">
     </Event>
@@ -221,10 +225,13 @@
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   No choice: PickAnswer keeps the caller's own 0.
-           INVOKE ME::Close()
+           *>   No choice: PickAnswer keeps the caller's own 0.
+
+           INVOKE    ME::Close()
 ]]></Event>
   </Control>
 </Form>

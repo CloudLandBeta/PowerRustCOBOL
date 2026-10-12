@@ -80,16 +80,16 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-RUNTIME-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-E-X GLOBAL PIC -(4)9.
-       01 WS-E-Y GLOBAL PIC -(4)9.
-       01 WS-E-W GLOBAL PIC Z(4)9.
-       01 WS-E-H GLOBAL PIC Z(4)9.
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-E-X                                 GLOBAL    PIC -(4)9.
+       01 WS-E-Y                                 GLOBAL    PIC -(4)9.
+       01 WS-E-W                                 GLOBAL    PIC Z(4)9.
+       01 WS-E-H                                 GLOBAL    PIC Z(4)9.
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-LBL-TITLE.
@@ -346,15 +346,18 @@
        PROGRAM-ID. RESPONSIVE-RUNTIME-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "RTM-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "RTM-SHOW-INFO"
 
            GOBACK.
 
@@ -380,15 +383,18 @@
        PROGRAM-ID. RESPONSIVE-RUNTIME-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "RTM-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "RTM-SHOW-INFO"
 
            GOBACK.
 
@@ -398,15 +404,18 @@
        PROGRAM-ID. RESPONSIVE-RUNTIME-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "RTM-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "RTM-SHOW-INFO"
 
            GOBACK.
 
@@ -416,10 +425,12 @@
        PROGRAM-ID. RC-ABS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Absolute" TO RT-STAGE::LayoutMode
-           MOVE "Last: Absolute" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Absolute"
+           SET     RT-LOG::Caption               TO    "Last: Absolute"
 
            GOBACK.
 
@@ -429,11 +440,13 @@
        PROGRAM-ID. RC-ROW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Flex" TO RT-STAGE::LayoutMode
-           MOVE "Row" TO RT-STAGE::FlexDirection
-           MOVE "Last: Flex row" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Flex"
+           SET     RT-STAGE::FlexDirection       TO    "Row"
+           SET     RT-LOG::Caption               TO    "Last: Flex row"
 
            GOBACK.
 
@@ -443,11 +456,13 @@
        PROGRAM-ID. RC-COL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Flex" TO RT-STAGE::LayoutMode
-           MOVE "Column" TO RT-STAGE::FlexDirection
-           MOVE "Last: Flex column" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Flex"
+           SET     RT-STAGE::FlexDirection       TO    "Column"
+           SET     RT-LOG::Caption               TO    "Last: Flex column"
 
            GOBACK.
 
@@ -457,12 +472,14 @@
        PROGRAM-ID. RC-GRID--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Grid" TO RT-STAGE::LayoutMode
-           MOVE "Repeat(3, 1fr)" TO RT-STAGE::GridColumns
-           MOVE "1fr 1fr" TO RT-STAGE::GridRows
-           MOVE "Last: Grid 3 x 2" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Grid"
+           SET     RT-STAGE::GridColumns         TO    "Repeat(3, 1fr)"
+           SET     RT-STAGE::GridRows            TO    "1fr 1fr"
+           SET     RT-LOG::Caption               TO    "Last: Grid 3 x 2"
 
            GOBACK.
 
@@ -472,10 +489,12 @@
        PROGRAM-ID. RC-FLOW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Flow" TO RT-STAGE::LayoutMode
-           MOVE "Last: Flow" TO RT-LOG::Caption
+           SET     RT-STAGE::LayoutMode          TO    "Flow"
+           SET     RT-LOG::Caption               TO    "Last: Flow"
 
            GOBACK.
 
@@ -485,10 +504,12 @@
        PROGRAM-ID. RC-CENTER--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Center" TO RT-STAGE::JustifyContent
-           MOVE "Last: Justify center" TO RT-LOG::Caption
+           SET     RT-STAGE::JustifyContent      TO    "Center"
+           SET     RT-LOG::Caption               TO    "Last: Justify center"
 
            GOBACK.
 
@@ -498,10 +519,12 @@
        PROGRAM-ID. RC-GAP24--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 24 TO RT-STAGE::Gap
-           MOVE "Last: Gap 24" TO RT-LOG::Caption
+           SET     RT-STAGE::Gap                 TO    24
+           SET     RT-LOG::Caption               TO    "Last: Gap 24"
 
            GOBACK.
 
@@ -511,10 +534,12 @@
        PROGRAM-ID. RC-GAP0--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO RT-STAGE::Gap
-           MOVE "Last: Gap 0" TO RT-LOG::Caption
+           SET     RT-STAGE::Gap                 TO    0
+           SET     RT-LOG::Caption               TO    "Last: Gap 0"
 
            GOBACK.
 
@@ -524,10 +549,12 @@
        PROGRAM-ID. RC-GROW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO RT-1::FlexGrow
-           MOVE "Last: Chip 1 grows" TO RT-LOG::Caption
+           SET     RT-1::FlexGrow                TO    1
+           SET     RT-LOG::Caption               TO    "Last: Chip 1 grows"
 
            GOBACK.
 
@@ -537,10 +564,12 @@
        PROGRAM-ID. RC-MAXW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 120 TO RT-1::MaxWidth
-           MOVE "Last: Chip 1 MaxWidth 120" TO RT-LOG::Caption
+           SET     RT-1::MaxWidth                TO    120
+           SET     RT-LOG::Caption               TO    "Last: Chip 1 MaxWidth 120"
 
            GOBACK.
 
@@ -550,14 +579,18 @@
        PROGRAM-ID. RC-MOVE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> On a responsive form a geometry write is ON-SCREEN:
-      *> what COBOL writes is what it reads back (R38).
-           MOVE RT-1::X TO WS-NUM
-           ADD 20 TO WS-NUM
-           MOVE WS-NUM TO RT-1::X
-           MOVE "Last: Move chip 1 by 20" TO RT-LOG::Caption
+           *> On a responsive form a geometry write is ON-SCREEN:
+           *> what COBOL writes is what it reads back (R38).
+
+           SET     WS-NUM                        TO    RT-1::X
+           ADD    20 TO WS-NUM
+
+           SET     RT-1::X                       TO    WS-NUM
+           SET     RT-LOG::Caption               TO    "Last: Move chip 1 by 20"
 
            GOBACK.
 
@@ -567,23 +600,27 @@
        PROGRAM-ID. RC-READ--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Reads the LAID-OUT rectangle, not the designed one.
-           MOVE RT-1::X TO WS-NUM
-           MOVE WS-NUM TO WS-E-X
-           MOVE RT-1::Y TO WS-NUM
-           MOVE WS-NUM TO WS-E-Y
-           MOVE RT-1::Width TO WS-NUM
-           MOVE WS-NUM TO WS-E-W
-           MOVE RT-1::Height TO WS-NUM
-           MOVE WS-NUM TO WS-E-H
-           MOVE SPACES TO WS-LINE
-           STRING "Chip 1 is at " WS-E-X::Trim()
+           *> Reads the LAID-OUT rectangle, not the designed one.
+
+           SET     WS-NUM                        TO    RT-1::X
+           SET     WS-E-X                        TO    WS-NUM
+           SET     WS-NUM                        TO    RT-1::Y
+           SET     WS-E-Y                        TO    WS-NUM
+           SET     WS-NUM                        TO    RT-1::Width
+           SET     WS-E-W                        TO    WS-NUM
+           SET     WS-NUM                        TO    RT-1::Height
+           SET     WS-E-H                        TO    WS-NUM
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    "Chip 1 is at " WS-E-X::Trim()
                ", " WS-E-Y::Trim() ", size "
-               WS-E-W::Trim() " x " WS-E-H::Trim()
+           WS-E-W::Trim() " x " WS-E-H::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO RT-LOG::Caption
+           SET     RT-LOG::Caption               TO    WS-LINE
 
            GOBACK.
 
@@ -593,11 +630,14 @@
        PROGRAM-ID. RC-OFF--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Off: the designed size, scrolling - as before 1.80.
-           MOVE 0 TO me::Responsive
-           MOVE "Last: Responsive off" TO RT-LOG::Caption
+           *> Off: the designed size, scrolling - as before 1.80.
+
+           SET     me::Responsive                TO    0
+           SET     RT-LOG::Caption               TO    "Last: Responsive off"
 
            GOBACK.
 
@@ -607,10 +647,12 @@
        PROGRAM-ID. RC-ON--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO me::Responsive
-           MOVE "Last: Responsive on" TO RT-LOG::Caption
+           SET     me::Responsive                TO    1
+           SET     RT-LOG::Caption               TO    "Last: Responsive on"
 
            GOBACK.
 
@@ -620,10 +662,12 @@
        PROGRAM-ID. RC-MIN900--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 900 TO me::MinFormWidth
-           MOVE "Last: MinFormWidth 900" TO RT-LOG::Caption
+           SET     me::MinFormWidth              TO    900
+           SET     RT-LOG::Caption               TO    "Last: MinFormWidth 900"
 
            GOBACK.
 
@@ -633,10 +677,12 @@
        PROGRAM-ID. RC-MIN64--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 64 TO me::MinFormWidth
-           MOVE "Last: MinFormWidth 64" TO RT-LOG::Caption
+           SET     me::MinFormWidth              TO    64
+           SET     RT-LOG::Caption               TO    "Last: MinFormWidth 64"
 
            GOBACK.
 
@@ -646,17 +692,20 @@
        PROGRAM-ID. RTM-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 

@@ -80,12 +80,12 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-FLOW-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-LBL-TITLE.
@@ -602,15 +602,18 @@
        PROGRAM-ID. RESPONSIVE-FLOW-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLW-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLW-SHOW-INFO"
 
            GOBACK.
 
@@ -636,15 +639,18 @@
        PROGRAM-ID. RESPONSIVE-FLOW-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLW-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLW-SHOW-INFO"
 
            GOBACK.
 
@@ -654,15 +660,18 @@
        PROGRAM-ID. RESPONSIVE-FLOW-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLW-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLW-SHOW-INFO"
 
            GOBACK.
 
@@ -672,9 +681,11 @@
        PROGRAM-ID. FB-LTR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "LeftToRight" TO FL-1::FlowDirection
+           SET     FL-1::FlowDirection           TO    "LeftToRight"
 
            GOBACK.
 
@@ -684,9 +695,11 @@
        PROGRAM-ID. FB-RTL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "RightToLeft" TO FL-1::FlowDirection
+           SET     FL-1::FlowDirection           TO    "RightToLeft"
 
            GOBACK.
 
@@ -696,9 +709,11 @@
        PROGRAM-ID. FB-TD--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "TopDown" TO FL-1::FlowDirection
+           SET     FL-1::FlowDirection           TO    "TopDown"
 
            GOBACK.
 
@@ -708,9 +723,11 @@
        PROGRAM-ID. FB-BU--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "BottomUp" TO FL-1::FlowDirection
+           SET     FL-1::FlowDirection           TO    "BottomUp"
 
            GOBACK.
 
@@ -720,9 +737,11 @@
        PROGRAM-ID. FB-WON--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO FL-1::WrapContents
+           SET     FL-1::WrapContents            TO    1
 
            GOBACK.
 
@@ -732,9 +751,11 @@
        PROGRAM-ID. FB-WOFF--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO FL-1::WrapContents
+           SET     FL-1::WrapContents            TO    0
 
            GOBACK.
 
@@ -744,9 +765,11 @@
        PROGRAM-ID. FB-G2--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 2 TO FL-1::Gap
+           SET     FL-1::Gap                     TO    2
 
            GOBACK.
 
@@ -756,9 +779,11 @@
        PROGRAM-ID. FB-G16--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 16 TO FL-1::Gap
+           SET     FL-1::Gap                     TO    16
 
            GOBACK.
 
@@ -768,9 +793,11 @@
        PROGRAM-ID. FB-BRK--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO FL-1-3::FlowBreak
+           SET     FL-1-3::FlowBreak             TO    1
 
            GOBACK.
 
@@ -780,17 +807,20 @@
        PROGRAM-ID. FLW-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 

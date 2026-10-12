@@ -80,8 +80,8 @@
        01 FORM-NAME               PIC X(64)   VALUE 'PREVIEW-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-TEXT            GLOBAL PIC X(400).
-       01 WS-OK              GLOBAL PIC X(4).
+       01 WS-TEXT                                GLOBAL    PIC X(400).
+       01 WS-OK                                  GLOBAL    PIC X(4).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -136,20 +136,23 @@
        PROGRAM-ID. PREVIEW-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A document shown as it is, for any form (operator, 2026-09-27):
-      *>   the caller sets, on itself, PreviewPath (the file), PreviewTitle
-      *>   (its name) and, translated, PreviewClose; then opens this with
-      *>   OpenFormSync. The Viewer shows Markdown, text, HTML, PDF and
-      *>   images as they are, and Word, PowerPoint, Excel and OpenDocument
-      *>   files as their text. Nothing comes back: it only shows.
-           INVOKE super::GetProperty("PreviewTitle") RETURNING WS-TEXT
-           MOVE WS-TEXT::Trim() TO Lbl-Title::Caption
-           INVOKE super::GetProperty("PreviewClose") RETURNING WS-TEXT
-           MOVE WS-TEXT::Trim() TO Btn-Close::Caption
-           INVOKE super::GetProperty("PreviewPath") RETURNING WS-TEXT
-           MOVE WS-TEXT::Trim() TO Vwr-Doc::Source
+           *>   A document shown as it is, for any form (operator, 2026-09-27):
+           *>   the caller sets, on itself, PreviewPath (the file), PreviewTitle
+           *>   (its name) and, translated, PreviewClose; then opens this with
+           *>   OpenFormSync. The Viewer shows Markdown, text, HTML, PDF and
+           *>   images as they are, and Word, PowerPoint, Excel and OpenDocument
+           *>   files as their text. Nothing comes back: it only shows.
+
+           INVOKE    super::GetProperty("PreviewTitle") RETURNING WS-TEXT
+           SET     Lbl-Title::Caption            TO    WS-TEXT::Trim()
+           INVOKE    super::GetProperty("PreviewClose") RETURNING WS-TEXT
+           SET     Btn-Close::Caption            TO    WS-TEXT::Trim()
+           INVOKE    super::GetProperty("PreviewPath") RETURNING WS-TEXT
+           SET     Vwr-Doc::Source               TO    WS-TEXT::Trim()
 
            GOBACK.
 
@@ -175,10 +178,13 @@
        PROGRAM-ID. BTN-CLOSE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   No choice: PickAnswer keeps the caller's own 0.
-           INVOKE ME::Close()
+           *>   No choice: PickAnswer keeps the caller's own 0.
+
+           INVOKE    ME::Close()
 
            GOBACK.
 

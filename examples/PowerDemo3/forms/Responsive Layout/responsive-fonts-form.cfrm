@@ -6,12 +6,12 @@
     <Breakpoint name="Medium" min-width="600" font-factor="1"/>
     <Breakpoint name="Expanded" min-width="1024" font-factor="1.25"/>
   </Breakpoints>
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -60,66 +60,88 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="FNT-SHOW-INFO" paragraph="FNT-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-FONTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FNT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO FS-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FNT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-FSC is blank-padded to 12 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
+           SET     FS-NOW::Caption               TO    WS-LINE
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-FONTS-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-FONTS-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FNT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO FS-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FNT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-FSC is blank-padded to 12 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
+           SET     FS-NOW::Caption               TO    WS-LINE
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-FONTS-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FNT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO FS-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FNT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-FSC is blank-padded to 12 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Font scale: " WS-FSC DELIMITED BY "  " INTO WS-LINE
+           SET     FS-NOW::Caption               TO    WS-LINE
 ]]></Event>
   </form-events>
   <Control id="LBL-TITLE" type="Label" x="24" y="14" w="952" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -654,9 +676,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-NONE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "None" TO me::FontScaling
+           SET     me::FontScaling               TO    "None"
 ]]></Event>
   </Control>
   <Control id="FC-FLUID" type="Button" x="674" y="188" w="288" h="34" tab-order="4" z-order="14" visible="true" enabled="true" parent="PNL-CTRL">
@@ -698,9 +722,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-FLUID--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Fluid" TO me::FontScaling
+           SET     me::FontScaling               TO    "Fluid"
 ]]></Event>
   </Control>
   <Control id="FC-STEP" type="Button" x="674" y="230" w="288" h="34" tab-order="5" z-order="15" visible="true" enabled="true" parent="PNL-CTRL">
@@ -742,11 +768,14 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-STEP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Each breakpoint's factor: Compact 0.85, Medium 1,
-      *> Expanded 1.25.
-           MOVE "Stepped" TO me::FontScaling
+           *> Each breakpoint's factor: Compact 0.85, Medium 1,
+           *> Expanded 1.25.
+
+           SET     me::FontScaling               TO    "Stepped"
 ]]></Event>
   </Control>
   <Control id="FC-PIN14" type="Button" x="674" y="272" w="288" h="34" tab-order="6" z-order="16" visible="true" enabled="true" parent="PNL-CTRL">
@@ -788,10 +817,13 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-PIN14--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Pins the TOTAL factor: it reads back as written.
-           MOVE 1.4 TO me::FontScale
+           *> Pins the TOTAL factor: it reads back as written.
+
+           SET     me::FontScale                 TO    1.4
 ]]></Event>
   </Control>
   <Control id="FC-PIN08" type="Button" x="674" y="314" w="288" h="34" tab-order="7" z-order="17" visible="true" enabled="true" parent="PNL-CTRL">
@@ -833,9 +865,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-PIN08--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0.8 TO me::FontScale
+           SET     me::FontScale                 TO    0.8
 ]]></Event>
   </Control>
   <Control id="FC-AUTO" type="Button" x="674" y="356" w="288" h="34" tab-order="8" z-order="18" visible="true" enabled="true" parent="PNL-CTRL">
@@ -877,9 +911,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-AUTO--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO me::FontScale
+           SET     me::FontScale                 TO    0
 ]]></Event>
   </Control>
   <Control id="FC-WIDE" type="Button" x="674" y="398" w="288" h="34" tab-order="9" z-order="19" visible="true" enabled="true" parent="PNL-CTRL">
@@ -921,10 +957,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-WIDE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0.5 TO me::MinFontScale
-           MOVE 2.0 TO me::MaxFontScale
+           SET     me::MinFontScale              TO    0.5
+           SET     me::MaxFontScale              TO    2.0
 ]]></Event>
   </Control>
   <Control id="FC-NARROW" type="Button" x="674" y="440" w="288" h="34" tab-order="10" z-order="20" visible="true" enabled="true" parent="PNL-CTRL">
@@ -966,10 +1004,12 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="FC-NARROW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0.8 TO me::MinFontScale
-           MOVE 1.6 TO me::MaxFontScale
+           SET     me::MinFontScale              TO    0.8
+           SET     me::MaxFontScale              TO    1.6
 ]]></Event>
   </Control>
   <Control id="FS-NOW" type="Label" x="674" y="490" w="288" h="34" tab-order="0" z-order="21" visible="true" enabled="true" parent="PNL-CTRL">

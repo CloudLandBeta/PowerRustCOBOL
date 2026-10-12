@@ -80,25 +80,26 @@
        01 FORM-NAME               PIC X(64)   VALUE 'PROPS-CHILD-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-*>   The order both forms share - a group item with a table inside.
-      *>   It travels between them as ONE property, its fixed layout intact,
-      *>   so both sides must declare it the same way (a real application
-      *>   would COPY it from one copybook).
-       01 WS-ORDER           GLOBAL.
-          05 ORD-NUMBER      PIC 9(6).
-          05 ORD-DATE        PIC X(10).
-          05 ORD-LINE        OCCURS 3 TIMES.
-             10 ORD-ITEM     PIC X(20).
-             10 ORD-QTY      PIC 9(3).
-             10 ORD-PRICE    PIC 9(5)V99.
-       01 WS-TOTAL           GLOBAL PIC 9(7)V99.
-       01 WS-I               GLOBAL PIC 9.
-       01 WS-LINE            GLOBAL PIC X(80).
-       01 WS-QTY-ED          GLOBAL PIC ZZ9.
-       01 WS-AMT-ED          GLOBAL PIC ZZ,ZZ9.99.
-       01 WS-TOTAL-ED        GLOBAL PIC Z,ZZZ,ZZ9.99.
-       01 WS-VIP             GLOBAL PIC X.
-       01 WS-RESULT          GLOBAL PIC X(10).
+       *>   The order both forms share - a group item with a table inside.
+       *>   It travels between them as ONE property, its fixed layout intact,
+       *>   so both sides must declare it the same way (a real application
+       *>   would COPY it from one copybook).
+
+       01 WS-ORDER                               GLOBAL.
+           05 ORD-NUMBER                         PIC    9(6).
+           05 ORD-DATE                           PIC    X(10).
+           05 ORD-LINE                           OCCURS    3 TIMES.
+               10 ORD-ITEM                       PIC    X(20).
+               10 ORD-QTY                        PIC    9(3).
+               10 ORD-PRICE                      PIC    9(5)V99.
+       01 WS-TOTAL                               GLOBAL    PIC 9(7)V99.
+       01 WS-I                                   GLOBAL    PIC 9.
+       01 WS-LINE                                GLOBAL    PIC X(80).
+       01 WS-QTY-ED                              GLOBAL    PIC ZZ9.
+       01 WS-AMT-ED                              GLOBAL    PIC ZZ,ZZ9.99.
+       01 WS-TOTAL-ED                            GLOBAL    PIC Z,ZZZ,ZZ9.99.
+       01 WS-VIP                                 GLOBAL    PIC X.
+       01 WS-RESULT                              GLOBAL    PIC X(10).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -243,38 +244,46 @@
        PROGRAM-ID. PROPS-CHILD-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-*>   Read what the parent published - super is the form that opened
-      *>   this one. A form property of the parent's own surface reads
-      *>   bare (super::Title); a property of any name, through GetProperty.
-           MOVE SPACES TO WS-LINE
-           STRING "Opened by: " super::Title INTO WS-LINE
-           MOVE WS-LINE TO Lbl-From::Caption
-      *>   Simple values.
-           INVOKE super::GetProperty("CustomerName") RETURNING Txt-Name::Text
-           INVOKE super::GetProperty("CreditLimit") RETURNING Lbl-Limit-Value::Caption
-           INVOKE super::GetProperty("IsVip") RETURNING WS-VIP
-           IF WS-VIP = "Y"
-               SET Chk-Vip::Checked TO TRUE
+           *>   Read what the parent published - super is the form that opened
+           *>   this one. A form property of the parent's own surface reads
+           *>   bare (super::Title); a property of any name, through GetProperty.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Opened by: " super::Title INTO WS-LINE
+           SET     Lbl-From::Caption             TO    WS-LINE
+           *>   Simple values.
+
+           INVOKE    super::GetProperty("CustomerName") RETURNING Txt-Name::Text
+           INVOKE    super::GetProperty("CreditLimit") RETURNING Lbl-Limit-Value::Caption
+           INVOKE    super::GetProperty("IsVip") RETURNING WS-VIP
+
+           IF    WS-VIP = "Y"
+               SET     Chk-Vip::Checked          TO    TRUE
            ELSE
-               SET Chk-Vip::Checked TO FALSE
+               SET     Chk-Vip::Checked          TO    FALSE
            END-IF
-      *>   Complex data: the record lands in the same layout, field by field.
-           INVOKE super::GetProperty("OrderRecord") RETURNING WS-ORDER
-           MOVE ORD-ITEM(1) TO Lbl-Item-1::Caption
-           MOVE ORD-ITEM(2) TO Lbl-Item-2::Caption
-           MOVE ORD-ITEM(3) TO Lbl-Item-3::Caption
-           MOVE ORD-QTY(1) TO WS-QTY-ED
-           MOVE WS-QTY-ED TO Txt-Qty-1::Text
-           MOVE ORD-QTY(2) TO WS-QTY-ED
-           MOVE WS-QTY-ED TO Txt-Qty-2::Text
-           MOVE ORD-QTY(3) TO WS-QTY-ED
-           MOVE WS-QTY-ED TO Txt-Qty-3::Text
-           MOVE SPACES TO WS-LINE
-           STRING "Order " ORD-NUMBER " of " ORD-DATE DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Order::Caption
-           CALL "PC-TOTAL"
+           *>   Complex data: the record lands in the same layout, field by field.
+
+           INVOKE    super::GetProperty("OrderRecord") RETURNING WS-ORDER
+
+           SET     Lbl-Item-1::Caption           TO    ORD-ITEM(1)
+           SET     Lbl-Item-2::Caption           TO    ORD-ITEM(2)
+           SET     Lbl-Item-3::Caption           TO    ORD-ITEM(3)
+           SET     WS-QTY-ED                     TO    ORD-QTY(1)
+           SET     Txt-Qty-1::Text               TO    WS-QTY-ED
+           SET     WS-QTY-ED                     TO    ORD-QTY(2)
+           SET     Txt-Qty-2::Text               TO    WS-QTY-ED
+           SET     WS-QTY-ED                     TO    ORD-QTY(3)
+           SET     Txt-Qty-3::Text               TO    WS-QTY-ED
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    "Order " ORD-NUMBER " of " ORD-DATE DELIMITED BY SIZE INTO WS-LINE
+           SET     Lbl-Order::Caption            TO    WS-LINE
+           CALL    "PC-TOTAL"
 
            GOBACK.
 
@@ -300,9 +309,11 @@
        PROGRAM-ID. BTN-RECALC--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-TOTAL"
+           CALL    "PC-TOTAL"
 
            GOBACK.
 
@@ -312,15 +323,19 @@
        PROGRAM-ID. BTN-OK--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-*>   Send the edited data back to the parent - it reads it after
-      *>   OpenFormSync returns - and close.
-           CALL "PC-TOTAL"
-           INVOKE super::SetProperty("CustomerName", Txt-Name::Text)
-           INVOKE super::SetProperty("OrderRecord", WS-ORDER)
-           INVOKE super::SetProperty("ChildResult", "OK")
-           INVOKE ME::Close()
+           *>   Send the edited data back to the parent - it reads it after
+           *>   OpenFormSync returns - and close.
+
+           CALL    "PC-TOTAL"
+
+           INVOKE    super::SetProperty("CustomerName", Txt-Name::Text)
+           INVOKE    super::SetProperty("OrderRecord", WS-ORDER)
+           INVOKE    super::SetProperty("ChildResult", "OK")
+           INVOKE    ME::Close()
 
            GOBACK.
 
@@ -330,11 +345,14 @@
        PROGRAM-ID. BTN-CANCEL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-*>   Nothing is sent back but the answer itself.
-           INVOKE super::SetProperty("ChildResult", "CANCEL")
-           INVOKE ME::Close()
+           *>   Nothing is sent back but the answer itself.
+
+           INVOKE    super::SetProperty("ChildResult", "CANCEL")
+           INVOKE    ME::Close()
 
            GOBACK.
 
@@ -344,20 +362,26 @@
        PROGRAM-ID. PC-TOTAL IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-*>   The quantities typed, back into the record, and its total.
-           MOVE FUNCTION NUMVAL(Txt-Qty-1::Text) TO ORD-QTY(1)
-           MOVE FUNCTION NUMVAL(Txt-Qty-2::Text) TO ORD-QTY(2)
-           MOVE FUNCTION NUMVAL(Txt-Qty-3::Text) TO ORD-QTY(3)
-           MOVE 0 TO WS-TOTAL
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 3
-               COMPUTE WS-TOTAL = WS-TOTAL + ORD-QTY(WS-I) * ORD-PRICE(WS-I)
+           *>   The quantities typed, back into the record, and its total.
+
+           SET     ORD-QTY(1)                    TO    FUNCTION NUMVAL(Txt-Qty-1::Text)
+           SET     ORD-QTY(2)                    TO    FUNCTION NUMVAL(Txt-Qty-2::Text)
+           SET     ORD-QTY(3)                    TO    FUNCTION NUMVAL(Txt-Qty-3::Text)
+           SET     WS-TOTAL                      TO    0
+
+           PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 3
+               COMPUTE    WS-TOTAL = WS-TOTAL + ORD-QTY(WS-I) * ORD-PRICE(WS-I)
            END-PERFORM
-           MOVE WS-TOTAL TO WS-TOTAL-ED
-           MOVE SPACES TO WS-LINE
-           STRING "Total " WS-TOTAL-ED DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Total::Caption
+
+           SET     WS-TOTAL-ED                   TO    WS-TOTAL
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    "Total " WS-TOTAL-ED DELIMITED BY SIZE INTO WS-LINE
+           SET     Lbl-Total::Caption            TO    WS-LINE
 
            GOBACK.
 

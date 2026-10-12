@@ -80,14 +80,14 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-ANCHORS-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-ANCHOR GLOBAL PIC X(40).
-       01 WS-PTR GLOBAL PIC 99.
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-ANCHOR                              GLOBAL    PIC X(40).
+       01 WS-PTR                                 GLOBAL    PIC 99.
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-LBL-TITLE.
@@ -316,15 +316,18 @@
        PROGRAM-ID. RESPONSIVE-ANCHORS-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "ANC-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "ANC-SHOW-INFO"
 
            GOBACK.
 
@@ -350,15 +353,18 @@
        PROGRAM-ID. RESPONSIVE-ANCHORS-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "ANC-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "ANC-SHOW-INFO"
 
            GOBACK.
 
@@ -368,15 +374,18 @@
        PROGRAM-ID. RESPONSIVE-ANCHORS-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "ANC-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "ANC-SHOW-INFO"
 
            GOBACK.
 
@@ -386,9 +395,11 @@
        PROGRAM-ID. CHK-TOP--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
 
@@ -398,9 +409,11 @@
        PROGRAM-ID. CHK-BOTTOM--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
 
@@ -410,9 +423,11 @@
        PROGRAM-ID. CHK-LEFT--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
 
@@ -422,9 +437,11 @@
        PROGRAM-ID. CHK-RIGHT--ONCHECKEDCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "ANC-APPLY-LIVE"
+           CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
 
@@ -434,13 +451,16 @@
        PROGRAM-ID. BTN-RESET--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO CHK-TOP::Checked
-           MOVE 0 TO CHK-BOTTOM::Checked
-           MOVE 1 TO CHK-LEFT::Checked
-           MOVE 0 TO CHK-RIGHT::Checked
-           CALL "ANC-APPLY-LIVE"
+           SET     CHK-TOP::Checked              TO    1
+           SET     CHK-BOTTOM::Checked           TO    0
+           SET     CHK-LEFT::Checked             TO    1
+           SET     CHK-RIGHT::Checked            TO    0
+
+           CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
 
@@ -450,17 +470,20 @@
        PROGRAM-ID. ANC-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 
@@ -470,35 +493,42 @@
        PROGRAM-ID. ANC-APPLY-LIVE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Build the anchor text from the four check boxes and give it
-      *> to the live block. An empty text means no edge on either axis.
-           MOVE SPACES TO WS-ANCHOR
-           MOVE 1 TO WS-PTR
-           IF CHK-TOP::Checked = 1
-               STRING "Top," INTO WS-ANCHOR
+           *> Build the anchor text from the four check boxes and give it
+           *> to the live block. An empty text means no edge on either axis.
+
+           SET     WS-ANCHOR                     TO    SPACES
+           SET     WS-PTR                        TO    1
+
+           *> WITH POINTER makes each name append after the previous one; without
+           *> it every STRING would restart at column 1 and overwrite the text.
+
+           IF    CHK-TOP::Checked = 1
+               STRING    "Top," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           IF CHK-BOTTOM::Checked = 1
-               STRING "Bottom," INTO WS-ANCHOR
+           IF    CHK-BOTTOM::Checked = 1
+               STRING    "Bottom," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           IF CHK-LEFT::Checked = 1
-               STRING "Left," INTO WS-ANCHOR
+           IF    CHK-LEFT::Checked = 1
+               STRING    "Left," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           IF CHK-RIGHT::Checked = 1
-               STRING "Right," INTO WS-ANCHOR
+           IF    CHK-RIGHT::Checked = 1
+               STRING    "Right," INTO WS-ANCHOR
                    WITH POINTER WS-PTR
            END-IF
-           MOVE WS-ANCHOR TO A-LIVE::Anchor
-           IF WS-ANCHOR = SPACES
-               MOVE "Live: (none)" TO A-LIVE::Caption
+           SET     A-LIVE::Anchor                TO    WS-ANCHOR
+           IF    WS-ANCHOR = SPACES
+               SET     A-LIVE::Caption           TO    "Live: (none)"
            ELSE
-               MOVE SPACES TO WS-LINE
-               STRING "Live: " WS-ANCHOR DELIMITED BY SIZE INTO WS-LINE
-               MOVE WS-LINE TO A-LIVE::Caption
+               SET     WS-LINE                   TO    SPACES
+               STRING    "Live: " WS-ANCHOR DELIMITED BY SIZE INTO WS-LINE
+               SET     A-LIVE::Caption           TO    WS-LINE
            END-IF
 
            GOBACK.

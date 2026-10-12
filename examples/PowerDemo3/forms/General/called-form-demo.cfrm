@@ -47,7 +47,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="CALLED-FORM-DEMO--ONLOAD">
     </Event>
@@ -162,14 +163,19 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-OK--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
 
            *> Set a value the caller can retrieve
-           INVOKE SUPER::SetProperty("ResultText", "ButtonOk clicked").
+
+           INVOKE    SUPER::SetProperty("ResultText", "ButtonOk clicked")
 
            *> Close the modal (me)
-           INVOKE ME::Close().]]></Event>
+
+           INVOKE    ME::Close().
+]]></Event>
   </Control>
   <Control id="Btn-Cancel" type="Button" x="266" y="180" w="150" h="56" tab-order="0" z-order="3" visible="true" enabled="true">
     <Property name="Caption">Cancel</Property>
@@ -209,13 +215,17 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
            *> Set a value the caller can retrieve
-           INVOKE SUPER::SetProperty("ResultText", "ButtonCancel clicked").
+
+           INVOKE    SUPER::SetProperty("ResultText", "ButtonCancel clicked")
 
            *> Close the modal (me)
-           INVOKE ME::Close().
+
+           INVOKE    ME::Close().
 ]]></Event>
   </Control>
 </Form>

@@ -1,368 +1,408 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="TOPICS-FORM" title="PowerChat" width="1072" height="632" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed" form-format="Embedded">
-  <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
-       01 WS-DATA-DIR        GLOBAL PIC X(200).
-       01 WS-SET-NAME        GLOBAL PIC X(20).
-       01 WS-SET-VALUE       GLOBAL PIC X(200).
-       01 WS-NOW             GLOBAL PIC X(21).
-       01 WS-EOF             GLOBAL PIC X.
-       01 WS-OK              GLOBAL PIC X(4).
-       01 WS-SETTINGS-PATH  GLOBAL PIC X(240).
-       01 WS-TOPICS-PATH  GLOBAL PIC X(240).
-       01 WS-TFILES-PATH  GLOBAL PIC X(240).
-       01 WS-PROMPTS-PATH  GLOBAL PIC X(240).
-       01 WS-TOPIC-COUNT     GLOBAL PIC 9(4) VALUE 0.
-       01 WS-TOPIC-IDS       GLOBAL.
-          05 WS-TOPIC-ID     PIC X(16) OCCURS 500.
-       01 WS-INDEX           GLOBAL PIC S9(4).
-       01 WS-NEW-NAME        GLOBAL PIC X(40).
-       01 WS-NEW-PROMPT      GLOBAL PIC X(1000).
-       01 WS-NEW-ID          GLOBAL PIC X(16).
-      *>   The sample topics (spec 071 Q1): shipped in samples/, installed and
-      *>   removed from here. POWERCHAT_SAMPLES moves the folder.
-       01 WS-SAMPLES-DIR     GLOBAL PIC X(200).
-       01 WS-SAMPLES-LIST    GLOBAL PIC X(240).
-       01 WS-KIND            GLOBAL PIC X(8).
-       01 WS-FOLDER          GLOBAL PIC X(30).
-       01 WS-F3              GLOBAL PIC X(1000).
-       01 WS-F4              GLOBAL PIC X(1000).
-       01 WS-SEQ-N           GLOBAL PIC 9 VALUE 0.
-       01 WS-TF-SEQ          GLOBAL PIC 9(3) VALUE 0.
-       01 WS-MAP-COUNT       GLOBAL PIC 99 VALUE 0.
-       01 WS-MAP             GLOBAL.
-          05 WS-MAP-ROW      OCCURS 10.
-             10 WS-MAP-FOLDER PIC X(30).
-             10 WS-MAP-ID    PIC X(16).
-       01 WS-Q-COUNT         GLOBAL PIC 99 VALUE 0.
-       01 WS-Q-NEXT          GLOBAL PIC 99 VALUE 0.
-       01 WS-QUEUE           GLOBAL.
-          05 WS-Q            OCCURS 60.
-             10 WS-Q-TOPIC   PIC X(16).
-             10 WS-Q-PATH    PIC X(300).
-       01 WS-J               GLOBAL PIC 99.
-       01 WS-TOPIC-ID-OF     GLOBAL PIC X(16).
-       01 WS-INSTALLING      GLOBAL PIC X VALUE "N".
-       01 WS-N1              GLOBAL PIC Z9.
-       01 WS-N2              GLOBAL PIC Z9.
-       01 WS-LINE            GLOBAL PIC X(300).
-       01 WS-REMOVED         GLOBAL PIC 99 VALUE 0.
-       01 WS-SEQS            GLOBAL.
-          05 WS-SEQ-OF       PIC 9(4) OCCURS 200.
-       01 WS-SEQ-COUNT       GLOBAL PIC 9(4).
-       01 WS-K               GLOBAL PIC 9(4).
-      *>   The CRUD (Browse / Create-Update): a grid row, the clicked cell,
-      *>   the topic being edited (spaces = a new one) and the confirmation.
-       01 WS-ROW             GLOBAL PIC X(1200).
-       01 WS-PREVIEW         GLOBAL PIC X(1000).
-       01 WS-ROW-NO          GLOBAL PIC S9(4).
-       01 WS-COL-NO          GLOBAL PIC S9(4).
-       01 WS-EDIT-ID         GLOBAL PIC X(16).
-       01 WS-TABS            GLOBAL PIC X(240).
-       01 WS-QUESTION        GLOBAL PIC X(300).
-       01 WS-ANSWER          GLOBAL PIC X.
-       01 WS-SAVE-OK         GLOBAL PIC X.
-      *>   The interface texts (spec 071 R44): one row per text, one column
-      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
-      *>   only the values are translated.
-       01 WS-LANG            GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-NOW        GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
-       01 WS-TX-I            GLOBAL PIC 9(4).
-       01 PC-TEXT-DATA       GLOBAL.
-      *>   NO-TOPICS
-          05 FILLER PIC X(110) VALUE "No topics yet - give the first one a name and create it.".
-          05 FILLER PIC X(110) VALUE "Ainda não há tópicos - dê um nome ao primeiro e crie-o.".
-          05 FILLER PIC X(110) VALUE "Aún no hay temas: ponle nombre al primero y créalo.".
-          05 FILLER PIC X(110) VALUE "Aucun sujet pour l'instant : donnez un nom au premier et créez-le.".
-          05 FILLER PIC X(110) VALUE "トピックはまだありません。最初のトピックに名前を付けて作成してください。".
-          05 FILLER PIC X(110) VALUE "还没有主题——给第一个主题起个名字并创建它。".
-      *>   PICK-OR-CREATE
-          05 FILLER PIC X(110) VALUE "Pick a topic and press Open, or create a new one.".
-          05 FILLER PIC X(110) VALUE "Escolha um tópico e clique em Abrir, ou crie um novo.".
-          05 FILLER PIC X(110) VALUE "Elige un tema y pulsa Abrir, o crea uno nuevo.".
-          05 FILLER PIC X(110) VALUE "Choisissez un sujet et cliquez sur Ouvrir, ou créez-en un nouveau.".
-          05 FILLER PIC X(110) VALUE "トピックを選んで「開く」を押すか、新しいトピックを作成してください。".
-          05 FILLER PIC X(110) VALUE "选择一个主题并点击“打开”，或创建一个新主题。".
-      *>   PICK-TOPIC-FIRST
-          05 FILLER PIC X(110) VALUE "Pick a topic in the list first.".
-          05 FILLER PIC X(110) VALUE "Escolha um tópico na lista primeiro.".
-          05 FILLER PIC X(110) VALUE "Primero elige un tema de la lista.".
-          05 FILLER PIC X(110) VALUE "Choisissez d'abord un sujet dans la liste.".
-          05 FILLER PIC X(110) VALUE "先に一覧からトピックを選んでください。".
-          05 FILLER PIC X(110) VALUE "请先在列表中选择一个主题。".
-      *>   TOPIC-OPENED
-          05 FILLER PIC X(110) VALUE "Topic opened.".
-          05 FILLER PIC X(110) VALUE "Tópico aberto.".
-          05 FILLER PIC X(110) VALUE "Tema abierto.".
-          05 FILLER PIC X(110) VALUE "Sujet ouvert.".
-          05 FILLER PIC X(110) VALUE "トピックを開きました。".
-          05 FILLER PIC X(110) VALUE "主题已打开。".
-      *>   NAME-FIRST
-          05 FILLER PIC X(110) VALUE "Give the topic a name first.".
-          05 FILLER PIC X(110) VALUE "Dê um nome ao tópico primeiro.".
-          05 FILLER PIC X(110) VALUE "Primero ponle un nombre al tema.".
-          05 FILLER PIC X(110) VALUE "Donnez d'abord un nom au sujet.".
-          05 FILLER PIC X(110) VALUE "先にトピックの名前を入力してください。".
-          05 FILLER PIC X(110) VALUE "请先为主题命名。".
-      *>   SAME-INSTANT
-          05 FILLER PIC X(110) VALUE "A topic was created this same instant - try again.".
-          05 FILLER PIC X(110) VALUE "Um tópico foi criado neste mesmo instante - tente de novo.".
-          05 FILLER PIC X(110) VALUE "Se creó un tema en este mismo instante: inténtalo de nuevo.".
-          05 FILLER PIC X(110) VALUE "Un sujet vient d'être créé au même instant : réessayez.".
-          05 FILLER PIC X(110) VALUE "ちょうど同じ瞬間に別のトピックが作成されました。もう一度お試しください。".
-          05 FILLER PIC X(110) VALUE "同一时刻已创建了一个主题——请重试。".
-      *>   TOPIC-CREATED
-          05 FILLER PIC X(110) VALUE "Topic created.".
-          05 FILLER PIC X(110) VALUE "Tópico criado.".
-          05 FILLER PIC X(110) VALUE "Tema creado.".
-          05 FILLER PIC X(110) VALUE "Sujet créé.".
-          05 FILLER PIC X(110) VALUE "トピックを作成しました。".
-          05 FILLER PIC X(110) VALUE "主题已创建。".
-      *>   SAMPLES-ALREADY
-          05 FILLER PIC X(110) VALUE "The sample topics are already installed.".
-          05 FILLER PIC X(110) VALUE "Os tópicos de exemplo já estão instalados.".
-          05 FILLER PIC X(110) VALUE "Los temas de ejemplo ya están instalados.".
-          05 FILLER PIC X(110) VALUE "Les sujets d'exemple sont déjà installés.".
-          05 FILLER PIC X(110) VALUE "サンプルトピックはすでにインストールされています。".
-          05 FILLER PIC X(110) VALUE "示例主题已经安装。".
-      *>   SAMPLES-NONE
-          05 FILLER PIC X(110) VALUE "No sample topics found (&1).".
-          05 FILLER PIC X(110) VALUE "Nenhum tópico de exemplo encontrado (&1).".
-          05 FILLER PIC X(110) VALUE "No se encontraron temas de ejemplo (&1).".
-          05 FILLER PIC X(110) VALUE "Aucun sujet d'exemple trouvé (&1).".
-          05 FILLER PIC X(110) VALUE "サンプルトピックが見つかりません（&1）。".
-          05 FILLER PIC X(110) VALUE "未找到示例主题（&1）。".
-      *>   SAMPLES-REMOVED
-          05 FILLER PIC X(110) VALUE "Removed &1 sample topic(s).".
-          05 FILLER PIC X(110) VALUE "&1 tópico(s) de exemplo removido(s).".
-          05 FILLER PIC X(110) VALUE "Se quitaron &1 tema(s) de ejemplo.".
-          05 FILLER PIC X(110) VALUE "&1 sujet(s) d'exemple retiré(s).".
-          05 FILLER PIC X(110) VALUE "サンプルトピックを &1 件削除しました。".
-          05 FILLER PIC X(110) VALUE "已移除 &1 个示例主题。".
-      *>   SAMPLES-INSTALLED
-          05 FILLER PIC X(110) VALUE "Sample topics installed: &1 topics, &2 documents.".
-          05 FILLER PIC X(110) VALUE "Tópicos de exemplo instalados: &1 tópicos, &2 documentos.".
-          05 FILLER PIC X(110) VALUE "Temas de ejemplo instalados: &1 temas, &2 documentos.".
-          05 FILLER PIC X(110) VALUE "Sujets d'exemple installés : &1 sujets, &2 documents.".
-          05 FILLER PIC X(110) VALUE "サンプルトピックをインストールしました：トピック &1 件、文書 &2 件。".
-          05 FILLER PIC X(110) VALUE "示例主题已安装：&1 个主题，&2 个文档。".
-      *>   SAMPLES-PROGRESS
-          05 FILLER PIC X(110) VALUE "Installing the sample topics: document &1 of &2...".
-          05 FILLER PIC X(110) VALUE "Instalando os tópicos de exemplo: documento &1 de &2...".
-          05 FILLER PIC X(110) VALUE "Instalando los temas de ejemplo: documento &1 de &2...".
-          05 FILLER PIC X(110) VALUE "Installation des sujets d'exemple : document &1 sur &2...".
-          05 FILLER PIC X(110) VALUE "サンプルトピックをインストール中：文書 &1 / &2...".
-          05 FILLER PIC X(110) VALUE "正在安装示例主题：第 &1 个文档，共 &2 个...".
-      *>   TOPICS-TITLE
-          05 FILLER PIC X(110) VALUE "Topics".
-          05 FILLER PIC X(110) VALUE "Tópicos".
-          05 FILLER PIC X(110) VALUE "Temas".
-          05 FILLER PIC X(110) VALUE "Sujets".
-          05 FILLER PIC X(110) VALUE "トピック".
-          05 FILLER PIC X(110) VALUE "主题".
-      *>   OPEN-TOPIC
-          05 FILLER PIC X(110) VALUE "Open topic".
-          05 FILLER PIC X(110) VALUE "Abrir tópico".
-          05 FILLER PIC X(110) VALUE "Abrir tema".
-          05 FILLER PIC X(110) VALUE "Ouvrir le sujet".
-          05 FILLER PIC X(110) VALUE "トピックを開く".
-          05 FILLER PIC X(110) VALUE "打开主题".
-      *>   NEW-TOPIC
-          05 FILLER PIC X(110) VALUE "New topic".
-          05 FILLER PIC X(110) VALUE "Novo tópico".
-          05 FILLER PIC X(110) VALUE "Nuevo tema".
-          05 FILLER PIC X(110) VALUE "Nouveau sujet".
-          05 FILLER PIC X(110) VALUE "新しいトピック".
-          05 FILLER PIC X(110) VALUE "新主题".
-      *>   HINT-TOPIC-NAME
-          05 FILLER PIC X(110) VALUE "Name, e.g. Human Resources".
-          05 FILLER PIC X(110) VALUE "Nome, por exemplo Recursos Humanos".
-          05 FILLER PIC X(110) VALUE "Nombre, por ejemplo Recursos Humanos".
-          05 FILLER PIC X(110) VALUE "Nom, par exemple Ressources humaines".
-          05 FILLER PIC X(110) VALUE "名前（例：人事）".
-          05 FILLER PIC X(110) VALUE "名称，例如：人力资源".
-      *>   HINT-TOPIC-PROMPT
-          05 FILLER PIC X(110) VALUE "What the assistant is for, how it should answer - the topic's system prompt".
-          05 FILLER PIC X(110) VALUE "Para que serve o assistente e como ele deve responder - o prompt de sistema do tópico".
-          05 FILLER PIC X(110) VALUE "Para qué sirve el asistente y cómo debe responder: el prompt de sistema del tema".
-          05 FILLER PIC X(110) VALUE "À quoi sert l'assistant et comment il doit répondre : le prompt système du sujet".
-          05 FILLER PIC X(110) VALUE "アシスタントの役割と回答の仕方 - トピックのシステムプロンプト".
-          05 FILLER PIC X(110) VALUE "助手的用途以及回答方式——该主题的系统提示词".
-      *>   CREATE-TOPIC
-          05 FILLER PIC X(110) VALUE "Create topic".
-          05 FILLER PIC X(110) VALUE "Criar tópico".
-          05 FILLER PIC X(110) VALUE "Crear tema".
-          05 FILLER PIC X(110) VALUE "Créer le sujet".
-          05 FILLER PIC X(110) VALUE "トピックを作成".
-          05 FILLER PIC X(110) VALUE "创建主题".
-      *>   INSTALL-SAMPLES
-          05 FILLER PIC X(110) VALUE "Install sample topics".
-          05 FILLER PIC X(110) VALUE "Instalar tópicos de exemplo".
-          05 FILLER PIC X(110) VALUE "Instalar temas de ejemplo".
-          05 FILLER PIC X(110) VALUE "Installer les sujets d'exemple".
-          05 FILLER PIC X(110) VALUE "サンプルトピックをインストール".
-          05 FILLER PIC X(110) VALUE "安装示例主题".
-      *>   REMOVE-SAMPLES
-          05 FILLER PIC X(110) VALUE "Remove sample topics".
-          05 FILLER PIC X(110) VALUE "Remover tópicos de exemplo".
-          05 FILLER PIC X(110) VALUE "Quitar temas de ejemplo".
-          05 FILLER PIC X(110) VALUE "Retirer les sujets d'exemple".
-          05 FILLER PIC X(110) VALUE "サンプルトピックを削除".
-          05 FILLER PIC X(110) VALUE "移除示例主题".
-      *>   STATUS
-          05 FILLER PIC X(110) VALUE "Status".
-          05 FILLER PIC X(110) VALUE "Status".
-          05 FILLER PIC X(110) VALUE "Estado".
-          05 FILLER PIC X(110) VALUE "État".
-          05 FILLER PIC X(110) VALUE "ステータス".
-          05 FILLER PIC X(110) VALUE "状态".
-      *>   TAB-BROWSE
-          05 FILLER PIC X(110) VALUE "Browse".
-          05 FILLER PIC X(110) VALUE "Consultar".
-          05 FILLER PIC X(110) VALUE "Consultar".
-          05 FILLER PIC X(110) VALUE "Parcourir".
-          05 FILLER PIC X(110) VALUE "一覧".
-          05 FILLER PIC X(110) VALUE "浏览".
-      *>   TAB-EDIT
-          05 FILLER PIC X(110) VALUE "Create/Update".
-          05 FILLER PIC X(110) VALUE "Criar/Atualizar".
-          05 FILLER PIC X(110) VALUE "Crear/Actualizar".
-          05 FILLER PIC X(110) VALUE "Créer/Modifier".
-          05 FILLER PIC X(110) VALUE "作成/更新".
-          05 FILLER PIC X(110) VALUE "创建/更新".
-      *>   NEW
-          05 FILLER PIC X(110) VALUE "New".
-          05 FILLER PIC X(110) VALUE "Novo".
-          05 FILLER PIC X(110) VALUE "Nuevo".
-          05 FILLER PIC X(110) VALUE "Nouveau".
-          05 FILLER PIC X(110) VALUE "新規".
-          05 FILLER PIC X(110) VALUE "新建".
-      *>   SAVE
-          05 FILLER PIC X(110) VALUE "Save".
-          05 FILLER PIC X(110) VALUE "Salvar".
-          05 FILLER PIC X(110) VALUE "Guardar".
-          05 FILLER PIC X(110) VALUE "Enregistrer".
-          05 FILLER PIC X(110) VALUE "保存".
-          05 FILLER PIC X(110) VALUE "保存".
-      *>   CANCEL
-          05 FILLER PIC X(110) VALUE "Cancel".
-          05 FILLER PIC X(110) VALUE "Cancelar".
-          05 FILLER PIC X(110) VALUE "Cancelar".
-          05 FILLER PIC X(110) VALUE "Annuler".
-          05 FILLER PIC X(110) VALUE "キャンセル".
-          05 FILLER PIC X(110) VALUE "取消".
-      *>   EDIT-TOPIC
-          05 FILLER PIC X(110) VALUE "Edit topic".
-          05 FILLER PIC X(110) VALUE "Editar tópico".
-          05 FILLER PIC X(110) VALUE "Editar tema".
-          05 FILLER PIC X(110) VALUE "Modifier le sujet".
-          05 FILLER PIC X(110) VALUE "トピックを編集".
-          05 FILLER PIC X(110) VALUE "编辑主题".
-      *>   CONFIRM-DELETE
-          05 FILLER PIC X(110) VALUE "Delete the topic ""&1"" and its Knowledge Base?".
-          05 FILLER PIC X(110) VALUE "Excluir o tópico ""&1"" e sua base de conhecimento?".
-          05 FILLER PIC X(110) VALUE "¿Eliminar el tema ""&1"" y su base de conocimiento?".
-          05 FILLER PIC X(110) VALUE "Supprimer le sujet « &1 » et sa base de connaissances ?".
-          05 FILLER PIC X(110) VALUE "トピック「&1」とそのナレッジベースを削除しますか？".
-          05 FILLER PIC X(110) VALUE "删除主题“&1”及其知识库？".
-      *>   TOPIC-SAVED
-          05 FILLER PIC X(110) VALUE "Topic saved.".
-          05 FILLER PIC X(110) VALUE "Tópico salvo.".
-          05 FILLER PIC X(110) VALUE "Tema guardado.".
-          05 FILLER PIC X(110) VALUE "Sujet enregistré.".
-          05 FILLER PIC X(110) VALUE "トピックを保存しました。".
-          05 FILLER PIC X(110) VALUE "主题已保存。".
-      *>   TOPIC-DELETED
-          05 FILLER PIC X(110) VALUE "Topic deleted.".
-          05 FILLER PIC X(110) VALUE "Tópico excluído.".
-          05 FILLER PIC X(110) VALUE "Tema eliminado.".
-          05 FILLER PIC X(110) VALUE "Sujet supprimé.".
-          05 FILLER PIC X(110) VALUE "トピックを削除しました。".
-          05 FILLER PIC X(110) VALUE "主题已删除。".
-      *>   SAVE-FAILED
-          05 FILLER PIC X(110) VALUE "The topic could not be saved (status &1).".
-          05 FILLER PIC X(110) VALUE "Não foi possível salvar o tópico (status &1).".
-          05 FILLER PIC X(110) VALUE "No se pudo guardar el tema (estado &1).".
-          05 FILLER PIC X(110) VALUE "Impossible d'enregistrer le sujet (état &1).".
-          05 FILLER PIC X(110) VALUE "トピックを保存できませんでした（ステータス &1）。".
-          05 FILLER PIC X(110) VALUE "无法保存主题（状态 &1）。".
-      *>   YES
-          05 FILLER PIC X(110) VALUE "Yes".
-          05 FILLER PIC X(110) VALUE "Sim".
-          05 FILLER PIC X(110) VALUE "Sí".
-          05 FILLER PIC X(110) VALUE "Oui".
-          05 FILLER PIC X(110) VALUE "はい".
-          05 FILLER PIC X(110) VALUE "是".
-      *>   NO
-          05 FILLER PIC X(110) VALUE "No".
-          05 FILLER PIC X(110) VALUE "Não".
-          05 FILLER PIC X(110) VALUE "No".
-          05 FILLER PIC X(110) VALUE "Non".
-          05 FILLER PIC X(110) VALUE "いいえ".
-          05 FILLER PIC X(110) VALUE "否".
-      *>   COL-NAME
-          05 FILLER PIC X(110) VALUE "Name".
-          05 FILLER PIC X(110) VALUE "Nome".
-          05 FILLER PIC X(110) VALUE "Nombre".
-          05 FILLER PIC X(110) VALUE "Nom".
-          05 FILLER PIC X(110) VALUE "名前".
-          05 FILLER PIC X(110) VALUE "名称".
-      *>   COL-PROMPT
-          05 FILLER PIC X(110) VALUE "System prompt".
-          05 FILLER PIC X(110) VALUE "Prompt de sistema".
-          05 FILLER PIC X(110) VALUE "Prompt de sistema".
-          05 FILLER PIC X(110) VALUE "Prompt système".
-          05 FILLER PIC X(110) VALUE "システムプロンプト".
-          05 FILLER PIC X(110) VALUE "系统提示词".
-       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 35.
-             10 PC-TEXT      PIC X(110) OCCURS 6.
-      *>   The texts in the current language, by name.
-       01 PC-TEXTS-NOW       GLOBAL.
-          05 T-NO-TOPICS PIC X(110).
-          05 T-PICK-OR-CREATE PIC X(110).
-          05 T-PICK-TOPIC-FIRST PIC X(110).
-          05 T-TOPIC-OPENED PIC X(110).
-          05 T-NAME-FIRST PIC X(110).
-          05 T-SAME-INSTANT PIC X(110).
-          05 T-TOPIC-CREATED PIC X(110).
-          05 T-SAMPLES-ALREADY PIC X(110).
-          05 T-SAMPLES-NONE PIC X(110).
-          05 T-SAMPLES-REMOVED PIC X(110).
-          05 T-SAMPLES-INSTALLED PIC X(110).
-          05 T-SAMPLES-PROGRESS PIC X(110).
-          05 T-TOPICS-TITLE PIC X(110).
-          05 T-OPEN-TOPIC PIC X(110).
-          05 T-NEW-TOPIC PIC X(110).
-          05 T-HINT-TOPIC-NAME PIC X(110).
-          05 T-HINT-TOPIC-PROMPT PIC X(110).
-          05 T-CREATE-TOPIC PIC X(110).
-          05 T-INSTALL-SAMPLES PIC X(110).
-          05 T-REMOVE-SAMPLES PIC X(110).
-          05 T-STATUS PIC X(110).
-          05 T-TAB-BROWSE PIC X(110).
-          05 T-TAB-EDIT PIC X(110).
-          05 T-NEW PIC X(110).
-          05 T-SAVE PIC X(110).
-          05 T-CANCEL PIC X(110).
-          05 T-EDIT-TOPIC PIC X(110).
-          05 T-CONFIRM-DELETE PIC X(110).
-          05 T-TOPIC-SAVED PIC X(110).
-          05 T-TOPIC-DELETED PIC X(110).
-          05 T-SAVE-FAILED PIC X(110).
-          05 T-YES PIC X(110).
-          05 T-NO PIC X(110).
-          05 T-COL-NAME PIC X(110).
-          05 T-COL-PROMPT PIC X(110).
-       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(110) OCCURS 35.
-      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
-       01 WS-FMT             GLOBAL PIC X(110).
-       01 WS-ARG1            GLOBAL PIC X(300).
-       01 WS-ARG2            GLOBAL PIC X(300).
-       01 WS-ARG3            GLOBAL PIC X(300).
-       01 WS-ARG4            GLOBAL PIC X(300).
-       01 WS-FMT-OUT         GLOBAL PIC X(1200).
+  <working-storage><![CDATA[       01 WS-FS                                  GLOBAL    PIC XX    VALUE "00".
+       01 WS-DATA-DIR                            GLOBAL    PIC X(200).
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-NOW                                 GLOBAL    PIC X(21).
+       01 WS-EOF                                 GLOBAL    PIC X.
+       01 WS-OK                                  GLOBAL    PIC X(4).
+       01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
+       01 WS-TOPICS-PATH                         GLOBAL    PIC X(240).
+       01 WS-TFILES-PATH                         GLOBAL    PIC X(240).
+       01 WS-PROMPTS-PATH                        GLOBAL    PIC X(240).
+       01 WS-TOPIC-COUNT                         GLOBAL    PIC 9(4)    VALUE 0.
+       01 WS-TOPIC-IDS                           GLOBAL.
+           05 WS-TOPIC-ID                        PIC    X(16)    OCCURS 500.
+       01 WS-INDEX                               GLOBAL    PIC S9(4).
+       01 WS-NEW-NAME                            GLOBAL    PIC X(40).
+       01 WS-NEW-PROMPT                          GLOBAL    PIC X(1000).
+       01 WS-NEW-ID                              GLOBAL    PIC X(16).
+       *>   The sample topics (spec 071 Q1): shipped in samples/, installed and
+       *>   removed from here. POWERCHAT_SAMPLES moves the folder.
+
+       01 WS-SAMPLES-DIR                         GLOBAL    PIC X(200).
+       01 WS-SAMPLES-LIST                        GLOBAL    PIC X(240).
+       01 WS-KIND                                GLOBAL    PIC X(8).
+       01 WS-FOLDER                              GLOBAL    PIC X(30).
+       01 WS-F3                                  GLOBAL    PIC X(1000).
+       01 WS-F4                                  GLOBAL    PIC X(1000).
+       01 WS-SEQ-N                               GLOBAL    PIC 9    VALUE 0.
+       01 WS-TF-SEQ                              GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-MAP-COUNT                           GLOBAL    PIC 99    VALUE 0.
+       01 WS-MAP                                 GLOBAL.
+           05 WS-MAP-ROW                         OCCURS    10.
+               10 WS-MAP-FOLDER                  PIC    X(30).
+               10 WS-MAP-ID                      PIC    X(16).
+       01 WS-Q-COUNT                             GLOBAL    PIC 99    VALUE 0.
+       01 WS-Q-NEXT                              GLOBAL    PIC 99    VALUE 0.
+       01 WS-QUEUE                               GLOBAL.
+           05 WS-Q                               OCCURS    60.
+               10 WS-Q-TOPIC                     PIC    X(16).
+               10 WS-Q-PATH                      PIC    X(300).
+       01 WS-J                                   GLOBAL    PIC 99.
+       01 WS-TOPIC-ID-OF                         GLOBAL    PIC X(16).
+       01 WS-INSTALLING                          GLOBAL    PIC X    VALUE "N".
+       01 WS-N1                                  GLOBAL    PIC Z9.
+       01 WS-N2                                  GLOBAL    PIC Z9.
+       01 WS-LINE                                GLOBAL    PIC X(300).
+       01 WS-REMOVED                             GLOBAL    PIC 99    VALUE 0.
+       01 WS-SEQS                                GLOBAL.
+           05 WS-SEQ-OF                          PIC    9(4)    OCCURS 200.
+       01 WS-SEQ-COUNT                           GLOBAL    PIC 9(4).
+       01 WS-K                                   GLOBAL    PIC 9(4).
+       *>   The CRUD (Browse / Create-Update): a grid row, the clicked cell,
+       *>   the topic being edited (spaces = a new one) and the confirmation.
+
+       01 WS-ROW                                 GLOBAL    PIC X(1200).
+       01 WS-PREVIEW                             GLOBAL    PIC X(1000).
+       01 WS-ROW-NO                              GLOBAL    PIC S9(4).
+       01 WS-COL-NO                              GLOBAL    PIC S9(4).
+       01 WS-EDIT-ID                             GLOBAL    PIC X(16).
+       01 WS-TABS                                GLOBAL    PIC X(240).
+       01 WS-QUESTION                            GLOBAL    PIC X(300).
+       01 WS-ANSWER                              GLOBAL    PIC X.
+       01 WS-SAVE-OK                             GLOBAL    PIC X.
+       *>   The interface texts (spec 071 R44): one row per text, one column
+       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+       *>   only the values are translated.
+
+       01 WS-LANG                                GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-NOW                            GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 1.
+       01 WS-TX-I                                GLOBAL    PIC 9(4).
+       01 PC-TEXT-DATA                           GLOBAL.
+           *>   NO-TOPICS
+
+           05 FILLER                             PIC    X(110)    VALUE "No topics yet - give the first one a name and create it.".
+           05 FILLER                             PIC    X(110)    VALUE "Ainda não há tópicos - dê um nome ao primeiro e crie-o.".
+           05 FILLER                             PIC    X(110)    VALUE "Aún no hay temas: ponle nombre al primero y créalo.".
+           05 FILLER                             PIC    X(110)    VALUE "Aucun sujet pour l'instant : donnez un nom au premier et créez-le.".
+           05 FILLER                             PIC    X(110)    VALUE "トピックはまだありません。最初のトピックに名前を付けて作成してください。".
+           05 FILLER                             PIC    X(110)    VALUE "还没有主题——给第一个主题起个名字并创建它。".
+           *>   PICK-OR-CREATE
+
+           05 FILLER                             PIC    X(110)    VALUE "Pick a topic and press Open, or create a new one.".
+           05 FILLER                             PIC    X(110)    VALUE "Escolha um tópico e clique em Abrir, ou crie um novo.".
+           05 FILLER                             PIC    X(110)    VALUE "Elige un tema y pulsa Abrir, o crea uno nuevo.".
+           05 FILLER                             PIC    X(110)    VALUE "Choisissez un sujet et cliquez sur Ouvrir, ou créez-en un nouveau.".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを選んで「開く」を押すか、新しいトピックを作成してください。".
+           05 FILLER                             PIC    X(110)    VALUE "选择一个主题并点击“打开”，或创建一个新主题。".
+           *>   PICK-TOPIC-FIRST
+
+           05 FILLER                             PIC    X(110)    VALUE "Pick a topic in the list first.".
+           05 FILLER                             PIC    X(110)    VALUE "Escolha um tópico na lista primeiro.".
+           05 FILLER                             PIC    X(110)    VALUE "Primero elige un tema de la lista.".
+           05 FILLER                             PIC    X(110)    VALUE "Choisissez d'abord un sujet dans la liste.".
+           05 FILLER                             PIC    X(110)    VALUE "先に一覧からトピックを選んでください。".
+           05 FILLER                             PIC    X(110)    VALUE "请先在列表中选择一个主题。".
+           *>   TOPIC-OPENED
+
+           05 FILLER                             PIC    X(110)    VALUE "Topic opened.".
+           05 FILLER                             PIC    X(110)    VALUE "Tópico aberto.".
+           05 FILLER                             PIC    X(110)    VALUE "Tema abierto.".
+           05 FILLER                             PIC    X(110)    VALUE "Sujet ouvert.".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを開きました。".
+           05 FILLER                             PIC    X(110)    VALUE "主题已打开。".
+           *>   NAME-FIRST
+
+           05 FILLER                             PIC    X(110)    VALUE "Give the topic a name first.".
+           05 FILLER                             PIC    X(110)    VALUE "Dê um nome ao tópico primeiro.".
+           05 FILLER                             PIC    X(110)    VALUE "Primero ponle un nombre al tema.".
+           05 FILLER                             PIC    X(110)    VALUE "Donnez d'abord un nom au sujet.".
+           05 FILLER                             PIC    X(110)    VALUE "先にトピックの名前を入力してください。".
+           05 FILLER                             PIC    X(110)    VALUE "请先为主题命名。".
+           *>   SAME-INSTANT
+
+           05 FILLER                             PIC    X(110)    VALUE "A topic was created this same instant - try again.".
+           05 FILLER                             PIC    X(110)    VALUE "Um tópico foi criado neste mesmo instante - tente de novo.".
+           05 FILLER                             PIC    X(110)    VALUE "Se creó un tema en este mismo instante: inténtalo de nuevo.".
+           05 FILLER                             PIC    X(110)    VALUE "Un sujet vient d'être créé au même instant : réessayez.".
+           05 FILLER                             PIC    X(110)    VALUE "ちょうど同じ瞬間に別のトピックが作成されました。もう一度お試しください。".
+           05 FILLER                             PIC    X(110)    VALUE "同一时刻已创建了一个主题——请重试。".
+           *>   TOPIC-CREATED
+
+           05 FILLER                             PIC    X(110)    VALUE "Topic created.".
+           05 FILLER                             PIC    X(110)    VALUE "Tópico criado.".
+           05 FILLER                             PIC    X(110)    VALUE "Tema creado.".
+           05 FILLER                             PIC    X(110)    VALUE "Sujet créé.".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを作成しました。".
+           05 FILLER                             PIC    X(110)    VALUE "主题已创建。".
+           *>   SAMPLES-ALREADY
+
+           05 FILLER                             PIC    X(110)    VALUE "The sample topics are already installed.".
+           05 FILLER                             PIC    X(110)    VALUE "Os tópicos de exemplo já estão instalados.".
+           05 FILLER                             PIC    X(110)    VALUE "Los temas de ejemplo ya están instalados.".
+           05 FILLER                             PIC    X(110)    VALUE "Les sujets d'exemple sont déjà installés.".
+           05 FILLER                             PIC    X(110)    VALUE "サンプルトピックはすでにインストールされています。".
+           05 FILLER                             PIC    X(110)    VALUE "示例主题已经安装。".
+           *>   SAMPLES-NONE
+
+           05 FILLER                             PIC    X(110)    VALUE "No sample topics found (&1).".
+           05 FILLER                             PIC    X(110)    VALUE "Nenhum tópico de exemplo encontrado (&1).".
+           05 FILLER                             PIC    X(110)    VALUE "No se encontraron temas de ejemplo (&1).".
+           05 FILLER                             PIC    X(110)    VALUE "Aucun sujet d'exemple trouvé (&1).".
+           05 FILLER                             PIC    X(110)    VALUE "サンプルトピックが見つかりません（&1）。".
+           05 FILLER                             PIC    X(110)    VALUE "未找到示例主题（&1）。".
+           *>   SAMPLES-REMOVED
+
+           05 FILLER                             PIC    X(110)    VALUE "Removed &1 sample topic(s).".
+           05 FILLER                             PIC    X(110)    VALUE "&1 tópico(s) de exemplo removido(s).".
+           05 FILLER                             PIC    X(110)    VALUE "Se quitaron &1 tema(s) de ejemplo.".
+           05 FILLER                             PIC    X(110)    VALUE "&1 sujet(s) d'exemple retiré(s).".
+           05 FILLER                             PIC    X(110)    VALUE "サンプルトピックを &1 件削除しました。".
+           05 FILLER                             PIC    X(110)    VALUE "已移除 &1 个示例主题。".
+           *>   SAMPLES-INSTALLED
+
+           05 FILLER                             PIC    X(110)    VALUE "Sample topics installed: &1 topics, &2 documents.".
+           05 FILLER                             PIC    X(110)    VALUE "Tópicos de exemplo instalados: &1 tópicos, &2 documentos.".
+           05 FILLER                             PIC    X(110)    VALUE "Temas de ejemplo instalados: &1 temas, &2 documentos.".
+           05 FILLER                             PIC    X(110)    VALUE "Sujets d'exemple installés : &1 sujets, &2 documents.".
+           05 FILLER                             PIC    X(110)    VALUE "サンプルトピックをインストールしました：トピック &1 件、文書 &2 件。".
+           05 FILLER                             PIC    X(110)    VALUE "示例主题已安装：&1 个主题，&2 个文档。".
+           *>   SAMPLES-PROGRESS
+
+           05 FILLER                             PIC    X(110)    VALUE "Installing the sample topics: document &1 of &2...".
+           05 FILLER                             PIC    X(110)    VALUE "Instalando os tópicos de exemplo: documento &1 de &2...".
+           05 FILLER                             PIC    X(110)    VALUE "Instalando los temas de ejemplo: documento &1 de &2...".
+           05 FILLER                             PIC    X(110)    VALUE "Installation des sujets d'exemple : document &1 sur &2...".
+           05 FILLER                             PIC    X(110)    VALUE "サンプルトピックをインストール中：文書 &1 / &2...".
+           05 FILLER                             PIC    X(110)    VALUE "正在安装示例主题：第 &1 个文档，共 &2 个...".
+           *>   TOPICS-TITLE
+
+           05 FILLER                             PIC    X(110)    VALUE "Topics".
+           05 FILLER                             PIC    X(110)    VALUE "Tópicos".
+           05 FILLER                             PIC    X(110)    VALUE "Temas".
+           05 FILLER                             PIC    X(110)    VALUE "Sujets".
+           05 FILLER                             PIC    X(110)    VALUE "トピック".
+           05 FILLER                             PIC    X(110)    VALUE "主题".
+           *>   OPEN-TOPIC
+
+           05 FILLER                             PIC    X(110)    VALUE "Open topic".
+           05 FILLER                             PIC    X(110)    VALUE "Abrir tópico".
+           05 FILLER                             PIC    X(110)    VALUE "Abrir tema".
+           05 FILLER                             PIC    X(110)    VALUE "Ouvrir le sujet".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを開く".
+           05 FILLER                             PIC    X(110)    VALUE "打开主题".
+           *>   NEW-TOPIC
+
+           05 FILLER                             PIC    X(110)    VALUE "New topic".
+           05 FILLER                             PIC    X(110)    VALUE "Novo tópico".
+           05 FILLER                             PIC    X(110)    VALUE "Nuevo tema".
+           05 FILLER                             PIC    X(110)    VALUE "Nouveau sujet".
+           05 FILLER                             PIC    X(110)    VALUE "新しいトピック".
+           05 FILLER                             PIC    X(110)    VALUE "新主题".
+           *>   HINT-TOPIC-NAME
+
+           05 FILLER                             PIC    X(110)    VALUE "Name, e.g. Human Resources".
+           05 FILLER                             PIC    X(110)    VALUE "Nome, por exemplo Recursos Humanos".
+           05 FILLER                             PIC    X(110)    VALUE "Nombre, por ejemplo Recursos Humanos".
+           05 FILLER                             PIC    X(110)    VALUE "Nom, par exemple Ressources humaines".
+           05 FILLER                             PIC    X(110)    VALUE "名前（例：人事）".
+           05 FILLER                             PIC    X(110)    VALUE "名称，例如：人力资源".
+           *>   HINT-TOPIC-PROMPT
+
+           05 FILLER                             PIC    X(110)    VALUE "What the assistant is for, how it should answer - the topic's system prompt".
+           05 FILLER                             PIC    X(110)    VALUE "Para que serve o assistente e como ele deve responder - o prompt de sistema do tópico".
+           05 FILLER                             PIC    X(110)    VALUE "Para qué sirve el asistente y cómo debe responder: el prompt de sistema del tema".
+           05 FILLER                             PIC    X(110)    VALUE "À quoi sert l'assistant et comment il doit répondre : le prompt système du sujet".
+           05 FILLER                             PIC    X(110)    VALUE "アシスタントの役割と回答の仕方 - トピックのシステムプロンプト".
+           05 FILLER                             PIC    X(110)    VALUE "助手的用途以及回答方式——该主题的系统提示词".
+           *>   CREATE-TOPIC
+
+           05 FILLER                             PIC    X(110)    VALUE "Create topic".
+           05 FILLER                             PIC    X(110)    VALUE "Criar tópico".
+           05 FILLER                             PIC    X(110)    VALUE "Crear tema".
+           05 FILLER                             PIC    X(110)    VALUE "Créer le sujet".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを作成".
+           05 FILLER                             PIC    X(110)    VALUE "创建主题".
+           *>   INSTALL-SAMPLES
+
+           05 FILLER                             PIC    X(110)    VALUE "Install sample topics".
+           05 FILLER                             PIC    X(110)    VALUE "Instalar tópicos de exemplo".
+           05 FILLER                             PIC    X(110)    VALUE "Instalar temas de ejemplo".
+           05 FILLER                             PIC    X(110)    VALUE "Installer les sujets d'exemple".
+           05 FILLER                             PIC    X(110)    VALUE "サンプルトピックをインストール".
+           05 FILLER                             PIC    X(110)    VALUE "安装示例主题".
+           *>   REMOVE-SAMPLES
+
+           05 FILLER                             PIC    X(110)    VALUE "Remove sample topics".
+           05 FILLER                             PIC    X(110)    VALUE "Remover tópicos de exemplo".
+           05 FILLER                             PIC    X(110)    VALUE "Quitar temas de ejemplo".
+           05 FILLER                             PIC    X(110)    VALUE "Retirer les sujets d'exemple".
+           05 FILLER                             PIC    X(110)    VALUE "サンプルトピックを削除".
+           05 FILLER                             PIC    X(110)    VALUE "移除示例主题".
+           *>   STATUS
+
+           05 FILLER                             PIC    X(110)    VALUE "Status".
+           05 FILLER                             PIC    X(110)    VALUE "Status".
+           05 FILLER                             PIC    X(110)    VALUE "Estado".
+           05 FILLER                             PIC    X(110)    VALUE "État".
+           05 FILLER                             PIC    X(110)    VALUE "ステータス".
+           05 FILLER                             PIC    X(110)    VALUE "状态".
+           *>   TAB-BROWSE
+
+           05 FILLER                             PIC    X(110)    VALUE "Browse".
+           05 FILLER                             PIC    X(110)    VALUE "Consultar".
+           05 FILLER                             PIC    X(110)    VALUE "Consultar".
+           05 FILLER                             PIC    X(110)    VALUE "Parcourir".
+           05 FILLER                             PIC    X(110)    VALUE "一覧".
+           05 FILLER                             PIC    X(110)    VALUE "浏览".
+           *>   TAB-EDIT
+
+           05 FILLER                             PIC    X(110)    VALUE "Create/Update".
+           05 FILLER                             PIC    X(110)    VALUE "Criar/Atualizar".
+           05 FILLER                             PIC    X(110)    VALUE "Crear/Actualizar".
+           05 FILLER                             PIC    X(110)    VALUE "Créer/Modifier".
+           05 FILLER                             PIC    X(110)    VALUE "作成/更新".
+           05 FILLER                             PIC    X(110)    VALUE "创建/更新".
+           *>   NEW
+
+           05 FILLER                             PIC    X(110)    VALUE "New".
+           05 FILLER                             PIC    X(110)    VALUE "Novo".
+           05 FILLER                             PIC    X(110)    VALUE "Nuevo".
+           05 FILLER                             PIC    X(110)    VALUE "Nouveau".
+           05 FILLER                             PIC    X(110)    VALUE "新規".
+           05 FILLER                             PIC    X(110)    VALUE "新建".
+           *>   SAVE
+
+           05 FILLER                             PIC    X(110)    VALUE "Save".
+           05 FILLER                             PIC    X(110)    VALUE "Salvar".
+           05 FILLER                             PIC    X(110)    VALUE "Guardar".
+           05 FILLER                             PIC    X(110)    VALUE "Enregistrer".
+           05 FILLER                             PIC    X(110)    VALUE "保存".
+           05 FILLER                             PIC    X(110)    VALUE "保存".
+           *>   CANCEL
+
+           05 FILLER                             PIC    X(110)    VALUE "Cancel".
+           05 FILLER                             PIC    X(110)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(110)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(110)    VALUE "Annuler".
+           05 FILLER                             PIC    X(110)    VALUE "キャンセル".
+           05 FILLER                             PIC    X(110)    VALUE "取消".
+           *>   EDIT-TOPIC
+
+           05 FILLER                             PIC    X(110)    VALUE "Edit topic".
+           05 FILLER                             PIC    X(110)    VALUE "Editar tópico".
+           05 FILLER                             PIC    X(110)    VALUE "Editar tema".
+           05 FILLER                             PIC    X(110)    VALUE "Modifier le sujet".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを編集".
+           05 FILLER                             PIC    X(110)    VALUE "编辑主题".
+           *>   CONFIRM-DELETE
+
+           05 FILLER                             PIC    X(110)    VALUE "Delete the topic ""&1"" and its Knowledge Base?".
+           05 FILLER                             PIC    X(110)    VALUE "Excluir o tópico ""&1"" e sua base de conhecimento?".
+           05 FILLER                             PIC    X(110)    VALUE "¿Eliminar el tema ""&1"" y su base de conocimiento?".
+           05 FILLER                             PIC    X(110)    VALUE "Supprimer le sujet « &1 » et sa base de connaissances ?".
+           05 FILLER                             PIC    X(110)    VALUE "トピック「&1」とそのナレッジベースを削除しますか？".
+           05 FILLER                             PIC    X(110)    VALUE "删除主题“&1”及其知识库？".
+           *>   TOPIC-SAVED
+
+           05 FILLER                             PIC    X(110)    VALUE "Topic saved.".
+           05 FILLER                             PIC    X(110)    VALUE "Tópico salvo.".
+           05 FILLER                             PIC    X(110)    VALUE "Tema guardado.".
+           05 FILLER                             PIC    X(110)    VALUE "Sujet enregistré.".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを保存しました。".
+           05 FILLER                             PIC    X(110)    VALUE "主题已保存。".
+           *>   TOPIC-DELETED
+
+           05 FILLER                             PIC    X(110)    VALUE "Topic deleted.".
+           05 FILLER                             PIC    X(110)    VALUE "Tópico excluído.".
+           05 FILLER                             PIC    X(110)    VALUE "Tema eliminado.".
+           05 FILLER                             PIC    X(110)    VALUE "Sujet supprimé.".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを削除しました。".
+           05 FILLER                             PIC    X(110)    VALUE "主题已删除。".
+           *>   SAVE-FAILED
+
+           05 FILLER                             PIC    X(110)    VALUE "The topic could not be saved (status &1).".
+           05 FILLER                             PIC    X(110)    VALUE "Não foi possível salvar o tópico (status &1).".
+           05 FILLER                             PIC    X(110)    VALUE "No se pudo guardar el tema (estado &1).".
+           05 FILLER                             PIC    X(110)    VALUE "Impossible d'enregistrer le sujet (état &1).".
+           05 FILLER                             PIC    X(110)    VALUE "トピックを保存できませんでした（ステータス &1）。".
+           05 FILLER                             PIC    X(110)    VALUE "无法保存主题（状态 &1）。".
+           *>   YES
+
+           05 FILLER                             PIC    X(110)    VALUE "Yes".
+           05 FILLER                             PIC    X(110)    VALUE "Sim".
+           05 FILLER                             PIC    X(110)    VALUE "Sí".
+           05 FILLER                             PIC    X(110)    VALUE "Oui".
+           05 FILLER                             PIC    X(110)    VALUE "はい".
+           05 FILLER                             PIC    X(110)    VALUE "是".
+           *>   NO
+
+           05 FILLER                             PIC    X(110)    VALUE "No".
+           05 FILLER                             PIC    X(110)    VALUE "Não".
+           05 FILLER                             PIC    X(110)    VALUE "No".
+           05 FILLER                             PIC    X(110)    VALUE "Non".
+           05 FILLER                             PIC    X(110)    VALUE "いいえ".
+           05 FILLER                             PIC    X(110)    VALUE "否".
+           *>   COL-NAME
+
+           05 FILLER                             PIC    X(110)    VALUE "Name".
+           05 FILLER                             PIC    X(110)    VALUE "Nome".
+           05 FILLER                             PIC    X(110)    VALUE "Nombre".
+           05 FILLER                             PIC    X(110)    VALUE "Nom".
+           05 FILLER                             PIC    X(110)    VALUE "名前".
+           05 FILLER                             PIC    X(110)    VALUE "名称".
+           *>   COL-PROMPT
+
+           05 FILLER                             PIC    X(110)    VALUE "System prompt".
+           05 FILLER                             PIC    X(110)    VALUE "Prompt de sistema".
+           05 FILLER                             PIC    X(110)    VALUE "Prompt de sistema".
+           05 FILLER                             PIC    X(110)    VALUE "Prompt système".
+           05 FILLER                             PIC    X(110)    VALUE "システムプロンプト".
+           05 FILLER                             PIC    X(110)    VALUE "系统提示词".
+       01 PC-TEXT-TABLE                          REDEFINES    PC-TEXT-DATA    GLOBAL.
+           05 PC-TEXT-ROW                        OCCURS    35.
+               10 PC-TEXT                        PIC    X(110)    OCCURS 6.
+       *>   The texts in the current language, by name.
+
+       01 PC-TEXTS-NOW                           GLOBAL.
+           05 T-NO-TOPICS                        PIC    X(110).
+           05 T-PICK-OR-CREATE                   PIC    X(110).
+           05 T-PICK-TOPIC-FIRST                 PIC    X(110).
+           05 T-TOPIC-OPENED                     PIC    X(110).
+           05 T-NAME-FIRST                       PIC    X(110).
+           05 T-SAME-INSTANT                     PIC    X(110).
+           05 T-TOPIC-CREATED                    PIC    X(110).
+           05 T-SAMPLES-ALREADY                  PIC    X(110).
+           05 T-SAMPLES-NONE                     PIC    X(110).
+           05 T-SAMPLES-REMOVED                  PIC    X(110).
+           05 T-SAMPLES-INSTALLED                PIC    X(110).
+           05 T-SAMPLES-PROGRESS                 PIC    X(110).
+           05 T-TOPICS-TITLE                     PIC    X(110).
+           05 T-OPEN-TOPIC                       PIC    X(110).
+           05 T-NEW-TOPIC                        PIC    X(110).
+           05 T-HINT-TOPIC-NAME                  PIC    X(110).
+           05 T-HINT-TOPIC-PROMPT                PIC    X(110).
+           05 T-CREATE-TOPIC                     PIC    X(110).
+           05 T-INSTALL-SAMPLES                  PIC    X(110).
+           05 T-REMOVE-SAMPLES                   PIC    X(110).
+           05 T-STATUS                           PIC    X(110).
+           05 T-TAB-BROWSE                       PIC    X(110).
+           05 T-TAB-EDIT                         PIC    X(110).
+           05 T-NEW                              PIC    X(110).
+           05 T-SAVE                             PIC    X(110).
+           05 T-CANCEL                           PIC    X(110).
+           05 T-EDIT-TOPIC                       PIC    X(110).
+           05 T-CONFIRM-DELETE                   PIC    X(110).
+           05 T-TOPIC-SAVED                      PIC    X(110).
+           05 T-TOPIC-DELETED                    PIC    X(110).
+           05 T-SAVE-FAILED                      PIC    X(110).
+           05 T-YES                              PIC    X(110).
+           05 T-NO                               PIC    X(110).
+           05 T-COL-NAME                         PIC    X(110).
+           05 T-COL-PROMPT                       PIC    X(110).
+       01 PC-TEXTS-NOW-R                         REDEFINES    PC-TEXTS-NOW    GLOBAL.
+           05 PC-TEXT-NOW                        PIC    X(110)    OCCURS 35.
+       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+
+       01 WS-FMT                                 GLOBAL    PIC X(110).
+       01 WS-ARG1                                GLOBAL    PIC X(300).
+       01 WS-ARG2                                GLOBAL    PIC X(300).
+       01 WS-ARG3                                GLOBAL    PIC X(300).
+       01 WS-ARG4                                GLOBAL    PIC X(300).
+       01 WS-FMT-OUT                             GLOBAL    PIC X(1200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -411,7 +451,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <file-control><![CDATA[           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
@@ -440,352 +481,440 @@
                ORGANIZATION IS LINE SEQUENTIAL
                FILE STATUS IS WS-FS.
 ]]></file-control>
-  <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
-       01  SETTINGS-REC.
-           05 SET-NAME          PIC X(20).
-           05 SET-VALUE         PIC X(200).
-       FD  TOPICS-FILE IS GLOBAL.
-       01  TOPIC-REC.
-           05 TOP-ID            PIC X(16).
-           05 TOP-NAME          PIC X(40).
-           05 TOP-PROMPT        PIC X(1000).
-           05 TOP-CREATED       PIC X(14).
-      *>   "Y" for a topic the sample installer made, so it can be removed.
-           05 TOP-SAMPLE        PIC X.
-       FD  TFILES-FILE IS GLOBAL.
-      *>   The users' indexed files each topic registers by path (R20-R25):
-      *>   the data file and its .cidx. Nothing is copied or attached.
-       01  TFILE-REC.
+  <file-section><![CDATA[       FD SETTINGS-FILE IS GLOBAL.
+       01 SETTINGS-REC.
+           05 SET-NAME                           PIC    X(20).
+           05 SET-VALUE                          PIC    X(200).
+       FD TOPICS-FILE IS GLOBAL.
+       01 TOPIC-REC.
+           05 TOP-ID                             PIC    X(16).
+           05 TOP-NAME                           PIC    X(40).
+           05 TOP-PROMPT                         PIC    X(1000).
+           05 TOP-CREATED                        PIC    X(14).
+           *>   "Y" for a topic the sample installer made, so it can be removed.
+
+           05 TOP-SAMPLE                         PIC    X.
+       FD TFILES-FILE IS GLOBAL.
+       *>   The users' indexed files each topic registers by path (R20-R25):
+       *>   the data file and its .cidx. Nothing is copied or attached.
+
+       01 TFILE-REC.
            05 TF-KEY.
-              10 TF-TOPIC       PIC X(16).
-              10 TF-SEQ         PIC 9(3).
-           05 TF-NAME           PIC X(30).
-           05 TF-DATA           PIC X(250).
-           05 TF-CIDX           PIC X(250).
-       FD  PROMPTS-FILE IS GLOBAL.
-      *>   Every version of each topic's system prompt (R48). The active one's
-      *>   text is also the topic's TOP-PROMPT, which is what the chat reads.
-       01  PROMPT-REC.
+               10 TF-TOPIC                       PIC    X(16).
+               10 TF-SEQ                         PIC    9(3).
+           05 TF-NAME                            PIC    X(30).
+           05 TF-DATA                            PIC    X(250).
+           05 TF-CIDX                            PIC    X(250).
+       FD PROMPTS-FILE IS GLOBAL.
+       *>   Every version of each topic's system prompt (R48). The active one's
+       *>   text is also the topic's TOP-PROMPT, which is what the chat reads.
+
+       01 PROMPT-REC.
            05 PRM-KEY.
-              10 PRM-TOPIC      PIC X(16).
-              10 PRM-VERSION    PIC 9(4).
-           05 PRM-CREATED       PIC X(14).
-           05 PRM-ACTIVE        PIC X.
-           05 PRM-TEXT          PIC X(32000).
-       FD  SAMPLES-FILE IS GLOBAL.
-       01  SAMPLE-LINE          PIC X(1400).
+               10 PRM-TOPIC                      PIC    X(16).
+               10 PRM-VERSION                    PIC    9(4).
+           05 PRM-CREATED                        PIC    X(14).
+           05 PRM-ACTIVE                         PIC    X.
+           05 PRM-TEXT                           PIC    X(32000).
+       FD SAMPLES-FILE IS GLOBAL.
+       01 SAMPLE-LINE                            PIC    X(1400).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
-           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
-           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
-           IF WS-DATA-DIR = SPACES
-               MOVE "data" TO WS-DATA-DIR
+           *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+
+           DISPLAY    "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-DATA-DIR = SPACES
+               SET     WS-DATA-DIR               TO    "data"
            END-IF
-           MOVE SPACES TO WS-SETTINGS-PATH
-           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
-           MOVE SPACES TO WS-TOPICS-PATH
-           STRING WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
-           MOVE SPACES TO WS-TFILES-PATH
-           STRING WS-DATA-DIR::Trim() "/topic-files.idx" INTO WS-TFILES-PATH
-           MOVE SPACES TO WS-PROMPTS-PATH
-           STRING WS-DATA-DIR::Trim() "/prompt-versions.idx" INTO WS-PROMPTS-PATH
+           SET     WS-SETTINGS-PATH              TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
+           SET     WS-TOPICS-PATH                TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
+           SET     WS-TFILES-PATH                TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/topic-files.idx" INTO WS-TFILES-PATH
+           SET     WS-PROMPTS-PATH               TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/prompt-versions.idx" INTO WS-PROMPTS-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
-           MOVE SPACES TO WS-SET-VALUE
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+
+           SET     WS-SET-VALUE                  TO    SPACES
+           *> Status 35 = the file does not exist yet: create it empty and reopen
+           *> it for update, so the very first run needs no set-up.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    WS-SET-NAME
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 ]]></Event>
     <Event name="PC-SETTING-PUT" paragraph="PC-SETTING-PUT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+
+           *> Status 35 = the file does not exist yet: create it empty and reopen
+           *> it for update, so the very first run needs no set-up.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           MOVE WS-SET-VALUE TO SET-VALUE
-           WRITE SETTINGS-REC
+
+           SET     SET-NAME                      TO    WS-SET-NAME
+           SET     SET-VALUE                     TO    WS-SET-VALUE
+
+           WRITE    SETTINGS-REC
                INVALID KEY REWRITE SETTINGS-REC
            END-WRITE
            COMMIT
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 ]]></Event>
     <Event name="PC-LOAD-TOPICS" paragraph="PC-LOAD-TOPICS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Every topic, in the order they were created (the key is a timestamp),
-      *>   one grid row each: name, prompt, then the open / edit / delete
-      *>   buttons. Grid row n is WS-TOPIC-ID(n).
-           MOVE Dg-List::ClearRows() TO WS-OK
-           MOVE 0 TO WS-TOPIC-COUNT
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           *>   Every topic, in the order they were created (the key is a timestamp),
+           *>   one grid row each: name, prompt, then the open / edit / delete
+           *>   buttons. Grid row n is WS-TOPIC-ID(n).
+
+           SET     WS-OK                         TO    Dg-List::ClearRows()
+           SET     WS-TOPIC-COUNT                TO    0
+
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           MOVE LOW-VALUES TO TOP-ID
-           MOVE "N" TO WS-EOF
-           START TOPICS-FILE KEY IS >= TOP-ID
+
+           SET     TOP-ID                        TO    LOW-VALUES
+           SET     WS-EOF                        TO    "N"
+
+           START    TOPICS-FILE KEY IS >= TOP-ID
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
-           PERFORM UNTIL WS-EOF = "Y"
-               READ TOPICS-FILE NEXT RECORD
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    TOPICS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF WS-TOPIC-COUNT < 500
-                           ADD 1 TO WS-TOPIC-COUNT
-                           MOVE TOP-ID TO WS-TOPIC-ID(WS-TOPIC-COUNT)
-                           MOVE TOP-PROMPT TO WS-PREVIEW
-                           INSPECT WS-PREVIEW REPLACING ALL X"0A" BY SPACE
+                       IF    WS-TOPIC-COUNT < 500
+                           ADD    1 TO WS-TOPIC-COUNT
+                           SET     WS-TOPIC-ID(WS-TOPIC-COUNT)
+                                                 TO    TOP-ID
+
+                           *> A prompt may span lines: line breaks and tabs would break the grid
+                           *> row (its cells are tab-separated), so they become spaces.
+
+                           SET     WS-PREVIEW    TO    TOP-PROMPT
+                           INSPECT    WS-PREVIEW REPLACING ALL X"0A" BY SPACE
                                ALL X"0D" BY SPACE ALL X"09" BY SPACE
-                           MOVE SPACES TO WS-ROW
-                           STRING FUNCTION TRIM(TOP-NAME) X"09"
-                                  WS-PREVIEW::Trim() X"09"
-                                  "icon:chat" X"09" "icon:pencil" X"09"
-                                  "icon:trash"
+                           SET     WS-ROW        TO    SPACES
+                           STRING    FUNCTION TRIM(TOP-NAME) X"09"
+                           WS-PREVIEW::Trim() X"09"
+                               "icon:chat" X"09" "icon:pencil" X"09"
+                               "icon:trash"
                                INTO WS-ROW
-                           MOVE Dg-List::AddRow(WS-ROW) TO WS-OK
+                           SET     WS-OK         TO    Dg-List::AddRow(WS-ROW)
                        END-IF
                END-READ
            END-PERFORM
-           CLOSE TOPICS-FILE
-      *>   The chat's menu turns Chat and New conversation on only while a
-      *>   topic exists: tell it the list may have changed (the first topic
-      *>   saved, the last one deleted), or it waits until it is shown again.
-           INVOKE super::"PC-REFRESH"()
+           CLOSE    TOPICS-FILE
+           *>   The chat's menu turns Chat and New conversation on only while a
+           *>   topic exists: tell it the list may have changed (the first topic
+           *>   saved, the last one deleted), or it waits until it is shown again.
+
+           INVOKE    super::"PC-REFRESH"()
 ]]></Event>
     <Event name="PC-NEXT-IMPORT" paragraph="PC-NEXT-IMPORT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   One sample document at a time: a Knowledge Base import runs in the
-      *>   background and reports through onIndexed, which calls back here.
-           IF WS-Q-NEXT > WS-Q-COUNT
-               MOVE "N" TO WS-INSTALLING
-               MOVE WS-MAP-COUNT TO WS-N1
-               MOVE WS-Q-COUNT TO WS-N2
-               MOVE T-SAMPLES-INSTALLED TO WS-FMT
-               MOVE WS-N1 TO WS-ARG1
-               MOVE WS-N2 TO WS-ARG2
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
-               CALL "PC-LOAD-TOPICS"
+           *>   One sample document at a time: a Knowledge Base import runs in the
+           *>   background and reports through onIndexed, which calls back here.
+
+           IF    WS-Q-NEXT > WS-Q-COUNT
+               SET     WS-INSTALLING             TO    "N"
+               SET     WS-N1                     TO    WS-MAP-COUNT
+               SET     WS-N2                     TO    WS-Q-COUNT
+               SET     WS-FMT                    TO    T-SAMPLES-INSTALLED
+               SET     WS-ARG1                   TO    WS-N1
+               SET     WS-ARG2                   TO    WS-N2
+
+               CALL    "PC-FMT"
+               SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
+               CALL    "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
-           MOVE WS-Q-TOPIC(WS-Q-NEXT) TO KB-T::Collection
-           MOVE WS-Q-NEXT TO WS-N1
-           MOVE WS-Q-COUNT TO WS-N2
-           MOVE T-SAMPLES-PROGRESS TO WS-FMT
-           MOVE WS-N1 TO WS-ARG1
-           MOVE WS-N2 TO WS-ARG2
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
-           MOVE KB-T::ImportDocument(WS-Q-PATH(WS-Q-NEXT)::Trim()) TO WS-OK
-           ADD 1 TO WS-Q-NEXT
+
+           SET     KB-T::Collection              TO    WS-Q-TOPIC(WS-Q-NEXT)
+           SET     WS-N1                         TO    WS-Q-NEXT
+           SET     WS-N2                         TO    WS-Q-COUNT
+           SET     WS-FMT                        TO    T-SAMPLES-PROGRESS
+           SET     WS-ARG1                       TO    WS-N1
+           SET     WS-ARG2                       TO    WS-N2
+
+           CALL    "PC-FMT"
+
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
+           SET     WS-OK                         TO    KB-T::ImportDocument(WS-Q-PATH(WS-Q-NEXT)::Trim())
+
+           ADD    1 TO WS-Q-NEXT
 ]]></Event>
     <Event name="PC-TOPIC-OF" paragraph="PC-TOPIC-OF"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-FOLDER in: the id the installer gave that sample folder's topic.
-           MOVE SPACES TO WS-TOPIC-ID-OF
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
-               IF WS-MAP-FOLDER(WS-J) = WS-FOLDER
-                   MOVE WS-MAP-ID(WS-J) TO WS-TOPIC-ID-OF
+           *>   WS-FOLDER in: the id the installer gave that sample folder's topic.
+
+           SET     WS-TOPIC-ID-OF                TO    SPACES
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               IF    WS-MAP-FOLDER(WS-J) = WS-FOLDER
+                   SET     WS-TOPIC-ID-OF        TO    WS-MAP-ID(WS-J)
                END-IF
            END-PERFORM
 ]]></Event>
     <Event name="PC-HAS-SAMPLES" paragraph="PC-HAS-SAMPLES"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-OK out: "Y" when sample topics are installed.
-           MOVE "N" TO WS-OK
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           *>   WS-OK out: "Y" when sample topics are installed.
+
+           SET     WS-OK                         TO    "N"
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           MOVE LOW-VALUES TO TOP-ID
-           MOVE "N" TO WS-EOF
-           START TOPICS-FILE KEY IS >= TOP-ID
+
+           SET     TOP-ID                        TO    LOW-VALUES
+           SET     WS-EOF                        TO    "N"
+
+           START    TOPICS-FILE KEY IS >= TOP-ID
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
-           PERFORM UNTIL WS-EOF = "Y"
-               READ TOPICS-FILE NEXT RECORD
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    TOPICS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF TOP-SAMPLE = "Y"
-                           MOVE "Y" TO WS-OK
+                       IF    TOP-SAMPLE = "Y"
+                           SET     WS-OK         TO    "Y"
                        END-IF
                END-READ
            END-PERFORM
-           CLOSE TOPICS-FILE
+           CLOSE    TOPICS-FILE
 ]]></Event>
     <Event name="PC-DROP-TOPIC-ROWS" paragraph="PC-DROP-TOPIC-ROWS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-TOPIC-ID-OF in: its registered files and prompt versions go.
-           MOVE 0 TO WS-SEQ-COUNT
-           OPEN I-O TFILES-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TFILES-FILE
-               CLOSE TFILES-FILE
-               OPEN I-O TFILES-FILE
+           *>   WS-TOPIC-ID-OF in: its registered files and prompt versions go.
+
+           SET     WS-SEQ-COUNT                  TO    0
+           OPEN    I-O TFILES-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TFILES-FILE
+               CLOSE    TFILES-FILE
+               OPEN    I-O TFILES-FILE
            END-IF
-           MOVE WS-TOPIC-ID-OF TO TF-TOPIC
-           MOVE 0 TO TF-SEQ
-           MOVE "N" TO WS-EOF
-           START TFILES-FILE KEY IS >= TF-KEY
+
+           *> A range scan over the composite key: start at (topic, 0) and stop at
+           *> the first record of another topic.
+
+           SET     TF-TOPIC                      TO    WS-TOPIC-ID-OF
+           SET     TF-SEQ                        TO    0
+           SET     WS-EOF                        TO    "N"
+
+           START    TFILES-FILE KEY IS >= TF-KEY
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
-           PERFORM UNTIL WS-EOF = "Y"
-               READ TFILES-FILE NEXT RECORD
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    TFILES-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF TF-TOPIC NOT = WS-TOPIC-ID-OF
-                           MOVE "Y" TO WS-EOF
+                       IF    TF-TOPIC NOT = WS-TOPIC-ID-OF
+                           SET     WS-EOF        TO    "Y"
                        ELSE
-                           IF WS-SEQ-COUNT < 200
-                               ADD 1 TO WS-SEQ-COUNT
-                               MOVE TF-SEQ TO WS-SEQ-OF(WS-SEQ-COUNT)
+                           IF    WS-SEQ-COUNT < 200
+                               ADD    1 TO WS-SEQ-COUNT
+                               SET     WS-SEQ-OF(WS-SEQ-COUNT)
+                                                 TO    TF-SEQ
                            END-IF
                        END-IF
                END-READ
            END-PERFORM
-           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-SEQ-COUNT
-               MOVE WS-TOPIC-ID-OF TO TF-TOPIC
-               MOVE WS-SEQ-OF(WS-K) TO TF-SEQ
-               DELETE TFILES-FILE
+           *> The keys are gathered first (up to 200) and deleted after the scan,
+           *> not while READ NEXT is still walking the file.
+
+           PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-SEQ-COUNT
+               SET     TF-TOPIC                  TO    WS-TOPIC-ID-OF
+               SET     TF-SEQ                    TO    WS-SEQ-OF(WS-K)
+
+               DELETE    TFILES-FILE
                    INVALID KEY CONTINUE
                END-DELETE
            END-PERFORM
            COMMIT
-           CLOSE TFILES-FILE
-           MOVE 0 TO WS-SEQ-COUNT
-           OPEN I-O PROMPTS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT PROMPTS-FILE
-               CLOSE PROMPTS-FILE
-               OPEN I-O PROMPTS-FILE
+           CLOSE    TFILES-FILE
+           SET     WS-SEQ-COUNT                  TO    0
+           OPEN    I-O PROMPTS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT PROMPTS-FILE
+               CLOSE    PROMPTS-FILE
+               OPEN    I-O PROMPTS-FILE
            END-IF
-           MOVE WS-TOPIC-ID-OF TO PRM-TOPIC
-           MOVE 0 TO PRM-VERSION
-           MOVE "N" TO WS-EOF
-           START PROMPTS-FILE KEY IS >= PRM-KEY
+
+           SET     PRM-TOPIC                     TO    WS-TOPIC-ID-OF
+           SET     PRM-VERSION                   TO    0
+           SET     WS-EOF                        TO    "N"
+
+           START    PROMPTS-FILE KEY IS >= PRM-KEY
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
-           PERFORM UNTIL WS-EOF = "Y"
-               READ PROMPTS-FILE NEXT RECORD
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    PROMPTS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF PRM-TOPIC NOT = WS-TOPIC-ID-OF
-                           MOVE "Y" TO WS-EOF
+                       IF    PRM-TOPIC NOT = WS-TOPIC-ID-OF
+                           SET     WS-EOF        TO    "Y"
                        ELSE
-                           IF WS-SEQ-COUNT < 200
-                               ADD 1 TO WS-SEQ-COUNT
-                               MOVE PRM-VERSION TO WS-SEQ-OF(WS-SEQ-COUNT)
+                           IF    WS-SEQ-COUNT < 200
+                               ADD    1 TO WS-SEQ-COUNT
+                               SET     WS-SEQ-OF(WS-SEQ-COUNT)
+                                                 TO    PRM-VERSION
                            END-IF
                        END-IF
                END-READ
            END-PERFORM
-           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-SEQ-COUNT
-               MOVE WS-TOPIC-ID-OF TO PRM-TOPIC
-               MOVE WS-SEQ-OF(WS-K) TO PRM-VERSION
-               DELETE PROMPTS-FILE
+           PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-SEQ-COUNT
+               SET     PRM-TOPIC                 TO    WS-TOPIC-ID-OF
+               SET     PRM-VERSION               TO    WS-SEQ-OF(WS-K)
+
+               DELETE    PROMPTS-FILE
                    INVALID KEY CONTINUE
                END-DELETE
            END-PERFORM
            COMMIT
-           CLOSE PROMPTS-FILE
+           CLOSE    PROMPTS-FILE
 ]]></Event>
     <Event name="PC-ADD-SAMPLE-TOPIC" paragraph="PC-ADD-SAMPLE-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A TOPIC line: the topic, marked as a sample, and its collection.
-           IF WS-MAP-COUNT >= 10
+           *>   A TOPIC line: the topic, marked as a sample, and its collection.
+
+           IF    WS-MAP-COUNT >= 10
                EXIT PROGRAM
            END-IF
-           ADD 1 TO WS-SEQ-N WS-MAP-COUNT
-           MOVE SPACES TO WS-NEW-ID
-           STRING WS-NOW(1:15) WS-SEQ-N DELIMITED BY SIZE INTO WS-NEW-ID
-           MOVE WS-FOLDER TO WS-MAP-FOLDER(WS-MAP-COUNT)
-           MOVE WS-NEW-ID TO WS-MAP-ID(WS-MAP-COUNT)
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           ADD    1 TO WS-SEQ-N WS-MAP-COUNT
+           *> Id = 15 characters of the timestamp + a 1-digit counter: samples are
+           *> made within the same instant, so the counter keeps their ids apart.
+
+           SET     WS-NEW-ID                     TO    SPACES
+           STRING    WS-NOW(1:15) WS-SEQ-N DELIMITED BY SIZE INTO WS-NEW-ID
+
+           SET     WS-MAP-FOLDER(WS-MAP-COUNT)   TO    WS-FOLDER
+           SET     WS-MAP-ID(WS-MAP-COUNT)       TO    WS-NEW-ID
+
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           MOVE WS-NEW-ID TO TOP-ID
-           MOVE WS-F3 TO TOP-NAME
-           MOVE WS-F4 TO TOP-PROMPT
-           MOVE WS-NOW(1:14) TO TOP-CREATED
-           MOVE "Y" TO TOP-SAMPLE
-           WRITE TOPIC-REC
+
+           SET     TOP-ID                        TO    WS-NEW-ID
+           SET     TOP-NAME                      TO    WS-F3
+           SET     TOP-PROMPT                    TO    WS-F4
+           SET     TOP-CREATED                   TO    WS-NOW(1:14)
+           SET     TOP-SAMPLE                    TO    "Y"
+
+           WRITE    TOPIC-REC
                INVALID KEY CONTINUE
            END-WRITE
            COMMIT
-           CLOSE TOPICS-FILE
-           MOVE KB-T::CreateCollection(WS-NEW-ID) TO WS-OK
+           CLOSE    TOPICS-FILE
+           SET     WS-OK                         TO    KB-T::CreateCollection(WS-NEW-ID)
 ]]></Event>
     <Event name="PC-ADD-SAMPLE-FILE" paragraph="PC-ADD-SAMPLE-FILE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A FILE line: the data file and its .cidx, registered by path for the
-      *>   topic. They stay in samples/ and are only ever read.
-           CALL "PC-TOPIC-OF"
-           IF WS-TOPIC-ID-OF = SPACES
+           *>   A FILE line: the data file and its .cidx, registered by path for the
+           *>   topic. They stay in samples/ and are only ever read.
+
+           CALL    "PC-TOPIC-OF"
+           IF    WS-TOPIC-ID-OF = SPACES
                EXIT PROGRAM
            END-IF
-           ADD 1 TO WS-TF-SEQ
-           OPEN I-O TFILES-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TFILES-FILE
-               CLOSE TFILES-FILE
-               OPEN I-O TFILES-FILE
+           ADD    1 TO WS-TF-SEQ
+           OPEN    I-O TFILES-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TFILES-FILE
+               CLOSE    TFILES-FILE
+               OPEN    I-O TFILES-FILE
            END-IF
-           MOVE WS-TOPIC-ID-OF TO TF-TOPIC
-           MOVE WS-TF-SEQ TO TF-SEQ
-           MOVE WS-F3 TO TF-NAME
-           MOVE SPACES TO TF-DATA TF-CIDX
-           STRING WS-SAMPLES-DIR::Trim() "/" WS-FOLDER::Trim() "/" WS-F3::Trim() INTO TF-DATA
-           STRING WS-SAMPLES-DIR::Trim() "/" WS-FOLDER::Trim() "/" WS-F4::Trim() INTO TF-CIDX
-           WRITE TFILE-REC
+
+           SET     TF-TOPIC                      TO    WS-TOPIC-ID-OF
+           SET     TF-SEQ                        TO    WS-TF-SEQ
+           SET     TF-NAME                       TO    WS-F3
+           SET     TF-DATA TF-CIDX               TO    SPACES
+
+           STRING    WS-SAMPLES-DIR::Trim() "/" WS-FOLDER::Trim() "/" WS-F3::Trim() INTO TF-DATA
+           STRING    WS-SAMPLES-DIR::Trim() "/" WS-FOLDER::Trim() "/" WS-F4::Trim() INTO TF-CIDX
+
+           WRITE    TFILE-REC
                INVALID KEY REWRITE TFILE-REC
            END-WRITE
            COMMIT
-           CLOSE TFILES-FILE
+           CLOSE    TFILES-FILE
 ]]></Event>
     <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language the user picked (LANG), the texts in it, and every
-      *>   designed caption and hint that shows one. Called on load and again
-      *>   whenever the language changes (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:2) TO WS-LANG
-           EVALUATE WS-LANG
+           *>   The language the user picked (LANG), the texts in it, and every
+           *>   designed caption and hint that shows one. Called on load and again
+           *>   whenever the language changes (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
+           *> Unset or unknown falls back to English, and WS-LANG says "en" too:
+           *> the language timer compares it with PC-LANG-NOW, which also answers
+           *> "en" in that case, so it must not see a change.
+
+           EVALUATE    WS-LANG
                WHEN "en" MOVE 1 TO WS-LANG-IX
                WHEN "pt" MOVE 2 TO WS-LANG-IX
                WHEN "es" MOVE 3 TO WS-LANG-IX
@@ -793,58 +922,77 @@
                WHEN "jp" MOVE 5 TO WS-LANG-IX
                WHEN "cn" MOVE 6 TO WS-LANG-IX
                WHEN OTHER MOVE "en" TO WS-LANG
-                          MOVE 1 TO WS-LANG-IX
+                   SET     WS-LANG-IX            TO    1
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
-               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           *> One row per text, one column per language (the order of the EVALUATE):
+           *> the picked column becomes PC-TEXT-NOW, which the T-... names redefine.
+           *> The bound is the row count of PC-TEXT-TABLE: change both together.
+
+           PERFORM    VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
+               SET     PC-TEXT-NOW(WS-TX-I)      TO    PC-TEXT(WS-TX-I, WS-LANG-IX)
            END-PERFORM
-           MOVE T-TOPICS-TITLE::Trim() TO Lbl-Title::Caption
-           MOVE SPACES TO WS-TABS
-           STRING T-TAB-BROWSE::Trim() X"0A" T-TAB-EDIT::Trim() INTO WS-TABS
-           MOVE WS-TABS TO Tab-Crud::Tabs
-           INVOKE Dg-List::SetColumnTitle("name", T-COL-NAME)
-           INVOKE Dg-List::SetColumnTitle("prompt", T-COL-PROMPT)
-           MOVE T-NEW::Trim() TO Btn-New::Caption
-           MOVE T-SAVE::Trim() TO Btn-Save::Caption
-           MOVE T-SAVE::Trim() TO Btn-Save2::Caption
-           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
-           MOVE T-CANCEL::Trim() TO Btn-Cancel2::Caption
-           IF WS-EDIT-ID = SPACES
-               MOVE T-NEW-TOPIC::Trim() TO Lbl-New::Caption
+
+           SET     Lbl-Title::Caption            TO    T-TOPICS-TITLE::Trim()
+           SET     WS-TABS                       TO    SPACES
+
+           STRING    T-TAB-BROWSE::Trim() X"0A" T-TAB-EDIT::Trim() INTO WS-TABS
+           SET     Tab-Crud::Tabs                TO    WS-TABS
+
+           Dg-List::SetColumnTitle("name", T-COL-NAME)
+           Dg-List::SetColumnTitle("prompt", T-COL-PROMPT)
+
+           SET     Btn-New::Caption              TO    T-NEW::Trim()
+           SET     Btn-Save::Caption             TO    T-SAVE::Trim()
+           SET     Btn-Save2::Caption            TO    T-SAVE::Trim()
+           SET     Btn-Cancel::Caption           TO    T-CANCEL::Trim()
+           SET     Btn-Cancel2::Caption          TO    T-CANCEL::Trim()
+
+           IF    WS-EDIT-ID = SPACES
+               SET     Lbl-New::Caption          TO    T-NEW-TOPIC::Trim()
            ELSE
-               MOVE T-EDIT-TOPIC::Trim() TO Lbl-New::Caption
+               SET     Lbl-New::Caption          TO    T-EDIT-TOPIC::Trim()
            END-IF
-           MOVE T-HINT-TOPIC-NAME::Trim() TO Txt-Name::HintText
-           MOVE T-HINT-TOPIC-PROMPT::Trim() TO Txt-Prompt::HintText
-           MOVE T-INSTALL-SAMPLES::Trim() TO Btn-Install::Caption
-           MOVE T-REMOVE-SAMPLES::Trim() TO Btn-RemoveSamples::Caption
-           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
+
+           SET     Txt-Name::HintText            TO    T-HINT-TOPIC-NAME::Trim()
+           SET     Txt-Prompt::HintText          TO    T-HINT-TOPIC-PROMPT::Trim()
+           SET     Btn-Install::Caption          TO    T-INSTALL-SAMPLES::Trim()
+           SET     Btn-RemoveSamples::Caption    TO    T-REMOVE-SAMPLES::Trim()
+           SET     Lbl-Status::Caption           TO    T-STATUS::Trim()
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-PT              PIC 9(4).
-       01 WS-FROM            PIC 9(4).
-       01 WS-CNT             PIC 9(4).
-       01 WS-PART            PIC X(110).
-       01 WS-DELIM           PIC XX.
+       01 WS-PT                                  PIC    9(4).
+       01 WS-FROM                                PIC    9(4).
+       01 WS-CNT                                 PIC    9(4).
+       01 WS-PART                                PIC    X(110).
+       01 WS-DELIM                               PIC    XX.
+
        PROCEDURE DIVISION.
-      *>   A message whose words go round numbers and names differently in each
-      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
-           MOVE SPACES TO WS-FMT-OUT
-           MOVE 1 TO WS-PT
-           MOVE 1 TO WS-FROM
-           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
-               MOVE SPACES TO WS-PART WS-DELIM
-               MOVE 0 TO WS-CNT
-               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+           *>   A message whose words go round numbers and names differently in each
+           *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+
+           SET     WS-FMT-OUT                    TO    SPACES
+           SET     WS-PT                         TO    1
+           SET     WS-FROM                       TO    1
+
+           PERFORM    UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               SET     WS-PART WS-DELIM          TO    SPACES
+               SET     WS-CNT                    TO    0
+
+               UNSTRING    WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
                    INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
                    WITH POINTER WS-FROM
                END-UNSTRING
-               IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
+               IF    WS-CNT > 0
+                   STRING    WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
-               EVALUATE WS-DELIM
+               *> No "&n" left: WS-DELIM stays blank and the tail was copied above, so
+               *> WHEN OTHER pushes WS-FROM past the end to end the loop.
+
+               EVALUATE    WS-DELIM
                    WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
@@ -854,252 +1002,316 @@
            END-PERFORM
 ]]></Event>
     <Event name="PC-OPEN" paragraph="PC-OPEN"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   What the form shows: run on load, and again when it comes back.
-           CALL "PC-PATHS"
-           CALL "PC-TEXTS"
-           DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
-           ACCEPT WS-SAMPLES-DIR FROM ENVIRONMENT-VALUE
-           IF WS-SAMPLES-DIR = SPACES
-               MOVE "samples" TO WS-SAMPLES-DIR
+           *>   What the form shows: run on load, and again when it comes back.
+
+           CALL    "PC-PATHS"
+           CALL    "PC-TEXTS"
+
+           DISPLAY    "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-SAMPLES-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-SAMPLES-DIR = SPACES
+               SET     WS-SAMPLES-DIR            TO    "samples"
            END-IF
-           MOVE SPACES TO WS-SAMPLES-LIST
-           STRING WS-SAMPLES-DIR::Trim() "/samples.txt" INTO WS-SAMPLES-LIST
-           MOVE "KB-LOCATION" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           IF WS-SET-VALUE NOT = SPACES
-               MOVE WS-SET-VALUE TO KB-T::Location
+           SET     WS-SAMPLES-LIST               TO    SPACES
+           STRING    WS-SAMPLES-DIR::Trim() "/samples.txt" INTO WS-SAMPLES-LIST
+           SET     WS-SET-NAME                   TO    "KB-LOCATION"
+           CALL    "PC-SETTING-GET"
+           IF    WS-SET-VALUE NOT = SPACES
+               SET     KB-T::Location            TO    WS-SET-VALUE
            END-IF
-           CALL "PC-LOAD-TOPICS"
-           IF WS-TOPIC-COUNT = 0
-               MOVE T-NO-TOPICS::Trim() TO Lbl-Status::Caption
+           CALL    "PC-LOAD-TOPICS"
+           IF    WS-TOPIC-COUNT = 0
+               SET     Lbl-Status::Caption       TO    T-NO-TOPICS::Trim()
            ELSE
-               MOVE T-PICK-OR-CREATE::Trim() TO Lbl-Status::Caption
+               SET     Lbl-Status::Caption       TO    T-PICK-OR-CREATE::Trim()
            END-IF
 ]]></Event>
     <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language saved now (LANG), into WS-LANG-NOW; "en" when unset.
-           MOVE "en" TO WS-LANG-NOW
-           OPEN INPUT SETTINGS-FILE
-           IF WS-FS NOT = "00"
+           *>   The language saved now (LANG), into WS-LANG-NOW; "en" when unset.
+
+           SET     WS-LANG-NOW                   TO    "en"
+           *> Polled by the language timer every second, so it only looks: it never
+           *> creates the settings file, and a file it cannot open leaves "en".
+
+           OPEN    INPUT SETTINGS-FILE
+           IF    WS-FS NOT = "00"
                EXIT PROGRAM
            END-IF
-           MOVE "LANG" TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    "LANG"
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY
-                   EVALUATE SET-VALUE(1:2)
+                   EVALUATE    SET-VALUE(1:2)
                        WHEN "pt" WHEN "es" WHEN "fr" WHEN "jp" WHEN "cn"
-                           MOVE SET-VALUE(1:2) TO WS-LANG-NOW
+                           SET     WS-LANG-NOW   TO    SET-VALUE(1:2)
                    END-EVALUATE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 ]]></Event>
     <Event name="PC-OPEN-TOPIC" paragraph="PC-OPEN-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-TOPIC-ID-OF in: that topic becomes the current one (CUR-TOPIC).
-           MOVE "CUR-TOPIC" TO WS-SET-NAME
-           MOVE WS-TOPIC-ID-OF TO WS-SET-VALUE
-           CALL "PC-SETTING-PUT"
-           MOVE T-TOPIC-OPENED::Trim() TO Lbl-Status::Caption
+           *>   WS-TOPIC-ID-OF in: that topic becomes the current one (CUR-TOPIC).
+
+           SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+           SET     WS-SET-VALUE                  TO    WS-TOPIC-ID-OF
+
+           CALL    "PC-SETTING-PUT"
+           SET     Lbl-Status::Caption           TO    T-TOPIC-OPENED::Trim()
 ]]></Event>
     <Event name="PC-NEW-TOPIC" paragraph="PC-NEW-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The Create/Update page, empty: Save writes a new topic.
-           MOVE SPACES TO WS-EDIT-ID
-           MOVE SPACES TO Txt-Name::Text
-           MOVE SPACES TO Txt-Prompt::Text
-           MOVE T-NEW-TOPIC::Trim() TO Lbl-New::Caption
-           MOVE 2 TO Tab-Crud::SelectedTab
+           *>   The Create/Update page, empty: Save writes a new topic.
+
+           SET     WS-EDIT-ID                    TO    SPACES
+           SET     Txt-Name::Text                TO    SPACES
+           SET     Txt-Prompt::Text              TO    SPACES
+           SET     Lbl-New::Caption              TO    T-NEW-TOPIC::Trim()
+           SET     Tab-Crud::SelectedTab         TO    2
 ]]></Event>
     <Event name="PC-EDIT-TOPIC" paragraph="PC-EDIT-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-TOPIC-ID-OF in: its name and prompt on the Create/Update page.
-      *>   The key is the topic's id, so the name stays editable (a rename).
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           *>   WS-TOPIC-ID-OF in: its name and prompt on the Create/Update page.
+           *>   The key is the topic's id, so the name stays editable (a rename).
+
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           MOVE "N" TO WS-SAVE-OK
-           MOVE WS-TOPIC-ID-OF TO TOP-ID
-           READ TOPICS-FILE
+
+           SET     WS-SAVE-OK                    TO    "N"
+           SET     TOP-ID                        TO    WS-TOPIC-ID-OF
+
+           READ    TOPICS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE "Y" TO WS-SAVE-OK
            END-READ
-           CLOSE TOPICS-FILE
-           IF WS-SAVE-OK NOT = "Y"
-               MOVE T-PICK-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
-               CALL "PC-LOAD-TOPICS"
+           CLOSE    TOPICS-FILE
+           IF    WS-SAVE-OK NOT = "Y"
+               SET     Lbl-Status::Caption       TO    T-PICK-TOPIC-FIRST::Trim()
+               CALL    "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
-           MOVE WS-TOPIC-ID-OF TO WS-EDIT-ID
-           MOVE FUNCTION TRIM(TOP-NAME) TO Txt-Name::Text
-           MOVE FUNCTION TRIM(TOP-PROMPT) TO Txt-Prompt::Text
-           MOVE T-EDIT-TOPIC::Trim() TO Lbl-New::Caption
-           MOVE 2 TO Tab-Crud::SelectedTab
+
+           SET     WS-EDIT-ID                    TO    WS-TOPIC-ID-OF
+           SET     Txt-Name::Text                TO    FUNCTION TRIM(TOP-NAME)
+           SET     Txt-Prompt::Text              TO    FUNCTION TRIM(TOP-PROMPT)
+           SET     Lbl-New::Caption              TO    T-EDIT-TOPIC::Trim()
+           SET     Tab-Crud::SelectedTab         TO    2
 ]]></Event>
     <Event name="PC-SAVE-TOPIC" paragraph="PC-SAVE-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A topic is data: its own id, name, prompt, documents and Knowledge
-      *>   Base collection. Nothing about any topic is written in this code.
-      *>   WS-EDIT-ID spaces = a new topic (a fresh id and its collection);
-      *>   otherwise that topic, keeping its creation stamp and sample mark.
-           MOVE Txt-Name::Text TO WS-NEW-NAME
-           MOVE Txt-Prompt::Text TO WS-NEW-PROMPT
-           IF WS-NEW-NAME = SPACES
-               MOVE T-NAME-FIRST::Trim() TO Lbl-Status::Caption
+           *>   A topic is data: its own id, name, prompt, documents and Knowledge
+           *>   Base collection. Nothing about any topic is written in this code.
+           *>   WS-EDIT-ID spaces = a new topic (a fresh id and its collection);
+           *>   otherwise that topic, keeping its creation stamp and sample mark.
+
+           SET     WS-NEW-NAME                   TO    Txt-Name::Text
+           SET     WS-NEW-PROMPT                 TO    Txt-Prompt::Text
+
+           IF    WS-NEW-NAME = SPACES
+               SET     Lbl-Status::Caption       TO    T-NAME-FIRST::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE FUNCTION CURRENT-DATE TO WS-NOW
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           SET     WS-NOW                        TO    FUNCTION CURRENT-DATE
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           IF WS-EDIT-ID = SPACES
-               MOVE WS-NOW(1:16) TO WS-NEW-ID
-               MOVE WS-NEW-ID TO TOP-ID
-               MOVE WS-NOW(1:14) TO TOP-CREATED
-               MOVE "N" TO TOP-SAMPLE
+           IF    WS-EDIT-ID = SPACES
+               SET     WS-NEW-ID                 TO    WS-NOW(1:16)
+               SET     TOP-ID                    TO    WS-NEW-ID
+               SET     TOP-CREATED               TO    WS-NOW(1:14)
+               SET     TOP-SAMPLE                TO    "N"
            ELSE
-               MOVE WS-EDIT-ID TO WS-NEW-ID
-               MOVE WS-EDIT-ID TO TOP-ID
-               READ TOPICS-FILE
+               SET     WS-NEW-ID                 TO    WS-EDIT-ID
+               SET     TOP-ID                    TO    WS-EDIT-ID
+
+               READ    TOPICS-FILE
                    INVALID KEY
-                       MOVE WS-EDIT-ID TO TOP-ID
-                       MOVE WS-NOW(1:14) TO TOP-CREATED
-                       MOVE "N" TO TOP-SAMPLE
+                       SET     TOP-ID            TO    WS-EDIT-ID
+                       SET     TOP-CREATED       TO    WS-NOW(1:14)
+                       SET     TOP-SAMPLE        TO    "N"
                END-READ
            END-IF
-           MOVE WS-NEW-NAME TO TOP-NAME
-           MOVE WS-NEW-PROMPT TO TOP-PROMPT
-           MOVE "Y" TO WS-SAVE-OK
-           WRITE TOPIC-REC
+
+           SET     TOP-NAME                      TO    WS-NEW-NAME
+           SET     TOP-PROMPT                    TO    WS-NEW-PROMPT
+           SET     WS-SAVE-OK                    TO    "Y"
+
+           *> WRITE comes first: a new id is inserted. On an edit the key already
+           *> exists, so the WRITE fails and REWRITE takes over; a topic deleted in
+           *> the meantime is just inserted again.
+
+           WRITE    TOPIC-REC
                INVALID KEY
-                   IF WS-EDIT-ID = SPACES
-      *>               A fresh id already taken: another topic, this instant.
-                       MOVE T-SAME-INSTANT::Trim() TO Lbl-Status::Caption
-                       MOVE "N" TO WS-SAVE-OK
+                   IF    WS-EDIT-ID = SPACES
+                       *>               A fresh id already taken: another topic, this instant.
+
+                       SET     Lbl-Status::Caption
+                                                 TO    T-SAME-INSTANT::Trim()
+
+                       SET     WS-SAVE-OK        TO    "N"
                    ELSE
-                       REWRITE TOPIC-REC
+                       REWRITE    TOPIC-REC
                            INVALID KEY
-                               MOVE T-SAVE-FAILED TO WS-FMT
-                               MOVE WS-FS TO WS-ARG1
-                               CALL "PC-FMT"
-                               MOVE WS-FMT-OUT::Trim()
-                                   TO Lbl-Status::Caption
-                               MOVE "N" TO WS-SAVE-OK
+                               SET     WS-FMT    TO    T-SAVE-FAILED
+                               SET     WS-ARG1   TO    WS-FS
+
+                               CALL    "PC-FMT"
+                               SET     Lbl-Status::Caption
+                                                 TO    WS-FMT-OUT::Trim()
+
+                               SET     WS-SAVE-OK
+                                                 TO    "N"
                        END-REWRITE
                    END-IF
            END-WRITE
-           IF WS-SAVE-OK NOT = "Y"
-               CLOSE TOPICS-FILE
+           IF    WS-SAVE-OK NOT = "Y"
+               CLOSE    TOPICS-FILE
                EXIT PROGRAM
            END-IF
            COMMIT
-           CLOSE TOPICS-FILE
-           IF WS-EDIT-ID = SPACES
-      *>       Its Knowledge Base collection: an empty documents folder and index.
-               MOVE KB-T::CreateCollection(WS-NEW-ID) TO WS-OK
-               IF WS-OK NOT = "1"
-                   MOVE KB-T::LastError TO Lbl-Status::Caption
+           CLOSE    TOPICS-FILE
+           IF    WS-EDIT-ID = SPACES
+               *>       Its Knowledge Base collection: an empty documents folder and index.
+
+               SET     WS-OK                     TO    KB-T::CreateCollection(WS-NEW-ID)
+               IF    WS-OK NOT = "1"
+                   SET     Lbl-Status::Caption   TO    KB-T::LastError
                ELSE
-                   MOVE T-TOPIC-CREATED::Trim() TO Lbl-Status::Caption
+                   SET     Lbl-Status::Caption   TO    T-TOPIC-CREATED::Trim()
                END-IF
            ELSE
-               MOVE T-TOPIC-SAVED::Trim() TO Lbl-Status::Caption
+               SET     Lbl-Status::Caption       TO    T-TOPIC-SAVED::Trim()
            END-IF
-           MOVE SPACES TO WS-EDIT-ID
-           MOVE SPACES TO Txt-Name::Text
-           MOVE SPACES TO Txt-Prompt::Text
-           CALL "PC-LOAD-TOPICS"
-           MOVE 1 TO Tab-Crud::SelectedTab
+
+           SET     WS-EDIT-ID                    TO    SPACES
+           SET     Txt-Name::Text                TO    SPACES
+           SET     Txt-Prompt::Text              TO    SPACES
+
+           CALL    "PC-LOAD-TOPICS"
+           SET     Tab-Crud::SelectedTab         TO    1
 ]]></Event>
     <Event name="PC-CANCEL-EDIT" paragraph="PC-CANCEL-EDIT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Back to Browse, nothing written and the list not reloaded.
-           MOVE SPACES TO WS-EDIT-ID
-           MOVE 1 TO Tab-Crud::SelectedTab
+           *>   Back to Browse, nothing written and the list not reloaded.
+
+           SET     WS-EDIT-ID                    TO    SPACES
+           SET     Tab-Crud::SelectedTab         TO    1
 ]]></Event>
     <Event name="PC-DELETE-TOPIC" paragraph="PC-DELETE-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-TOPIC-ID-OF in, after a confirmation: the topic goes the way the
-      *>   sample topics go - its Knowledge Base (moved aside, never deleted),
-      *>   its registered files and its prompt versions, and CUR-TOPIC when
-      *>   it was the current one.
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           *>   WS-TOPIC-ID-OF in, after a confirmation: the topic goes the way the
+           *>   sample topics go - its Knowledge Base (moved aside, never deleted),
+           *>   its registered files and its prompt versions, and CUR-TOPIC when
+           *>   it was the current one.
+
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           MOVE "N" TO WS-SAVE-OK
-           MOVE WS-TOPIC-ID-OF TO TOP-ID
-           READ TOPICS-FILE
+
+           SET     WS-SAVE-OK                    TO    "N"
+           SET     TOP-ID                        TO    WS-TOPIC-ID-OF
+
+           READ    TOPICS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE "Y" TO WS-SAVE-OK
            END-READ
-           CLOSE TOPICS-FILE
-           IF WS-SAVE-OK NOT = "Y"
-               MOVE T-PICK-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
-               CALL "PC-LOAD-TOPICS"
+           CLOSE    TOPICS-FILE
+           IF    WS-SAVE-OK NOT = "Y"
+               SET     Lbl-Status::Caption       TO    T-PICK-TOPIC-FIRST::Trim()
+               CALL    "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
-           MOVE T-CONFIRM-DELETE TO WS-FMT
-           MOVE TOP-NAME TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT TO WS-QUESTION
-           INVOKE ME::SetProperty("ConfirmText", WS-QUESTION)
-           INVOKE ME::SetProperty("ConfirmYes", T-YES)
-           INVOKE ME::SetProperty("ConfirmNo", T-NO)
-           INVOKE ME::SetProperty("ConfirmAnswer", "N")
-           INVOKE ME::OpenFormSync("CONFIRM-FORM")
-           INVOKE ME::GetProperty("ConfirmAnswer") RETURNING WS-ANSWER
-           IF WS-ANSWER NOT = "Y"
+
+           SET     WS-FMT                        TO    T-CONFIRM-DELETE
+           SET     WS-ARG1                       TO    TOP-NAME
+
+           CALL    "PC-FMT"
+           SET     WS-QUESTION                   TO    WS-FMT-OUT
+
+           *> The confirm dialog reads these properties from this form and answers
+           *> in ConfirmAnswer; it is preset to "N" so closing the dialog any other
+           *> way counts as no.
+
+           INVOKE    ME::SetProperty("ConfirmText", WS-QUESTION)
+           INVOKE    ME::SetProperty("ConfirmYes", T-YES)
+           INVOKE    ME::SetProperty("ConfirmNo", T-NO)
+           INVOKE    ME::SetProperty("ConfirmAnswer", "N")
+           INVOKE    ME::OpenFormSync("CONFIRM-FORM")
+           INVOKE    ME::GetProperty("ConfirmAnswer") RETURNING WS-ANSWER
+
+           IF    WS-ANSWER NOT = "Y"
                EXIT PROGRAM
            END-IF
-           OPEN I-O TOPICS-FILE
-           MOVE WS-TOPIC-ID-OF TO TOP-ID
-           DELETE TOPICS-FILE
+           OPEN    I-O TOPICS-FILE
+           SET     TOP-ID                        TO    WS-TOPIC-ID-OF
+           DELETE    TOPICS-FILE
                INVALID KEY CONTINUE
            END-DELETE
            COMMIT
-           CLOSE TOPICS-FILE
-           MOVE KB-T::RemoveCollection(WS-TOPIC-ID-OF) TO WS-OK
-           CALL "PC-DROP-TOPIC-ROWS"
-           MOVE "CUR-TOPIC" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           IF WS-SET-VALUE(1:16) = WS-TOPIC-ID-OF
-               MOVE SPACES TO WS-SET-VALUE
-               CALL "PC-SETTING-PUT"
+           CLOSE    TOPICS-FILE
+           SET     WS-OK                         TO    KB-T::RemoveCollection(WS-TOPIC-ID-OF)
+           CALL    "PC-DROP-TOPIC-ROWS"
+           SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+           CALL    "PC-SETTING-GET"
+           IF    WS-SET-VALUE(1:16) = WS-TOPIC-ID-OF
+               SET     WS-SET-VALUE              TO    SPACES
+               CALL    "PC-SETTING-PUT"
            END-IF
-           MOVE T-TOPIC-DELETED::Trim() TO Lbl-Status::Caption
-           CALL "PC-LOAD-TOPICS"
+           SET     Lbl-Status::Caption           TO    T-TOPIC-DELETED::Trim()
+           CALL    "PC-LOAD-TOPICS"
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="TOPICS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-OPEN"
+           CALL    "PC-OPEN"
 ]]></Event>
     <Event name="onActivate" paragraph="TOPICS-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Back on the pane: the topic or the language may have changed.
-           CALL "PC-OPEN"
+           *>   Back on the pane: the topic or the language may have changed.
+
+           CALL    "PC-OPEN"
 ]]></Event>
     <Event name="onClose" paragraph="TOPICS-FORM--ONCLOSE">
     </Event>
@@ -1350,61 +1562,85 @@
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-INSTALL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Every topic in samples/samples.txt: its topic, its Knowledge Base
-      *>   with the listed documents, and its data files registered by path.
-      *>   Nothing about any sample is written in this code (R10).
-           CALL "PC-HAS-SAMPLES"
-           IF WS-OK = "Y"
-               MOVE T-SAMPLES-ALREADY::Trim() TO Lbl-Status::Caption
+           *>   Every topic in samples/samples.txt: its topic, its Knowledge Base
+           *>   with the listed documents, and its data files registered by path.
+           *>   Nothing about any sample is written in this code (R10).
+
+           CALL    "PC-HAS-SAMPLES"
+           IF    WS-OK = "Y"
+               SET     Lbl-Status::Caption       TO    T-SAMPLES-ALREADY::Trim()
                EXIT PROGRAM
            END-IF
-           OPEN INPUT SAMPLES-FILE
-           IF WS-FS NOT = "00"
-               MOVE T-SAMPLES-NONE TO WS-FMT
-               MOVE WS-SAMPLES-LIST TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           OPEN    INPUT SAMPLES-FILE
+           IF    WS-FS NOT = "00"
+               SET     WS-FMT                    TO    T-SAMPLES-NONE
+               SET     WS-ARG1                   TO    WS-SAMPLES-LIST
+
+               CALL    "PC-FMT"
+               SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE 0 TO WS-MAP-COUNT WS-Q-COUNT WS-SEQ-N WS-TF-SEQ
-           MOVE FUNCTION CURRENT-DATE TO WS-NOW
-           MOVE "N" TO WS-EOF
-           PERFORM UNTIL WS-EOF = "Y"
-               READ SAMPLES-FILE
+           SET     WS-MAP-COUNT WS-Q-COUNT WS-SEQ-N WS-TF-SEQ
+                                                 TO    0
+
+           SET     WS-NOW                        TO    FUNCTION CURRENT-DATE
+           SET     WS-EOF                        TO    "N"
+
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    SAMPLES-FILE
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       MOVE SPACES TO WS-KIND WS-FOLDER WS-F3 WS-F4
-                       UNSTRING SAMPLE-LINE DELIMITED BY "|"
+                       *> A samples.txt line is KIND|folder|a|b: TOPIC (name, prompt), DOC (file
+                       *> in documents/) or FILE (data file, its .cidx). A folder's TOPIC line
+                       *> must come first, or its DOC and FILE lines are skipped.
+
+                       SET     WS-KIND WS-FOLDER WS-F3 WS-F4
+                                                 TO    SPACES
+
+                       UNSTRING    SAMPLE-LINE DELIMITED BY "|"
                            INTO WS-KIND WS-FOLDER WS-F3 WS-F4
                        END-UNSTRING
-                       EVALUATE WS-KIND
+                       EVALUATE    WS-KIND
                            WHEN "TOPIC"
-                               CALL "PC-ADD-SAMPLE-TOPIC"
+                               CALL    "PC-ADD-SAMPLE-TOPIC"
                            WHEN "DOC"
-                               CALL "PC-TOPIC-OF"
-                               IF WS-TOPIC-ID-OF NOT = SPACES AND WS-Q-COUNT < 60
-                                   ADD 1 TO WS-Q-COUNT
-                                   MOVE WS-TOPIC-ID-OF TO WS-Q-TOPIC(WS-Q-COUNT)
-                                   MOVE SPACES TO WS-Q-PATH(WS-Q-COUNT)
-                                   STRING WS-SAMPLES-DIR::Trim() "/"
-                                          WS-FOLDER::Trim() "/documents/"
-                                          WS-F3::Trim()
+                               CALL    "PC-TOPIC-OF"
+                               IF    WS-TOPIC-ID-OF NOT = SPACES AND WS-Q-COUNT < 60
+                                   ADD    1 TO WS-Q-COUNT
+                                   SET     WS-Q-TOPIC(WS-Q-COUNT)
+                                                 TO    WS-TOPIC-ID-OF
+
+                                   SET     WS-Q-PATH(WS-Q-COUNT)
+                                                 TO    SPACES
+
+                                   STRING    WS-SAMPLES-DIR::Trim() "/"
+
+                                   WS-FOLDER::Trim() "/documents/"
+                                   WS-F3::Trim()
                                        INTO WS-Q-PATH(WS-Q-COUNT)
                                END-IF
                            WHEN "FILE"
-                               CALL "PC-ADD-SAMPLE-FILE"
+                               CALL    "PC-ADD-SAMPLE-FILE"
                            WHEN OTHER
                                CONTINUE
                        END-EVALUATE
                END-READ
            END-PERFORM
-           CLOSE SAMPLES-FILE
-           CALL "PC-LOAD-TOPICS"
-           MOVE "Y" TO WS-INSTALLING
-           MOVE 1 TO WS-Q-NEXT
-           CALL "PC-NEXT-IMPORT"
+           CLOSE    SAMPLES-FILE
+           CALL    "PC-LOAD-TOPICS"
+
+           *> The documents were only queued above. The Knowledge Base indexes one
+           *> at a time in the background; onIndexed, onError and onBusy each call
+           *> PC-NEXT-IMPORT for the next one while WS-INSTALLING is "Y".
+
+           SET     WS-INSTALLING                 TO    "Y"
+           SET     WS-Q-NEXT                     TO    1
+
+           CALL    "PC-NEXT-IMPORT"
 ]]></Event>
   </Control>
   <Control id="Btn-RemoveSamples" type="Button" x="376" y="96" w="184" h="32" tab-order="8" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
@@ -1448,61 +1684,70 @@
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-REMOVESAMPLES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Every sample topic, with its Knowledge Base (moved aside, never
-      *>   deleted), its registered files and its prompt versions. The files
-      *>   in samples/ stay where they are.
-           MOVE 0 TO WS-REMOVED WS-MAP-COUNT
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           *>   Every sample topic, with its Knowledge Base (moved aside, never
+           *>   deleted), its registered files and its prompt versions. The files
+           *>   in samples/ stay where they are.
+
+           SET     WS-REMOVED WS-MAP-COUNT       TO    0
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           MOVE LOW-VALUES TO TOP-ID
-           MOVE "N" TO WS-EOF
-           START TOPICS-FILE KEY IS >= TOP-ID
+
+           SET     TOP-ID                        TO    LOW-VALUES
+           SET     WS-EOF                        TO    "N"
+
+           START    TOPICS-FILE KEY IS >= TOP-ID
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
-           PERFORM UNTIL WS-EOF = "Y"
-               READ TOPICS-FILE NEXT RECORD
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    TOPICS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF TOP-SAMPLE = "Y" AND WS-MAP-COUNT < 10
-                           ADD 1 TO WS-MAP-COUNT
-                           MOVE TOP-ID TO WS-MAP-ID(WS-MAP-COUNT)
+                       IF    TOP-SAMPLE = "Y" AND WS-MAP-COUNT < 10
+                           ADD    1 TO WS-MAP-COUNT
+                           SET     WS-MAP-ID(WS-MAP-COUNT)
+                                                 TO    TOP-ID
                        END-IF
                END-READ
            END-PERFORM
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
-               MOVE WS-MAP-ID(WS-J) TO TOP-ID
-               DELETE TOPICS-FILE
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               SET     TOP-ID                    TO    WS-MAP-ID(WS-J)
+               DELETE    TOPICS-FILE
                    INVALID KEY CONTINUE
                    NOT INVALID KEY ADD 1 TO WS-REMOVED
                END-DELETE
            END-PERFORM
            COMMIT
-           CLOSE TOPICS-FILE
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
-               MOVE KB-T::RemoveCollection(WS-MAP-ID(WS-J)) TO WS-OK
-               MOVE WS-MAP-ID(WS-J) TO WS-TOPIC-ID-OF
-               CALL "PC-DROP-TOPIC-ROWS"
+           CLOSE    TOPICS-FILE
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               SET     WS-OK                     TO    KB-T::RemoveCollection(WS-MAP-ID(WS-J))
+               SET     WS-TOPIC-ID-OF            TO    WS-MAP-ID(WS-J)
+
+               CALL    "PC-DROP-TOPIC-ROWS"
            END-PERFORM
-           MOVE "CUR-TOPIC" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
-               IF WS-SET-VALUE(1:16) = WS-MAP-ID(WS-J)
-                   MOVE SPACES TO WS-SET-VALUE
-                   CALL "PC-SETTING-PUT"
+           SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+           CALL    "PC-SETTING-GET"
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               IF    WS-SET-VALUE(1:16) = WS-MAP-ID(WS-J)
+                   SET     WS-SET-VALUE          TO    SPACES
+                   CALL    "PC-SETTING-PUT"
                END-IF
            END-PERFORM
-           MOVE WS-REMOVED TO WS-N1
-           MOVE T-SAMPLES-REMOVED TO WS-FMT
-           MOVE WS-N1 TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
-           CALL "PC-LOAD-TOPICS"
+
+           SET     WS-N1                         TO    WS-REMOVED
+           SET     WS-FMT                        TO    T-SAMPLES-REMOVED
+           SET     WS-ARG1                       TO    WS-N1
+
+           CALL    "PC-FMT"
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
+           CALL    "PC-LOAD-TOPICS"
 ]]></Event>
   </Control>
   <Control id="KB-T" type="KnowledgeBase" x="600" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1551,26 +1796,32 @@
     <Property name="ModelEntry"></Property>
     <Property name="EmbeddingAPIKey"></Property>
     <Event name="onIndexed" paragraph="KB-T--ONINDEXED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-INSTALLING = "Y"
-               CALL "PC-NEXT-IMPORT"
+           IF    WS-INSTALLING = "Y"
+               CALL    "PC-NEXT-IMPORT"
            END-IF
 ]]></Event>
     <Event name="onError" paragraph="KB-T--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE KB-T::LastError TO Lbl-Status::Caption
-           IF WS-INSTALLING = "Y"
-               CALL "PC-NEXT-IMPORT"
+           SET     Lbl-Status::Caption           TO    KB-T::LastError
+           IF    WS-INSTALLING = "Y"
+               CALL    "PC-NEXT-IMPORT"
            END-IF
 ]]></Event>
     <Event name="onBusy" paragraph="KB-T--ONBUSY"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE KB-T::LastError TO Lbl-Status::Caption
-           IF WS-INSTALLING = "Y"
-               CALL "PC-NEXT-IMPORT"
+           SET     Lbl-Status::Caption           TO    KB-T::LastError
+           IF    WS-INSTALLING = "Y"
+               CALL    "PC-NEXT-IMPORT"
            END-IF
 ]]></Event>
   </Control>
@@ -1608,13 +1859,16 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A flag in the chat's menu changes the language while this form is
-      *>   on the pane; nothing tells a pane occupant, so it looks (R46).
-           CALL "PC-LANG-NOW"
-           IF WS-LANG-NOW NOT = WS-LANG
-               CALL "TOPICS-FORM--ONACTIVATE"
+           *>   A flag in the chat's menu changes the language while this form is
+           *>   on the pane; nothing tells a pane occupant, so it looks (R46).
+
+           CALL    "PC-LANG-NOW"
+           IF    WS-LANG-NOW NOT = WS-LANG
+               CALL    "TOPICS-FORM--ONACTIVATE"
            END-IF
 ]]></Event>
   </Control>
@@ -1698,9 +1952,11 @@ Create/Update</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-NEW-TOPIC"
+           CALL    "PC-NEW-TOPIC"
 ]]></Event>
   </Control>
   <Control id="Dg-List" type="DataGrid" x="40" y="144" w="976" h="416" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
@@ -1774,17 +2030,21 @@ delete:string</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Event name="onCellClick" paragraph="DG-LIST--ONCELLCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Grid row n is WS-TOPIC-ID(n); columns 3, 4 and 5 are the open,
-      *>   edit and delete buttons.
-           MOVE Dg-List::ClickedRow TO WS-ROW-NO
-           MOVE Dg-List::ClickedColumn TO WS-COL-NO
-           IF WS-ROW-NO < 1 OR WS-ROW-NO > WS-TOPIC-COUNT
+           *>   Grid row n is WS-TOPIC-ID(n); columns 3, 4 and 5 are the open,
+           *>   edit and delete buttons.
+
+           SET     WS-ROW-NO                     TO    Dg-List::ClickedRow
+           SET     WS-COL-NO                     TO    Dg-List::ClickedColumn
+
+           IF    WS-ROW-NO < 1 OR WS-ROW-NO > WS-TOPIC-COUNT
                EXIT PROGRAM
            END-IF
-           MOVE WS-TOPIC-ID(WS-ROW-NO) TO WS-TOPIC-ID-OF
-           EVALUATE WS-COL-NO
+           SET     WS-TOPIC-ID-OF                TO    WS-TOPIC-ID(WS-ROW-NO)
+           EVALUATE    WS-COL-NO
                WHEN 3 CALL "PC-OPEN-TOPIC"
                WHEN 4 CALL "PC-EDIT-TOPIC"
                WHEN 5 CALL "PC-DELETE-TOPIC"
@@ -1831,9 +2091,11 @@ delete:string</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-SAVE-TOPIC"
+           CALL    "PC-SAVE-TOPIC"
 ]]></Event>
   </Control>
   <Control id="Btn-Cancel" type="Button" x="904" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
@@ -1875,9 +2137,11 @@ delete:string</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-CANCEL-EDIT"
+           CALL    "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
   <Control id="Btn-Save2" type="Button" x="768" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
@@ -1919,9 +2183,11 @@ delete:string</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-SAVE2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-SAVE-TOPIC"
+           CALL    "PC-SAVE-TOPIC"
 ]]></Event>
   </Control>
   <Control id="Btn-Cancel2" type="Button" x="904" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
@@ -1963,9 +2229,11 @@ delete:string</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-CANCEL2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-CANCEL-EDIT"
+           CALL    "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
 </Form>

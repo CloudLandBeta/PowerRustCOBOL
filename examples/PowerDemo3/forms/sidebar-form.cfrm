@@ -47,7 +47,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="SIDEBAR-FORM--ONLOAD">
     </Event>
@@ -731,15 +732,16 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNABRIRNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
 
-           IF CheckBox-1::Checked IS true
-              SET CheckBox-1::Checked TO false
+           IF    CheckBox-1::Checked IS true
+               SET     CheckBox-1::Checked       TO    false
            ELSE
-              SET CheckBox-1::Checked TO true
+               SET     CheckBox-1::Checked       TO    true
            END-IF
-
 
            CONTINUE.
 ]]></Event>
@@ -783,12 +785,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNALTERARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET panel-7::BackgroundColor to "0000FFFF"
+           SET     panel-7::BackgroundColor      TO    "0000FFFF"
            CONTINUE.
 ]]></Event>
     <Animation name="appear" trigger="OnFormLoad" kind="ZoomIn" duration="1800" delay="400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -831,12 +836,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNEXCLUIRNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET  CheckBox-2::Visible TO  false
+           SET     CheckBox-2::Visible           TO    false
            CONTINUE.
 ]]></Event>
     <Animation name="appear" trigger="OnFormLoad" kind="ZoomIn" duration="1800" delay="800" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -879,12 +887,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNAPROVARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET  CheckBox-2::Visible  TO  true
+           SET     CheckBox-2::Visible           TO    true
            CONTINUE.
 ]]></Event>
     <Animation name="appear" trigger="OnFormLoad" kind="ZoomIn" duration="1800" delay="1200" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -927,13 +938,17 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNREJEITARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET Knob-2::Value  TO  false
-           SET Timer-1::Enabled TO false
+           SET     Knob-2::Value                 TO    false
+           SET     Timer-1::Enabled              TO    false
+
            CONTINUE.
 ]]></Event>
     <Animation name="appear" trigger="OnFormLoad" kind="ZoomIn" duration="1800" delay="1600" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -976,12 +991,15 @@
     <Property name="CornerRadius">10</Property>
     <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNENCAMINHARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET Timer-1::Enabled  TO  true
+           SET     Timer-1::Enabled              TO    true
            CONTINUE.
 ]]></Event>
     <Animation name="appear" trigger="OnFormLoad" kind="ZoomIn" duration="1800" delay="2000" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -1058,18 +1076,21 @@
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
     <Event name="onClick" paragraph="SWITCH-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           DISPLAY Switch-1::Checked " - " Label-7::Visible
+           DISPLAY    Switch-1::Checked " - " Label-7::Visible
 
-           if Switch-1::Checked is false
-              SET Label-7::Visible TO  false
+           IF    Switch-1::Checked IS false
+               SET     Label-7::Visible          TO    false
            ELSE
-              SET Label-7::Visible TO  true
-           end-if
+               SET     Label-7::Visible          TO    true
+           END-IF
 
            CONTINUE.
 ]]></Event>
@@ -1215,14 +1236,18 @@
     <Property name="BorderWidth">1</Property>
     <Property name="ToolbarLayout">{&quot;groups&quot;:[{&quot;id&quot;:&quot;group-1&quot;,&quot;label&quot;:&quot;File&quot;,&quot;buttons&quot;:[{&quot;id&quot;:&quot;button-1&quot;,&quot;tooltip&quot;:&quot;Open&quot;,&quot;icon&quot;:&quot;folder-open&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#00B800FF&quot;}},{&quot;id&quot;:&quot;button-2&quot;,&quot;icon&quot;:&quot;doc-save&quot;,&quot;action&quot;:&quot;event&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#7C3AEDFF&quot;}},{&quot;id&quot;:&quot;button-3&quot;,&quot;icon&quot;:&quot;printer&quot;,&quot;action&quot;:&quot;print:Assets/chibi.png&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#D97706FF&quot;}}],&quot;border_style&quot;:&quot;Single&quot;,&quot;border_width&quot;:1,&quot;corner_radius&quot;:10,&quot;padding&quot;:6,&quot;separator_after&quot;:true,&quot;separator_width&quot;:7,&quot;button_defaults&quot;:{&quot;icon_size&quot;:42}},{&quot;id&quot;:&quot;group-2&quot;,&quot;label&quot;:&quot;Edit&quot;,&quot;buttons&quot;:[{&quot;id&quot;:&quot;button-4&quot;,&quot;icon&quot;:&quot;doc-copy&quot;,&quot;action&quot;:&quot;copy&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#38BDF8FF&quot;}},{&quot;id&quot;:&quot;button-5&quot;,&quot;icon&quot;:&quot;clipboard-paste&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#94A3B8FF&quot;}},{&quot;id&quot;:&quot;button-6&quot;,&quot;icon&quot;:&quot;trash&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}}],&quot;border_width&quot;:1,&quot;corner_radius&quot;:10,&quot;padding&quot;:6,&quot;separator_width&quot;:12,&quot;button_defaults&quot;:{&quot;icon_size&quot;:42}},{&quot;id&quot;:&quot;group-3&quot;,&quot;label&quot;:&quot;Group 3&quot;,&quot;buttons&quot;:[{&quot;id&quot;:&quot;button-7&quot;,&quot;label&quot;:&quot;Button 1&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;,&quot;gradient&quot;:false,&quot;shadow&quot;:false}},{&quot;id&quot;:&quot;button-8&quot;,&quot;label&quot;:&quot;Button 2&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-9&quot;,&quot;label&quot;:&quot;Button 3&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-10&quot;,&quot;label&quot;:&quot;Button 4&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-11&quot;,&quot;label&quot;:&quot;Button 5&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-12&quot;,&quot;label&quot;:&quot;Button 6&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}}],&quot;border_style&quot;:&quot;None&quot;,&quot;border_width&quot;:1,&quot;corner_radius&quot;:10,&quot;padding&quot;:18,&quot;separator_width&quot;:12,&quot;button_defaults&quot;:{&quot;width&quot;:64}}],&quot;button_gap&quot;:4}</Property>
     <Event name="onClick" paragraph="TOOLBAR-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-      *>   in the TOOLBAR-1 onClick handler:
-       DISPLAY  "TOOLBAR-1::LastButton = " TOOLBAR-1::LastButton
+           *>   in the TOOLBAR-1 onClick handler:
 
-       GOBACK.]]></Event>
+           DISPLAY    "TOOLBAR-1::LastButton = " TOOLBAR-1::LastButton
+
+           GOBACK.
+]]></Event>
     <Animation name="appear" trigger="OnFormLoad" kind="Bounce" duration="400" delay="0" easing="EaseOut" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Label-10" type="Label" x="632" y="432" w="70" h="32" tab-order="0" z-order="128" visible="true" enabled="true" parent="Panel-5">
@@ -1365,6 +1390,7 @@
     <Property name="TrackColor">#FFFFFFFF</Property>
     <Property name="BorderStyle">None</Property>
     <Event name="onChange" paragraph="KNOB-2--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
@@ -1372,9 +1398,10 @@
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET ProgressBar-1::VALUE
-               Gauge-1::VALUE
-               Gauge-2::VALUE         TO Knob-2::VALUE
+           SET     ProgressBar-1::VALUE
+
+           Gauge-1::VALUE
+           Gauge-2::VALUE TO Knob-2::VALUE
 
            CONTINUE.
 ]]></Event>
@@ -1420,12 +1447,15 @@
     <Property name="Selected">false</Property>
     <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 12
+           SET     TextBox-2::FontSize           TO    12
            CONTINUE.
 ]]></Event>
   </Control>
@@ -1538,12 +1568,15 @@
     <Property name="Selected">false</Property>
     <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 14
+           SET     TextBox-2::FontSize           TO    14
            CONTINUE.
 ]]></Event>
   </Control>
@@ -1588,12 +1621,15 @@
     <Property name="Selected">false</Property>
     <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 16
+           SET     TextBox-2::FontSize           TO    16
            CONTINUE.
 ]]></Event>
   </Control>
@@ -1638,12 +1674,15 @@
     <Property name="Selected">false</Property>
     <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-4--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET TextBox-2::FontSize TO 18
+           SET     TextBox-2::FontSize           TO    18
 
            CONTINUE.
 ]]></Event>
@@ -2464,60 +2503,67 @@ Fortran
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           if Knob-2::Value < 100
-              COMPUTE  Knob-2::Value = Knob-2::Value + 1
-              COMPUTE  ProgressBar-1::Value = Knob-2::Value
-              COMPUTE  Gauge-1::Value = Knob-2::Value
-              COMPUTE  Gauge-2::Value = Knob-2::Value
-              COMPUTE  Gauge-3::Value = Knob-2::Value
+           *> The knob is the master value: the bar and the three gauges copy it.
+           *> At 100 it wraps to 0, so the demo animates forever.
 
-              IF Knob-2::Value = 100
-                 SET Knob-2::Value to 0
-              END-iF
+           IF    Knob-2::Value < 100
+               COMPUTE    Knob-2::Value = Knob-2::Value + 1
+               COMPUTE    ProgressBar-1::Value = Knob-2::Value
+               COMPUTE    Gauge-1::Value = Knob-2::Value
+               COMPUTE    Gauge-2::Value = Knob-2::Value
+               COMPUTE    Gauge-3::Value = Knob-2::Value
 
-           CONTINUE.
+               IF    Knob-2::Value = 100
+                   SET     Knob-2::Value         TO    0
+               END-IF
+
+               CONTINUE.
 ]]></Event>
   </Control>
   <deleted-controls>
     <DeletedControl id="Timer-1" deleted-at="designer-delete-1788638031-47">
       <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 date-time  PIC 9(8).
+       01 date-time                              PIC    9(8).
        01 date-time-edited.
-          05 hh      PIC 99.
-          05 FILLER  PIC x VALUE ":".
-          05 mm      PIC 99.
-          05 FILLER  PIC x VALUE ":".
-          05 ss      PIC 99.
-          05 FILLER  PIC x VALUE "_".
-          05 cc      PIC 99.
+           05 hh                                 PIC    99.
+           05 FILLER                             PIC    x    VALUE ":".
+           05 mm                                 PIC    99.
+           05 FILLER                             PIC    x    VALUE ":".
+           05 ss                                 PIC    99.
+           05 FILLER                             PIC    x    VALUE "_".
+           05 cc                                 PIC    99.
 
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           ACCEPT date-time FROM TIME
+           ACCEPT    date-time FROM TIME
 
-           MOVE date-time(1:2) TO hh(1:)
-           MOVE date-time(3:2) TO mm(1:)
-           MOVE date-time(5:2) TO ss(1:)
-           MOVE date-time(7:2) TO cc(1:)
+           SET     hh(1:)                        TO    date-time(1:2)
+           SET     mm(1:)                        TO    date-time(3:2)
+           SET     ss(1:)                        TO    date-time(5:2)
+           SET     cc(1:)                        TO    date-time(7:2)
 
-           SET label-9::Caption TO date-time-edited
+           SET     label-9::Caption              TO    date-time-edited
 
-           DISPLAY date-time " -> " date-time-edited
+           DISPLAY    date-time " -> " date-time-edited
 
-           COMPUTE Knob-2::VALUE = Knob-2::VALUE + 1
+           COMPUTE    Knob-2::VALUE = Knob-2::VALUE + 1
 
-           IF Knob-2::VALUE > 100
-               COMPUTE Knob-2::VALUE = 100
-               SET Timer-1::Enabled TO false
+           IF    Knob-2::VALUE > 100
+               COMPUTE    Knob-2::VALUE = 100
+               SET     Timer-1::Enabled          TO    false
            END-IF
 
            CONTINUE.

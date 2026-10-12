@@ -1,272 +1,307 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="MAIN-FORM" title="PowerSpatial" width="1000" height="600" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" main-form="true" title-visible="false" corner-radius="34" resizable="false" screen-fill="70" index-base="1" window-effects="false" start-position="Center" responsive="true">
   <FormLayout FontScaling="Fluid" MaxFontScale="1.8" MinFontScale="1"/>
-  <working-storage><![CDATA[       01 WS-DEV-INIT  GLOBAL PIC X(3) VALUE "YNY".
-       01 WS-NOW       GLOBAL PIC X(21).
-       01 WS-MONTH     GLOBAL PIC 99.
-       01 WS-DAY       GLOBAL PIC 99.
-       01 WS-LINE      GLOBAL PIC X(80).
-       01 WS-N         GLOBAL PIC 9(3).
-       01 WS-N-TXT     GLOBAL PIC ZZ9.
-       01 WS-AC-ON     GLOBAL PIC X VALUE "Y".
-       01 WS-PLAYING   GLOBAL PIC X VALUE "N".
-       01 WS-SONG      GLOBAL PIC 9 VALUE 1.
-       01 WS-SONG-DATA GLOBAL.
-          05 FILLER PIC X(40) VALUE "Ed Sheeran - Shape of You".
-          05 FILLER PIC X(20) VALUE "Divide".
-          05 FILLER PIC X(40) VALUE "Coldplay - Yellow".
-          05 FILLER PIC X(20) VALUE "Parachutes".
-          05 FILLER PIC X(40) VALUE "Adele - Hello".
-          05 FILLER PIC X(20) VALUE "25".
-       01 WS-SONG-TABLE REDEFINES WS-SONG-DATA GLOBAL.
-          05 WS-SONG-ROW OCCURS 3.
-             10 WS-SONG-TITLE PIC X(40).
-             10 WS-SONG-ALBUM PIC X(20).
-      *>   The waveform: one bar per sample, shifted while a song plays.
-       01 WS-WAVE GLOBAL.
-          05 WS-WAVE-ROW OCCURS 48.
-             10 WS-WAVE-LABEL PIC X(4).
-             10 WS-WAVE-VALUE PIC 9(3).
-       01 WS-WAVE-N    GLOBAL PIC 9(3) VALUE 48.
-       01 WS-I         GLOBAL PIC 9(3).
-       01 WS-SEED      GLOBAL PIC 9(5) VALUE 7.
-       01 WS-FIRST     GLOBAL PIC 9(3).
-      *>   Per device card: is it on (cast) and powered (plug).
-       01 WS-DEV-ON    GLOBAL PIC X OCCURS 3 VALUE "Y".
-       01 WS-SET-NAME  GLOBAL PIC X(20).
-       01 WS-SET-VALUE GLOBAL PIC X(200).
-       01 WS-LANG-IX   GLOBAL PIC 9 VALUE 0.
-       01 WS-NEW-IX    GLOBAL PIC 9 VALUE 1.
-      *>   The texts the operator reads, one row per text and one
-      *>   column per language - en, pt, es, fr, jp, cn.
-       01 PS-TEXT-DATA GLOBAL.
-      *>   LIGHT
-           05 FILLER PIC X(80) VALUE "Light".
-           05 FILLER PIC X(80) VALUE "Luz".
-           05 FILLER PIC X(80) VALUE "Luz".
-           05 FILLER PIC X(80) VALUE "Lumière".
-           05 FILLER PIC X(80) VALUE "照明".
-           05 FILLER PIC X(80) VALUE "灯光".
-      *>   AIRCON
-           05 FILLER PIC X(80) VALUE "Air Con".
-           05 FILLER PIC X(80) VALUE "Ar-cond.".
-           05 FILLER PIC X(80) VALUE "Aire ac.".
-           05 FILLER PIC X(80) VALUE "Clim".
-           05 FILLER PIC X(80) VALUE "エアコン".
-           05 FILLER PIC X(80) VALUE "空调".
-      *>   WIFI
-           05 FILLER PIC X(80) VALUE "Wifi".
-           05 FILLER PIC X(80) VALUE "Wi-Fi".
-           05 FILLER PIC X(80) VALUE "Wi-Fi".
-           05 FILLER PIC X(80) VALUE "Wi-Fi".
-           05 FILLER PIC X(80) VALUE "Wi-Fi".
-           05 FILLER PIC X(80) VALUE "无线网络".
-      *>   OUTDOOR
-           05 FILLER PIC X(80) VALUE "Outdoor Temperature".
-           05 FILLER PIC X(80) VALUE "Temperatura externa".
-           05 FILLER PIC X(80) VALUE "Temperatura exterior".
-           05 FILLER PIC X(80) VALUE "Température extérieure".
-           05 FILLER PIC X(80) VALUE "屋外の気温".
-           05 FILLER PIC X(80) VALUE "室外温度".
-      *>   REMOTE
-           05 FILLER PIC X(80) VALUE "Remote…".
-           05 FILLER PIC X(80) VALUE "Controle remoto…".
-           05 FILLER PIC X(80) VALUE "Control remoto…".
-           05 FILLER PIC X(80) VALUE "Télécommande…".
-           05 FILLER PIC X(80) VALUE "リモート…".
-           05 FILLER PIC X(80) VALUE "遥控…".
-      *>   HI
-           05 FILLER PIC X(80) VALUE "Hi, Wade Warren".
-           05 FILLER PIC X(80) VALUE "Olá, Wade Warren".
-           05 FILLER PIC X(80) VALUE "Hola, Wade Warren".
-           05 FILLER PIC X(80) VALUE "Bonjour, Wade Warren".
-           05 FILLER PIC X(80) VALUE "こんにちは、Wade Warren".
-           05 FILLER PIC X(80) VALUE "你好，Wade Warren".
-      *>   ALBUM
-           05 FILLER PIC X(80) VALUE "Album".
-           05 FILLER PIC X(80) VALUE "Álbum".
-           05 FILLER PIC X(80) VALUE "Álbum".
-           05 FILLER PIC X(80) VALUE "Album".
-           05 FILLER PIC X(80) VALUE "アルバム".
-           05 FILLER PIC X(80) VALUE "专辑".
-      *>   AC
-           05 FILLER PIC X(80) VALUE "Air Conditioner".
-           05 FILLER PIC X(80) VALUE "Ar-condicionado".
-           05 FILLER PIC X(80) VALUE "Aire acondicionado".
-           05 FILLER PIC X(80) VALUE "Climatiseur".
-           05 FILLER PIC X(80) VALUE "エアコン".
-           05 FILLER PIC X(80) VALUE "空调".
-      *>   COOLING
-           05 FILLER PIC X(80) VALUE "COOLING TO".
-           05 FILLER PIC X(80) VALUE "RESFRIANDO A".
-           05 FILLER PIC X(80) VALUE "ENFRIANDO A".
-           05 FILLER PIC X(80) VALUE "REFROIDIR À".
-           05 FILLER PIC X(80) VALUE "冷房設定".
-           05 FILLER PIC X(80) VALUE "制冷至".
-      *>   OFF
-           05 FILLER PIC X(80) VALUE "OFF".
-           05 FILLER PIC X(80) VALUE "DESLIGADO".
-           05 FILLER PIC X(80) VALUE "APAGADO".
-           05 FILLER PIC X(80) VALUE "ARRÊT".
-           05 FILLER PIC X(80) VALUE "オフ".
-           05 FILLER PIC X(80) VALUE "关闭".
-      *>   UNDER
-           05 FILLER PIC X(80) VALUE "UNDER 10 MIN".
-           05 FILLER PIC X(80) VALUE "EM MENOS DE 10 MIN".
-           05 FILLER PIC X(80) VALUE "EN MENOS DE 10 MIN".
-           05 FILLER PIC X(80) VALUE "EN MOINS DE 10 MIN".
-           05 FILLER PIC X(80) VALUE "10分以内".
-           05 FILLER PIC X(80) VALUE "10分钟内".
-      *>   CONSUMPTION
-           05 FILLER PIC X(80) VALUE "Total Consumption".
-           05 FILLER PIC X(80) VALUE "Consumo total".
-           05 FILLER PIC X(80) VALUE "Consumo total".
-           05 FILLER PIC X(80) VALUE "Consommation totale".
-           05 FILLER PIC X(80) VALUE "総消費電力".
-           05 FILLER PIC X(80) VALUE "总耗电量".
-      *>   HUMIDITY
-           05 FILLER PIC X(80) VALUE "Humidity".
-           05 FILLER PIC X(80) VALUE "Umidade".
-           05 FILLER PIC X(80) VALUE "Humedad".
-           05 FILLER PIC X(80) VALUE "Humidité".
-           05 FILLER PIC X(80) VALUE "湿度".
-           05 FILLER PIC X(80) VALUE "湿度".
-      *>   PRESSURE
-           05 FILLER PIC X(80) VALUE "Pressure".
-           05 FILLER PIC X(80) VALUE "Pressão".
-           05 FILLER PIC X(80) VALUE "Presión".
-           05 FILLER PIC X(80) VALUE "Pression".
-           05 FILLER PIC X(80) VALUE "気圧".
-           05 FILLER PIC X(80) VALUE "气压".
-      *>   THERMOSTAT
-           05 FILLER PIC X(80) VALUE "Thermostat".
-           05 FILLER PIC X(80) VALUE "Termostato".
-           05 FILLER PIC X(80) VALUE "Termostato".
-           05 FILLER PIC X(80) VALUE "Thermostat".
-           05 FILLER PIC X(80) VALUE "サーモスタット".
-           05 FILLER PIC X(80) VALUE "温控器".
-      *>   LIGHTING
-           05 FILLER PIC X(80) VALUE "Lighting".
-           05 FILLER PIC X(80) VALUE "Iluminação".
-           05 FILLER PIC X(80) VALUE "Iluminación".
-           05 FILLER PIC X(80) VALUE "Éclairage".
-           05 FILLER PIC X(80) VALUE "ライト".
-           05 FILLER PIC X(80) VALUE "照明".
-      *>   SPEAKER
-           05 FILLER PIC X(80) VALUE "Google Home".
-           05 FILLER PIC X(80) VALUE "Google Home".
-           05 FILLER PIC X(80) VALUE "Google Home".
-           05 FILLER PIC X(80) VALUE "Google Home".
-           05 FILLER PIC X(80) VALUE "Google Home".
-           05 FILLER PIC X(80) VALUE "Google Home".
-      *>   OPENING
-           05 FILLER PIC X(80) VALUE "Opening".
-           05 FILLER PIC X(80) VALUE "Ativo".
-           05 FILLER PIC X(80) VALUE "Activo".
-           05 FILLER PIC X(80) VALUE "Actif".
-           05 FILLER PIC X(80) VALUE "動作中".
-           05 FILLER PIC X(80) VALUE "运行中".
-      *>   CLOSED
-           05 FILLER PIC X(80) VALUE "Closed".
-           05 FILLER PIC X(80) VALUE "Desligado".
-           05 FILLER PIC X(80) VALUE "Apagado".
-           05 FILLER PIC X(80) VALUE "Éteint".
-           05 FILLER PIC X(80) VALUE "停止中".
-           05 FILLER PIC X(80) VALUE "已关闭".
-      *>   NOTIFY
-           05 FILLER PIC X(80) VALUE "No new notifications".
-           05 FILLER PIC X(80) VALUE "Nenhuma notificação nova".
-           05 FILLER PIC X(80) VALUE "No hay notificaciones nuevas".
-           05 FILLER PIC X(80) VALUE "Aucune nouvelle notification".
-           05 FILLER PIC X(80) VALUE "新しい通知はありません".
-           05 FILLER PIC X(80) VALUE "没有新通知".
-      *>   M01
-           05 FILLER PIC X(80) VALUE "January".
-           05 FILLER PIC X(80) VALUE "janeiro".
-           05 FILLER PIC X(80) VALUE "enero".
-           05 FILLER PIC X(80) VALUE "janvier".
-           05 FILLER PIC X(80) VALUE "1月".
-           05 FILLER PIC X(80) VALUE "1月".
-      *>   M02
-           05 FILLER PIC X(80) VALUE "February".
-           05 FILLER PIC X(80) VALUE "fevereiro".
-           05 FILLER PIC X(80) VALUE "febrero".
-           05 FILLER PIC X(80) VALUE "février".
-           05 FILLER PIC X(80) VALUE "2月".
-           05 FILLER PIC X(80) VALUE "2月".
-      *>   M03
-           05 FILLER PIC X(80) VALUE "March".
-           05 FILLER PIC X(80) VALUE "março".
-           05 FILLER PIC X(80) VALUE "marzo".
-           05 FILLER PIC X(80) VALUE "mars".
-           05 FILLER PIC X(80) VALUE "3月".
-           05 FILLER PIC X(80) VALUE "3月".
-      *>   M04
-           05 FILLER PIC X(80) VALUE "April".
-           05 FILLER PIC X(80) VALUE "abril".
-           05 FILLER PIC X(80) VALUE "abril".
-           05 FILLER PIC X(80) VALUE "avril".
-           05 FILLER PIC X(80) VALUE "4月".
-           05 FILLER PIC X(80) VALUE "4月".
-      *>   M05
-           05 FILLER PIC X(80) VALUE "May".
-           05 FILLER PIC X(80) VALUE "maio".
-           05 FILLER PIC X(80) VALUE "mayo".
-           05 FILLER PIC X(80) VALUE "mai".
-           05 FILLER PIC X(80) VALUE "5月".
-           05 FILLER PIC X(80) VALUE "5月".
-      *>   M06
-           05 FILLER PIC X(80) VALUE "June".
-           05 FILLER PIC X(80) VALUE "junho".
-           05 FILLER PIC X(80) VALUE "junio".
-           05 FILLER PIC X(80) VALUE "juin".
-           05 FILLER PIC X(80) VALUE "6月".
-           05 FILLER PIC X(80) VALUE "6月".
-      *>   M07
-           05 FILLER PIC X(80) VALUE "July".
-           05 FILLER PIC X(80) VALUE "julho".
-           05 FILLER PIC X(80) VALUE "julio".
-           05 FILLER PIC X(80) VALUE "juillet".
-           05 FILLER PIC X(80) VALUE "7月".
-           05 FILLER PIC X(80) VALUE "7月".
-      *>   M08
-           05 FILLER PIC X(80) VALUE "August".
-           05 FILLER PIC X(80) VALUE "agosto".
-           05 FILLER PIC X(80) VALUE "agosto".
-           05 FILLER PIC X(80) VALUE "août".
-           05 FILLER PIC X(80) VALUE "8月".
-           05 FILLER PIC X(80) VALUE "8月".
-      *>   M09
-           05 FILLER PIC X(80) VALUE "September".
-           05 FILLER PIC X(80) VALUE "setembro".
-           05 FILLER PIC X(80) VALUE "septiembre".
-           05 FILLER PIC X(80) VALUE "septembre".
-           05 FILLER PIC X(80) VALUE "9月".
-           05 FILLER PIC X(80) VALUE "9月".
-      *>   M10
-           05 FILLER PIC X(80) VALUE "October".
-           05 FILLER PIC X(80) VALUE "outubro".
-           05 FILLER PIC X(80) VALUE "octubre".
-           05 FILLER PIC X(80) VALUE "octobre".
-           05 FILLER PIC X(80) VALUE "10月".
-           05 FILLER PIC X(80) VALUE "10月".
-      *>   M11
-           05 FILLER PIC X(80) VALUE "November".
-           05 FILLER PIC X(80) VALUE "novembro".
-           05 FILLER PIC X(80) VALUE "noviembre".
-           05 FILLER PIC X(80) VALUE "novembre".
-           05 FILLER PIC X(80) VALUE "11月".
-           05 FILLER PIC X(80) VALUE "11月".
-      *>   M12
-           05 FILLER PIC X(80) VALUE "December".
-           05 FILLER PIC X(80) VALUE "dezembro".
-           05 FILLER PIC X(80) VALUE "diciembre".
-           05 FILLER PIC X(80) VALUE "décembre".
-           05 FILLER PIC X(80) VALUE "12月".
-           05 FILLER PIC X(80) VALUE "12月".
-       01 PS-TEXT-TABLE REDEFINES PS-TEXT-DATA GLOBAL.
-           05 PS-TEXT-ROW OCCURS 32.
-              10 PS-TEXT PIC X(80) OCCURS 6.
+  <working-storage><![CDATA[       01 WS-DEV-INIT                            GLOBAL    PIC X(3)    VALUE "YNY".
+       01 WS-NOW                                 GLOBAL    PIC X(21).
+       01 WS-MONTH                               GLOBAL    PIC 99.
+       01 WS-DAY                                 GLOBAL    PIC 99.
+       01 WS-LINE                                GLOBAL    PIC X(80).
+       01 WS-N                                   GLOBAL    PIC 9(3).
+       01 WS-N-TXT                               GLOBAL    PIC ZZ9.
+       01 WS-AC-ON                               GLOBAL    PIC X    VALUE "Y".
+       01 WS-PLAYING                             GLOBAL    PIC X    VALUE "N".
+       01 WS-SONG                                GLOBAL    PIC 9    VALUE 1.
+       01 WS-SONG-DATA                           GLOBAL.
+           05 FILLER                             PIC    X(40)    VALUE "Ed Sheeran - Shape of You".
+           05 FILLER                             PIC    X(20)    VALUE "Divide".
+           05 FILLER                             PIC    X(40)    VALUE "Coldplay - Yellow".
+           05 FILLER                             PIC    X(20)    VALUE "Parachutes".
+           05 FILLER                             PIC    X(40)    VALUE "Adele - Hello".
+           05 FILLER                             PIC    X(20)    VALUE "25".
+       01 WS-SONG-TABLE                          REDEFINES    WS-SONG-DATA    GLOBAL.
+           05 WS-SONG-ROW                        OCCURS    3.
+               10 WS-SONG-TITLE                  PIC    X(40).
+               10 WS-SONG-ALBUM                  PIC    X(20).
+       *>   The waveform: one bar per sample, shifted while a song plays.
+
+       01 WS-WAVE                                GLOBAL.
+           05 WS-WAVE-ROW                        OCCURS    48.
+               10 WS-WAVE-LABEL                  PIC    X(4).
+               10 WS-WAVE-VALUE                  PIC    9(3).
+       01 WS-WAVE-N                              GLOBAL    PIC 9(3)    VALUE 48.
+       01 WS-I                                   GLOBAL    PIC 9(3).
+       01 WS-SEED                                GLOBAL    PIC 9(5)    VALUE 7.
+       01 WS-FIRST                               GLOBAL    PIC 9(3).
+       *>   Per device card: is it on (cast) and powered (plug).
+
+       01 WS-DEV-ON                              GLOBAL    PIC X    OCCURS 3    VALUE "Y".
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 0.
+       01 WS-NEW-IX                              GLOBAL    PIC 9    VALUE 1.
+       *>   The texts the operator reads, one row per text and one
+       *>   column per language - en, pt, es, fr, jp, cn.
+
+       01 PS-TEXT-DATA                           GLOBAL.
+           *>   LIGHT
+
+           05 FILLER                             PIC    X(80)    VALUE "Light".
+           05 FILLER                             PIC    X(80)    VALUE "Luz".
+           05 FILLER                             PIC    X(80)    VALUE "Luz".
+           05 FILLER                             PIC    X(80)    VALUE "Lumière".
+           05 FILLER                             PIC    X(80)    VALUE "照明".
+           05 FILLER                             PIC    X(80)    VALUE "灯光".
+           *>   AIRCON
+
+           05 FILLER                             PIC    X(80)    VALUE "Air Con".
+           05 FILLER                             PIC    X(80)    VALUE "Ar-cond.".
+           05 FILLER                             PIC    X(80)    VALUE "Aire ac.".
+           05 FILLER                             PIC    X(80)    VALUE "Clim".
+           05 FILLER                             PIC    X(80)    VALUE "エアコン".
+           05 FILLER                             PIC    X(80)    VALUE "空调".
+           *>   WIFI
+
+           05 FILLER                             PIC    X(80)    VALUE "Wifi".
+           05 FILLER                             PIC    X(80)    VALUE "Wi-Fi".
+           05 FILLER                             PIC    X(80)    VALUE "Wi-Fi".
+           05 FILLER                             PIC    X(80)    VALUE "Wi-Fi".
+           05 FILLER                             PIC    X(80)    VALUE "Wi-Fi".
+           05 FILLER                             PIC    X(80)    VALUE "无线网络".
+           *>   OUTDOOR
+
+           05 FILLER                             PIC    X(80)    VALUE "Outdoor Temperature".
+           05 FILLER                             PIC    X(80)    VALUE "Temperatura externa".
+           05 FILLER                             PIC    X(80)    VALUE "Temperatura exterior".
+           05 FILLER                             PIC    X(80)    VALUE "Température extérieure".
+           05 FILLER                             PIC    X(80)    VALUE "屋外の気温".
+           05 FILLER                             PIC    X(80)    VALUE "室外温度".
+           *>   REMOTE
+
+           05 FILLER                             PIC    X(80)    VALUE "Remote…".
+           05 FILLER                             PIC    X(80)    VALUE "Controle remoto…".
+           05 FILLER                             PIC    X(80)    VALUE "Control remoto…".
+           05 FILLER                             PIC    X(80)    VALUE "Télécommande…".
+           05 FILLER                             PIC    X(80)    VALUE "リモート…".
+           05 FILLER                             PIC    X(80)    VALUE "遥控…".
+           *>   HI
+
+           05 FILLER                             PIC    X(80)    VALUE "Hi, Wade Warren".
+           05 FILLER                             PIC    X(80)    VALUE "Olá, Wade Warren".
+           05 FILLER                             PIC    X(80)    VALUE "Hola, Wade Warren".
+           05 FILLER                             PIC    X(80)    VALUE "Bonjour, Wade Warren".
+           05 FILLER                             PIC    X(80)    VALUE "こんにちは、Wade Warren".
+           05 FILLER                             PIC    X(80)    VALUE "你好，Wade Warren".
+           *>   ALBUM
+
+           05 FILLER                             PIC    X(80)    VALUE "Album".
+           05 FILLER                             PIC    X(80)    VALUE "Álbum".
+           05 FILLER                             PIC    X(80)    VALUE "Álbum".
+           05 FILLER                             PIC    X(80)    VALUE "Album".
+           05 FILLER                             PIC    X(80)    VALUE "アルバム".
+           05 FILLER                             PIC    X(80)    VALUE "专辑".
+           *>   AC
+
+           05 FILLER                             PIC    X(80)    VALUE "Air Conditioner".
+           05 FILLER                             PIC    X(80)    VALUE "Ar-condicionado".
+           05 FILLER                             PIC    X(80)    VALUE "Aire acondicionado".
+           05 FILLER                             PIC    X(80)    VALUE "Climatiseur".
+           05 FILLER                             PIC    X(80)    VALUE "エアコン".
+           05 FILLER                             PIC    X(80)    VALUE "空调".
+           *>   COOLING
+
+           05 FILLER                             PIC    X(80)    VALUE "COOLING TO".
+           05 FILLER                             PIC    X(80)    VALUE "RESFRIANDO A".
+           05 FILLER                             PIC    X(80)    VALUE "ENFRIANDO A".
+           05 FILLER                             PIC    X(80)    VALUE "REFROIDIR À".
+           05 FILLER                             PIC    X(80)    VALUE "冷房設定".
+           05 FILLER                             PIC    X(80)    VALUE "制冷至".
+           *>   OFF
+
+           05 FILLER                             PIC    X(80)    VALUE "OFF".
+           05 FILLER                             PIC    X(80)    VALUE "DESLIGADO".
+           05 FILLER                             PIC    X(80)    VALUE "APAGADO".
+           05 FILLER                             PIC    X(80)    VALUE "ARRÊT".
+           05 FILLER                             PIC    X(80)    VALUE "オフ".
+           05 FILLER                             PIC    X(80)    VALUE "关闭".
+           *>   UNDER
+
+           05 FILLER                             PIC    X(80)    VALUE "UNDER 10 MIN".
+           05 FILLER                             PIC    X(80)    VALUE "EM MENOS DE 10 MIN".
+           05 FILLER                             PIC    X(80)    VALUE "EN MENOS DE 10 MIN".
+           05 FILLER                             PIC    X(80)    VALUE "EN MOINS DE 10 MIN".
+           05 FILLER                             PIC    X(80)    VALUE "10分以内".
+           05 FILLER                             PIC    X(80)    VALUE "10分钟内".
+           *>   CONSUMPTION
+
+           05 FILLER                             PIC    X(80)    VALUE "Total Consumption".
+           05 FILLER                             PIC    X(80)    VALUE "Consumo total".
+           05 FILLER                             PIC    X(80)    VALUE "Consumo total".
+           05 FILLER                             PIC    X(80)    VALUE "Consommation totale".
+           05 FILLER                             PIC    X(80)    VALUE "総消費電力".
+           05 FILLER                             PIC    X(80)    VALUE "总耗电量".
+           *>   HUMIDITY
+
+           05 FILLER                             PIC    X(80)    VALUE "Humidity".
+           05 FILLER                             PIC    X(80)    VALUE "Umidade".
+           05 FILLER                             PIC    X(80)    VALUE "Humedad".
+           05 FILLER                             PIC    X(80)    VALUE "Humidité".
+           05 FILLER                             PIC    X(80)    VALUE "湿度".
+           05 FILLER                             PIC    X(80)    VALUE "湿度".
+           *>   PRESSURE
+
+           05 FILLER                             PIC    X(80)    VALUE "Pressure".
+           05 FILLER                             PIC    X(80)    VALUE "Pressão".
+           05 FILLER                             PIC    X(80)    VALUE "Presión".
+           05 FILLER                             PIC    X(80)    VALUE "Pression".
+           05 FILLER                             PIC    X(80)    VALUE "気圧".
+           05 FILLER                             PIC    X(80)    VALUE "气压".
+           *>   THERMOSTAT
+
+           05 FILLER                             PIC    X(80)    VALUE "Thermostat".
+           05 FILLER                             PIC    X(80)    VALUE "Termostato".
+           05 FILLER                             PIC    X(80)    VALUE "Termostato".
+           05 FILLER                             PIC    X(80)    VALUE "Thermostat".
+           05 FILLER                             PIC    X(80)    VALUE "サーモスタット".
+           05 FILLER                             PIC    X(80)    VALUE "温控器".
+           *>   LIGHTING
+
+           05 FILLER                             PIC    X(80)    VALUE "Lighting".
+           05 FILLER                             PIC    X(80)    VALUE "Iluminação".
+           05 FILLER                             PIC    X(80)    VALUE "Iluminación".
+           05 FILLER                             PIC    X(80)    VALUE "Éclairage".
+           05 FILLER                             PIC    X(80)    VALUE "ライト".
+           05 FILLER                             PIC    X(80)    VALUE "照明".
+           *>   SPEAKER
+
+           05 FILLER                             PIC    X(80)    VALUE "Google Home".
+           05 FILLER                             PIC    X(80)    VALUE "Google Home".
+           05 FILLER                             PIC    X(80)    VALUE "Google Home".
+           05 FILLER                             PIC    X(80)    VALUE "Google Home".
+           05 FILLER                             PIC    X(80)    VALUE "Google Home".
+           05 FILLER                             PIC    X(80)    VALUE "Google Home".
+           *>   OPENING
+
+           05 FILLER                             PIC    X(80)    VALUE "Opening".
+           05 FILLER                             PIC    X(80)    VALUE "Ativo".
+           05 FILLER                             PIC    X(80)    VALUE "Activo".
+           05 FILLER                             PIC    X(80)    VALUE "Actif".
+           05 FILLER                             PIC    X(80)    VALUE "動作中".
+           05 FILLER                             PIC    X(80)    VALUE "运行中".
+           *>   CLOSED
+
+           05 FILLER                             PIC    X(80)    VALUE "Closed".
+           05 FILLER                             PIC    X(80)    VALUE "Desligado".
+           05 FILLER                             PIC    X(80)    VALUE "Apagado".
+           05 FILLER                             PIC    X(80)    VALUE "Éteint".
+           05 FILLER                             PIC    X(80)    VALUE "停止中".
+           05 FILLER                             PIC    X(80)    VALUE "已关闭".
+           *>   NOTIFY
+
+           05 FILLER                             PIC    X(80)    VALUE "No new notifications".
+           05 FILLER                             PIC    X(80)    VALUE "Nenhuma notificação nova".
+           05 FILLER                             PIC    X(80)    VALUE "No hay notificaciones nuevas".
+           05 FILLER                             PIC    X(80)    VALUE "Aucune nouvelle notification".
+           05 FILLER                             PIC    X(80)    VALUE "新しい通知はありません".
+           05 FILLER                             PIC    X(80)    VALUE "没有新通知".
+           *>   M01
+
+           05 FILLER                             PIC    X(80)    VALUE "January".
+           05 FILLER                             PIC    X(80)    VALUE "janeiro".
+           05 FILLER                             PIC    X(80)    VALUE "enero".
+           05 FILLER                             PIC    X(80)    VALUE "janvier".
+           05 FILLER                             PIC    X(80)    VALUE "1月".
+           05 FILLER                             PIC    X(80)    VALUE "1月".
+           *>   M02
+
+           05 FILLER                             PIC    X(80)    VALUE "February".
+           05 FILLER                             PIC    X(80)    VALUE "fevereiro".
+           05 FILLER                             PIC    X(80)    VALUE "febrero".
+           05 FILLER                             PIC    X(80)    VALUE "février".
+           05 FILLER                             PIC    X(80)    VALUE "2月".
+           05 FILLER                             PIC    X(80)    VALUE "2月".
+           *>   M03
+
+           05 FILLER                             PIC    X(80)    VALUE "March".
+           05 FILLER                             PIC    X(80)    VALUE "março".
+           05 FILLER                             PIC    X(80)    VALUE "marzo".
+           05 FILLER                             PIC    X(80)    VALUE "mars".
+           05 FILLER                             PIC    X(80)    VALUE "3月".
+           05 FILLER                             PIC    X(80)    VALUE "3月".
+           *>   M04
+
+           05 FILLER                             PIC    X(80)    VALUE "April".
+           05 FILLER                             PIC    X(80)    VALUE "abril".
+           05 FILLER                             PIC    X(80)    VALUE "abril".
+           05 FILLER                             PIC    X(80)    VALUE "avril".
+           05 FILLER                             PIC    X(80)    VALUE "4月".
+           05 FILLER                             PIC    X(80)    VALUE "4月".
+           *>   M05
+
+           05 FILLER                             PIC    X(80)    VALUE "May".
+           05 FILLER                             PIC    X(80)    VALUE "maio".
+           05 FILLER                             PIC    X(80)    VALUE "mayo".
+           05 FILLER                             PIC    X(80)    VALUE "mai".
+           05 FILLER                             PIC    X(80)    VALUE "5月".
+           05 FILLER                             PIC    X(80)    VALUE "5月".
+           *>   M06
+
+           05 FILLER                             PIC    X(80)    VALUE "June".
+           05 FILLER                             PIC    X(80)    VALUE "junho".
+           05 FILLER                             PIC    X(80)    VALUE "junio".
+           05 FILLER                             PIC    X(80)    VALUE "juin".
+           05 FILLER                             PIC    X(80)    VALUE "6月".
+           05 FILLER                             PIC    X(80)    VALUE "6月".
+           *>   M07
+
+           05 FILLER                             PIC    X(80)    VALUE "July".
+           05 FILLER                             PIC    X(80)    VALUE "julho".
+           05 FILLER                             PIC    X(80)    VALUE "julio".
+           05 FILLER                             PIC    X(80)    VALUE "juillet".
+           05 FILLER                             PIC    X(80)    VALUE "7月".
+           05 FILLER                             PIC    X(80)    VALUE "7月".
+           *>   M08
+
+           05 FILLER                             PIC    X(80)    VALUE "August".
+           05 FILLER                             PIC    X(80)    VALUE "agosto".
+           05 FILLER                             PIC    X(80)    VALUE "agosto".
+           05 FILLER                             PIC    X(80)    VALUE "août".
+           05 FILLER                             PIC    X(80)    VALUE "8月".
+           05 FILLER                             PIC    X(80)    VALUE "8月".
+           *>   M09
+
+           05 FILLER                             PIC    X(80)    VALUE "September".
+           05 FILLER                             PIC    X(80)    VALUE "setembro".
+           05 FILLER                             PIC    X(80)    VALUE "septiembre".
+           05 FILLER                             PIC    X(80)    VALUE "septembre".
+           05 FILLER                             PIC    X(80)    VALUE "9月".
+           05 FILLER                             PIC    X(80)    VALUE "9月".
+           *>   M10
+
+           05 FILLER                             PIC    X(80)    VALUE "October".
+           05 FILLER                             PIC    X(80)    VALUE "outubro".
+           05 FILLER                             PIC    X(80)    VALUE "octubre".
+           05 FILLER                             PIC    X(80)    VALUE "octobre".
+           05 FILLER                             PIC    X(80)    VALUE "10月".
+           05 FILLER                             PIC    X(80)    VALUE "10月".
+           *>   M11
+
+           05 FILLER                             PIC    X(80)    VALUE "November".
+           05 FILLER                             PIC    X(80)    VALUE "novembro".
+           05 FILLER                             PIC    X(80)    VALUE "noviembre".
+           05 FILLER                             PIC    X(80)    VALUE "novembre".
+           05 FILLER                             PIC    X(80)    VALUE "11月".
+           05 FILLER                             PIC    X(80)    VALUE "11月".
+           *>   M12
+
+           05 FILLER                             PIC    X(80)    VALUE "December".
+           05 FILLER                             PIC    X(80)    VALUE "dezembro".
+           05 FILLER                             PIC    X(80)    VALUE "diciembre".
+           05 FILLER                             PIC    X(80)    VALUE "décembre".
+           05 FILLER                             PIC    X(80)    VALUE "12月".
+           05 FILLER                             PIC    X(80)    VALUE "12月".
+       01 PS-TEXT-TABLE                          REDEFINES    PS-TEXT-DATA    GLOBAL.
+           05 PS-TEXT-ROW                        OCCURS    32.
+               10 PS-TEXT                        PIC    X(80)    OCCURS 6.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -315,15 +350,22 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="PS-LANG-CHECK" paragraph="PS-LANG-CHECK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language kept in the settings; the texts follow it.
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
-           EVALUATE WS-SET-VALUE(1:2)
+           *>   The language kept in the settings; the texts follow it.
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+           *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
+           *> A setting never kept, or any other code, means English.
+
+           EVALUATE    WS-SET-VALUE(1:2)
                WHEN "pt" MOVE 2 TO WS-NEW-IX
                WHEN "es" MOVE 3 TO WS-NEW-IX
                WHEN "fr" MOVE 4 TO WS-NEW-IX
@@ -331,232 +373,333 @@
                WHEN "cn" MOVE 6 TO WS-NEW-IX
                WHEN OTHER MOVE 1 TO WS-NEW-IX
            END-EVALUATE
-           IF WS-NEW-IX NOT = WS-LANG-IX
-               MOVE WS-NEW-IX TO WS-LANG-IX
-               CALL "PS-APPLY-TEXT"
+           *> Tmr-Lang calls this every second. WS-LANG-IX starts at 0, so the first
+           *> call always applies the texts; later ones only when the language moved.
+
+           IF    WS-NEW-IX NOT = WS-LANG-IX
+               SET     WS-LANG-IX                TO    WS-NEW-IX
+               CALL    "PS-APPLY-TEXT"
            END-IF
 ]]></Event>
     <Event name="PS-APPLY-TEXT" paragraph="PS-APPLY-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE PS-TEXT(1, WS-LANG-IX)::Trim() TO Lbl-Light::Caption
-           MOVE PS-TEXT(2, WS-LANG-IX)::Trim() TO Lbl-AirCon::Caption
-           MOVE PS-TEXT(3, WS-LANG-IX)::Trim() TO Lbl-Wifi::Caption
-           MOVE PS-TEXT(4, WS-LANG-IX)::Trim() TO Lbl-Outdoor::Caption
-           MOVE PS-TEXT(5, WS-LANG-IX)::Trim() TO Txt-Search::HintText
-           MOVE PS-TEXT(6, WS-LANG-IX)::Trim() TO Lbl-Hi::Caption
-           MOVE PS-TEXT(7, WS-LANG-IX)::Trim() TO Lbl-Album::Caption
-           MOVE PS-TEXT(8, WS-LANG-IX)::Trim() TO Lbl-AC::Caption
-           MOVE PS-TEXT(11, WS-LANG-IX)::Trim() TO Lbl-Under::Caption
-           MOVE PS-TEXT(12, WS-LANG-IX)::Trim() TO Lbl-Consumption::Caption
-           MOVE PS-TEXT(13, WS-LANG-IX)::Trim() TO Lbl-Humidity::Caption
-           MOVE PS-TEXT(14, WS-LANG-IX)::Trim() TO Lbl-Pressure::Caption
-           MOVE PS-TEXT(15, WS-LANG-IX)::Trim() TO Lbl-Thermostat::Caption
-           MOVE PS-TEXT(16, WS-LANG-IX)::Trim() TO Lbl-Lighting::Caption
-           MOVE PS-TEXT(17, WS-LANG-IX)::Trim() TO Lbl-Speaker::Caption
-           CALL "PS-AC-SHOW"
-           CALL "PS-DEVICES-SHOW"
-           CALL "PS-CLOCK"
+           SET     Lbl-Light::Caption            TO    PS-TEXT(1, WS-LANG-IX)::Trim()
+           SET     Lbl-AirCon::Caption           TO    PS-TEXT(2, WS-LANG-IX)::Trim()
+           SET     Lbl-Wifi::Caption             TO    PS-TEXT(3, WS-LANG-IX)::Trim()
+           SET     Lbl-Outdoor::Caption          TO    PS-TEXT(4, WS-LANG-IX)::Trim()
+           SET     Txt-Search::HintText          TO    PS-TEXT(5, WS-LANG-IX)::Trim()
+           SET     Lbl-Hi::Caption               TO    PS-TEXT(6, WS-LANG-IX)::Trim()
+           SET     Lbl-Album::Caption            TO    PS-TEXT(7, WS-LANG-IX)::Trim()
+           SET     Lbl-AC::Caption               TO    PS-TEXT(8, WS-LANG-IX)::Trim()
+           SET     Lbl-Under::Caption            TO    PS-TEXT(11, WS-LANG-IX)::Trim()
+           SET     Lbl-Consumption::Caption      TO    PS-TEXT(12, WS-LANG-IX)::Trim()
+           SET     Lbl-Humidity::Caption         TO    PS-TEXT(13, WS-LANG-IX)::Trim()
+           SET     Lbl-Pressure::Caption         TO    PS-TEXT(14, WS-LANG-IX)::Trim()
+           SET     Lbl-Thermostat::Caption       TO    PS-TEXT(15, WS-LANG-IX)::Trim()
+           SET     Lbl-Lighting::Caption         TO    PS-TEXT(16, WS-LANG-IX)::Trim()
+           SET     Lbl-Speaker::Caption          TO    PS-TEXT(17, WS-LANG-IX)::Trim()
+
+           *> Texts that depend on a state or on the date are set by these, not
+           *> by the list above: cooling or off, device on or off, the date.
+
+           CALL    "PS-AC-SHOW"
+           CALL    "PS-DEVICES-SHOW"
+           CALL    "PS-CLOCK"
 ]]></Event>
     <Event name="PS-CLOCK" paragraph="PS-CLOCK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The date and the time, in the operator's language.
-           MOVE FUNCTION CURRENT-DATE TO WS-NOW
-           MOVE WS-NOW(5:2) TO WS-MONTH
-           MOVE WS-NOW(7:2) TO WS-DAY
-           MOVE SPACES TO WS-LINE
-           MOVE WS-DAY TO WS-N-TXT
-           EVALUATE WS-LANG-IX
-      *>       2026年10月4日
+           *>   The date and the time, in the operator's language.
+
+           SET     WS-NOW                        TO    FUNCTION CURRENT-DATE
+           *> CURRENT-DATE is YYYYMMDDhhmmss...: year (1:4), month (5:2), day (7:2),
+           *> hour (9:2) and minute (11:2) are cut from WS-NOW by position.
+
+           SET     WS-MONTH                      TO    WS-NOW(5:2)
+           SET     WS-DAY                        TO    WS-NOW(7:2)
+           SET     WS-LINE                       TO    SPACES
+           SET     WS-N-TXT                      TO    WS-DAY
+
+           *> Month names are PS-TEXT rows 21 to 32, hence WS-MONTH + 20. The day
+           *> passes through WS-N-TXT (ZZ9) to drop its leading zero; the English
+           *> form uses WS-NOW(7:2) and so keeps it.
+
+           EVALUATE    WS-LANG-IX
+               *>       2026年10月4日
                WHEN 5 WHEN 6
-                   STRING WS-NOW(1:4) "年" PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
-                       WS-N-TXT::Trim() "日" INTO WS-LINE
-      *>       4 de outubro de 2026 / 4 de octubre de 2026
+                   STRING    WS-NOW(1:4) "年" PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                   WS-N-TXT::Trim() "日" INTO WS-LINE
+               *>       4 de outubro de 2026 / 4 de octubre de 2026
                WHEN 2 WHEN 3
-                   STRING WS-N-TXT::Trim() " de " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                   STRING    WS-N-TXT::Trim() " de " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
                        " de " WS-NOW(1:4) INTO WS-LINE
-      *>       4 octobre 2026
+               *>       4 octobre 2026
                WHEN 4
-                   STRING WS-N-TXT::Trim() " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                   STRING    WS-N-TXT::Trim() " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
                        " " WS-NOW(1:4) INTO WS-LINE
-      *>       04 October, 2026
+               *>       04 October, 2026
                WHEN OTHER
-                   STRING WS-NOW(7:2) " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
+                   STRING    WS-NOW(7:2) " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
                        ", " WS-NOW(1:4) INTO WS-LINE
            END-EVALUATE
-           MOVE WS-LINE TO Lbl-Date::Caption
-           MOVE SPACES TO WS-LINE
-           STRING WS-NOW(9:2) ":" WS-NOW(11:2) INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Time::Caption
+
+           SET     Lbl-Date::Caption             TO    WS-LINE
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    WS-NOW(9:2) ":" WS-NOW(11:2) INTO WS-LINE
+           SET     Lbl-Time::Caption             TO    WS-LINE
 ]]></Event>
     <Event name="PS-AC-SHOW" paragraph="PS-AC-SHOW"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The dial and its readout follow the air conditioner's switch.
-           MOVE Knb-AC::Value TO WS-N
-           MOVE WS-N TO WS-N-TXT
-           MOVE SPACES TO WS-LINE
-           STRING WS-N-TXT::Trim() "°C" INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Target::Caption
-           IF WS-AC-ON = "Y"
-               MOVE PS-TEXT(9, WS-LANG-IX)::Trim() TO Lbl-Cooling::Caption
-               MOVE 1 TO Lbl-Under::Visible
-               MOVE 1 TO Knb-AC::Enabled
-               MOVE 1 TO Sw-AC::Checked
+           *>   The dial and its readout follow the air conditioner's switch.
+
+           SET     WS-N                          TO    Knb-AC::Value
+           SET     WS-N-TXT                      TO    WS-N
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    WS-N-TXT::Trim() "°C" INTO WS-LINE
+           SET     Lbl-Target::Caption           TO    WS-LINE
+           IF    WS-AC-ON = "Y"
+               SET     Lbl-Cooling::Caption      TO    PS-TEXT(9, WS-LANG-IX)::Trim()
+               SET     Lbl-Under::Visible        TO    1
+               SET     Knb-AC::Enabled           TO    1
+               SET     Sw-AC::Checked            TO    1
            ELSE
-               MOVE PS-TEXT(10, WS-LANG-IX)::Trim() TO Lbl-Cooling::Caption
-               MOVE 0 TO Lbl-Under::Visible
-               MOVE 0 TO Knb-AC::Enabled
-               MOVE 0 TO Sw-AC::Checked
+               SET     Lbl-Cooling::Caption      TO    PS-TEXT(10, WS-LANG-IX)::Trim()
+               SET     Lbl-Under::Visible        TO    0
+               SET     Knb-AC::Enabled           TO    0
+               SET     Sw-AC::Checked            TO    0
            END-IF
 ]]></Event>
     <Event name="PS-AC-TOGGLE" paragraph="PS-AC-TOGGLE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF Sw-AC::Checked = 1
-               MOVE "Y" TO WS-AC-ON
+           IF    Sw-AC::Checked = 1
+               SET     WS-AC-ON                  TO    "Y"
            ELSE
-               MOVE "N" TO WS-AC-ON
+               SET     WS-AC-ON                  TO    "N"
            END-IF
-           CALL "PS-AC-SHOW"
+           CALL    "PS-AC-SHOW"
 ]]></Event>
     <Event name="PS-AC-TOGGLE-BUTTON" paragraph="PS-AC-TOGGLE-BUTTON"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-AC-ON = "Y"
-               MOVE "N" TO WS-AC-ON
+           IF    WS-AC-ON = "Y"
+               SET     WS-AC-ON                  TO    "N"
            ELSE
-               MOVE "Y" TO WS-AC-ON
+               SET     WS-AC-ON                  TO    "Y"
            END-IF
-           CALL "PS-AC-SHOW"
+           CALL    "PS-AC-SHOW"
 ]]></Event>
     <Event name="PS-PLAY-TOGGLE" paragraph="PS-PLAY-TOGGLE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-PLAYING = "Y"
-               MOVE "N" TO WS-PLAYING
-               MOVE "Assets/icons/play.svg" TO Btn-Play::IconPath
-               MOVE 0 TO Tmr-Wave::Enabled
+           IF    WS-PLAYING = "Y"
+               SET     WS-PLAYING                TO    "N"
+               SET     Btn-Play::IconPath        TO    "Assets/icons/play.svg"
+               SET     Tmr-Wave::Enabled         TO    0
            ELSE
-               MOVE "Y" TO WS-PLAYING
-               MOVE "Assets/icons/pause.svg" TO Btn-Play::IconPath
-               MOVE 1 TO Tmr-Wave::Enabled
+               SET     WS-PLAYING                TO    "Y"
+               SET     Btn-Play::IconPath        TO    "Assets/icons/pause.svg"
+               SET     Tmr-Wave::Enabled         TO    1
            END-IF
 ]]></Event>
     <Event name="PS-SONG-SHOW" paragraph="PS-SONG-SHOW"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE WS-SONG-TITLE(WS-SONG) TO Lbl-Song::Caption
-           MOVE WS-SONG-ALBUM(WS-SONG) TO Lbl-Album-Name::Caption
+           SET     Lbl-Song::Caption             TO    WS-SONG-TITLE(WS-SONG)
+           SET     Lbl-Album-Name::Caption       TO    WS-SONG-ALBUM(WS-SONG)
 ]]></Event>
     <Event name="PS-SONG-NEXT" paragraph="PS-SONG-NEXT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-SONG >= 3
-               MOVE 1 TO WS-SONG
+           IF    WS-SONG >= 3
+               SET     WS-SONG                   TO    1
            ELSE
-               ADD 1 TO WS-SONG
+               ADD    1 TO WS-SONG
            END-IF
-           CALL "PS-SONG-SHOW"
+           CALL    "PS-SONG-SHOW"
 ]]></Event>
     <Event name="PS-SONG-PREV" paragraph="PS-SONG-PREV"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-SONG <= 1
-               MOVE 3 TO WS-SONG
+           IF    WS-SONG <= 1
+               SET     WS-SONG                   TO    3
            ELSE
-               SUBTRACT 1 FROM WS-SONG
+               SUBTRACT    1 FROM WS-SONG
            END-IF
-           CALL "PS-SONG-SHOW"
+           CALL    "PS-SONG-SHOW"
 ]]></Event>
     <Event name="PS-WAVE-INIT" paragraph="PS-WAVE-INIT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A waveform of 48 samples, made once.
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-WAVE-N
-               COMPUTE WS-SEED = FUNCTION MOD(WS-SEED * 73 + 41, 997)
-               COMPUTE WS-WAVE-VALUE(WS-I) = 15 + FUNCTION MOD(WS-SEED, 85)
-               MOVE WS-I TO WS-N-TXT
-               MOVE WS-N-TXT TO WS-WAVE-LABEL(WS-I)
+           *>   A waveform of 48 samples, made once.
+
+           PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-WAVE-N
+               *> Pseudo-random from the fixed seed in WS-SEED, so every start draws
+               *> the same wave. Heights land between 15 and 99.
+
+               COMPUTE    WS-SEED = FUNCTION MOD(WS-SEED * 73 + 41, 997)
+               COMPUTE    WS-WAVE-VALUE(WS-I) = 15 + FUNCTION MOD(WS-SEED, 85)
+
+               SET     WS-N-TXT                  TO    WS-I
+               SET     WS-WAVE-LABEL(WS-I)       TO    WS-N-TXT
            END-PERFORM
            COBOL::"CHART-SET-TABLE" ( "Cht-Wave" WS-WAVE WS-WAVE-N )
 ]]></Event>
     <Event name="PS-WAVE-SHIFT" paragraph="PS-WAVE-SHIFT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   While a song plays the waveform moves left one sample a tick.
-           MOVE WS-WAVE-VALUE(1) TO WS-FIRST
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I >= WS-WAVE-N
-               MOVE WS-WAVE-VALUE(WS-I + 1) TO WS-WAVE-VALUE(WS-I)
+           *>   While a song plays the waveform moves left one sample a tick.
+
+           SET     WS-FIRST                      TO    WS-WAVE-VALUE(1)
+           *> The first sample returns at the end, so the wave rotates and keeps
+           *> its shape. The loop stops one short of WS-WAVE-N because it reads
+           *> WS-I + 1.
+
+           PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I >= WS-WAVE-N
+               SET     WS-WAVE-VALUE(WS-I)       TO    WS-WAVE-VALUE(WS-I + 1)
            END-PERFORM
-           MOVE WS-FIRST TO WS-WAVE-VALUE(WS-WAVE-N)
+           SET     WS-WAVE-VALUE(WS-WAVE-N)      TO    WS-FIRST
            COBOL::"CHART-SET-TABLE" ( "Cht-Wave" WS-WAVE WS-WAVE-N )
 ]]></Event>
     <Event name="PS-DEVICES-SHOW" paragraph="PS-DEVICES-SHOW"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Each device card shows whether the device is on.
-           IF WS-DEV-ON(1) = "Y"
-               MOVE PS-TEXT(18, WS-LANG-IX)::Trim() TO Lbl-Thermostat-Status::Caption
-               MOVE "#0A84FFFF" TO Btn-Thermostat-Cast::BackgroundColor
-               MOVE "#2DC653FF" TO Btn-Thermostat-Plug::BackgroundColor
+           *>   Each device card shows whether the device is on.
+
+           IF    WS-DEV-ON(1) = "Y"
+               SET     Lbl-Thermostat-Status::Caption
+                                                 TO    PS-TEXT(18, WS-LANG-IX)::Trim()
+
+               *> Same colours for all three cards (RRGGBBAA): blue cast and green plug
+               *> when the device is on, a faint translucent white when it is off.
+
+               SET     Btn-Thermostat-Cast::BackgroundColor
+                                                 TO    "#0A84FFFF"
+
+               SET     Btn-Thermostat-Plug::BackgroundColor
+                                                 TO    "#2DC653FF"
            ELSE
-               MOVE PS-TEXT(19, WS-LANG-IX)::Trim() TO Lbl-Thermostat-Status::Caption
-               MOVE "#FFFFFF26" TO Btn-Thermostat-Cast::BackgroundColor
-               MOVE "#FFFFFF26" TO Btn-Thermostat-Plug::BackgroundColor
+               SET     Lbl-Thermostat-Status::Caption
+                                                 TO    PS-TEXT(19, WS-LANG-IX)::Trim()
+
+               SET     Btn-Thermostat-Cast::BackgroundColor
+                                                 TO    "#FFFFFF26"
+
+               SET     Btn-Thermostat-Plug::BackgroundColor
+                                                 TO    "#FFFFFF26"
            END-IF
-           IF WS-DEV-ON(2) = "Y"
-               MOVE PS-TEXT(18, WS-LANG-IX)::Trim() TO Lbl-Lighting-Status::Caption
-               MOVE "#0A84FFFF" TO Btn-Lighting-Cast::BackgroundColor
-               MOVE "#2DC653FF" TO Btn-Lighting-Plug::BackgroundColor
+           IF    WS-DEV-ON(2) = "Y"
+               SET     Lbl-Lighting-Status::Caption
+                                                 TO    PS-TEXT(18, WS-LANG-IX)::Trim()
+
+               SET     Btn-Lighting-Cast::BackgroundColor
+                                                 TO    "#0A84FFFF"
+
+               SET     Btn-Lighting-Plug::BackgroundColor
+                                                 TO    "#2DC653FF"
            ELSE
-               MOVE PS-TEXT(19, WS-LANG-IX)::Trim() TO Lbl-Lighting-Status::Caption
-               MOVE "#FFFFFF26" TO Btn-Lighting-Cast::BackgroundColor
-               MOVE "#FFFFFF26" TO Btn-Lighting-Plug::BackgroundColor
+               SET     Lbl-Lighting-Status::Caption
+                                                 TO    PS-TEXT(19, WS-LANG-IX)::Trim()
+
+               SET     Btn-Lighting-Cast::BackgroundColor
+                                                 TO    "#FFFFFF26"
+
+               SET     Btn-Lighting-Plug::BackgroundColor
+                                                 TO    "#FFFFFF26"
            END-IF
-           IF WS-DEV-ON(3) = "Y"
-               MOVE PS-TEXT(18, WS-LANG-IX)::Trim() TO Lbl-Speaker-Status::Caption
-               MOVE "#0A84FFFF" TO Btn-Speaker-Cast::BackgroundColor
-               MOVE "#2DC653FF" TO Btn-Speaker-Plug::BackgroundColor
+           IF    WS-DEV-ON(3) = "Y"
+               SET     Lbl-Speaker-Status::Caption
+                                                 TO    PS-TEXT(18, WS-LANG-IX)::Trim()
+
+               SET     Btn-Speaker-Cast::BackgroundColor
+                                                 TO    "#0A84FFFF"
+
+               SET     Btn-Speaker-Plug::BackgroundColor
+                                                 TO    "#2DC653FF"
            ELSE
-               MOVE PS-TEXT(19, WS-LANG-IX)::Trim() TO Lbl-Speaker-Status::Caption
-               MOVE "#FFFFFF26" TO Btn-Speaker-Cast::BackgroundColor
-               MOVE "#FFFFFF26" TO Btn-Speaker-Plug::BackgroundColor
+               SET     Lbl-Speaker-Status::Caption
+                                                 TO    PS-TEXT(19, WS-LANG-IX)::Trim()
+
+               SET     Btn-Speaker-Cast::BackgroundColor
+                                                 TO    "#FFFFFF26"
+
+               SET     Btn-Speaker-Plug::BackgroundColor
+                                                 TO    "#FFFFFF26"
            END-IF
 ]]></Event>
     <Event name="PS-DEVICE-TOGGLE" paragraph="PS-DEVICE-TOGGLE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-I names the device card pressed.
-           IF WS-DEV-ON(WS-I) = "Y"
-               MOVE "N" TO WS-DEV-ON(WS-I)
+           *>   WS-I names the device card pressed.
+
+           IF    WS-DEV-ON(WS-I) = "Y"
+               SET     WS-DEV-ON(WS-I)           TO    "N"
            ELSE
-               MOVE "Y" TO WS-DEV-ON(WS-I)
+               SET     WS-DEV-ON(WS-I)           TO    "Y"
            END-IF
-           CALL "PS-DEVICES-SHOW"
+           CALL    "PS-DEVICES-SHOW"
 ]]></Event>
     <Event name="PS-NOTIFY" paragraph="PS-NOTIFY"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE PS-TEXT(20, WS-LANG-IX)::Trim() TO Snb-Note::Text
-           INVOKE Snb-Note::Show()
+           SET     Snb-Note::Text                TO    PS-TEXT(20, WS-LANG-IX)::Trim()
+           Snb-Note::Show()
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="MAIN-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The dashboard opens its floating windows, docked around it.
-           MOVE WS-DEV-INIT(1:1) TO WS-DEV-ON(1)
-           MOVE WS-DEV-INIT(2:1) TO WS-DEV-ON(2)
-           MOVE WS-DEV-INIT(3:1) TO WS-DEV-ON(3)
-           CALL "PS-LANG-CHECK"
-           CALL "PS-WAVE-INIT"
-           CALL "PS-SONG-SHOW"
-           INVOKE me::OpenFormAsync("TOOLBAR-FORM")
-           INVOKE me::OpenFormAsync("RAIL-FORM")
-           INVOKE me::OpenFormAsync("ROOMS-FORM")
+           *>   The dashboard opens its floating windows, docked around it.
+
+           SET     WS-DEV-ON(1)                  TO    WS-DEV-INIT(1:1)
+           SET     WS-DEV-ON(2)                  TO    WS-DEV-INIT(2:1)
+           SET     WS-DEV-ON(3)                  TO    WS-DEV-INIT(3:1)
+
+           *> WS-DEV-ON is set first: the first PS-LANG-CHECK always applies the
+           *> texts (WS-LANG-IX starts at 0), and that redraws the device cards.
+
+           CALL    "PS-LANG-CHECK"
+           CALL    "PS-WAVE-INIT"
+           CALL    "PS-SONG-SHOW"
+
+           INVOKE    me::OpenFormAsync("TOOLBAR-FORM")
+           INVOKE    me::OpenFormAsync("RAIL-FORM")
+           INVOKE    me::OpenFormAsync("ROOMS-FORM")
 ]]></Event>
     <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE">
     </Event>
@@ -1381,9 +1524,11 @@
     <Property name="CornerRadius">0</Property>
     <Property name="Transparency">0</Property>
     <Event name="onCheckedChanged" paragraph="SW-AC--ONCHECKEDCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-AC-TOGGLE"
+           CALL    "PS-AC-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Pnl-Dial" type="Panel" x="40" y="357" w="352" h="117" tab-order="31" z-order="0" visible="true" enabled="true" parent="Crd-AC">
@@ -1448,9 +1593,11 @@
     <Property name="CornerRadius">0</Property>
     <Property name="Transparency">0</Property>
     <Event name="onValueChanged" paragraph="KNB-AC--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-AC-SHOW"
+           CALL    "PS-AC-SHOW"
 ]]></Event>
   </Control>
   <Control id="Lbl-Cooling" type="Label" x="42" y="376" w="348" h="14" tab-order="33" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
@@ -1578,9 +1725,11 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-AC-POWER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-AC-TOGGLE-BUTTON"
+           CALL    "PS-AC-TOGGLE-BUTTON"
 ]]></Event>
   </Control>
   <Control id="Pnl-AC-Sliders" type="Panel" x="40" y="532" w="352" h="28" tab-order="39" z-order="0" visible="true" enabled="true" parent="Crd-AC">
@@ -1665,13 +1814,16 @@
     <Property name="CornerRadius">0</Property>
     <Property name="Transparency">0</Property>
     <Event name="onValueChanged" paragraph="SLD-FAN--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE Sld-Fan::Value TO WS-N
-           MOVE WS-N TO WS-N-TXT
-           MOVE SPACES TO WS-LINE
-           STRING WS-N-TXT::Trim() "%" INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Fan::Caption
+           SET     WS-N                          TO    Sld-Fan::Value
+           SET     WS-N-TXT                      TO    WS-N
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    WS-N-TXT::Trim() "%" INTO WS-LINE
+           SET     Lbl-Fan::Caption              TO    WS-LINE
 ]]></Event>
   </Control>
   <Control id="Lbl-Swing" type="Label" x="220" y="534" w="40" h="24" tab-order="42" z-order="0" visible="true" enabled="true" parent="Pnl-AC-Sliders">
@@ -1727,13 +1879,16 @@
     <Property name="CornerRadius">0</Property>
     <Property name="Transparency">0</Property>
     <Event name="onValueChanged" paragraph="SLD-SWING--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE Sld-Swing::Value TO WS-N
-           MOVE WS-N TO WS-N-TXT
-           MOVE SPACES TO WS-LINE
-           STRING WS-N-TXT::Trim() "%" INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Swing::Caption
+           SET     WS-N                          TO    Sld-Swing::Value
+           SET     WS-N-TXT                      TO    WS-N
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    WS-N-TXT::Trim() "%" INTO WS-LINE
+           SET     Lbl-Swing::Caption            TO    WS-LINE
 ]]></Event>
   </Control>
   <Control id="Pnl-Top" type="Panel" x="430" y="20" w="550" h="44" tab-order="44" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
@@ -1897,9 +2052,11 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-BELL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-NOTIFY"
+           CALL    "PS-NOTIFY"
 ]]></Event>
   </Control>
   <Control id="Pnl-User" type="Panel" x="788" y="22" w="190" h="40" tab-order="50" z-order="0" visible="true" enabled="true" parent="Pnl-Top">
@@ -2034,9 +2191,11 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Event name="onClick" paragraph="BTN-USER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           INVOKE me::OpenFormSync("SETTINGS-FORM")
+           INVOKE    me::OpenFormSync("SETTINGS-FORM")
 ]]></Event>
   </Control>
   <Control id="Crd-Music" type="Panel" x="430" y="78" w="550" h="177" tab-order="55" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
@@ -2314,9 +2473,11 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Event name="onClick" paragraph="BTN-PREV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-SONG-PREV"
+           CALL    "PS-SONG-PREV"
 ]]></Event>
   </Control>
   <Control id="Btn-Play" type="Button" x="716" y="137" w="40" h="40" tab-order="65" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
@@ -2345,9 +2506,11 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-PLAY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-PLAY-TOGGLE"
+           CALL    "PS-PLAY-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Btn-Next" type="Button" x="771" y="159" w="34" h="34" tab-order="66" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
@@ -2376,9 +2539,11 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Event name="onClick" paragraph="BTN-NEXT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-SONG-NEXT"
+           CALL    "PS-SONG-NEXT"
 ]]></Event>
   </Control>
   <Control id="Btn-Repeat" type="Button" x="815" y="159" w="34" h="34" tab-order="67" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
@@ -2484,9 +2649,11 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onTick" paragraph="TMR-WAVE--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-WAVE-SHIFT"
+           CALL    "PS-WAVE-SHIFT"
 ]]></Event>
   </Control>
   <Control id="Crd-Consumption" type="Panel" x="430" y="269" w="174" h="106" tab-order="71" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
@@ -2924,10 +3091,12 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-THERMOSTAT-CAST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO WS-I
-           CALL "PS-DEVICE-TOGGLE"
+           SET     WS-I                          TO    1
+           CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Btn-Thermostat-Plug" type="Button" x="556" y="449" w="30" h="34" tab-order="88" z-order="0" visible="true" enabled="true" parent="Pnl-Thermostat-Buttons">
@@ -2954,10 +3123,12 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-THERMOSTAT-PLUG--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO WS-I
-           CALL "PS-DEVICE-TOGGLE"
+           SET     WS-I                          TO    1
+           CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Knb-Thermostat" type="Knob" x="446" y="455" w="102" h="109" tab-order="89" z-order="0" visible="true" enabled="true" parent="Crd-Thermostat">
@@ -3123,10 +3294,12 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-LIGHTING-CAST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 2 TO WS-I
-           CALL "PS-DEVICE-TOGGLE"
+           SET     WS-I                          TO    2
+           CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Btn-Lighting-Plug" type="Button" x="744" y="449" w="30" h="34" tab-order="95" z-order="0" visible="true" enabled="true" parent="Pnl-Lighting-Buttons">
@@ -3153,10 +3326,12 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-LIGHTING-PLUG--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 2 TO WS-I
-           CALL "PS-DEVICE-TOGGLE"
+           SET     WS-I                          TO    2
+           CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Pic-Lighting" type="PictureBox" x="634" y="455" w="102" h="109" tab-order="96" z-order="0" visible="true" enabled="true" parent="Crd-Lighting">
@@ -3312,10 +3487,12 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-SPEAKER-CAST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 3 TO WS-I
-           CALL "PS-DEVICE-TOGGLE"
+           SET     WS-I                          TO    3
+           CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Btn-Speaker-Plug" type="Button" x="932" y="449" w="30" h="34" tab-order="102" z-order="0" visible="true" enabled="true" parent="Pnl-Speaker-Buttons">
@@ -3342,10 +3519,12 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-SPEAKER-PLUG--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 3 TO WS-I
-           CALL "PS-DEVICE-TOGGLE"
+           SET     WS-I                          TO    3
+           CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
   <Control id="Pic-Speaker" type="PictureBox" x="822" y="455" w="102" h="109" tab-order="103" z-order="0" visible="true" enabled="true" parent="Crd-Speaker">
@@ -3390,9 +3569,11 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onTick" paragraph="TMR-CLOCK--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-CLOCK"
+           CALL    "PS-CLOCK"
 ]]></Event>
   </Control>
   <Control id="Snb-Note" type="Snackbar" x="0" y="0" w="24" h="24" tab-order="105" z-order="0" visible="true" enabled="true">
@@ -3430,20 +3611,25 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Transparency">0</Property>
     <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PS-LANG-CHECK"
+           CALL    "PS-LANG-CHECK"
 ]]></Event>
   </Control>
   <deleted-controls>
     <DeletedControl id="AwsLambda-1" deleted-at="designer-delete-1791363452-106">
       <Event name="onInvoked" paragraph="AWSLAMBDA-1--ONINVOKED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           DISPLAY "Hello"
+           DISPLAY    "Hello"
            CONTINUE.
 ]]></Event>
     </DeletedControl>

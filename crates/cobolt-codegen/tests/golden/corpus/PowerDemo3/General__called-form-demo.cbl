@@ -174,14 +174,18 @@
        PROGRAM-ID. BTN-OK--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
 
            *> Set a value the caller can retrieve
-           INVOKE SUPER::SetProperty("ResultText", "ButtonOk clicked").
+
+           INVOKE    SUPER::SetProperty("ResultText", "ButtonOk clicked")
 
            *> Close the modal (me)
-           INVOKE ME::Close().
+
+           INVOKE    ME::Close().
 
            GOBACK.
 
@@ -191,13 +195,17 @@
        PROGRAM-ID. BTN-CANCEL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
            *> Set a value the caller can retrieve
-           INVOKE SUPER::SetProperty("ResultText", "ButtonCancel clicked").
+
+           INVOKE    SUPER::SetProperty("ResultText", "ButtonCancel clicked")
 
            *> Close the modal (me)
-           INVOKE ME::Close().
+
+           INVOKE    ME::Close().
 
            GOBACK.
 

@@ -582,23 +582,32 @@
        PROGRAM-ID. VIEWER-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Page" TO VWR-1::Layout.
-           MOVE "None" TO VWR-1::SplitMode.
-           MOVE "Full" TO VWR-1::View1ViewMode.
-           MOVE 100 TO VWR-1::View1Zoom.
-           MOVE 14 TO VWR-1::FontSize.
-      *> Something to look at before anything is picked. The sample
-      *> ships with the project, so the demo does not depend on where
-      *> the repository happens to sit, and it exercises headings,
-      *> tables, lists, quotes and fenced code all at once.
-           MOVE "assets/docs/viewer-sample.md" TO VWR-1::View1Source.
-           MOVE "Ready. Pick a file, or press Start stream." TO Lbl-Status::Caption.
-           Txt-Log::AppendText("Viewer demo ready.").
+           *> CHAR counts from 1, so CHAR(11) is the byte 0A (LF): the line break
+           *> that Txt-Log::AppendText(WS-NL) adds after each logged line.
+
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::Layout                 TO    "Page"
+           SET     VWR-1::SplitMode              TO    "None"
+           SET     VWR-1::View1ViewMode          TO    "Full"
+           SET     VWR-1::View1Zoom              TO    100
+           SET     VWR-1::FontSize               TO    14
+
+           *> Something to look at before anything is picked. The sample
+           *> ships with the project, so the demo does not depend on where
+           *> the repository happens to sit, and it exercises headings,
+           *> tables, lists, quotes and fenced code all at once.
+
+           SET     VWR-1::View1Source            TO    "assets/docs/viewer-sample.md"
+           SET     Lbl-Status::Caption           TO    "Ready. Pick a file, or press Start stream."
+
+           Txt-Log::AppendText("Viewer demo ready.")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -625,28 +634,36 @@
        PROGRAM-ID. FDZ-VIEW1--ONFILESDROPPED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-ALL PIC X(2048).
-       01 WS-PATH PIC X(512).
-       01 WS-LINE PIC X(600).
+       01 WS-NL                                  PIC    X.
+       01 WS-ALL                                 PIC    X(2048).
+       01 WS-PATH                                PIC    X(512).
+       01 WS-LINE                                PIC    X(600).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> A click on a FileDropZone opens the native OS picker; a drag
-      *> and drop lands here through the same event. DroppedFiles is
-      *> what THIS drop brought, BEFORE any copying, so the Viewer opens
-      *> the operator's own file and nothing is duplicated anywhere.
-      *> StagedFiles is the running basket: its first line stays the
-      *> first file ever dropped, which is not what a drop means here.
-           MOVE Fdz-View1::DroppedFiles TO WS-ALL.
-           UNSTRING WS-ALL DELIMITED BY X"0A" INTO WS-PATH.
-           IF FUNCTION TRIM(WS-PATH) NOT = SPACES
-               MOVE FUNCTION TRIM(WS-PATH) TO VWR-1::View1Source
-               STRING "view 1: " FUNCTION TRIM(WS-PATH) INTO WS-LINE
-               MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption
-           END-IF.
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> A click on a FileDropZone opens the native OS picker; a drag
+           *> and drop lands here through the same event. DroppedFiles is
+           *> what THIS drop brought, BEFORE any copying, so the Viewer opens
+           *> the operator's own file and nothing is duplicated anywhere.
+           *> StagedFiles is the running basket: its first line stays the
+           *> first file ever dropped, which is not what a drop means here.
+
+           SET     WS-ALL                        TO    Fdz-View1::DroppedFiles
+           *> DroppedFiles is one path per line; UNSTRING into a single item keeps
+           *> only the first, so a multi-file drop opens just its first file.
+
+           UNSTRING    WS-ALL DELIMITED BY X"0A" INTO WS-PATH
+           IF    FUNCTION TRIM(WS-PATH) NOT = SPACES
+               SET     VWR-1::View1Source        TO    FUNCTION TRIM(WS-PATH)
+               STRING    "view 1: " FUNCTION TRIM(WS-PATH) INTO WS-LINE
+               SET     Lbl-Status::Caption       TO    FUNCTION TRIM(WS-LINE)
+           END-IF
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -657,29 +674,38 @@
        PROGRAM-ID. FDZ-VIEW2--ONFILESDROPPED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-ALL PIC X(2048).
-       01 WS-PATH PIC X(512).
-       01 WS-LINE PIC X(600).
+       01 WS-NL                                  PIC    X.
+       01 WS-ALL                                 PIC    X(2048).
+       01 WS-PATH                                PIC    X(512).
+       01 WS-LINE                                PIC    X(600).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> A click on a FileDropZone opens the native OS picker; a drag
-      *> and drop lands here through the same event. DroppedFiles is
-      *> what THIS drop brought, BEFORE any copying, so the Viewer opens
-      *> the operator's own file and nothing is duplicated anywhere.
-      *> StagedFiles is the running basket: its first line stays the
-      *> first file ever dropped, which is not what a drop means here.
-           MOVE Fdz-View2::DroppedFiles TO WS-ALL.
-           UNSTRING WS-ALL DELIMITED BY X"0A" INTO WS-PATH.
-           IF FUNCTION TRIM(WS-PATH) NOT = SPACES
-               MOVE FUNCTION TRIM(WS-PATH) TO VWR-1::View2Source
-               MOVE "LeftRight" TO VWR-1::SplitMode
-               STRING "view 2: " FUNCTION TRIM(WS-PATH) INTO WS-LINE
-               MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption
-           END-IF.
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> A click on a FileDropZone opens the native OS picker; a drag
+           *> and drop lands here through the same event. DroppedFiles is
+           *> what THIS drop brought, BEFORE any copying, so the Viewer opens
+           *> the operator's own file and nothing is duplicated anywhere.
+           *> StagedFiles is the running basket: its first line stays the
+           *> first file ever dropped, which is not what a drop means here.
+
+           SET     WS-ALL                        TO    Fdz-View2::DroppedFiles
+           *> DroppedFiles is one path per line; UNSTRING into a single item keeps
+           *> only the first, so a multi-file drop opens just its first file.
+
+           UNSTRING    WS-ALL DELIMITED BY X"0A" INTO WS-PATH
+           IF    FUNCTION TRIM(WS-PATH) NOT = SPACES
+               SET     VWR-1::View2Source        TO    FUNCTION TRIM(WS-PATH)
+               SET     VWR-1::SplitMode          TO    "LeftRight"
+
+               STRING    "view 2: " FUNCTION TRIM(WS-PATH) INTO WS-LINE
+               SET     Lbl-Status::Caption       TO    FUNCTION TRIM(WS-LINE)
+           END-IF
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -690,13 +716,17 @@
        PROGRAM-ID. BTN-LAYOUT-RAW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Raw" TO VWR-1::Layout.
-           Txt-Log::AppendText("Layout -> Raw").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::Layout                 TO    "Raw"
+
+           Txt-Log::AppendText("Layout -> Raw")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -707,13 +737,17 @@
        PROGRAM-ID. BTN-LAYOUT-WEB--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Web" TO VWR-1::Layout.
-           Txt-Log::AppendText("Layout -> Web").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::Layout                 TO    "Web"
+
+           Txt-Log::AppendText("Layout -> Web")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -724,13 +758,17 @@
        PROGRAM-ID. BTN-LAYOUT-PRINT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Print" TO VWR-1::Layout.
-           Txt-Log::AppendText("Layout -> Print").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::Layout                 TO    "Print"
+
+           Txt-Log::AppendText("Layout -> Print")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -741,13 +779,17 @@
        PROGRAM-ID. BTN-LAYOUT-PAGE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Page" TO VWR-1::Layout.
-           Txt-Log::AppendText("Layout -> Page").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::Layout                 TO    "Page"
+
+           Txt-Log::AppendText("Layout -> Page")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -758,13 +800,17 @@
        PROGRAM-ID. BTN-LAYOUT-STREAMED--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Streamed" TO VWR-1::Layout.
-           Txt-Log::AppendText("Layout -> Streamed").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::Layout                 TO    "Streamed"
+
+           Txt-Log::AppendText("Layout -> Streamed")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -775,17 +821,21 @@
        PROGRAM-ID. BTN-FULLSCREEN--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           IF VWR-1::Fullscreen = 1
-               MOVE 0 TO VWR-1::Fullscreen
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           IF    VWR-1::Fullscreen = 1
+               SET     VWR-1::Fullscreen         TO    0
            ELSE
-               MOVE 1 TO VWR-1::Fullscreen
-           END-IF.
-           Txt-Log::AppendText("Fullscreen toggled").
+               SET     VWR-1::Fullscreen         TO    1
+           END-IF
+
+           Txt-Log::AppendText("Fullscreen toggled")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -796,13 +846,17 @@
        PROGRAM-ID. BTN-SPLIT-NONE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "None" TO VWR-1::SplitMode.
-           Txt-Log::AppendText("SplitMode -> None").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::SplitMode              TO    "None"
+
+           Txt-Log::AppendText("SplitMode -> None")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -813,13 +867,17 @@
        PROGRAM-ID. BTN-SPLIT-LR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "LeftRight" TO VWR-1::SplitMode.
-           Txt-Log::AppendText("SplitMode -> LeftRight").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::SplitMode              TO    "LeftRight"
+
+           Txt-Log::AppendText("SplitMode -> LeftRight")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -830,13 +888,17 @@
        PROGRAM-ID. BTN-SPLIT-TB--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "TopBottom" TO VWR-1::SplitMode.
-           Txt-Log::AppendText("SplitMode -> TopBottom").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::SplitMode              TO    "TopBottom"
+
+           Txt-Log::AppendText("SplitMode -> TopBottom")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -847,17 +909,21 @@
        PROGRAM-ID. BTN-FILMSTRIP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           IF VWR-1::View1ShowFilmstrip = 1
-               MOVE 0 TO VWR-1::View1ShowFilmstrip
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           IF    VWR-1::View1ShowFilmstrip = 1
+               SET     VWR-1::View1ShowFilmstrip TO    0
            ELSE
-               MOVE 1 TO VWR-1::View1ShowFilmstrip
-           END-IF.
-           Txt-Log::AppendText("Filmstrip toggled").
+               SET     VWR-1::View1ShowFilmstrip TO    1
+           END-IF
+
+           Txt-Log::AppendText("Filmstrip toggled")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -868,13 +934,17 @@
        PROGRAM-ID. BTN-FULL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Full" TO VWR-1::View1ViewMode.
-           Txt-Log::AppendText("ViewMode -> Full").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::View1ViewMode          TO    "Full"
+
+           Txt-Log::AppendText("ViewMode -> Full")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -885,13 +955,17 @@
        PROGRAM-ID. BTN-CARDS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "Cards" TO VWR-1::View1ViewMode.
-           Txt-Log::AppendText("ViewMode -> Cards").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::View1ViewMode          TO    "Cards"
+
+           Txt-Log::AppendText("ViewMode -> Cards")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -902,16 +976,20 @@
        PROGRAM-ID. BTN-ZOOM-OUT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-N PIC S9(5).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    S9(5).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           COMPUTE WS-N = VWR-1::View1Zoom - 25.
-           IF WS-N < 25 MOVE 25 TO WS-N END-IF.
-           MOVE WS-N TO VWR-1::View1Zoom.
-           Txt-Log::AppendText("Zoom out").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           COMPUTE    WS-N = VWR-1::View1Zoom - 25
+           IF    WS-N < 25 MOVE 25 TO WS-N END-IF
+           SET     VWR-1::View1Zoom              TO    WS-N
+
+           Txt-Log::AppendText("Zoom out")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -922,17 +1000,22 @@
        PROGRAM-ID. BTN-ZOOM-IN--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-N PIC S9(5).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    S9(5).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> R12 caps magnification at 16x; the control clamps, so a
-      *> runaway loop here can never ask for more than that.
-           COMPUTE WS-N = VWR-1::View1Zoom + 25.
-           MOVE WS-N TO VWR-1::View1Zoom.
-           Txt-Log::AppendText("Zoom in").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> R12 caps magnification at 16x; the control clamps, so a
+           *> runaway loop here can never ask for more than that.
+
+           COMPUTE    WS-N = VWR-1::View1Zoom + 25
+           SET     VWR-1::View1Zoom              TO    WS-N
+
+           Txt-Log::AppendText("Zoom in")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -943,13 +1026,17 @@
        PROGRAM-ID. BTN-ZOOM-100--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE 100 TO VWR-1::View1Zoom.
-           Txt-Log::AppendText("Zoom reset").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::View1Zoom              TO    100
+
+           Txt-Log::AppendText("Zoom reset")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -960,17 +1047,25 @@
        PROGRAM-ID. BTN-FONT-UP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-N PIC S9(5).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    S9(5).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> R10: FontSize scales the text independently of Zoom.
-           COMPUTE WS-N = VWR-1::FontSize + 2.
-           IF WS-N > 40 MOVE 12 TO WS-N END-IF.
-           MOVE WS-N TO VWR-1::FontSize.
-           Txt-Log::AppendText("Font size changed").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> R10: FontSize scales the text independently of Zoom.
+
+           COMPUTE    WS-N = VWR-1::FontSize + 2
+           *> There is no Font - button: past 40 the size wraps back to 12, so
+           *> repeated clicks cycle through the sizes instead of getting stuck.
+
+           IF    WS-N > 40 MOVE 12 TO WS-N END-IF
+           SET     VWR-1::FontSize               TO    WS-N
+
+           Txt-Log::AppendText("Font size changed")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -981,16 +1076,20 @@
        PROGRAM-ID. BTN-PREV-PAGE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-N PIC S9(5).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    S9(5).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           COMPUTE WS-N = VWR-1::View1Page - 1.
-           IF WS-N < 1 MOVE 1 TO WS-N END-IF.
-           MOVE WS-N TO VWR-1::View1Page.
-           Txt-Log::AppendText("Page back").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           COMPUTE    WS-N = VWR-1::View1Page - 1
+           IF    WS-N < 1 MOVE 1 TO WS-N END-IF
+           SET     VWR-1::View1Page              TO    WS-N
+
+           Txt-Log::AppendText("Page back")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1001,15 +1100,19 @@
        PROGRAM-ID. BTN-NEXT-PAGE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-N PIC S9(5).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    S9(5).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           COMPUTE WS-N = VWR-1::View1Page + 1.
-           MOVE WS-N TO VWR-1::View1Page.
-           Txt-Log::AppendText("Page forward").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           COMPUTE    WS-N = VWR-1::View1Page + 1
+           SET     VWR-1::View1Page              TO    WS-N
+
+           Txt-Log::AppendText("Page forward")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1020,17 +1123,22 @@
        PROGRAM-ID. BTN-FIND--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-LINE PIC X(120).
+       01 WS-NL                                  PIC    X.
+       01 WS-LINE                                PIC    X(120).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE Txt-Find::Text TO VWR-1::View1SearchText.
-           VWR-1::Find().
-           STRING "matches: " VWR-1::View1SearchMatchCount INTO WS-LINE.
-           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Matches::Caption.
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::View1SearchText        TO    Txt-Find::Text
+
+           VWR-1::Find()
+           STRING    "matches: " VWR-1::View1SearchMatchCount INTO WS-LINE
+           SET     Lbl-Matches::Caption          TO    FUNCTION TRIM(WS-LINE)
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1041,17 +1149,21 @@
        PROGRAM-ID. BTN-FIND-NEXT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-LINE PIC X(120).
+       01 WS-NL                                  PIC    X.
+       01 WS-LINE                                PIC    X(120).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::FindNext().
-           STRING VWR-1::View1SearchCurrentMatch " of "
-                  VWR-1::View1SearchMatchCount INTO WS-LINE.
-           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Matches::Caption.
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           VWR-1::FindNext()
+           STRING    VWR-1::View1SearchCurrentMatch " of "
+           VWR-1::View1SearchMatchCount INTO WS-LINE
+           SET     Lbl-Matches::Caption          TO    FUNCTION TRIM(WS-LINE)
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1062,17 +1174,21 @@
        PROGRAM-ID. BTN-FIND-PREV--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-LINE PIC X(120).
+       01 WS-NL                                  PIC    X.
+       01 WS-LINE                                PIC    X(120).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::FindPrevious().
-           STRING VWR-1::View1SearchCurrentMatch " of "
-                  VWR-1::View1SearchMatchCount INTO WS-LINE.
-           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Matches::Caption.
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           VWR-1::FindPrevious()
+           STRING    VWR-1::View1SearchCurrentMatch " of "
+           VWR-1::View1SearchMatchCount INTO WS-LINE
+           SET     Lbl-Matches::Caption          TO    FUNCTION TRIM(WS-LINE)
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1083,13 +1199,17 @@
        PROGRAM-ID. BTN-FIND-CLOSE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::FindClose().
-           Txt-Log::AppendText("Find closed").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           VWR-1::FindClose()
+           Txt-Log::AppendText("Find closed")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1100,18 +1220,24 @@
        PROGRAM-ID. CHK-CASE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           IF Chk-Case::Checked = 1
-               MOVE 1 TO VWR-1::View1SearchCaseSensitive
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           IF    Chk-Case::Checked = 1
+               SET     VWR-1::View1SearchCaseSensitive
+                                                 TO    1
            ELSE
-               MOVE 0 TO VWR-1::View1SearchCaseSensitive
-           END-IF.
-           VWR-1::Find().
-           Txt-Log::AppendText("Case sensitivity changed").
+               SET     VWR-1::View1SearchCaseSensitive
+                                                 TO    0
+           END-IF
+
+           VWR-1::Find()
+           Txt-Log::AppendText("Case sensitivity changed")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1122,17 +1248,23 @@
        PROGRAM-ID. CHK-HIGHLIGHT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           IF Chk-Highlight::Checked = 1
-               MOVE 1 TO VWR-1::View1SearchHighlightEnabled
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           IF    Chk-Highlight::Checked = 1
+               SET     VWR-1::View1SearchHighlightEnabled
+                                                 TO    1
            ELSE
-               MOVE 0 TO VWR-1::View1SearchHighlightEnabled
-           END-IF.
-           Txt-Log::AppendText("Highlight changed").
+               SET     VWR-1::View1SearchHighlightEnabled
+                                                 TO    0
+           END-IF
+
+           Txt-Log::AppendText("Highlight changed")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1143,16 +1275,20 @@
        PROGRAM-ID. BTN-SAVE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> R18: Save As writes the ORIGINAL bytes, untouched. What is
-      *> on screen is a derived reading of the stored form, never a
-      *> replacement for it, so the copy is byte-identical.
-           VWR-1::SaveAs().
-           Txt-Log::AppendText("Save As requested").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> R18: Save As writes the ORIGINAL bytes, untouched. What is
+           *> on screen is a derived reading of the stored form, never a
+           *> replacement for it, so the copy is byte-identical.
+
+           VWR-1::SaveAs()
+           Txt-Log::AppendText("Save As requested")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1163,13 +1299,17 @@
        PROGRAM-ID. BTN-PRINT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::Print().
-           Txt-Log::AppendText("Print requested").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           VWR-1::Print()
+           Txt-Log::AppendText("Print requested")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1180,13 +1320,17 @@
        PROGRAM-ID. BTN-SHARE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::Share().
-           Txt-Log::AppendText("Share requested").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           VWR-1::Share()
+           Txt-Log::AppendText("Share requested")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1197,13 +1341,17 @@
        PROGRAM-ID. BTN-JUMP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::JumpToLatest().
-           Txt-Log::AppendText("Jumped to latest").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           VWR-1::JumpToLatest()
+           Txt-Log::AppendText("Jumped to latest")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1214,20 +1362,25 @@
        PROGRAM-ID. BTN-STREAM-START--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> Streamed layout is one content pane and no chrome at all:
-      *> the conversation IS the document. Each tick appends another
-      *> chunk, and the Viewer keeps every chunk in its own native
-      *> form, assembling the stream on demand.
-           MOVE "Streamed" TO VWR-1::Layout.
-           MOVE 0 TO Num-Chunks::Value.
-           MOVE 1 TO Tmr-Stream::Enabled.
-           MOVE "Streaming..." TO Lbl-Status::Caption.
-           Txt-Log::AppendText("Stream started").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> Streamed layout is one content pane and no chrome at all:
+           *> the conversation IS the document. Each tick appends another
+           *> chunk, and the Viewer keeps every chunk in its own native
+           *> form, assembling the stream on demand.
+
+           SET     VWR-1::Layout                 TO    "Streamed"
+           SET     Num-Chunks::Value             TO    0
+           SET     Tmr-Stream::Enabled           TO    1
+           SET     Lbl-Status::Caption           TO    "Streaming..."
+
+           Txt-Log::AppendText("Stream started")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1238,14 +1391,18 @@
        PROGRAM-ID. BTN-STREAM-STOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE 0 TO Tmr-Stream::Enabled.
-           MOVE "Stream stopped." TO Lbl-Status::Caption.
-           Txt-Log::AppendText("Stream stopped").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     Tmr-Stream::Enabled           TO    0
+           SET     Lbl-Status::Caption           TO    "Stream stopped."
+
+           Txt-Log::AppendText("Stream stopped")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1256,14 +1413,18 @@
        PROGRAM-ID. BTN-NEW-CONV--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::NewConversation().
-           MOVE 0 TO Num-Chunks::Value.
-           Txt-Log::AppendText("New conversation").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           VWR-1::NewConversation()
+           SET     Num-Chunks::Value             TO    0
+
+           Txt-Log::AppendText("New conversation")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1274,16 +1435,20 @@
        PROGRAM-ID. BTN-REG-CONV--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> History holds an id and a title, never the content. The
-      *> host is asked for the text only when one is selected, which
-      *> is what keeps a long session bounded.
-           VWR-1::RegisterConversation("conv-archive", "Archived session").
-           Txt-Log::AppendText("Registered conv-archive").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> History holds an id and a title, never the content. The
+           *> host is asked for the text only when one is selected, which
+           *> is what keeps a long session bounded.
+
+           VWR-1::RegisterConversation("conv-archive", "Archived session")
+           Txt-Log::AppendText("Registered conv-archive")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1294,13 +1459,17 @@
        PROGRAM-ID. BTN-SEL-CONV--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           VWR-1::SelectConversation("conv-archive").
-           Txt-Log::AppendText("Selected conv-archive").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           VWR-1::SelectConversation("conv-archive")
+           Txt-Log::AppendText("Selected conv-archive")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1311,14 +1480,18 @@
        PROGRAM-ID. BTN-SAMPLE-MD--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           MOVE "assets/docs/viewer-sample.md" TO VWR-1::View1Source.
-           MOVE "Page" TO VWR-1::Layout.
-           Txt-Log::AppendText("Opened the Markdown sample").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           SET     VWR-1::View1Source            TO    "assets/docs/viewer-sample.md"
+           SET     VWR-1::Layout                 TO    "Page"
+
+           Txt-Log::AppendText("Opened the Markdown sample")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1329,18 +1502,23 @@
        PROGRAM-ID. BTN-SAMPLE-TXT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> Plain text with real form-feed page breaks, so Previous and
-      *> Next page move between pages the file itself declares (R9)
-      *> rather than scrolling one continuous sheet.
-           MOVE "assets/docs/viewer-sample.txt" TO VWR-1::View1Source.
-           MOVE "Page" TO VWR-1::Layout.
-           MOVE 1 TO VWR-1::View1Page.
-           Txt-Log::AppendText("Opened the paged text sample").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> Plain text with real form-feed page breaks, so Previous and
+           *> Next page move between pages the file itself declares (R9)
+           *> rather than scrolling one continuous sheet.
+
+           SET     VWR-1::View1Source            TO    "assets/docs/viewer-sample.txt"
+           SET     VWR-1::Layout                 TO    "Page"
+           SET     VWR-1::View1Page              TO    1
+
+           Txt-Log::AppendText("Opened the paged text sample")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1351,15 +1529,19 @@
        PROGRAM-ID. VWR-1--ONLOADED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-LINE PIC X(200).
+       01 WS-NL                                  PIC    X.
+       01 WS-LINE                                PIC    X(200).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           STRING "loaded, format: " VWR-1::Format INTO WS-LINE.
-           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption.
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           STRING    "loaded, format: " VWR-1::Format INTO WS-LINE
+           SET     Lbl-Status::Caption           TO    FUNCTION TRIM(WS-LINE)
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1370,15 +1552,19 @@
        PROGRAM-ID. VWR-1--ONERROR IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-LINE PIC X(400).
+       01 WS-NL                                  PIC    X.
+       01 WS-LINE                                PIC    X(400).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           STRING "error: " VWR-1::LastError INTO WS-LINE.
-           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption.
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           STRING    "error: " VWR-1::LastError INTO WS-LINE
+           SET     Lbl-Status::Caption           TO    FUNCTION TRIM(WS-LINE)
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1389,17 +1575,21 @@
        PROGRAM-ID. VWR-1--ONCONVERSATIONSELECTED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> The control does not keep a past conversation's text. It
-      *> asks, and the program answers - exactly the round trip the
-      *> design calls for. Without this handler the pane would open
-      *> empty, which is the documented behaviour, not a fault.
-           VWR-1::AppendMarkdown("## Archived session\n\nRestored by the program when the entry was chosen. The Viewer stored only an id and a title.\n\n").
-           Txt-Log::AppendText("Supplied the archived conversation").
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> The control does not keep a past conversation's text. It
+           *> asks, and the program answers - exactly the round trip the
+           *> design calls for. Without this handler the pane would open
+           *> empty, which is the documented behaviour, not a fault.
+
+           VWR-1::AppendMarkdown("## Archived session\n\nRestored by the program when the entry was chosen. The Viewer stored only an id and a title.\n\n")
+           Txt-Log::AppendText("Supplied the archived conversation")
            Txt-Log::AppendText(WS-NL).
 
            GOBACK.
@@ -1410,55 +1600,60 @@
        PROGRAM-ID. TMR-STREAM--ONTICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
-       01 WS-N PIC S9(6).
-       01 WS-Q PIC S9(6).
-       01 WS-KIND PIC S9(2).
-       01 WS-NUM PIC 9(4).
-       01 WS-CHUNK PIC X(900).
+       01 WS-NL                                  PIC    X.
+       01 WS-N                                   PIC    S9(6).
+       01 WS-Q                                   PIC    S9(6).
+       01 WS-KIND                                PIC    S9(2).
+       01 WS-NUM                                 PIC    9(4).
+       01 WS-CHUNK                               PIC    X(900).
+
        PROCEDURE DIVISION.
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-           COMPUTE WS-N = Num-Chunks::Value + 1.
-           MOVE WS-N TO WS-NUM.
-      *> Every chunk is Markdown, and the shape rotates so the stream
-      *> exercises headings, prose, lists, a table and fenced code
-      *> rather than one paragraph repeated.
-           DIVIDE WS-N BY 4 GIVING WS-Q REMAINDER WS-KIND.
-           EVALUATE WS-KIND
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           COMPUTE    WS-N = Num-Chunks::Value + 1
+           SET     WS-NUM                        TO    WS-N
+           *> Every chunk is Markdown, and the shape rotates so the stream
+           *> exercises headings, prose, lists, a table and fenced code
+           *> rather than one paragraph repeated.
+
+           DIVIDE    WS-N BY 4 GIVING WS-Q REMAINDER WS-KIND
+           EVALUATE    WS-KIND
                WHEN 0
-                   STRING "## Message " WS-NUM X"0A" X"0A"
-                          "A streamed append. The Viewer keeps every "
-                          "chunk in its own native form and assembles "
-                          "the conversation on demand, so a session "
-                          "that runs for hours stays bounded." X"0A" X"0A"
+                   STRING    "## Message " WS-NUM X"0A" X"0A"
+                       "A streamed append. The Viewer keeps every "
+                       "chunk in its own native form and assembles "
+                       "the conversation on demand, so a session "
+                       "that runs for hours stays bounded." X"0A" X"0A"
                        INTO WS-CHUNK
                WHEN 1
-                   STRING "### Checklist " WS-NUM X"0A" X"0A"
-                          "- [x] chunk stored in its own form" X"0A"
-                          "- [x] rendered from that form" X"0A"
-                          "- [ ] never converted on the way in" X"0A" X"0A"
+                   STRING    "### Checklist " WS-NUM X"0A" X"0A"
+                       "- [x] chunk stored in its own form" X"0A"
+                       "- [x] rendered from that form" X"0A"
+                       "- [ ] never converted on the way in" X"0A" X"0A"
                        INTO WS-CHUNK
                WHEN 2
-                   STRING "| field | value |" X"0A"
-                          "|---|---:|" X"0A"
-                          "| message | " WS-NUM " |" X"0A"
-                          "| layout | Streamed |" X"0A" X"0A"
+                   STRING    "| field | value |" X"0A"
+                       "|---|---:|" X"0A"
+                       "| message | " WS-NUM " |" X"0A"
+                       "| layout | Streamed |" X"0A" X"0A"
                        INTO WS-CHUNK
                WHEN OTHER
-                   STRING "```cobol" X"0A"
-                          "           VWR-1::AppendMarkdown(WS-CHUNK)."
-                          X"0A" "```" X"0A" X"0A"
+                   STRING    "```cobol" X"0A"
+                   "           VWR-1::AppendMarkdown(WS-CHUNK)."
+                       X"0A" "```" X"0A" X"0A"
                        INTO WS-CHUNK
-           END-EVALUATE.
-           VWR-1::AppendMarkdown(FUNCTION TRIM(WS-CHUNK)).
-           MOVE WS-N TO Num-Chunks::Value.
-      *> A long stream, on purpose: 150 chunks of mixed Markdown is a
-      *> document of real size, which is the point of the exercise.
-           IF WS-N >= 150
-               MOVE 0 TO Tmr-Stream::Enabled
-               MOVE "Stream complete - 150 messages." TO Lbl-Status::Caption
+           END-EVALUATE
+           VWR-1::AppendMarkdown(FUNCTION TRIM(WS-CHUNK))
+           SET     Num-Chunks::Value             TO    WS-N
+           *> A long stream, on purpose: 150 chunks of mixed Markdown is a
+           *> document of real size, which is the point of the exercise.
+
+           IF    WS-N >= 150
+               SET     Tmr-Stream::Enabled       TO    0
+               SET     Lbl-Status::Caption       TO    "Stream complete - 150 messages."
            END-IF.
 
            GOBACK.

@@ -508,13 +508,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-01--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-01::ShadowEnabled TO 0.
+           SET     LBL-01::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -523,13 +524,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-01--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-01::ShadowEnabled TO 1.
+           SET     LBL-01::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -538,13 +540,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-02--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-02::ShadowEnabled TO 0.
+           SET     LBL-02::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -553,13 +556,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-02--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-02::ShadowEnabled TO 1.
+           SET     LBL-02::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -568,13 +572,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-03--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-03::ShadowEnabled TO 0.
+           SET     LBL-03::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -583,13 +588,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-03--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-03::ShadowEnabled TO 1.
+           SET     LBL-03::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -598,13 +604,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-04--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-04::ShadowEnabled TO 0.
+           SET     LBL-04::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -613,13 +620,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-04--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-04::ShadowEnabled TO 1.
+           SET     LBL-04::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -628,13 +636,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-05--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-05::ShadowEnabled TO 0.
+           SET     LBL-05::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -643,13 +652,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-05--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-05::ShadowEnabled TO 1.
+           SET     LBL-05::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -658,13 +668,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-06--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-06::ShadowEnabled TO 0.
+           SET     LBL-06::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -673,13 +684,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-06--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-06::ShadowEnabled TO 1.
+           SET     LBL-06::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -688,13 +700,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-07--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-07::ShadowEnabled TO 0.
+           SET     LBL-07::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -703,13 +716,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-07--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-07::ShadowEnabled TO 1.
+           SET     LBL-07::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -718,13 +732,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-08--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-08::ShadowEnabled TO 0.
+           SET     LBL-08::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -733,13 +748,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-08--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-08::ShadowEnabled TO 1.
+           SET     LBL-08::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -748,13 +764,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-09--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-09::ShadowEnabled TO 0.
+           SET     LBL-09::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -763,13 +780,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-09--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-09::ShadowEnabled TO 1.
+           SET     LBL-09::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -778,13 +796,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-10--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-10::ShadowEnabled TO 0.
+           SET     LBL-10::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -793,13 +812,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-10--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-10::ShadowEnabled TO 1.
+           SET     LBL-10::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -808,13 +828,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-11--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-11::ShadowEnabled TO 0.
+           SET     LBL-11::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -823,13 +844,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-11--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-11::ShadowEnabled TO 1.
+           SET     LBL-11::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -838,13 +860,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-12--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-12::ShadowEnabled TO 0.
+           SET     LBL-12::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -853,13 +876,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-12--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-12::ShadowEnabled TO 1.
+           SET     LBL-12::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -868,13 +892,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-13--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-13::ShadowEnabled TO 0.
+           SET     LBL-13::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -883,13 +908,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-13--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-13::ShadowEnabled TO 1.
+           SET     LBL-13::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -898,13 +924,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-14--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-14::ShadowEnabled TO 0.
+           SET     LBL-14::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -913,13 +940,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-14--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-14::ShadowEnabled TO 1.
+           SET     LBL-14::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -928,13 +956,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-15--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-15::ShadowEnabled TO 0.
+           SET     LBL-15::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -943,13 +972,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-15--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-15::ShadowEnabled TO 1.
+           SET     LBL-15::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -958,13 +988,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-16--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-16::ShadowEnabled TO 0.
+           SET     LBL-16::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -973,13 +1004,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-16--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-16::ShadowEnabled TO 1.
+           SET     LBL-16::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -988,13 +1020,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-17--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-17::ShadowEnabled TO 0.
+           SET     LBL-17::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1003,13 +1036,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-17--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-17::ShadowEnabled TO 1.
+           SET     LBL-17::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1018,13 +1052,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-18--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-18::ShadowEnabled TO 0.
+           SET     LBL-18::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1033,13 +1068,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-18--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-18::ShadowEnabled TO 1.
+           SET     LBL-18::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1048,13 +1084,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-19--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-19::ShadowEnabled TO 0.
+           SET     LBL-19::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1063,13 +1100,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-19--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-19::ShadowEnabled TO 1.
+           SET     LBL-19::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1078,13 +1116,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-20--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-20::ShadowEnabled TO 0.
+           SET     LBL-20::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1093,13 +1132,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-20--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-20::ShadowEnabled TO 1.
+           SET     LBL-20::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1108,13 +1148,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-21--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-21::ShadowEnabled TO 0.
+           SET     LBL-21::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1123,13 +1164,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-21--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-21::ShadowEnabled TO 1.
+           SET     LBL-21::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1138,13 +1180,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-22--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-22::ShadowEnabled TO 0.
+           SET     LBL-22::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1153,13 +1196,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-22--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-22::ShadowEnabled TO 1.
+           SET     LBL-22::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1168,13 +1212,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-23--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-23::ShadowEnabled TO 0.
+           SET     LBL-23::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1183,13 +1228,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-23--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-23::ShadowEnabled TO 1.
+           SET     LBL-23::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1198,13 +1244,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-24--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-24::ShadowEnabled TO 0.
+           SET     LBL-24::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1213,13 +1260,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-24--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-24::ShadowEnabled TO 1.
+           SET     LBL-24::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1228,13 +1276,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-25--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-25::ShadowEnabled TO 0.
+           SET     LBL-25::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1243,13 +1292,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-25--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-25::ShadowEnabled TO 1.
+           SET     LBL-25::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1258,13 +1308,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-26--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-26::ShadowEnabled TO 0.
+           SET     LBL-26::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1273,13 +1324,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-26--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-26::ShadowEnabled TO 1.
+           SET     LBL-26::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1288,13 +1340,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-27--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-27::ShadowEnabled TO 0.
+           SET     LBL-27::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1303,13 +1356,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-27--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-27::ShadowEnabled TO 1.
+           SET     LBL-27::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1318,13 +1372,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-28--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-28::ShadowEnabled TO 0.
+           SET     LBL-28::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1333,13 +1388,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-28--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-28::ShadowEnabled TO 1.
+           SET     LBL-28::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1348,13 +1404,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-29--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-29::ShadowEnabled TO 0.
+           SET     LBL-29::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1363,13 +1420,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-29--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-29::ShadowEnabled TO 1.
+           SET     LBL-29::ShadowEnabled         TO    1.
 
            GOBACK.
 
@@ -1378,13 +1436,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-30--ONMOUSEENTER IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-30::ShadowEnabled TO 0.
+           SET     LBL-30::ShadowEnabled         TO    0.
 
            GOBACK.
 
@@ -1393,13 +1452,14 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. LBL-30--ONMOUSELEAVE IS COMMON PROGRAM.
 
-
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-30::ShadowEnabled TO 1.
+           SET     LBL-30::ShadowEnabled         TO    1.
 
            GOBACK.
 

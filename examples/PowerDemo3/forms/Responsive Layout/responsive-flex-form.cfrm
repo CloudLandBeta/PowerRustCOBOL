@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="RESPONSIVE-FLEX-FORM" title="Responsive - flex containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -54,57 +54,70 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="FLX-SHOW-INFO" paragraph="FLX-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-FLEX-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLX-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLX-SHOW-INFO"
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-FLEX-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-FLEX-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLX-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLX-SHOW-INFO"
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-FLEX-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLX-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLX-SHOW-INFO"
 ]]></Event>
   </form-events>
   <Control id="LBL-TITLE" type="Label" x="24" y="14" w="1152" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -7131,13 +7144,15 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-REV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 5 TO OR-1::Order
-           MOVE 4 TO OR-2::Order
-           MOVE 3 TO OR-3::Order
-           MOVE 2 TO OR-4::Order
-           MOVE 1 TO OR-5::Order
+           SET     OR-1::Order                   TO    5
+           SET     OR-2::Order                   TO    4
+           SET     OR-3::Order                   TO    3
+           SET     OR-4::Order                   TO    2
+           SET     OR-5::Order                   TO    1
 ]]></Event>
   </Control>
   <Control id="OC-ZERO" type="Button" x="233" y="624" w="177" h="36" tab-order="2" z-order="173" visible="true" enabled="true" parent="OR-CMDS">
@@ -7179,13 +7194,15 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-ZERO--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO OR-1::Order
-           MOVE 0 TO OR-2::Order
-           MOVE 0 TO OR-3::Order
-           MOVE 0 TO OR-4::Order
-           MOVE 0 TO OR-5::Order
+           SET     OR-1::Order                   TO    0
+           SET     OR-2::Order                   TO    0
+           SET     OR-3::Order                   TO    0
+           SET     OR-4::Order                   TO    0
+           SET     OR-5::Order                   TO    0
 ]]></Event>
   </Control>
   <Control id="OC-COL" type="Button" x="418" y="624" w="177" h="36" tab-order="3" z-order="174" visible="true" enabled="true" parent="OR-CMDS">
@@ -7227,9 +7244,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-COL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Column" TO OR-LIVE::FlexDirection
+           SET     OR-LIVE::FlexDirection        TO    "Column"
 ]]></Event>
   </Control>
   <Control id="OC-ROW" type="Button" x="603" y="624" w="177" h="36" tab-order="4" z-order="175" visible="true" enabled="true" parent="OR-CMDS">
@@ -7271,9 +7290,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-ROW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Row" TO OR-LIVE::FlexDirection
+           SET     OR-LIVE::FlexDirection        TO    "Row"
 ]]></Event>
   </Control>
   <Control id="OC-RREV" type="Button" x="788" y="624" w="177" h="36" tab-order="5" z-order="176" visible="true" enabled="true" parent="OR-CMDS">
@@ -7315,9 +7336,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-RREV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "RowReverse" TO OR-LIVE::FlexDirection
+           SET     OR-LIVE::FlexDirection        TO    "RowReverse"
 ]]></Event>
   </Control>
   <Control id="OC-GAP" type="Button" x="973" y="624" w="177" h="36" tab-order="6" z-order="177" visible="true" enabled="true" parent="OR-CMDS">
@@ -7359,9 +7382,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-GAP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 32 TO OR-LIVE::Gap
+           SET     OR-LIVE::Gap                  TO    32
 ]]></Event>
   </Control>
   <Control id="OC-JS" type="Button" x="48" y="668" w="177" h="36" tab-order="7" z-order="178" visible="true" enabled="true" parent="OR-CMDS">
@@ -7403,9 +7428,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-JS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Start" TO OR-LIVE::JustifyContent
+           SET     OR-LIVE::JustifyContent       TO    "Start"
 ]]></Event>
   </Control>
   <Control id="OC-JC" type="Button" x="233" y="668" w="177" h="36" tab-order="8" z-order="179" visible="true" enabled="true" parent="OR-CMDS">
@@ -7447,9 +7474,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-JC--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Center" TO OR-LIVE::JustifyContent
+           SET     OR-LIVE::JustifyContent       TO    "Center"
 ]]></Event>
   </Control>
   <Control id="OC-JE" type="Button" x="418" y="668" w="177" h="36" tab-order="9" z-order="180" visible="true" enabled="true" parent="OR-CMDS">
@@ -7491,9 +7520,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-JE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "SpaceEvenly" TO OR-LIVE::JustifyContent
+           SET     OR-LIVE::JustifyContent       TO    "SpaceEvenly"
 ]]></Event>
   </Control>
   <Control id="OC-GROW" type="Button" x="603" y="668" w="177" h="36" tab-order="10" z-order="181" visible="true" enabled="true" parent="OR-CMDS">
@@ -7535,9 +7566,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-GROW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO OR-3::FlexGrow
+           SET     OR-3::FlexGrow                TO    1
 ]]></Event>
   </Control>
   <Control id="OC-NOGROW" type="Button" x="788" y="668" w="177" h="36" tab-order="11" z-order="182" visible="true" enabled="true" parent="OR-CMDS">
@@ -7579,9 +7612,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-NOGROW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO OR-3::FlexGrow
+           SET     OR-3::FlexGrow                TO    0
 ]]></Event>
   </Control>
   <Control id="OC-GAP8" type="Button" x="973" y="668" w="177" h="36" tab-order="12" z-order="183" visible="true" enabled="true" parent="OR-CMDS">
@@ -7623,9 +7658,11 @@ Order - and from COBOL</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="OC-GAP8--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 8 TO OR-LIVE::Gap
+           SET     OR-LIVE::Gap                  TO    8
 ]]></Event>
   </Control>
   <Control id="SB-INFO" type="StatusBar" x="0" y="754" w="1200" h="26" tab-order="0" z-order="184" visible="true" enabled="true">

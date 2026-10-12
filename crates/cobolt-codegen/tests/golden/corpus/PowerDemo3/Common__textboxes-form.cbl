@@ -329,14 +329,16 @@
        PROGRAM-ID. TXT1--ONTEXTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01  WS-TEXT  PIC X(255).
+       01 WS-TEXT                                PIC    X(255).
 
        PROCEDURE DIVISION.
-           MOVE txt1::Text TO WS-TEXT
-           MOVE FUNCTION UPPER-CASE(WS-TEXT) TO txt1::Text
-           MOVE "Converte o texto para maiúsculas" TO Label-1::Caption.
+           SET     WS-TEXT                       TO    txt1::Text
+           SET     txt1::Text                    TO    FUNCTION UPPER-CASE(WS-TEXT)
+           SET     Label-1::Caption              TO    "Converte o texto para maiúsculas".
 
            GOBACK.
 
@@ -346,12 +348,14 @@
        PROGRAM-ID. TXT2--ONGOTFOCUS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE "#FF0000" TO txt2::ForegroundColor
-           MOVE "Altera a cor da fonte para vermelho" TO Label-1::Caption.
+           SET     txt2::ForegroundColor         TO    "#FF0000"
+           SET     Label-1::Caption              TO    "Altera a cor da fonte para vermelho".
 
            GOBACK.
 
@@ -361,15 +365,18 @@
        PROGRAM-ID. TXT3--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01  WS-SIZE  PIC S9(4) COMP-5.
+       01 WS-SIZE                                PIC    S9(4)    COMP-5.
 
        PROCEDURE DIVISION.
-           MOVE txt3::FontSize TO WS-SIZE
-           SUBTRACT 2 FROM WS-SIZE
-           MOVE WS-SIZE TO txt3::FontSize
-           MOVE "Diminui o tamanho da fonte em 2 unidades" TO Label-1::Caption.
+           SET     WS-SIZE                       TO    txt3::FontSize
+           SUBTRACT    2 FROM WS-SIZE
+
+           SET     txt3::FontSize                TO    WS-SIZE
+           SET     Label-1::Caption              TO    "Diminui o tamanho da fonte em 2 unidades".
 
            GOBACK.
 
@@ -379,13 +386,17 @@
        PROGRAM-ID. TXT4--ONENTERPRESSED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE "#00FF00" TO txt4::BackgroundColor
-           SET  txt4::BackgroundGradientEnabled TO 0
-           MOVE "Altera a cor do fundo para verde" TO Label-1::Caption.
+           SET     txt4::BackgroundColor         TO    "#00FF00"
+           SET     txt4::BackgroundGradientEnabled
+                                                 TO    0
+
+           SET     Label-1::Caption              TO    "Altera a cor do fundo para verde".
 
            GOBACK.
 
@@ -395,13 +406,17 @@
        PROGRAM-ID. TXT5--ONLOSTFOCUS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE "#333333" TO txt5::BackgroundColor
-           SET  txt5::BackgroundGradientEnabled TO 0
-           MOVE "Restaura a cor do fundo para cinza escuro" TO Label-1::Caption.
+           SET     txt5::BackgroundColor         TO    "#333333"
+           SET     txt5::BackgroundGradientEnabled
+                                                 TO    0
+
+           SET     Label-1::Caption              TO    "Restaura a cor do fundo para cinza escuro".
 
            GOBACK.
 
@@ -411,16 +426,18 @@
        PROGRAM-ID. TXT6--ONTEXTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01  WS-TEXT  PIC X(255).
+       01 WS-TEXT                                PIC    X(255).
 
        PROCEDURE DIVISION.
-           MOVE txt6::Text TO WS-TEXT
-           IF WS-TEXT NOT = SPACES
-               MOVE "#FFFF00" TO txt6::ForegroundColor
+           SET     WS-TEXT                       TO    txt6::Text
+           IF    WS-TEXT NOT = SPACES
+               SET     txt6::ForegroundColor     TO    "#FFFF00"
            END-IF
-           MOVE "Altera a cor da fonte para amarelo se não estiver vazio" TO Label-1::Caption.
+           SET     Label-1::Caption              TO    "Altera a cor da fonte para amarelo se não estiver vazio".
 
            GOBACK.
 
@@ -430,12 +447,14 @@
        PROGRAM-ID. TXT7--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE "Center" TO txt7::TextAlignment
-           MOVE "Centraliza o alinhamento do texto" TO Label-1::Caption.
+           SET     txt7::TextAlignment           TO    "Center"
+           SET     Label-1::Caption              TO    "Centraliza o alinhamento do texto".
 
            GOBACK.
 
@@ -445,12 +464,14 @@
        PROGRAM-ID. TXT8--ONENTERPRESSED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET txt8::ShadowEnabled TO 1
-           MOVE "Ativa a sombra do controle" TO Label-1::Caption.
+           SET     txt8::ShadowEnabled           TO    1
+           SET     Label-1::Caption              TO    "Ativa a sombra do controle".
 
            GOBACK.
 
@@ -460,13 +481,17 @@
        PROGRAM-ID. TXT9--ONGOTFOCUS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE "#FFFF00" TO txt9::BackgroundColor
-           SET  txt9::BackgroundGradientEnabled TO 0
-           MOVE "Altera a cor do fundo para amarelo" TO Label-1::Caption.
+           SET     txt9::BackgroundColor         TO    "#FFFF00"
+           SET     txt9::BackgroundGradientEnabled
+                                                 TO    0
+
+           SET     Label-1::Caption              TO    "Altera a cor do fundo para amarelo".
 
            GOBACK.
 
@@ -476,18 +501,20 @@
        PROGRAM-ID. TXT10--ONTEXTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01  WS-LEN  PIC S9(4) COMP-5.
+       01 WS-LEN                                 PIC    S9(4)    COMP-5.
 
        PROCEDURE DIVISION.
-           COMPUTE WS-LEN = FUNCTION LENGTH(txt10::Text)
-           IF WS-LEN > 10
-               SET txt10::Bold TO 1
+           COMPUTE    WS-LEN = FUNCTION LENGTH(txt10::Text)
+           IF    WS-LEN > 10
+               SET     txt10::Bold               TO    1
            ELSE
-               SET txt10::Bold TO 0
+               SET     txt10::Bold               TO    0
            END-IF
-           MOVE "Ativa o negrito se o texto tiver mais de 10 caracteres" TO Label-1::Caption.
+           SET     Label-1::Caption              TO    "Ativa o negrito se o texto tiver mais de 10 caracteres".
 
            GOBACK.
 
@@ -497,12 +524,14 @@
        PROGRAM-ID. TXT11--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE "Clicado!" TO txt11::Text
-           MOVE "Altera o texto para 'Clicado!'" TO Label-1::Caption.
+           SET     txt11::Text                   TO    "Clicado!"
+           SET     Label-1::Caption              TO    "Altera o texto para 'Clicado!'".
 
            GOBACK.
 
@@ -512,12 +541,16 @@
        PROGRAM-ID. TXT12--ONENTERPRESSED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET txt12::BackgroundGradientEnabled TO 1
-           MOVE "Ativa o gradiente de fundo" TO Label-1::Caption.
+           SET     txt12::BackgroundGradientEnabled
+                                                 TO    1
+
+           SET     Label-1::Caption              TO    "Ativa o gradiente de fundo".
 
            GOBACK.
 
@@ -527,12 +560,14 @@
        PROGRAM-ID. TXT13--ONGOTFOCUS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 14 TO txt13::FontSize
-           MOVE "Aumenta o tamanho da fonte para 14" TO Label-1::Caption.
+           SET     txt13::FontSize               TO    14
+           SET     Label-1::Caption              TO    "Aumenta o tamanho da fonte para 14".
 
            GOBACK.
 
@@ -542,14 +577,16 @@
        PROGRAM-ID. TXT14--ONTEXTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           IF txt14::Text = "OK"
-               MOVE "#0000FF" TO txt14::ForegroundColor
+           IF    txt14::Text = "OK"
+               SET     txt14::ForegroundColor    TO    "#0000FF"
            END-IF
-           MOVE "Altera a cor da fonte para azul se o texto for 'OK'" TO Label-1::Caption.
+           SET     Label-1::Caption              TO    "Altera a cor da fonte para azul se o texto for 'OK'".
 
            GOBACK.
 
@@ -559,30 +596,34 @@
        PROGRAM-ID. TXT15--ONTEXTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01  WS-FULL-TEXT  PIC X(2000).
+       01 WS-FULL-TEXT                           PIC    X(2000).
 
        PROCEDURE DIVISION.
-           INITIALIZE WS-FULL-TEXT
-           STRING txt1::Text " "
-                  txt2::Text " "
-                  txt3::Text " "
-                  txt4::Text " "
-                  txt5::Text " "
-                  txt6::Text " "
-                  txt7::Text " "
-                  txt8::Text " "
-                  txt9::Text " "
-                  txt10::Text " "
-                  txt11::Text " "
-                  txt12::Text " "
-                  txt13::Text " "
-                  txt14::Text " "
-                  txt15::Text
-             INTO WS-FULL-TEXT
-           MOVE WS-FULL-TEXT TO lblSummary::Caption
-           MOVE "Concatena todos os campos no lblSummary" TO Label-1::Caption.
+           INITIALIZE    WS-FULL-TEXT
+           STRING    txt1::Text " "
+
+           txt2::Text " "
+           txt3::Text " "
+           txt4::Text " "
+           txt5::Text " "
+           txt6::Text " "
+           txt7::Text " "
+           txt8::Text " "
+           txt9::Text " "
+           txt10::Text " "
+           txt11::Text " "
+           txt12::Text " "
+           txt13::Text " "
+           txt14::Text " "
+           txt15::Text
+               INTO WS-FULL-TEXT
+
+           SET     lblSummary::Caption           TO    WS-FULL-TEXT
+           SET     Label-1::Caption              TO    "Concatena todos os campos no lblSummary".
 
            GOBACK.
 
@@ -592,34 +633,37 @@
        PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01  WS-SUMMARY      PIC X(2000).
-       01  WS-TEMP-VAL     PIC X(255).
+       01 WS-SUMMARY                             PIC    X(2000).
+       01 WS-TEMP-VAL                            PIC    X(255).
 
        PROCEDURE DIVISION.
-           INITIALIZE WS-SUMMARY.
+           INITIALIZE    WS-SUMMARY
 
            *> Collect and concatenate txt1 through txt15
-           STRING "txt1=" txt1::Text " "
-                  "txt2=" txt2::Text " "
-                  "txt3=" txt3::Text " "
-                  "txt4=" txt4::Text " "
-                  "txt5=" txt5::Text " "
-                  "txt6=" txt6::Text " "
-                  "txt7=" txt7::Text " "
-                  "txt8=" txt8::Text " "
-                  "txt9=" txt9::Text " "
-                  "txt10=" txt10::Text " "
-                  "txt11=" txt11::Text " "
-                  "txt12=" txt12::Text " "
-                  "txt13=" txt13::Text " "
-                  "txt14=" txt14::Text " "
-                  "txt15=" txt15::Text
-             INTO WS-SUMMARY
 
-           MOVE WS-SUMMARY TO lblSummary::Caption
-           MOVE "Summary generated successfully" TO Label-1::Caption.
+           STRING    "txt1=" txt1::Text " "
+               "txt2=" txt2::Text " "
+               "txt3=" txt3::Text " "
+               "txt4=" txt4::Text " "
+               "txt5=" txt5::Text " "
+               "txt6=" txt6::Text " "
+               "txt7=" txt7::Text " "
+               "txt8=" txt8::Text " "
+               "txt9=" txt9::Text " "
+               "txt10=" txt10::Text " "
+               "txt11=" txt11::Text " "
+               "txt12=" txt12::Text " "
+               "txt13=" txt13::Text " "
+               "txt14=" txt14::Text " "
+               "txt15=" txt15::Text
+               INTO WS-SUMMARY
+
+           SET     lblSummary::Caption           TO    WS-SUMMARY
+           SET     Label-1::Caption              TO    "Summary generated successfully".
 
            GOBACK.
 

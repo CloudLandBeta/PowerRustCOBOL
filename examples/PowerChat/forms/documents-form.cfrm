@@ -1,565 +1,632 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="DOCUMENTS-FORM" title="PowerChat" width="1080" height="512" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed" form-format="Embedded">
-  <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
-       01 WS-DATA-DIR        GLOBAL PIC X(200).
-       01 WS-SET-NAME        GLOBAL PIC X(20).
-       01 WS-SET-VALUE       GLOBAL PIC X(200).
-       01 WS-NOW             GLOBAL PIC X(21).
-       01 WS-EOF             GLOBAL PIC X.
-       01 WS-OK              GLOBAL PIC X(4).
-       01 WS-SETTINGS-PATH  GLOBAL PIC X(240).
-       01 WS-TOPICS-PATH  GLOBAL PIC X(240).
-       01 WS-CUR-TOPIC       GLOBAL PIC X(16).
-       01 WS-KB-LOCATION     GLOBAL PIC X(200).
-       01 WS-DOC-COUNT       GLOBAL PIC 9(5) VALUE 0.
-       01 WS-I               GLOBAL PIC 9(5).
-       01 WS-INDEX           GLOBAL PIC S9(5).
-       01 WS-DOC             GLOBAL PIC X(260).
-       01 WS-LINE            GLOBAL PIC X(400).
-       01 WS-N1              GLOBAL PIC Z(4)9.
-       01 WS-N2              GLOBAL PIC Z(4)9.
-       01 WS-N3              GLOBAL PIC Z(4)9.
-       01 WS-N4              GLOBAL PIC Z(4)9.
-       01 WS-SKIPPED         GLOBAL PIC X(400).
-      *>   The interface texts (spec 071 R44): one row per text, one column
-      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
-      *>   only the values are translated.
-       01 WS-LANG            GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-NOW        GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
-       01 WS-TX-I            GLOBAL PIC 9(4).
-       01 PC-TEXT-DATA       GLOBAL.
-      *>   OPEN-TOPIC-FIRST
-          05 FILLER PIC X(70) VALUE "Open a topic first.".
-          05 FILLER PIC X(70) VALUE "Abra um tópico primeiro.".
-          05 FILLER PIC X(70) VALUE "Primero abre un tema.".
-          05 FILLER PIC X(70) VALUE "Ouvrez d'abord un sujet.".
-          05 FILLER PIC X(70) VALUE "先にトピックを開いてください。".
-          05 FILLER PIC X(70) VALUE "请先打开一个主题。".
-      *>   DOCS-OF
-          05 FILLER PIC X(70) VALUE "Documents - &1".
-          05 FILLER PIC X(70) VALUE "Documentos - &1".
-          05 FILLER PIC X(70) VALUE "Documentos - &1".
-          05 FILLER PIC X(70) VALUE "Documents - &1".
-          05 FILLER PIC X(70) VALUE "文書 - &1".
-          05 FILLER PIC X(70) VALUE "文档 - &1".
-      *>   PICK-DOC-FIRST
-          05 FILLER PIC X(70) VALUE "Pick a document or a folder in the tree first.".
-          05 FILLER PIC X(70) VALUE "Escolha um documento ou uma pasta na árvore primeiro.".
-          05 FILLER PIC X(70) VALUE "Primero elige un documento o una carpeta del árbol.".
-          05 FILLER PIC X(70) VALUE "Choisissez d'abord un document ou un dossier.".
-          05 FILLER PIC X(70) VALUE "先に文書かフォルダーを選んでください。".
-          05 FILLER PIC X(70) VALUE "请先在树中选择文档或文件夹。".
-      *>   KB-PROGRESS
-          05 FILLER PIC X(70) VALUE "Updating the Knowledge Base: &1 of &2 - &3".
-          05 FILLER PIC X(70) VALUE "Atualizando a base de conhecimento: &1 de &2 - &3".
-          05 FILLER PIC X(70) VALUE "Actualizando la base de conocimiento: &1 de &2 - &3".
-          05 FILLER PIC X(70) VALUE "Mise à jour de la base de connaissances : &1 sur &2 - &3".
-          05 FILLER PIC X(70) VALUE "ナレッジベースを更新中：&1 / &2 - &3".
-          05 FILLER PIC X(70) VALUE "正在更新知识库：第 &1 个，共 &2 个 - &3".
-      *>   KB-COUNTS
-          05 FILLER PIC X(70) VALUE "Added &1, updated &2, removed &3, skipped &4.".
-          05 FILLER PIC X(70) VALUE "Adicionados &1, atualizados &2, removidos &3, ignorados &4.".
-          05 FILLER PIC X(70) VALUE "Añadidos &1, actualizados &2, quitados &3, omitidos &4.".
-          05 FILLER PIC X(70) VALUE "Ajoutés &1, mis à jour &2, retirés &3, ignorés &4.".
-          05 FILLER PIC X(70) VALUE "追加 &1、更新 &2、削除 &3、スキップ &4。".
-          05 FILLER PIC X(70) VALUE "新增 &1，更新 &2，移除 &3，跳过 &4。".
-      *>   KB-SKIPPED
-          05 FILLER PIC X(70) VALUE "Skipped: &1".
-          05 FILLER PIC X(70) VALUE "Ignorados: &1".
-          05 FILLER PIC X(70) VALUE "Omitidos: &1".
-          05 FILLER PIC X(70) VALUE "Ignorés : &1".
-          05 FILLER PIC X(70) VALUE "スキップ：&1".
-          05 FILLER PIC X(70) VALUE "已跳过：&1".
-      *>   DOC-COUNT
-          05 FILLER PIC X(70) VALUE "&1 document(s).".
-          05 FILLER PIC X(70) VALUE "&1 documento(s).".
-          05 FILLER PIC X(70) VALUE "&1 documento(s).".
-          05 FILLER PIC X(70) VALUE "&1 document(s).".
-          05 FILLER PIC X(70) VALUE "文書 &1 件。".
-          05 FILLER PIC X(70) VALUE "共 &1 个文档。".
-      *>   DOCS-TITLE
-          05 FILLER PIC X(70) VALUE "Documents".
-          05 FILLER PIC X(70) VALUE "Documentos".
-          05 FILLER PIC X(70) VALUE "Documentos".
-          05 FILLER PIC X(70) VALUE "Documents".
-          05 FILLER PIC X(70) VALUE "文書".
-          05 FILLER PIC X(70) VALUE "文档".
-      *>   DROP-HINT
-          05 FILLER PIC X(70) VALUE "Drop documents here, or click to choose".
-          05 FILLER PIC X(70) VALUE "Solte documentos aqui ou clique para escolher".
-          05 FILLER PIC X(70) VALUE "Suelta documentos aquí o haz clic para elegir".
-          05 FILLER PIC X(70) VALUE "Déposez des documents ici, ou cliquez pour choisir".
-          05 FILLER PIC X(70) VALUE "ここに文書をドロップするか、クリックして選択".
-          05 FILLER PIC X(70) VALUE "将文档拖放到此处，或点击选择".
-      *>   DELETE
-          05 FILLER PIC X(70) VALUE "Delete".
-          05 FILLER PIC X(70) VALUE "Excluir".
-          05 FILLER PIC X(70) VALUE "Eliminar".
-          05 FILLER PIC X(70) VALUE "Supprimer".
-          05 FILLER PIC X(70) VALUE "削除".
-          05 FILLER PIC X(70) VALUE "删除".
-      *>   REFRESH
-          05 FILLER PIC X(70) VALUE "Refresh".
-          05 FILLER PIC X(70) VALUE "Atualizar".
-          05 FILLER PIC X(70) VALUE "Actualizar".
-          05 FILLER PIC X(70) VALUE "Actualiser".
-          05 FILLER PIC X(70) VALUE "更新".
-          05 FILLER PIC X(70) VALUE "刷新".
-      *>   KB-UPDATING
-          05 FILLER PIC X(70) VALUE "Updating the Knowledge Base...".
-          05 FILLER PIC X(70) VALUE "Atualizando a base de conhecimento...".
-          05 FILLER PIC X(70) VALUE "Actualizando la base de conocimiento...".
-          05 FILLER PIC X(70) VALUE "Mise à jour de la base de connaissances...".
-          05 FILLER PIC X(70) VALUE "ナレッジベースを更新中...".
-          05 FILLER PIC X(70) VALUE "正在更新知识库...".
-      *>   NEW-FOLDER
-          05 FILLER PIC X(70) VALUE "New folder".
-          05 FILLER PIC X(70) VALUE "Nova pasta".
-          05 FILLER PIC X(70) VALUE "Nueva carpeta".
-          05 FILLER PIC X(70) VALUE "Nouveau dossier".
-          05 FILLER PIC X(70) VALUE "新しいフォルダー".
-          05 FILLER PIC X(70) VALUE "新建文件夹".
-      *>   FOLDER-HINT
-          05 FILLER PIC X(70) VALUE "Folder name".
-          05 FILLER PIC X(70) VALUE "Nome da pasta".
-          05 FILLER PIC X(70) VALUE "Nombre de la carpeta".
-          05 FILLER PIC X(70) VALUE "Nom du dossier".
-          05 FILLER PIC X(70) VALUE "フォルダー名".
-          05 FILLER PIC X(70) VALUE "文件夹名称".
-      *>   FOLDER-CREATED
-          05 FILLER PIC X(70) VALUE "Folder created: &1.".
-          05 FILLER PIC X(70) VALUE "Pasta criada: &1.".
-          05 FILLER PIC X(70) VALUE "Carpeta creada: &1.".
-          05 FILLER PIC X(70) VALUE "Dossier créé : &1.".
-          05 FILLER PIC X(70) VALUE "フォルダーを作成しました: &1".
-          05 FILLER PIC X(70) VALUE "已创建文件夹：&1".
-      *>   FOLDER-EXISTS
-          05 FILLER PIC X(70) VALUE "That folder already exists.".
-          05 FILLER PIC X(70) VALUE "Essa pasta já existe.".
-          05 FILLER PIC X(70) VALUE "Esa carpeta ya existe.".
-          05 FILLER PIC X(70) VALUE "Ce dossier existe déjà.".
-          05 FILLER PIC X(70) VALUE "そのフォルダーは既にあります。".
-          05 FILLER PIC X(70) VALUE "该文件夹已存在。".
-      *>   FOLDER-NAME-BAD
-          05 FILLER PIC X(70) VALUE "Type a folder name, without / or \.".
-          05 FILLER PIC X(70) VALUE "Digite um nome de pasta, sem / nem \.".
-          05 FILLER PIC X(70) VALUE "Escribe un nombre de carpeta, sin / ni \.".
-          05 FILLER PIC X(70) VALUE "Saisissez un nom de dossier, sans / ni \.".
-          05 FILLER PIC X(70) VALUE "フォルダー名を入力（/ と \ は不可）。".
-          05 FILLER PIC X(70) VALUE "请输入文件夹名称（不含 / 或 \）。".
-      *>   FOLDER-NOT-EMPTY
-          05 FILLER PIC X(70) VALUE "The folder is not empty: delete its documents first.".
-          05 FILLER PIC X(70) VALUE "A pasta não está vazia: exclua os documentos dela primeiro.".
-          05 FILLER PIC X(70) VALUE "La carpeta no está vacía: borra primero sus documentos.".
-          05 FILLER PIC X(70) VALUE "Le dossier n'est pas vide : supprimez d'abord ses documents.".
-          05 FILLER PIC X(70) VALUE "空でないフォルダーは削除できません。".
-          05 FILLER PIC X(70) VALUE "文件夹不为空，请先删除其中的文档。".
-      *>   FOLDER-DELETED
-          05 FILLER PIC X(70) VALUE "Folder deleted: &1.".
-          05 FILLER PIC X(70) VALUE "Pasta excluída: &1.".
-          05 FILLER PIC X(70) VALUE "Carpeta eliminada: &1.".
-          05 FILLER PIC X(70) VALUE "Dossier supprimé : &1.".
-          05 FILLER PIC X(70) VALUE "フォルダーを削除しました: &1".
-          05 FILLER PIC X(70) VALUE "已删除文件夹：&1".
-      *>   DROP-INTO
-          05 FILLER PIC X(70) VALUE "New documents go into &1.".
-          05 FILLER PIC X(70) VALUE "Novos documentos vão para &1.".
-          05 FILLER PIC X(70) VALUE "Los documentos nuevos van a &1.".
-          05 FILLER PIC X(70) VALUE "Les nouveaux documents vont dans &1.".
-          05 FILLER PIC X(70) VALUE "新しい文書の保存先: &1".
-          05 FILLER PIC X(70) VALUE "新文档将放入 &1。".
-      *>   TOP-LEVEL
-          05 FILLER PIC X(70) VALUE "the top level".
-          05 FILLER PIC X(70) VALUE "o nível principal".
-          05 FILLER PIC X(70) VALUE "el nivel superior".
-          05 FILLER PIC X(70) VALUE "le niveau supérieur".
-          05 FILLER PIC X(70) VALUE "最上位".
-          05 FILLER PIC X(70) VALUE "顶层".
-      *>   STATUS
-          05 FILLER PIC X(70) VALUE "Status".
-          05 FILLER PIC X(70) VALUE "Status".
-          05 FILLER PIC X(70) VALUE "Estado".
-          05 FILLER PIC X(70) VALUE "État".
-          05 FILLER PIC X(70) VALUE "ステータス".
-          05 FILLER PIC X(70) VALUE "状态".
-      *>   MOVE
-          05 FILLER PIC X(70) VALUE "Move".
-          05 FILLER PIC X(70) VALUE "Mover".
-          05 FILLER PIC X(70) VALUE "Mover".
-          05 FILLER PIC X(70) VALUE "Déplacer".
-          05 FILLER PIC X(70) VALUE "移動".
-          05 FILLER PIC X(70) VALUE "移动".
-      *>   MOVE-HERE
-          05 FILLER PIC X(70) VALUE "Move here".
-          05 FILLER PIC X(70) VALUE "Mover para cá".
-          05 FILLER PIC X(70) VALUE "Mover aquí".
-          05 FILLER PIC X(70) VALUE "Déplacer ici".
-          05 FILLER PIC X(70) VALUE "ここへ移動".
-          05 FILLER PIC X(70) VALUE "移到此处".
-      *>   MOVE-TOP
-          05 FILLER PIC X(70) VALUE "To the top level".
-          05 FILLER PIC X(70) VALUE "Para o nível principal".
-          05 FILLER PIC X(70) VALUE "Al nivel superior".
-          05 FILLER PIC X(70) VALUE "Au niveau supérieur".
-          05 FILLER PIC X(70) VALUE "最上位へ".
-          05 FILLER PIC X(70) VALUE "移到顶层".
-      *>   PICK-DOC-TO-MOVE
-          05 FILLER PIC X(70) VALUE "Pick the document to move in the tree first.".
-          05 FILLER PIC X(70) VALUE "Escolha primeiro na árvore o documento a mover.".
-          05 FILLER PIC X(70) VALUE "Primero elige en el árbol el documento a mover.".
-          05 FILLER PIC X(70) VALUE "Choisissez d'abord le document à déplacer.".
-          05 FILLER PIC X(70) VALUE "先に移動する文書を選んでください。".
-          05 FILLER PIC X(70) VALUE "请先在树中选择要移动的文档。".
-      *>   MOVE-PICK
-          05 FILLER PIC X(70) VALUE "Moving &1: pick a folder, then press Move here.".
-          05 FILLER PIC X(70) VALUE "Movendo &1: escolha uma pasta e clique em Mover para cá.".
-          05 FILLER PIC X(70) VALUE "Moviendo &1: elige una carpeta y pulsa Mover aquí.".
-          05 FILLER PIC X(70) VALUE "Déplacement de &1 : choisissez un dossier, puis Déplacer ici.".
-          05 FILLER PIC X(70) VALUE "&1 の移動先フォルダーを選んでください。".
-          05 FILLER PIC X(70) VALUE "移动 &1：请选择目标文件夹。".
-      *>   MOVE-INTO
-          05 FILLER PIC X(70) VALUE "Move here puts &1 into &2.".
-          05 FILLER PIC X(70) VALUE "Mover para cá coloca &1 em &2.".
-          05 FILLER PIC X(70) VALUE "Mover aquí lleva &1 a &2.".
-          05 FILLER PIC X(70) VALUE "Déplacer ici met &1 dans &2.".
-          05 FILLER PIC X(70) VALUE "&1 を &2 へ移動します。".
-          05 FILLER PIC X(70) VALUE "将把 &1 移到 &2。".
-      *>   MOVE-SAME
-          05 FILLER PIC X(70) VALUE "The document is already in that folder.".
-          05 FILLER PIC X(70) VALUE "O documento já está nessa pasta.".
-          05 FILLER PIC X(70) VALUE "El documento ya está en esa carpeta.".
-          05 FILLER PIC X(70) VALUE "Le document est déjà dans ce dossier.".
-          05 FILLER PIC X(70) VALUE "文書は既にそのフォルダーにあります。".
-          05 FILLER PIC X(70) VALUE "文档已在该文件夹中。".
-      *>   MOVE-EXISTS
-          05 FILLER PIC X(70) VALUE "A document of that name is already there: &1.".
-          05 FILLER PIC X(70) VALUE "Já existe um documento com esse nome lá: &1.".
-          05 FILLER PIC X(70) VALUE "Ya hay un documento con ese nombre allí: &1.".
-          05 FILLER PIC X(70) VALUE "Un document de ce nom s'y trouve déjà : &1.".
-          05 FILLER PIC X(70) VALUE "同名の文書が既にあります: &1".
-          05 FILLER PIC X(70) VALUE "该处已有同名文档：&1".
-      *>   MOVED
-          05 FILLER PIC X(70) VALUE "Moved &1 to &2.".
-          05 FILLER PIC X(70) VALUE "&1 movido para &2.".
-          05 FILLER PIC X(70) VALUE "&1 movido a &2.".
-          05 FILLER PIC X(70) VALUE "&1 déplacé vers &2.".
-          05 FILLER PIC X(70) VALUE "&1 を &2 へ移動しました。".
-          05 FILLER PIC X(70) VALUE "已将 &1 移到 &2。".
-      *>   ACCEPTED-TYPES
-          05 FILLER PIC X(70) VALUE "Accepted types: &1".
-          05 FILLER PIC X(70) VALUE "Tipos aceitos: &1".
-          05 FILLER PIC X(70) VALUE "Tipos aceptados: &1".
-          05 FILLER PIC X(70) VALUE "Types acceptés : &1".
-          05 FILLER PIC X(70) VALUE "対応する形式: &1".
-          05 FILLER PIC X(70) VALUE "支持的类型：&1".
-      *>   REJECTED-TYPE
-          05 FILLER PIC X(70) VALUE "Not added - this type of file cannot be read: &1".
-          05 FILLER PIC X(70) VALUE "Não adicionado - este tipo de arquivo não pode ser lido: &1".
-          05 FILLER PIC X(70) VALUE "No añadido: este tipo de archivo no se puede leer: &1".
-          05 FILLER PIC X(70) VALUE "Non ajouté : ce type de fichier ne peut pas être lu : &1".
-          05 FILLER PIC X(70) VALUE "追加しません（読めない形式）: &1".
-          05 FILLER PIC X(70) VALUE "未添加：无法读取此类文件：&1".
-      *>   MODEL-FETCH
-          05 FILLER PIC X(70) VALUE "Downloading the semantic model: &1 - &2 of &3 KB".
-          05 FILLER PIC X(70) VALUE "Baixando o modelo semântico: &1 - &2 de &3 KB".
-          05 FILLER PIC X(70) VALUE "Descargando el modelo semántico: &1 - &2 de &3 KB".
-          05 FILLER PIC X(70) VALUE "Téléchargement du modèle sémantique : &1 - &2 sur &3 Ko".
-          05 FILLER PIC X(70) VALUE "意味モデルをダウンロード中: &1 - &2 / &3 KB".
-          05 FILLER PIC X(70) VALUE "正在下载语义模型：&1 - &2 / &3 KB".
-      *>   REINDEXING
-          05 FILLER PIC X(70) VALUE "Rebuilding the Knowledge Base with the semantic model...".
-          05 FILLER PIC X(70) VALUE "Reconstruindo a base de conhecimento com o modelo semântico...".
-          05 FILLER PIC X(70) VALUE "Reconstruyendo la base de conocimiento con el modelo semántico...".
-          05 FILLER PIC X(70) VALUE "Reconstruction de la base avec le modèle sémantique...".
-          05 FILLER PIC X(70) VALUE "意味モデルでナレッジベースを再構築中...".
-          05 FILLER PIC X(70) VALUE "正在用语义模型重建知识库...".
-      *>   WORDS-ONLY
-          05 FILLER PIC X(70) VALUE "Search is by words only: &1".
-          05 FILLER PIC X(70) VALUE "A busca é só por palavras: &1".
-          05 FILLER PIC X(70) VALUE "La búsqueda es solo por palabras: &1".
-          05 FILLER PIC X(70) VALUE "Recherche par mots seulement : &1".
-          05 FILLER PIC X(70) VALUE "語句のみで検索します: &1".
-          05 FILLER PIC X(70) VALUE "仅按词语搜索：&1".
-      *>   DRAG-DOCS-ONLY
-          05 FILLER PIC X(70) VALUE "Only documents move: drag a document onto a folder.".
-          05 FILLER PIC X(70) VALUE "Só documentos se movem: arraste um até uma pasta.".
-          05 FILLER PIC X(70) VALUE "Solo se mueven documentos: arrastra uno a una carpeta.".
-          05 FILLER PIC X(70) VALUE "Seuls les documents se déplacent : glissez-en un sur un dossier.".
-          05 FILLER PIC X(70) VALUE "移動できるのは文書だけです。".
-          05 FILLER PIC X(70) VALUE "只能移动文档，请拖到文件夹上。".
-      *>   PREVIEW
-          05 FILLER PIC X(70) VALUE "Preview".
-          05 FILLER PIC X(70) VALUE "Visualizar".
-          05 FILLER PIC X(70) VALUE "Vista previa".
-          05 FILLER PIC X(70) VALUE "Aperçu".
-          05 FILLER PIC X(70) VALUE "プレビュー".
-          05 FILLER PIC X(70) VALUE "预览".
-      *>   PICK-DOC-TO-PREVIEW
-          05 FILLER PIC X(70) VALUE "Pick a document in the tree to preview it.".
-          05 FILLER PIC X(70) VALUE "Escolha um documento na árvore para visualizá-lo.".
-          05 FILLER PIC X(70) VALUE "Elige un documento del árbol para verlo.".
-          05 FILLER PIC X(70) VALUE "Choisissez un document dans l'arbre pour l'afficher.".
-          05 FILLER PIC X(70) VALUE "プレビューする文書を選んでください。".
-          05 FILLER PIC X(70) VALUE "请在树中选择要预览的文档。".
-      *>   CLOSE
-          05 FILLER PIC X(70) VALUE "Close".
-          05 FILLER PIC X(70) VALUE "Fechar".
-          05 FILLER PIC X(70) VALUE "Cerrar".
-          05 FILLER PIC X(70) VALUE "Fermer".
-          05 FILLER PIC X(70) VALUE "閉じる".
-          05 FILLER PIC X(70) VALUE "关闭".
-      *>   CHUNK-BAR
-          05 FILLER PIC X(70) VALUE "Chunking: &1 of &2 documents".
-          05 FILLER PIC X(70) VALUE "Divisão em trechos: &1 de &2 documentos".
-          05 FILLER PIC X(70) VALUE "División en fragmentos: &1 de &2 documentos".
-          05 FILLER PIC X(70) VALUE "Découpage : &1 sur &2 documents".
-          05 FILLER PIC X(70) VALUE "断片化: &1 / &2 文書".
-          05 FILLER PIC X(70) VALUE "分块：&1 / &2 个文档".
-      *>   EMBED-BAR
-          05 FILLER PIC X(70) VALUE "Embeddings: &1 of &2 passages".
-          05 FILLER PIC X(70) VALUE "Embeddings: &1 de &2 trechos".
-          05 FILLER PIC X(70) VALUE "Embeddings: &1 de &2 fragmentos".
-          05 FILLER PIC X(70) VALUE "Embeddings : &1 sur &2 passages".
-          05 FILLER PIC X(70) VALUE "埋め込み: &1 / &2 断片".
-          05 FILLER PIC X(70) VALUE "嵌入：&1 / &2 个片段".
-      *>   KB-EMBEDDED
-          05 FILLER PIC X(70) VALUE "&1 passages embedded: semantic search.".
-          05 FILLER PIC X(70) VALUE "&1 trechos com embedding: busca semântica.".
-          05 FILLER PIC X(70) VALUE "&1 fragmentos con embedding: búsqueda semántica.".
-          05 FILLER PIC X(70) VALUE "&1 passages vectorisés : recherche sémantique.".
-          05 FILLER PIC X(70) VALUE "&1 件の断片を埋め込み済み（意味検索）。".
-          05 FILLER PIC X(70) VALUE "已嵌入 &1 个片段（语义搜索）。".
-      *>   KB-PASSAGES
-          05 FILLER PIC X(70) VALUE "&1 passages indexed.".
-          05 FILLER PIC X(70) VALUE "&1 trechos indexados.".
-          05 FILLER PIC X(70) VALUE "&1 fragmentos indexados.".
-          05 FILLER PIC X(70) VALUE "&1 passages indexés.".
-          05 FILLER PIC X(70) VALUE "&1 件の断片を索引化しました。".
-          05 FILLER PIC X(70) VALUE "已索引 &1 个片段。".
-      *>   REMOVING
-          05 FILLER PIC X(70) VALUE "Removing &1 from the Knowledge Base...".
-          05 FILLER PIC X(70) VALUE "Removendo &1 da base de conhecimento...".
-          05 FILLER PIC X(70) VALUE "Quitando &1 de la base de conocimiento...".
-          05 FILLER PIC X(70) VALUE "Retrait de &1 de la base de connaissances...".
-          05 FILLER PIC X(70) VALUE "&1 をナレッジベースから削除中...".
-          05 FILLER PIC X(70) VALUE "正在从知识库移除 &1...".
-      *>   DOC-REMOVED
-          05 FILLER PIC X(70) VALUE "Deleted: &1 - removed from the Knowledge Base.".
-          05 FILLER PIC X(70) VALUE "Excluído: &1 - removido da base de conhecimento.".
-          05 FILLER PIC X(70) VALUE "Eliminado: &1 - quitado de la base de conocimiento.".
-          05 FILLER PIC X(70) VALUE "Supprimé : &1 - retiré de la base de connaissances.".
-          05 FILLER PIC X(70) VALUE "削除しました: &1（ナレッジベースから除外）".
-          05 FILLER PIC X(70) VALUE "已删除：&1（已从知识库移除）".
-      *>   REPLACE-Q
-          05 FILLER PIC X(70) VALUE "&1 already exists in this folder. Replace it?".
-          05 FILLER PIC X(70) VALUE "&1 já existe nesta pasta. Substituir?".
-          05 FILLER PIC X(70) VALUE "&1 ya existe en esta carpeta. ¿Reemplazarlo?".
-          05 FILLER PIC X(70) VALUE "&1 existe déjà dans ce dossier. Le remplacer ?".
-          05 FILLER PIC X(70) VALUE "&1 は既にあります。置き換えますか？".
-          05 FILLER PIC X(70) VALUE "&1 已存在于此文件夹。要替换吗？".
-      *>   REPLACE-YES
-          05 FILLER PIC X(70) VALUE "Replace".
-          05 FILLER PIC X(70) VALUE "Substituir".
-          05 FILLER PIC X(70) VALUE "Reemplazar".
-          05 FILLER PIC X(70) VALUE "Remplacer".
-          05 FILLER PIC X(70) VALUE "置き換える".
-          05 FILLER PIC X(70) VALUE "替换".
-      *>   REPLACE-NO
-          05 FILLER PIC X(70) VALUE "Keep the old one".
-          05 FILLER PIC X(70) VALUE "Manter o antigo".
-          05 FILLER PIC X(70) VALUE "Conservar el anterior".
-          05 FILLER PIC X(70) VALUE "Garder l'ancien".
-          05 FILLER PIC X(70) VALUE "古いものを残す".
-          05 FILLER PIC X(70) VALUE "保留旧文件".
-      *>   UP-SENDING
-          05 FILLER PIC X(70) VALUE "Adding &1 to the Knowledge Base...".
-          05 FILLER PIC X(70) VALUE "Adicionando &1 à base de conhecimento...".
-          05 FILLER PIC X(70) VALUE "Añadiendo &1 a la base de conocimiento...".
-          05 FILLER PIC X(70) VALUE "Ajout de &1 à la base de connaissances...".
-          05 FILLER PIC X(70) VALUE "&1 をナレッジベースに追加中...".
-          05 FILLER PIC X(70) VALUE "正在将 &1 加入知识库...".
-      *>   UP-ADDED
-          05 FILLER PIC X(70) VALUE "Added: &1.".
-          05 FILLER PIC X(70) VALUE "Adicionado: &1.".
-          05 FILLER PIC X(70) VALUE "Añadido: &1.".
-          05 FILLER PIC X(70) VALUE "Ajouté : &1.".
-          05 FILLER PIC X(70) VALUE "追加しました: &1".
-          05 FILLER PIC X(70) VALUE "已添加：&1。".
-      *>   UP-UPDATED
-          05 FILLER PIC X(70) VALUE "Updated: &1.".
-          05 FILLER PIC X(70) VALUE "Atualizado: &1.".
-          05 FILLER PIC X(70) VALUE "Actualizado: &1.".
-          05 FILLER PIC X(70) VALUE "Mis à jour : &1.".
-          05 FILLER PIC X(70) VALUE "更新しました: &1".
-          05 FILLER PIC X(70) VALUE "已更新：&1。".
-      *>   UP-KEPT
-          05 FILLER PIC X(70) VALUE "Not replaced: &1.".
-          05 FILLER PIC X(70) VALUE "Não substituído: &1.".
-          05 FILLER PIC X(70) VALUE "No reemplazado: &1.".
-          05 FILLER PIC X(70) VALUE "Non remplacé : &1.".
-          05 FILLER PIC X(70) VALUE "置き換えませんでした: &1".
-          05 FILLER PIC X(70) VALUE "未替换：&1。".
-      *>   UP-SUMMARY
-          05 FILLER PIC X(70) VALUE "&1 added, &2 updated, &3 not replaced.".
-          05 FILLER PIC X(70) VALUE "&1 adicionado(s), &2 atualizado(s), &3 não substituído(s).".
-          05 FILLER PIC X(70) VALUE "&1 añadido(s), &2 actualizado(s), &3 no reemplazado(s).".
-          05 FILLER PIC X(70) VALUE "&1 ajouté(s), &2 mis à jour, &3 non remplacé(s).".
-          05 FILLER PIC X(70) VALUE "追加 &1、更新 &2、置き換えなし &3。".
-          05 FILLER PIC X(70) VALUE "新增 &1，更新 &2，未替换 &3。".
-       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 54.
-             10 PC-TEXT      PIC X(70) OCCURS 6.
-      *>   The texts in the current language, by name.
-       01 PC-TEXTS-NOW       GLOBAL.
-          05 T-OPEN-TOPIC-FIRST PIC X(70).
-          05 T-DOCS-OF PIC X(70).
-          05 T-PICK-DOC-FIRST PIC X(70).
-          05 T-KB-PROGRESS PIC X(70).
-          05 T-KB-COUNTS PIC X(70).
-          05 T-KB-SKIPPED PIC X(70).
-          05 T-DOC-COUNT PIC X(70).
-          05 T-DOCS-TITLE PIC X(70).
-          05 T-DROP-HINT PIC X(70).
-          05 T-DELETE PIC X(70).
-          05 T-REFRESH PIC X(70).
-          05 T-KB-UPDATING PIC X(70).
-          05 T-NEW-FOLDER PIC X(70).
-          05 T-FOLDER-HINT PIC X(70).
-          05 T-FOLDER-CREATED PIC X(70).
-          05 T-FOLDER-EXISTS PIC X(70).
-          05 T-FOLDER-NAME-BAD PIC X(70).
-          05 T-FOLDER-NOT-EMPTY PIC X(70).
-          05 T-FOLDER-DELETED PIC X(70).
-          05 T-DROP-INTO PIC X(70).
-          05 T-TOP-LEVEL PIC X(70).
-          05 T-STATUS PIC X(70).
-          05 T-MOVE PIC X(70).
-          05 T-MOVE-HERE PIC X(70).
-          05 T-MOVE-TOP PIC X(70).
-          05 T-PICK-DOC-TO-MOVE PIC X(70).
-          05 T-MOVE-PICK PIC X(70).
-          05 T-MOVE-INTO PIC X(70).
-          05 T-MOVE-SAME PIC X(70).
-          05 T-MOVE-EXISTS PIC X(70).
-          05 T-MOVED PIC X(70).
-          05 T-ACCEPTED-TYPES PIC X(70).
-          05 T-REJECTED-TYPE PIC X(70).
-          05 T-MODEL-FETCH PIC X(70).
-          05 T-REINDEXING PIC X(70).
-          05 T-WORDS-ONLY PIC X(70).
-          05 T-DRAG-DOCS-ONLY PIC X(70).
-          05 T-PREVIEW PIC X(70).
-          05 T-PICK-DOC-TO-PREVIEW PIC X(70).
-          05 T-CLOSE PIC X(70).
-          05 T-CHUNK-BAR PIC X(70).
-          05 T-EMBED-BAR PIC X(70).
-          05 T-KB-EMBEDDED PIC X(70).
-          05 T-KB-PASSAGES PIC X(70).
-          05 T-REMOVING PIC X(70).
-          05 T-DOC-REMOVED PIC X(70).
-          05 T-REPLACE-Q PIC X(70).
-          05 T-REPLACE-YES PIC X(70).
-          05 T-REPLACE-NO PIC X(70).
-          05 T-UP-SENDING PIC X(70).
-          05 T-UP-ADDED PIC X(70).
-          05 T-UP-UPDATED PIC X(70).
-          05 T-UP-KEPT PIC X(70).
-          05 T-UP-SUMMARY PIC X(70).
-       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 54.
-      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
-       01 WS-FMT             GLOBAL PIC X(70).
-       01 WS-ARG1            GLOBAL PIC X(300).
-       01 WS-ARG2            GLOBAL PIC X(300).
-       01 WS-ARG3            GLOBAL PIC X(300).
-       01 WS-ARG4            GLOBAL PIC X(300).
-       01 WS-FMT-OUT         GLOBAL PIC X(1200).
-       01 WS-FOLDERS-PATH    GLOBAL PIC X(240).
-       01 WS-DOCS-DIR        GLOBAL PIC X(400).
-      *>   The documents tree (R49): one row per node, in the order the nodes
-      *>   are added, so a node event's CONTROL-NODE-INDEX names its row.
-       01 WS-TREE            GLOBAL.
-          05 WS-NODE-N       PIC 9(4) VALUE 0.
-          05 WS-NODE         OCCURS 1000.
-             10 WS-NODE-KIND PIC X.
-             10 WS-NODE-PATH PIC X(260).
-             10 WS-NODE-KEY  PIC X(260).
-       01 WS-NODE-TMP        GLOBAL.
-          05 TMP-KIND        PIC X.
-          05 TMP-PATH        PIC X(260).
-          05 TMP-KEY         PIC X(260).
-       01 WS-KEY-TMP         GLOBAL PIC X(260).
-       01 WS-ONE-KIND        GLOBAL PIC X.
-       01 WS-ONE-PATH        GLOBAL PIC X(260).
-      *>   The selection, by path: node numbers change on every rebuild.
-       01 WS-SEL-KIND        GLOBAL PIC X VALUE SPACE.
-       01 WS-SEL-PATH        GLOBAL PIC X(260) VALUE SPACES.
-       01 WS-SEL-IX          GLOBAL PIC 9(4) VALUE 0.
-       01 WS-FOLDER          GLOBAL PIC X(260) VALUE SPACES.
-       01 WS-NAME            GLOBAL PIC X(260).
-       01 WS-GONE            GLOBAL PIC X(260).
-       01 WS-ICON            GLOBAL PIC X(10).
-       01 WS-J               GLOBAL PIC 9(4).
-       01 WS-K               GLOBAL PIC 9(4).
-       01 WS-K1              GLOBAL PIC 9(4).
-       01 WS-L               GLOBAL PIC 9(4).
-       01 WS-P               GLOBAL PIC 9(4).
-       01 WS-DEPTH           GLOBAL PIC 9(4).
-       01 WS-FOUND           GLOBAL PIC X.
-      *>   A document being moved: picked with Move, placed with Move here.
-      *>   The copy goes first; the original is deleted only once the copy
-      *>   is indexed (WS-MOVE-STEP "I", then "D"), so a failure never loses it.
-       01 WS-MOVE-SRC        GLOBAL PIC X(260) VALUE SPACES.
-       01 WS-MOVE-DEST       GLOBAL PIC X(260) VALUE SPACES.
-       01 WS-MOVE-TO         GLOBAL PIC X(260) VALUE SPACES.
-       01 WS-MOVE-STEP       GLOBAL PIC X VALUE SPACE.
-      *>   What the Knowledge Base can read, and so all the zone accepts: the
-      *>   zone's filter AND the list the form shows. One list, both uses.
-       01 WS-DOC-TYPES       GLOBAL PIC X(300) VALUE
+  <working-storage><![CDATA[       01 WS-FS                                  GLOBAL    PIC XX    VALUE "00".
+       01 WS-DATA-DIR                            GLOBAL    PIC X(200).
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-NOW                                 GLOBAL    PIC X(21).
+       01 WS-EOF                                 GLOBAL    PIC X.
+       01 WS-OK                                  GLOBAL    PIC X(4).
+       01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
+       01 WS-TOPICS-PATH                         GLOBAL    PIC X(240).
+       01 WS-CUR-TOPIC                           GLOBAL    PIC X(16).
+       01 WS-KB-LOCATION                         GLOBAL    PIC X(200).
+       01 WS-DOC-COUNT                           GLOBAL    PIC 9(5)    VALUE 0.
+       01 WS-I                                   GLOBAL    PIC 9(5).
+       01 WS-INDEX                               GLOBAL    PIC S9(5).
+       01 WS-DOC                                 GLOBAL    PIC X(260).
+       01 WS-LINE                                GLOBAL    PIC X(400).
+       01 WS-N1                                  GLOBAL    PIC Z(4)9.
+       01 WS-N2                                  GLOBAL    PIC Z(4)9.
+       01 WS-N3                                  GLOBAL    PIC Z(4)9.
+       01 WS-N4                                  GLOBAL    PIC Z(4)9.
+       01 WS-SKIPPED                             GLOBAL    PIC X(400).
+       *>   The interface texts (spec 071 R44): one row per text, one column
+       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+       *>   only the values are translated.
+
+       01 WS-LANG                                GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-NOW                            GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 1.
+       01 WS-TX-I                                GLOBAL    PIC 9(4).
+       01 PC-TEXT-DATA                           GLOBAL.
+           *>   OPEN-TOPIC-FIRST
+
+           05 FILLER                             PIC    X(70)    VALUE "Open a topic first.".
+           05 FILLER                             PIC    X(70)    VALUE "Abra um tópico primeiro.".
+           05 FILLER                             PIC    X(70)    VALUE "Primero abre un tema.".
+           05 FILLER                             PIC    X(70)    VALUE "Ouvrez d'abord un sujet.".
+           05 FILLER                             PIC    X(70)    VALUE "先にトピックを開いてください。".
+           05 FILLER                             PIC    X(70)    VALUE "请先打开一个主题。".
+           *>   DOCS-OF
+
+           05 FILLER                             PIC    X(70)    VALUE "Documents - &1".
+           05 FILLER                             PIC    X(70)    VALUE "Documentos - &1".
+           05 FILLER                             PIC    X(70)    VALUE "Documentos - &1".
+           05 FILLER                             PIC    X(70)    VALUE "Documents - &1".
+           05 FILLER                             PIC    X(70)    VALUE "文書 - &1".
+           05 FILLER                             PIC    X(70)    VALUE "文档 - &1".
+           *>   PICK-DOC-FIRST
+
+           05 FILLER                             PIC    X(70)    VALUE "Pick a document or a folder in the tree first.".
+           05 FILLER                             PIC    X(70)    VALUE "Escolha um documento ou uma pasta na árvore primeiro.".
+           05 FILLER                             PIC    X(70)    VALUE "Primero elige un documento o una carpeta del árbol.".
+           05 FILLER                             PIC    X(70)    VALUE "Choisissez d'abord un document ou un dossier.".
+           05 FILLER                             PIC    X(70)    VALUE "先に文書かフォルダーを選んでください。".
+           05 FILLER                             PIC    X(70)    VALUE "请先在树中选择文档或文件夹。".
+           *>   KB-PROGRESS
+
+           05 FILLER                             PIC    X(70)    VALUE "Updating the Knowledge Base: &1 of &2 - &3".
+           05 FILLER                             PIC    X(70)    VALUE "Atualizando a base de conhecimento: &1 de &2 - &3".
+           05 FILLER                             PIC    X(70)    VALUE "Actualizando la base de conocimiento: &1 de &2 - &3".
+           05 FILLER                             PIC    X(70)    VALUE "Mise à jour de la base de connaissances : &1 sur &2 - &3".
+           05 FILLER                             PIC    X(70)    VALUE "ナレッジベースを更新中：&1 / &2 - &3".
+           05 FILLER                             PIC    X(70)    VALUE "正在更新知识库：第 &1 个，共 &2 个 - &3".
+           *>   KB-COUNTS
+
+           05 FILLER                             PIC    X(70)    VALUE "Added &1, updated &2, removed &3, skipped &4.".
+           05 FILLER                             PIC    X(70)    VALUE "Adicionados &1, atualizados &2, removidos &3, ignorados &4.".
+           05 FILLER                             PIC    X(70)    VALUE "Añadidos &1, actualizados &2, quitados &3, omitidos &4.".
+           05 FILLER                             PIC    X(70)    VALUE "Ajoutés &1, mis à jour &2, retirés &3, ignorés &4.".
+           05 FILLER                             PIC    X(70)    VALUE "追加 &1、更新 &2、削除 &3、スキップ &4。".
+           05 FILLER                             PIC    X(70)    VALUE "新增 &1，更新 &2，移除 &3，跳过 &4。".
+           *>   KB-SKIPPED
+
+           05 FILLER                             PIC    X(70)    VALUE "Skipped: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Ignorados: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Omitidos: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Ignorés : &1".
+           05 FILLER                             PIC    X(70)    VALUE "スキップ：&1".
+           05 FILLER                             PIC    X(70)    VALUE "已跳过：&1".
+           *>   DOC-COUNT
+
+           05 FILLER                             PIC    X(70)    VALUE "&1 document(s).".
+           05 FILLER                             PIC    X(70)    VALUE "&1 documento(s).".
+           05 FILLER                             PIC    X(70)    VALUE "&1 documento(s).".
+           05 FILLER                             PIC    X(70)    VALUE "&1 document(s).".
+           05 FILLER                             PIC    X(70)    VALUE "文書 &1 件。".
+           05 FILLER                             PIC    X(70)    VALUE "共 &1 个文档。".
+           *>   DOCS-TITLE
+
+           05 FILLER                             PIC    X(70)    VALUE "Documents".
+           05 FILLER                             PIC    X(70)    VALUE "Documentos".
+           05 FILLER                             PIC    X(70)    VALUE "Documentos".
+           05 FILLER                             PIC    X(70)    VALUE "Documents".
+           05 FILLER                             PIC    X(70)    VALUE "文書".
+           05 FILLER                             PIC    X(70)    VALUE "文档".
+           *>   DROP-HINT
+
+           05 FILLER                             PIC    X(70)    VALUE "Drop documents here, or click to choose".
+           05 FILLER                             PIC    X(70)    VALUE "Solte documentos aqui ou clique para escolher".
+           05 FILLER                             PIC    X(70)    VALUE "Suelta documentos aquí o haz clic para elegir".
+           05 FILLER                             PIC    X(70)    VALUE "Déposez des documents ici, ou cliquez pour choisir".
+           05 FILLER                             PIC    X(70)    VALUE "ここに文書をドロップするか、クリックして選択".
+           05 FILLER                             PIC    X(70)    VALUE "将文档拖放到此处，或点击选择".
+           *>   DELETE
+
+           05 FILLER                             PIC    X(70)    VALUE "Delete".
+           05 FILLER                             PIC    X(70)    VALUE "Excluir".
+           05 FILLER                             PIC    X(70)    VALUE "Eliminar".
+           05 FILLER                             PIC    X(70)    VALUE "Supprimer".
+           05 FILLER                             PIC    X(70)    VALUE "削除".
+           05 FILLER                             PIC    X(70)    VALUE "删除".
+           *>   REFRESH
+
+           05 FILLER                             PIC    X(70)    VALUE "Refresh".
+           05 FILLER                             PIC    X(70)    VALUE "Atualizar".
+           05 FILLER                             PIC    X(70)    VALUE "Actualizar".
+           05 FILLER                             PIC    X(70)    VALUE "Actualiser".
+           05 FILLER                             PIC    X(70)    VALUE "更新".
+           05 FILLER                             PIC    X(70)    VALUE "刷新".
+           *>   KB-UPDATING
+
+           05 FILLER                             PIC    X(70)    VALUE "Updating the Knowledge Base...".
+           05 FILLER                             PIC    X(70)    VALUE "Atualizando a base de conhecimento...".
+           05 FILLER                             PIC    X(70)    VALUE "Actualizando la base de conocimiento...".
+           05 FILLER                             PIC    X(70)    VALUE "Mise à jour de la base de connaissances...".
+           05 FILLER                             PIC    X(70)    VALUE "ナレッジベースを更新中...".
+           05 FILLER                             PIC    X(70)    VALUE "正在更新知识库...".
+           *>   NEW-FOLDER
+
+           05 FILLER                             PIC    X(70)    VALUE "New folder".
+           05 FILLER                             PIC    X(70)    VALUE "Nova pasta".
+           05 FILLER                             PIC    X(70)    VALUE "Nueva carpeta".
+           05 FILLER                             PIC    X(70)    VALUE "Nouveau dossier".
+           05 FILLER                             PIC    X(70)    VALUE "新しいフォルダー".
+           05 FILLER                             PIC    X(70)    VALUE "新建文件夹".
+           *>   FOLDER-HINT
+
+           05 FILLER                             PIC    X(70)    VALUE "Folder name".
+           05 FILLER                             PIC    X(70)    VALUE "Nome da pasta".
+           05 FILLER                             PIC    X(70)    VALUE "Nombre de la carpeta".
+           05 FILLER                             PIC    X(70)    VALUE "Nom du dossier".
+           05 FILLER                             PIC    X(70)    VALUE "フォルダー名".
+           05 FILLER                             PIC    X(70)    VALUE "文件夹名称".
+           *>   FOLDER-CREATED
+
+           05 FILLER                             PIC    X(70)    VALUE "Folder created: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Pasta criada: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Carpeta creada: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Dossier créé : &1.".
+           05 FILLER                             PIC    X(70)    VALUE "フォルダーを作成しました: &1".
+           05 FILLER                             PIC    X(70)    VALUE "已创建文件夹：&1".
+           *>   FOLDER-EXISTS
+
+           05 FILLER                             PIC    X(70)    VALUE "That folder already exists.".
+           05 FILLER                             PIC    X(70)    VALUE "Essa pasta já existe.".
+           05 FILLER                             PIC    X(70)    VALUE "Esa carpeta ya existe.".
+           05 FILLER                             PIC    X(70)    VALUE "Ce dossier existe déjà.".
+           05 FILLER                             PIC    X(70)    VALUE "そのフォルダーは既にあります。".
+           05 FILLER                             PIC    X(70)    VALUE "该文件夹已存在。".
+           *>   FOLDER-NAME-BAD
+
+           05 FILLER                             PIC    X(70)    VALUE "Type a folder name, without / or \.".
+           05 FILLER                             PIC    X(70)    VALUE "Digite um nome de pasta, sem / nem \.".
+           05 FILLER                             PIC    X(70)    VALUE "Escribe un nombre de carpeta, sin / ni \.".
+           05 FILLER                             PIC    X(70)    VALUE "Saisissez un nom de dossier, sans / ni \.".
+           05 FILLER                             PIC    X(70)    VALUE "フォルダー名を入力（/ と \ は不可）。".
+           05 FILLER                             PIC    X(70)    VALUE "请输入文件夹名称（不含 / 或 \）。".
+           *>   FOLDER-NOT-EMPTY
+
+           05 FILLER                             PIC    X(70)    VALUE "The folder is not empty: delete its documents first.".
+           05 FILLER                             PIC    X(70)    VALUE "A pasta não está vazia: exclua os documentos dela primeiro.".
+           05 FILLER                             PIC    X(70)    VALUE "La carpeta no está vacía: borra primero sus documentos.".
+           05 FILLER                             PIC    X(70)    VALUE "Le dossier n'est pas vide : supprimez d'abord ses documents.".
+           05 FILLER                             PIC    X(70)    VALUE "空でないフォルダーは削除できません。".
+           05 FILLER                             PIC    X(70)    VALUE "文件夹不为空，请先删除其中的文档。".
+           *>   FOLDER-DELETED
+
+           05 FILLER                             PIC    X(70)    VALUE "Folder deleted: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Pasta excluída: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Carpeta eliminada: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Dossier supprimé : &1.".
+           05 FILLER                             PIC    X(70)    VALUE "フォルダーを削除しました: &1".
+           05 FILLER                             PIC    X(70)    VALUE "已删除文件夹：&1".
+           *>   DROP-INTO
+
+           05 FILLER                             PIC    X(70)    VALUE "New documents go into &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Novos documentos vão para &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Los documentos nuevos van a &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Les nouveaux documents vont dans &1.".
+           05 FILLER                             PIC    X(70)    VALUE "新しい文書の保存先: &1".
+           05 FILLER                             PIC    X(70)    VALUE "新文档将放入 &1。".
+           *>   TOP-LEVEL
+
+           05 FILLER                             PIC    X(70)    VALUE "the top level".
+           05 FILLER                             PIC    X(70)    VALUE "o nível principal".
+           05 FILLER                             PIC    X(70)    VALUE "el nivel superior".
+           05 FILLER                             PIC    X(70)    VALUE "le niveau supérieur".
+           05 FILLER                             PIC    X(70)    VALUE "最上位".
+           05 FILLER                             PIC    X(70)    VALUE "顶层".
+           *>   STATUS
+
+           05 FILLER                             PIC    X(70)    VALUE "Status".
+           05 FILLER                             PIC    X(70)    VALUE "Status".
+           05 FILLER                             PIC    X(70)    VALUE "Estado".
+           05 FILLER                             PIC    X(70)    VALUE "État".
+           05 FILLER                             PIC    X(70)    VALUE "ステータス".
+           05 FILLER                             PIC    X(70)    VALUE "状态".
+           *>   MOVE
+
+           05 FILLER                             PIC    X(70)    VALUE "Move".
+           05 FILLER                             PIC    X(70)    VALUE "Mover".
+           05 FILLER                             PIC    X(70)    VALUE "Mover".
+           05 FILLER                             PIC    X(70)    VALUE "Déplacer".
+           05 FILLER                             PIC    X(70)    VALUE "移動".
+           05 FILLER                             PIC    X(70)    VALUE "移动".
+           *>   MOVE-HERE
+
+           05 FILLER                             PIC    X(70)    VALUE "Move here".
+           05 FILLER                             PIC    X(70)    VALUE "Mover para cá".
+           05 FILLER                             PIC    X(70)    VALUE "Mover aquí".
+           05 FILLER                             PIC    X(70)    VALUE "Déplacer ici".
+           05 FILLER                             PIC    X(70)    VALUE "ここへ移動".
+           05 FILLER                             PIC    X(70)    VALUE "移到此处".
+           *>   MOVE-TOP
+
+           05 FILLER                             PIC    X(70)    VALUE "To the top level".
+           05 FILLER                             PIC    X(70)    VALUE "Para o nível principal".
+           05 FILLER                             PIC    X(70)    VALUE "Al nivel superior".
+           05 FILLER                             PIC    X(70)    VALUE "Au niveau supérieur".
+           05 FILLER                             PIC    X(70)    VALUE "最上位へ".
+           05 FILLER                             PIC    X(70)    VALUE "移到顶层".
+           *>   PICK-DOC-TO-MOVE
+
+           05 FILLER                             PIC    X(70)    VALUE "Pick the document to move in the tree first.".
+           05 FILLER                             PIC    X(70)    VALUE "Escolha primeiro na árvore o documento a mover.".
+           05 FILLER                             PIC    X(70)    VALUE "Primero elige en el árbol el documento a mover.".
+           05 FILLER                             PIC    X(70)    VALUE "Choisissez d'abord le document à déplacer.".
+           05 FILLER                             PIC    X(70)    VALUE "先に移動する文書を選んでください。".
+           05 FILLER                             PIC    X(70)    VALUE "请先在树中选择要移动的文档。".
+           *>   MOVE-PICK
+
+           05 FILLER                             PIC    X(70)    VALUE "Moving &1: pick a folder, then press Move here.".
+           05 FILLER                             PIC    X(70)    VALUE "Movendo &1: escolha uma pasta e clique em Mover para cá.".
+           05 FILLER                             PIC    X(70)    VALUE "Moviendo &1: elige una carpeta y pulsa Mover aquí.".
+           05 FILLER                             PIC    X(70)    VALUE "Déplacement de &1 : choisissez un dossier, puis Déplacer ici.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 の移動先フォルダーを選んでください。".
+           05 FILLER                             PIC    X(70)    VALUE "移动 &1：请选择目标文件夹。".
+           *>   MOVE-INTO
+
+           05 FILLER                             PIC    X(70)    VALUE "Move here puts &1 into &2.".
+           05 FILLER                             PIC    X(70)    VALUE "Mover para cá coloca &1 em &2.".
+           05 FILLER                             PIC    X(70)    VALUE "Mover aquí lleva &1 a &2.".
+           05 FILLER                             PIC    X(70)    VALUE "Déplacer ici met &1 dans &2.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 を &2 へ移動します。".
+           05 FILLER                             PIC    X(70)    VALUE "将把 &1 移到 &2。".
+           *>   MOVE-SAME
+
+           05 FILLER                             PIC    X(70)    VALUE "The document is already in that folder.".
+           05 FILLER                             PIC    X(70)    VALUE "O documento já está nessa pasta.".
+           05 FILLER                             PIC    X(70)    VALUE "El documento ya está en esa carpeta.".
+           05 FILLER                             PIC    X(70)    VALUE "Le document est déjà dans ce dossier.".
+           05 FILLER                             PIC    X(70)    VALUE "文書は既にそのフォルダーにあります。".
+           05 FILLER                             PIC    X(70)    VALUE "文档已在该文件夹中。".
+           *>   MOVE-EXISTS
+
+           05 FILLER                             PIC    X(70)    VALUE "A document of that name is already there: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Já existe um documento com esse nome lá: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Ya hay un documento con ese nombre allí: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Un document de ce nom s'y trouve déjà : &1.".
+           05 FILLER                             PIC    X(70)    VALUE "同名の文書が既にあります: &1".
+           05 FILLER                             PIC    X(70)    VALUE "该处已有同名文档：&1".
+           *>   MOVED
+
+           05 FILLER                             PIC    X(70)    VALUE "Moved &1 to &2.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 movido para &2.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 movido a &2.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 déplacé vers &2.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 を &2 へ移動しました。".
+           05 FILLER                             PIC    X(70)    VALUE "已将 &1 移到 &2。".
+           *>   ACCEPTED-TYPES
+
+           05 FILLER                             PIC    X(70)    VALUE "Accepted types: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Tipos aceitos: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Tipos aceptados: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Types acceptés : &1".
+           05 FILLER                             PIC    X(70)    VALUE "対応する形式: &1".
+           05 FILLER                             PIC    X(70)    VALUE "支持的类型：&1".
+           *>   REJECTED-TYPE
+
+           05 FILLER                             PIC    X(70)    VALUE "Not added - this type of file cannot be read: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Não adicionado - este tipo de arquivo não pode ser lido: &1".
+           05 FILLER                             PIC    X(70)    VALUE "No añadido: este tipo de archivo no se puede leer: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Non ajouté : ce type de fichier ne peut pas être lu : &1".
+           05 FILLER                             PIC    X(70)    VALUE "追加しません（読めない形式）: &1".
+           05 FILLER                             PIC    X(70)    VALUE "未添加：无法读取此类文件：&1".
+           *>   MODEL-FETCH
+
+           05 FILLER                             PIC    X(70)    VALUE "Downloading the semantic model: &1 - &2 of &3 KB".
+           05 FILLER                             PIC    X(70)    VALUE "Baixando o modelo semântico: &1 - &2 de &3 KB".
+           05 FILLER                             PIC    X(70)    VALUE "Descargando el modelo semántico: &1 - &2 de &3 KB".
+           05 FILLER                             PIC    X(70)    VALUE "Téléchargement du modèle sémantique : &1 - &2 sur &3 Ko".
+           05 FILLER                             PIC    X(70)    VALUE "意味モデルをダウンロード中: &1 - &2 / &3 KB".
+           05 FILLER                             PIC    X(70)    VALUE "正在下载语义模型：&1 - &2 / &3 KB".
+           *>   REINDEXING
+
+           05 FILLER                             PIC    X(70)    VALUE "Rebuilding the Knowledge Base with the semantic model...".
+           05 FILLER                             PIC    X(70)    VALUE "Reconstruindo a base de conhecimento com o modelo semântico...".
+           05 FILLER                             PIC    X(70)    VALUE "Reconstruyendo la base de conocimiento con el modelo semántico...".
+           05 FILLER                             PIC    X(70)    VALUE "Reconstruction de la base avec le modèle sémantique...".
+           05 FILLER                             PIC    X(70)    VALUE "意味モデルでナレッジベースを再構築中...".
+           05 FILLER                             PIC    X(70)    VALUE "正在用语义模型重建知识库...".
+           *>   WORDS-ONLY
+
+           05 FILLER                             PIC    X(70)    VALUE "Search is by words only: &1".
+           05 FILLER                             PIC    X(70)    VALUE "A busca é só por palavras: &1".
+           05 FILLER                             PIC    X(70)    VALUE "La búsqueda es solo por palabras: &1".
+           05 FILLER                             PIC    X(70)    VALUE "Recherche par mots seulement : &1".
+           05 FILLER                             PIC    X(70)    VALUE "語句のみで検索します: &1".
+           05 FILLER                             PIC    X(70)    VALUE "仅按词语搜索：&1".
+           *>   DRAG-DOCS-ONLY
+
+           05 FILLER                             PIC    X(70)    VALUE "Only documents move: drag a document onto a folder.".
+           05 FILLER                             PIC    X(70)    VALUE "Só documentos se movem: arraste um até uma pasta.".
+           05 FILLER                             PIC    X(70)    VALUE "Solo se mueven documentos: arrastra uno a una carpeta.".
+           05 FILLER                             PIC    X(70)    VALUE "Seuls les documents se déplacent : glissez-en un sur un dossier.".
+           05 FILLER                             PIC    X(70)    VALUE "移動できるのは文書だけです。".
+           05 FILLER                             PIC    X(70)    VALUE "只能移动文档，请拖到文件夹上。".
+           *>   PREVIEW
+
+           05 FILLER                             PIC    X(70)    VALUE "Preview".
+           05 FILLER                             PIC    X(70)    VALUE "Visualizar".
+           05 FILLER                             PIC    X(70)    VALUE "Vista previa".
+           05 FILLER                             PIC    X(70)    VALUE "Aperçu".
+           05 FILLER                             PIC    X(70)    VALUE "プレビュー".
+           05 FILLER                             PIC    X(70)    VALUE "预览".
+           *>   PICK-DOC-TO-PREVIEW
+
+           05 FILLER                             PIC    X(70)    VALUE "Pick a document in the tree to preview it.".
+           05 FILLER                             PIC    X(70)    VALUE "Escolha um documento na árvore para visualizá-lo.".
+           05 FILLER                             PIC    X(70)    VALUE "Elige un documento del árbol para verlo.".
+           05 FILLER                             PIC    X(70)    VALUE "Choisissez un document dans l'arbre pour l'afficher.".
+           05 FILLER                             PIC    X(70)    VALUE "プレビューする文書を選んでください。".
+           05 FILLER                             PIC    X(70)    VALUE "请在树中选择要预览的文档。".
+           *>   CLOSE
+
+           05 FILLER                             PIC    X(70)    VALUE "Close".
+           05 FILLER                             PIC    X(70)    VALUE "Fechar".
+           05 FILLER                             PIC    X(70)    VALUE "Cerrar".
+           05 FILLER                             PIC    X(70)    VALUE "Fermer".
+           05 FILLER                             PIC    X(70)    VALUE "閉じる".
+           05 FILLER                             PIC    X(70)    VALUE "关闭".
+           *>   CHUNK-BAR
+
+           05 FILLER                             PIC    X(70)    VALUE "Chunking: &1 of &2 documents".
+           05 FILLER                             PIC    X(70)    VALUE "Divisão em trechos: &1 de &2 documentos".
+           05 FILLER                             PIC    X(70)    VALUE "División en fragmentos: &1 de &2 documentos".
+           05 FILLER                             PIC    X(70)    VALUE "Découpage : &1 sur &2 documents".
+           05 FILLER                             PIC    X(70)    VALUE "断片化: &1 / &2 文書".
+           05 FILLER                             PIC    X(70)    VALUE "分块：&1 / &2 个文档".
+           *>   EMBED-BAR
+
+           05 FILLER                             PIC    X(70)    VALUE "Embeddings: &1 of &2 passages".
+           05 FILLER                             PIC    X(70)    VALUE "Embeddings: &1 de &2 trechos".
+           05 FILLER                             PIC    X(70)    VALUE "Embeddings: &1 de &2 fragmentos".
+           05 FILLER                             PIC    X(70)    VALUE "Embeddings : &1 sur &2 passages".
+           05 FILLER                             PIC    X(70)    VALUE "埋め込み: &1 / &2 断片".
+           05 FILLER                             PIC    X(70)    VALUE "嵌入：&1 / &2 个片段".
+           *>   KB-EMBEDDED
+
+           05 FILLER                             PIC    X(70)    VALUE "&1 passages embedded: semantic search.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 trechos com embedding: busca semântica.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 fragmentos con embedding: búsqueda semántica.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 passages vectorisés : recherche sémantique.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 件の断片を埋め込み済み（意味検索）。".
+           05 FILLER                             PIC    X(70)    VALUE "已嵌入 &1 个片段（语义搜索）。".
+           *>   KB-PASSAGES
+
+           05 FILLER                             PIC    X(70)    VALUE "&1 passages indexed.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 trechos indexados.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 fragmentos indexados.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 passages indexés.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 件の断片を索引化しました。".
+           05 FILLER                             PIC    X(70)    VALUE "已索引 &1 个片段。".
+           *>   REMOVING
+
+           05 FILLER                             PIC    X(70)    VALUE "Removing &1 from the Knowledge Base...".
+           05 FILLER                             PIC    X(70)    VALUE "Removendo &1 da base de conhecimento...".
+           05 FILLER                             PIC    X(70)    VALUE "Quitando &1 de la base de conocimiento...".
+           05 FILLER                             PIC    X(70)    VALUE "Retrait de &1 de la base de connaissances...".
+           05 FILLER                             PIC    X(70)    VALUE "&1 をナレッジベースから削除中...".
+           05 FILLER                             PIC    X(70)    VALUE "正在从知识库移除 &1...".
+           *>   DOC-REMOVED
+
+           05 FILLER                             PIC    X(70)    VALUE "Deleted: &1 - removed from the Knowledge Base.".
+           05 FILLER                             PIC    X(70)    VALUE "Excluído: &1 - removido da base de conhecimento.".
+           05 FILLER                             PIC    X(70)    VALUE "Eliminado: &1 - quitado de la base de conocimiento.".
+           05 FILLER                             PIC    X(70)    VALUE "Supprimé : &1 - retiré de la base de connaissances.".
+           05 FILLER                             PIC    X(70)    VALUE "削除しました: &1（ナレッジベースから除外）".
+           05 FILLER                             PIC    X(70)    VALUE "已删除：&1（已从知识库移除）".
+           *>   REPLACE-Q
+
+           05 FILLER                             PIC    X(70)    VALUE "&1 already exists in this folder. Replace it?".
+           05 FILLER                             PIC    X(70)    VALUE "&1 já existe nesta pasta. Substituir?".
+           05 FILLER                             PIC    X(70)    VALUE "&1 ya existe en esta carpeta. ¿Reemplazarlo?".
+           05 FILLER                             PIC    X(70)    VALUE "&1 existe déjà dans ce dossier. Le remplacer ?".
+           05 FILLER                             PIC    X(70)    VALUE "&1 は既にあります。置き換えますか？".
+           05 FILLER                             PIC    X(70)    VALUE "&1 已存在于此文件夹。要替换吗？".
+           *>   REPLACE-YES
+
+           05 FILLER                             PIC    X(70)    VALUE "Replace".
+           05 FILLER                             PIC    X(70)    VALUE "Substituir".
+           05 FILLER                             PIC    X(70)    VALUE "Reemplazar".
+           05 FILLER                             PIC    X(70)    VALUE "Remplacer".
+           05 FILLER                             PIC    X(70)    VALUE "置き換える".
+           05 FILLER                             PIC    X(70)    VALUE "替换".
+           *>   REPLACE-NO
+
+           05 FILLER                             PIC    X(70)    VALUE "Keep the old one".
+           05 FILLER                             PIC    X(70)    VALUE "Manter o antigo".
+           05 FILLER                             PIC    X(70)    VALUE "Conservar el anterior".
+           05 FILLER                             PIC    X(70)    VALUE "Garder l'ancien".
+           05 FILLER                             PIC    X(70)    VALUE "古いものを残す".
+           05 FILLER                             PIC    X(70)    VALUE "保留旧文件".
+           *>   UP-SENDING
+
+           05 FILLER                             PIC    X(70)    VALUE "Adding &1 to the Knowledge Base...".
+           05 FILLER                             PIC    X(70)    VALUE "Adicionando &1 à base de conhecimento...".
+           05 FILLER                             PIC    X(70)    VALUE "Añadiendo &1 a la base de conocimiento...".
+           05 FILLER                             PIC    X(70)    VALUE "Ajout de &1 à la base de connaissances...".
+           05 FILLER                             PIC    X(70)    VALUE "&1 をナレッジベースに追加中...".
+           05 FILLER                             PIC    X(70)    VALUE "正在将 &1 加入知识库...".
+           *>   UP-ADDED
+
+           05 FILLER                             PIC    X(70)    VALUE "Added: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Adicionado: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Añadido: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Ajouté : &1.".
+           05 FILLER                             PIC    X(70)    VALUE "追加しました: &1".
+           05 FILLER                             PIC    X(70)    VALUE "已添加：&1。".
+           *>   UP-UPDATED
+
+           05 FILLER                             PIC    X(70)    VALUE "Updated: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Atualizado: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Actualizado: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Mis à jour : &1.".
+           05 FILLER                             PIC    X(70)    VALUE "更新しました: &1".
+           05 FILLER                             PIC    X(70)    VALUE "已更新：&1。".
+           *>   UP-KEPT
+
+           05 FILLER                             PIC    X(70)    VALUE "Not replaced: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Não substituído: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "No reemplazado: &1.".
+           05 FILLER                             PIC    X(70)    VALUE "Non remplacé : &1.".
+           05 FILLER                             PIC    X(70)    VALUE "置き換えませんでした: &1".
+           05 FILLER                             PIC    X(70)    VALUE "未替换：&1。".
+           *>   UP-SUMMARY
+
+           05 FILLER                             PIC    X(70)    VALUE "&1 added, &2 updated, &3 not replaced.".
+           05 FILLER                             PIC    X(70)    VALUE "&1 adicionado(s), &2 atualizado(s), &3 não substituído(s).".
+           05 FILLER                             PIC    X(70)    VALUE "&1 añadido(s), &2 actualizado(s), &3 no reemplazado(s).".
+           05 FILLER                             PIC    X(70)    VALUE "&1 ajouté(s), &2 mis à jour, &3 non remplacé(s).".
+           05 FILLER                             PIC    X(70)    VALUE "追加 &1、更新 &2、置き換えなし &3。".
+           05 FILLER                             PIC    X(70)    VALUE "新增 &1，更新 &2，未替换 &3。".
+       01 PC-TEXT-TABLE                          REDEFINES    PC-TEXT-DATA    GLOBAL.
+           05 PC-TEXT-ROW                        OCCURS    54.
+               10 PC-TEXT                        PIC    X(70)    OCCURS 6.
+       *>   The texts in the current language, by name.
+
+       01 PC-TEXTS-NOW                           GLOBAL.
+           05 T-OPEN-TOPIC-FIRST                 PIC    X(70).
+           05 T-DOCS-OF                          PIC    X(70).
+           05 T-PICK-DOC-FIRST                   PIC    X(70).
+           05 T-KB-PROGRESS                      PIC    X(70).
+           05 T-KB-COUNTS                        PIC    X(70).
+           05 T-KB-SKIPPED                       PIC    X(70).
+           05 T-DOC-COUNT                        PIC    X(70).
+           05 T-DOCS-TITLE                       PIC    X(70).
+           05 T-DROP-HINT                        PIC    X(70).
+           05 T-DELETE                           PIC    X(70).
+           05 T-REFRESH                          PIC    X(70).
+           05 T-KB-UPDATING                      PIC    X(70).
+           05 T-NEW-FOLDER                       PIC    X(70).
+           05 T-FOLDER-HINT                      PIC    X(70).
+           05 T-FOLDER-CREATED                   PIC    X(70).
+           05 T-FOLDER-EXISTS                    PIC    X(70).
+           05 T-FOLDER-NAME-BAD                  PIC    X(70).
+           05 T-FOLDER-NOT-EMPTY                 PIC    X(70).
+           05 T-FOLDER-DELETED                   PIC    X(70).
+           05 T-DROP-INTO                        PIC    X(70).
+           05 T-TOP-LEVEL                        PIC    X(70).
+           05 T-STATUS                           PIC    X(70).
+           05 T-MOVE                             PIC    X(70).
+           05 T-MOVE-HERE                        PIC    X(70).
+           05 T-MOVE-TOP                         PIC    X(70).
+           05 T-PICK-DOC-TO-MOVE                 PIC    X(70).
+           05 T-MOVE-PICK                        PIC    X(70).
+           05 T-MOVE-INTO                        PIC    X(70).
+           05 T-MOVE-SAME                        PIC    X(70).
+           05 T-MOVE-EXISTS                      PIC    X(70).
+           05 T-MOVED                            PIC    X(70).
+           05 T-ACCEPTED-TYPES                   PIC    X(70).
+           05 T-REJECTED-TYPE                    PIC    X(70).
+           05 T-MODEL-FETCH                      PIC    X(70).
+           05 T-REINDEXING                       PIC    X(70).
+           05 T-WORDS-ONLY                       PIC    X(70).
+           05 T-DRAG-DOCS-ONLY                   PIC    X(70).
+           05 T-PREVIEW                          PIC    X(70).
+           05 T-PICK-DOC-TO-PREVIEW              PIC    X(70).
+           05 T-CLOSE                            PIC    X(70).
+           05 T-CHUNK-BAR                        PIC    X(70).
+           05 T-EMBED-BAR                        PIC    X(70).
+           05 T-KB-EMBEDDED                      PIC    X(70).
+           05 T-KB-PASSAGES                      PIC    X(70).
+           05 T-REMOVING                         PIC    X(70).
+           05 T-DOC-REMOVED                      PIC    X(70).
+           05 T-REPLACE-Q                        PIC    X(70).
+           05 T-REPLACE-YES                      PIC    X(70).
+           05 T-REPLACE-NO                       PIC    X(70).
+           05 T-UP-SENDING                       PIC    X(70).
+           05 T-UP-ADDED                         PIC    X(70).
+           05 T-UP-UPDATED                       PIC    X(70).
+           05 T-UP-KEPT                          PIC    X(70).
+           05 T-UP-SUMMARY                       PIC    X(70).
+       01 PC-TEXTS-NOW-R                         REDEFINES    PC-TEXTS-NOW    GLOBAL.
+           05 PC-TEXT-NOW                        PIC    X(70)    OCCURS 54.
+       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+
+       01 WS-FMT                                 GLOBAL    PIC X(70).
+       01 WS-ARG1                                GLOBAL    PIC X(300).
+       01 WS-ARG2                                GLOBAL    PIC X(300).
+       01 WS-ARG3                                GLOBAL    PIC X(300).
+       01 WS-ARG4                                GLOBAL    PIC X(300).
+       01 WS-FMT-OUT                             GLOBAL    PIC X(1200).
+       01 WS-FOLDERS-PATH                        GLOBAL    PIC X(240).
+       01 WS-DOCS-DIR                            GLOBAL    PIC X(400).
+       *>   The documents tree (R49): one row per node, in the order the nodes
+       *>   are added, so a node event's CONTROL-NODE-INDEX names its row.
+
+       01 WS-TREE                                GLOBAL.
+           05 WS-NODE-N                          PIC    9(4)    VALUE 0.
+           05 WS-NODE                            OCCURS    1000.
+               10 WS-NODE-KIND                   PIC    X.
+               10 WS-NODE-PATH                   PIC    X(260).
+               10 WS-NODE-KEY                    PIC    X(260).
+       01 WS-NODE-TMP                            GLOBAL.
+           05 TMP-KIND                           PIC    X.
+           05 TMP-PATH                           PIC    X(260).
+           05 TMP-KEY                            PIC    X(260).
+       01 WS-KEY-TMP                             GLOBAL    PIC X(260).
+       01 WS-ONE-KIND                            GLOBAL    PIC X.
+       01 WS-ONE-PATH                            GLOBAL    PIC X(260).
+       *>   The selection, by path: node numbers change on every rebuild.
+
+       01 WS-SEL-KIND                            GLOBAL    PIC X    VALUE SPACE.
+       01 WS-SEL-PATH                            GLOBAL    PIC X(260)    VALUE SPACES.
+       01 WS-SEL-IX                              GLOBAL    PIC 9(4)    VALUE 0.
+       01 WS-FOLDER                              GLOBAL    PIC X(260)    VALUE SPACES.
+       01 WS-NAME                                GLOBAL    PIC X(260).
+       01 WS-GONE                                GLOBAL    PIC X(260).
+       01 WS-ICON                                GLOBAL    PIC X(10).
+       01 WS-J                                   GLOBAL    PIC 9(4).
+       01 WS-K                                   GLOBAL    PIC 9(4).
+       01 WS-K1                                  GLOBAL    PIC 9(4).
+       01 WS-L                                   GLOBAL    PIC 9(4).
+       01 WS-P                                   GLOBAL    PIC 9(4).
+       01 WS-DEPTH                               GLOBAL    PIC 9(4).
+       01 WS-FOUND                               GLOBAL    PIC X.
+       *>   A document being moved: picked with Move, placed with Move here.
+       *>   The copy goes first; the original is deleted only once the copy
+       *>   is indexed (WS-MOVE-STEP "I", then "D"), so a failure never loses it.
+
+       01 WS-MOVE-SRC                            GLOBAL    PIC X(260)    VALUE SPACES.
+       01 WS-MOVE-DEST                           GLOBAL    PIC X(260)    VALUE SPACES.
+       01 WS-MOVE-TO                             GLOBAL    PIC X(260)    VALUE SPACES.
+       01 WS-MOVE-STEP                           GLOBAL    PIC X    VALUE SPACE.
+       *>   What the Knowledge Base can read, and so all the zone accepts: the
+       *>   zone's filter AND the list the form shows. One list, both uses.
+
+       01 WS-DOC-TYPES                           GLOBAL    PIC X(300)    VALUE
            ".md .markdown .txt .text .log .html .htm .xhtml .csv .tsv .tab .pdf .docx .docm .dotx .dotm .pptx .pptm .potx .potm .ppsx .ppsm .xlsx .xlsm .xltx .xltm .odt .ott .odm .oth .ods .ots .odp .otp .zip .tar .gz .tgz".
-      *>   Files refused by the last drop, named for the status line; kept
-      *>   until the indexing summary that follows has shown them too.
-       01 WS-REJECT-MSG      GLOBAL PIC X(400) VALUE SPACES.
-      *>   The Knowledge Base's own work in flight: "M" fetching the semantic
-      *>   model, "R" rebuilding a collection indexed with another embedder.
-       01 WS-KB-STEP         GLOBAL PIC X VALUE SPACE.
-       01 WS-MODE-WHY        GLOBAL PIC X(400) VALUE SPACES.
-       01 WS-TALLY           GLOBAL PIC 9(4).
-       01 WS-KB1             GLOBAL PIC Z(8)9.
-       01 WS-KB2             GLOBAL PIC Z(8)9.
-      *>   A number the Knowledge Base reports, as text and as a number.
-       01 WS-NUM-TEXT        GLOBAL PIC X(20).
-       01 WS-PASSAGES        GLOBAL PIC 9(9).
-       01 WS-PASSAGE         GLOBAL PIC 9(9).
-       01 WS-DOC-CUR         GLOBAL PIC 9(9).
-       01 WS-DOC-TOT         GLOBAL PIC 9(9).
-      *>   A document being deleted, named in the confirmation.
-       01 WS-DELETING        GLOBAL PIC X(260) VALUE SPACES.
-      *>   Uploads (operator, 2026-09-27: ask, then replace). The zone copies
-      *>   nothing; each dropped file is queued with where it goes, asked
-      *>   about when that name is taken, and imported in turn.
-       01 WS-UP-N            GLOBAL PIC 9(3) VALUE 0.
-       01 WS-UP-I            GLOBAL PIC 9(3) VALUE 0.
-       01 WS-UP-CUR          GLOBAL PIC 9(3) VALUE 0.
-       01 WS-UP-STEP         GLOBAL PIC X VALUE SPACE.
-       01 WS-UP-ADDED        GLOBAL PIC 9(3) VALUE 0.
-       01 WS-UP-UPDATED      GLOBAL PIC 9(3) VALUE 0.
-       01 WS-UP-KEPT         GLOBAL PIC 9(3) VALUE 0.
-       01 WS-UP-QUEUE        GLOBAL.
-          05 WS-UP-ITEM      OCCURS 50.
-             10 WS-UP-SRC    PIC X(400).
-             10 WS-UP-DEST   PIC X(260).
-      *>      "Q" queued, "K" kept (not replaced), "D" done.
-             10 WS-UP-STATE  PIC X.
-       01 WS-UP-ALL          GLOBAL PIC X(8000).
-       01 WS-UP-LEN          GLOBAL PIC 9(5).
-       01 WS-UP-PT           GLOBAL PIC 9(5).
-       01 WS-UP-ONE          GLOBAL PIC X(400).
-       01 WS-UP-NAME         GLOBAL PIC X(260).
-       01 WS-UP-ANSWER       GLOBAL PIC X(4).
-       01 WS-UP-QUESTION     GLOBAL PIC X(400).
-       01 WS-UP-COUNT        GLOBAL PIC 9(9).
+       *>   Files refused by the last drop, named for the status line; kept
+       *>   until the indexing summary that follows has shown them too.
+
+       01 WS-REJECT-MSG                          GLOBAL    PIC X(400)    VALUE SPACES.
+       *>   The Knowledge Base's own work in flight: "M" fetching the semantic
+       *>   model, "R" rebuilding a collection indexed with another embedder.
+
+       01 WS-KB-STEP                             GLOBAL    PIC X    VALUE SPACE.
+       01 WS-MODE-WHY                            GLOBAL    PIC X(400)    VALUE SPACES.
+       01 WS-TALLY                               GLOBAL    PIC 9(4).
+       01 WS-KB1                                 GLOBAL    PIC Z(8)9.
+       01 WS-KB2                                 GLOBAL    PIC Z(8)9.
+       *>   A number the Knowledge Base reports, as text and as a number.
+
+       01 WS-NUM-TEXT                            GLOBAL    PIC X(20).
+       01 WS-PASSAGES                            GLOBAL    PIC 9(9).
+       01 WS-PASSAGE                             GLOBAL    PIC 9(9).
+       01 WS-DOC-CUR                             GLOBAL    PIC 9(9).
+       01 WS-DOC-TOT                             GLOBAL    PIC 9(9).
+       *>   A document being deleted, named in the confirmation.
+
+       01 WS-DELETING                            GLOBAL    PIC X(260)    VALUE SPACES.
+       *>   Uploads (operator, 2026-09-27: ask, then replace). The zone copies
+       *>   nothing; each dropped file is queued with where it goes, asked
+       *>   about when that name is taken, and imported in turn.
+
+       01 WS-UP-N                                GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-UP-I                                GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-UP-CUR                              GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-UP-STEP                             GLOBAL    PIC X    VALUE SPACE.
+       01 WS-UP-ADDED                            GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-UP-UPDATED                          GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-UP-KEPT                             GLOBAL    PIC 9(3)    VALUE 0.
+       01 WS-UP-QUEUE                            GLOBAL.
+           05 WS-UP-ITEM                         OCCURS    50.
+               10 WS-UP-SRC                      PIC    X(400).
+               10 WS-UP-DEST                     PIC    X(260).
+               *>      "Q" queued, "K" kept (not replaced), "D" done.
+
+               10 WS-UP-STATE                    PIC    X.
+       01 WS-UP-ALL                              GLOBAL    PIC X(8000).
+       01 WS-UP-LEN                              GLOBAL    PIC 9(5).
+       01 WS-UP-PT                               GLOBAL    PIC 9(5).
+       01 WS-UP-ONE                              GLOBAL    PIC X(400).
+       01 WS-UP-NAME                             GLOBAL    PIC X(260).
+       01 WS-UP-ANSWER                           GLOBAL    PIC X(4).
+       01 WS-UP-QUESTION                         GLOBAL    PIC X(400).
+       01 WS-UP-COUNT                            GLOBAL    PIC 9(9).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -608,7 +675,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <file-control><![CDATA[           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
@@ -628,277 +696,356 @@
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
 ]]></file-control>
-  <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
-       01  SETTINGS-REC.
-           05 SET-NAME          PIC X(20).
-           05 SET-VALUE         PIC X(200).
-       FD  TOPICS-FILE IS GLOBAL.
-       01  TOPIC-REC.
-           05 TOP-ID            PIC X(16).
-           05 TOP-NAME          PIC X(40).
-           05 TOP-PROMPT        PIC X(1000).
-           05 TOP-CREATED       PIC X(14).
-      *>   "Y" for a topic the sample installer made, so it can be removed.
-           05 TOP-SAMPLE        PIC X.
-       FD  FOLDERS-FILE IS GLOBAL.
-      *>   A topic's document folders (R49), so a folder exists before its
-      *>   first document does.
-       01  FOLDER-REC.
+  <file-section><![CDATA[       FD SETTINGS-FILE IS GLOBAL.
+       01 SETTINGS-REC.
+           05 SET-NAME                           PIC    X(20).
+           05 SET-VALUE                          PIC    X(200).
+       FD TOPICS-FILE IS GLOBAL.
+       01 TOPIC-REC.
+           05 TOP-ID                             PIC    X(16).
+           05 TOP-NAME                           PIC    X(40).
+           05 TOP-PROMPT                         PIC    X(1000).
+           05 TOP-CREATED                        PIC    X(14).
+           *>   "Y" for a topic the sample installer made, so it can be removed.
+
+           05 TOP-SAMPLE                         PIC    X.
+       FD FOLDERS-FILE IS GLOBAL.
+       *>   A topic's document folders (R49), so a folder exists before its
+       *>   first document does.
+
+       01 FOLDER-REC.
            05 FLD-KEY.
-              10 FLD-TOPIC      PIC X(16).
-              10 FLD-PATH       PIC X(200).
+               10 FLD-TOPIC                      PIC    X(16).
+               10 FLD-PATH                       PIC    X(200).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
-           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
-           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
-           IF WS-DATA-DIR = SPACES
-               MOVE "data" TO WS-DATA-DIR
+           *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+
+           DISPLAY    "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-DATA-DIR = SPACES
+               SET     WS-DATA-DIR               TO    "data"
            END-IF
-           MOVE SPACES TO WS-SETTINGS-PATH
-           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
-           MOVE SPACES TO WS-TOPICS-PATH
-           STRING WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
-           MOVE SPACES TO WS-FOLDERS-PATH
-           STRING WS-DATA-DIR::Trim() "/folders.idx" INTO WS-FOLDERS-PATH
+           SET     WS-SETTINGS-PATH              TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
+           SET     WS-TOPICS-PATH                TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/topics.idx" INTO WS-TOPICS-PATH
+           SET     WS-FOLDERS-PATH               TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/folders.idx" INTO WS-FOLDERS-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
-           MOVE SPACES TO WS-SET-VALUE
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+
+           SET     WS-SET-VALUE                  TO    SPACES
+           *> Status 35 = the file is not there yet (first run): create it empty and
+           *> reopen it, so the read below finds a file without the setting rather
+           *> than failing.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    WS-SET-NAME
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 ]]></Event>
     <Event name="PC-SETTING-PUT" paragraph="PC-SETTING-PUT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           MOVE WS-SET-VALUE TO SET-VALUE
-           WRITE SETTINGS-REC
+
+           SET     SET-NAME                      TO    WS-SET-NAME
+           SET     SET-VALUE                     TO    WS-SET-VALUE
+
+           *> One record per setting name: WRITE adds a new name, INVALID KEY (the
+           *> name is already there) turns it into an update in place.
+
+           WRITE    SETTINGS-REC
                INVALID KEY REWRITE SETTINGS-REC
            END-WRITE
            COMMIT
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 ]]></Event>
     <Event name="PC-LIST-DOCS" paragraph="PC-LIST-DOCS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The topic's documents and folders as a tree (R49): gathered into
-      *>   WS-TREE, sorted so each folder comes right before what is in it,
-      *>   then added node by node.
-           MOVE 0 TO WS-NODE-N
-           MOVE KB-D::ListDocuments() TO WS-DOC-COUNT
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-DOC-COUNT
-               MOVE KB-D::GetDocument(WS-I) TO WS-DOC
-               MOVE "D" TO WS-ONE-KIND
-               MOVE WS-DOC::Trim() TO WS-ONE-PATH
-               CALL "PC-TREE-ADD"
+           *>   The topic's documents and folders as a tree (R49): gathered into
+           *>   WS-TREE, sorted so each folder comes right before what is in it,
+           *>   then added node by node.
+
+           SET     WS-NODE-N                     TO    0
+           SET     WS-DOC-COUNT                  TO    KB-D::ListDocuments()
+
+           PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-DOC-COUNT
+               SET     WS-DOC                    TO    KB-D::GetDocument(WS-I)
+               SET     WS-ONE-KIND               TO    "D"
+               SET     WS-ONE-PATH               TO    WS-DOC::Trim()
+
+               CALL    "PC-TREE-ADD"
            END-PERFORM
-      *>   The folders made here, including the empty ones.
-           OPEN INPUT FOLDERS-FILE
-           IF WS-FS = "00"
-               MOVE WS-CUR-TOPIC TO FLD-TOPIC
-               MOVE LOW-VALUES TO FLD-PATH
-               START FOLDERS-FILE KEY IS NOT LESS THAN FLD-KEY
+           *>   The folders made here, including the empty ones.
+
+           *> WS-FS doubles as the loop flag: anything but "00" ends the scan - no
+           *> folders file yet, a failed START, the end of the file, or the first
+           *> record of another topic (the last three set it to "10" by hand).
+
+           OPEN    INPUT FOLDERS-FILE
+           IF    WS-FS = "00"
+               SET     FLD-TOPIC                 TO    WS-CUR-TOPIC
+               SET     FLD-PATH                  TO    LOW-VALUES
+
+               START    FOLDERS-FILE KEY IS NOT LESS THAN FLD-KEY
                    INVALID KEY MOVE "10" TO WS-FS
                END-START
-               PERFORM UNTIL WS-FS NOT = "00"
-                   READ FOLDERS-FILE NEXT
+               PERFORM    UNTIL WS-FS NOT = "00"
+                   READ    FOLDERS-FILE NEXT
                        AT END MOVE "10" TO WS-FS
                    END-READ
-                   IF WS-FS = "00"
-                       IF FLD-TOPIC NOT = WS-CUR-TOPIC
-                           MOVE "10" TO WS-FS
+                   IF    WS-FS = "00"
+                       IF    FLD-TOPIC NOT = WS-CUR-TOPIC
+                           SET     WS-FS         TO    "10"
                        ELSE
-                           MOVE "F" TO WS-ONE-KIND
-                           MOVE FLD-PATH TO WS-ONE-PATH
-                           CALL "PC-TREE-ADD"
+                           SET     WS-ONE-KIND   TO    "F"
+                           SET     WS-ONE-PATH   TO    FLD-PATH
+
+                           CALL    "PC-TREE-ADD"
                        END-IF
                    END-IF
                END-PERFORM
-               CLOSE FOLDERS-FILE
+               CLOSE    FOLDERS-FILE
            END-IF
-      *>   Insertion sort on the key; a topic holds tens of entries.
-           PERFORM VARYING WS-J FROM 2 BY 1 UNTIL WS-J > WS-NODE-N
-               MOVE WS-NODE(WS-J) TO WS-NODE-TMP
-               MOVE WS-J TO WS-K
-               MOVE "N" TO WS-FOUND
-               PERFORM UNTIL WS-K < 2 OR WS-FOUND = "Y"
-                   COMPUTE WS-K1 = WS-K - 1
-                   IF WS-NODE-KEY(WS-K1) > TMP-KEY
-                       MOVE WS-NODE(WS-K1) TO WS-NODE(WS-K)
-                       MOVE WS-K1 TO WS-K
+           *>   Insertion sort on the key; a topic holds tens of entries.
+
+           PERFORM    VARYING WS-J FROM 2 BY 1 UNTIL WS-J > WS-NODE-N
+               SET     WS-NODE-TMP               TO    WS-NODE(WS-J)
+               SET     WS-K                      TO    WS-J
+               SET     WS-FOUND                  TO    "N"
+
+               PERFORM    UNTIL WS-K < 2 OR WS-FOUND = "Y"
+                   COMPUTE    WS-K1 = WS-K - 1
+                   IF    WS-NODE-KEY(WS-K1) > TMP-KEY
+                       SET     WS-NODE(WS-K)     TO    WS-NODE(WS-K1)
+                       SET     WS-K              TO    WS-K1
                    ELSE
-                       MOVE "Y" TO WS-FOUND
+                       SET     WS-FOUND          TO    "Y"
                    END-IF
                END-PERFORM
-               MOVE WS-NODE-TMP TO WS-NODE(WS-K)
+               SET     WS-NODE(WS-K)             TO    WS-NODE-TMP
            END-PERFORM
-           MOVE Trv-Docs::Clear() TO WS-OK
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
-      *>       Depth from 1 (a top-level entry), one more per "/".
-               MOVE 1 TO WS-DEPTH
-               INSPECT WS-NODE-PATH(WS-J) TALLYING WS-DEPTH FOR ALL "/"
-               MOVE FUNCTION LENGTH(WS-NODE-PATH(WS-J)::Trim()) TO WS-L
-               MOVE 0 TO WS-P
-               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
-                   IF WS-NODE-PATH(WS-J)(WS-K:1) = "/"
-                       MOVE WS-K TO WS-P
+           SET     WS-OK                         TO    Trv-Docs::Clear()
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               *>       Depth from 1 (a top-level entry), one more per "/".
+
+               SET     WS-DEPTH                  TO    1
+               INSPECT    WS-NODE-PATH(WS-J) TALLYING WS-DEPTH FOR ALL "/"
+
+               *> The label is what follows the last "/" (WS-P stays 0 for a top-level
+               *> entry, so the whole path is the label).
+
+               SET     WS-L                      TO    FUNCTION LENGTH(WS-NODE-PATH(WS-J)::Trim())
+               SET     WS-P                      TO    0
+
+               PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                   IF    WS-NODE-PATH(WS-J)(WS-K:1) = "/"
+                       SET     WS-P              TO    WS-K
                    END-IF
                END-PERFORM
-               MOVE SPACES TO WS-NAME
-               MOVE WS-NODE-PATH(WS-J)(WS-P + 1:WS-L - WS-P) TO WS-NAME
-      *>       A folder with something under it takes the tree's own
-      *>       open/shut folder icon; an empty one has to be told.
-               MOVE SPACES TO WS-ICON
-               IF WS-NODE-KIND(WS-J) = "F"
-                   MOVE "folder" TO WS-ICON
-                   IF WS-J < WS-NODE-N
-                       COMPUTE WS-K1 = WS-J + 1
-                       MOVE SPACES TO WS-KEY-TMP
-                       STRING WS-NODE-PATH(WS-J)::Trim() "/" INTO WS-KEY-TMP
-                       IF WS-NODE-PATH(WS-K1)(1:WS-L + 1) = WS-KEY-TMP(1:WS-L + 1)
-                           MOVE SPACES TO WS-ICON
+
+               SET     WS-NAME                   TO    SPACES
+               SET     WS-NAME                   TO    WS-NODE-PATH(WS-J)(WS-P + 1:WS-L - WS-P)
+
+               *>       A folder with something under it takes the tree's own
+               *>       open/shut folder icon; an empty one has to be told.
+
+               SET     WS-ICON                   TO    SPACES
+               IF    WS-NODE-KIND(WS-J) = "F"
+                   SET     WS-ICON               TO    "folder"
+                   *> The sort puts a folder's contents right after it, so the next row is
+                   *> enough: it starts with "path/" only when the folder is not empty.
+
+                   IF    WS-J < WS-NODE-N
+                       COMPUTE    WS-K1 = WS-J + 1
+                       SET     WS-KEY-TMP        TO    SPACES
+                       STRING    WS-NODE-PATH(WS-J)::Trim() "/" INTO WS-KEY-TMP
+                       IF    WS-NODE-PATH(WS-K1)(1:WS-L + 1) = WS-KEY-TMP(1:WS-L + 1)
+                           SET     WS-ICON       TO    SPACES
                        END-IF
                    END-IF
                END-IF
-               IF WS-ICON = SPACES
-                   MOVE Trv-Docs::AddNode(WS-DEPTH, WS-NAME::Trim()) TO WS-OK
+               IF    WS-ICON = SPACES
+                   SET     WS-OK                 TO    Trv-Docs::AddNode(WS-DEPTH, WS-NAME::Trim())
                ELSE
-                   MOVE Trv-Docs::AddNode(WS-DEPTH, WS-NAME::Trim(),
-                       WS-ICON::Trim()) TO WS-OK
+                   MOVE    Trv-Docs::AddNode(WS-DEPTH, WS-NAME::Trim(),
+                   WS-ICON::Trim()) TO WS-OK
                END-IF
            END-PERFORM
-           MOVE WS-DOC-COUNT TO WS-N1
-           MOVE T-DOC-COUNT TO WS-FMT
-           MOVE WS-N1 TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Count::Caption
-           CALL "PC-SELECT-SYNC"
+
+           SET     WS-N1                         TO    WS-DOC-COUNT
+           SET     WS-FMT                        TO    T-DOC-COUNT
+           SET     WS-ARG1                       TO    WS-N1
+
+           CALL    "PC-FMT"
+           SET     Lbl-Count::Caption            TO    WS-FMT-OUT::Trim()
+           CALL    "PC-SELECT-SYNC"
 ]]></Event>
     <Event name="PC-TREE-ADD" paragraph="PC-TREE-ADD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 LK-KIND            PIC X.
-       01 LK-PATH            PIC X(260).
-       01 LK-L               PIC 9(4).
-       01 LK-P               PIC 9(4).
+       01 LK-KIND                                PIC    X.
+       01 LK-PATH                                PIC    X(260).
+       01 LK-L                                   PIC    9(4).
+       01 LK-P                                   PIC    9(4).
+
        PROCEDURE DIVISION.
-      *>   WS-ONE-PATH (of kind WS-ONE-KIND) and every folder above it go
-      *>   into WS-TREE, each once.
-           MOVE WS-ONE-KIND TO LK-KIND
-           MOVE WS-ONE-PATH TO LK-PATH
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(LK-PATH)) TO LK-L
-           PERFORM VARYING LK-P FROM 2 BY 1 UNTIL LK-P > LK-L
-               IF LK-PATH(LK-P:1) = "/"
-                   MOVE "F" TO WS-ONE-KIND
-                   MOVE SPACES TO WS-ONE-PATH
-                   MOVE LK-PATH(1:LK-P - 1) TO WS-ONE-PATH
-                   CALL "PC-TREE-ONE"
+           *>   WS-ONE-PATH (of kind WS-ONE-KIND) and every folder above it go
+           *>   into WS-TREE, each once.
+
+           *> WS-ONE-KIND and WS-ONE-PATH are reused for each parent folder, so the
+           *> caller's values wait in LK-* and go back for the last row. Every "/"
+           *> past the first character closes a parent folder that needs its row.
+
+           SET     LK-KIND                       TO    WS-ONE-KIND
+           SET     LK-PATH                       TO    WS-ONE-PATH
+           SET     LK-L                          TO    FUNCTION LENGTH(FUNCTION TRIM(LK-PATH))
+
+           PERFORM    VARYING LK-P FROM 2 BY 1 UNTIL LK-P > LK-L
+               IF    LK-PATH(LK-P:1) = "/"
+                   SET     WS-ONE-KIND           TO    "F"
+                   SET     WS-ONE-PATH           TO    SPACES
+                   SET     WS-ONE-PATH           TO    LK-PATH(1:LK-P - 1)
+
+                   CALL    "PC-TREE-ONE"
                END-IF
            END-PERFORM
-           MOVE LK-KIND TO WS-ONE-KIND
-           MOVE LK-PATH TO WS-ONE-PATH
-           CALL "PC-TREE-ONE"
+
+           SET     WS-ONE-KIND                   TO    LK-KIND
+           SET     WS-ONE-PATH                   TO    LK-PATH
+
+           CALL    "PC-TREE-ONE"
 ]]></Event>
     <Event name="PC-TREE-ONE" paragraph="PC-TREE-ONE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   One row, unless the path is there already. The sort key is the
-      *>   path with "/" below every other character and LOW-VALUES after it,
-      *>   so a folder sorts right before its own contents.
-           MOVE "N" TO WS-FOUND
-           PERFORM VARYING WS-J FROM 1 BY 1
+           *>   One row, unless the path is there already. The sort key is the
+           *>   path with "/" below every other character and LOW-VALUES after it,
+           *>   so a folder sorts right before its own contents.
+
+           SET     WS-FOUND                      TO    "N"
+           PERFORM    VARYING WS-J FROM 1 BY 1
                    UNTIL WS-J > WS-NODE-N OR WS-FOUND = "Y"
-               IF WS-NODE-PATH(WS-J) = WS-ONE-PATH
-                   MOVE "Y" TO WS-FOUND
+               IF    WS-NODE-PATH(WS-J) = WS-ONE-PATH
+                   SET     WS-FOUND              TO    "Y"
                END-IF
            END-PERFORM
-           IF WS-FOUND = "N" AND WS-NODE-N < 1000
-               ADD 1 TO WS-NODE-N
-               MOVE WS-ONE-KIND TO WS-NODE-KIND(WS-NODE-N)
-               MOVE WS-ONE-PATH TO WS-NODE-PATH(WS-NODE-N)
-               MOVE LOW-VALUES TO WS-KEY-TMP
-               MOVE FUNCTION LENGTH(WS-ONE-PATH::Trim()) TO WS-L
-               MOVE WS-ONE-PATH(1:WS-L) TO WS-KEY-TMP(1:WS-L)
-               INSPECT WS-KEY-TMP(1:WS-L) CONVERTING "/" TO X"01"
-               MOVE WS-KEY-TMP TO WS-NODE-KEY(WS-NODE-N)
+           *> WS-TREE holds 1000 rows; once it is full, further entries are left
+           *> out without any message.
+
+           IF    WS-FOUND = "N" AND WS-NODE-N < 1000
+               ADD    1 TO WS-NODE-N
+
+               SET     WS-NODE-KIND(WS-NODE-N)   TO    WS-ONE-KIND
+               SET     WS-NODE-PATH(WS-NODE-N)   TO    WS-ONE-PATH
+               SET     WS-KEY-TMP                TO    LOW-VALUES
+               SET     WS-L                      TO    FUNCTION LENGTH(WS-ONE-PATH::Trim())
+               SET     WS-KEY-TMP(1:WS-L)        TO    WS-ONE-PATH(1:WS-L)
+
+               INSPECT    WS-KEY-TMP(1:WS-L) CONVERTING "/" TO X"01"
+               SET     WS-NODE-KEY(WS-NODE-N)    TO    WS-KEY-TMP
            END-IF
 ]]></Event>
     <Event name="PC-SELECT-SYNC" paragraph="PC-SELECT-SYNC"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Find the selection again after a rebuild, and point the drop zone
-      *>   at the folder it names - a document's own folder - or at the top.
-           MOVE 0 TO WS-SEL-IX
-           IF WS-SEL-PATH NOT = SPACES
-               PERFORM VARYING WS-J FROM 1 BY 1
+           *>   Find the selection again after a rebuild, and point the drop zone
+           *>   at the folder it names - a document's own folder - or at the top.
+
+           SET     WS-SEL-IX                     TO    0
+           IF    WS-SEL-PATH NOT = SPACES
+               PERFORM    VARYING WS-J FROM 1 BY 1
                        UNTIL WS-J > WS-NODE-N OR WS-SEL-IX > 0
-                   IF WS-NODE-PATH(WS-J) = WS-SEL-PATH
-                      AND WS-NODE-KIND(WS-J) = WS-SEL-KIND
-                       MOVE WS-J TO WS-SEL-IX
+                   IF    WS-NODE-PATH(WS-J) = WS-SEL-PATH
+                           AND WS-NODE-KIND(WS-J) = WS-SEL-KIND
+                       SET     WS-SEL-IX         TO    WS-J
                    END-IF
                END-PERFORM
            END-IF
-           MOVE SPACES TO WS-FOLDER
-           IF WS-SEL-IX = 0
-               MOVE SPACES TO WS-SEL-KIND WS-SEL-PATH
+           SET     WS-FOLDER                     TO    SPACES
+           IF    WS-SEL-IX = 0
+               SET     WS-SEL-KIND WS-SEL-PATH   TO    SPACES
            ELSE
-               IF WS-SEL-KIND = "F"
-                   MOVE WS-SEL-PATH TO WS-FOLDER
+               IF    WS-SEL-KIND = "F"
+                   SET     WS-FOLDER             TO    WS-SEL-PATH
                ELSE
-                   MOVE FUNCTION LENGTH(WS-SEL-PATH::Trim()) TO WS-L
-                   MOVE 0 TO WS-P
-                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
-                       IF WS-SEL-PATH(WS-K:1) = "/"
-                           MOVE WS-K TO WS-P
+                   SET     WS-L                  TO    FUNCTION LENGTH(WS-SEL-PATH::Trim())
+                   SET     WS-P                  TO    0
+
+                   PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF    WS-SEL-PATH(WS-K:1) = "/"
+                           SET     WS-P          TO    WS-K
                        END-IF
                    END-PERFORM
-                   IF WS-P > 1
-                       MOVE WS-SEL-PATH(1:WS-P - 1) TO WS-FOLDER
+                   IF    WS-P > 1
+                       SET     WS-FOLDER         TO    WS-SEL-PATH(1:WS-P - 1)
                    END-IF
                END-IF
            END-IF
-           MOVE SPACES TO WS-LINE
-           IF WS-FOLDER = SPACES
-               MOVE WS-DOCS-DIR TO WS-LINE
+           SET     WS-LINE                       TO    SPACES
+           IF    WS-FOLDER = SPACES
+               SET     WS-LINE                   TO    WS-DOCS-DIR
            ELSE
-               STRING WS-DOCS-DIR::Trim() "/" WS-FOLDER::Trim() INTO WS-LINE
+               STRING    WS-DOCS-DIR::Trim() "/" WS-FOLDER::Trim() INTO WS-LINE
            END-IF
-      *>   The zone copies nothing itself (uploads are imported, asking
-      *>   first when a name is taken): WS-FOLDER is where they go.
+           *>   The zone copies nothing itself (uploads are imported, asking
+           *>   first when a name is taken): WS-FOLDER is where they go.
 ]]></Event>
     <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language the user picked (LANG), the texts in it, and every
-      *>   designed caption and hint that shows one. Called on load and again
-      *>   whenever the language changes (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:2) TO WS-LANG
-           EVALUATE WS-LANG
+           *>   The language the user picked (LANG), the texts in it, and every
+           *>   designed caption and hint that shows one. Called on load and again
+           *>   whenever the language changes (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
+           *> WS-LANG-IX is the language's column in PC-TEXT (en pt es fr jp cn);
+           *> an unset or unknown code means English. The copy loop below must run
+           *> over every row of PC-TEXT, so its bound has to match the OCCURS.
+
+           EVALUATE    WS-LANG
                WHEN "en" MOVE 1 TO WS-LANG-IX
                WHEN "pt" MOVE 2 TO WS-LANG-IX
                WHEN "es" MOVE 3 TO WS-LANG-IX
@@ -906,195 +1053,235 @@
                WHEN "jp" MOVE 5 TO WS-LANG-IX
                WHEN "cn" MOVE 6 TO WS-LANG-IX
                WHEN OTHER MOVE "en" TO WS-LANG
-                          MOVE 1 TO WS-LANG-IX
+                   SET     WS-LANG-IX            TO    1
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 54
-               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           PERFORM    VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 54
+               SET     PC-TEXT-NOW(WS-TX-I)      TO    PC-TEXT(WS-TX-I, WS-LANG-IX)
            END-PERFORM
-           MOVE T-DOCS-TITLE::Trim() TO Lbl-Title::Caption
-           MOVE T-DROP-HINT::Trim() TO Drop-Docs::Hint
-           MOVE T-DELETE::Trim() TO Btn-Delete::Caption
-           MOVE T-PREVIEW::Trim() TO Btn-Preview::Caption
-           MOVE T-REFRESH::Trim() TO Btn-Refresh::Caption
-           MOVE T-NEW-FOLDER::Trim() TO Btn-NewFolder::Caption
-           MOVE T-FOLDER-HINT::Trim() TO Txt-Folder::HintText
-           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
-           MOVE T-MOVE-TOP::Trim() TO Btn-MoveTop::Caption
-           CALL "PC-MOVE-UI"
-           MOVE T-ACCEPTED-TYPES TO WS-FMT
-           MOVE WS-DOC-TYPES TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Types::Caption
+
+           SET     Lbl-Title::Caption            TO    T-DOCS-TITLE::Trim()
+           SET     Drop-Docs::Hint               TO    T-DROP-HINT::Trim()
+           SET     Btn-Delete::Caption           TO    T-DELETE::Trim()
+           SET     Btn-Preview::Caption          TO    T-PREVIEW::Trim()
+           SET     Btn-Refresh::Caption          TO    T-REFRESH::Trim()
+           SET     Btn-NewFolder::Caption        TO    T-NEW-FOLDER::Trim()
+           SET     Txt-Folder::HintText          TO    T-FOLDER-HINT::Trim()
+           SET     Lbl-Status::Caption           TO    T-STATUS::Trim()
+           SET     Btn-MoveTop::Caption          TO    T-MOVE-TOP::Trim()
+
+           CALL    "PC-MOVE-UI"
+
+           SET     WS-FMT                        TO    T-ACCEPTED-TYPES
+           SET     WS-ARG1                       TO    WS-DOC-TYPES
+
+           CALL    "PC-FMT"
+           SET     Lbl-Types::Caption            TO    WS-FMT-OUT::Trim()
 ]]></Event>
     <Event name="PC-UP-NEXT" paragraph="PC-UP-NEXT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Import the next queued upload; when none is left, the summary.
-      *>   Busy with something else: stay queued - onIndexed calls back.
-           IF WS-UP-STEP NOT = SPACE
+           *>   Import the next queued upload; when none is left, the summary.
+           *>   Busy with something else: stay queued - onIndexed calls back.
+
+           IF    WS-UP-STEP NOT = SPACE
                EXIT PROGRAM
            END-IF
-           MOVE 0 TO WS-UP-CUR
-           PERFORM VARYING WS-UP-I FROM 1 BY 1
+           SET     WS-UP-CUR                     TO    0
+           PERFORM    VARYING WS-UP-I FROM 1 BY 1
                    UNTIL WS-UP-I > WS-UP-N OR WS-UP-CUR > 0
-               IF WS-UP-STATE(WS-UP-I) = "Q"
-                   MOVE WS-UP-I TO WS-UP-CUR
+               IF    WS-UP-STATE(WS-UP-I) = "Q"
+                   SET     WS-UP-CUR             TO    WS-UP-I
                END-IF
            END-PERFORM
-           IF WS-UP-CUR = 0
-               IF WS-UP-N > 1
-                   MOVE T-UP-SUMMARY TO WS-FMT
-                   MOVE WS-UP-ADDED TO WS-KB1
-                   MOVE WS-KB1 TO WS-ARG1
-                   MOVE WS-UP-UPDATED TO WS-KB1
-                   MOVE WS-KB1 TO WS-ARG2
-                   MOVE WS-UP-KEPT TO WS-KB1
-                   MOVE WS-KB1 TO WS-ARG3
-                   CALL "PC-FMT"
-                   MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           IF    WS-UP-CUR = 0
+               IF    WS-UP-N > 1
+                   SET     WS-FMT                TO    T-UP-SUMMARY
+                   SET     WS-KB1                TO    WS-UP-ADDED
+                   SET     WS-ARG1               TO    WS-KB1
+                   SET     WS-KB1                TO    WS-UP-UPDATED
+                   SET     WS-ARG2               TO    WS-KB1
+                   SET     WS-KB1                TO    WS-UP-KEPT
+                   SET     WS-ARG3               TO    WS-KB1
+
+                   CALL    "PC-FMT"
+                   SET     Lbl-Status::Caption   TO    WS-FMT-OUT::Trim()
                END-IF
-               MOVE 0 TO WS-UP-N
+               SET     WS-UP-N                   TO    0
                EXIT PROGRAM
            END-IF
-           MOVE SPACES TO KB-D::SearchModeReason
-           MOVE KB-D::ImportDocument(WS-UP-SRC(WS-UP-CUR)::Trim(),
-               WS-UP-DEST(WS-UP-CUR)::Trim()) TO WS-OK
-           IF WS-OK NOT = "1"
-      *>       Another update is running: this one waits for its end.
+           SET     KB-D::SearchModeReason        TO    SPACES
+           MOVE    KB-D::ImportDocument(WS-UP-SRC(WS-UP-CUR)::Trim(),
+           WS-UP-DEST(WS-UP-CUR)::Trim()) TO WS-OK
+           IF    WS-OK NOT = "1"
+               *>       Another update is running: this one waits for its end.
+
                EXIT PROGRAM
            END-IF
-           MOVE "U" TO WS-UP-STEP
-           MOVE T-UP-SENDING TO WS-FMT
-           MOVE WS-UP-DEST(WS-UP-CUR) TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
+
+           SET     WS-UP-STEP                    TO    "U"
+           SET     WS-FMT                        TO    T-UP-SENDING
+           SET     WS-ARG1                       TO    WS-UP-DEST(WS-UP-CUR)
+
+           CALL    "PC-FMT"
+           SET     Lbl-Progress::Caption         TO    WS-FMT-OUT::Trim()
 ]]></Event>
     <Event name="PC-PREVIEW" paragraph="PC-PREVIEW"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The selected document, shown in PREVIEW-FORM (a modal window).
-           IF WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
-               MOVE T-PICK-DOC-TO-PREVIEW::Trim() TO Lbl-Status::Caption
+           *>   The selected document, shown in PREVIEW-FORM (a modal window).
+
+           IF    WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
+               SET     Lbl-Status::Caption       TO    T-PICK-DOC-TO-PREVIEW::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE SPACES TO WS-LINE
-           STRING WS-DOCS-DIR::Trim() "/" WS-SEL-PATH::Trim() INTO WS-LINE
-           INVOKE ME::SetProperty("PreviewPath", WS-LINE)
-           INVOKE ME::SetProperty("PreviewTitle", WS-SEL-PATH)
-           INVOKE ME::SetProperty("PreviewClose", T-CLOSE)
-           INVOKE ME::OpenFormSync("PREVIEW-FORM")
+           SET     WS-LINE                       TO    SPACES
+           STRING    WS-DOCS-DIR::Trim() "/" WS-SEL-PATH::Trim() INTO WS-LINE
+
+           INVOKE    ME::SetProperty("PreviewPath", WS-LINE)
+           INVOKE    ME::SetProperty("PreviewTitle", WS-SEL-PATH)
+           INVOKE    ME::SetProperty("PreviewClose", T-CLOSE)
+           INVOKE    ME::OpenFormSync("PREVIEW-FORM")
 ]]></Event>
     <Event name="PC-KB-REFRESH" paragraph="PC-KB-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Bring the index up to date with the folder. SearchModeReason is
-      *>   only written when there is something to say, so it is cleared
-      *>   first: an old warning must not outlive a clean update.
-           MOVE SPACES TO KB-D::SearchModeReason
-           MOVE KB-D::Refresh() TO WS-OK
-           IF WS-OK NOT = "1"
-               MOVE KB-D::LastError TO Lbl-Status::Caption
+           *>   Bring the index up to date with the folder. SearchModeReason is
+           *>   only written when there is something to say, so it is cleared
+           *>   first: an old warning must not outlive a clean update.
+
+           SET     KB-D::SearchModeReason        TO    SPACES
+           SET     WS-OK                         TO    KB-D::Refresh()
+
+           IF    WS-OK NOT = "1"
+               SET     Lbl-Status::Caption       TO    KB-D::LastError
            ELSE
-               MOVE T-KB-UPDATING::Trim() TO Lbl-Progress::Caption
+               SET     Lbl-Progress::Caption     TO    T-KB-UPDATING::Trim()
            END-IF
 ]]></Event>
     <Event name="PC-MOVE-UI" paragraph="PC-MOVE-UI"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The Move button says what the next press does: pick the document,
-      *>   or place the one picked. "To the top level" only while one is.
-           IF WS-MOVE-SRC = SPACES OR WS-MOVE-STEP NOT = SPACE
-               MOVE T-MOVE::Trim() TO Btn-Move::Caption
-               MOVE "false" TO Btn-MoveTop::Enabled
+           *>   The Move button says what the next press does: pick the document,
+           *>   or place the one picked. "To the top level" only while one is.
+
+           IF    WS-MOVE-SRC = SPACES OR WS-MOVE-STEP NOT = SPACE
+               SET     Btn-Move::Caption         TO    T-MOVE::Trim()
+               SET     Btn-MoveTop::Enabled      TO    "false"
            ELSE
-               MOVE T-MOVE-HERE::Trim() TO Btn-Move::Caption
-               MOVE "true" TO Btn-MoveTop::Enabled
+               SET     Btn-Move::Caption         TO    T-MOVE-HERE::Trim()
+               SET     Btn-MoveTop::Enabled      TO    "true"
            END-IF
 ]]></Event>
     <Event name="PC-MOVE-GO" paragraph="PC-MOVE-GO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 LK-FILE            PIC X(260).
+       01 LK-FILE                                PIC    X(260).
+
        PROCEDURE DIVISION.
-      *>   WS-MOVE-SRC goes into folder WS-MOVE-TO (spaces: the top level).
-      *>   Step one copies it there through the Knowledge Base, which indexes
-      *>   the copy; onIndexed then deletes the original (step two).
-           MOVE FUNCTION LENGTH(WS-MOVE-SRC::Trim()) TO WS-L
-           MOVE 0 TO WS-P
-           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
-               IF WS-MOVE-SRC(WS-K:1) = "/"
-                   MOVE WS-K TO WS-P
+           *>   WS-MOVE-SRC goes into folder WS-MOVE-TO (spaces: the top level).
+           *>   Step one copies it there through the Knowledge Base, which indexes
+           *>   the copy; onIndexed then deletes the original (step two).
+
+           SET     WS-L                          TO    FUNCTION LENGTH(WS-MOVE-SRC::Trim())
+           SET     WS-P                          TO    0
+
+           PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+               IF    WS-MOVE-SRC(WS-K:1) = "/"
+                   SET     WS-P                  TO    WS-K
                END-IF
            END-PERFORM
-           MOVE SPACES TO LK-FILE
-           MOVE WS-MOVE-SRC(WS-P + 1:WS-L - WS-P) TO LK-FILE
-           MOVE SPACES TO WS-MOVE-DEST
-           IF WS-MOVE-TO = SPACES
-               MOVE FUNCTION TRIM(LK-FILE) TO WS-MOVE-DEST
+
+           SET     LK-FILE                       TO    SPACES
+           SET     LK-FILE                       TO    WS-MOVE-SRC(WS-P + 1:WS-L - WS-P)
+           SET     WS-MOVE-DEST                  TO    SPACES
+
+           IF    WS-MOVE-TO = SPACES
+               SET     WS-MOVE-DEST              TO    FUNCTION TRIM(LK-FILE)
            ELSE
-               STRING WS-MOVE-TO::Trim() "/" FUNCTION TRIM(LK-FILE) INTO WS-MOVE-DEST
+               STRING    WS-MOVE-TO::Trim() "/" FUNCTION TRIM(LK-FILE) INTO WS-MOVE-DEST
            END-IF
-           IF WS-MOVE-DEST = WS-MOVE-SRC
-               MOVE SPACES TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
-               MOVE T-MOVE-SAME::Trim() TO Lbl-Status::Caption
+           IF    WS-MOVE-DEST = WS-MOVE-SRC
+               SET     WS-MOVE-SRC               TO    SPACES
+               CALL    "PC-MOVE-UI"
+               SET     Lbl-Status::Caption       TO    T-MOVE-SAME::Trim()
                EXIT PROGRAM
            END-IF
-      *>   Never over another document: the copy would replace it.
-           MOVE "N" TO WS-FOUND
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
-               IF WS-NODE-PATH(WS-J) = WS-MOVE-DEST
-                   MOVE "Y" TO WS-FOUND
+           *>   Never over another document: the copy would replace it.
+
+           SET     WS-FOUND                      TO    "N"
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               IF    WS-NODE-PATH(WS-J) = WS-MOVE-DEST
+                   SET     WS-FOUND              TO    "Y"
                END-IF
            END-PERFORM
-           IF WS-FOUND = "Y"
-               MOVE T-MOVE-EXISTS TO WS-FMT
-               MOVE WS-MOVE-DEST TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE SPACES TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           IF    WS-FOUND = "Y"
+               SET     WS-FMT                    TO    T-MOVE-EXISTS
+               SET     WS-ARG1                   TO    WS-MOVE-DEST
+
+               CALL    "PC-FMT"
+               SET     WS-MOVE-SRC               TO    SPACES
+               CALL    "PC-MOVE-UI"
+               SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE SPACES TO WS-LINE
-           STRING WS-DOCS-DIR::Trim() "/" WS-MOVE-SRC::Trim() INTO WS-LINE
-           MOVE KB-D::ImportDocument(WS-LINE::Trim(),
-               WS-MOVE-DEST::Trim()) TO WS-OK
-           IF WS-OK NOT = "1"
-               MOVE SPACES TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
-               MOVE KB-D::LastError TO Lbl-Status::Caption
+           SET     WS-LINE                       TO    SPACES
+           STRING    WS-DOCS-DIR::Trim() "/" WS-MOVE-SRC::Trim() INTO WS-LINE
+           MOVE    KB-D::ImportDocument(WS-LINE::Trim(),
+           WS-MOVE-DEST::Trim()) TO WS-OK
+           IF    WS-OK NOT = "1"
+               SET     WS-MOVE-SRC               TO    SPACES
+               CALL    "PC-MOVE-UI"
+               SET     Lbl-Status::Caption       TO    KB-D::LastError
                EXIT PROGRAM
            END-IF
-           MOVE "I" TO WS-MOVE-STEP
-           CALL "PC-MOVE-UI"
-           MOVE T-KB-UPDATING::Trim() TO Lbl-Progress::Caption
+           SET     WS-MOVE-STEP                  TO    "I"
+           CALL    "PC-MOVE-UI"
+           SET     Lbl-Progress::Caption         TO    T-KB-UPDATING::Trim()
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-PT              PIC 9(4).
-       01 WS-FROM            PIC 9(4).
-       01 WS-CNT             PIC 9(4).
-       01 WS-PART            PIC X(70).
-       01 WS-DELIM           PIC XX.
+       01 WS-PT                                  PIC    9(4).
+       01 WS-FROM                                PIC    9(4).
+       01 WS-CNT                                 PIC    9(4).
+       01 WS-PART                                PIC    X(70).
+       01 WS-DELIM                               PIC    XX.
+
        PROCEDURE DIVISION.
-      *>   A message whose words go round numbers and names differently in each
-      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
-           MOVE SPACES TO WS-FMT-OUT
-           MOVE 1 TO WS-PT
-           MOVE 1 TO WS-FROM
-           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
-               MOVE SPACES TO WS-PART WS-DELIM
-               MOVE 0 TO WS-CNT
-               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+           *>   A message whose words go round numbers and names differently in each
+           *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+
+           SET     WS-FMT-OUT                    TO    SPACES
+           SET     WS-PT                         TO    1
+           SET     WS-FROM                       TO    1
+
+           PERFORM    UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               SET     WS-PART WS-DELIM          TO    SPACES
+               SET     WS-CNT                    TO    0
+
+               UNSTRING    WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
                    INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
                    WITH POINTER WS-FROM
                END-UNSTRING
-               IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
+               IF    WS-CNT > 0
+                   STRING    WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
-               EVALUATE WS-DELIM
+               *> No placeholder left (WS-DELIM stayed spaces): WS-PART already holds
+               *> the tail of the text, so push WS-FROM past the end to leave the loop.
+
+               EVALUATE    WS-DELIM
                    WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
@@ -1104,102 +1291,130 @@
            END-PERFORM
 ]]></Event>
     <Event name="PC-OPEN" paragraph="PC-OPEN"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   What the form shows: run on load, and again when it comes back.
-           CALL "PC-PATHS"
-           CALL "PC-TEXTS"
-      *>   The zone refuses whatever the Knowledge Base could not read.
-           MOVE WS-DOC-TYPES TO Drop-Docs::AllowedExtensions
-           MOVE "CUR-TOPIC" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
-           MOVE "KB-LOCATION" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE TO WS-KB-LOCATION
-           IF WS-KB-LOCATION = SPACES
-               MOVE "assets/KB" TO WS-KB-LOCATION
+           *>   What the form shows: run on load, and again when it comes back.
+
+           CALL    "PC-PATHS"
+           CALL    "PC-TEXTS"
+
+           *>   The zone refuses whatever the Knowledge Base could not read.
+
+           SET     Drop-Docs::AllowedExtensions  TO    WS-DOC-TYPES
+           SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+
+           CALL    "PC-SETTING-GET"
+
+           SET     WS-CUR-TOPIC                  TO    WS-SET-VALUE(1:16)
+           SET     WS-SET-NAME                   TO    "KB-LOCATION"
+
+           CALL    "PC-SETTING-GET"
+           SET     WS-KB-LOCATION                TO    WS-SET-VALUE
+           IF    WS-KB-LOCATION = SPACES
+               SET     WS-KB-LOCATION            TO    "assets/KB"
            END-IF
-           IF WS-CUR-TOPIC = SPACES
-               MOVE T-OPEN-TOPIC-FIRST::Trim() TO Lbl-Status::Caption
+           IF    WS-CUR-TOPIC = SPACES
+               SET     Lbl-Status::Caption       TO    T-OPEN-TOPIC-FIRST::Trim()
                EXIT PROGRAM
            END-IF
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
+           OPEN    I-O TOPICS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT TOPICS-FILE
+               CLOSE    TOPICS-FILE
+               OPEN    I-O TOPICS-FILE
            END-IF
-           MOVE WS-CUR-TOPIC TO TOP-ID
-           READ TOPICS-FILE
+           SET     TOP-ID                        TO    WS-CUR-TOPIC
+           READ    TOPICS-FILE
                INVALID KEY MOVE "?" TO TOP-NAME
            END-READ
-           CLOSE TOPICS-FILE
-           MOVE T-DOCS-OF TO WS-FMT
-           MOVE TOP-NAME TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Title::Caption
-           MOVE WS-KB-LOCATION TO KB-D::Location
-           MOVE WS-CUR-TOPIC TO KB-D::Collection
-      *>   Dropped files land in the collection's documents folder; a refresh
-      *>   then indexes them. So does anything copied there by other means.
-      *>   PC-SELECT-SYNC points the zone at the selected folder inside it.
-           MOVE SPACES TO WS-DOCS-DIR
-           STRING WS-KB-LOCATION::Trim() "/" WS-CUR-TOPIC::Trim() "/documents" INTO WS-DOCS-DIR
-           CALL "PC-LIST-DOCS"
-      *>   The semantic model first - fetched once per installation, a quick
-      *>   no-op after that - then pick up whatever changed in the folder
-      *>   since the last run (R16). onIndexed runs the refresh after it.
-           MOVE KB-D::FetchModel() TO WS-OK
-           IF WS-OK = "1"
-               MOVE "M" TO WS-KB-STEP
+           CLOSE    TOPICS-FILE
+
+           SET     WS-FMT                        TO    T-DOCS-OF
+           SET     WS-ARG1                       TO    TOP-NAME
+
+           CALL    "PC-FMT"
+
+           SET     Lbl-Title::Caption            TO    WS-FMT-OUT::Trim()
+           SET     KB-D::Location                TO    WS-KB-LOCATION
+           SET     KB-D::Collection              TO    WS-CUR-TOPIC
+
+           *>   Dropped files land in the collection's documents folder; a refresh
+           *>   then indexes them. So does anything copied there by other means.
+           *>   PC-SELECT-SYNC points the zone at the selected folder inside it.
+
+           SET     WS-DOCS-DIR                   TO    SPACES
+           STRING    WS-KB-LOCATION::Trim() "/" WS-CUR-TOPIC::Trim() "/documents" INTO WS-DOCS-DIR
+           CALL    "PC-LIST-DOCS"
+           *>   The semantic model first - fetched once per installation, a quick
+           *>   no-op after that - then pick up whatever changed in the folder
+           *>   since the last run (R16). onIndexed runs the refresh after it.
+
+           SET     WS-OK                         TO    KB-D::FetchModel()
+           IF    WS-OK = "1"
+               SET     WS-KB-STEP                TO    "M"
            END-IF
 ]]></Event>
     <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language saved now (LANG), into WS-LANG-NOW; "en" when unset.
-           MOVE "en" TO WS-LANG-NOW
-           OPEN INPUT SETTINGS-FILE
-           IF WS-FS NOT = "00"
+           *>   The language saved now (LANG), into WS-LANG-NOW; "en" when unset.
+
+           SET     WS-LANG-NOW                   TO    "en"
+           *> Read only, unlike the other readers: a missing file (status 35) is
+           *> not created here, it just means English.
+
+           OPEN    INPUT SETTINGS-FILE
+           IF    WS-FS NOT = "00"
                EXIT PROGRAM
            END-IF
-           MOVE "LANG" TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    "LANG"
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY
-                   EVALUATE SET-VALUE(1:2)
+                   EVALUATE    SET-VALUE(1:2)
                        WHEN "pt" WHEN "es" WHEN "fr" WHEN "jp" WHEN "cn"
-                           MOVE SET-VALUE(1:2) TO WS-LANG-NOW
+                           SET     WS-LANG-NOW   TO    SET-VALUE(1:2)
                    END-EVALUATE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 ]]></Event>
     <Event name="PC-PROGRESS-IDLE" paragraph="PC-PROGRESS-IDLE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Indexing ended (done, busy or failed): the progress strip goes
-      *>   back to empty. It stays in its place on the form.
-           MOVE SPACES TO Lbl-Progress::Caption
-           MOVE 0 TO Prg-Index::Value
-           SET Prg-Index::Visible TO FALSE
-           SET Lbl-Chunk::Visible TO FALSE
-           SET Prg-Chunk::Visible TO FALSE
-           SET Lbl-Embed::Visible TO FALSE
-           SET Prg-Embed::Visible TO FALSE
+           *>   Indexing ended (done, busy or failed): the progress strip goes
+           *>   back to empty. It stays in its place on the form.
+
+           SET     Lbl-Progress::Caption         TO    SPACES
+           SET     Prg-Index::Value              TO    0
+           SET     Prg-Index::Visible            TO    FALSE
+           SET     Lbl-Chunk::Visible            TO    FALSE
+           SET     Prg-Chunk::Visible            TO    FALSE
+           SET     Lbl-Embed::Visible            TO    FALSE
+           SET     Prg-Embed::Visible            TO    FALSE
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="DOCUMENTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-OPEN"
+           CALL    "PC-OPEN"
 ]]></Event>
     <Event name="onActivate" paragraph="DOCUMENTS-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Back on the pane: the topic or the language may have changed.
-           CALL "PC-OPEN"
+           *>   Back on the pane: the topic or the language may have changed.
+
+           CALL    "PC-OPEN"
 ]]></Event>
     <Event name="onClose" paragraph="DOCUMENTS-FORM--ONCLOSE">
     </Event>
@@ -1308,114 +1523,129 @@ Node 2</Property>
     <Property name="SelectionColor"></Property>
     <Property name="HotTrackColor"></Property>
     <Event name="onNodeSelect" paragraph="TRV-DOCS--ONNODESELECT"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        LINKAGE SECTION.
        01 CONTROL-NODE-DATA.
-           05 CONTROL-NODE                 PIC X(256).
-           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
-           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
-           05 CONTROL-NODE-CHECKED         PIC 9.
+           05 CONTROL-NODE                       PIC    X(256).
+           05 CONTROL-NODE-INDEX                 PIC    S9(4)    COMP-5.
+           05 CONTROL-NODE-LEVEL                 PIC    S9(4)    COMP-5.
+           05 CONTROL-NODE-CHECKED               PIC    9.
 
        PROCEDURE DIVISION USING CONTROL-NODE-DATA.
-      *>   The node's index is its row in WS-TREE; the selection is kept by
-      *>   path, and new documents dropped go into its folder.
-           IF CONTROL-NODE-INDEX > 0 AND CONTROL-NODE-INDEX NOT > WS-NODE-N
-               MOVE CONTROL-NODE-INDEX TO WS-J
-               MOVE WS-NODE-KIND(WS-J) TO WS-SEL-KIND
-               MOVE WS-NODE-PATH(WS-J) TO WS-SEL-PATH
+           *>   The node's index is its row in WS-TREE; the selection is kept by
+           *>   path, and new documents dropped go into its folder.
+
+           IF    CONTROL-NODE-INDEX > 0 AND CONTROL-NODE-INDEX NOT > WS-NODE-N
+               SET     WS-J                      TO    CONTROL-NODE-INDEX
+               SET     WS-SEL-KIND               TO    WS-NODE-KIND(WS-J)
+               SET     WS-SEL-PATH               TO    WS-NODE-PATH(WS-J)
            END-IF
-           CALL "PC-SELECT-SYNC"
-      *>   While a document waits to be moved, say where Move here puts it.
-           IF WS-MOVE-SRC NOT = SPACES AND WS-MOVE-STEP = SPACE
-               MOVE T-MOVE-INTO TO WS-FMT
-               MOVE WS-MOVE-SRC TO WS-ARG1
-               IF WS-FOLDER = SPACES
-                   MOVE T-TOP-LEVEL TO WS-ARG2
+           CALL    "PC-SELECT-SYNC"
+           *>   While a document waits to be moved, say where Move here puts it.
+
+           IF    WS-MOVE-SRC NOT = SPACES AND WS-MOVE-STEP = SPACE
+               SET     WS-FMT                    TO    T-MOVE-INTO
+               SET     WS-ARG1                   TO    WS-MOVE-SRC
+
+               IF    WS-FOLDER = SPACES
+                   SET     WS-ARG2               TO    T-TOP-LEVEL
                ELSE
-                   MOVE WS-FOLDER TO WS-ARG2
+                   SET     WS-ARG2               TO    WS-FOLDER
                END-IF
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+               CALL    "PC-FMT"
+               SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE T-DROP-INTO TO WS-FMT
-           IF WS-FOLDER = SPACES
-               MOVE T-TOP-LEVEL TO WS-ARG1
+           SET     WS-FMT                        TO    T-DROP-INTO
+           IF    WS-FOLDER = SPACES
+               SET     WS-ARG1                   TO    T-TOP-LEVEL
            ELSE
-               MOVE WS-FOLDER TO WS-ARG1
+               SET     WS-ARG1                   TO    WS-FOLDER
            END-IF
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           CALL    "PC-FMT"
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
 ]]></Event>
     <Event name="onNodeDblClick" paragraph="TRV-DOCS--ONNODEDBLCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        LINKAGE SECTION.
        01 CONTROL-NODE-DATA.
-           05 CONTROL-NODE                 PIC X(256).
-           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
-           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
-           05 CONTROL-NODE-CHECKED         PIC 9.
+           05 CONTROL-NODE                       PIC    X(256).
+           05 CONTROL-NODE-INDEX                 PIC    S9(4)    COMP-5.
+           05 CONTROL-NODE-LEVEL                 PIC    S9(4)    COMP-5.
+           05 CONTROL-NODE-CHECKED               PIC    9.
 
        PROCEDURE DIVISION USING CONTROL-NODE-DATA.
-      *>   A double-click on a document previews it.
-           IF CONTROL-NODE-INDEX > 0 AND CONTROL-NODE-INDEX NOT > WS-NODE-N
-               MOVE CONTROL-NODE-INDEX TO WS-J
-               MOVE WS-NODE-KIND(WS-J) TO WS-SEL-KIND
-               MOVE WS-NODE-PATH(WS-J) TO WS-SEL-PATH
-               CALL "PC-SELECT-SYNC"
-               IF WS-SEL-KIND = "D"
-                   CALL "PC-PREVIEW"
+           *>   A double-click on a document previews it.
+
+           IF    CONTROL-NODE-INDEX > 0 AND CONTROL-NODE-INDEX NOT > WS-NODE-N
+               SET     WS-J                      TO    CONTROL-NODE-INDEX
+               SET     WS-SEL-KIND               TO    WS-NODE-KIND(WS-J)
+               SET     WS-SEL-PATH               TO    WS-NODE-PATH(WS-J)
+
+               CALL    "PC-SELECT-SYNC"
+               IF    WS-SEL-KIND = "D"
+                   CALL    "PC-PREVIEW"
                END-IF
            END-IF
 ]]></Event>
     <Event name="onNodeDrop" paragraph="TRV-DOCS--ONNODEDROP"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        LINKAGE SECTION.
        01 CONTROL-NODE-DATA.
-           05 CONTROL-NODE                 PIC X(256).
-           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
-           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
-           05 CONTROL-NODE-CHECKED         PIC 9.
-           05 CONTROL-TARGET-INDEX         PIC S9(4) COMP-5.
-           05 CONTROL-TARGET-NODE          PIC X(256).
+           05 CONTROL-NODE                       PIC    X(256).
+           05 CONTROL-NODE-INDEX                 PIC    S9(4)    COMP-5.
+           05 CONTROL-NODE-LEVEL                 PIC    S9(4)    COMP-5.
+           05 CONTROL-NODE-CHECKED               PIC    9.
+           05 CONTROL-TARGET-INDEX               PIC    S9(4)    COMP-5.
+           05 CONTROL-TARGET-NODE                PIC    X(256).
 
        PROCEDURE DIVISION USING CONTROL-NODE-DATA.
-      *>   A document dragged onto a folder moves into it; onto a document,
-      *>   into that document's folder; onto empty space, to the top level.
-      *>   The move itself is the Move button's (PC-MOVE-GO): copy, index,
-      *>   then delete the original, never over a document of the same name.
-           IF CONTROL-NODE-INDEX < 1 OR CONTROL-NODE-INDEX > WS-NODE-N
+           *>   A document dragged onto a folder moves into it; onto a document,
+           *>   into that document's folder; onto empty space, to the top level.
+           *>   The move itself is the Move button's (PC-MOVE-GO): copy, index,
+           *>   then delete the original, never over a document of the same name.
+
+           IF    CONTROL-NODE-INDEX < 1 OR CONTROL-NODE-INDEX > WS-NODE-N
                EXIT PROGRAM
            END-IF
-           IF WS-MOVE-STEP NOT = SPACE
-               MOVE T-KB-UPDATING::Trim() TO Lbl-Status::Caption
+           IF    WS-MOVE-STEP NOT = SPACE
+               SET     Lbl-Status::Caption       TO    T-KB-UPDATING::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE CONTROL-NODE-INDEX TO WS-J
-           IF WS-NODE-KIND(WS-J) NOT = "D"
-               MOVE T-DRAG-DOCS-ONLY::Trim() TO Lbl-Status::Caption
+           SET     WS-J                          TO    CONTROL-NODE-INDEX
+           IF    WS-NODE-KIND(WS-J) NOT = "D"
+               SET     Lbl-Status::Caption       TO    T-DRAG-DOCS-ONLY::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE WS-NODE-PATH(WS-J) TO WS-MOVE-SRC
-           MOVE SPACES TO WS-MOVE-TO
-           IF CONTROL-TARGET-INDEX > 0 AND CONTROL-TARGET-INDEX NOT > WS-NODE-N
-               MOVE CONTROL-TARGET-INDEX TO WS-K1
-               IF WS-NODE-KIND(WS-K1) = "F"
-                   MOVE WS-NODE-PATH(WS-K1) TO WS-MOVE-TO
+
+           SET     WS-MOVE-SRC                   TO    WS-NODE-PATH(WS-J)
+           SET     WS-MOVE-TO                    TO    SPACES
+
+           IF    CONTROL-TARGET-INDEX > 0 AND CONTROL-TARGET-INDEX NOT > WS-NODE-N
+               SET     WS-K1                     TO    CONTROL-TARGET-INDEX
+               IF    WS-NODE-KIND(WS-K1) = "F"
+                   SET     WS-MOVE-TO            TO    WS-NODE-PATH(WS-K1)
                ELSE
-                   MOVE FUNCTION LENGTH(WS-NODE-PATH(WS-K1)::Trim()) TO WS-L
-                   MOVE 0 TO WS-P
-                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
-                       IF WS-NODE-PATH(WS-K1)(WS-K:1) = "/"
-                           MOVE WS-K TO WS-P
+                   SET     WS-L                  TO    FUNCTION LENGTH(WS-NODE-PATH(WS-K1)::Trim())
+                   SET     WS-P                  TO    0
+
+                   PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF    WS-NODE-PATH(WS-K1)(WS-K:1) = "/"
+                           SET     WS-P          TO    WS-K
                        END-IF
                    END-PERFORM
-                   IF WS-P > 1
-                       MOVE WS-NODE-PATH(WS-K1)(1:WS-P - 1) TO WS-MOVE-TO
+                   IF    WS-P > 1
+                       SET     WS-MOVE-TO        TO    WS-NODE-PATH(WS-K1)(1:WS-P - 1)
                    END-IF
                END-IF
            END-IF
-           CALL "PC-MOVE-GO"
+           CALL    "PC-MOVE-GO"
 ]]></Event>
   </Control>
   <Control id="Drop-Docs" type="FileDropZone" x="672" y="48" w="392" h="144" tab-order="2" z-order="0" visible="true" enabled="true">
@@ -1456,117 +1686,153 @@ Node 2</Property>
     <Property name="DestinationFolder"></Property>
     <Property name="FileListControl"></Property>
     <Event name="onFilesDropped" paragraph="DROP-DOCS--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Each accepted file (DroppedFiles, at its own path - the zone
-      *>   copies nothing) goes into the selected folder under its own name.
-      *>   A name already there is asked about first: replace, or keep.
-           MOVE Drop-Docs::DroppedFiles TO WS-UP-ALL
-           MOVE FUNCTION LENGTH(WS-UP-ALL::Trim()) TO WS-UP-LEN
-           MOVE 1 TO WS-UP-PT
-           IF WS-UP-N = 0
-               MOVE 0 TO WS-UP-ADDED WS-UP-UPDATED WS-UP-KEPT
+           *>   Each accepted file (DroppedFiles, at its own path - the zone
+           *>   copies nothing) goes into the selected folder under its own name.
+           *>   A name already there is asked about first: replace, or keep.
+
+           SET     WS-UP-ALL                     TO    Drop-Docs::DroppedFiles
+           SET     WS-UP-LEN                     TO    FUNCTION LENGTH(WS-UP-ALL::Trim())
+           SET     WS-UP-PT                      TO    1
+
+           *> The queue (WS-UP-N, up to 50) outlives one drop: files dropped while
+           *> an earlier batch is still importing join it, so the counters restart
+           *> only when the queue was empty.
+
+           IF    WS-UP-N = 0
+               SET     WS-UP-ADDED WS-UP-UPDATED WS-UP-KEPT
+                                                 TO    0
            END-IF
-           PERFORM UNTIL WS-UP-PT > WS-UP-LEN OR WS-UP-N = 50
-               MOVE SPACES TO WS-UP-ONE
-               UNSTRING WS-UP-ALL DELIMITED BY X"0A" INTO WS-UP-ONE
+           PERFORM    UNTIL WS-UP-PT > WS-UP-LEN OR WS-UP-N = 50
+               SET     WS-UP-ONE                 TO    SPACES
+               UNSTRING    WS-UP-ALL DELIMITED BY X"0A" INTO WS-UP-ONE
                    WITH POINTER WS-UP-PT
                END-UNSTRING
-               IF WS-UP-ONE NOT = SPACES
-                   MOVE FUNCTION LENGTH(WS-UP-ONE::Trim()) TO WS-L
-                   MOVE 0 TO WS-P
-                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
-                       IF WS-UP-ONE(WS-K:1) = "/" OR WS-UP-ONE(WS-K:1) = "\"
-                           MOVE WS-K TO WS-P
+               IF    WS-UP-ONE NOT = SPACES
+                   *> Dropped paths may use either separator (\ on Windows, / elsewhere):
+                   *> the file name is what follows the last one.
+
+                   SET     WS-L                  TO    FUNCTION LENGTH(WS-UP-ONE::Trim())
+                   SET     WS-P                  TO    0
+
+                   PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF    WS-UP-ONE(WS-K:1) = "/" OR WS-UP-ONE(WS-K:1) = "\"
+                           SET     WS-P          TO    WS-K
                        END-IF
                    END-PERFORM
-                   MOVE SPACES TO WS-UP-NAME
-                   MOVE WS-UP-ONE(WS-P + 1:WS-L - WS-P) TO WS-UP-NAME
-                   ADD 1 TO WS-UP-N
-                   MOVE WS-UP-ONE TO WS-UP-SRC(WS-UP-N)
-                   MOVE SPACES TO WS-UP-DEST(WS-UP-N)
-                   IF WS-FOLDER = SPACES
-                       MOVE WS-UP-NAME::Trim() TO WS-UP-DEST(WS-UP-N)
+
+                   SET     WS-UP-NAME            TO    SPACES
+                   SET     WS-UP-NAME            TO    WS-UP-ONE(WS-P + 1:WS-L - WS-P)
+
+                   ADD    1 TO WS-UP-N
+
+                   SET     WS-UP-SRC(WS-UP-N)    TO    WS-UP-ONE
+                   SET     WS-UP-DEST(WS-UP-N)   TO    SPACES
+
+                   IF    WS-FOLDER = SPACES
+                       SET     WS-UP-DEST(WS-UP-N)
+                                                 TO    WS-UP-NAME::Trim()
                    ELSE
-                       STRING WS-FOLDER::Trim() "/" WS-UP-NAME::Trim() INTO WS-UP-DEST(WS-UP-N)
+                       STRING    WS-FOLDER::Trim() "/" WS-UP-NAME::Trim() INTO WS-UP-DEST(WS-UP-N)
                    END-IF
-                   MOVE "Q" TO WS-UP-STATE(WS-UP-N)
-                   MOVE "N" TO WS-FOUND
-                   PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
-                       IF WS-NODE-KIND(WS-J) = "D"
-                          AND WS-NODE-PATH(WS-J) = WS-UP-DEST(WS-UP-N)
-                           MOVE "Y" TO WS-FOUND
+
+                   SET     WS-UP-STATE(WS-UP-N)  TO    "Q"
+                   SET     WS-FOUND              TO    "N"
+
+                   PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+                       IF    WS-NODE-KIND(WS-J) = "D"
+                               AND WS-NODE-PATH(WS-J) = WS-UP-DEST(WS-UP-N)
+                           SET     WS-FOUND      TO    "Y"
                        END-IF
                    END-PERFORM
-                   IF WS-FOUND = "Y"
-                       MOVE T-REPLACE-Q TO WS-FMT
-                       MOVE WS-UP-DEST(WS-UP-N) TO WS-ARG1
-                       CALL "PC-FMT"
-                       MOVE WS-FMT-OUT TO WS-UP-QUESTION
-                       INVOKE ME::SetProperty("ConfirmText", WS-UP-QUESTION)
-                       INVOKE ME::SetProperty("ConfirmYes", T-REPLACE-YES)
-                       INVOKE ME::SetProperty("ConfirmNo", T-REPLACE-NO)
-                       INVOKE ME::SetProperty("ConfirmAnswer", "N")
-                       INVOKE ME::OpenFormSync("CONFIRM-FORM")
-                       INVOKE ME::GetProperty("ConfirmAnswer")
-                           RETURNING WS-UP-ANSWER
-                       IF WS-UP-ANSWER(1:1) NOT = "Y"
-                           MOVE "K" TO WS-UP-STATE(WS-UP-N)
-                           ADD 1 TO WS-UP-KEPT
-                           MOVE T-UP-KEPT TO WS-FMT
-                           MOVE WS-UP-DEST(WS-UP-N) TO WS-ARG1
-                           CALL "PC-FMT"
-                           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+                   IF    WS-FOUND = "Y"
+                       SET     WS-FMT            TO    T-REPLACE-Q
+                       SET     WS-ARG1           TO    WS-UP-DEST(WS-UP-N)
+
+                       CALL    "PC-FMT"
+                       SET     WS-UP-QUESTION    TO    WS-FMT-OUT
+
+                       INVOKE    ME::SetProperty("ConfirmText", WS-UP-QUESTION)
+                       INVOKE    ME::SetProperty("ConfirmYes", T-REPLACE-YES)
+                       INVOKE    ME::SetProperty("ConfirmNo", T-REPLACE-NO)
+                       INVOKE    ME::SetProperty("ConfirmAnswer", "N")
+                       INVOKE    ME::OpenFormSync("CONFIRM-FORM")
+                       INVOKE    ME::GetProperty("ConfirmAnswer") RETURNING WS-UP-ANSWER
+
+                       IF    WS-UP-ANSWER(1:1) NOT = "Y"
+                           SET     WS-UP-STATE(WS-UP-N)
+                                                 TO    "K"
+
+                           ADD    1 TO WS-UP-KEPT
+
+                           SET     WS-FMT        TO    T-UP-KEPT
+                           SET     WS-ARG1       TO    WS-UP-DEST(WS-UP-N)
+
+                           CALL    "PC-FMT"
+                           SET     Lbl-Status::Caption
+                                                 TO    WS-FMT-OUT::Trim()
                        END-IF
                    END-IF
                END-IF
            END-PERFORM
-           CALL "PC-UP-NEXT"
+           CALL    "PC-UP-NEXT"
 ]]></Event>
     <Event name="onFilesRejected" paragraph="DROP-DOCS--ONFILESREJECTED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 LK-ALL             PIC X(4000).
-       01 LK-ONE             PIC X(400).
-       01 LK-PATH            PIC X(400).
-       01 LK-NAMES           PIC X(300).
-       01 LK-LEN             PIC 9(4).
-       01 LK-PT              PIC 9(4).
-       01 LK-OUT             PIC 9(4).
+       01 LK-ALL                                 PIC    X(4000).
+       01 LK-ONE                                 PIC    X(400).
+       01 LK-PATH                                PIC    X(400).
+       01 LK-NAMES                               PIC    X(300).
+       01 LK-LEN                                 PIC    9(4).
+       01 LK-PT                                  PIC    9(4).
+       01 LK-OUT                                 PIC    9(4).
+
        PROCEDURE DIVISION.
-      *>   RejectedFiles: one "path<TAB>reason" line per refused file. Name
-      *>   each one and say why, so nothing is refused without a word.
-           MOVE Drop-Docs::RejectedFiles TO LK-ALL
-           MOVE FUNCTION LENGTH(FUNCTION TRIM(LK-ALL)) TO LK-LEN
-           MOVE SPACES TO LK-NAMES
-           MOVE 1 TO LK-PT
-           MOVE 1 TO LK-OUT
-           PERFORM UNTIL LK-PT > LK-LEN
-               MOVE SPACES TO LK-ONE LK-PATH
-               UNSTRING LK-ALL DELIMITED BY X"0A" INTO LK-ONE
+           *>   RejectedFiles: one "path<TAB>reason" line per refused file. Name
+           *>   each one and say why, so nothing is refused without a word.
+
+           SET     LK-ALL                        TO    Drop-Docs::RejectedFiles
+           SET     LK-LEN                        TO    FUNCTION LENGTH(FUNCTION TRIM(LK-ALL))
+           SET     LK-NAMES                      TO    SPACES
+           SET     LK-PT                         TO    1
+           SET     LK-OUT                        TO    1
+
+           PERFORM    UNTIL LK-PT > LK-LEN
+               SET     LK-ONE LK-PATH            TO    SPACES
+               UNSTRING    LK-ALL DELIMITED BY X"0A" INTO LK-ONE
                    WITH POINTER LK-PT
                END-UNSTRING
-               UNSTRING LK-ONE DELIMITED BY X"09" INTO LK-PATH
+               UNSTRING    LK-ONE DELIMITED BY X"09" INTO LK-PATH
                END-UNSTRING
-               IF LK-PATH NOT = SPACES
-                   MOVE FUNCTION LENGTH(FUNCTION TRIM(LK-PATH)) TO WS-L
-                   MOVE 0 TO WS-P
-                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
-                       IF LK-PATH(WS-K:1) = "/" OR LK-PATH(WS-K:1) = "\"
-                           MOVE WS-K TO WS-P
+               IF    LK-PATH NOT = SPACES
+                   SET     WS-L                  TO    FUNCTION LENGTH(FUNCTION TRIM(LK-PATH))
+                   SET     WS-P                  TO    0
+
+                   PERFORM    VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF    LK-PATH(WS-K:1) = "/" OR LK-PATH(WS-K:1) = "\"
+                           SET     WS-P          TO    WS-K
                        END-IF
                    END-PERFORM
-                   IF LK-OUT > 1
-                       STRING ", " INTO LK-NAMES WITH POINTER LK-OUT
+                   IF    LK-OUT > 1
+                       STRING    ", " INTO LK-NAMES WITH POINTER LK-OUT
                    END-IF
-                   STRING LK-PATH(WS-P + 1:WS-L - WS-P) INTO LK-NAMES WITH POINTER LK-OUT
+                   STRING    LK-PATH(WS-P + 1:WS-L - WS-P) INTO LK-NAMES WITH POINTER LK-OUT
                END-IF
            END-PERFORM
-           MOVE T-REJECTED-TYPE TO WS-FMT
-           MOVE LK-NAMES TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT TO WS-REJECT-MSG
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+
+           SET     WS-FMT                        TO    T-REJECTED-TYPE
+           SET     WS-ARG1                       TO    LK-NAMES
+
+           CALL    "PC-FMT"
+
+           SET     WS-REJECT-MSG                 TO    WS-FMT-OUT
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
 ]]></Event>
   </Control>
   <Control id="Btn-Delete" type="Button" x="680" y="224" w="184" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
@@ -1610,59 +1876,71 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-DELETE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           IF WS-SEL-IX = 0
-               MOVE T-PICK-DOC-FIRST::Trim() TO Lbl-Status::Caption
+           IF    WS-SEL-IX = 0
+               SET     Lbl-Status::Caption       TO    T-PICK-DOC-FIRST::Trim()
                EXIT PROGRAM
            END-IF
-           IF WS-SEL-KIND = "D"
-               MOVE KB-D::DeleteDocument(WS-SEL-PATH::Trim()) TO WS-OK
-               IF WS-OK NOT = "1"
-                   MOVE KB-D::LastError TO Lbl-Status::Caption
+           IF    WS-SEL-KIND = "D"
+               SET     WS-OK                     TO    KB-D::DeleteDocument(WS-SEL-PATH::Trim())
+               IF    WS-OK NOT = "1"
+                   SET     Lbl-Status::Caption   TO    KB-D::LastError
                ELSE
-      *>           Said while it happens, and confirmed by name when done.
-                   MOVE WS-SEL-PATH TO WS-DELETING
-                   MOVE T-REMOVING TO WS-FMT
-                   MOVE WS-SEL-PATH TO WS-ARG1
-                   CALL "PC-FMT"
-                   MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
+                   *>           Said while it happens, and confirmed by name when done.
+
+                   SET     WS-DELETING           TO    WS-SEL-PATH
+                   SET     WS-FMT                TO    T-REMOVING
+                   SET     WS-ARG1               TO    WS-SEL-PATH
+
+                   CALL    "PC-FMT"
+                   SET     Lbl-Progress::Caption TO    WS-FMT-OUT::Trim()
                END-IF
                EXIT PROGRAM
            END-IF
-      *>   A folder goes only when nothing is under it: deleting a folder
-      *>   never deletes documents as a side effect.
-           MOVE SPACES TO WS-KEY-TMP
-           STRING WS-SEL-PATH::Trim() "/" INTO WS-KEY-TMP
-           MOVE FUNCTION LENGTH(WS-KEY-TMP::Trim()) TO WS-L
-           MOVE "N" TO WS-FOUND
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
-               IF WS-NODE-PATH(WS-J)(1:WS-L) = WS-KEY-TMP(1:WS-L)
-                   MOVE "Y" TO WS-FOUND
+           *>   A folder goes only when nothing is under it: deleting a folder
+           *>   never deletes documents as a side effect.
+
+           SET     WS-KEY-TMP                    TO    SPACES
+           STRING    WS-SEL-PATH::Trim() "/" INTO WS-KEY-TMP
+
+           SET     WS-L                          TO    FUNCTION LENGTH(WS-KEY-TMP::Trim())
+           SET     WS-FOUND                      TO    "N"
+
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               IF    WS-NODE-PATH(WS-J)(1:WS-L) = WS-KEY-TMP(1:WS-L)
+                   SET     WS-FOUND              TO    "Y"
                END-IF
            END-PERFORM
-           IF WS-FOUND = "Y"
-               MOVE T-FOLDER-NOT-EMPTY::Trim() TO Lbl-Status::Caption
+           IF    WS-FOUND = "Y"
+               SET     Lbl-Status::Caption       TO    T-FOLDER-NOT-EMPTY::Trim()
                EXIT PROGRAM
            END-IF
-           OPEN I-O FOLDERS-FILE
-           IF WS-FS = "00"
-               MOVE WS-CUR-TOPIC TO FLD-TOPIC
-               MOVE WS-SEL-PATH TO FLD-PATH
-               DELETE FOLDERS-FILE
+           OPEN    I-O FOLDERS-FILE
+           IF    WS-FS = "00"
+               SET     FLD-TOPIC                 TO    WS-CUR-TOPIC
+               SET     FLD-PATH                  TO    WS-SEL-PATH
+
+               DELETE    FOLDERS-FILE
                    INVALID KEY CONTINUE
                END-DELETE
                COMMIT
-               CLOSE FOLDERS-FILE
+               CLOSE    FOLDERS-FILE
            END-IF
-      *>   (Not WS-NAME: PC-LIST-DOCS writes every node's label there.)
-           MOVE WS-SEL-PATH TO WS-GONE
-           MOVE SPACES TO WS-SEL-KIND WS-SEL-PATH
-           CALL "PC-LIST-DOCS"
-           MOVE T-FOLDER-DELETED TO WS-FMT
-           MOVE WS-GONE TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           *>   (Not WS-NAME: PC-LIST-DOCS writes every node's label there.)
+
+           SET     WS-GONE                       TO    WS-SEL-PATH
+           SET     WS-SEL-KIND WS-SEL-PATH       TO    SPACES
+
+           CALL    "PC-LIST-DOCS"
+
+           SET     WS-FMT                        TO    T-FOLDER-DELETED
+           SET     WS-ARG1                       TO    WS-GONE
+
+           CALL    "PC-FMT"
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
 ]]></Event>
   </Control>
   <Control id="Btn-Preview" type="Button" x="872" y="224" w="184" h="32" tab-order="9" z-order="0" visible="true" enabled="true">
@@ -1706,9 +1984,11 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-PREVIEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-PREVIEW"
+           CALL    "PC-PREVIEW"
 ]]></Event>
   </Control>
   <Control id="Btn-Refresh" type="Button" x="680" y="272" w="376" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
@@ -1752,9 +2032,11 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-REFRESH--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-KB-REFRESH"
+           CALL    "PC-KB-REFRESH"
 ]]></Event>
   </Control>
   <Control id="Lbl-Count" type="Label" x="24" y="328" w="456" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1920,58 +2202,72 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-NEWFOLDER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A folder inside the selected one (or a document's folder), else at
-      *>   the top. Recorded in FOLDERS-FILE, so it shows while still empty.
-           MOVE Txt-Folder::Text TO WS-NAME
-           MOVE 0 TO WS-K
-           INSPECT WS-NAME TALLYING WS-K FOR ALL "/"
-           INSPECT WS-NAME TALLYING WS-K FOR ALL "\"
-           IF WS-NAME = SPACES OR WS-K > 0
-              OR FUNCTION TRIM(WS-NAME) = "."
-              OR FUNCTION TRIM(WS-NAME) = ".."
-               MOVE T-FOLDER-NAME-BAD::Trim() TO Lbl-Status::Caption
+           *>   A folder inside the selected one (or a document's folder), else at
+           *>   the top. Recorded in FOLDERS-FILE, so it shows while still empty.
+
+           SET     WS-NAME                       TO    Txt-Folder::Text
+           SET     WS-K                          TO    0
+
+           *> A name is one path segment: any "/" or "\" in it (WS-K counts them)
+           *> would make a path, and "." / ".." are not new folders at all.
+
+           INSPECT    WS-NAME TALLYING WS-K FOR ALL "/"
+           INSPECT    WS-NAME TALLYING WS-K FOR ALL "\"
+
+           IF    WS-NAME = SPACES OR WS-K > 0
+                   OR FUNCTION TRIM(WS-NAME) = "."
+                   OR FUNCTION TRIM(WS-NAME) = ".."
+               SET     Lbl-Status::Caption       TO    T-FOLDER-NAME-BAD::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE SPACES TO WS-ONE-PATH
-           IF WS-FOLDER = SPACES
-               MOVE WS-NAME::Trim() TO WS-ONE-PATH
+           SET     WS-ONE-PATH                   TO    SPACES
+           IF    WS-FOLDER = SPACES
+               SET     WS-ONE-PATH               TO    WS-NAME::Trim()
            ELSE
-               STRING WS-FOLDER::Trim() "/" WS-NAME::Trim() INTO WS-ONE-PATH
+               STRING    WS-FOLDER::Trim() "/" WS-NAME::Trim() INTO WS-ONE-PATH
            END-IF
-           MOVE "N" TO WS-FOUND
-           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
-               IF WS-NODE-PATH(WS-J) = WS-ONE-PATH
-                   MOVE "Y" TO WS-FOUND
+           SET     WS-FOUND                      TO    "N"
+           PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               IF    WS-NODE-PATH(WS-J) = WS-ONE-PATH
+                   SET     WS-FOUND              TO    "Y"
                END-IF
            END-PERFORM
-           IF WS-FOUND = "Y"
-               MOVE T-FOLDER-EXISTS::Trim() TO Lbl-Status::Caption
+           IF    WS-FOUND = "Y"
+               SET     Lbl-Status::Caption       TO    T-FOLDER-EXISTS::Trim()
                EXIT PROGRAM
            END-IF
-           OPEN I-O FOLDERS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT FOLDERS-FILE
-               CLOSE FOLDERS-FILE
-               OPEN I-O FOLDERS-FILE
+           OPEN    I-O FOLDERS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT FOLDERS-FILE
+               CLOSE    FOLDERS-FILE
+               OPEN    I-O FOLDERS-FILE
            END-IF
-           MOVE WS-CUR-TOPIC TO FLD-TOPIC
-           MOVE WS-ONE-PATH TO FLD-PATH
-           WRITE FOLDER-REC
+
+           SET     FLD-TOPIC                     TO    WS-CUR-TOPIC
+           SET     FLD-PATH                      TO    WS-ONE-PATH
+
+           WRITE    FOLDER-REC
                INVALID KEY CONTINUE
            END-WRITE
            COMMIT
-           CLOSE FOLDERS-FILE
-      *>   The new folder becomes the selection, so a drop goes into it.
-           MOVE "F" TO WS-SEL-KIND
-           MOVE WS-ONE-PATH TO WS-SEL-PATH
-           MOVE SPACES TO Txt-Folder::Text
-           CALL "PC-LIST-DOCS"
-           MOVE T-FOLDER-CREATED TO WS-FMT
-           MOVE WS-SEL-PATH TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           CLOSE    FOLDERS-FILE
+           *>   The new folder becomes the selection, so a drop goes into it.
+
+           SET     WS-SEL-KIND                   TO    "F"
+           SET     WS-SEL-PATH                   TO    WS-ONE-PATH
+           SET     Txt-Folder::Text              TO    SPACES
+
+           CALL    "PC-LIST-DOCS"
+
+           SET     WS-FMT                        TO    T-FOLDER-CREATED
+           SET     WS-ARG1                       TO    WS-SEL-PATH
+
+           CALL    "PC-FMT"
+           SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
 ]]></Event>
   </Control>
   <Control id="Btn-Move" type="Button" x="680" y="416" w="184" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
@@ -2015,30 +2311,34 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-MOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   First press: the selected document is the one to move. Second
-      *>   press: it goes into the selected folder (or a document's folder).
-           IF WS-MOVE-STEP NOT = SPACE
-               MOVE T-KB-UPDATING::Trim() TO Lbl-Status::Caption
+           *>   First press: the selected document is the one to move. Second
+           *>   press: it goes into the selected folder (or a document's folder).
+
+           IF    WS-MOVE-STEP NOT = SPACE
+               SET     Lbl-Status::Caption       TO    T-KB-UPDATING::Trim()
                EXIT PROGRAM
            END-IF
-           IF WS-MOVE-SRC = SPACES
-               IF WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
-                   MOVE T-PICK-DOC-TO-MOVE::Trim()
-                       TO Lbl-Status::Caption
+           IF    WS-MOVE-SRC = SPACES
+               IF    WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
+                   SET     Lbl-Status::Caption   TO    T-PICK-DOC-TO-MOVE::Trim()
                    EXIT PROGRAM
                END-IF
-               MOVE WS-SEL-PATH TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
-               MOVE T-MOVE-PICK TO WS-FMT
-               MOVE WS-MOVE-SRC TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+               SET     WS-MOVE-SRC               TO    WS-SEL-PATH
+               CALL    "PC-MOVE-UI"
+
+               SET     WS-FMT                    TO    T-MOVE-PICK
+               SET     WS-ARG1                   TO    WS-MOVE-SRC
+
+               CALL    "PC-FMT"
+               SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
            END-IF
-           MOVE WS-FOLDER TO WS-MOVE-TO
-           CALL "PC-MOVE-GO"
+           SET     WS-MOVE-TO                    TO    WS-FOLDER
+           CALL    "PC-MOVE-GO"
 ]]></Event>
   </Control>
   <Control id="Btn-MoveTop" type="Button" x="872" y="416" w="184" h="32" tab-order="8" z-order="0" visible="true" enabled="true">
@@ -2082,14 +2382,17 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-MOVETOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Place the document picked with Move at the top level.
-           IF WS-MOVE-SRC = SPACES OR WS-MOVE-STEP NOT = SPACE
+           *>   Place the document picked with Move at the top level.
+
+           IF    WS-MOVE-SRC = SPACES OR WS-MOVE-STEP NOT = SPACE
                EXIT PROGRAM
            END-IF
-           MOVE SPACES TO WS-MOVE-TO
-           CALL "PC-MOVE-GO"
+           SET     WS-MOVE-TO                    TO    SPACES
+           CALL    "PC-MOVE-GO"
 ]]></Event>
   </Control>
   <Control id="Lbl-Progress" type="Label" x="24" y="396" w="632" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -2412,309 +2715,396 @@ Node 2</Property>
     <Property name="ModelEntry"></Property>
     <Property name="EmbeddingAPIKey"></Property>
     <Event name="onProgress" paragraph="KB-D--ONPROGRESS"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The progress strip (R16a): which document, how many of how many.
-      *>   The strip is always on the form; it is empty while nothing indexes.
-      *>   Fetching the model counts kilobytes of one file, not documents.
-           IF WS-KB-STEP = "M"
-               MOVE KB-D::ProgressCurrent TO WS-KB1
-               MOVE KB-D::ProgressTotal TO WS-KB2
-               MOVE KB-D::ProgressTotal TO Prg-Index::Maximum
-               MOVE KB-D::ProgressCurrent TO Prg-Index::Value
-               SET Prg-Index::Visible TO TRUE
-               MOVE T-MODEL-FETCH TO WS-FMT
-               MOVE KB-D::ProgressDocument TO WS-ARG1
-               MOVE WS-KB1 TO WS-ARG2
-               MOVE WS-KB2 TO WS-ARG3
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
+           *>   The progress strip (R16a): which document, how many of how many.
+           *>   The strip is always on the form; it is empty while nothing indexes.
+           *>   Fetching the model counts kilobytes of one file, not documents.
+
+           IF    WS-KB-STEP = "M"
+               SET     WS-KB1                    TO    KB-D::ProgressCurrent
+               SET     WS-KB2                    TO    KB-D::ProgressTotal
+               SET     Prg-Index::Maximum        TO    KB-D::ProgressTotal
+               SET     Prg-Index::Value          TO    KB-D::ProgressCurrent
+               SET     Prg-Index::Visible        TO    TRUE
+               SET     WS-FMT                    TO    T-MODEL-FETCH
+               SET     WS-ARG1                   TO    KB-D::ProgressDocument
+               SET     WS-ARG2                   TO    WS-KB1
+               SET     WS-ARG3                   TO    WS-KB2
+
+               CALL    "PC-FMT"
+               SET     Lbl-Progress::Caption     TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
            END-IF
-      *>   Two bars (operator, 2026-09-27): documents split into passages,
-      *>   and the passages of the document in hand given their embeddings.
-      *>   Each shows while its stage runs and goes when it reaches 100 %.
-           MOVE KB-D::ProgressCurrent TO WS-NUM-TEXT
-           COMPUTE WS-DOC-CUR = FUNCTION NUMVAL(WS-NUM-TEXT)
-           MOVE KB-D::ProgressTotal TO WS-NUM-TEXT
-           COMPUTE WS-DOC-TOT = FUNCTION NUMVAL(WS-NUM-TEXT)
-           MOVE KB-D::ProgressPassage TO WS-NUM-TEXT
-           COMPUTE WS-PASSAGE = FUNCTION NUMVAL(WS-NUM-TEXT)
-           MOVE KB-D::ProgressPassages TO WS-NUM-TEXT
-           COMPUTE WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
-      *>   Chunking is done once the last document is split: when its
-      *>   embedding has begun, or when it is finished.
-           IF WS-DOC-TOT > 0 AND (WS-DOC-CUR < WS-DOC-TOT
-              OR (WS-PASSAGES > 0 AND WS-PASSAGE = 0))
-               MOVE WS-DOC-CUR TO WS-KB1
-               MOVE WS-DOC-TOT TO WS-KB2
-               MOVE T-CHUNK-BAR TO WS-FMT
-               MOVE WS-KB1 TO WS-ARG1
-               MOVE WS-KB2 TO WS-ARG2
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Chunk::Caption
-               MOVE WS-DOC-TOT TO Prg-Chunk::Maximum
-               MOVE WS-DOC-CUR TO Prg-Chunk::Value
-               SET Lbl-Chunk::Visible TO TRUE
-               SET Prg-Chunk::Visible TO TRUE
+           *>   Two bars (operator, 2026-09-27): documents split into passages,
+           *>   and the passages of the document in hand given their embeddings.
+           *>   Each shows while its stage runs and goes when it reaches 100 %.
+
+           SET     WS-NUM-TEXT                   TO    KB-D::ProgressCurrent
+           COMPUTE    WS-DOC-CUR = FUNCTION NUMVAL(WS-NUM-TEXT)
+           SET     WS-NUM-TEXT                   TO    KB-D::ProgressTotal
+           COMPUTE    WS-DOC-TOT = FUNCTION NUMVAL(WS-NUM-TEXT)
+           SET     WS-NUM-TEXT                   TO    KB-D::ProgressPassage
+           COMPUTE    WS-PASSAGE = FUNCTION NUMVAL(WS-NUM-TEXT)
+           SET     WS-NUM-TEXT                   TO    KB-D::ProgressPassages
+           COMPUTE    WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
+           *>   Chunking is done once the last document is split: when its
+           *>   embedding has begun, or when it is finished.
+
+           IF    WS-DOC-TOT > 0 AND (WS-DOC-CUR < WS-DOC-TOT
+                   OR (WS-PASSAGES > 0 AND WS-PASSAGE = 0))
+
+               SET     WS-KB1                    TO    WS-DOC-CUR
+               SET     WS-KB2                    TO    WS-DOC-TOT
+               SET     WS-FMT                    TO    T-CHUNK-BAR
+               SET     WS-ARG1                   TO    WS-KB1
+               SET     WS-ARG2                   TO    WS-KB2
+
+               CALL    "PC-FMT"
+
+               SET     Lbl-Chunk::Caption        TO    WS-FMT-OUT::Trim()
+               SET     Prg-Chunk::Maximum        TO    WS-DOC-TOT
+               SET     Prg-Chunk::Value          TO    WS-DOC-CUR
+               SET     Lbl-Chunk::Visible        TO    TRUE
+               SET     Prg-Chunk::Visible        TO    TRUE
            ELSE
-               SET Lbl-Chunk::Visible TO FALSE
-               SET Prg-Chunk::Visible TO FALSE
+               SET     Lbl-Chunk::Visible        TO    FALSE
+               SET     Prg-Chunk::Visible        TO    FALSE
            END-IF
-           IF WS-PASSAGES > 0 AND WS-PASSAGE < WS-PASSAGES
-               MOVE WS-PASSAGE TO WS-KB1
-               MOVE WS-PASSAGES TO WS-KB2
-               MOVE T-EMBED-BAR TO WS-FMT
-               MOVE WS-KB1 TO WS-ARG1
-               MOVE WS-KB2 TO WS-ARG2
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Embed::Caption
-               MOVE WS-PASSAGES TO Prg-Embed::Maximum
-               MOVE WS-PASSAGE TO Prg-Embed::Value
-               SET Lbl-Embed::Visible TO TRUE
-               SET Prg-Embed::Visible TO TRUE
+           IF    WS-PASSAGES > 0 AND WS-PASSAGE < WS-PASSAGES
+               SET     WS-KB1                    TO    WS-PASSAGE
+               SET     WS-KB2                    TO    WS-PASSAGES
+               SET     WS-FMT                    TO    T-EMBED-BAR
+               SET     WS-ARG1                   TO    WS-KB1
+               SET     WS-ARG2                   TO    WS-KB2
+
+               CALL    "PC-FMT"
+
+               SET     Lbl-Embed::Caption        TO    WS-FMT-OUT::Trim()
+               SET     Prg-Embed::Maximum        TO    WS-PASSAGES
+               SET     Prg-Embed::Value          TO    WS-PASSAGE
+               SET     Lbl-Embed::Visible        TO    TRUE
+               SET     Prg-Embed::Visible        TO    TRUE
            ELSE
-               SET Lbl-Embed::Visible TO FALSE
-               SET Prg-Embed::Visible TO FALSE
+               SET     Lbl-Embed::Visible        TO    FALSE
+               SET     Prg-Embed::Visible        TO    FALSE
            END-IF
-           MOVE KB-D::ProgressCurrent TO WS-N1
-           MOVE KB-D::ProgressTotal TO WS-N2
-           MOVE T-KB-PROGRESS TO WS-FMT
-           MOVE WS-N1 TO WS-ARG1
-           MOVE WS-N2 TO WS-ARG2
-           MOVE KB-D::ProgressDocument TO WS-ARG3
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Progress::Caption
+
+           SET     WS-N1                         TO    KB-D::ProgressCurrent
+           SET     WS-N2                         TO    KB-D::ProgressTotal
+           SET     WS-FMT                        TO    T-KB-PROGRESS
+           SET     WS-ARG1                       TO    WS-N1
+           SET     WS-ARG2                       TO    WS-N2
+           SET     WS-ARG3                       TO    KB-D::ProgressDocument
+
+           CALL    "PC-FMT"
+           SET     Lbl-Progress::Caption         TO    WS-FMT-OUT::Trim()
 ]]></Event>
     <Event name="onIndexed" paragraph="KB-D--ONINDEXED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The model is here (or was already): now the folder.
-           IF WS-KB-STEP = "M"
-               MOVE SPACE TO WS-KB-STEP
-               CALL "PC-PROGRESS-IDLE"
-               CALL "PC-KB-REFRESH"
+           *>   The model is here (or was already): now the folder.
+
+           *> One handler ends every job; the markers say which one: WS-KB-STEP M
+           *> (model fetched), WS-UP-STEP U (upload), WS-MOVE-STEP I then D (move),
+           *> WS-DELETING (delete). None of them, or R: the refresh summary below.
+
+           IF    WS-KB-STEP = "M"
+               SET     WS-KB-STEP                TO    SPACE
+
+               CALL    "PC-PROGRESS-IDLE"
+               CALL    "PC-KB-REFRESH"
+
                EXIT PROGRAM
            END-IF
-      *>   An upload imported: say which, and whether it was new; then the
-      *>   next one.
-           IF WS-UP-STEP = "U"
-               MOVE SPACE TO WS-UP-STEP
-               MOVE "D" TO WS-UP-STATE(WS-UP-CUR)
-               CALL "PC-PROGRESS-IDLE"
-               CALL "PC-LIST-DOCS"
-               MOVE KB-D::UpdatedCount TO WS-NUM-TEXT
-               COMPUTE WS-UP-COUNT = FUNCTION NUMVAL(WS-NUM-TEXT)
-               IF WS-UP-COUNT > 0
-                   MOVE T-UP-UPDATED TO WS-FMT
-                   ADD 1 TO WS-UP-UPDATED
+           *>   An upload imported: say which, and whether it was new; then the
+           *>   next one.
+
+           IF    WS-UP-STEP = "U"
+               SET     WS-UP-STEP                TO    SPACE
+               SET     WS-UP-STATE(WS-UP-CUR)    TO    "D"
+
+               CALL    "PC-PROGRESS-IDLE"
+               CALL    "PC-LIST-DOCS"
+
+               SET     WS-NUM-TEXT               TO    KB-D::UpdatedCount
+               COMPUTE    WS-UP-COUNT = FUNCTION NUMVAL(WS-NUM-TEXT)
+               IF    WS-UP-COUNT > 0
+                   SET     WS-FMT                TO    T-UP-UPDATED
+                   ADD    1 TO WS-UP-UPDATED
                ELSE
-                   MOVE T-UP-ADDED TO WS-FMT
-                   ADD 1 TO WS-UP-ADDED
+                   SET     WS-FMT                TO    T-UP-ADDED
+                   ADD    1 TO WS-UP-ADDED
                END-IF
-               MOVE WS-UP-DEST(WS-UP-CUR) TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT TO WS-LINE
-               MOVE KB-D::PassageCount TO WS-NUM-TEXT
-               COMPUTE WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
-               MOVE WS-PASSAGES TO WS-KB1
-               MOVE KB-D::SearchMode TO WS-NUM-TEXT
-               IF WS-NUM-TEXT = "Semantic"
-                   MOVE T-KB-EMBEDDED TO WS-FMT
+               SET     WS-ARG1                   TO    WS-UP-DEST(WS-UP-CUR)
+               CALL    "PC-FMT"
+
+               SET     WS-LINE                   TO    WS-FMT-OUT
+               SET     WS-NUM-TEXT               TO    KB-D::PassageCount
+
+               COMPUTE    WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
+
+               SET     WS-KB1                    TO    WS-PASSAGES
+               SET     WS-NUM-TEXT               TO    KB-D::SearchMode
+
+               IF    WS-NUM-TEXT = "Semantic"
+                   SET     WS-FMT                TO    T-KB-EMBEDDED
                ELSE
-                   MOVE T-KB-PASSAGES TO WS-FMT
+                   SET     WS-FMT                TO    T-KB-PASSAGES
                END-IF
-               MOVE WS-KB1 TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE WS-LINE TO WS-ARG2
-               MOVE SPACES TO WS-LINE
-               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
-               IF WS-REJECT-MSG NOT = SPACES
-                   MOVE WS-LINE TO WS-ARG2
-                   MOVE SPACES TO WS-LINE
-                   STRING WS-ARG2::Trim() " " WS-REJECT-MSG::Trim() INTO WS-LINE
-                   MOVE SPACES TO WS-REJECT-MSG
+               SET     WS-ARG1                   TO    WS-KB1
+               CALL    "PC-FMT"
+
+               SET     WS-ARG2                   TO    WS-LINE
+               SET     WS-LINE                   TO    SPACES
+
+               STRING    WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
+               IF    WS-REJECT-MSG NOT = SPACES
+                   SET     WS-ARG2               TO    WS-LINE
+                   SET     WS-LINE               TO    SPACES
+
+                   STRING    WS-ARG2::Trim() " " WS-REJECT-MSG::Trim() INTO WS-LINE
+                   SET     WS-REJECT-MSG         TO    SPACES
                END-IF
-               MOVE WS-LINE TO Lbl-Status::Caption
-               CALL "PC-UP-NEXT"
+               SET     Lbl-Status::Caption       TO    WS-LINE
+               CALL    "PC-UP-NEXT"
                EXIT PROGRAM
            END-IF
-      *>   A move's copy is indexed: now the original goes. Its own onIndexed
-      *>   lists the tree and reports the move.
-           IF WS-MOVE-STEP = "I"
-               MOVE KB-D::DeleteDocument(WS-MOVE-SRC::Trim()) TO WS-OK
-               IF WS-OK = "1"
-                   MOVE "D" TO WS-MOVE-STEP
+           *>   A move's copy is indexed: now the original goes. Its own onIndexed
+           *>   lists the tree and reports the move.
+
+           IF    WS-MOVE-STEP = "I"
+               SET     WS-OK                     TO    KB-D::DeleteDocument(WS-MOVE-SRC::Trim())
+               IF    WS-OK = "1"
+                   SET     WS-MOVE-STEP          TO    "D"
                    EXIT PROGRAM
                END-IF
-               MOVE SPACE TO WS-MOVE-STEP
-               MOVE SPACES TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
-               CALL "PC-PROGRESS-IDLE"
-               MOVE KB-D::LastError TO Lbl-Status::Caption
-               CALL "PC-LIST-DOCS"
+
+               SET     WS-MOVE-STEP              TO    SPACE
+               SET     WS-MOVE-SRC               TO    SPACES
+
+               CALL    "PC-MOVE-UI"
+               CALL    "PC-PROGRESS-IDLE"
+
+               SET     Lbl-Status::Caption       TO    KB-D::LastError
+               CALL    "PC-LIST-DOCS"
                EXIT PROGRAM
            END-IF
-           CALL "PC-PROGRESS-IDLE"
-      *>   A document deleted: say which, and that it left the index.
-           IF WS-DELETING NOT = SPACES
-      *>       The tree first: PC-LIST-DOCS formats its own count line.
-               MOVE SPACES TO WS-SEL-KIND WS-SEL-PATH
-               CALL "PC-LIST-DOCS"
-               MOVE T-DOC-REMOVED TO WS-FMT
-               MOVE WS-DELETING TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE SPACES TO WS-DELETING
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
+           CALL    "PC-PROGRESS-IDLE"
+           *>   A document deleted: say which, and that it left the index.
+
+           IF    WS-DELETING NOT = SPACES
+               *>       The tree first: PC-LIST-DOCS formats its own count line.
+
+               SET     WS-SEL-KIND WS-SEL-PATH   TO    SPACES
+               CALL    "PC-LIST-DOCS"
+
+               SET     WS-FMT                    TO    T-DOC-REMOVED
+               SET     WS-ARG1                   TO    WS-DELETING
+
+               CALL    "PC-FMT"
+
+               SET     WS-DELETING               TO    SPACES
+               SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
+
                EXIT PROGRAM
            END-IF
-           IF WS-MOVE-STEP = "D"
-               MOVE SPACE TO WS-MOVE-STEP
-               MOVE "D" TO WS-SEL-KIND
-               MOVE WS-MOVE-DEST TO WS-SEL-PATH
-               CALL "PC-LIST-DOCS"
-               MOVE T-MOVED TO WS-FMT
-               MOVE WS-MOVE-SRC TO WS-ARG1
-               IF WS-MOVE-TO = SPACES
-                   MOVE T-TOP-LEVEL TO WS-ARG2
+           IF    WS-MOVE-STEP = "D"
+               SET     WS-MOVE-STEP              TO    SPACE
+               SET     WS-SEL-KIND               TO    "D"
+               SET     WS-SEL-PATH               TO    WS-MOVE-DEST
+
+               CALL    "PC-LIST-DOCS"
+
+               SET     WS-FMT                    TO    T-MOVED
+               SET     WS-ARG1                   TO    WS-MOVE-SRC
+
+               IF    WS-MOVE-TO = SPACES
+                   SET     WS-ARG2               TO    T-TOP-LEVEL
                ELSE
-                   MOVE WS-MOVE-TO TO WS-ARG2
+                   SET     WS-ARG2               TO    WS-MOVE-TO
                END-IF
-               CALL "PC-FMT"
-               MOVE WS-FMT-OUT::Trim() TO Lbl-Status::Caption
-               MOVE SPACES TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
+               CALL    "PC-FMT"
+
+               SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
+               SET     WS-MOVE-SRC               TO    SPACES
+
+               CALL    "PC-MOVE-UI"
                EXIT PROGRAM
            END-IF
-      *>   A collection indexed with another embedder (the lexical one, before
-      *>   PowerChat used the semantic model) is only stored as text: rebuild
-      *>   it once, so its documents get their vectors.
-           MOVE KB-D::SearchModeReason TO WS-MODE-WHY
-           MOVE 0 TO WS-TALLY
-           INSPECT WS-MODE-WHY TALLYING WS-TALLY FOR ALL "another embedder"
-           IF WS-TALLY > 0 AND WS-KB-STEP = SPACE
-               MOVE SPACES TO KB-D::SearchModeReason
-               MOVE KB-D::Reindex() TO WS-OK
-               IF WS-OK = "1"
-                   MOVE "R" TO WS-KB-STEP
-                   MOVE T-REINDEXING::Trim() TO Lbl-Progress::Caption
+           *>   A collection indexed with another embedder (the lexical one, before
+           *>   PowerChat used the semantic model) is only stored as text: rebuild
+           *>   it once, so its documents get their vectors.
+
+           SET     WS-MODE-WHY                   TO    KB-D::SearchModeReason
+           SET     WS-TALLY                      TO    0
+
+           INSPECT    WS-MODE-WHY TALLYING WS-TALLY FOR ALL "another embedder"
+           *> The WS-KB-STEP test keeps a rebuild from repeating: it is "R" while
+           *> one runs, so the onIndexed that ends it does not start another.
+
+           IF    WS-TALLY > 0 AND WS-KB-STEP = SPACE
+               SET     KB-D::SearchModeReason    TO    SPACES
+               SET     WS-OK                     TO    KB-D::Reindex()
+
+               IF    WS-OK = "1"
+                   SET     WS-KB-STEP            TO    "R"
+                   SET     Lbl-Progress::Caption TO    T-REINDEXING::Trim()
+
                    EXIT PROGRAM
                END-IF
            END-IF
-           MOVE SPACE TO WS-KB-STEP
-           MOVE KB-D::AddedCount TO WS-N1
-           MOVE KB-D::UpdatedCount TO WS-N2
-           MOVE KB-D::RemovedCount TO WS-N3
-           MOVE KB-D::SkippedCount TO WS-N4
-           MOVE T-KB-COUNTS TO WS-FMT
-           MOVE WS-N1 TO WS-ARG1
-           MOVE WS-N2 TO WS-ARG2
-           MOVE WS-N3 TO WS-ARG3
-           MOVE WS-N4 TO WS-ARG4
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT TO WS-LINE
-           MOVE KB-D::SkippedDocuments TO WS-SKIPPED
-           IF WS-SKIPPED NOT = SPACES
-               MOVE T-KB-SKIPPED TO WS-FMT
-               MOVE WS-SKIPPED TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE WS-LINE TO WS-ARG2
-               MOVE SPACES TO WS-LINE
-               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
+
+           SET     WS-KB-STEP                    TO    SPACE
+           SET     WS-N1                         TO    KB-D::AddedCount
+           SET     WS-N2                         TO    KB-D::UpdatedCount
+           SET     WS-N3                         TO    KB-D::RemovedCount
+           SET     WS-N4                         TO    KB-D::SkippedCount
+           SET     WS-FMT                        TO    T-KB-COUNTS
+           SET     WS-ARG1                       TO    WS-N1
+           SET     WS-ARG2                       TO    WS-N2
+           SET     WS-ARG3                       TO    WS-N3
+           SET     WS-ARG4                       TO    WS-N4
+
+           CALL    "PC-FMT"
+
+           SET     WS-LINE                       TO    WS-FMT-OUT
+           SET     WS-SKIPPED                    TO    KB-D::SkippedDocuments
+
+           IF    WS-SKIPPED NOT = SPACES
+               SET     WS-FMT                    TO    T-KB-SKIPPED
+               SET     WS-ARG1                   TO    WS-SKIPPED
+
+               CALL    "PC-FMT"
+
+               SET     WS-ARG2                   TO    WS-LINE
+               SET     WS-LINE                   TO    SPACES
+
+               STRING    WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
-      *>   What was stored, said outright: how many passages, and whether
-      *>   they carry embeddings (operator, 2026-09-27: no confirmation that
-      *>   the chunking and the embedding were done).
-           MOVE KB-D::PassageCount TO WS-NUM-TEXT
-           COMPUTE WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
-           IF WS-PASSAGES > 0
-               MOVE WS-PASSAGES TO WS-KB1
-               MOVE KB-D::SearchMode TO WS-NUM-TEXT
-               IF WS-NUM-TEXT = "Semantic"
-                   MOVE T-KB-EMBEDDED TO WS-FMT
+           *>   What was stored, said outright: how many passages, and whether
+           *>   they carry embeddings (operator, 2026-09-27: no confirmation that
+           *>   the chunking and the embedding were done).
+
+           SET     WS-NUM-TEXT                   TO    KB-D::PassageCount
+           COMPUTE    WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
+           IF    WS-PASSAGES > 0
+               SET     WS-KB1                    TO    WS-PASSAGES
+               SET     WS-NUM-TEXT               TO    KB-D::SearchMode
+
+               IF    WS-NUM-TEXT = "Semantic"
+                   SET     WS-FMT                TO    T-KB-EMBEDDED
                ELSE
-                   MOVE T-KB-PASSAGES TO WS-FMT
+                   SET     WS-FMT                TO    T-KB-PASSAGES
                END-IF
-               MOVE WS-KB1 TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE WS-LINE TO WS-ARG2
-               MOVE SPACES TO WS-LINE
-               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
+               SET     WS-ARG1                   TO    WS-KB1
+               CALL    "PC-FMT"
+
+               SET     WS-ARG2                   TO    WS-LINE
+               SET     WS-LINE                   TO    SPACES
+
+               STRING    WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
-      *>   R18: never degrade silently - say when search is by words only.
-           IF WS-MODE-WHY NOT = SPACES
-               MOVE T-WORDS-ONLY TO WS-FMT
-               MOVE WS-MODE-WHY TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE WS-LINE TO WS-ARG2
-               MOVE SPACES TO WS-LINE
-               STRING WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
+           *>   R18: never degrade silently - say when search is by words only.
+
+           IF    WS-MODE-WHY NOT = SPACES
+               SET     WS-FMT                    TO    T-WORDS-ONLY
+               SET     WS-ARG1                   TO    WS-MODE-WHY
+
+               CALL    "PC-FMT"
+
+               SET     WS-ARG2                   TO    WS-LINE
+               SET     WS-LINE                   TO    SPACES
+
+               STRING    WS-ARG2::Trim() " " WS-FMT-OUT::Trim() INTO WS-LINE
            END-IF
-           IF WS-REJECT-MSG NOT = SPACES
-               MOVE WS-LINE TO WS-ARG2
-               MOVE SPACES TO WS-LINE
-               STRING WS-ARG2::Trim() " " WS-REJECT-MSG::Trim() INTO WS-LINE
-               MOVE SPACES TO WS-REJECT-MSG
+           IF    WS-REJECT-MSG NOT = SPACES
+               SET     WS-ARG2                   TO    WS-LINE
+               SET     WS-LINE                   TO    SPACES
+
+               STRING    WS-ARG2::Trim() " " WS-REJECT-MSG::Trim() INTO WS-LINE
+               SET     WS-REJECT-MSG             TO    SPACES
            END-IF
-           MOVE WS-LINE TO Lbl-Status::Caption
-           CALL "PC-LIST-DOCS"
-      *>   Uploads that arrived while this update ran go now.
-           IF WS-UP-N > 0
-               CALL "PC-UP-NEXT"
+           SET     Lbl-Status::Caption           TO    WS-LINE
+           CALL    "PC-LIST-DOCS"
+           *>   Uploads that arrived while this update ran go now.
+
+           IF    WS-UP-N > 0
+               CALL    "PC-UP-NEXT"
            END-IF
 ]]></Event>
     <Event name="onBusy" paragraph="KB-D--ONBUSY"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-PROGRESS-IDLE"
-           MOVE KB-D::LastError TO Lbl-Status::Caption
-           MOVE SPACES TO WS-DELETING
-           IF WS-UP-STEP = "U"
-               MOVE SPACE TO WS-UP-STEP
-               MOVE "D" TO WS-UP-STATE(WS-UP-CUR)
-               CALL "PC-UP-NEXT"
+           CALL    "PC-PROGRESS-IDLE"
+
+           SET     Lbl-Status::Caption           TO    KB-D::LastError
+           SET     WS-DELETING                   TO    SPACES
+
+           IF    WS-UP-STEP = "U"
+               SET     WS-UP-STEP                TO    SPACE
+               SET     WS-UP-STATE(WS-UP-CUR)    TO    "D"
+
+               CALL    "PC-UP-NEXT"
            END-IF
-      *>   No model (no network, say): index anyway - by words, and the
-      *>   summary says so. A failed rebuild leaves the text-only index.
-           IF WS-KB-STEP = "M"
-               MOVE SPACE TO WS-KB-STEP
-               CALL "PC-KB-REFRESH"
+           *>   No model (no network, say): index anyway - by words, and the
+           *>   summary says so. A failed rebuild leaves the text-only index.
+
+           IF    WS-KB-STEP = "M"
+               SET     WS-KB-STEP                TO    SPACE
+               CALL    "PC-KB-REFRESH"
            END-IF
-           MOVE SPACE TO WS-KB-STEP
-      *>   A move stops where it failed: before the delete, the original
-      *>   is untouched; the tree shows what is really there.
-           IF WS-MOVE-STEP NOT = SPACE
-               MOVE SPACE TO WS-MOVE-STEP
-               MOVE SPACES TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
-               CALL "PC-LIST-DOCS"
+           SET     WS-KB-STEP                    TO    SPACE
+           *>   A move stops where it failed: before the delete, the original
+           *>   is untouched; the tree shows what is really there.
+
+           IF    WS-MOVE-STEP NOT = SPACE
+               SET     WS-MOVE-STEP              TO    SPACE
+               SET     WS-MOVE-SRC               TO    SPACES
+
+               CALL    "PC-MOVE-UI"
+               CALL    "PC-LIST-DOCS"
            END-IF
 ]]></Event>
     <Event name="onError" paragraph="KB-D--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-PROGRESS-IDLE"
-           MOVE KB-D::LastError TO Lbl-Status::Caption
-           MOVE SPACES TO WS-DELETING
-           IF WS-UP-STEP = "U"
-               MOVE SPACE TO WS-UP-STEP
-               MOVE "D" TO WS-UP-STATE(WS-UP-CUR)
-               CALL "PC-UP-NEXT"
+           CALL    "PC-PROGRESS-IDLE"
+
+           SET     Lbl-Status::Caption           TO    KB-D::LastError
+           SET     WS-DELETING                   TO    SPACES
+
+           IF    WS-UP-STEP = "U"
+               SET     WS-UP-STEP                TO    SPACE
+               SET     WS-UP-STATE(WS-UP-CUR)    TO    "D"
+
+               CALL    "PC-UP-NEXT"
            END-IF
-      *>   No model (no network, say): index anyway - by words, and the
-      *>   summary says so. A failed rebuild leaves the text-only index.
-           IF WS-KB-STEP = "M"
-               MOVE SPACE TO WS-KB-STEP
-               CALL "PC-KB-REFRESH"
+           *>   No model (no network, say): index anyway - by words, and the
+           *>   summary says so. A failed rebuild leaves the text-only index.
+
+           IF    WS-KB-STEP = "M"
+               SET     WS-KB-STEP                TO    SPACE
+               CALL    "PC-KB-REFRESH"
            END-IF
-           MOVE SPACE TO WS-KB-STEP
-      *>   A move stops where it failed: before the delete, the original
-      *>   is untouched; the tree shows what is really there.
-           IF WS-MOVE-STEP NOT = SPACE
-               MOVE SPACE TO WS-MOVE-STEP
-               MOVE SPACES TO WS-MOVE-SRC
-               CALL "PC-MOVE-UI"
-               CALL "PC-LIST-DOCS"
+           SET     WS-KB-STEP                    TO    SPACE
+           *>   A move stops where it failed: before the delete, the original
+           *>   is untouched; the tree shows what is really there.
+
+           IF    WS-MOVE-STEP NOT = SPACE
+               SET     WS-MOVE-STEP              TO    SPACE
+               SET     WS-MOVE-SRC               TO    SPACES
+
+               CALL    "PC-MOVE-UI"
+               CALL    "PC-LIST-DOCS"
            END-IF
 ]]></Event>
   </Control>
@@ -2752,13 +3142,16 @@ Node 2</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A flag in the chat's menu changes the language while this form is
-      *>   on the pane; nothing tells a pane occupant, so it looks (R46).
-           CALL "PC-LANG-NOW"
-           IF WS-LANG-NOW NOT = WS-LANG
-               CALL "DOCUMENTS-FORM--ONACTIVATE"
+           *>   A flag in the chat's menu changes the language while this form is
+           *>   on the pane; nothing tells a pane occupant, so it looks (R46).
+
+           CALL    "PC-LANG-NOW"
+           IF    WS-LANG-NOW NOT = WS-LANG
+               CALL    "DOCUMENTS-FORM--ONACTIVATE"
            END-IF
 ]]></Event>
   </Control>

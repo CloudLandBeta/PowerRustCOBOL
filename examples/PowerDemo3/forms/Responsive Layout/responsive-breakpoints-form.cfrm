@@ -40,17 +40,15 @@
       <Override control="BP-TITLE" property="FontSize">26</Override>
     </Breakpoint>
   </Breakpoints>
-  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-TA-1 GLOBAL PIC X(44)
-           VALUE "Phone:0:0.9;Tablet:600:0.95;Laptop:900:0.95;".
-       01 WS-TA-2 GLOBAL PIC X(28)
-           VALUE "Desktop:1200:1;Wide:1600:1.2".
-       01 WS-TABLE GLOBAL PIC X(80).
+  <working-storage><![CDATA[       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-TA-1                                GLOBAL    PIC X(44)    VALUE "Phone:0:0.9;Tablet:600:0.95;Laptop:900:0.95;".
+       01 WS-TA-2                                GLOBAL    PIC X(28)    VALUE "Desktop:1200:1;Wide:1600:1.2".
+       01 WS-TABLE                               GLOBAL    PIC X(80).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -99,66 +97,88 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <user-procedures>
     <Event name="BPT-SHOW-INFO" paragraph="BPT-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 ]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="RESPONSIVE-BREAKPOINTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "BPT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO BP-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "BPT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-BP is blank-padded to 20 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
+           SET     BP-NOW::Caption               TO    WS-LINE
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-BREAKPOINTS-FORM--ONCLOSE">
     </Event>
     <Event name="onResize" paragraph="RESPONSIVE-BREAKPOINTS-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "BPT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO BP-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "BPT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-BP is blank-padded to 20 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
+           SET     BP-NOW::Caption               TO    WS-LINE
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-BREAKPOINTS-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "BPT-SHOW-INFO"
-           MOVE SPACES TO WS-LINE
-           STRING "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
-           MOVE WS-LINE TO BP-NOW::Caption
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "BPT-SHOW-INFO"
+           SET     WS-LINE                       TO    SPACES
+           *> WS-BP is blank-padded to 20 characters; stopping at the first double
+           *> blank keeps that padding out of the caption.
+
+           STRING    "Now: " WS-BP DELIMITED BY "  " INTO WS-LINE
+           SET     BP-NOW::Caption               TO    WS-LINE
 ]]></Event>
   </form-events>
   <Control id="PNL-TOP" type="Panel" x="0" y="0" w="1280" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -496,9 +516,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-PHONE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Phone" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Phone"
 ]]></Event>
   </Control>
   <Control id="SD-TABLET" type="Button" x="12" y="146" w="216" h="34" tab-order="4" z-order="9" visible="true" enabled="true" parent="PNL-SIDE">
@@ -540,9 +562,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-TABLET--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Tablet" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Tablet"
 ]]></Event>
   </Control>
   <Control id="SD-LAPTOP" type="Button" x="12" y="186" w="216" h="34" tab-order="5" z-order="10" visible="true" enabled="true" parent="PNL-SIDE">
@@ -584,9 +608,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-LAPTOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Laptop" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Laptop"
 ]]></Event>
   </Control>
   <Control id="SD-DESKTOP" type="Button" x="12" y="226" w="216" h="34" tab-order="6" z-order="11" visible="true" enabled="true" parent="PNL-SIDE">
@@ -628,9 +654,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-DESKTOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Desktop" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Desktop"
 ]]></Event>
   </Control>
   <Control id="SD-WIDE" type="Button" x="12" y="266" w="216" h="34" tab-order="7" z-order="12" visible="true" enabled="true" parent="PNL-SIDE">
@@ -672,9 +700,11 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-WIDE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Wide" TO me::Breakpoint
+           SET     me::Breakpoint                TO    "Wide"
 ]]></Event>
   </Control>
   <Control id="SD-AUTO" type="Button" x="12" y="306" w="216" h="34" tab-order="8" z-order="13" visible="true" enabled="true" parent="PNL-SIDE">
@@ -716,10 +746,13 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-AUTO--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> SPACES unpins: the width chooses again.
-           MOVE SPACES TO me::Breakpoint
+           *> SPACES unpins: the width chooses again.
+
+           SET     me::Breakpoint                TO    SPACES
 ]]></Event>
   </Control>
   <Control id="SD-SWAP" type="Button" x="12" y="346" w="216" h="34" tab-order="9" z-order="14" visible="true" enabled="true" parent="PNL-SIDE">
@@ -761,11 +794,14 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-SWAP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> A different table. The overrides of names it does not
-      *> have are kept, but inactive until the names come back.
-           MOVE "Narrow:0:1;Broad:800:1.15" TO me::Breakpoints
+           *> A different table. The overrides of names it does not
+           *> have are kept, but inactive until the names come back.
+
+           SET     me::Breakpoints               TO    "Narrow:0:1;Broad:800:1.15"
 ]]></Event>
   </Control>
   <Control id="SD-RESTORE" type="Button" x="12" y="386" w="216" h="34" tab-order="10" z-order="15" visible="true" enabled="true" parent="PNL-SIDE">
@@ -807,10 +843,16 @@
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">6</Property>
     <Event name="onClick" paragraph="SD-RESTORE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           STRING WS-TA-1 WS-TA-2 DELIMITED BY SIZE INTO WS-TABLE
-           MOVE WS-TABLE TO me::Breakpoints
+           *> Back to the original five names, so the overrides kept for them come
+           *> alive again. Both pieces fit their text exactly (44 and 28 bytes), so
+           *> the join leaves no blank between entries.
+
+           STRING    WS-TA-1 WS-TA-2 DELIMITED BY SIZE INTO WS-TABLE
+           SET     me::Breakpoints               TO    WS-TABLE
 ]]></Event>
   </Control>
   <Control id="PNL-CONTENT" type="Panel" x="240" y="64" w="1040" h="710" tab-order="0" z-order="16" visible="true" enabled="true">

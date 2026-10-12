@@ -105,12 +105,12 @@
        01 WS-DB-PIE-SELECTED-VAL PIC 9(18)V9(6) VALUE ZEROES.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-DB-HEAD.
@@ -439,16 +439,19 @@
        PROGRAM-ID. RESPONSIVE-DASHBOARD-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DSH-SHOW-INFO"
-           CALL "DSH-CHARTS"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DSH-SHOW-INFO"
+           CALL    "DSH-CHARTS"
 
            GOBACK.
 
@@ -474,15 +477,18 @@
        PROGRAM-ID. RESPONSIVE-DASHBOARD-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DSH-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DSH-SHOW-INFO"
 
            GOBACK.
 
@@ -492,15 +498,18 @@
        PROGRAM-ID. RESPONSIVE-DASHBOARD-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DSH-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DSH-SHOW-INFO"
 
            GOBACK.
 
@@ -510,17 +519,20 @@
        PROGRAM-ID. DSH-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 
@@ -530,29 +542,32 @@
        PROGRAM-ID. DSH-CHARTS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Sample data for the three charts.
-           INVOKE DB-BAR::Clear()
-           INVOKE DB-BAR::AddPoint("Mon", 182)
-           INVOKE DB-BAR::AddPoint("Tue", 214)
-           INVOKE DB-BAR::AddPoint("Wed", 199)
-           INVOKE DB-BAR::AddPoint("Thu", 241)
-           INVOKE DB-BAR::AddPoint("Fri", 276)
-           INVOKE DB-BAR::AddPoint("Sat", 133)
-           INVOKE DB-LINE::Clear()
-           INVOKE DB-LINE::AddPoint("W1", 31)
-           INVOKE DB-LINE::AddPoint("W2", 35)
-           INVOKE DB-LINE::AddPoint("W3", 33)
-           INVOKE DB-LINE::AddPoint("W4", 41)
-           INVOKE DB-LINE::AddPoint("W5", 44)
-           INVOKE DB-LINE::AddPoint("W6", 40)
-           INVOKE DB-LINE::AddPoint("W7", 47)
-           INVOKE DB-LINE::AddPoint("W8", 52)
-           INVOKE DB-PIE::Clear()
-           INVOKE DB-PIE::AddPoint("Shop", 46)
-           INVOKE DB-PIE::AddPoint("Web", 38)
-           INVOKE DB-PIE::AddPoint("Phone", 16)
+           *> Sample data for the three charts.
+
+           DB-BAR::Clear()
+           DB-BAR::AddPoint("Mon", 182)
+           DB-BAR::AddPoint("Tue", 214)
+           DB-BAR::AddPoint("Wed", 199)
+           DB-BAR::AddPoint("Thu", 241)
+           DB-BAR::AddPoint("Fri", 276)
+           DB-BAR::AddPoint("Sat", 133)
+           DB-LINE::Clear()
+           DB-LINE::AddPoint("W1", 31)
+           DB-LINE::AddPoint("W2", 35)
+           DB-LINE::AddPoint("W3", 33)
+           DB-LINE::AddPoint("W4", 41)
+           DB-LINE::AddPoint("W5", 44)
+           DB-LINE::AddPoint("W6", 40)
+           DB-LINE::AddPoint("W7", 47)
+           DB-LINE::AddPoint("W8", 52)
+           DB-PIE::Clear()
+           DB-PIE::AddPoint("Shop", 46)
+           DB-PIE::AddPoint("Web", 38)
+           DB-PIE::AddPoint("Phone", 16)
 
            GOBACK.
 

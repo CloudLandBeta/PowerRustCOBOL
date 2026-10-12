@@ -84,15 +84,15 @@
        01 WS-MAIN-GRID-CSV-STATUS  PIC 9       VALUE 0.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
-       01 WS-HDR GLOBAL PIC X VALUE "T".
-       01 WS-NAV GLOBAL PIC X VALUE "L".
-       01 WS-INS GLOBAL PIC X VALUE "Y".
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
+       01 WS-HDR                                 GLOBAL    PIC X    VALUE "T".
+       01 WS-NAV                                 GLOBAL    PIC X    VALUE "L".
+       01 WS-INS                                 GLOBAL    PIC X    VALUE "Y".
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-PNL-HEADER.
@@ -272,15 +272,18 @@
        PROGRAM-ID. RESPONSIVE-DOCK-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DCK-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DCK-SHOW-INFO"
 
            GOBACK.
 
@@ -306,15 +309,18 @@
        PROGRAM-ID. RESPONSIVE-DOCK-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DCK-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DCK-SHOW-INFO"
 
            GOBACK.
 
@@ -324,15 +330,18 @@
        PROGRAM-ID. RESPONSIVE-DOCK-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "DCK-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "DCK-SHOW-INFO"
 
            GOBACK.
 
@@ -342,18 +351,21 @@
        PROGRAM-ID. BTN-HDR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Re-dock the header. It docks before the status bar (it is
-      *> earlier in render order), so at the bottom it sits UNDER it.
-           IF WS-HDR = "T"
-               MOVE "Bottom" TO PNL-HEADER::Dock
-               MOVE "Header to top" TO BTN-HDR::Caption
-               MOVE "B" TO WS-HDR
+           *> Re-dock the header. It docks before the status bar (it is
+           *> earlier in render order), so at the bottom it sits UNDER it.
+
+           IF    WS-HDR = "T"
+               SET     PNL-HEADER::Dock          TO    "Bottom"
+               SET     BTN-HDR::Caption          TO    "Header to top"
+               SET     WS-HDR                    TO    "B"
            ELSE
-               MOVE "Top" TO PNL-HEADER::Dock
-               MOVE "Header to bottom" TO BTN-HDR::Caption
-               MOVE "T" TO WS-HDR
+               SET     PNL-HEADER::Dock          TO    "Top"
+               SET     BTN-HDR::Caption          TO    "Header to bottom"
+               SET     WS-HDR                    TO    "T"
            END-IF
 
            GOBACK.
@@ -364,18 +376,21 @@
        PROGRAM-ID. BTN-NAV--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Both side panels docked Right: the first in render order
-      *> takes the outer edge.
-           IF WS-NAV = "L"
-               MOVE "Right" TO PNL-NAV::Dock
-               MOVE "Navigation left" TO BTN-NAV::Caption
-               MOVE "R" TO WS-NAV
+           *> Both side panels docked Right: the first in render order
+           *> takes the outer edge.
+
+           IF    WS-NAV = "L"
+               SET     PNL-NAV::Dock             TO    "Right"
+               SET     BTN-NAV::Caption          TO    "Navigation left"
+               SET     WS-NAV                    TO    "R"
            ELSE
-               MOVE "Left" TO PNL-NAV::Dock
-               MOVE "Navigation right" TO BTN-NAV::Caption
-               MOVE "L" TO WS-NAV
+               SET     PNL-NAV::Dock             TO    "Left"
+               SET     BTN-NAV::Caption          TO    "Navigation right"
+               SET     WS-NAV                    TO    "L"
            END-IF
 
            GOBACK.
@@ -386,17 +401,20 @@
        PROGRAM-ID. BTN-INS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> A hidden docked panel takes no edge: the Fill panel grows.
-           IF WS-INS = "Y"
-               MOVE 0 TO PNL-INSPECT::Visible
-               MOVE "Show inspector" TO BTN-INS::Caption
-               MOVE "N" TO WS-INS
+           *> A hidden docked panel takes no edge: the Fill panel grows.
+
+           IF    WS-INS = "Y"
+               SET     PNL-INSPECT::Visible      TO    0
+               SET     BTN-INS::Caption          TO    "Show inspector"
+               SET     WS-INS                    TO    "N"
            ELSE
-               MOVE 1 TO PNL-INSPECT::Visible
-               MOVE "Hide inspector" TO BTN-INS::Caption
-               MOVE "Y" TO WS-INS
+               SET     PNL-INSPECT::Visible      TO    1
+               SET     BTN-INS::Caption          TO    "Hide inspector"
+               SET     WS-INS                    TO    "Y"
            END-IF
 
            GOBACK.
@@ -407,17 +425,20 @@
        PROGRAM-ID. DCK-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 

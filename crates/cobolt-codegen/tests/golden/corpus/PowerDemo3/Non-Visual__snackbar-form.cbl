@@ -285,17 +285,20 @@
        PROGRAM-ID. SNACKBAR-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Nothing to set up: the Snackbar is NON-VISUAL and paints nothing
-      *> where it sits. Every button below mints its own notification from
-      *> the template's values at the moment it calls Show().
+           *> Nothing to set up: the Snackbar is NON-VISUAL and paints nothing
+           *> where it sits. Every button below mints its own notification from
+           *> the template's values at the moment it calls Show().
 
-           DISPLAY "snackbar-form ready - 12 demonstrations".
+           DISPLAY    "snackbar-form ready - 12 demonstrations".
 
            GOBACK.
 
@@ -321,43 +324,51 @@
        PROGRAM-ID. BUTTON-SNACK-CATEGORIES--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 1 - THE FIVE CATEGORIES.
-      *> Category supplies the background, the ink, the icon AND the timeout
-      *> for everything you did not set yourself. Timeout -1 means "take the
-      *> category's own": 4000 / 6000 / 6000 / 8000, and Critical's 0, which
-      *> is why the last one stays until it is dismissed.
-      *> They arrive ONE AT A TIME - the second waits for the first to land.
+           *> 1 - THE FIVE CATEGORIES.
+           *> Category supplies the background, the ink, the icon AND the timeout
+           *> for everything you did not set yourself. Timeout -1 means "take the
+           *> category's own": 4000 / 6000 / 6000 / 8000, and Critical's 0, which
+           *> is why the last one stays until it is dismissed.
+           *> They arrive ONE AT A TIME - the second waits for the first to land.
 
-           INVOKE SNACKBAR-1::Clear()
-           MOVE -1 TO SNACKBAR-1::Timeout
+           SNACKBAR-1::Clear()
+           SET     SNACKBAR-1::Timeout           TO    -1
 
-           MOVE "Info" TO SNACKBAR-1::Category
-           MOVE "Record saved." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Category          TO    "Info"
+           SET     SNACKBAR-1::Text              TO    "Record saved."
 
-           MOVE "Question" TO SNACKBAR-1::Category
-           MOVE "Overwrite the existing file?" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SNACKBAR-1::Show()
 
-           MOVE "Warning" TO SNACKBAR-1::Category
-           MOVE "Index rebuilt with warnings." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Category          TO    "Question"
+           SET     SNACKBAR-1::Text              TO    "Overwrite the existing file?"
 
-           MOVE "Error" TO SNACKBAR-1::Category
-           MOVE "Could not reach the server." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SNACKBAR-1::Show()
 
-           MOVE "Critical" TO SNACKBAR-1::Category
-           MOVE "Disk almost full - 2 per cent free." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Category          TO    "Warning"
+           SET     SNACKBAR-1::Text              TO    "Index rebuilt with warnings."
 
-           DISPLAY "1 - five categories raised; Critical stays until dismissed".
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Category          TO    "Error"
+           SET     SNACKBAR-1::Text              TO    "Could not reach the server."
+
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Category          TO    "Critical"
+           SET     SNACKBAR-1::Text              TO    "Disk almost full - 2 per cent free."
+
+           SNACKBAR-1::Show()
+
+           DISPLAY    "1 - five categories raised; Critical stays until dismissed".
 
            GOBACK.
 
@@ -367,30 +378,34 @@
        PROGRAM-ID. BUTTON-SNACK-TWOBUTTONS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 2 - CLEAR() AND ADDBUTTON().
-      *> Buttons is ONE LINE PER BUTTON and a COBOL literal cannot carry a
-      *> newline, so a MOVE into Buttons can only ever declare ONE. Declare
-      *> them a call at a time instead. Clear() empties the row and NOTHING
-      *> else - the Text and Category below still apply.
-      *> position is the ordinal, 1-based, left to right.
-      *> dismiss=false leaves the notification up when that button is clicked.
+           *> 2 - CLEAR() AND ADDBUTTON().
+           *> Buttons is ONE LINE PER BUTTON and a COBOL literal cannot carry a
+           *> newline, so a MOVE into Buttons can only ever declare ONE. Declare
+           *> them a call at a time instead. Clear() empties the row and NOTHING
+           *> else - the Text and Category below still apply.
+           *> position is the ordinal, 1-based, left to right.
+           *> dismiss=false leaves the notification up when that button is clicked.
 
-           INVOKE SNACKBAR-1::Clear()
-           INVOKE SNACKBAR-1::AddButton("id=undo,caption=Undo,icon=undo,position=1")
-           INVOKE SNACKBAR-1::AddButton("id=later,caption=Later,position=2,dismiss=false")
+           SNACKBAR-1::Clear()
+           SNACKBAR-1::AddButton("id=undo,caption=Undo,icon=undo,position=1")
+           SNACKBAR-1::AddButton("id=later,caption=Later,position=2,dismiss=false")
 
-           MOVE "Warning" TO SNACKBAR-1::Category
-           MOVE "Saved. Undo?" TO SNACKBAR-1::Text
-           MOVE 0 TO SNACKBAR-1::Timeout
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Category          TO    "Warning"
+           SET     SNACKBAR-1::Text              TO    "Saved. Undo?"
+           SET     SNACKBAR-1::Timeout           TO    0
 
-           DISPLAY "2 - Undo dismisses, Later stays up; watch onButtonClick".
+           SNACKBAR-1::Show()
+
+           DISPLAY    "2 - Undo dismisses, Later stays up; watch onButtonClick".
 
            GOBACK.
 
@@ -400,28 +415,32 @@
        PROGRAM-ID. BUTTON-SNACK-THREEBUTTONS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 3 - THREE BUTTONS, AND THE ICON POSITIONS.
-      *> Three is the limit; a fourth is reported, never silently dropped.
-      *> iconposition is None | Left | Right, and defaults to Left when an
-      *> icon is given. A button with an icon and NO caption is icon-only.
+           *> 3 - THREE BUTTONS, AND THE ICON POSITIONS.
+           *> Three is the limit; a fourth is reported, never silently dropped.
+           *> iconposition is None | Left | Right, and defaults to Left when an
+           *> icon is given. A button with an icon and NO caption is icon-only.
 
-           INVOKE SNACKBAR-1::Clear()
-           INVOKE SNACKBAR-1::AddButton("id=retry,caption=Retry,icon=refresh,iconposition=Left,position=1")
-           INVOKE SNACKBAR-1::AddButton("id=help,caption=Help,icon=check,iconposition=Right,position=2")
-           INVOKE SNACKBAR-1::AddButton("id=close,icon=x-mark,position=3")
+           SNACKBAR-1::Clear()
+           SNACKBAR-1::AddButton("id=retry,caption=Retry,icon=refresh,iconposition=Left,position=1")
+           SNACKBAR-1::AddButton("id=help,caption=Help,icon=check,iconposition=Right,position=2")
+           SNACKBAR-1::AddButton("id=close,icon=x-mark,position=3")
 
-           MOVE "Error" TO SNACKBAR-1::Category
-           MOVE "Could not reach the server." TO SNACKBAR-1::Text
-           MOVE 0 TO SNACKBAR-1::Timeout
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Category          TO    "Error"
+           SET     SNACKBAR-1::Text              TO    "Could not reach the server."
+           SET     SNACKBAR-1::Timeout           TO    0
 
-           DISPLAY "3 - icon Left, icon Right, icon-only".
+           SNACKBAR-1::Show()
+
+           DISPLAY    "3 - icon Left, icon Right, icon-only".
 
            GOBACK.
 
@@ -431,34 +450,41 @@
        PROGRAM-ID. BUTTON-SNACK-SIZES--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 4 - THE THREE SIZE CLASSES.
-      *> Size fixes the padding, the font, the button height and how many
-      *> lines the text may use before it is ellipsized.
+           *> 4 - THE THREE SIZE CLASSES.
+           *> Size fixes the padding, the font, the button height and how many
+           *> lines the text may use before it is ellipsized.
 
-           INVOKE SNACKBAR-1::Clear()
-           MOVE 0 TO SNACKBAR-1::Timeout
-           MOVE "Info" TO SNACKBAR-1::Category
+           SNACKBAR-1::Clear()
 
-           MOVE "Small" TO SNACKBAR-1::Size
-           MOVE "Small - compact, one line." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Timeout           TO    0
+           SET     SNACKBAR-1::Category          TO    "Info"
 
-           MOVE "Medium" TO SNACKBAR-1::Size
-           MOVE "Medium - the default size class." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Size              TO    "Small"
+           SET     SNACKBAR-1::Text              TO    "Small - compact, one line."
 
-           MOVE "Large" TO SNACKBAR-1::Size
-           MOVE "Large - room for a longer explanation." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SNACKBAR-1::Show()
 
-           MOVE "Medium" TO SNACKBAR-1::Size
-           DISPLAY "4 - Small, Medium, Large; template left on Medium".
+           SET     SNACKBAR-1::Size              TO    "Medium"
+           SET     SNACKBAR-1::Text              TO    "Medium - the default size class."
+
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Size              TO    "Large"
+           SET     SNACKBAR-1::Text              TO    "Large - room for a longer explanation."
+
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Size              TO    "Medium"
+           DISPLAY    "4 - Small, Medium, Large; template left on Medium".
 
            GOBACK.
 
@@ -468,46 +494,51 @@
        PROGRAM-ID. BUTTON-SNACK-ANCHOR--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-ANCHOR PIC X(16).
-       01 WS-MSG    PIC X(32).
-       01 WS-OUT    PIC X(64).
+       01 WS-ANCHOR                              PIC    X(16).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 5 - THE NINE ANCHOR POSITIONS.
-      *> Each press moves to the next. A TOP anchor grows DOWNWARD with the
-      *> newest at the top; a BOTTOM anchor grows UPWARD. The anchor is
-      *> resolved against THIS FORM'S OWN SURFACE, never the desktop.
+           *> 5 - THE NINE ANCHOR POSITIONS.
+           *> Each press moves to the next. A TOP anchor grows DOWNWARD with the
+           *> newest at the top; a BOTTOM anchor grows UPWARD. The anchor is
+           *> resolved against THIS FORM'S OWN SURFACE, never the desktop.
 
-           MOVE SNACKBAR-1::StackAnchor TO WS-ANCHOR
-           EVALUATE FUNCTION TRIM(WS-ANCHOR)
-               WHEN "BottomRight"  MOVE "BottomCenter" TO WS-ANCHOR
-               WHEN "BottomCenter" MOVE "BottomLeft"   TO WS-ANCHOR
-               WHEN "BottomLeft"   MOVE "CenterLeft"   TO WS-ANCHOR
-               WHEN "CenterLeft"   MOVE "Center"       TO WS-ANCHOR
-               WHEN "Center"       MOVE "CenterRight"  TO WS-ANCHOR
-               WHEN "CenterRight"  MOVE "TopRight"     TO WS-ANCHOR
-               WHEN "TopRight"     MOVE "TopCenter"    TO WS-ANCHOR
-               WHEN "TopCenter"    MOVE "TopLeft"      TO WS-ANCHOR
-               WHEN OTHER          MOVE "BottomRight"  TO WS-ANCHOR
+           SET     WS-ANCHOR                     TO    SNACKBAR-1::StackAnchor
+           EVALUATE    FUNCTION TRIM(WS-ANCHOR)
+               WHEN "BottomRight" MOVE "BottomCenter" TO WS-ANCHOR
+               WHEN "BottomCenter" MOVE "BottomLeft" TO WS-ANCHOR
+               WHEN "BottomLeft" MOVE "CenterLeft" TO WS-ANCHOR
+               WHEN "CenterLeft" MOVE "Center" TO WS-ANCHOR
+               WHEN "Center" MOVE "CenterRight" TO WS-ANCHOR
+               WHEN "CenterRight" MOVE "TopRight" TO WS-ANCHOR
+               WHEN "TopRight" MOVE "TopCenter" TO WS-ANCHOR
+               WHEN "TopCenter" MOVE "TopLeft" TO WS-ANCHOR
+               WHEN OTHER MOVE "BottomRight" TO WS-ANCHOR
            END-EVALUATE
-           MOVE FUNCTION TRIM(WS-ANCHOR) TO SNACKBAR-1::StackAnchor
+           SET     SNACKBAR-1::StackAnchor       TO    FUNCTION TRIM(WS-ANCHOR)
 
-           INVOKE SNACKBAR-1::Clear()
-           MOVE 0 TO SNACKBAR-1::Timeout
-           MOVE "Info" TO SNACKBAR-1::Category
-           MOVE "Oldest of the run" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "Newest of the run" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SNACKBAR-1::Clear()
 
-           MOVE "5 - StackAnchor = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-ANCHOR) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     SNACKBAR-1::Timeout           TO    0
+           SET     SNACKBAR-1::Category          TO    "Info"
+           SET     SNACKBAR-1::Text              TO    "Oldest of the run"
+
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "Newest of the run"
+           SNACKBAR-1::Show()
+
+           SET     WS-MSG                        TO    "5 - StackAnchor = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-ANCHOR) INTO WS-OUT
+           SET     LABEL-LAST::Caption           TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -517,41 +548,46 @@
        PROGRAM-ID. BUTTON-SNACK-ORDER--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-ORDER PIC X(16).
-       01 WS-MSG   PIC X(32).
-       01 WS-OUT   PIC X(64).
+       01 WS-ORDER                               PIC    X(16).
+       01 WS-MSG                                 PIC    X(32).
+       01 WS-OUT                                 PIC    X(64).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 6 - STACKORDER.
-      *> Auto follows the anchor. NewestFirst and NewestLast override it, so
-      *> you can put the newest at the top of a bottom-anchored run.
+           *> 6 - STACKORDER.
+           *> Auto follows the anchor. NewestFirst and NewestLast override it, so
+           *> you can put the newest at the top of a bottom-anchored run.
 
-           MOVE SNACKBAR-1::StackOrder TO WS-ORDER
-           EVALUATE FUNCTION TRIM(WS-ORDER)
-               WHEN "Auto"        MOVE "NewestFirst" TO WS-ORDER
-               WHEN "NewestFirst" MOVE "NewestLast"  TO WS-ORDER
-               WHEN OTHER         MOVE "Auto"        TO WS-ORDER
+           SET     WS-ORDER                      TO    SNACKBAR-1::StackOrder
+           EVALUATE    FUNCTION TRIM(WS-ORDER)
+               WHEN "Auto" MOVE "NewestFirst" TO WS-ORDER
+               WHEN "NewestFirst" MOVE "NewestLast" TO WS-ORDER
+               WHEN OTHER MOVE "Auto" TO WS-ORDER
            END-EVALUATE
-           MOVE FUNCTION TRIM(WS-ORDER) TO SNACKBAR-1::StackOrder
+           SET     SNACKBAR-1::StackOrder        TO    FUNCTION TRIM(WS-ORDER)
 
-           INVOKE SNACKBAR-1::Clear()
-           MOVE 0 TO SNACKBAR-1::Timeout
-           MOVE "Info" TO SNACKBAR-1::Category
-           MOVE "1 - raised first" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "2 - raised second" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "3 - raised last" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SNACKBAR-1::Clear()
 
-           MOVE "6 - StackOrder = " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-ORDER) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SET     SNACKBAR-1::Timeout           TO    0
+           SET     SNACKBAR-1::Category          TO    "Info"
+           SET     SNACKBAR-1::Text              TO    "1 - raised first"
+
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "2 - raised second"
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "3 - raised last"
+           SNACKBAR-1::Show()
+
+           SET     WS-MSG                        TO    "6 - StackOrder = "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-ORDER) INTO WS-OUT
+           SET     LABEL-LAST::Caption           TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -561,45 +597,51 @@
        PROGRAM-ID. BUTTON-SNACK-OVERFLOW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-OVF PIC X(16).
-       01 WS-MSG PIC X(48).
-       01 WS-OUT PIC X(80).
+       01 WS-OVF                                 PIC    X(16).
+       01 WS-MSG                                 PIC    X(48).
+       01 WS-OUT                                 PIC    X(80).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 7 - MAXIMUMVISIBLE AND OVERFLOWBEHAVIOR.
-      *> Two at a time, four raised. Queue holds the surplus and lets it in as
-      *> room frees; DiscardOldest closes the oldest to make room and reports
-      *> it as Overflow; DiscardNewest drops the arrival, which never appears.
+           *> 7 - MAXIMUMVISIBLE AND OVERFLOWBEHAVIOR.
+           *> Two at a time, four raised. Queue holds the surplus and lets it in as
+           *> room frees; DiscardOldest closes the oldest to make room and reports
+           *> it as Overflow; DiscardNewest drops the arrival, which never appears.
 
-           MOVE SNACKBAR-1::OverflowBehavior TO WS-OVF
-           EVALUATE FUNCTION TRIM(WS-OVF)
-               WHEN "Queue"         MOVE "DiscardOldest" TO WS-OVF
+           SET     WS-OVF                        TO    SNACKBAR-1::OverflowBehavior
+           EVALUATE    FUNCTION TRIM(WS-OVF)
+               WHEN "Queue" MOVE "DiscardOldest" TO WS-OVF
                WHEN "DiscardOldest" MOVE "DiscardNewest" TO WS-OVF
-               WHEN OTHER           MOVE "Queue"         TO WS-OVF
+               WHEN OTHER MOVE "Queue" TO WS-OVF
            END-EVALUATE
-           MOVE FUNCTION TRIM(WS-OVF) TO SNACKBAR-1::OverflowBehavior
-           MOVE 2 TO SNACKBAR-1::MaximumVisible
 
-           INVOKE SNACKBAR-1::Clear()
-           MOVE 0 TO SNACKBAR-1::Timeout
-           MOVE "Warning" TO SNACKBAR-1::Category
-           MOVE "1 of 4" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "2 of 4" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "3 of 4" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "4 of 4" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::OverflowBehavior  TO    FUNCTION TRIM(WS-OVF)
+           SET     SNACKBAR-1::MaximumVisible    TO    2
 
-           MOVE "7 - MaximumVisible 2, OverflowBehavior " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-OVF) INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
-           DISPLAY FUNCTION TRIM(WS-OUT).
+           SNACKBAR-1::Clear()
+
+           SET     SNACKBAR-1::Timeout           TO    0
+           SET     SNACKBAR-1::Category          TO    "Warning"
+           SET     SNACKBAR-1::Text              TO    "1 of 4"
+
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "2 of 4"
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "3 of 4"
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "4 of 4"
+           SNACKBAR-1::Show()
+
+           SET     WS-MSG                        TO    "7 - MaximumVisible 2, OverflowBehavior "
+           STRING    FUNCTION TRIM(WS-MSG) FUNCTION TRIM(WS-OVF) INTO WS-OUT
+           SET     LABEL-LAST::Caption           TO    FUNCTION TRIM(WS-OUT)
+           DISPLAY    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 
@@ -609,39 +651,43 @@
        PROGRAM-ID. BUTTON-SNACK-STYLE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 8 - EVERY COLOUR AND SHAPE SET BY HAND.
-      *> Leave a colour EMPTY to mean "the category decides"; set one and it
-      *> wins ALONE, so the category's icon and ink stay put unless you also
-      *> set those. On a Snackbar, ShadowBlur is a RADIUS IN PIXELS and
-      *> ShadowDirection is DEGREES clockwise from up - not the compass string
-      *> the rest of the catalogue uses.
+           *> 8 - EVERY COLOUR AND SHAPE SET BY HAND.
+           *> Leave a colour EMPTY to mean "the category decides"; set one and it
+           *> wins ALONE, so the category's icon and ink stay put unless you also
+           *> set those. On a Snackbar, ShadowBlur is a RADIUS IN PIXELS and
+           *> ShadowDirection is DEGREES clockwise from up - not the compass string
+           *> the rest of the catalogue uses.
 
-           INVOKE SNACKBAR-1::Clear()
-           INVOKE SNACKBAR-1::AddButton("id=ok,caption=Got it,icon=check")
+           SNACKBAR-1::Clear()
+           SNACKBAR-1::AddButton("id=ok,caption=Got it,icon=check")
 
-           MOVE "#2B3B55FF" TO SNACKBAR-1::BackgroundColor
-           MOVE "#E8F0FFFF" TO SNACKBAR-1::ForegroundColor
-           MOVE "#70F3FCFF" TO SNACKBAR-1::CategoryIconColor
-           MOVE 24 TO SNACKBAR-1::CornerRadius
-           MOVE "Single" TO SNACKBAR-1::BorderStyle
-           MOVE "#70F3FCFF" TO SNACKBAR-1::BorderColor
-           MOVE 2 TO SNACKBAR-1::BorderWidth
-           MOVE 45 TO SNACKBAR-1::ShadowOpacity
-           MOVE 18 TO SNACKBAR-1::ShadowBlur
-           MOVE 6 TO SNACKBAR-1::ShadowDistance
-           MOVE 270 TO SNACKBAR-1::ShadowDirection
+           SET     SNACKBAR-1::BackgroundColor   TO    "#2B3B55FF"
+           SET     SNACKBAR-1::ForegroundColor   TO    "#E8F0FFFF"
+           SET     SNACKBAR-1::CategoryIconColor TO    "#70F3FCFF"
+           SET     SNACKBAR-1::CornerRadius      TO    24
+           SET     SNACKBAR-1::BorderStyle       TO    "Single"
+           SET     SNACKBAR-1::BorderColor       TO    "#70F3FCFF"
+           SET     SNACKBAR-1::BorderWidth       TO    2
+           SET     SNACKBAR-1::ShadowOpacity     TO    45
+           SET     SNACKBAR-1::ShadowBlur        TO    18
+           SET     SNACKBAR-1::ShadowDistance    TO    6
+           SET     SNACKBAR-1::ShadowDirection   TO    270
 
-           MOVE 0 TO SNACKBAR-1::Timeout
-           MOVE "Brand colours, 24pt corners, a cyan rim." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Timeout           TO    0
+           SET     SNACKBAR-1::Text              TO    "Brand colours, 24pt corners, a cyan rim."
 
-           DISPLAY "8 - styled by hand; press Reset to go back to the design".
+           SNACKBAR-1::Show()
+
+           DISPLAY    "8 - styled by hand; press Reset to go back to the design".
 
            GOBACK.
 
@@ -651,27 +697,31 @@
        PROGRAM-ID. BUTTON-SNACK-CRITICAL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 9 - CRITICAL.
-      *> The only category that changes an EFFECT: it enters in 200 ms rather
-      *> than 600, because the most urgent message should already be there
-      *> when the operator looks up. Its own default Timeout is 0, so -1
-      *> ("take the category's") leaves it up until it is dismissed.
+           *> 9 - CRITICAL.
+           *> The only category that changes an EFFECT: it enters in 200 ms rather
+           *> than 600, because the most urgent message should already be there
+           *> when the operator looks up. Its own default Timeout is 0, so -1
+           *> ("take the category's") leaves it up until it is dismissed.
 
-           INVOKE SNACKBAR-1::Clear()
-           INVOKE SNACKBAR-1::AddButton("id=ack,caption=Acknowledge,icon=check")
+           SNACKBAR-1::Clear()
+           SNACKBAR-1::AddButton("id=ack,caption=Acknowledge,icon=check")
 
-           MOVE "Critical" TO SNACKBAR-1::Category
-           MOVE -1 TO SNACKBAR-1::Timeout
-           MOVE "Disk almost full - 2 per cent free." TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Category          TO    "Critical"
+           SET     SNACKBAR-1::Timeout           TO    -1
+           SET     SNACKBAR-1::Text              TO    "Disk almost full - 2 per cent free."
 
-           DISPLAY "9 - Critical: 200 ms entrance, never expires by itself".
+           SNACKBAR-1::Show()
+
+           DISPLAY    "9 - Critical: 200 ms entrance, never expires by itself".
 
            GOBACK.
 
@@ -681,31 +731,35 @@
        PROGRAM-ID. BUTTON-SNACK-PIN--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 10 - PINNED, AND THE REFLOW.
-      *> Timeout 0 never expires. Dismiss the MIDDLE one and watch the two
-      *> survivors GLIDE into the gap over 300 ms rather than snapping.
-      *> Hold the pointer over one and its timeout pauses - with Timeout 0
-      *> there is nothing to pause, so raise these with a timeout to see it.
+           *> 10 - PINNED, AND THE REFLOW.
+           *> Timeout 0 never expires. Dismiss the MIDDLE one and watch the two
+           *> survivors GLIDE into the gap over 300 ms rather than snapping.
+           *> Hold the pointer over one and its timeout pauses - with Timeout 0
+           *> there is nothing to pause, so raise these with a timeout to see it.
 
-           INVOKE SNACKBAR-1::Clear()
-           INVOKE SNACKBAR-1::AddButton("id=close,caption=Close,icon=x-mark")
-           MOVE 0 TO SNACKBAR-1::Timeout
-           MOVE "Info" TO SNACKBAR-1::Category
+           SNACKBAR-1::Clear()
+           SNACKBAR-1::AddButton("id=close,caption=Close,icon=x-mark")
 
-           MOVE "Pinned 1 - dismiss the MIDDLE one" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "Pinned 2 - this is the middle" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
-           MOVE "Pinned 3 - the newest" TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Timeout           TO    0
+           SET     SNACKBAR-1::Category          TO    "Info"
 
-           DISPLAY "10 - three pinned; close the middle and watch the glide".
+           SET     SNACKBAR-1::Text              TO    "Pinned 1 - dismiss the MIDDLE one"
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "Pinned 2 - this is the middle"
+           SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Text              TO    "Pinned 3 - the newest"
+           SNACKBAR-1::Show()
+
+           DISPLAY    "10 - three pinned; close the middle and watch the glide".
 
            GOBACK.
 
@@ -715,33 +769,37 @@
        PROGRAM-ID. BUTTON-SNACK-WRAP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 11 - LONG TEXT: WRAP, AND THE LINE BUDGET.
-      *> Each size class allows a different number of lines before the text is
-      *> ellipsized. The same sentence is shown Large then Small.
-      *> Text is DATA, never a format string - build it with STRING or MOVE.
+           *> 11 - LONG TEXT: WRAP, AND THE LINE BUDGET.
+           *> Each size class allows a different number of lines before the text is
+           *> ellipsized. The same sentence is shown Large then Small.
+           *> Text is DATA, never a format string - build it with STRING or MOVE.
 
-           INVOKE SNACKBAR-1::Clear()
-           MOVE 0 TO SNACKBAR-1::Timeout
-           MOVE "Warning" TO SNACKBAR-1::Category
+           SNACKBAR-1::Clear()
 
-           MOVE "Large" TO SNACKBAR-1::Size
-           MOVE "The nightly rebuild finished with 3 warnings: two indexes we"
-             TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Timeout           TO    0
+           SET     SNACKBAR-1::Category          TO    "Warning"
 
-           MOVE "Small" TO SNACKBAR-1::Size
-           MOVE "The nightly rebuild finished with 3 warnings: two indexes we"
-             TO SNACKBAR-1::Text
-           INVOKE SNACKBAR-1::Show()
+           SET     SNACKBAR-1::Size              TO    "Large"
+           SET     SNACKBAR-1::Text              TO    "The nightly rebuild finished with 3 warnings: two indexes we"
 
-           MOVE "Medium" TO SNACKBAR-1::Size
-           DISPLAY "11 - same text, Large then Small; the budget cuts it".
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Size              TO    "Small"
+           SET     SNACKBAR-1::Text              TO    "The nightly rebuild finished with 3 warnings: two indexes we"
+
+           SNACKBAR-1::Show()
+
+           SET     SNACKBAR-1::Size              TO    "Medium"
+           DISPLAY    "11 - same text, Large then Small; the budget cuts it".
 
            GOBACK.
 
@@ -751,22 +809,24 @@
        PROGRAM-ID. BUTTON-SNACK-DISMISS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> 12 - DISMISSALL().
-      *> Every notification THIS control raised, with reason Programmatic, and
-      *> anything it had queued is discarded too. Other Snackbar controls on
-      *> the form are untouched. There is no Hide(): with Show() as a factory
-      *> it could not say WHICH notification it meant.
+           *> 12 - DISMISSALL().
+           *> Every notification THIS control raised, with reason Programmatic, and
+           *> anything it had queued is discarded too. Other Snackbar controls on
+           *> the form are untouched. There is no Hide(): with Show() as a factory
+           *> it could not say WHICH notification it meant.
 
-           INVOKE SNACKBAR-1::DismissAll()
-           MOVE "12 - DismissAll(): all cleared, reason Programmatic"
-             TO LABEL-LAST::Caption
-           DISPLAY "12 - DismissAll(): reason Programmatic".
+           SNACKBAR-1::DismissAll()
+           SET     LABEL-LAST::Caption           TO    "12 - DismissAll(): all cleared, reason Programmatic"
+           DISPLAY    "12 - DismissAll(): reason Programmatic".
 
            GOBACK.
 
@@ -776,40 +836,42 @@
        PROGRAM-ID. BUTTON-SNACK-RESET--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> RESET THE TEMPLATE.
-      *> Show() is a snapshot, so this changes nothing already on screen - it
-      *> puts the TEMPLATE back where the Form Designer left it.
+           *> RESET THE TEMPLATE.
+           *> Show() is a snapshot, so this changes nothing already on screen - it
+           *> puts the TEMPLATE back where the Form Designer left it.
 
-           INVOKE SNACKBAR-1::DismissAll()
-           INVOKE SNACKBAR-1::Clear()
+           SNACKBAR-1::DismissAll()
+           SNACKBAR-1::Clear()
 
-           MOVE "Info" TO SNACKBAR-1::Category
-           MOVE "Medium" TO SNACKBAR-1::Size
-           MOVE -1 TO SNACKBAR-1::Timeout
-           MOVE 5 TO SNACKBAR-1::MaximumVisible
-           MOVE "Queue" TO SNACKBAR-1::OverflowBehavior
-           MOVE "BottomRight" TO SNACKBAR-1::StackAnchor
-           MOVE "Auto" TO SNACKBAR-1::StackOrder
-           MOVE SPACES TO SNACKBAR-1::BackgroundColor
-           MOVE SPACES TO SNACKBAR-1::ForegroundColor
-           MOVE SPACES TO SNACKBAR-1::CategoryIconColor
-           MOVE 12 TO SNACKBAR-1::CornerRadius
-           MOVE "None" TO SNACKBAR-1::BorderStyle
-           MOVE 12 TO SNACKBAR-1::ShadowBlur
-           MOVE 25 TO SNACKBAR-1::ShadowOpacity
-           MOVE 4 TO SNACKBAR-1::ShadowDistance
-           MOVE 270 TO SNACKBAR-1::ShadowDirection
-           MOVE "Record saved" TO SNACKBAR-1::Text
+           SET     SNACKBAR-1::Category          TO    "Info"
+           SET     SNACKBAR-1::Size              TO    "Medium"
+           SET     SNACKBAR-1::Timeout           TO    -1
+           SET     SNACKBAR-1::MaximumVisible    TO    5
+           SET     SNACKBAR-1::OverflowBehavior  TO    "Queue"
+           SET     SNACKBAR-1::StackAnchor       TO    "BottomRight"
+           SET     SNACKBAR-1::StackOrder        TO    "Auto"
+           SET     SNACKBAR-1::BackgroundColor   TO    SPACES
+           SET     SNACKBAR-1::ForegroundColor   TO    SPACES
+           SET     SNACKBAR-1::CategoryIconColor TO    SPACES
+           SET     SNACKBAR-1::CornerRadius      TO    12
+           SET     SNACKBAR-1::BorderStyle       TO    "None"
+           SET     SNACKBAR-1::ShadowBlur        TO    12
+           SET     SNACKBAR-1::ShadowOpacity     TO    25
+           SET     SNACKBAR-1::ShadowDistance    TO    4
+           SET     SNACKBAR-1::ShadowDirection   TO    270
+           SET     SNACKBAR-1::Text              TO    "Record saved"
 
-           MOVE "Template reset to its designed defaults"
-             TO LABEL-LAST::Caption
-           DISPLAY "reset - template back to the designed defaults".
+           SET     LABEL-LAST::Caption           TO    "Template reset to its designed defaults"
+           DISPLAY    "reset - template back to the designed defaults".
 
            GOBACK.
 
@@ -819,16 +881,20 @@
        PROGRAM-ID. SNACKBAR-1--ONSHOWN IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Fires when the message joins the stack - which is BEFORE it has
-      *> waited its turn in the arrival queue and before it has finished
-      *> growing in. No event ever waits on an animation.
-           DISPLAY "onShown".
+           *> Fires when the message joins the stack - which is BEFORE it has
+           *> waited its turn in the arrival queue and before it has finished
+           *> growing in. No event ever waits on an animation.
+
+           DISPLAY    "onShown".
 
            GOBACK.
 
@@ -838,14 +904,18 @@
        PROGRAM-ID. SNACKBAR-1--ONTIMEOUT IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Its time ran out. Fires BEFORE onClosing.
-           DISPLAY "onTimeout".
+           *> Its time ran out. Fires BEFORE onClosing.
+
+           DISPLAY    "onTimeout".
 
            GOBACK.
 
@@ -855,15 +925,19 @@
        PROGRAM-ID. SNACKBAR-1--ONCLOSING IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> About to leave. The reason (Timeout / User / Action / Programmatic /
-      *> Overflow) travels with the event.
-           DISPLAY "onClosing".
+           *> About to leave. The reason (Timeout / User / Action / Programmatic /
+           *> Overflow) travels with the event.
+
+           DISPLAY    "onClosing".
 
            GOBACK.
 
@@ -873,16 +947,20 @@
        PROGRAM-ID. SNACKBAR-1--ONCLOSED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> Gone. Both this and onClosing fire the MOMENT it closes - the slot it
-      *> held is free for the next Show() immediately, and only the picture
-      *> lingers for 300 ms.
-           DISPLAY "onClosed".
+           *> Gone. Both this and onClosing fire the MOMENT it closes - the slot it
+           *> held is free for the next Show() immediately, and only the picture
+           *> lingers for 300 ms.
+
+           DISPLAY    "onClosed".
 
            GOBACK.
 
@@ -892,41 +970,44 @@
        PROGRAM-ID. SNACKBAR-1--ONBUTTONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-ID  PIC X(32).
-       01 WS-IX  PIC X(8).
-       01 WS-MSG PIC X(16).
-       01 WS-OUT PIC X(80).
+       01 WS-ID                                  PIC    X(32).
+       01 WS-IX                                  PIC    X(8).
+       01 WS-MSG                                 PIC    X(16).
+       01 WS-OUT                                 PIC    X(80).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> WHICH button was pressed: LastButtonId is your own id from the
-      *> AddButton spec, LastButtonIndex is its place in the row, counting from 1.
-      *> Both are written BEFORE this handler runs.
-      *> A button whose dismiss is true closes the notification AFTER this
-      *> fires, so you can still read the message it was clicked on.
+           *> WHICH button was pressed: LastButtonId is your own id from the
+           *> AddButton spec, LastButtonIndex is its place in the row, counting from 1.
+           *> Both are written BEFORE this handler runs.
+           *> A button whose dismiss is true closes the notification AFTER this
+           *> fires, so you can still read the message it was clicked on.
 
-           MOVE SNACKBAR-1::LastButtonId TO WS-ID
-           MOVE SNACKBAR-1::LastButtonIndex TO WS-IX
+           SET     WS-ID                         TO    SNACKBAR-1::LastButtonId
+           SET     WS-IX                         TO    SNACKBAR-1::LastButtonIndex
 
-           EVALUATE FUNCTION TRIM(WS-ID)
-               WHEN "undo"  DISPLAY "onButtonClick: undo - undoing"
+           EVALUATE    FUNCTION TRIM(WS-ID)
+               WHEN "undo" DISPLAY "onButtonClick: undo - undoing"
                WHEN "later" DISPLAY "onButtonClick: later - left up"
                WHEN "retry" DISPLAY "onButtonClick: retry - retrying"
                WHEN "close" DISPLAY "onButtonClick: close"
-               WHEN "ack"   DISPLAY "onButtonClick: acknowledged"
-               WHEN OTHER   DISPLAY "onButtonClick: " FUNCTION TRIM(WS-ID)
+               WHEN "ack" DISPLAY "onButtonClick: acknowledged"
+               WHEN OTHER DISPLAY "onButtonClick: " FUNCTION TRIM(WS-ID)
            END-EVALUATE
 
-           MOVE "button " TO WS-MSG
-           STRING FUNCTION TRIM(WS-MSG)
-                  FUNCTION TRIM(WS-ID)
-                  " at index "
-                  FUNCTION TRIM(WS-IX)
-                  INTO WS-OUT
-           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption.
+           SET     WS-MSG                        TO    "button "
+           STRING    FUNCTION TRIM(WS-MSG)
+               FUNCTION TRIM(WS-ID)
+               " at index "
+               FUNCTION TRIM(WS-IX)
+               INTO WS-OUT
+           SET     LABEL-LAST::Caption           TO    FUNCTION TRIM(WS-OUT).
 
            GOBACK.
 

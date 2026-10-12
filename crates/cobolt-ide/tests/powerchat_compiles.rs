@@ -214,12 +214,21 @@ fn every_visible_text_is_translated_into_six_languages() {
                 {
                     continue;
                 }
-                let needle = format!(" TO {}::{prop}", c.id);
+                // The statement, not its layout: `MOVE <from> TO ctrl::Prop` or
+                // `SET ctrl::Prop TO <from>`, in any spacing, where <from> is
+                // `FUNCTION TRIM(T-…)` or `T-…::Trim()`.
+                let target = format!("{}::{prop}", c.id);
+                let from_table = |from: &str| {
+                    from.contains("FUNCTION TRIM(T-") || (from.starts_with("T-") && from.contains("::Trim()"))
+                };
                 assert!(
-                    // `FUNCTION TRIM(T-…) TO ctrl::Prop`, or `T-…::Trim() TO ctrl::Prop`.
                     src.lines().any(|l| {
-                        (l.contains("FUNCTION TRIM(T-") || (l.trim_start().starts_with("MOVE T-") && l.contains("::Trim() TO")))
-                            && l.trim_end().ends_with(&needle)
+                        let l = l.split_whitespace().collect::<Vec<_>>().join(" ");
+                        let l = l.trim_end_matches('.');
+                        match l.strip_prefix("MOVE ") {
+                            Some(rest) => rest.strip_suffix(&format!(" TO {target}")).is_some_and(from_table),
+                            None => l.strip_prefix(&format!("SET {target} TO ")).is_some_and(from_table),
+                        }
                     }),
                     "{rel}: {}::{prop} ({text:?}) is shown but never translated",
                     c.id
@@ -237,12 +246,18 @@ fn every_visible_text_is_translated_into_six_languages() {
             rows.push(format!("  {:<28}   no designed text — the caller supplies it", rel));
             continue;
         };
-        let end = lines.iter().position(|l| l.contains("01 PC-TEXT-TABLE REDEFINES")).unwrap();
+        // Spacing between the words is layout (the first clause sits in column 50).
+        let end = lines
+            .iter()
+            .position(|l| l.split_whitespace().collect::<Vec<_>>().join(" ").contains("01 PC-TEXT-TABLE REDEFINES"))
+            .unwrap();
         let mut texts = 0;
-        let mut i = start + 1;
-        while i < end {
-            let id = lines[i].trim().trim_start_matches("*>").trim();
-            let values: Vec<String> = lines[i + 1..i + 7]
+        // Blank lines are layout (a comment is followed by one), not data.
+        let table: Vec<&str> = lines[start + 1..end].iter().copied().filter(|l| !l.trim().is_empty()).collect();
+        let mut i = 0;
+        while i < table.len() {
+            let id = table[i].trim().trim_start_matches("*>").trim();
+            let values: Vec<String> = table[i + 1..i + 7]
                 .iter()
                 .map(|l| {
                     let v = &l[l.find("VALUE \"").expect("a VALUE") + 7..l.rfind('"').unwrap()];

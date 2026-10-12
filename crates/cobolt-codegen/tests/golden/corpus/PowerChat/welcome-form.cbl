@@ -80,10 +80,10 @@
 
        DATA DIVISION.
        FILE SECTION.
-       FD  SETTINGS-FILE IS GLOBAL.
-       01  SETTINGS-REC.
-           05 SET-NAME          PIC X(20).
-           05 SET-VALUE         PIC X(200).
+       FD SETTINGS-FILE IS GLOBAL.
+       01 SETTINGS-REC.
+           05 SET-NAME                           PIC    X(20).
+           05 SET-VALUE                          PIC    X(200).
        WORKING-STORAGE SECTION.
       *>── Cobolt runtime fields ─────────────────────────────────────
        01 COBOL-QUIT             PIC 9        VALUE 0.
@@ -103,65 +103,72 @@
        01 WS-Tmr-Lang-ELAPSED-MS PIC 9(8) VALUE 0.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-FS              GLOBAL PIC XX VALUE "00".
-       01 WS-DATA-DIR        GLOBAL PIC X(200).
-       01 WS-SET-NAME        GLOBAL PIC X(20).
-       01 WS-SET-VALUE       GLOBAL PIC X(200).
-       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
-      *>   The interface texts (spec 071 R44): one row per text, one column
-      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
-      *>   only the values are translated.
-       01 WS-LANG            GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
-       01 WS-TX-I            GLOBAL PIC 9(4).
-       01 PC-TEXT-DATA       GLOBAL.
-      *>   WELCOME
-          05 FILLER PIC X(120) VALUE "Welcome! PowerChat needs a model before it can answer.".
-          05 FILLER PIC X(120) VALUE "Bem-vindo! O PowerChat precisa de um modelo antes de responder.".
-          05 FILLER PIC X(120) VALUE "¡Bienvenido! PowerChat necesita un modelo antes de responder.".
-          05 FILLER PIC X(120) VALUE "Bienvenue ! PowerChat a besoin d'un modèle avant de répondre.".
-          05 FILLER PIC X(120) VALUE "ようこそ！PowerChat が答えるにはモデルが必要です。".
-          05 FILLER PIC X(120) VALUE "欢迎！PowerChat 需要先配置一个模型才能回答。".
-      *>   STEP-1
-          05 FILLER PIC X(120) VALUE "1. Open RAG settings in the menu on the left - for now it is the only option open.".
-          05 FILLER PIC X(120) VALUE "1. Abra Configurações de RAG no menu à esquerda - por ora é a única opção liberada.".
-          05 FILLER PIC X(120) VALUE "1. Abre Configuración de RAG en el menú de la izquierda; por ahora es la única activa.".
-          05 FILLER PIC X(120) VALUE "1. Ouvrez Paramètres RAG dans le menu de gauche : pour l'instant, c'est la seule option.".
-          05 FILLER PIC X(120) VALUE "1. 左のメニューで「RAG 設定」を開きます（今はこれだけ使えます）。".
-          05 FILLER PIC X(120) VALUE "1. 在左侧菜单中打开“RAG 设置”（目前只有它可用）。".
-      *>   STEP-2
-          05 FILLER PIC X(120) VALUE "2. Model providers: add a connection (provider, API key), press Test connection and Save.".
-          05 FILLER PIC X(120) VALUE "2. Provedores de modelos: crie uma conexão (provedor, chave de API), Testar conexão e Salvar.".
-          05 FILLER PIC X(120) VALUE "2. Proveedores de modelos: añade una conexión (proveedor, clave de API), Probar conexión y Guardar.".
-          05 FILLER PIC X(120) VALUE "2. Fournisseurs de modèles : une connexion (fournisseur, clé API), Tester la connexion, Enregistrer.".
-          05 FILLER PIC X(120) VALUE "2. モデルプロバイダー: 接続（プロバイダー・API キー）を追加し、テストして保存。".
-          05 FILLER PIC X(120) VALUE "2. 模型提供商：添加连接（提供商、API 密钥），测试连接后保存。".
-      *>   STEP-3
-          05 FILLER PIC X(120) VALUE "3. Model selection: pick the model. Then Agents: give agent 1 that connection.".
-          05 FILLER PIC X(120) VALUE "3. Seleção de modelo: escolha o modelo. Depois Agentes: dê essa conexão ao agente 1.".
-          05 FILLER PIC X(120) VALUE "3. Selección de modelo: elige el modelo. Luego Agentes: asigna esa conexión al agente 1.".
-          05 FILLER PIC X(120) VALUE "3. Choix du modèle : choisissez-le. Puis Agents : donnez cette connexion à l'agent 1.".
-          05 FILLER PIC X(120) VALUE "3. 「モデルの選択」でモデルを選び、「エージェント」で接続を割り当てます。".
-          05 FILLER PIC X(120) VALUE "3. 在“模型选择”中选模型，再在“代理”中把连接分给代理 1。".
-      *>   STEP-4
-          05 FILLER PIC X(120) VALUE "4. Come back to Chat: the menu opens up. Create a topic, add its documents and ask.".
-          05 FILLER PIC X(120) VALUE "4. Volte ao Chat: o menu é liberado. Crie um tópico, adicione documentos e pergunte.".
-          05 FILLER PIC X(120) VALUE "4. Vuelve al Chat: el menú se habilita. Crea un tema, añade documentos y pregunta.".
-          05 FILLER PIC X(120) VALUE "4. Revenez au Chat : le menu s'ouvre. Créez un sujet, ajoutez ses documents, questionnez.".
-          05 FILLER PIC X(120) VALUE "4. チャットに戻るとメニューが使えます。トピックを作り、文書を追加して質問。".
-          05 FILLER PIC X(120) VALUE "4. 回到“聊天”后菜单即可使用。创建主题、添加文档，然后提问。".
-       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 5.
-             10 PC-TEXT      PIC X(120) OCCURS 6.
-      *>   The texts in the current language, by name.
-       01 PC-TEXTS-NOW       GLOBAL.
-          05 T-WELCOME PIC X(120).
-          05 T-STEP-1 PIC X(120).
-          05 T-STEP-2 PIC X(120).
-          05 T-STEP-3 PIC X(120).
-          05 T-STEP-4 PIC X(120).
-       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 5.
+       01 WS-FS                                  GLOBAL    PIC XX    VALUE "00".
+       01 WS-DATA-DIR                            GLOBAL    PIC X(200).
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
+       *>   The interface texts (spec 071 R44): one row per text, one column
+       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+       *>   only the values are translated.
+
+       01 WS-LANG                                GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 1.
+       01 WS-TX-I                                GLOBAL    PIC 9(4).
+       01 PC-TEXT-DATA                           GLOBAL.
+           *>   WELCOME
+
+           05 FILLER                             PIC    X(120)    VALUE "Welcome! PowerChat needs a model before it can answer.".
+           05 FILLER                             PIC    X(120)    VALUE "Bem-vindo! O PowerChat precisa de um modelo antes de responder.".
+           05 FILLER                             PIC    X(120)    VALUE "¡Bienvenido! PowerChat necesita un modelo antes de responder.".
+           05 FILLER                             PIC    X(120)    VALUE "Bienvenue ! PowerChat a besoin d'un modèle avant de répondre.".
+           05 FILLER                             PIC    X(120)    VALUE "ようこそ！PowerChat が答えるにはモデルが必要です。".
+           05 FILLER                             PIC    X(120)    VALUE "欢迎！PowerChat 需要先配置一个模型才能回答。".
+           *>   STEP-1
+
+           05 FILLER                             PIC    X(120)    VALUE "1. Open RAG settings in the menu on the left - for now it is the only option open.".
+           05 FILLER                             PIC    X(120)    VALUE "1. Abra Configurações de RAG no menu à esquerda - por ora é a única opção liberada.".
+           05 FILLER                             PIC    X(120)    VALUE "1. Abre Configuración de RAG en el menú de la izquierda; por ahora es la única activa.".
+           05 FILLER                             PIC    X(120)    VALUE "1. Ouvrez Paramètres RAG dans le menu de gauche : pour l'instant, c'est la seule option.".
+           05 FILLER                             PIC    X(120)    VALUE "1. 左のメニューで「RAG 設定」を開きます（今はこれだけ使えます）。".
+           05 FILLER                             PIC    X(120)    VALUE "1. 在左侧菜单中打开“RAG 设置”（目前只有它可用）。".
+           *>   STEP-2
+
+           05 FILLER                             PIC    X(120)    VALUE "2. Model providers: add a connection (provider, API key), press Test connection and Save.".
+           05 FILLER                             PIC    X(120)    VALUE "2. Provedores de modelos: crie uma conexão (provedor, chave de API), Testar conexão e Salvar.".
+           05 FILLER                             PIC    X(120)    VALUE "2. Proveedores de modelos: añade una conexión (proveedor, clave de API), Probar conexión y Guardar.".
+           05 FILLER                             PIC    X(120)    VALUE "2. Fournisseurs de modèles : une connexion (fournisseur, clé API), Tester la connexion, Enregistrer.".
+           05 FILLER                             PIC    X(120)    VALUE "2. モデルプロバイダー: 接続（プロバイダー・API キー）を追加し、テストして保存。".
+           05 FILLER                             PIC    X(120)    VALUE "2. 模型提供商：添加连接（提供商、API 密钥），测试连接后保存。".
+           *>   STEP-3
+
+           05 FILLER                             PIC    X(120)    VALUE "3. Model selection: pick the model. Then Agents: give agent 1 that connection.".
+           05 FILLER                             PIC    X(120)    VALUE "3. Seleção de modelo: escolha o modelo. Depois Agentes: dê essa conexão ao agente 1.".
+           05 FILLER                             PIC    X(120)    VALUE "3. Selección de modelo: elige el modelo. Luego Agentes: asigna esa conexión al agente 1.".
+           05 FILLER                             PIC    X(120)    VALUE "3. Choix du modèle : choisissez-le. Puis Agents : donnez cette connexion à l'agent 1.".
+           05 FILLER                             PIC    X(120)    VALUE "3. 「モデルの選択」でモデルを選び、「エージェント」で接続を割り当てます。".
+           05 FILLER                             PIC    X(120)    VALUE "3. 在“模型选择”中选模型，再在“代理”中把连接分给代理 1。".
+           *>   STEP-4
+
+           05 FILLER                             PIC    X(120)    VALUE "4. Come back to Chat: the menu opens up. Create a topic, add its documents and ask.".
+           05 FILLER                             PIC    X(120)    VALUE "4. Volte ao Chat: o menu é liberado. Crie um tópico, adicione documentos e pergunte.".
+           05 FILLER                             PIC    X(120)    VALUE "4. Vuelve al Chat: el menú se habilita. Crea un tema, añade documentos y pregunta.".
+           05 FILLER                             PIC    X(120)    VALUE "4. Revenez au Chat : le menu s'ouvre. Créez un sujet, ajoutez ses documents, questionnez.".
+           05 FILLER                             PIC    X(120)    VALUE "4. チャットに戻るとメニューが使えます。トピックを作り、文書を追加して質問。".
+           05 FILLER                             PIC    X(120)    VALUE "4. 回到“聊天”后菜单即可使用。创建主题、添加文档，然后提问。".
+       01 PC-TEXT-TABLE                          REDEFINES    PC-TEXT-DATA    GLOBAL.
+           05 PC-TEXT-ROW                        OCCURS    5.
+               10 PC-TEXT                        PIC    X(120)    OCCURS 6.
+       *>   The texts in the current language, by name.
+
+       01 PC-TEXTS-NOW                           GLOBAL.
+           05 T-WELCOME                          PIC    X(120).
+           05 T-STEP-1                           PIC    X(120).
+           05 T-STEP-2                           PIC    X(120).
+           05 T-STEP-3                           PIC    X(120).
+           05 T-STEP-4                           PIC    X(120).
+       01 PC-TEXTS-NOW-R                         REDEFINES    PC-TEXTS-NOW    GLOBAL.
+           05 PC-TEXT-NOW                        PIC    X(120)    OCCURS 5.
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -263,10 +270,12 @@
        PROGRAM-ID. WELCOME-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-PATHS"
-           CALL "PC-TEXTS"
+           CALL    "PC-PATHS"
+           CALL    "PC-TEXTS"
 
            GOBACK.
 
@@ -276,10 +285,13 @@
        PROGRAM-ID. WELCOME-FORM--ONACTIVATE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Back on the pane: the language may have changed meanwhile (R46).
-           CALL "PC-TEXTS"
+           *>   Back on the pane: the language may have changed meanwhile (R46).
+
+           CALL    "PC-TEXTS"
 
            GOBACK.
 
@@ -305,15 +317,18 @@
        PROGRAM-ID. TMR-LANG--ONTICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   A flag in the chat's menu changes the language while the welcome
-      *>   is on the pane; nothing tells a pane occupant, so it looks (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           IF WS-SET-VALUE(1:2) NOT = SPACES
+           *>   A flag in the chat's menu changes the language while the welcome
+           *>   is on the pane; nothing tells a pane occupant, so it looks (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           IF    WS-SET-VALUE(1:2) NOT = SPACES
                    AND WS-SET-VALUE(1:2) NOT = WS-LANG
-               CALL "PC-TEXTS"
+               CALL    "PC-TEXTS"
            END-IF
 
            GOBACK.
@@ -324,16 +339,19 @@
        PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
-           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
-           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
-           IF WS-DATA-DIR = SPACES
-               MOVE "data" TO WS-DATA-DIR
+           *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+
+           DISPLAY    "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-DATA-DIR = SPACES
+               SET     WS-DATA-DIR               TO    "data"
            END-IF
-           MOVE SPACES TO WS-SETTINGS-PATH
-           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
+           SET     WS-SETTINGS-PATH              TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
 
            GOBACK.
 
@@ -343,22 +361,28 @@
        PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
-           MOVE SPACES TO WS-SET-VALUE
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+
+           SET     WS-SET-VALUE                  TO    SPACES
+           *> Status 35 = the file does not exist yet: create it empty and reopen
+           *> it for update, so the very first run needs no set-up.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    WS-SET-NAME
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -368,14 +392,17 @@
        PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language the user picked (LANG), the texts in it, and every
-      *>   designed caption that shows one (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:2) TO WS-LANG
-           EVALUATE WS-LANG
+           *>   The language the user picked (LANG), the texts in it, and every
+           *>   designed caption that shows one (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
+           EVALUATE    WS-LANG
                WHEN "en" MOVE 1 TO WS-LANG-IX
                WHEN "pt" MOVE 2 TO WS-LANG-IX
                WHEN "es" MOVE 3 TO WS-LANG-IX
@@ -383,16 +410,21 @@
                WHEN "jp" MOVE 5 TO WS-LANG-IX
                WHEN "cn" MOVE 6 TO WS-LANG-IX
                WHEN OTHER MOVE "en" TO WS-LANG
-                          MOVE 1 TO WS-LANG-IX
+                   SET     WS-LANG-IX            TO    1
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 5
-               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           *> One row per text, one column per language (the order of the EVALUATE):
+           *> the picked column becomes PC-TEXT-NOW, which the T-... names redefine.
+           *> The bound is the row count of PC-TEXT-TABLE: change both together.
+
+           PERFORM    VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 5
+               SET     PC-TEXT-NOW(WS-TX-I)      TO    PC-TEXT(WS-TX-I, WS-LANG-IX)
            END-PERFORM
-           MOVE T-WELCOME::Trim() TO Lbl-Welcome::Caption
-           MOVE T-STEP-1::Trim() TO Lbl-Step-1::Caption
-           MOVE T-STEP-2::Trim() TO Lbl-Step-2::Caption
-           MOVE T-STEP-3::Trim() TO Lbl-Step-3::Caption
-           MOVE T-STEP-4::Trim() TO Lbl-Step-4::Caption
+
+           SET     Lbl-Welcome::Caption          TO    T-WELCOME::Trim()
+           SET     Lbl-Step-1::Caption           TO    T-STEP-1::Trim()
+           SET     Lbl-Step-2::Caption           TO    T-STEP-2::Trim()
+           SET     Lbl-Step-3::Caption           TO    T-STEP-3::Trim()
+           SET     Lbl-Step-4::Caption           TO    T-STEP-4::Trim()
 
            GOBACK.
 

@@ -233,33 +233,38 @@
        PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-ROW-COUNT      PIC 9(9).
-       01 WS-ROW-COUNT-TEXT PIC ZZZ,ZZZ,ZZ9.
-       01 WS-MESSAGE        PIC X(80).
+       01 WS-ROW-COUNT                           PIC    9(9).
+       01 WS-ROW-COUNT-TEXT                      PIC    ZZZ,ZZZ,ZZ9.
+       01 WS-MESSAGE                             PIC    X(80).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The grid is bound to ACTORS-FILE (indexed/actors.cidx), so the rows
-      *> already arrived when the form loaded — an indexed source has no fill
-      *> step to wait for. RefreshBinding re-reads the file and returns how
-      *> many records it put in the grid, which is what this button is for:
-      *> picking up records another program has written since.
-           MOVE DataGrid-1::RefreshBinding() TO WS-ROW-COUNT
-           MOVE WS-ROW-COUNT TO WS-ROW-COUNT-TEXT
+           *> The grid is bound to ACTORS-FILE (indexed/actors.cidx), so the rows
+           *> already arrived when the form loaded — an indexed source has no fill
+           *> step to wait for. RefreshBinding re-reads the file and returns how
+           *> many records it put in the grid, which is what this button is for:
+           *> picking up records another program has written since.
 
-           STRING "Loaded "
-                  FUNCTION TRIM(WS-ROW-COUNT-TEXT)
-                  " actors from ACTORS-FILE"
-                  INTO WS-MESSAGE
+           SET     WS-ROW-COUNT                  TO    DataGrid-1::RefreshBinding()
+           SET     WS-ROW-COUNT-TEXT             TO    WS-ROW-COUNT
+
+           STRING    "Loaded "
+               FUNCTION TRIM(WS-ROW-COUNT-TEXT)
+               " actors from ACTORS-FILE"
+               INTO WS-MESSAGE
            END-STRING
 
-           SET Snackbar-1::Category TO "Info"
-           SET Snackbar-1::Text TO FUNCTION TRIM(WS-MESSAGE)
-           INVOKE Snackbar-1::Show()
-           DISPLAY FUNCTION TRIM(WS-MESSAGE).
+           SET     Snackbar-1::Category          TO    "Info"
+           SET     Snackbar-1::Text              TO    FUNCTION TRIM(WS-MESSAGE)
+
+           Snackbar-1::Show()
+           DISPLAY    FUNCTION TRIM(WS-MESSAGE).
 
            GOBACK.
 
@@ -269,13 +274,16 @@
        PROGRAM-ID. SNACKBAR-1--ONSHOWN IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           DISPLAY "onShown".
+           DISPLAY    "onShown".
 
            GOBACK.
 
@@ -285,15 +293,19 @@
        PROGRAM-ID. SNACKBAR-1--ONCLOSED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> The reason arrives as the event value: Timeout / User / Action /
-      *> Programmatic / Overflow.
-           DISPLAY "onClosed".
+           *> The reason arrives as the event value: Timeout / User / Action /
+           *> Programmatic / Overflow.
+
+           DISPLAY    "onClosed".
 
            GOBACK.
 
@@ -303,19 +315,26 @@
        PROGRAM-ID. SNACKBAR-1--ONBUTTONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           EVALUATE SNACKBAR-1::LastButtonId
+           *> One handler serves every button: LastButtonId is the id from the
+           *> Snackbar's Buttons property. Whether a click also dismisses the
+           *> message is set there (retry: yes, later: no), not decided here.
+
+           EVALUATE    SNACKBAR-1::LastButtonId
                WHEN "retry"
-                   DISPLAY "button: retry (this one dismisses)"
+                   DISPLAY    "button: retry (this one dismisses)"
                WHEN "later"
-                   DISPLAY "button: later (this one stays up)"
+                   DISPLAY    "button: later (this one stays up)"
                WHEN OTHER
-                   DISPLAY "button: " SNACKBAR-1::LastButtonId
+                   DISPLAY    "button: " SNACKBAR-1::LastButtonId
            END-EVALUATE.
 
            GOBACK.
@@ -326,12 +345,19 @@
        PROGRAM-ID. RADIOBUTTON-4--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           *> The ``` fences make a block literal: the text between them is taken
+           *> verbatim, line breaks included, so no escaping or continuation.
+           *> This is the Portuguese text, for the Portugues radio of lang-grp.
+
+           SET     label-2::Caption TO
 ```
 Os DataGrids do PowerRustCOBOL são ferramentas poderosas, capazes de carregar praticamente
 qualquer quantidade de linhas.
@@ -351,12 +377,19 @@ código.
        PROGRAM-ID. RADIOBUTTON-5--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           *> The ``` fences make a block literal: the text between them is taken
+           *> verbatim, line breaks included, so no escaping or continuation.
+           *> This is the Spanish text, for the Espanol radio of lang-grp.
+
+           SET     label-2::Caption TO
 ```
 Los DataGrids de PowerRustCOBOL son herramientas potentes capaces de cargar prácticamente
 cualquier cantidad de filas.
@@ -375,12 +408,19 @@ interfaz programática para crear contenido directamente mediante código.
        PROGRAM-ID. RADIOBUTTON-6--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET label-2::Caption TO
+           *> The ``` fences make a block literal: the text between them is taken
+           *> verbatim, line breaks included, so no escaping or continuation.
+           *> This is the English text, for the English radio of lang-grp.
+
+           SET     label-2::Caption TO
 ```
 PowerRustCOBOL DataGrids are powerful tools capable of loading virtually any number of rows.
 

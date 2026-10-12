@@ -86,20 +86,21 @@
 
        DATA DIVISION.
        FILE SECTION.
-       FD  SETTINGS-FILE IS GLOBAL.
-       01  SETTINGS-REC.
-           05 SET-NAME          PIC X(20).
-           05 SET-VALUE         PIC X(200).
-       FD  MODELS-FILE IS GLOBAL.
-       01  MODEL-REC.
-           05 MDL-NAME          PIC X(30).
-           05 MDL-API           PIC X(12).
-           05 MDL-URL           PIC X(200).
-           05 MDL-MODEL         PIC X(80).
-      *>   The capability table (spec 071 R31, 063 R72): whether the model
-      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
-           05 MDL-TOOLS         PIC X.
-           05 MDL-RANK          PIC 9.
+       FD SETTINGS-FILE IS GLOBAL.
+       01 SETTINGS-REC.
+           05 SET-NAME                           PIC    X(20).
+           05 SET-VALUE                          PIC    X(200).
+       FD MODELS-FILE IS GLOBAL.
+       01 MODEL-REC.
+           05 MDL-NAME                           PIC    X(30).
+           05 MDL-API                            PIC    X(12).
+           05 MDL-URL                            PIC    X(200).
+           05 MDL-MODEL                          PIC    X(80).
+           *>   The capability table (spec 071 R31, 063 R72): whether the model
+           *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+
+           05 MDL-TOOLS                          PIC    X.
+           05 MDL-RANK                           PIC    9.
        WORKING-STORAGE SECTION.
       *>── Cobolt runtime fields ─────────────────────────────────────
        01 COBOL-QUIT             PIC 9        VALUE 0.
@@ -109,108 +110,120 @@
        01 FORM-NAME               PIC X(64)   VALUE 'AGENTS-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-FS              GLOBAL PIC XX VALUE "00".
-       01 WS-DATA-DIR        GLOBAL PIC X(200).
-       01 WS-SET-NAME        GLOBAL PIC X(20).
-       01 WS-SET-VALUE       GLOBAL PIC X(200).
-       01 WS-EOF             GLOBAL PIC X.
-       01 WS-OK              GLOBAL PIC X(4).
-       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
-       01 WS-MODELS-PATH     GLOBAL PIC X(240).
-      *>   The interface texts (spec 071 R44): one row per text, one column
-      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
-      *>   only the values are translated.
-       01 WS-LANG            GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
-       01 WS-TX-I            GLOBAL PIC 9(4).
-       01 PC-TEXT-DATA       GLOBAL.
-      *>   AGENTS-TITLE
-          05 FILLER PIC X(120) VALUE "Agents".
-          05 FILLER PIC X(120) VALUE "Agentes".
-          05 FILLER PIC X(120) VALUE "Agentes".
-          05 FILLER PIC X(120) VALUE "Agents".
-          05 FILLER PIC X(120) VALUE "エージェント".
-          05 FILLER PIC X(120) VALUE "代理".
-      *>   AGENT-N
-          05 FILLER PIC X(120) VALUE "Agent &1".
-          05 FILLER PIC X(120) VALUE "Agente &1".
-          05 FILLER PIC X(120) VALUE "Agente &1".
-          05 FILLER PIC X(120) VALUE "Agent &1".
-          05 FILLER PIC X(120) VALUE "エージェント &1".
-          05 FILLER PIC X(120) VALUE "代理 &1".
-      *>   AGENT-NONE
-          05 FILLER PIC X(120) VALUE "(off)".
-          05 FILLER PIC X(120) VALUE "(desligado)".
-          05 FILLER PIC X(120) VALUE "(apagado)".
-          05 FILLER PIC X(120) VALUE "(désactivé)".
-          05 FILLER PIC X(120) VALUE "（停止）".
-          05 FILLER PIC X(120) VALUE "（停用）".
-      *>   AGENTS-SAVED
-          05 FILLER PIC X(120) VALUE "Agents saved.".
-          05 FILLER PIC X(120) VALUE "Agentes salvos.".
-          05 FILLER PIC X(120) VALUE "Agentes guardados.".
-          05 FILLER PIC X(120) VALUE "Agents enregistrés.".
-          05 FILLER PIC X(120) VALUE "エージェントを保存しました。".
-          05 FILLER PIC X(120) VALUE "代理已保存。".
-      *>   SAVE
-          05 FILLER PIC X(120) VALUE "Save".
-          05 FILLER PIC X(120) VALUE "Salvar".
-          05 FILLER PIC X(120) VALUE "Guardar".
-          05 FILLER PIC X(120) VALUE "Enregistrer".
-          05 FILLER PIC X(120) VALUE "保存".
-          05 FILLER PIC X(120) VALUE "保存".
-      *>   CANCEL
-          05 FILLER PIC X(120) VALUE "Cancel".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Annuler".
-          05 FILLER PIC X(120) VALUE "キャンセル".
-          05 FILLER PIC X(120) VALUE "取消".
-      *>   STATUS
-          05 FILLER PIC X(120) VALUE "Status".
-          05 FILLER PIC X(120) VALUE "Status".
-          05 FILLER PIC X(120) VALUE "Estado".
-          05 FILLER PIC X(120) VALUE "État".
-          05 FILLER PIC X(120) VALUE "ステータス".
-          05 FILLER PIC X(120) VALUE "状态".
-      *>   TIP-AGENT-CONN
-          05 FILLER PIC X(120) VALUE "The connection whose model this agent uses, or (off).".
-          05 FILLER PIC X(120) VALUE "A conexão cujo modelo este agente usa, ou (desligado).".
-          05 FILLER PIC X(120) VALUE "La conexión cuyo modelo usa este agente, o (apagado).".
-          05 FILLER PIC X(120) VALUE "La connexion dont cet agent utilise le modèle, ou (désactivé).".
-          05 FILLER PIC X(120) VALUE "このエージェントが使う接続、または（停止）。".
-          05 FILLER PIC X(120) VALUE "此代理使用其模型的连接，或（停用）。".
-       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 8.
-             10 PC-TEXT      PIC X(120) OCCURS 6.
-      *>   The texts in the current language, by name.
-       01 PC-TEXTS-NOW       GLOBAL.
-          05 T-AGENTS-TITLE PIC X(120).
-          05 T-AGENT-N PIC X(120).
-          05 T-AGENT-NONE PIC X(120).
-          05 T-AGENTS-SAVED PIC X(120).
-          05 T-SAVE PIC X(120).
-          05 T-CANCEL PIC X(120).
-          05 T-STATUS PIC X(120).
-          05 T-TIP-AGENT-CONN PIC X(120).
-       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 8.
-      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
-       01 WS-FMT             GLOBAL PIC X(120).
-       01 WS-ARG1            GLOBAL PIC X(300).
-       01 WS-ARG2            GLOBAL PIC X(300).
-       01 WS-ARG3            GLOBAL PIC X(300).
-       01 WS-ARG4            GLOBAL PIC X(300).
-       01 WS-FMT-OUT         GLOBAL PIC X(1200).
-      *>   The saved connections, in name order.
-       01 WS-CONN-COUNT      GLOBAL PIC 9(4) VALUE 0.
-       01 WS-CONN-NAMES      GLOBAL.
-          05 WS-CONN-NAME    PIC X(30) OCCURS 200.
-       01 WS-INDEX           GLOBAL PIC S9(4).
-       01 WS-P               GLOBAL PIC 9(3).
-       01 WS-A               GLOBAL PIC 9.
-       01 WS-AGENT-ENTRIES   GLOBAL.
-          05 WS-AGENT-ENTRY  PIC X(30) OCCURS 3.
+       01 WS-FS                                  GLOBAL    PIC XX    VALUE "00".
+       01 WS-DATA-DIR                            GLOBAL    PIC X(200).
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-EOF                                 GLOBAL    PIC X.
+       01 WS-OK                                  GLOBAL    PIC X(4).
+       01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
+       01 WS-MODELS-PATH                         GLOBAL    PIC X(240).
+       *>   The interface texts (spec 071 R44): one row per text, one column
+       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+       *>   only the values are translated.
+
+       01 WS-LANG                                GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 1.
+       01 WS-TX-I                                GLOBAL    PIC 9(4).
+       01 PC-TEXT-DATA                           GLOBAL.
+           *>   AGENTS-TITLE
+
+           05 FILLER                             PIC    X(120)    VALUE "Agents".
+           05 FILLER                             PIC    X(120)    VALUE "Agentes".
+           05 FILLER                             PIC    X(120)    VALUE "Agentes".
+           05 FILLER                             PIC    X(120)    VALUE "Agents".
+           05 FILLER                             PIC    X(120)    VALUE "エージェント".
+           05 FILLER                             PIC    X(120)    VALUE "代理".
+           *>   AGENT-N
+
+           05 FILLER                             PIC    X(120)    VALUE "Agent &1".
+           05 FILLER                             PIC    X(120)    VALUE "Agente &1".
+           05 FILLER                             PIC    X(120)    VALUE "Agente &1".
+           05 FILLER                             PIC    X(120)    VALUE "Agent &1".
+           05 FILLER                             PIC    X(120)    VALUE "エージェント &1".
+           05 FILLER                             PIC    X(120)    VALUE "代理 &1".
+           *>   AGENT-NONE
+
+           05 FILLER                             PIC    X(120)    VALUE "(off)".
+           05 FILLER                             PIC    X(120)    VALUE "(desligado)".
+           05 FILLER                             PIC    X(120)    VALUE "(apagado)".
+           05 FILLER                             PIC    X(120)    VALUE "(désactivé)".
+           05 FILLER                             PIC    X(120)    VALUE "（停止）".
+           05 FILLER                             PIC    X(120)    VALUE "（停用）".
+           *>   AGENTS-SAVED
+
+           05 FILLER                             PIC    X(120)    VALUE "Agents saved.".
+           05 FILLER                             PIC    X(120)    VALUE "Agentes salvos.".
+           05 FILLER                             PIC    X(120)    VALUE "Agentes guardados.".
+           05 FILLER                             PIC    X(120)    VALUE "Agents enregistrés.".
+           05 FILLER                             PIC    X(120)    VALUE "エージェントを保存しました。".
+           05 FILLER                             PIC    X(120)    VALUE "代理已保存。".
+           *>   SAVE
+
+           05 FILLER                             PIC    X(120)    VALUE "Save".
+           05 FILLER                             PIC    X(120)    VALUE "Salvar".
+           05 FILLER                             PIC    X(120)    VALUE "Guardar".
+           05 FILLER                             PIC    X(120)    VALUE "Enregistrer".
+           05 FILLER                             PIC    X(120)    VALUE "保存".
+           05 FILLER                             PIC    X(120)    VALUE "保存".
+           *>   CANCEL
+
+           05 FILLER                             PIC    X(120)    VALUE "Cancel".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Annuler".
+           05 FILLER                             PIC    X(120)    VALUE "キャンセル".
+           05 FILLER                             PIC    X(120)    VALUE "取消".
+           *>   STATUS
+
+           05 FILLER                             PIC    X(120)    VALUE "Status".
+           05 FILLER                             PIC    X(120)    VALUE "Status".
+           05 FILLER                             PIC    X(120)    VALUE "Estado".
+           05 FILLER                             PIC    X(120)    VALUE "État".
+           05 FILLER                             PIC    X(120)    VALUE "ステータス".
+           05 FILLER                             PIC    X(120)    VALUE "状态".
+           *>   TIP-AGENT-CONN
+
+           05 FILLER                             PIC    X(120)    VALUE "The connection whose model this agent uses, or (off).".
+           05 FILLER                             PIC    X(120)    VALUE "A conexão cujo modelo este agente usa, ou (desligado).".
+           05 FILLER                             PIC    X(120)    VALUE "La conexión cuyo modelo usa este agente, o (apagado).".
+           05 FILLER                             PIC    X(120)    VALUE "La connexion dont cet agent utilise le modèle, ou (désactivé).".
+           05 FILLER                             PIC    X(120)    VALUE "このエージェントが使う接続、または（停止）。".
+           05 FILLER                             PIC    X(120)    VALUE "此代理使用其模型的连接，或（停用）。".
+       01 PC-TEXT-TABLE                          REDEFINES    PC-TEXT-DATA    GLOBAL.
+           05 PC-TEXT-ROW                        OCCURS    8.
+               10 PC-TEXT                        PIC    X(120)    OCCURS 6.
+       *>   The texts in the current language, by name.
+
+       01 PC-TEXTS-NOW                           GLOBAL.
+           05 T-AGENTS-TITLE                     PIC    X(120).
+           05 T-AGENT-N                          PIC    X(120).
+           05 T-AGENT-NONE                       PIC    X(120).
+           05 T-AGENTS-SAVED                     PIC    X(120).
+           05 T-SAVE                             PIC    X(120).
+           05 T-CANCEL                           PIC    X(120).
+           05 T-STATUS                           PIC    X(120).
+           05 T-TIP-AGENT-CONN                   PIC    X(120).
+       01 PC-TEXTS-NOW-R                         REDEFINES    PC-TEXTS-NOW    GLOBAL.
+           05 PC-TEXT-NOW                        PIC    X(120)    OCCURS 8.
+       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+
+       01 WS-FMT                                 GLOBAL    PIC X(120).
+       01 WS-ARG1                                GLOBAL    PIC X(300).
+       01 WS-ARG2                                GLOBAL    PIC X(300).
+       01 WS-ARG3                                GLOBAL    PIC X(300).
+       01 WS-ARG4                                GLOBAL    PIC X(300).
+       01 WS-FMT-OUT                             GLOBAL    PIC X(1200).
+       *>   The saved connections, in name order.
+
+       01 WS-CONN-COUNT                          GLOBAL    PIC 9(4)    VALUE 0.
+       01 WS-CONN-NAMES                          GLOBAL.
+           05 WS-CONN-NAME                       PIC    X(30)    OCCURS 200.
+       01 WS-INDEX                               GLOBAL    PIC S9(4).
+       01 WS-P                                   GLOBAL    PIC 9(3).
+       01 WS-A                                   GLOBAL    PIC 9.
+       01 WS-AGENT-ENTRIES                       GLOBAL.
+           05 WS-AGENT-ENTRY                     PIC    X(30)    OCCURS 3.
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -328,48 +341,58 @@
        PROGRAM-ID. AGENTS-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-PATHS"
-           CALL "PC-TEXTS"
-           CALL "PC-LOAD-CONNS"
-           CALL "PC-LOAD-AGENTS"
-      *>   Each agent's picker: "(off)" first (item 1), then every saved
-      *>   connection (connection N is item N + 1); the one the agent uses now
-      *>   is selected.
-           MOVE Cmb-Agent-1::Clear() TO WS-OK
-           MOVE Cmb-Agent-1::AddItem(T-AGENT-NONE::Trim()) TO WS-OK
-           MOVE 1 TO WS-INDEX
-           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               MOVE Cmb-Agent-1::AddItem(WS-CONN-NAME(WS-P)::Trim()) TO WS-OK
-               IF WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(1)
-                   COMPUTE WS-INDEX = WS-P + 1
+           CALL    "PC-PATHS"
+           CALL    "PC-TEXTS"
+           CALL    "PC-LOAD-CONNS"
+           CALL    "PC-LOAD-AGENTS"
+
+           *>   Each agent's picker: "(off)" first (item 1), then every saved
+           *>   connection (connection N is item N + 1); the one the agent uses now
+           *>   is selected.
+
+           SET     WS-OK                         TO    Cmb-Agent-1::Clear()
+           SET     WS-OK                         TO    Cmb-Agent-1::AddItem(T-AGENT-NONE::Trim())
+           SET     WS-INDEX                      TO    1
+
+           PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
+               SET     WS-OK                     TO    Cmb-Agent-1::AddItem(WS-CONN-NAME(WS-P)::Trim())
+               IF    WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(1)
+                   COMPUTE    WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
-           MOVE WS-INDEX TO WS-P
-           MOVE Cmb-Agent-1::SetSelectedIndex(WS-P) TO WS-OK
-           MOVE Cmb-Agent-2::Clear() TO WS-OK
-           MOVE Cmb-Agent-2::AddItem(T-AGENT-NONE::Trim()) TO WS-OK
-           MOVE 1 TO WS-INDEX
-           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               MOVE Cmb-Agent-2::AddItem(WS-CONN-NAME(WS-P)::Trim()) TO WS-OK
-               IF WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(2)
-                   COMPUTE WS-INDEX = WS-P + 1
+
+           SET     WS-P                          TO    WS-INDEX
+           SET     WS-OK                         TO    Cmb-Agent-1::SetSelectedIndex(WS-P)
+           SET     WS-OK                         TO    Cmb-Agent-2::Clear()
+           SET     WS-OK                         TO    Cmb-Agent-2::AddItem(T-AGENT-NONE::Trim())
+           SET     WS-INDEX                      TO    1
+
+           PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
+               SET     WS-OK                     TO    Cmb-Agent-2::AddItem(WS-CONN-NAME(WS-P)::Trim())
+               IF    WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(2)
+                   COMPUTE    WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
-           MOVE WS-INDEX TO WS-P
-           MOVE Cmb-Agent-2::SetSelectedIndex(WS-P) TO WS-OK
-           MOVE Cmb-Agent-3::Clear() TO WS-OK
-           MOVE Cmb-Agent-3::AddItem(T-AGENT-NONE::Trim()) TO WS-OK
-           MOVE 1 TO WS-INDEX
-           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               MOVE Cmb-Agent-3::AddItem(WS-CONN-NAME(WS-P)::Trim()) TO WS-OK
-               IF WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(3)
-                   COMPUTE WS-INDEX = WS-P + 1
+
+           SET     WS-P                          TO    WS-INDEX
+           SET     WS-OK                         TO    Cmb-Agent-2::SetSelectedIndex(WS-P)
+           SET     WS-OK                         TO    Cmb-Agent-3::Clear()
+           SET     WS-OK                         TO    Cmb-Agent-3::AddItem(T-AGENT-NONE::Trim())
+           SET     WS-INDEX                      TO    1
+
+           PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
+               SET     WS-OK                     TO    Cmb-Agent-3::AddItem(WS-CONN-NAME(WS-P)::Trim())
+               IF    WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(3)
+                   COMPUTE    WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
-           MOVE WS-INDEX TO WS-P
-           MOVE Cmb-Agent-3::SetSelectedIndex(WS-P) TO WS-OK
+
+           SET     WS-P                          TO    WS-INDEX
+           SET     WS-OK                         TO    Cmb-Agent-3::SetSelectedIndex(WS-P)
 
            GOBACK.
 
@@ -395,10 +418,13 @@
        PROGRAM-ID. BTN-CANCEL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The same code as the Cancel button at the top.
-           CALL "PC-CANCEL"
+           *>   The same code as the Cancel button at the top.
+
+           CALL    "PC-CANCEL"
 
            GOBACK.
 
@@ -408,10 +434,13 @@
        PROGRAM-ID. BTN-SAVE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The same code as the Save button at the top.
-           CALL "PC-SAVE"
+           *>   The same code as the Save button at the top.
+
+           CALL    "PC-SAVE"
 
            GOBACK.
 
@@ -421,9 +450,11 @@
        PROGRAM-ID. BTN-CANCELTOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-CANCEL"
+           CALL    "PC-CANCEL"
 
            GOBACK.
 
@@ -433,9 +464,11 @@
        PROGRAM-ID. BTN-SAVETOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-SAVE"
+           CALL    "PC-SAVE"
 
            GOBACK.
 
@@ -445,18 +478,21 @@
        PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
-           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
-           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
-           IF WS-DATA-DIR = SPACES
-               MOVE "data" TO WS-DATA-DIR
+           *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+
+           DISPLAY    "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-DATA-DIR = SPACES
+               SET     WS-DATA-DIR               TO    "data"
            END-IF
-           MOVE SPACES TO WS-SETTINGS-PATH
-           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
-           MOVE SPACES TO WS-MODELS-PATH
-           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
+           SET     WS-SETTINGS-PATH              TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
+           SET     WS-MODELS-PATH                TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
 
            GOBACK.
 
@@ -466,114 +502,136 @@
        PROGRAM-ID. PC-SYNC-MODELS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 SY-N          PIC 9(3).
-       01 SY-I          PIC 9(3).
-       01 SY-J          PIC 9(3).
-       01 SY-NAME       PIC X(30).
-       01 SY-API        PIC X(12).
-       01 SY-URL        PIC X(200).
-       01 SY-MODEL      PIC X(80).
-       01 SY-FOUND      PIC X.
-       01 SY-EOF        PIC X.
-       01 SY-GONE-N     PIC 9(3).
+       01 SY-N                                   PIC    9(3).
+       01 SY-I                                   PIC    9(3).
+       01 SY-J                                   PIC    9(3).
+       01 SY-NAME                                PIC    X(30).
+       01 SY-API                                 PIC    X(12).
+       01 SY-URL                                 PIC    X(200).
+       01 SY-MODEL                               PIC    X(80).
+       01 SY-FOUND                               PIC    X.
+       01 SY-EOF                                 PIC    X.
+       01 SY-GONE-N                              PIC    9(3).
        01 SY-GONE-TABLE.
-          05 SY-GONE    PIC X(30) OCCURS 200 TIMES.
+           05 SY-GONE                            PIC    X(30)    OCCURS 200 TIMES.
+
        PROCEDURE DIVISION.
-      *>   The models are the APPLICATION's (spec 085): the runtime keeps the
-      *>   list for every form of it, the application's own agents included.
-      *>   MODELS mirrors that list and adds what only PowerChat knows of each
-      *>   model - whether it calls tools, how well it orchestrates. Once, the
-      *>   models PowerChat kept before are handed to the application's list.
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
+           *>   The models are the APPLICATION's (spec 085): the runtime keeps the
+           *>   list for every form of it, the application's own agents included.
+           *>   MODELS mirrors that list and adds what only PowerChat knows of each
+           *>   model - whether it calls tools, how well it orchestrates. Once, the
+           *>   models PowerChat kept before are handed to the application's list.
+
+           OPEN    I-O MODELS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT MODELS-FILE
+               CLOSE    MODELS-FILE
+               OPEN    I-O MODELS-FILE
            END-IF
-           MOVE "MODELS-ADOPTED" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           IF WS-SET-VALUE NOT = "Y"
-               MOVE LOW-VALUES TO MDL-NAME
-               MOVE "N" TO SY-EOF
-               START MODELS-FILE KEY IS >= MDL-NAME
+           SET     WS-SET-NAME                   TO    "MODELS-ADOPTED"
+           CALL    "PC-SETTING-GET"
+           IF    WS-SET-VALUE NOT = "Y"
+               SET     MDL-NAME                  TO    LOW-VALUES
+               SET     SY-EOF                    TO    "N"
+
+               START    MODELS-FILE KEY IS >= MDL-NAME
                    INVALID KEY MOVE "Y" TO SY-EOF
                END-START
-               PERFORM UNTIL SY-EOF = "Y"
-                   READ MODELS-FILE NEXT RECORD
+               PERFORM    UNTIL SY-EOF = "Y"
+                   READ    MODELS-FILE NEXT RECORD
                        AT END MOVE "Y" TO SY-EOF
                        NOT AT END
                            COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
                    END-READ
                END-PERFORM
-               MOVE "MODELS-ADOPTED" TO WS-SET-NAME
-               MOVE "Y" TO WS-SET-VALUE
-               CALL "PC-SETTING-PUT"
+
+               SET     WS-SET-NAME               TO    "MODELS-ADOPTED"
+               SET     WS-SET-VALUE              TO    "Y"
+
+               CALL    "PC-SETTING-PUT"
            END-IF
-      *>   Every model of the application's is here, with its own metadata.
+           *>   Every model of the application's is here, with its own metadata.
+
            COBOL::"MODEL-COUNT" ( SY-N )
-           PERFORM VARYING SY-I FROM 1 BY 1 UNTIL SY-I > SY-N
-               MOVE SPACES TO SY-NAME SY-API SY-URL SY-MODEL
+           PERFORM    VARYING SY-I FROM 1 BY 1 UNTIL SY-I > SY-N
+               SET     SY-NAME SY-API SY-URL SY-MODEL
+                                                 TO    SPACES
+
                COBOL::"MODEL-GET" ( SY-I SY-NAME SY-API SY-URL SY-MODEL )
-               MOVE SY-NAME TO MDL-NAME
-               READ MODELS-FILE
+               SET     MDL-NAME                  TO    SY-NAME
+               READ    MODELS-FILE
                    INVALID KEY
-                       MOVE SY-API TO MDL-API
-                       MOVE SY-URL TO MDL-URL
-                       MOVE SY-MODEL TO MDL-MODEL
-                       MOVE "N" TO MDL-TOOLS
-                       MOVE 5 TO MDL-RANK
-                       WRITE MODEL-REC
+                       *> A model new to PowerChat starts without tool support and at the
+                       *> middle rank, 5 (the scale is 1-9); Model selection sets both.
+
+                       SET     MDL-API           TO    SY-API
+                       SET     MDL-URL           TO    SY-URL
+                       SET     MDL-MODEL         TO    SY-MODEL
+                       SET     MDL-TOOLS         TO    "N"
+                       SET     MDL-RANK          TO    5
+
+                       WRITE    MODEL-REC
                            INVALID KEY CONTINUE
                        END-WRITE
                    NOT INVALID KEY
-                       IF MDL-API NOT = SY-API OR MDL-URL NOT = SY-URL
-                          OR MDL-MODEL NOT = SY-MODEL
-                           MOVE SY-API TO MDL-API
-                           MOVE SY-URL TO MDL-URL
-                           MOVE SY-MODEL TO MDL-MODEL
-                           REWRITE MODEL-REC
+                       IF    MDL-API NOT = SY-API OR MDL-URL NOT = SY-URL
+                               OR MDL-MODEL NOT = SY-MODEL
+
+                           SET     MDL-API       TO    SY-API
+                           SET     MDL-URL       TO    SY-URL
+                           SET     MDL-MODEL     TO    SY-MODEL
+
+                           REWRITE    MODEL-REC
                                INVALID KEY CONTINUE
                            END-REWRITE
                        END-IF
                END-READ
            END-PERFORM
-      *>   ...and none the application has withdrawn.
-           MOVE 0 TO SY-GONE-N
-           MOVE LOW-VALUES TO MDL-NAME
-           MOVE "N" TO SY-EOF
-           START MODELS-FILE KEY IS >= MDL-NAME
+           *>   ...and none the application has withdrawn.
+
+           SET     SY-GONE-N                     TO    0
+           SET     MDL-NAME                      TO    LOW-VALUES
+           SET     SY-EOF                        TO    "N"
+
+           START    MODELS-FILE KEY IS >= MDL-NAME
                INVALID KEY MOVE "Y" TO SY-EOF
            END-START
-           PERFORM UNTIL SY-EOF = "Y"
-               READ MODELS-FILE NEXT RECORD
+           PERFORM    UNTIL SY-EOF = "Y"
+               READ    MODELS-FILE NEXT RECORD
                    AT END MOVE "Y" TO SY-EOF
                    NOT AT END
-                       MOVE "N" TO SY-FOUND
-                       PERFORM VARYING SY-J FROM 1 BY 1
+                       SET     SY-FOUND          TO    "N"
+                       PERFORM    VARYING SY-J FROM 1 BY 1
                                UNTIL SY-J > SY-N OR SY-FOUND = "Y"
-                           MOVE SPACES TO SY-NAME
+                           SET     SY-NAME       TO    SPACES
                            COBOL::"MODEL-GET" ( SY-J SY-NAME )
-                           IF FUNCTION UPPER-CASE(SY-NAME)
-                              = FUNCTION UPPER-CASE(MDL-NAME)
-                               MOVE "Y" TO SY-FOUND
+                           IF    FUNCTION UPPER-CASE(SY-NAME)
+                                   = FUNCTION UPPER-CASE(MDL-NAME)
+                               SET     SY-FOUND  TO    "Y"
                            END-IF
                        END-PERFORM
-                       IF SY-FOUND = "N" AND SY-GONE-N < 200
-                           ADD 1 TO SY-GONE-N
-                           MOVE MDL-NAME TO SY-GONE(SY-GONE-N)
+                       IF    SY-FOUND = "N" AND SY-GONE-N < 200
+                           ADD    1 TO SY-GONE-N
+                           SET     SY-GONE(SY-GONE-N)
+                                                 TO    MDL-NAME
                        END-IF
                END-READ
            END-PERFORM
-           PERFORM VARYING SY-J FROM 1 BY 1 UNTIL SY-J > SY-GONE-N
-               MOVE SY-GONE(SY-J) TO MDL-NAME
-               DELETE MODELS-FILE
+           *> Withdrawn models are deleted after the scan, from the names noted in
+           *> SY-GONE: no DELETE happens in the middle of the READ NEXT loop.
+
+           PERFORM    VARYING SY-J FROM 1 BY 1 UNTIL SY-J > SY-GONE-N
+               SET     MDL-NAME                  TO    SY-GONE(SY-J)
+               DELETE    MODELS-FILE
                    INVALID KEY CONTINUE
                END-DELETE
            END-PERFORM
            COMMIT
-           CLOSE MODELS-FILE
+           CLOSE    MODELS-FILE
 
            GOBACK.
 
@@ -583,22 +641,28 @@
        PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
-           MOVE SPACES TO WS-SET-VALUE
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+
+           SET     WS-SET-VALUE                  TO    SPACES
+           *> Status 35 means the file does not exist yet: create it empty, then
+           *> open it I-O again, so a first run needs no setup.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    WS-SET-NAME
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -608,22 +672,27 @@
        PROGRAM-ID. PC-SETTING-PUT IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           MOVE WS-SET-VALUE TO SET-VALUE
-           WRITE SETTINGS-REC
+
+           SET     SET-NAME                      TO    WS-SET-NAME
+           SET     SET-VALUE                     TO    WS-SET-VALUE
+
+           WRITE    SETTINGS-REC
                INVALID KEY REWRITE SETTINGS-REC
            END-WRITE
            COMMIT
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -633,34 +702,40 @@
        PROGRAM-ID. PC-LOAD-CONNS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Every saved connection's name, in key order, into WS-CONN-NAME -
-      *>   the application's models, mirrored first (spec 085).
-           CALL "PC-SYNC-MODELS"
-           MOVE 0 TO WS-CONN-COUNT
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
+           *>   Every saved connection's name, in key order, into WS-CONN-NAME -
+           *>   the application's models, mirrored first (spec 085).
+
+           CALL    "PC-SYNC-MODELS"
+           SET     WS-CONN-COUNT                 TO    0
+           OPEN    I-O MODELS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT MODELS-FILE
+               CLOSE    MODELS-FILE
+               OPEN    I-O MODELS-FILE
            END-IF
-           MOVE LOW-VALUES TO MDL-NAME
-           MOVE "N" TO WS-EOF
-           START MODELS-FILE KEY IS >= MDL-NAME
+
+           SET     MDL-NAME                      TO    LOW-VALUES
+           SET     WS-EOF                        TO    "N"
+
+           START    MODELS-FILE KEY IS >= MDL-NAME
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
-           PERFORM UNTIL WS-EOF = "Y"
-               READ MODELS-FILE NEXT RECORD
+           PERFORM    UNTIL WS-EOF = "Y"
+               READ    MODELS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF WS-CONN-COUNT < 200
-                           ADD 1 TO WS-CONN-COUNT
-                           MOVE MDL-NAME TO WS-CONN-NAME(WS-CONN-COUNT)
+                       IF    WS-CONN-COUNT < 200
+                           ADD    1 TO WS-CONN-COUNT
+                           SET     WS-CONN-NAME(WS-CONN-COUNT)
+                                                 TO    MDL-NAME
                        END-IF
                END-READ
            END-PERFORM
-           CLOSE MODELS-FILE
+           CLOSE    MODELS-FILE
 
            GOBACK.
 
@@ -670,20 +745,23 @@
        PROGRAM-ID. PC-LOAD-AGENTS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Which model each of the chat's three agents uses. Agent 1 falls
-      *>   back to MODEL-ENTRY, the single setting PowerChat 1 kept.
-           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-               MOVE SPACES TO WS-SET-NAME
-               STRING "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
-               CALL "PC-SETTING-GET"
-               MOVE WS-SET-VALUE TO WS-AGENT-ENTRY(WS-A)
+           *>   Which model each of the chat's three agents uses. Agent 1 falls
+           *>   back to MODEL-ENTRY, the single setting PowerChat 1 kept.
+
+           PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               SET     WS-SET-NAME               TO    SPACES
+               STRING    "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+               CALL    "PC-SETTING-GET"
+               SET     WS-AGENT-ENTRY(WS-A)      TO    WS-SET-VALUE
            END-PERFORM
-           IF WS-AGENT-ENTRY(1) = SPACES
-               MOVE "MODEL-ENTRY" TO WS-SET-NAME
-               CALL "PC-SETTING-GET"
-               MOVE WS-SET-VALUE TO WS-AGENT-ENTRY(1)
+           IF    WS-AGENT-ENTRY(1) = SPACES
+               SET     WS-SET-NAME               TO    "MODEL-ENTRY"
+               CALL    "PC-SETTING-GET"
+               SET     WS-AGENT-ENTRY(1)         TO    WS-SET-VALUE
            END-IF
 
            GOBACK.
@@ -694,14 +772,20 @@
        PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language the user picked (LANG), the texts in it, and every
-      *>   designed caption and hint that shows one (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:2) TO WS-LANG
-           EVALUATE WS-LANG
+           *>   The language the user picked (LANG), the texts in it, and every
+           *>   designed caption and hint that shows one (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
+           *> WS-LANG-IX is the language's column in PC-TEXT; an unset or unknown
+           *> language falls back to English.
+
+           EVALUATE    WS-LANG
                WHEN "en" MOVE 1 TO WS-LANG-IX
                WHEN "pt" MOVE 2 TO WS-LANG-IX
                WHEN "es" MOVE 3 TO WS-LANG-IX
@@ -709,35 +793,42 @@
                WHEN "jp" MOVE 5 TO WS-LANG-IX
                WHEN "cn" MOVE 6 TO WS-LANG-IX
                WHEN OTHER MOVE "en" TO WS-LANG
-                          MOVE 1 TO WS-LANG-IX
+                   SET     WS-LANG-IX            TO    1
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 8
-               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           PERFORM    VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 8
+               SET     PC-TEXT-NOW(WS-TX-I)      TO    PC-TEXT(WS-TX-I, WS-LANG-IX)
            END-PERFORM
-           MOVE T-AGENTS-TITLE::Trim() TO Lbl-Title::Caption
-           MOVE T-SAVE::Trim() TO Btn-Save::Caption
-           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
-           MOVE T-SAVE::Trim() TO Btn-SaveTop::Caption
-           MOVE T-CANCEL::Trim() TO Btn-CancelTop::Caption
-           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
-           MOVE T-AGENT-N TO WS-FMT
-           MOVE 1 TO WS-A
-           MOVE WS-A TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Agent-1::Caption
-           MOVE T-TIP-AGENT-CONN::Trim() TO Cmb-Agent-1::Tooltip
-           MOVE T-AGENT-N TO WS-FMT
-           MOVE 2 TO WS-A
-           MOVE WS-A TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Agent-2::Caption
-           MOVE T-TIP-AGENT-CONN::Trim() TO Cmb-Agent-2::Tooltip
-           MOVE T-AGENT-N TO WS-FMT
-           MOVE 3 TO WS-A
-           MOVE WS-A TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE WS-FMT-OUT::Trim() TO Lbl-Agent-3::Caption
-           MOVE T-TIP-AGENT-CONN::Trim() TO Cmb-Agent-3::Tooltip
+
+           SET     Lbl-Title::Caption            TO    T-AGENTS-TITLE::Trim()
+           SET     Btn-Save::Caption             TO    T-SAVE::Trim()
+           SET     Btn-Cancel::Caption           TO    T-CANCEL::Trim()
+           SET     Btn-SaveTop::Caption          TO    T-SAVE::Trim()
+           SET     Btn-CancelTop::Caption        TO    T-CANCEL::Trim()
+           SET     Lbl-Status::Caption           TO    T-STATUS::Trim()
+           SET     WS-FMT                        TO    T-AGENT-N
+           SET     WS-A                          TO    1
+           SET     WS-ARG1                       TO    WS-A
+
+           CALL    "PC-FMT"
+
+           SET     Lbl-Agent-1::Caption          TO    WS-FMT-OUT::Trim()
+           SET     Cmb-Agent-1::Tooltip          TO    T-TIP-AGENT-CONN::Trim()
+           SET     WS-FMT                        TO    T-AGENT-N
+           SET     WS-A                          TO    2
+           SET     WS-ARG1                       TO    WS-A
+
+           CALL    "PC-FMT"
+
+           SET     Lbl-Agent-2::Caption          TO    WS-FMT-OUT::Trim()
+           SET     Cmb-Agent-2::Tooltip          TO    T-TIP-AGENT-CONN::Trim()
+           SET     WS-FMT                        TO    T-AGENT-N
+           SET     WS-A                          TO    3
+           SET     WS-ARG1                       TO    WS-A
+
+           CALL    "PC-FMT"
+
+           SET     Lbl-Agent-3::Caption          TO    WS-FMT-OUT::Trim()
+           SET     Cmb-Agent-3::Tooltip          TO    T-TIP-AGENT-CONN::Trim()
 
            GOBACK.
 
@@ -747,30 +838,42 @@
        PROGRAM-ID. PC-FMT IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-PT              PIC 9(4).
-       01 WS-FROM            PIC 9(4).
-       01 WS-CNT             PIC 9(4).
-       01 WS-PART            PIC X(120).
-       01 WS-DELIM           PIC XX.
+       01 WS-PT                                  PIC    9(4).
+       01 WS-FROM                                PIC    9(4).
+       01 WS-CNT                                 PIC    9(4).
+       01 WS-PART                                PIC    X(120).
+       01 WS-DELIM                               PIC    XX.
+
        PROCEDURE DIVISION.
-      *>   A message whose words go round numbers and names differently in each
-      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
-           MOVE SPACES TO WS-FMT-OUT
-           MOVE 1 TO WS-PT
-           MOVE 1 TO WS-FROM
-           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
-               MOVE SPACES TO WS-PART WS-DELIM
-               MOVE 0 TO WS-CNT
-               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+           *>   A message whose words go round numbers and names differently in each
+           *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+
+           SET     WS-FMT-OUT                    TO    SPACES
+           SET     WS-PT                         TO    1
+           SET     WS-FROM                       TO    1
+
+           PERFORM    UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               SET     WS-PART WS-DELIM          TO    SPACES
+               SET     WS-CNT                    TO    0
+
+               UNSTRING    WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
                    INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
                    WITH POINTER WS-FROM
                END-UNSTRING
-               IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
+               *> WS-CNT is 0 when a placeholder comes first (or two in a row), and a
+               *> zero-length reference modification is not allowed.
+
+               IF    WS-CNT > 0
+                   STRING    WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
-               EVALUATE WS-DELIM
+               *> WS-DELIM is cleared each round, so blank means no &n was found: that
+               *> was the last piece. Move the pointer past the end to stop the loop.
+
+               EVALUATE    WS-DELIM
                    WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
@@ -787,42 +890,48 @@
        PROGRAM-ID. PC-SAVE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Save - shared by the Save buttons at the top and at the bottom.
-      *>   Each agent's connection, or none. Agent 1's is also PowerChat 1's
-      *>   single MODEL-ENTRY, so "(off)" does not fall back to it.
-           MOVE Cmb-Agent-1::GetSelectedIndex() TO WS-INDEX
-      *>   Item 1 is "(off)"; connection N is item N + 1.
-           SUBTRACT 1 FROM WS-INDEX
-           MOVE SPACES TO WS-SET-VALUE
-           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
-               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
+           *>   Save - shared by the Save buttons at the top and at the bottom.
+           *>   Each agent's connection, or none. Agent 1's is also PowerChat 1's
+           *>   single MODEL-ENTRY, so "(off)" does not fall back to it.
+
+           SET     WS-INDEX                      TO    Cmb-Agent-1::GetSelectedIndex()
+           *>   Item 1 is "(off)"; connection N is item N + 1.
+
+           SUBTRACT    1 FROM WS-INDEX
+           SET     WS-SET-VALUE                  TO    SPACES
+           IF    WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
+               SET     WS-SET-VALUE              TO    WS-CONN-NAME(WS-INDEX)
            END-IF
-           MOVE "AGENT-1-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE "MODEL-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE Cmb-Agent-2::GetSelectedIndex() TO WS-INDEX
-      *>   Item 1 is "(off)"; connection N is item N + 1.
-           SUBTRACT 1 FROM WS-INDEX
-           MOVE SPACES TO WS-SET-VALUE
-           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
-               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
+           SET     WS-SET-NAME                   TO    "AGENT-1-ENTRY"
+           CALL    "PC-SETTING-PUT"
+           SET     WS-SET-NAME                   TO    "MODEL-ENTRY"
+           CALL    "PC-SETTING-PUT"
+           SET     WS-INDEX                      TO    Cmb-Agent-2::GetSelectedIndex()
+           *>   Item 1 is "(off)"; connection N is item N + 1.
+
+           SUBTRACT    1 FROM WS-INDEX
+           SET     WS-SET-VALUE                  TO    SPACES
+           IF    WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
+               SET     WS-SET-VALUE              TO    WS-CONN-NAME(WS-INDEX)
            END-IF
-           MOVE "AGENT-2-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE Cmb-Agent-3::GetSelectedIndex() TO WS-INDEX
-      *>   Item 1 is "(off)"; connection N is item N + 1.
-           SUBTRACT 1 FROM WS-INDEX
-           MOVE SPACES TO WS-SET-VALUE
-           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
-               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
+           SET     WS-SET-NAME                   TO    "AGENT-2-ENTRY"
+           CALL    "PC-SETTING-PUT"
+           SET     WS-INDEX                      TO    Cmb-Agent-3::GetSelectedIndex()
+           *>   Item 1 is "(off)"; connection N is item N + 1.
+
+           SUBTRACT    1 FROM WS-INDEX
+           SET     WS-SET-VALUE                  TO    SPACES
+           IF    WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
+               SET     WS-SET-VALUE              TO    WS-CONN-NAME(WS-INDEX)
            END-IF
-           MOVE "AGENT-3-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE T-AGENTS-SAVED::Trim() TO Lbl-Status::Caption
-           INVOKE ME::Close()
+           SET     WS-SET-NAME                   TO    "AGENT-3-ENTRY"
+           CALL    "PC-SETTING-PUT"
+           SET     Lbl-Status::Caption           TO    T-AGENTS-SAVED::Trim()
+           INVOKE    ME::Close()
 
            GOBACK.
 
@@ -832,11 +941,14 @@
        PROGRAM-ID. PC-CANCEL IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Cancel - shared by the Cancel buttons at the top and at the bottom.
-      *>   Nothing is written: the dialog closes as it was opened.
-           INVOKE ME::Close()
+           *>   Cancel - shared by the Cancel buttons at the top and at the bottom.
+           *>   Nothing is written: the dialog closes as it was opened.
+
+           INVOKE    ME::Close()
 
            GOBACK.
 

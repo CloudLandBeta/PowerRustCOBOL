@@ -80,10 +80,10 @@
 
        DATA DIVISION.
        FILE SECTION.
-       FD  SETTINGS-FILE IS GLOBAL.
-       01  SETTINGS-REC.
-           05 SET-NAME          PIC X(20).
-           05 SET-VALUE         PIC X(200).
+       FD SETTINGS-FILE IS GLOBAL.
+       01 SETTINGS-REC.
+           05 SET-NAME                           PIC    X(20).
+           05 SET-VALUE                          PIC    X(200).
        WORKING-STORAGE SECTION.
       *>── Cobolt runtime fields ─────────────────────────────────────
        01 COBOL-QUIT             PIC 9        VALUE 0.
@@ -93,108 +93,120 @@
        01 FORM-NAME               PIC X(64)   VALUE 'KB-FOLDER-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-FS              GLOBAL PIC XX VALUE "00".
-       01 WS-DATA-DIR        GLOBAL PIC X(200).
-       01 WS-SET-NAME        GLOBAL PIC X(20).
-       01 WS-SET-VALUE       GLOBAL PIC X(200).
-       01 WS-EOF             GLOBAL PIC X.
-       01 WS-OK              GLOBAL PIC X(4).
-       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
-       01 WS-MODELS-PATH     GLOBAL PIC X(240).
-      *>   The interface texts (spec 071 R44): one row per text, one column
-      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
-      *>   only the values are translated.
-       01 WS-LANG            GLOBAL PIC XX VALUE "en".
-       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
-       01 WS-TX-I            GLOBAL PIC 9(4).
-       01 PC-TEXT-DATA       GLOBAL.
-      *>   KB-FOLDER-TITLE
-          05 FILLER PIC X(120) VALUE "Knowledge Base folder".
-          05 FILLER PIC X(120) VALUE "Pasta da base de conhecimento".
-          05 FILLER PIC X(120) VALUE "Carpeta de la base de conocimiento".
-          05 FILLER PIC X(120) VALUE "Dossier de la base de connaissances".
-          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダー".
-          05 FILLER PIC X(120) VALUE "知识库文件夹".
-      *>   KB-FOLDER-LABEL
-          05 FILLER PIC X(120) VALUE "Knowledge Base folder (may be a folder on another machine)".
-          05 FILLER PIC X(120) VALUE "Pasta da base de conhecimento (pode ser uma pasta em outra máquina)".
-          05 FILLER PIC X(120) VALUE "Carpeta de la base de conocimiento (puede estar en otra máquina)".
-          05 FILLER PIC X(120) VALUE "Dossier de la base de connaissances (il peut se trouver sur une autre machine)".
-          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダー（別のマシン上のフォルダーでも可）".
-          05 FILLER PIC X(120) VALUE "知识库文件夹（可以位于另一台机器上）".
-      *>   KB-BROWSE-TITLE
-          05 FILLER PIC X(120) VALUE "Choose the Knowledge Base folder".
-          05 FILLER PIC X(120) VALUE "Escolha a pasta da base de conhecimento".
-          05 FILLER PIC X(120) VALUE "Elige la carpeta de la base de conocimiento".
-          05 FILLER PIC X(120) VALUE "Choisissez le dossier de la base de connaissances".
-          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダーを選択".
-          05 FILLER PIC X(120) VALUE "选择知识库文件夹".
-      *>   KB-FOLDER-SAVED
-          05 FILLER PIC X(120) VALUE "Knowledge Base folder saved.".
-          05 FILLER PIC X(120) VALUE "Pasta da base de conhecimento salva.".
-          05 FILLER PIC X(120) VALUE "Carpeta de la base de conocimiento guardada.".
-          05 FILLER PIC X(120) VALUE "Dossier de la base de connaissances enregistré.".
-          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダーを保存しました。".
-          05 FILLER PIC X(120) VALUE "知识库文件夹已保存。".
-      *>   SAVE
-          05 FILLER PIC X(120) VALUE "Save".
-          05 FILLER PIC X(120) VALUE "Salvar".
-          05 FILLER PIC X(120) VALUE "Guardar".
-          05 FILLER PIC X(120) VALUE "Enregistrer".
-          05 FILLER PIC X(120) VALUE "保存".
-          05 FILLER PIC X(120) VALUE "保存".
-      *>   CANCEL
-          05 FILLER PIC X(120) VALUE "Cancel".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Cancelar".
-          05 FILLER PIC X(120) VALUE "Annuler".
-          05 FILLER PIC X(120) VALUE "キャンセル".
-          05 FILLER PIC X(120) VALUE "取消".
-      *>   STATUS
-          05 FILLER PIC X(120) VALUE "Status".
-          05 FILLER PIC X(120) VALUE "Status".
-          05 FILLER PIC X(120) VALUE "Estado".
-          05 FILLER PIC X(120) VALUE "État".
-          05 FILLER PIC X(120) VALUE "ステータス".
-          05 FILLER PIC X(120) VALUE "状态".
-      *>   TIP-KB
-          05 FILLER PIC X(120) VALUE "The folder where each topic keeps its documents and search index. It may be on another machine.".
-          05 FILLER PIC X(120) VALUE "Pasta onde cada tópico guarda seus documentos e o índice de busca. Pode ficar em outra máquina.".
-          05 FILLER PIC X(120) VALUE "Carpeta donde cada tema guarda sus documentos y su índice. Puede estar en otra máquina.".
-          05 FILLER PIC X(120) VALUE "Dossier où chaque sujet garde ses documents et son index. Il peut être sur une autre machine.".
-          05 FILLER PIC X(120) VALUE "各トピックの文書と検索索引を置くフォルダー。別のマシンにあってもかまいません。".
-          05 FILLER PIC X(120) VALUE "每个主题存放文档和搜索索引的文件夹，可以位于另一台机器上。".
-      *>   TIP-BROWSE
-          05 FILLER PIC X(120) VALUE "Choose the folder in a window instead of typing it.".
-          05 FILLER PIC X(120) VALUE "Escolher a pasta numa janela em vez de digitá-la.".
-          05 FILLER PIC X(120) VALUE "Elegir la carpeta en una ventana en lugar de escribirla.".
-          05 FILLER PIC X(120) VALUE "Choisir le dossier dans une fenêtre plutôt que le taper.".
-          05 FILLER PIC X(120) VALUE "入力する代わりにウィンドウでフォルダーを選びます。".
-          05 FILLER PIC X(120) VALUE "在窗口中选择文件夹，而不必手动输入。".
-       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 9.
-             10 PC-TEXT      PIC X(120) OCCURS 6.
-      *>   The texts in the current language, by name.
-       01 PC-TEXTS-NOW       GLOBAL.
-          05 T-KB-FOLDER-TITLE PIC X(120).
-          05 T-KB-FOLDER-LABEL PIC X(120).
-          05 T-KB-BROWSE-TITLE PIC X(120).
-          05 T-KB-FOLDER-SAVED PIC X(120).
-          05 T-SAVE PIC X(120).
-          05 T-CANCEL PIC X(120).
-          05 T-STATUS PIC X(120).
-          05 T-TIP-KB PIC X(120).
-          05 T-TIP-BROWSE PIC X(120).
-       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 9.
-      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
-       01 WS-FMT             GLOBAL PIC X(120).
-       01 WS-ARG1            GLOBAL PIC X(300).
-       01 WS-ARG2            GLOBAL PIC X(300).
-       01 WS-ARG3            GLOBAL PIC X(300).
-       01 WS-ARG4            GLOBAL PIC X(300).
-       01 WS-FMT-OUT         GLOBAL PIC X(1200).
-       01 WS-PATH            GLOBAL PIC X(400).
+       01 WS-FS                                  GLOBAL    PIC XX    VALUE "00".
+       01 WS-DATA-DIR                            GLOBAL    PIC X(200).
+       01 WS-SET-NAME                            GLOBAL    PIC X(20).
+       01 WS-SET-VALUE                           GLOBAL    PIC X(200).
+       01 WS-EOF                                 GLOBAL    PIC X.
+       01 WS-OK                                  GLOBAL    PIC X(4).
+       01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
+       01 WS-MODELS-PATH                         GLOBAL    PIC X(240).
+       *>   The interface texts (spec 071 R44): one row per text, one column
+       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+       *>   only the values are translated.
+
+       01 WS-LANG                                GLOBAL    PIC XX    VALUE "en".
+       01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 1.
+       01 WS-TX-I                                GLOBAL    PIC 9(4).
+       01 PC-TEXT-DATA                           GLOBAL.
+           *>   KB-FOLDER-TITLE
+
+           05 FILLER                             PIC    X(120)    VALUE "Knowledge Base folder".
+           05 FILLER                             PIC    X(120)    VALUE "Pasta da base de conhecimento".
+           05 FILLER                             PIC    X(120)    VALUE "Carpeta de la base de conocimiento".
+           05 FILLER                             PIC    X(120)    VALUE "Dossier de la base de connaissances".
+           05 FILLER                             PIC    X(120)    VALUE "ナレッジベースのフォルダー".
+           05 FILLER                             PIC    X(120)    VALUE "知识库文件夹".
+           *>   KB-FOLDER-LABEL
+
+           05 FILLER                             PIC    X(120)    VALUE "Knowledge Base folder (may be a folder on another machine)".
+           05 FILLER                             PIC    X(120)    VALUE "Pasta da base de conhecimento (pode ser uma pasta em outra máquina)".
+           05 FILLER                             PIC    X(120)    VALUE "Carpeta de la base de conocimiento (puede estar en otra máquina)".
+           05 FILLER                             PIC    X(120)    VALUE "Dossier de la base de connaissances (il peut se trouver sur une autre machine)".
+           05 FILLER                             PIC    X(120)    VALUE "ナレッジベースのフォルダー（別のマシン上のフォルダーでも可）".
+           05 FILLER                             PIC    X(120)    VALUE "知识库文件夹（可以位于另一台机器上）".
+           *>   KB-BROWSE-TITLE
+
+           05 FILLER                             PIC    X(120)    VALUE "Choose the Knowledge Base folder".
+           05 FILLER                             PIC    X(120)    VALUE "Escolha a pasta da base de conhecimento".
+           05 FILLER                             PIC    X(120)    VALUE "Elige la carpeta de la base de conocimiento".
+           05 FILLER                             PIC    X(120)    VALUE "Choisissez le dossier de la base de connaissances".
+           05 FILLER                             PIC    X(120)    VALUE "ナレッジベースのフォルダーを選択".
+           05 FILLER                             PIC    X(120)    VALUE "选择知识库文件夹".
+           *>   KB-FOLDER-SAVED
+
+           05 FILLER                             PIC    X(120)    VALUE "Knowledge Base folder saved.".
+           05 FILLER                             PIC    X(120)    VALUE "Pasta da base de conhecimento salva.".
+           05 FILLER                             PIC    X(120)    VALUE "Carpeta de la base de conocimiento guardada.".
+           05 FILLER                             PIC    X(120)    VALUE "Dossier de la base de connaissances enregistré.".
+           05 FILLER                             PIC    X(120)    VALUE "ナレッジベースのフォルダーを保存しました。".
+           05 FILLER                             PIC    X(120)    VALUE "知识库文件夹已保存。".
+           *>   SAVE
+
+           05 FILLER                             PIC    X(120)    VALUE "Save".
+           05 FILLER                             PIC    X(120)    VALUE "Salvar".
+           05 FILLER                             PIC    X(120)    VALUE "Guardar".
+           05 FILLER                             PIC    X(120)    VALUE "Enregistrer".
+           05 FILLER                             PIC    X(120)    VALUE "保存".
+           05 FILLER                             PIC    X(120)    VALUE "保存".
+           *>   CANCEL
+
+           05 FILLER                             PIC    X(120)    VALUE "Cancel".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Cancelar".
+           05 FILLER                             PIC    X(120)    VALUE "Annuler".
+           05 FILLER                             PIC    X(120)    VALUE "キャンセル".
+           05 FILLER                             PIC    X(120)    VALUE "取消".
+           *>   STATUS
+
+           05 FILLER                             PIC    X(120)    VALUE "Status".
+           05 FILLER                             PIC    X(120)    VALUE "Status".
+           05 FILLER                             PIC    X(120)    VALUE "Estado".
+           05 FILLER                             PIC    X(120)    VALUE "État".
+           05 FILLER                             PIC    X(120)    VALUE "ステータス".
+           05 FILLER                             PIC    X(120)    VALUE "状态".
+           *>   TIP-KB
+
+           05 FILLER                             PIC    X(120)    VALUE "The folder where each topic keeps its documents and search index. It may be on another machine.".
+           05 FILLER                             PIC    X(120)    VALUE "Pasta onde cada tópico guarda seus documentos e o índice de busca. Pode ficar em outra máquina.".
+           05 FILLER                             PIC    X(120)    VALUE "Carpeta donde cada tema guarda sus documentos y su índice. Puede estar en otra máquina.".
+           05 FILLER                             PIC    X(120)    VALUE "Dossier où chaque sujet garde ses documents et son index. Il peut être sur une autre machine.".
+           05 FILLER                             PIC    X(120)    VALUE "各トピックの文書と検索索引を置くフォルダー。別のマシンにあってもかまいません。".
+           05 FILLER                             PIC    X(120)    VALUE "每个主题存放文档和搜索索引的文件夹，可以位于另一台机器上。".
+           *>   TIP-BROWSE
+
+           05 FILLER                             PIC    X(120)    VALUE "Choose the folder in a window instead of typing it.".
+           05 FILLER                             PIC    X(120)    VALUE "Escolher a pasta numa janela em vez de digitá-la.".
+           05 FILLER                             PIC    X(120)    VALUE "Elegir la carpeta en una ventana en lugar de escribirla.".
+           05 FILLER                             PIC    X(120)    VALUE "Choisir le dossier dans une fenêtre plutôt que le taper.".
+           05 FILLER                             PIC    X(120)    VALUE "入力する代わりにウィンドウでフォルダーを選びます。".
+           05 FILLER                             PIC    X(120)    VALUE "在窗口中选择文件夹，而不必手动输入。".
+       01 PC-TEXT-TABLE                          REDEFINES    PC-TEXT-DATA    GLOBAL.
+           05 PC-TEXT-ROW                        OCCURS    9.
+               10 PC-TEXT                        PIC    X(120)    OCCURS 6.
+       *>   The texts in the current language, by name.
+
+       01 PC-TEXTS-NOW                           GLOBAL.
+           05 T-KB-FOLDER-TITLE                  PIC    X(120).
+           05 T-KB-FOLDER-LABEL                  PIC    X(120).
+           05 T-KB-BROWSE-TITLE                  PIC    X(120).
+           05 T-KB-FOLDER-SAVED                  PIC    X(120).
+           05 T-SAVE                             PIC    X(120).
+           05 T-CANCEL                           PIC    X(120).
+           05 T-STATUS                           PIC    X(120).
+           05 T-TIP-KB                           PIC    X(120).
+           05 T-TIP-BROWSE                       PIC    X(120).
+       01 PC-TEXTS-NOW-R                         REDEFINES    PC-TEXTS-NOW    GLOBAL.
+           05 PC-TEXT-NOW                        PIC    X(120)    OCCURS 9.
+       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+
+       01 WS-FMT                                 GLOBAL    PIC X(120).
+       01 WS-ARG1                                GLOBAL    PIC X(300).
+       01 WS-ARG2                                GLOBAL    PIC X(300).
+       01 WS-ARG3                                GLOBAL    PIC X(300).
+       01 WS-ARG4                                GLOBAL    PIC X(300).
+       01 WS-FMT-OUT                             GLOBAL    PIC X(1200).
+       01 WS-PATH                                GLOBAL    PIC X(400).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -300,16 +312,19 @@
        PROGRAM-ID. KB-FOLDER-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-PATHS"
-           CALL "PC-TEXTS"
-           MOVE "KB-LOCATION" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           IF WS-SET-VALUE = SPACES
-               MOVE "assets/KB" TO WS-SET-VALUE
+           CALL    "PC-PATHS"
+           CALL    "PC-TEXTS"
+
+           SET     WS-SET-NAME                   TO    "KB-LOCATION"
+           CALL    "PC-SETTING-GET"
+           IF    WS-SET-VALUE = SPACES
+               SET     WS-SET-VALUE              TO    "assets/KB"
            END-IF
-           MOVE WS-SET-VALUE TO Txt-KbLocation::Text
+           SET     Txt-KbLocation::Text          TO    WS-SET-VALUE
 
            GOBACK.
 
@@ -335,14 +350,17 @@
        PROGRAM-ID. BTN-BROWSEKB--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The operating system's own folder window (no typing, no typos).
-      *>   The choice waits in the field until Save.
-           MOVE Txt-KbLocation::Text TO WS-SET-VALUE
+           *>   The operating system's own folder window (no typing, no typos).
+           *>   The choice waits in the field until Save.
+
+           SET     WS-SET-VALUE                  TO    Txt-KbLocation::Text
            COBOL::"FOLDER-DIALOG" ( T-KB-BROWSE-TITLE WS-SET-VALUE WS-PATH )
-           IF WS-PATH NOT = SPACES
-               MOVE WS-PATH TO Txt-KbLocation::Text
+           IF    WS-PATH NOT = SPACES
+               SET     Txt-KbLocation::Text      TO    WS-PATH
            END-IF
 
            GOBACK.
@@ -353,10 +371,13 @@
        PROGRAM-ID. BTN-CANCEL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The same code as the Cancel button at the top.
-           CALL "PC-CANCEL"
+           *>   The same code as the Cancel button at the top.
+
+           CALL    "PC-CANCEL"
 
            GOBACK.
 
@@ -366,10 +387,13 @@
        PROGRAM-ID. BTN-SAVE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The same code as the Save button at the top.
-           CALL "PC-SAVE"
+           *>   The same code as the Save button at the top.
+
+           CALL    "PC-SAVE"
 
            GOBACK.
 
@@ -379,9 +403,11 @@
        PROGRAM-ID. BTN-CANCELTOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-CANCEL"
+           CALL    "PC-CANCEL"
 
            GOBACK.
 
@@ -391,9 +417,11 @@
        PROGRAM-ID. BTN-SAVETOP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           CALL "PC-SAVE"
+           CALL    "PC-SAVE"
 
            GOBACK.
 
@@ -403,18 +431,21 @@
        PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
-           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
-           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
-           IF WS-DATA-DIR = SPACES
-               MOVE "data" TO WS-DATA-DIR
+           *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+
+           DISPLAY    "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT    WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF    WS-DATA-DIR = SPACES
+               SET     WS-DATA-DIR               TO    "data"
            END-IF
-           MOVE SPACES TO WS-SETTINGS-PATH
-           STRING WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
-           MOVE SPACES TO WS-MODELS-PATH
-           STRING WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
+           SET     WS-SETTINGS-PATH              TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/settings.idx" INTO WS-SETTINGS-PATH
+           SET     WS-MODELS-PATH                TO    SPACES
+           STRING    WS-DATA-DIR::Trim() "/models.idx" INTO WS-MODELS-PATH
 
            GOBACK.
 
@@ -424,22 +455,28 @@
        PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
-           MOVE SPACES TO WS-SET-VALUE
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+
+           SET     WS-SET-VALUE                  TO    SPACES
+           *> Status 35 is a missing file (first run): create it empty and reopen
+           *> I-O, so the read below simply finds no record.
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           READ SETTINGS-FILE
+           SET     SET-NAME                      TO    WS-SET-NAME
+           READ    SETTINGS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
            END-READ
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -449,22 +486,27 @@
        PROGRAM-ID. PC-SETTING-PUT IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
-           OPEN I-O SETTINGS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT SETTINGS-FILE
-               CLOSE SETTINGS-FILE
-               OPEN I-O SETTINGS-FILE
+           *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+
+           OPEN    I-O SETTINGS-FILE
+           IF    WS-FS = "35"
+               OPEN    OUTPUT SETTINGS-FILE
+               CLOSE    SETTINGS-FILE
+               OPEN    I-O SETTINGS-FILE
            END-IF
-           MOVE WS-SET-NAME TO SET-NAME
-           MOVE WS-SET-VALUE TO SET-VALUE
-           WRITE SETTINGS-REC
+
+           SET     SET-NAME                      TO    WS-SET-NAME
+           SET     SET-VALUE                     TO    WS-SET-VALUE
+
+           WRITE    SETTINGS-REC
                INVALID KEY REWRITE SETTINGS-REC
            END-WRITE
            COMMIT
-           CLOSE SETTINGS-FILE
+           CLOSE    SETTINGS-FILE
 
            GOBACK.
 
@@ -474,14 +516,17 @@
        PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   The language the user picked (LANG), the texts in it, and every
-      *>   designed caption and hint that shows one (R46).
-           MOVE "LANG" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:2) TO WS-LANG
-           EVALUATE WS-LANG
+           *>   The language the user picked (LANG), the texts in it, and every
+           *>   designed caption and hint that shows one (R46).
+
+           SET     WS-SET-NAME                   TO    "LANG"
+           CALL    "PC-SETTING-GET"
+           SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
+           EVALUATE    WS-LANG
                WHEN "en" MOVE 1 TO WS-LANG-IX
                WHEN "pt" MOVE 2 TO WS-LANG-IX
                WHEN "es" MOVE 3 TO WS-LANG-IX
@@ -489,20 +534,24 @@
                WHEN "jp" MOVE 5 TO WS-LANG-IX
                WHEN "cn" MOVE 6 TO WS-LANG-IX
                WHEN OTHER MOVE "en" TO WS-LANG
-                          MOVE 1 TO WS-LANG-IX
+                   SET     WS-LANG-IX            TO    1
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 9
-               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           *> PC-TEXT-NOW overlays the T- names, so row N of the table becomes the
+           *> Nth name. The bound is the number of texts (the OCCURS of the table).
+
+           PERFORM    VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 9
+               SET     PC-TEXT-NOW(WS-TX-I)      TO    PC-TEXT(WS-TX-I, WS-LANG-IX)
            END-PERFORM
-           MOVE T-KB-FOLDER-TITLE::Trim() TO Lbl-Title::Caption
-           MOVE T-KB-FOLDER-LABEL::Trim() TO Lbl-KB::Caption
-           MOVE T-SAVE::Trim() TO Btn-Save::Caption
-           MOVE T-CANCEL::Trim() TO Btn-Cancel::Caption
-           MOVE T-SAVE::Trim() TO Btn-SaveTop::Caption
-           MOVE T-CANCEL::Trim() TO Btn-CancelTop::Caption
-           MOVE T-STATUS::Trim() TO Lbl-Status::Caption
-           MOVE T-TIP-KB::Trim() TO Txt-KbLocation::Tooltip
-           MOVE T-TIP-BROWSE::Trim() TO Btn-BrowseKb::Tooltip
+
+           SET     Lbl-Title::Caption            TO    T-KB-FOLDER-TITLE::Trim()
+           SET     Lbl-KB::Caption               TO    T-KB-FOLDER-LABEL::Trim()
+           SET     Btn-Save::Caption             TO    T-SAVE::Trim()
+           SET     Btn-Cancel::Caption           TO    T-CANCEL::Trim()
+           SET     Btn-SaveTop::Caption          TO    T-SAVE::Trim()
+           SET     Btn-CancelTop::Caption        TO    T-CANCEL::Trim()
+           SET     Lbl-Status::Caption           TO    T-STATUS::Trim()
+           SET     Txt-KbLocation::Tooltip       TO    T-TIP-KB::Trim()
+           SET     Btn-BrowseKb::Tooltip         TO    T-TIP-BROWSE::Trim()
 
            GOBACK.
 
@@ -512,34 +561,42 @@
        PROGRAM-ID. PC-FMT IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-PT              PIC 9(4).
-       01 WS-FROM            PIC 9(4).
-       01 WS-CNT             PIC 9(4).
-       01 WS-PART            PIC X(120).
-       01 WS-DELIM           PIC XX.
+       01 WS-PT                                  PIC    9(4).
+       01 WS-FROM                                PIC    9(4).
+       01 WS-CNT                                 PIC    9(4).
+       01 WS-PART                                PIC    X(120).
+       01 WS-DELIM                               PIC    XX.
+
        PROCEDURE DIVISION.
-      *>   A message whose words go round numbers and names differently in each
-      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
-           MOVE SPACES TO WS-FMT-OUT
-           MOVE 1 TO WS-PT
-           MOVE 1 TO WS-FROM
-           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
-               MOVE SPACES TO WS-PART WS-DELIM
-               MOVE 0 TO WS-CNT
-               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+           *>   A message whose words go round numbers and names differently in each
+           *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+
+           SET     WS-FMT-OUT                    TO    SPACES
+           SET     WS-PT                         TO    1
+           SET     WS-FROM                       TO    1
+
+           PERFORM    UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               SET     WS-PART WS-DELIM          TO    SPACES
+               SET     WS-CNT                    TO    0
+
+               UNSTRING    WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
                    INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
                    WITH POINTER WS-FROM
                END-UNSTRING
-               IF WS-CNT > 0
-                   STRING WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
+               IF    WS-CNT > 0
+                   STRING    WS-PART(1:WS-CNT) INTO WS-FMT-OUT WITH POINTER WS-PT
                END-IF
-               EVALUATE WS-DELIM
+               EVALUATE    WS-DELIM
                    WHEN "&1" STRING WS-ARG1::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&2" STRING WS-ARG2::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&3" STRING WS-ARG3::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
                    WHEN "&4" STRING WS-ARG4::Trim() INTO WS-FMT-OUT WITH POINTER WS-PT
+                   *> No &n left: the tail was copied above, so move the pointer past the
+                   *> end to stop the loop.
                    WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
                END-EVALUATE
            END-PERFORM
@@ -552,17 +609,21 @@
        PROGRAM-ID. PC-SAVE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Save - shared by the Save buttons at the top and at the bottom.
-           MOVE "KB-LOCATION" TO WS-SET-NAME
-           MOVE Txt-KbLocation::Text TO WS-SET-VALUE
-           IF WS-SET-VALUE = SPACES
-               MOVE "assets/KB" TO WS-SET-VALUE
+           *>   Save - shared by the Save buttons at the top and at the bottom.
+
+           SET     WS-SET-NAME                   TO    "KB-LOCATION"
+           SET     WS-SET-VALUE                  TO    Txt-KbLocation::Text
+
+           IF    WS-SET-VALUE = SPACES
+               SET     WS-SET-VALUE              TO    "assets/KB"
            END-IF
-           CALL "PC-SETTING-PUT"
-           MOVE T-KB-FOLDER-SAVED::Trim() TO Lbl-Status::Caption
-           INVOKE ME::Close()
+           CALL    "PC-SETTING-PUT"
+           SET     Lbl-Status::Caption           TO    T-KB-FOLDER-SAVED::Trim()
+           INVOKE    ME::Close()
 
            GOBACK.
 
@@ -572,11 +633,14 @@
        PROGRAM-ID. PC-CANCEL IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *>   Cancel - shared by the Cancel buttons at the top and at the bottom.
-      *>   Nothing is written: the dialog closes as it was opened.
-           INVOKE ME::Close()
+           *>   Cancel - shared by the Cancel buttons at the top and at the bottom.
+           *>   Nothing is written: the dialog closes as it was opened.
+
+           INVOKE    ME::Close()
 
            GOBACK.
 

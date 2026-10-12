@@ -80,12 +80,12 @@
        01 FORM-NAME               PIC X(64)   VALUE 'RESPONSIVE-FLEX-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-       01 WS-NUM GLOBAL PIC 9(5).
-       01 WS-WIN-W GLOBAL PIC Z(4)9.
-       01 WS-WIN-H GLOBAL PIC Z(4)9.
-       01 WS-BP GLOBAL PIC X(20).
-       01 WS-FSC GLOBAL PIC X(12).
-       01 WS-LINE GLOBAL PIC X(200).
+       01 WS-NUM                                 GLOBAL    PIC 9(5).
+       01 WS-WIN-W                               GLOBAL    PIC Z(4)9.
+       01 WS-WIN-H                               GLOBAL    PIC Z(4)9.
+       01 WS-BP                                  GLOBAL    PIC X(20).
+       01 WS-FSC                                 GLOBAL    PIC X(12).
+       01 WS-LINE                                GLOBAL    PIC X(200).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-LBL-TITLE.
@@ -1112,15 +1112,18 @@
        PROGRAM-ID. RESPONSIVE-FLEX-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLX-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLX-SHOW-INFO"
 
            GOBACK.
 
@@ -1146,15 +1149,18 @@
        PROGRAM-ID. RESPONSIVE-FLEX-FORM--ONRESIZE IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLX-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLX-SHOW-INFO"
 
            GOBACK.
 
@@ -1164,15 +1170,18 @@
        PROGRAM-ID. RESPONSIVE-FLEX-FORM--ONBREAKPOINTCHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE me::Width TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-W
-           MOVE me::Height TO WS-NUM
-           MOVE WS-NUM TO WS-WIN-H
-           MOVE me::Breakpoint TO WS-BP
-           MOVE me::FontScale TO WS-FSC
-           CALL "FLX-SHOW-INFO"
+           SET     WS-NUM                        TO    me::Width
+           SET     WS-WIN-W                      TO    WS-NUM
+           SET     WS-NUM                        TO    me::Height
+           SET     WS-WIN-H                      TO    WS-NUM
+           SET     WS-BP                         TO    me::Breakpoint
+           SET     WS-FSC                        TO    me::FontScale
+
+           CALL    "FLX-SHOW-INFO"
 
            GOBACK.
 
@@ -1182,13 +1191,15 @@
        PROGRAM-ID. OC-REV--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 5 TO OR-1::Order
-           MOVE 4 TO OR-2::Order
-           MOVE 3 TO OR-3::Order
-           MOVE 2 TO OR-4::Order
-           MOVE 1 TO OR-5::Order
+           SET     OR-1::Order                   TO    5
+           SET     OR-2::Order                   TO    4
+           SET     OR-3::Order                   TO    3
+           SET     OR-4::Order                   TO    2
+           SET     OR-5::Order                   TO    1
 
            GOBACK.
 
@@ -1198,13 +1209,15 @@
        PROGRAM-ID. OC-ZERO--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO OR-1::Order
-           MOVE 0 TO OR-2::Order
-           MOVE 0 TO OR-3::Order
-           MOVE 0 TO OR-4::Order
-           MOVE 0 TO OR-5::Order
+           SET     OR-1::Order                   TO    0
+           SET     OR-2::Order                   TO    0
+           SET     OR-3::Order                   TO    0
+           SET     OR-4::Order                   TO    0
+           SET     OR-5::Order                   TO    0
 
            GOBACK.
 
@@ -1214,9 +1227,11 @@
        PROGRAM-ID. OC-COL--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Column" TO OR-LIVE::FlexDirection
+           SET     OR-LIVE::FlexDirection        TO    "Column"
 
            GOBACK.
 
@@ -1226,9 +1241,11 @@
        PROGRAM-ID. OC-ROW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Row" TO OR-LIVE::FlexDirection
+           SET     OR-LIVE::FlexDirection        TO    "Row"
 
            GOBACK.
 
@@ -1238,9 +1255,11 @@
        PROGRAM-ID. OC-RREV--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "RowReverse" TO OR-LIVE::FlexDirection
+           SET     OR-LIVE::FlexDirection        TO    "RowReverse"
 
            GOBACK.
 
@@ -1250,9 +1269,11 @@
        PROGRAM-ID. OC-GAP--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 32 TO OR-LIVE::Gap
+           SET     OR-LIVE::Gap                  TO    32
 
            GOBACK.
 
@@ -1262,9 +1283,11 @@
        PROGRAM-ID. OC-JS--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Start" TO OR-LIVE::JustifyContent
+           SET     OR-LIVE::JustifyContent       TO    "Start"
 
            GOBACK.
 
@@ -1274,9 +1297,11 @@
        PROGRAM-ID. OC-JC--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "Center" TO OR-LIVE::JustifyContent
+           SET     OR-LIVE::JustifyContent       TO    "Center"
 
            GOBACK.
 
@@ -1286,9 +1311,11 @@
        PROGRAM-ID. OC-JE--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "SpaceEvenly" TO OR-LIVE::JustifyContent
+           SET     OR-LIVE::JustifyContent       TO    "SpaceEvenly"
 
            GOBACK.
 
@@ -1298,9 +1325,11 @@
        PROGRAM-ID. OC-GROW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 1 TO OR-3::FlexGrow
+           SET     OR-3::FlexGrow                TO    1
 
            GOBACK.
 
@@ -1310,9 +1339,11 @@
        PROGRAM-ID. OC-NOGROW--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 0 TO OR-3::FlexGrow
+           SET     OR-3::FlexGrow                TO    0
 
            GOBACK.
 
@@ -1322,9 +1353,11 @@
        PROGRAM-ID. OC-GAP8--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE 8 TO OR-LIVE::Gap
+           SET     OR-LIVE::Gap                  TO    8
 
            GOBACK.
 
@@ -1334,17 +1367,20 @@
        PROGRAM-ID. FLX-SHOW-INFO IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-      *> Window size, active breakpoint and font scale, as the
-      *> layout engine reports them after laying the form out.
-           MOVE SPACES TO WS-LINE
-           STRING "Window " WS-WIN-W::Trim()
+           *> Window size, active breakpoint and font scale, as the
+           *> layout engine reports them after laying the form out.
+
+           SET     WS-LINE                       TO    SPACES
+           STRING    "Window " WS-WIN-W::Trim()
                " x " WS-WIN-H::Trim()
                "   |   breakpoint " WS-BP::Trim()
                "   |   font scale " WS-FSC::Trim()
                INTO WS-LINE
-           MOVE WS-LINE TO SB-INFO::Items
+           SET     SB-INFO::Items                TO    WS-LINE
 
            GOBACK.
 

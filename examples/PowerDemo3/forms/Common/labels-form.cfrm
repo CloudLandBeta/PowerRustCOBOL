@@ -47,7 +47,8 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="LABELS-FORM--ONLOAD">
     </Event>
@@ -87,21 +88,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-01--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-01--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-01::ShadowEnabled TO 0.
+           SET     LBL-01::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-01--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-01--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-01::ShadowEnabled TO 1.
+           SET     LBL-01::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-02" type="Label" x="222" y="112" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -137,21 +140,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-02--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-02--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-02::ShadowEnabled TO 0.
+           SET     LBL-02::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-02--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-02--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-02::ShadowEnabled TO 1.
+           SET     LBL-02::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-03" type="Label" x="392" y="112" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -187,21 +192,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-03--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-03--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-03::ShadowEnabled TO 0.
+           SET     LBL-03::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-03--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-03--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-03::ShadowEnabled TO 1.
+           SET     LBL-03::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-04" type="Label" x="562" y="112" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -237,21 +244,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-04--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-04--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-04::ShadowEnabled TO 0.
+           SET     LBL-04::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-04--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-04--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-04::ShadowEnabled TO 1.
+           SET     LBL-04::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-05" type="Label" x="732" y="112" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -287,21 +296,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-05--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-05--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-05::ShadowEnabled TO 0.
+           SET     LBL-05::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-05--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-05--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-05::ShadowEnabled TO 1.
+           SET     LBL-05::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-06" type="Label" x="52" y="192" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -337,21 +348,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-06--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-06--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-06::ShadowEnabled TO 0.
+           SET     LBL-06::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-06--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-06--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-06::ShadowEnabled TO 1.
+           SET     LBL-06::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-07" type="Label" x="222" y="192" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -387,21 +400,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-07--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-07--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-07::ShadowEnabled TO 0.
+           SET     LBL-07::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-07--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-07--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-07::ShadowEnabled TO 1.
+           SET     LBL-07::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-08" type="Label" x="392" y="192" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -437,21 +452,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-08--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-08--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-08::ShadowEnabled TO 0.
+           SET     LBL-08::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-08--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-08--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-08::ShadowEnabled TO 1.
+           SET     LBL-08::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-09" type="Label" x="556" y="192" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -487,21 +504,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-09--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-09--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-09::ShadowEnabled TO 0.
+           SET     LBL-09::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-09--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-09--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-09::ShadowEnabled TO 1.
+           SET     LBL-09::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-10" type="Label" x="732" y="192" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -537,21 +556,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-10--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-10--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-10::ShadowEnabled TO 0.
+           SET     LBL-10::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-10--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-10--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-10::ShadowEnabled TO 1.
+           SET     LBL-10::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-11" type="Label" x="52" y="272" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -587,21 +608,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-11--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-11--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-11::ShadowEnabled TO 0.
+           SET     LBL-11::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-11--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-11--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-11::ShadowEnabled TO 1.
+           SET     LBL-11::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-12" type="Label" x="222" y="272" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -637,21 +660,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-12--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-12--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-12::ShadowEnabled TO 0.
+           SET     LBL-12::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-12--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-12--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-12::ShadowEnabled TO 1.
+           SET     LBL-12::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-13" type="Label" x="392" y="272" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -687,21 +712,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-13--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-13--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-13::ShadowEnabled TO 0.
+           SET     LBL-13::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-13--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-13--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-13::ShadowEnabled TO 1.
+           SET     LBL-13::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-14" type="Label" x="562" y="272" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -737,21 +764,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-14--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-14--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-14::ShadowEnabled TO 0.
+           SET     LBL-14::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-14--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-14--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-14::ShadowEnabled TO 1.
+           SET     LBL-14::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-15" type="Label" x="732" y="272" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -787,21 +816,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-15--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-15--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-15::ShadowEnabled TO 0.
+           SET     LBL-15::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-15--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-15--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-15::ShadowEnabled TO 1.
+           SET     LBL-15::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-16" type="Label" x="52" y="352" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -837,21 +868,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-16--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-16--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-16::ShadowEnabled TO 0.
+           SET     LBL-16::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-16--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-16--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-16::ShadowEnabled TO 1.
+           SET     LBL-16::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-17" type="Label" x="222" y="352" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -887,21 +920,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-17--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-17--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-17::ShadowEnabled TO 0.
+           SET     LBL-17::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-17--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-17--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-17::ShadowEnabled TO 1.
+           SET     LBL-17::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-18" type="Label" x="392" y="352" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -937,21 +972,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-18--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-18--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-18::ShadowEnabled TO 0.
+           SET     LBL-18::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-18--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-18--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-18::ShadowEnabled TO 1.
+           SET     LBL-18::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-19" type="Label" x="562" y="352" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -987,21 +1024,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-19--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-19--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-19::ShadowEnabled TO 0.
+           SET     LBL-19::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-19--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-19--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-19::ShadowEnabled TO 1.
+           SET     LBL-19::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-20" type="Label" x="732" y="352" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1037,21 +1076,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-20--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-20--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-20::ShadowEnabled TO 0.
+           SET     LBL-20::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-20--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-20--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-20::ShadowEnabled TO 1.
+           SET     LBL-20::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-21" type="Label" x="52" y="432" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1087,21 +1128,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-21--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-21--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-21::ShadowEnabled TO 0.
+           SET     LBL-21::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-21--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-21--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-21::ShadowEnabled TO 1.
+           SET     LBL-21::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-22" type="Label" x="222" y="432" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1137,21 +1180,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-22--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-22--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-22::ShadowEnabled TO 0.
+           SET     LBL-22::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-22--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-22--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-22::ShadowEnabled TO 1.
+           SET     LBL-22::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-23" type="Label" x="392" y="432" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1187,21 +1232,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-23--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-23--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-23::ShadowEnabled TO 0.
+           SET     LBL-23::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-23--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-23--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-23::ShadowEnabled TO 1.
+           SET     LBL-23::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-24" type="Label" x="562" y="432" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1237,21 +1284,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-24--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-24--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-24::ShadowEnabled TO 0.
+           SET     LBL-24::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-24--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-24--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-24::ShadowEnabled TO 1.
+           SET     LBL-24::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-25" type="Label" x="732" y="432" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1287,21 +1336,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-25--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-25--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-25::ShadowEnabled TO 0.
+           SET     LBL-25::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-25--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-25--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-25::ShadowEnabled TO 1.
+           SET     LBL-25::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-26" type="Label" x="52" y="512" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1337,21 +1388,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-26--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-26--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-26::ShadowEnabled TO 0.
+           SET     LBL-26::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-26--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-26--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-26::ShadowEnabled TO 1.
+           SET     LBL-26::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-27" type="Label" x="222" y="512" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1387,21 +1440,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-27--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-27--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-27::ShadowEnabled TO 0.
+           SET     LBL-27::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-27--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-27--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-27::ShadowEnabled TO 1.
+           SET     LBL-27::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-28" type="Label" x="392" y="512" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1437,21 +1492,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-28--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-28--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-28::ShadowEnabled TO 0.
+           SET     LBL-28::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-28--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-28--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-28::ShadowEnabled TO 1.
+           SET     LBL-28::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-29" type="Label" x="562" y="512" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1487,21 +1544,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-29--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-29--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-29::ShadowEnabled TO 0.
+           SET     LBL-29::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-29--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-29--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-29::ShadowEnabled TO 1.
+           SET     LBL-29::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="LBL-30" type="Label" x="732" y="512" w="150" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1537,21 +1596,23 @@
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
-    <Event name="onMouseEnter" paragraph="LBL-30--ONMOUSEENTER"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseEnter" paragraph="LBL-30--ONMOUSEENTER"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-30::ShadowEnabled TO 0.
+           SET     LBL-30::ShadowEnabled         TO    0.
 ]]></Event>
-    <Event name="onMouseLeave" paragraph="LBL-30--ONMOUSELEAVE"><![CDATA[
-       ENVIRONMENT DIVISION.
+    <Event name="onMouseLeave" paragraph="LBL-30--ONMOUSELEAVE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
-           SET LBL-30::ShadowEnabled TO 1.
+           SET     LBL-30::ShadowEnabled         TO    1.
 ]]></Event>
   </Control>
   <Control id="Label-1" type="Label" x="16" y="16" w="208" h="56" tab-order="0" z-order="1" visible="true" enabled="true">

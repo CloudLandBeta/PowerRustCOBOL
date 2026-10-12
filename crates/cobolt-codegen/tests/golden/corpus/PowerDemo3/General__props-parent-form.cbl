@@ -80,25 +80,26 @@
        01 FORM-NAME               PIC X(64)   VALUE 'PROPS-PARENT-FORM'.
 
       *>── User Working Storage ────────────────────────────────────────
-*>   The order both forms share - a group item with a table inside.
-      *>   It travels between them as ONE property, its fixed layout intact,
-      *>   so both sides must declare it the same way (a real application
-      *>   would COPY it from one copybook).
-       01 WS-ORDER           GLOBAL.
-          05 ORD-NUMBER      PIC 9(6).
-          05 ORD-DATE        PIC X(10).
-          05 ORD-LINE        OCCURS 3 TIMES.
-             10 ORD-ITEM     PIC X(20).
-             10 ORD-QTY      PIC 9(3).
-             10 ORD-PRICE    PIC 9(5)V99.
-       01 WS-TOTAL           GLOBAL PIC 9(7)V99.
-       01 WS-I               GLOBAL PIC 9.
-       01 WS-LINE            GLOBAL PIC X(80).
-       01 WS-QTY-ED          GLOBAL PIC ZZ9.
-       01 WS-AMT-ED          GLOBAL PIC ZZ,ZZ9.99.
-       01 WS-TOTAL-ED        GLOBAL PIC Z,ZZZ,ZZ9.99.
-       01 WS-VIP             GLOBAL PIC X.
-       01 WS-RESULT          GLOBAL PIC X(10).
+       *>   The order both forms share - a group item with a table inside.
+       *>   It travels between them as ONE property, its fixed layout intact,
+       *>   so both sides must declare it the same way (a real application
+       *>   would COPY it from one copybook).
+
+       01 WS-ORDER                               GLOBAL.
+           05 ORD-NUMBER                         PIC    9(6).
+           05 ORD-DATE                           PIC    X(10).
+           05 ORD-LINE                           OCCURS    3 TIMES.
+               10 ORD-ITEM                       PIC    X(20).
+               10 ORD-QTY                        PIC    9(3).
+               10 ORD-PRICE                      PIC    9(5)V99.
+       01 WS-TOTAL                               GLOBAL    PIC 9(7)V99.
+       01 WS-I                                   GLOBAL    PIC 9.
+       01 WS-LINE                                GLOBAL    PIC X(80).
+       01 WS-QTY-ED                              GLOBAL    PIC ZZ9.
+       01 WS-AMT-ED                              GLOBAL    PIC ZZ,ZZ9.99.
+       01 WS-TOTAL-ED                            GLOBAL    PIC Z,ZZZ,ZZ9.99.
+       01 WS-VIP                                 GLOBAL    PIC X.
+       01 WS-RESULT                              GLOBAL    PIC X(10).
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -216,21 +217,25 @@
        PROGRAM-ID. PROPS-PARENT-FORM--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-*>   A sample order to send to the child form.
-           MOVE 104217       TO ORD-NUMBER
-           MOVE "2026-09-28" TO ORD-DATE
-           MOVE "Office chair"   TO ORD-ITEM(1)
-           MOVE 2              TO ORD-QTY(1)
-           MOVE 649.90         TO ORD-PRICE(1)
-           MOVE "Standing desk"  TO ORD-ITEM(2)
-           MOVE 1              TO ORD-QTY(2)
-           MOVE 1890.00        TO ORD-PRICE(2)
-           MOVE "Monitor arm"    TO ORD-ITEM(3)
-           MOVE 3              TO ORD-QTY(3)
-           MOVE 219.50         TO ORD-PRICE(3)
-           CALL "PP-SHOW-ORDER"
+           *>   A sample order to send to the child form.
+
+           SET     ORD-NUMBER                    TO    104217
+           SET     ORD-DATE                      TO    "2026-09-28"
+           SET     ORD-ITEM(1)                   TO    "Office chair"
+           SET     ORD-QTY(1)                    TO    2
+           SET     ORD-PRICE(1)                  TO    649.90
+           SET     ORD-ITEM(2)                   TO    "Standing desk"
+           SET     ORD-QTY(2)                    TO    1
+           SET     ORD-PRICE(2)                  TO    1890.00
+           SET     ORD-ITEM(3)                   TO    "Monitor arm"
+           SET     ORD-QTY(3)                    TO    3
+           SET     ORD-PRICE(3)                  TO    219.50
+
+           CALL    "PP-SHOW-ORDER"
 
            GOBACK.
 
@@ -256,37 +261,47 @@
        PROGRAM-ID. BTN-EDIT--ONCLICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-*>   1. Publish the data on THIS form's property surface. Any name
-      *>      will do - SetProperty/GetProperty are the any-name pair.
-      *>      Simple values: one property each.
-           INVOKE ME::SetProperty("CustomerName", Txt-Name::Text)
-           INVOKE ME::SetProperty("CreditLimit", Txt-Limit::Text)
-           IF Chk-Vip::Checked = 1
-               MOVE "Y" TO WS-VIP
+           *>   1. Publish the data on THIS form's property surface. Any name
+           *>      will do - SetProperty/GetProperty are the any-name pair.
+           *>      Simple values: one property each.
+
+           INVOKE    ME::SetProperty("CustomerName", Txt-Name::Text)
+           INVOKE    ME::SetProperty("CreditLimit", Txt-Limit::Text)
+
+           IF    Chk-Vip::Checked = 1
+               SET     WS-VIP                    TO    "Y"
            ELSE
-               MOVE "N" TO WS-VIP
+               SET     WS-VIP                    TO    "N"
            END-IF
-           INVOKE ME::SetProperty("IsVip", WS-VIP)
-      *>      Complex data: the whole group item - header and table -
-      *>      as ONE property.
-           INVOKE ME::SetProperty("OrderRecord", WS-ORDER)
-           INVOKE ME::SetProperty("ChildResult", "NONE")
-      *>   2. Open the child modally: it reads all of it with
-      *>      super::"GetProperty", and answers with super::"SetProperty".
-           INVOKE ME::OpenFormSync("PROPS-CHILD-FORM")
-      *>   3. Back here: read the answer.
-           INVOKE ME::GetProperty("ChildResult") RETURNING WS-RESULT
-           IF WS-RESULT = "OK"
-               INVOKE ME::GetProperty("CustomerName") RETURNING Txt-Name::Text
-               INVOKE ME::GetProperty("OrderRecord") RETURNING WS-ORDER
-               CALL "PP-SHOW-ORDER"
-               MOVE "The child form sent the customer and the order back."
-                   TO Lbl-Status::Caption
+           INVOKE    ME::SetProperty("IsVip", WS-VIP)
+           *>      Complex data: the whole group item - header and table -
+           *>      as ONE property.
+
+           INVOKE    ME::SetProperty("OrderRecord", WS-ORDER)
+           *> Seed the answer: the child overwrites it with OK or CANCEL, so if it
+           *> closes without answering, NONE falls to the cancelled branch below.
+
+           INVOKE    ME::SetProperty("ChildResult", "NONE")
+
+           *>   2. Open the child modally: it reads all of it with
+           *>      super::"GetProperty", and answers with super::"SetProperty".
+
+           INVOKE    ME::OpenFormSync("PROPS-CHILD-FORM")
+           *>   3. Back here: read the answer.
+
+           INVOKE    ME::GetProperty("ChildResult") RETURNING WS-RESULT
+           IF    WS-RESULT = "OK"
+               INVOKE    ME::GetProperty("CustomerName") RETURNING Txt-Name::Text
+               INVOKE    ME::GetProperty("OrderRecord") RETURNING WS-ORDER
+
+               CALL    "PP-SHOW-ORDER"
+               SET     Lbl-Status::Caption       TO    "The child form sent the customer and the order back."
            ELSE
-               MOVE "The child form was cancelled - nothing changed."
-                   TO Lbl-Status::Caption
+               SET     Lbl-Status::Caption       TO    "The child form was cancelled - nothing changed."
            END-IF
 
            GOBACK.
@@ -297,28 +312,38 @@
        PROGRAM-ID. PP-SHOW-ORDER IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-*>   WS-ORDER in: one line of the order per label, and the total.
-           MOVE 0 TO WS-TOTAL
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 3
-               MOVE ORD-QTY(WS-I) TO WS-QTY-ED
-               COMPUTE WS-AMT-ED = ORD-QTY(WS-I) * ORD-PRICE(WS-I)
-               COMPUTE WS-TOTAL = WS-TOTAL + ORD-QTY(WS-I) * ORD-PRICE(WS-I)
-               MOVE SPACES TO WS-LINE
-               STRING WS-QTY-ED " x " ORD-ITEM(WS-I) "  = " WS-AMT-ED
+           *>   WS-ORDER in: one line of the order per label, and the total.
+
+           SET     WS-TOTAL                      TO    0
+           PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 3
+               SET     WS-QTY-ED                 TO    ORD-QTY(WS-I)
+
+               COMPUTE    WS-AMT-ED = ORD-QTY(WS-I) * ORD-PRICE(WS-I)
+               COMPUTE    WS-TOTAL = WS-TOTAL + ORD-QTY(WS-I) * ORD-PRICE(WS-I)
+
+               SET     WS-LINE                   TO    SPACES
+               STRING    WS-QTY-ED " x " ORD-ITEM(WS-I) "  = " WS-AMT-ED
                    DELIMITED BY SIZE INTO WS-LINE
-               EVALUATE WS-I
+               *> The three lines are separate labels, not a table, so EVALUATE picks
+               *> the label that belongs to row WS-I.
+
+               EVALUATE    WS-I
                    WHEN 1 MOVE WS-LINE TO Lbl-Line-1::Caption
                    WHEN 2 MOVE WS-LINE TO Lbl-Line-2::Caption
                    WHEN 3 MOVE WS-LINE TO Lbl-Line-3::Caption
                END-EVALUATE
            END-PERFORM
-           MOVE WS-TOTAL TO WS-TOTAL-ED
-           MOVE SPACES TO WS-LINE
-           STRING "Order " ORD-NUMBER " of " ORD-DATE " - total " WS-TOTAL-ED
+
+           SET     WS-TOTAL-ED                   TO    WS-TOTAL
+           SET     WS-LINE                       TO    SPACES
+
+           STRING    "Order " ORD-NUMBER " of " ORD-DATE " - total " WS-TOTAL-ED
                DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Order::Caption
+           SET     Lbl-Order::Caption            TO    WS-LINE
 
            GOBACK.
 

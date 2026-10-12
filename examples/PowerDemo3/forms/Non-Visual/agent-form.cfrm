@@ -47,46 +47,53 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="AGENT-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           SET TextBox-1::text TO Agent-Helper::SystemPrompt
+           SET     TextBox-1::text               TO    Agent-Helper::SystemPrompt
 
-           IF Agent-Helper::AgentAPIKey = ""
-               SET Btn-Ask::Enabled TO false
-               SET Snackbar-1::Text TO "Get a valid API Key at ollama.com"
-               SET Snackbar-1::Category TO "critical"
-               SET Snackbar-1::Visible TO true
+           IF    Agent-Helper::AgentAPIKey = ""
+               SET     Btn-Ask::Enabled          TO    false
+               SET     Snackbar-1::Text          TO    "Get a valid API Key at ollama.com"
+               SET     Snackbar-1::Category      TO    "critical"
+               SET     Snackbar-1::Visible       TO    true
 
-               INVOKE SNACKBAR-1::Show()
+               SNACKBAR-1::Show()
            ELSE
-               SET Btn-Ask::Enabled TO true
+               SET     Btn-Ask::Enabled          TO    true
            END-IF
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los items PIC X SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE, PIC X 数据项按 SPACES。
-           STRING "ready - " Agent-Helper::AgentAPI " / " Agent-Helper::AgentModel INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).]]></Event>
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los items PIC X SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE, PIC X 数据项按 SPACES。
+
+           STRING    "ready - " Agent-Helper::AgentAPI " / " Agent-Helper::AgentModel INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
     <Event name="onClose" paragraph="AGENT-FORM--ONCLOSE">
     </Event>
   </form-events>
@@ -280,65 +287,75 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="BorderWidth">1</Property>
     <Property name="Configuration">ollama_cloud</Property>
     <Event name="onResponse" paragraph="AGENT-HELPER--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> The reply is already on the object by the time this handler runs.
-      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
-      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
-      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
-      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
-      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
-      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           MOVE Agent-Helper::LastReply TO Txt-Reply::Text.
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE "answered" TO Lbl-State::Caption.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "reply received" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+           *> The reply is already on the object by the time this handler runs.
+           *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+           *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+           *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+           *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+           *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+           *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
 
+           SET     Txt-Reply::Text               TO    Agent-Helper::LastReply
+           *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+           *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+           *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+           *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+           *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+           *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+           SET     Lbl-State::Caption            TO    "answered"
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "reply received" INTO WS-LINE
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL).
 ]]></Event>
     <Event name="onError" paragraph="AGENT-HELPER--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
+
        LINKAGE SECTION.
-       01 ERROR-DESC PIC X(160).
+       01 ERROR-DESC                             PIC    X(160).
 
        PROCEDURE DIVISION USING ERROR-DESC.
 
-           MOVE FUNCTION CHAR(11) TO WS-NL.
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
 
-           MOVE "error" TO Lbl-State::Caption.
+           SET     Lbl-State::Caption            TO    "error"
 
-           MOVE ERROR-DESC TO WS-LINE.
+           SET     WS-LINE                       TO    ERROR-DESC
 
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).]]></Event>
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
   </Control>
   <Control id="Lbl-Q-Cap" type="Label" x="40" y="314" w="80" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Question</Property>
@@ -598,11 +615,12 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-ASK--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 WS-LINE  PIC X(160).
-       01 WS-NL    PIC X.
+       01 WS-LINE                                PIC    X(160).
+       01 WS-NL                                  PIC    X.
 
        LINKAGE SECTION.
 
@@ -614,13 +632,15 @@ After create your own API Key use it to set the AgentControl API KEY property.</
            *> FR: Définir WS-NL comme caractère de nouvelle ligne (CHAR(11)).
            *> JP: WS-NL を改行文字 (CHAR(11)) に設定しています。
            *> CN: 将 WS-NL 设置为换行字符 (CHAR(11)).
-           MOVE FUNCTION CHAR(11) TO WS-NL.
 
-           MOVE "asking..." TO Lbl-State::Caption.
+           SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           SET     Lbl-State::Caption            TO    "asking..."
 
            *> Log the raw question text before calling the agent
-           Txt-Log::AppendText(Txt-Question::Text).
-           Txt-Log::AppendText(WS-NL).
+
+           Txt-Log::AppendText(Txt-Question::Text)
+           Txt-Log::AppendText(WS-NL)
 
            *> EN: Inline method call to Agent-Helper::Ask with question text.
            *> PT: Chamada inline ao método Agent-Helper::Ask com texto da pergunta.
@@ -628,7 +648,8 @@ After create your own API Key use it to set the AgentControl API KEY property.</
            *> FR: Appel inline à Agent-Helper::Ask avec le texte de la question.
            *> JP: Agent-Helper::Ask メソッドへのインラインコールに質問テキストを使用。
            *> CN: 使用问题文本进行的Agent-Helper::Ask内联方法调用。
-           Agent-Helper::Ask(Txt-Question::Text).
+
+           Agent-Helper::Ask(Txt-Question::Text)
 
            *> EN: Building line text by concatenating 'asked ' with AgentModel.
            *> PT: Construindo texto da linha concatenando 'asked ' com AgentModel.
@@ -636,7 +657,8 @@ After create your own API Key use it to set the AgentControl API KEY property.</
            *> FR: Construction de la chaîne de ligne en concaténant 'asked ' avec AgentModel.
            *> JP: 'asked ' と AgentModel を連結して行テキストを作成。
            *> CN: 通过连接 "asked " 和 AgentModel 来构建行文本。
-           STRING "asked " Agent-Helper::AgentModel INTO WS-LINE.
+
+           STRING    "asked " Agent-Helper::AgentModel INTO WS-LINE
 
            *> EN: Appending trimmed WS-LINE to log.
            *> PT: Acrescentando WS-LINE ao log.
@@ -644,8 +666,10 @@ After create your own API Key use it to set the AgentControl API KEY property.</
            *> FR: Ajout de WS-LINE trimée au journal.
            *> JP: トリムされたWS-LINEをログに追加。
            *> CN: 将修剪后的WS-LINE追加到日志。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).]]></Event>
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE))
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
   </Control>
   <Control id="Btn-Persona" type="Button" x="792" y="210" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Change persona</Property>
@@ -685,18 +709,22 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-PERSONA--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - fenced block literal: multi-line text taken verbatim, quotes never doubled.
-      *> PT: EXTENSAO - literal em bloco cercado: texto multilinha literal, aspas sem duplicar.
-      *> ES: EXTENSION - literal de bloque cercado: texto multilinea literal, comillas sin duplicar.
-      *> FR: EXTENSION - litteral de bloc cloture: texte multiligne verbatim, guillemets non doubles.
-      *> JP: EXTENSION - フェンス付きブロック リテラル。複数行をそのまま取り、引用符の二重化は不要。
-      *> CN: EXTENSION - 围栏块字面量：逐字保留多行文本，引号无需重复书写。
+           *> EN: EXTENSION - fenced block literal: multi-line text taken verbatim, quotes never doubled.
+           *> PT: EXTENSAO - literal em bloco cercado: texto multilinha literal, aspas sem duplicar.
+           *> ES: EXTENSION - literal de bloque cercado: texto multilinea literal, comillas sin duplicar.
+           *> FR: EXTENSION - litteral de bloc cloture: texte multiligne verbatim, guillemets non doubles.
+           *> JP: EXTENSION - フェンス付きブロック リテラル。複数行をそのまま取り、引用符の二重化は不要。
+           *> CN: EXTENSION - 围栏块字面量：逐字保留多行文本，引号无需重复书写。
+
            Agent-Helper::SetPrompt( TextBox-1::Text ).
 ]]></Event>
   </Control>
@@ -738,30 +766,35 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-CFG--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-TEXT PIC X(200).
+       01 WS-TEXT                                PIC    X(200).
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "api=" Agent-Helper::AgentAPI
-                  "  model=" Agent-Helper::AgentModel
-                  "  url=" Agent-Helper::AgentURL
-                  "  timeout=" Agent-Helper::TimeoutSeconds "s" INTO WS-TEXT.
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE WS-TEXT TO Lbl-Cfg::Caption.
+           *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+           *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+           *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+           *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+           *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+           *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+
+           STRING    "api=" Agent-Helper::AgentAPI
+               "  model=" Agent-Helper::AgentModel
+               "  url=" Agent-Helper::AgentURL
+               "  timeout=" Agent-Helper::TimeoutSeconds "s" INTO WS-TEXT
+           *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+           *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+           *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+           *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+           *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+           *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
+           SET     Lbl-Cfg::Caption              TO    WS-TEXT.
 ]]></Event>
   </Control>
   <Control id="Lbl-Cfg" type="Label" x="960" y="336" w="259" h="144" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -836,18 +869,22 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Txt-Log::Clear().
 ]]></Event>
   </Control>
@@ -1078,12 +1115,15 @@ nemotron-3-ultra</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-LANG-EN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 
+           MOVE
 ```
 An AgentObject is a configured model endpoint. SetPrompt and SetModel change it from COBOL, Ask sends the question, and the reply arrives as onResponse - which reads it back from LastReply. Nothing here needs a network unless you press Ask.
 
@@ -1091,7 +1131,8 @@ In order to run this example you need a valid API Key to access Ollama (a model 
 
 After create your own API Key use it to set the AgentControl API KEY property.
 ```
-           TO Lbl-Sub::Caption.]]></Event>
+               TO Lbl-Sub::Caption.
+]]></Event>
   </Control>
   <Control id="Btn-Lang-ES" type="Button" x="1008" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">ES</Property>
@@ -1132,12 +1173,15 @@ After create your own API Key use it to set the AgentControl API KEY property.
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-LANG-ES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 
+           MOVE
 ```
 Un AgentObject es un punto final de modelo configurado. SetPrompt y SetModel lo cambian desde COBOL, Ask envía la pregunta, y la respuesta llega como onResponse - que la lee de LastReply. Nada aquí necesita una red a menos que presione Ask.
 
@@ -1145,7 +1189,8 @@ Para ejecutar este ejemplo, necesita una clave API válida para acceder a Ollama
 
 Después de crear su propia clave API, úsela para establecer la propiedad API KEY del AgentControl.
 ```
-           TO Lbl-Sub::Caption.]]></Event>
+               TO Lbl-Sub::Caption.
+]]></Event>
   </Control>
   <Control id="Btn-Lang-FR" type="Button" x="1064" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">FR</Property>
@@ -1186,12 +1231,15 @@ Después de crear su propia clave API, úsela para establecer la propiedad API K
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-LANG-FR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 
+           MOVE
 ```
 Un AgentObject est un point de terminaison de modèle configuré. SetPrompt et SetModel le modifient depuis COBOL, Ask envoie la question, et la réponse arrive via onResponse - qui la lit depuis LastReply. Rien ici ne nécessite de réseau à moins que vous n'appuyiez sur Ask.
 
@@ -1199,7 +1247,8 @@ Pour exécuter cet exemple, vous avez besoin d'une clé API valide pour accéder
 
 Après avoir créé votre propre clé API, utilisez-la pour définir la propriété API KEY de l'AgentControl.
 ```
-           TO Lbl-Sub::Caption.]]></Event>
+               TO Lbl-Sub::Caption.
+]]></Event>
   </Control>
   <Control id="Btn-Lang-PT" type="Button" x="1120" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">PT</Property>
@@ -1240,12 +1289,15 @@ Après avoir créé votre propre clé API, utilisez-la pour définir la proprié
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-LANG-PT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 
+           MOVE
 ```
 Um AgentObject é um endpoint de modelo configurado. SetPrompt e SetModel o alteram a partir do COBOL, Ask envia a pergunta, e a resposta chega em onResponse - que a lê de LastReply. Nada aqui requer rede, a menos que você pressione Ask.
 
@@ -1253,7 +1305,8 @@ Para executar este exemplo, você precisa de uma Chave de API válida para acess
 
 Após criar sua própria Chave de API, use-a para definir a propriedade API KEY do AgentControl.
 ```
-           TO Lbl-Sub::Caption.]]></Event>
+               TO Lbl-Sub::Caption.
+]]></Event>
   </Control>
   <Control id="Btn-Lang-CN" type="Button" x="1176" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">CN</Property>
@@ -1294,12 +1347,15 @@ Após criar sua própria Chave de API, use-a para definir a propriedade API KEY 
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-LANG-CN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 
+           MOVE
 ```
 AgentObject 是一个配置的模型端点。SetPrompt 和 SetModel 从 COBOL 更改它，Ask 发送问题，回复通过 onResponse 到达 - 它从 LastReply 中读取。除非您按下 Ask，否则这里不需要网络。
 
@@ -1307,7 +1363,8 @@ AgentObject 是一个配置的模型端点。SetPrompt 和 SetModel 从 COBOL �
 
 创建自己的 API 密钥后，请使用它来设置 AgentControl 的 API KEY 属性。
 ```
-           TO Lbl-Sub::Caption.]]></Event>
+               TO Lbl-Sub::Caption.
+]]></Event>
   </Control>
   <Control id="Btn-Lang-JP" type="Button" x="1232" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">JP</Property>
@@ -1348,12 +1405,15 @@ AgentObject 是一个配置的模型端点。SetPrompt 和 SetModel 从 COBOL �
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-LANG-JP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           MOVE 
+           MOVE
 ```
 AgentObjectは、設定済みのモデルエンドポイントです。SetPromptとSetModelでCOBOLから変更でき、Askで質問を送信すると、onResponseで応答が届きます。onResponseはLastReplyから内容を読み取ります。Askを押さない限り、ネットワーク通信は発生しません。
 
@@ -1361,7 +1421,8 @@ AgentObjectは、設定済みのモデルエンドポイントです。SetPrompt
 
 APIキーを作成後、AgentControlのAPI KEYプロパティに設定して使用してください。
 ```
-           TO Lbl-Sub::Caption.]]></Event>
+               TO Lbl-Sub::Caption.
+]]></Event>
   </Control>
   <Control id="Snackbar-1" type="Snackbar" x="1008" y="656" w="88" h="72" tab-order="0" z-order="6" visible="true" enabled="true">
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -1418,18 +1479,22 @@ APIキーを作成後、AgentControlのAPI KEYプロパティに設定して使�
   <deleted-controls>
     <DeletedControl id="Btn-Model" deleted-at="designer-delete-1788778367-15">
       <Event name="onClick" paragraph="BTN-MODEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+           *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+           *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+           *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+           *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+           *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+
            Agent-Helper::SetModel("llama3.2").
 ]]></Event>
     </DeletedControl>

@@ -247,14 +247,16 @@
        PROGRAM-ID. INNER-FORM1--ONLOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        PROCEDURE DIVISION.
-           MOVE "-23.5614" TO MAPS-1::CenterLat
-           MOVE "-46.6558" TO MAPS-1::CenterLng
+           SET     MAPS-1::CenterLat             TO    "-23.5614"
+           SET     MAPS-1::CenterLng             TO    "-46.6558"
 
-           MOVE 8 TO MAPS-1::Zoom
+           SET     MAPS-1::Zoom                  TO    8
 
-           INVOKE MAPS-1::AddMarker("M1", "-23.5614", "-46.6558", "Av. Paulista", "1578")
+           MAPS-1::AddMarker("M1", "-23.5614", "-46.6558", "Av. Paulista", "1578")
 
            CONTINUE.
 
@@ -282,18 +284,20 @@
        PROGRAM-ID. KNOB-1--ONVALUECHANGED IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           IF Knob-1::Value > 100
-               SET Knob-1::Value  TO 0
+           IF    Knob-1::Value > 100
+               SET     Knob-1::Value             TO    0
            END-IF
 
-           MOVE Knob-1::Value TO ProgressBar-1::Value
-                                 Gauge-1::Value
-                                 Slider-2::Value
+           SET     ProgressBar-1::Value Gauge-1::Value Slider-2::Value
+                                                 TO    Knob-1::Value
 
            CONTINUE.
 
@@ -305,12 +309,15 @@
        PROGRAM-ID. TIMER-1--ONTICK IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           COMPUTE Knob-1::Value = Knob-1::Value + 1
+           COMPUTE    Knob-1::Value = Knob-1::Value + 1
 
            CONTINUE.
 
