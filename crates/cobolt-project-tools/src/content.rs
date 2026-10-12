@@ -364,19 +364,21 @@ pub const APPLICATION_RULES: [(&str, &str); 11] = [
          rule, a workaround. A `*>` comment of a few lines says why the code is there and what it must achieve, never \
          what each verb does. A comment starts in the same column as the code below it, and a blank line separates it from \
          that code. Layout: (1) indent with 4 spaces per level; (2) a blank line before every DIVISION and SECTION, except \
-         ENVIRONMENT DIVISION; (3) 4 spaces between a VERB and its predicate (SET takes 5, so its predicate lines up with \
+         ENVIRONMENT DIVISION; (3) 4 spaces between every VERB and its predicate (SET takes 5, so its predicate lines up with \
          MOVE's); (4) in MOVE and SET put `TO` in column 50 followed by 4 spaces — when the operand before it is too long to \
-         reach column 50, put `TO` in column 50 of the next line and leave a blank line after the statement; (5) in the \
+         reach column 50, put `TO` in column 50 of the next line and leave a blank line after the statement; in a \
+         data entry the first clause after the name (`PIC`, `OCCURS`, the `VALUE` of an 88) starts in column 50 \
+         too, `PIC    X(40)    VALUE SPACES`, and the data levels indent 4 spaces; (5) in the \
          PROCEDURE DIVISION write a period only where one is needed — to end the last statement before a SECTION or \
          paragraph name, and the last statement of the code — and close every other verb with its END-<verb> (END-IF, \
          END-PERFORM, END-EVALUATE …); (6) a blank line before and after a block of consecutive statements that use the \
          same verb; (7) call a method as a statement of its own, `Txt-Log::AppendText(WS-NL)`, never `INVOKE \
          Txt-Log::AppendText(WS-NL)`; (8) prefer SET to MOVE — `SET LBL-1::Caption TO \"Ready\"` — and keep MOVE for a \
-         record moved into its 01 group. The model:\n\
+         record moved into its 01 group. ✨ Beautify in the IDE writes exactly this layout. The model:\n\
          \x20      DATA DIVISION.\n\
          \n\
          \x20      WORKING-STORAGE SECTION.\n\
-         \x20      01 WS-NL PIC X.\n\
+         \x20      01 WS-NL                                  PIC    X.\n\
          \n\
          \x20      PROCEDURE DIVISION.\n\
          \x20          SET     WS-NL                         TO    FUNCTION CHAR(11)\n\

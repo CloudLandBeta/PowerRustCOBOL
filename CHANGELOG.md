@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.8] — 2026-10-12
+
+### Added
+- **✨ Beautify writes the PowerRustCOBOL layout style (operator, 2026-10-12; spec 043 addendum).** The Beautify dialog gains a third choice, **PowerRustCOBOL style** — on by default, remembered, in all six languages. Off, Beautify behaves exactly as before. On, it lays code out as the plugin's `layout` golden rule tells a coding agent to: data levels 4 spaces apart; the first data clause (`PIC`, `OCCURS`, an 88's `VALUE`) and the `TO` of `MOVE`/`SET` in column 50; 4 spaces after every verb; a blank line before each `DIVISION`, after a comment and around a block of the same verb; comments in the column of the code below them; statements with phrases (`READ … AT END … END-READ`, `STRING … END-STRING`) laid out as scopes, their continuation lines one level in, `AND`/`OR` lines clear of the body, and the clauses of a `SELECT` under it.
+  - *Three rules change tokens, not only whitespace* — a sentence period nothing depends on is dropped, `INVOKE obj::m(…)` becomes `obj::m(…)`, `MOVE` becomes `SET` — and each is **kept only when proved harmless**: the text before and after are parsed as programs and must compare equal. When they do not (or the original does not parse), the layout alone is applied. A bare call is not checked by the semantic pass as the `INVOKE` statement is (`Txt-Log::AppendText(WS-TYPO)` reports nothing; with `INVOKE` it reports the undeclared name) — a gap in `cobolt-semantic`'s resolver that the style makes visible, filed as a separate fix. `INVOKE ME::…` and `INVOKE SUPER::…` are never touched: the modal-window calls ran differently without `INVOKE` in `props_demo_runs` and `powerchat_runs` when they were dropped, so the rule excludes them.
+  - *Where.* `panels/beautify.rs` (the engine, now with a line-kind buffer and a layout post-pass), the new `panels/beautify_style.rs`, `ui_prefs.rs` (`beautify_style`, absent reads as on), the dialog in `panels/editor.rs`, and `bt_style`/`bt_style_hint` in `i18n.rs`. The plugin's `layout` rule gains the data-entry gutter and says Beautify writes it; its model is now a test-pinned fixed point of Beautify (`beautify_leaves_the_plugins_model_untouched`), and the Developer's Guide (§13 *Layout and comments*, and *Beautify — the layout rules*) and `specs/043-beautify-rules/spec.md` carry the rules.
+  - *Tests.* 36 new in `beautify.rs`/`beautify_style.rs` (two more came with the 1.91.7 fixes), one per rule plus: your snippet pinned exactly; the style is a fixed point; a wrapped `TO` before a scope end; phrase scopes; a multi-line `MOVE` keeps all its targets; `INVOKE … RETURNING` on the next line keeps its `INVOKE`; a long literal is not cut. The layout lint of `layout_rule.rs` now also checks the data gutter and the spacing of every verb.
+
+### Changed
+- `tests/cobol/code-style/test-layout-style.cbl` was rewritten by Beautify and still prints `TESTS RUN : 0007`, `TESTS FAILED : 0000`.
+
 ## [PowerRustCOBOL 1.91.7] — 2026-10-12
 
 ### Fixed

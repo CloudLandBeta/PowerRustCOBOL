@@ -8573,8 +8573,9 @@ and `Replace(",", ";")` are the same call.
 #### Layout and comments
 
 The same layout is what the PowerRustCOBOL AI plugin tells a coding agent to
-write (the `layout` golden rule), so the code you read from an agent and the code
-you write by hand look alike.
+write (the `layout` golden rule), and what **✨ Beautify** writes for you (see
+*Beautify — the layout rules*, below), so the code you read from an agent and the
+code you write by hand look alike.
 
 **Comment before complex code** — a calculation, a loop with an exit condition,
 an `EVALUATE` with several outcomes, a business rule, a workaround. A few lines of
@@ -8585,8 +8586,10 @@ line separates it from that code.
 1. **Indent with 4 spaces** per level.
 2. **A blank line before every `DIVISION` and `SECTION`**, except
    `ENVIRONMENT DIVISION`.
-3. **4 spaces between a verb and its predicate.** `SET` takes 5, so the predicate
-   of a `SET` lines up with the predicate of a `MOVE` above or below it.
+3. **4 spaces between a verb and its predicate** — every verb: `DISPLAY    "A"`,
+   `IF    WS-N > 1`, `PERFORM    SHOW`. `SET` takes 5, so the predicate of a `SET`
+   lines up with the predicate of a `MOVE` above or below it. A verb of two words
+   (`EXIT PERFORM`, `STOP RUN`, `GO TO`) is one verb.
 4. **In `MOVE` and `SET`, `TO` sits in column 50**, followed by 4 spaces. When the
    operand before it is too long to reach column 50, put `TO` in column 50 of the
    next line and leave a blank line after the statement.
@@ -8598,12 +8601,19 @@ line separates it from that code.
 7. **A method is a statement of its own** — `Txt-Log::AppendText(WS-NL)`, not
    `INVOKE Txt-Log::AppendText(WS-NL)`.
 8. **Prefer `SET` to `MOVE`**; keep `MOVE` for a record moved into its 01 group.
+9. **In a data entry, the first clause after the name starts in column 50** — the
+   same gutter as `TO`: `PIC` on an elementary item, `OCCURS` on a table, the
+   `VALUE` of an 88-level. It is followed by 4 spaces and its operand, and any
+   later clause follows after 4 more spaces. Data levels indent 4 spaces
+   (`01` → `05` → `10`, an 88 one level under its item). A name too long to reach
+   the gutter sends its clauses to column 50 of the next line, with a blank line
+   after.
 
 ```cobol
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 WS-NL PIC X.
+       01 WS-NL                                  PIC    X.
 
        PROCEDURE DIVISION.
            SET     WS-NL                         TO    FUNCTION CHAR(11)
@@ -8626,9 +8636,9 @@ line separates it from that code.
 ```
 
 `tests/cobol/code-style/test-layout-style.cbl` is a program written in this
-layout and run by the test suite (`test_layout_style.rs`); the lint in
-`crates/cobolt-project-tools/tests/layout_rule.rs` checks it, and the model the
-plugin shows an agent, against rules 2 to 4 and 7 and the comment rules.
+layout and run by the test suite; a lint checks it, and the model the plugin
+shows an agent, against rules 2 to 4, 7 and 9 and the comment rules, and a second
+test holds that ✨ Beautify leaves the model exactly as it is.
 
 ### Value methods of a data item
 
@@ -15505,11 +15515,31 @@ PowerCOBOL pretty-printer, these will feel familiar:
   onto a column-7 continuation line with the remainder re-quoted, anything
   else wraps at a word boundary.
 
-Clicking Beautify first opens a small dialog with two choices, remembered as
+Clicking Beautify first opens a small dialog with three choices, remembered as
 your defaults: how to case **COBOL verbs** (leave as written / UPPERCASE /
 lowercase / Capitalized — identifiers and literals are never touched), and
 whether **comments** stay exactly as authored or align with the surrounding
-code.
+code (the style below always aligns them, so this choice is for Beautify
+without it); and whether to apply the **PowerRustCOBOL style**.
+
+**The PowerRustCOBOL style.** The dialog also has a **PowerRustCOBOL style**
+check box, on by default and remembered with the other two choices. With it,
+Beautify writes the layout of *Layout and comments* (§13): the first data clause
+and the `TO` of `MOVE`/`SET` in column 50, data levels indented 4 spaces, a
+blank line before each `DIVISION`, after a comment and around a block of the
+same verb, comments in the column of the code below them, and 4 spaces after
+every verb. Without the check box Beautify follows the rules above, exactly as
+before. The style also changes the text itself — a plain `MOVE` becomes a
+`SET`, `INVOKE` is dropped from a plain call on a control (`INVOKE
+Txt-Log::AppendText(WS-NL)` becomes `Txt-Log::AppendText(WS-NL)`), and a
+sentence period is dropped where nothing depends on it, the scope closed by its
+`END-<verb>` — but **only when Beautify can show that the program still means the
+same**: it reads the code before and after, and keeps one of these changes
+only if both read as the same program. Where it cannot (the code does not parse
+on its own, for one), the layout is applied and the statements are left alone. A
+few things are never changed: a call on the window itself (`ME::…`, `SUPER::…`)
+keeps its `INVOKE`, a `MOVE CORRESPONDING` stays a `MOVE`, and the period before
+a paragraph name and at the end of the code stays.
 
 ⚠️ **Erroneous code is never beautified.** The code is checked first (whole
 programs through the real compiler front end); if it has errors, a dialog
