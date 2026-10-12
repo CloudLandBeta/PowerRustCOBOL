@@ -17,6 +17,69 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.9] — 2026-10-12
+
+*(Written on 2026-10-09 as 1.90.56, while `main` was at 1.90.54, and renumbered 1.91.9 when it was merged.)*
+
+### Fixed
+- **The value methods of a data item answer in a contained program.** `Trim`,
+  `UpperCase` / `ToUpperCase` / `Upper`, `LowerCase` / `ToLowerCase` / `Lower`,
+  `Replace`, `Len` / `Length` and `Split` came out **empty** on an item the
+  program declares in its **own** WORKING-STORAGE whenever that program is not
+  the outermost — and every event handler of a form is such a program. With
+  `01 LK-FILE PIC X(30)` in a handler, `FUNCTION TRIM(LK-FILE)` gave `file one`
+  and `LK-FILE::Trim()` gave nothing, so `MOVE LK-FILE::Trim() TO WS-DEST`
+  blanked the destination without a word. The same name declared by two
+  contained programs came out empty in both. Items of the outermost program,
+  `GLOBAL` items and a `LINKAGE` parameter were never affected, and still are not.
+  - *Cause.* `eval_member` decided "is the receiver a value?" with
+    `CobolEnvironment::contains`, a **flat** lookup of the name as written. A
+    contained program's own item is stored under `PROGRAM-ID` + `\u{4}` + `NAME` and reached
+    through a divert alias installed for the length of the call, and a name
+    declared more than once is stored by its path; every other read and write
+    resolves the name first (`resolve_name`). So `contains` said no, the value
+    branch was skipped, and the chain was treated as a control's member, which
+    reads as an empty string.
+  - *Fix.* New `CobolEnvironment::is_declared(name, quals)` asks the question
+    the way a read does (the flat answer still counts, so nothing found before is
+    lost). `eval_member`, `is_value_item` and `value_item_root` use it — the last
+    two are the 1.90.47 guard that refuses an unknown method on a data item, and
+    the `INVOKE` guard — so an unknown name after a handler's own item is now the
+    run-time error it always was after an outermost one, instead of an empty
+    string. `is_value_item` also checks the `OBJECT REFERENCE` table by the
+    resolved key, so a handler's own object handle keeps answering its class.
+  - *Also fixed by the same line:* a **qualified** name in the outermost program,
+    `WS-FLD OF REC-A::Trim()`, where `WS-FLD` is declared under two groups, was
+    empty too.
+  - *Checked and unchanged.* The semantic analyser checks each contained program
+    against its own symbols, and the editor's IntelliSense scans the whole source;
+    neither had the bug, and both are now pinned by a test.
+  - *All three hosts.* The change is in the shared `cobolt_runtime::Interpreter`;
+    `rcrun run-form`, the embedded child forms (`cobolt-form-host`) and
+    `run_form_app` in `cobolt-compiler` each construct that one type and none
+    carries its own evaluation, so none needed wiring.
+- **Tests.** `tests/cobol/string-ops/test-data-item-methods.cbl` now also runs
+  all 13 forms (every name in `DATA_ITEM_METHODS`, `Length` as method and as
+  property, `Split` with and without `(n)`) from contained programs in three
+  situations — an item only that program declares, one name declared by two
+  contained programs (with different values and widths, so the wrong storage
+  gives itself away), and an outer `GLOBAL` item: 84 checks, up from 32, rows 17–19
+  of its result table. `cobolt-runtime/tests/test_data_item_methods.rs` adds the
+  three reported repros verbatim, a differential test of every method against the
+  same call on an outermost item, the qualified-duplicate case, a `LINKAGE`
+  parameter, the run-time error on an unknown name, and a handler's `OBJECT
+  REFERENCE`; `cobolt-semantic` and `cobolt-ide` each get one case (neither
+  had the bug; they pin that it stays that way). Run against the unfixed
+  interpreter the new runtime tests fail exactly as reported (`new: []`, `dest:`
+  blank, `a new: []`, and the `.cbl` prints FAIL lines for `SUB-UNIQUE` and
+  `SUB-DUP-1`), while the ones about
+  what already worked — `GLOBAL`, `LINKAGE`, an `OBJECT REFERENCE` — pass on both.
+- **Docs.** *Value methods of a data item* (Developer's Guide) and §4.1 of the
+  support matrix now say the methods work on every data item the code can name.
+
+### Known, not fixed here
+- `INITIALIZE <item>` did nothing when the item is declared by a contained program — the same flat `contains` check, in the `INITIALIZE` handler. Fixed since, in 1.91.4 and 1.91.5.
+
 ## [PowerRustCOBOL 1.91.8] — 2026-10-12
 
 ### Added

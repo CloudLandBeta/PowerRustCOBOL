@@ -187,6 +187,7 @@ give. A control, a layer and an `OBJECT REFERENCE` keep the members of their own
 |---|:--:|---|
 | Data item (`PIC X`, group, `01`/`77`) | ✅ | The ordinary case |
 | Table occurrence, reference modification, qualified name, arithmetic expression | ✅ | Accepted by the evaluator |
+| Item a **contained program** declares (an event handler's own `WORKING-STORAGE`), a name declared by several programs, a `GLOBAL` item, a `LINKAGE` parameter | ✅ | The same answer as `FUNCTION TRIM(item)` gives. The item is found by the name's own resolution, as every other read finds it |
 | **Literal** (`"a-b-c"::Split("-")`) | ⛔ | The interpreter accepts a literal receiver, but the parser does not: `::` after a literal is a syntax error. Assign the literal to a data item first |
 
 ### 4.2 An expression wherever COBOL-85 allows only an item
