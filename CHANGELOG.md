@@ -17,6 +17,11 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.14] — 2026-10-12
+
+### Changed
+- **PowerSpatial is written in the style again, with the blank line before each comment block (operator, 2026-10-12).** Beautify with the PowerRustCOBOL style on, run over the project's five forms and three COBOL sources: 25 blocks changed, 0 rejected, and the parse-tree gate proved every block the same program. The diff is blank lines only — 101 inserted, none removed, and `git diff -w --ignore-blank-lines` is empty — mostly the blank before each `*>` block in the language table and before the comments that follow a header or an `IF`. A second run changes nothing. Check reports 0 errors and 0 warnings.
+
 ## [PowerRustCOBOL 1.91.13] — 2026-10-12
 
 ### Added

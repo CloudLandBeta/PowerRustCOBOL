@@ -5,10 +5,12 @@
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 0.
        01 WS-NEW-IX                              GLOBAL    PIC 9    VALUE 1.
+
        *>   The texts the operator reads, one row per text and one
        *>   column per language - en, pt, es, fr, jp, cn.
 
        01 PS-TEXT-DATA                           GLOBAL.
+
            *>   SIDEBAR
 
            05 FILLER                             PIC    X(80)    VALUE "Sidebar".
@@ -17,6 +19,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Barre latérale".
            05 FILLER                             PIC    X(80)    VALUE "サイドバー".
            05 FILLER                             PIC    X(80)    VALUE "侧边栏".
+
            *>   BACK
 
            05 FILLER                             PIC    X(80)    VALUE "Back".
@@ -25,6 +28,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Précédent".
            05 FILLER                             PIC    X(80)    VALUE "戻る".
            05 FILLER                             PIC    X(80)    VALUE "后退".
+
            *>   FORWARD
 
            05 FILLER                             PIC    X(80)    VALUE "Forward".
@@ -33,6 +37,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Suivant".
            05 FILLER                             PIC    X(80)    VALUE "進む".
            05 FILLER                             PIC    X(80)    VALUE "前进".
+
            *>   CLOSE
 
            05 FILLER                             PIC    X(80)    VALUE "Close".
@@ -41,6 +46,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Fermer".
            05 FILLER                             PIC    X(80)    VALUE "閉じる".
            05 FILLER                             PIC    X(80)    VALUE "关闭".
+
            *>   NEWTAB
 
            05 FILLER                             PIC    X(80)    VALUE "New tab".
@@ -49,6 +55,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Nouvel onglet".
            05 FILLER                             PIC    X(80)    VALUE "新しいタブ".
            05 FILLER                             PIC    X(80)    VALUE "新标签页".
+
            *>   SHARE
 
            05 FILLER                             PIC    X(80)    VALUE "Share".
@@ -57,6 +64,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Partager".
            05 FILLER                             PIC    X(80)    VALUE "共有".
            05 FILLER                             PIC    X(80)    VALUE "分享".
+
            *>   TABS
 
            05 FILLER                             PIC    X(80)    VALUE "Tabs".
@@ -75,10 +83,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
            *> A setting never kept, or any other code, means English.
 
@@ -90,6 +100,7 @@
                WHEN "cn" MOVE 6 TO WS-NEW-IX
                WHEN OTHER MOVE 1 TO WS-NEW-IX
            END-EVALUATE
+
            *> Tmr-Lang calls this every second. WS-LANG-IX starts at 0, so the first
            *> call always applies the texts; later ones only when the language moved.
 
@@ -345,6 +356,7 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   Closing the dashboard - the main form - ends the application.
 
            INVOKE    super::Close()

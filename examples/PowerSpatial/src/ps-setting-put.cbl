@@ -1,5 +1,6 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. PS-SETTING-PUT.
+
        *>   Keeps one of the application's settings: written when new,
        *>   rewritten when it was already there. The file is made the
        *>   first time a setting is kept.
@@ -41,6 +42,7 @@
                STRING    WS-DIR::Trim() "/settings.idx" INTO WS-PATH
            END-IF
            OPEN    I-O SETTINGS-FILE
+
            *> OPEN I-O does not make a missing file (status 35), OPEN OUTPUT does:
            *> make it empty, close it and reopen for update.
 
@@ -49,6 +51,7 @@
                CLOSE    SETTINGS-FILE
                OPEN    I-O SETTINGS-FILE
            END-IF
+
            *> If it still will not open, the setting is dropped without any sign.
 
            IF    WS-FS NOT = "00"

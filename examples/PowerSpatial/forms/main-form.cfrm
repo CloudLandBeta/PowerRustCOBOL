@@ -22,6 +22,7 @@
            05 WS-SONG-ROW                        OCCURS    3.
                10 WS-SONG-TITLE                  PIC    X(40).
                10 WS-SONG-ALBUM                  PIC    X(20).
+
        *>   The waveform: one bar per sample, shifted while a song plays.
 
        01 WS-WAVE                                GLOBAL.
@@ -32,6 +33,7 @@
        01 WS-I                                   GLOBAL    PIC 9(3).
        01 WS-SEED                                GLOBAL    PIC 9(5)    VALUE 7.
        01 WS-FIRST                               GLOBAL    PIC 9(3).
+
        *>   Per device card: is it on (cast) and powered (plug).
 
        01 WS-DEV-ON                              GLOBAL    PIC X    OCCURS 3    VALUE "Y".
@@ -39,10 +41,12 @@
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-LANG-IX                             GLOBAL    PIC 9    VALUE 0.
        01 WS-NEW-IX                              GLOBAL    PIC 9    VALUE 1.
+
        *>   The texts the operator reads, one row per text and one
        *>   column per language - en, pt, es, fr, jp, cn.
 
        01 PS-TEXT-DATA                           GLOBAL.
+
            *>   LIGHT
 
            05 FILLER                             PIC    X(80)    VALUE "Light".
@@ -51,6 +55,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Lumière".
            05 FILLER                             PIC    X(80)    VALUE "照明".
            05 FILLER                             PIC    X(80)    VALUE "灯光".
+
            *>   AIRCON
 
            05 FILLER                             PIC    X(80)    VALUE "Air Con".
@@ -59,6 +64,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Clim".
            05 FILLER                             PIC    X(80)    VALUE "エアコン".
            05 FILLER                             PIC    X(80)    VALUE "空调".
+
            *>   WIFI
 
            05 FILLER                             PIC    X(80)    VALUE "Wifi".
@@ -67,6 +73,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Wi-Fi".
            05 FILLER                             PIC    X(80)    VALUE "Wi-Fi".
            05 FILLER                             PIC    X(80)    VALUE "无线网络".
+
            *>   OUTDOOR
 
            05 FILLER                             PIC    X(80)    VALUE "Outdoor Temperature".
@@ -75,6 +82,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Température extérieure".
            05 FILLER                             PIC    X(80)    VALUE "屋外の気温".
            05 FILLER                             PIC    X(80)    VALUE "室外温度".
+
            *>   REMOTE
 
            05 FILLER                             PIC    X(80)    VALUE "Remote…".
@@ -83,6 +91,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Télécommande…".
            05 FILLER                             PIC    X(80)    VALUE "リモート…".
            05 FILLER                             PIC    X(80)    VALUE "遥控…".
+
            *>   HI
 
            05 FILLER                             PIC    X(80)    VALUE "Hi, Wade Warren".
@@ -91,6 +100,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Bonjour, Wade Warren".
            05 FILLER                             PIC    X(80)    VALUE "こんにちは、Wade Warren".
            05 FILLER                             PIC    X(80)    VALUE "你好，Wade Warren".
+
            *>   ALBUM
 
            05 FILLER                             PIC    X(80)    VALUE "Album".
@@ -99,6 +109,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Album".
            05 FILLER                             PIC    X(80)    VALUE "アルバム".
            05 FILLER                             PIC    X(80)    VALUE "专辑".
+
            *>   AC
 
            05 FILLER                             PIC    X(80)    VALUE "Air Conditioner".
@@ -107,6 +118,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Climatiseur".
            05 FILLER                             PIC    X(80)    VALUE "エアコン".
            05 FILLER                             PIC    X(80)    VALUE "空调".
+
            *>   COOLING
 
            05 FILLER                             PIC    X(80)    VALUE "COOLING TO".
@@ -115,6 +127,7 @@
            05 FILLER                             PIC    X(80)    VALUE "REFROIDIR À".
            05 FILLER                             PIC    X(80)    VALUE "冷房設定".
            05 FILLER                             PIC    X(80)    VALUE "制冷至".
+
            *>   OFF
 
            05 FILLER                             PIC    X(80)    VALUE "OFF".
@@ -123,6 +136,7 @@
            05 FILLER                             PIC    X(80)    VALUE "ARRÊT".
            05 FILLER                             PIC    X(80)    VALUE "オフ".
            05 FILLER                             PIC    X(80)    VALUE "关闭".
+
            *>   UNDER
 
            05 FILLER                             PIC    X(80)    VALUE "UNDER 10 MIN".
@@ -131,6 +145,7 @@
            05 FILLER                             PIC    X(80)    VALUE "EN MOINS DE 10 MIN".
            05 FILLER                             PIC    X(80)    VALUE "10分以内".
            05 FILLER                             PIC    X(80)    VALUE "10分钟内".
+
            *>   CONSUMPTION
 
            05 FILLER                             PIC    X(80)    VALUE "Total Consumption".
@@ -139,6 +154,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Consommation totale".
            05 FILLER                             PIC    X(80)    VALUE "総消費電力".
            05 FILLER                             PIC    X(80)    VALUE "总耗电量".
+
            *>   HUMIDITY
 
            05 FILLER                             PIC    X(80)    VALUE "Humidity".
@@ -147,6 +163,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Humidité".
            05 FILLER                             PIC    X(80)    VALUE "湿度".
            05 FILLER                             PIC    X(80)    VALUE "湿度".
+
            *>   PRESSURE
 
            05 FILLER                             PIC    X(80)    VALUE "Pressure".
@@ -155,6 +172,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Pression".
            05 FILLER                             PIC    X(80)    VALUE "気圧".
            05 FILLER                             PIC    X(80)    VALUE "气压".
+
            *>   THERMOSTAT
 
            05 FILLER                             PIC    X(80)    VALUE "Thermostat".
@@ -163,6 +181,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Thermostat".
            05 FILLER                             PIC    X(80)    VALUE "サーモスタット".
            05 FILLER                             PIC    X(80)    VALUE "温控器".
+
            *>   LIGHTING
 
            05 FILLER                             PIC    X(80)    VALUE "Lighting".
@@ -171,6 +190,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Éclairage".
            05 FILLER                             PIC    X(80)    VALUE "ライト".
            05 FILLER                             PIC    X(80)    VALUE "照明".
+
            *>   SPEAKER
 
            05 FILLER                             PIC    X(80)    VALUE "Google Home".
@@ -179,6 +199,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Google Home".
            05 FILLER                             PIC    X(80)    VALUE "Google Home".
            05 FILLER                             PIC    X(80)    VALUE "Google Home".
+
            *>   OPENING
 
            05 FILLER                             PIC    X(80)    VALUE "Opening".
@@ -187,6 +208,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Actif".
            05 FILLER                             PIC    X(80)    VALUE "動作中".
            05 FILLER                             PIC    X(80)    VALUE "运行中".
+
            *>   CLOSED
 
            05 FILLER                             PIC    X(80)    VALUE "Closed".
@@ -195,6 +217,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Éteint".
            05 FILLER                             PIC    X(80)    VALUE "停止中".
            05 FILLER                             PIC    X(80)    VALUE "已关闭".
+
            *>   NOTIFY
 
            05 FILLER                             PIC    X(80)    VALUE "No new notifications".
@@ -203,6 +226,7 @@
            05 FILLER                             PIC    X(80)    VALUE "Aucune nouvelle notification".
            05 FILLER                             PIC    X(80)    VALUE "新しい通知はありません".
            05 FILLER                             PIC    X(80)    VALUE "没有新通知".
+
            *>   M01
 
            05 FILLER                             PIC    X(80)    VALUE "January".
@@ -211,6 +235,7 @@
            05 FILLER                             PIC    X(80)    VALUE "janvier".
            05 FILLER                             PIC    X(80)    VALUE "1月".
            05 FILLER                             PIC    X(80)    VALUE "1月".
+
            *>   M02
 
            05 FILLER                             PIC    X(80)    VALUE "February".
@@ -219,6 +244,7 @@
            05 FILLER                             PIC    X(80)    VALUE "février".
            05 FILLER                             PIC    X(80)    VALUE "2月".
            05 FILLER                             PIC    X(80)    VALUE "2月".
+
            *>   M03
 
            05 FILLER                             PIC    X(80)    VALUE "March".
@@ -227,6 +253,7 @@
            05 FILLER                             PIC    X(80)    VALUE "mars".
            05 FILLER                             PIC    X(80)    VALUE "3月".
            05 FILLER                             PIC    X(80)    VALUE "3月".
+
            *>   M04
 
            05 FILLER                             PIC    X(80)    VALUE "April".
@@ -235,6 +262,7 @@
            05 FILLER                             PIC    X(80)    VALUE "avril".
            05 FILLER                             PIC    X(80)    VALUE "4月".
            05 FILLER                             PIC    X(80)    VALUE "4月".
+
            *>   M05
 
            05 FILLER                             PIC    X(80)    VALUE "May".
@@ -243,6 +271,7 @@
            05 FILLER                             PIC    X(80)    VALUE "mai".
            05 FILLER                             PIC    X(80)    VALUE "5月".
            05 FILLER                             PIC    X(80)    VALUE "5月".
+
            *>   M06
 
            05 FILLER                             PIC    X(80)    VALUE "June".
@@ -251,6 +280,7 @@
            05 FILLER                             PIC    X(80)    VALUE "juin".
            05 FILLER                             PIC    X(80)    VALUE "6月".
            05 FILLER                             PIC    X(80)    VALUE "6月".
+
            *>   M07
 
            05 FILLER                             PIC    X(80)    VALUE "July".
@@ -259,6 +289,7 @@
            05 FILLER                             PIC    X(80)    VALUE "juillet".
            05 FILLER                             PIC    X(80)    VALUE "7月".
            05 FILLER                             PIC    X(80)    VALUE "7月".
+
            *>   M08
 
            05 FILLER                             PIC    X(80)    VALUE "August".
@@ -267,6 +298,7 @@
            05 FILLER                             PIC    X(80)    VALUE "août".
            05 FILLER                             PIC    X(80)    VALUE "8月".
            05 FILLER                             PIC    X(80)    VALUE "8月".
+
            *>   M09
 
            05 FILLER                             PIC    X(80)    VALUE "September".
@@ -275,6 +307,7 @@
            05 FILLER                             PIC    X(80)    VALUE "septembre".
            05 FILLER                             PIC    X(80)    VALUE "9月".
            05 FILLER                             PIC    X(80)    VALUE "9月".
+
            *>   M10
 
            05 FILLER                             PIC    X(80)    VALUE "October".
@@ -283,6 +316,7 @@
            05 FILLER                             PIC    X(80)    VALUE "octobre".
            05 FILLER                             PIC    X(80)    VALUE "10月".
            05 FILLER                             PIC    X(80)    VALUE "10月".
+
            *>   M11
 
            05 FILLER                             PIC    X(80)    VALUE "November".
@@ -291,6 +325,7 @@
            05 FILLER                             PIC    X(80)    VALUE "novembre".
            05 FILLER                             PIC    X(80)    VALUE "11月".
            05 FILLER                             PIC    X(80)    VALUE "11月".
+
            *>   M12
 
            05 FILLER                             PIC    X(80)    VALUE "December".
@@ -358,10 +393,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
+
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
            *> A setting never kept, or any other code, means English.
 
@@ -373,6 +410,7 @@
                WHEN "cn" MOVE 6 TO WS-NEW-IX
                WHEN OTHER MOVE 1 TO WS-NEW-IX
            END-EVALUATE
+
            *> Tmr-Lang calls this every second. WS-LANG-IX starts at 0, so the first
            *> call always applies the texts; later ones only when the language moved.
 
@@ -414,9 +452,11 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The date and the time, in the operator's language.
 
            SET     WS-NOW                        TO    FUNCTION CURRENT-DATE
+
            *> CURRENT-DATE is YYYYMMDDhhmmss...: year (1:4), month (5:2), day (7:2),
            *> hour (9:2) and minute (11:2) are cut from WS-NOW by position.
 
@@ -430,18 +470,22 @@
            *> form uses WS-NOW(7:2) and so keeps it.
 
            EVALUATE    WS-LANG-IX
+
                *>       2026年10月4日
                WHEN 5 WHEN 6
                    STRING    WS-NOW(1:4) "年" PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
                    WS-N-TXT::Trim() "日" INTO WS-LINE
+
                *>       4 de outubro de 2026 / 4 de octubre de 2026
                WHEN 2 WHEN 3
                    STRING    WS-N-TXT::Trim() " de " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
                        " de " WS-NOW(1:4) INTO WS-LINE
+
                *>       4 octobre 2026
                WHEN 4
                    STRING    WS-N-TXT::Trim() " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
                        " " WS-NOW(1:4) INTO WS-LINE
+
                *>       04 October, 2026
                WHEN OTHER
                    STRING    WS-NOW(7:2) " " PS-TEXT(WS-MONTH + 20, WS-LANG-IX)::Trim()
@@ -459,6 +503,7 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The dial and its readout follow the air conditioner's switch.
 
            SET     WS-N                          TO    Knb-AC::Value
@@ -555,9 +600,11 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   A waveform of 48 samples, made once.
 
            PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-WAVE-N
+
                *> Pseudo-random from the fixed seed in WS-SEED, so every start draws
                *> the same wave. Heights land between 15 and 99.
 
@@ -574,9 +621,11 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   While a song plays the waveform moves left one sample a tick.
 
            SET     WS-FIRST                      TO    WS-WAVE-VALUE(1)
+
            *> The first sample returns at the end, so the wave rotates and keeps
            *> its shape. The loop stops one short of WS-WAVE-N because it reads
            *> WS-I + 1.
@@ -592,6 +641,7 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   Each device card shows whether the device is on.
 
            IF    WS-DEV-ON(1) = "Y"
@@ -660,6 +710,7 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   WS-I names the device card pressed.
 
            IF    WS-DEV-ON(WS-I) = "Y"
@@ -684,6 +735,7 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
            *>   The dashboard opens its floating windows, docked around it.
 
            SET     WS-DEV-ON(1)                  TO    WS-DEV-INIT(1:1)
