@@ -8731,6 +8731,56 @@ layout and run by the test suite; a lint checks it, and the model the plugin
 shows an agent, against rules 2 to 4, 7 and 9 and the comment rules, and a second
 test holds that ✨ Beautify leaves the model exactly as it is.
 
+#### A comment before every `CALL`
+
+A `CALL` runs a procedure that lives somewhere else — in the same form or in
+Common Code — so the line that calls it tells you nothing about what is about to
+happen. Put a short comment directly above each `CALL "NAME"` that answers three
+questions, in this order:
+
+- **What the procedure will do.** The first line names it and says so.
+- **`Uses:`** — the data items and control properties it reads, with the value each
+  holds at that call when the lines above set it.
+- **`Result:`** — the data items, control properties and files it leaves changed,
+  and how. `No data item changes.` when there is none.
+
+The block is laid out like any other comment block: in the column of the `CALL`,
+with a blank line before it and a blank line after it, at most 100 columns wide.
+
+```cobol
+           SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PS-SETTING-GET: reads one setting from the settings file by its name. It never writes.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the file.
+           *> Result: WS-SET-VALUE = the saved language code ("pt", "es", ...), or SPACES when
+           *>         the setting was never kept or the file does not exist yet.
+
+           CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE.
+```
+
+The plugin gives a coding agent the same practice as the `call-comments` golden
+rule, so the code an agent writes and the code you write read alike, and the
+examples that ship with the product — PowerChat, PowerAnalytics, PowerSpatial and
+PowerDemo3 — are written this way.
+
+**Notes**
+
+- Write it from what the procedure *does*, not from what it is called, and write
+  one per call: the same procedure called from five places has five blocks, each
+  naming that call's items and the values they hold there.
+- A built-in written inline, `COBOL::"NAME" ( … )`, is not a `CALL` to a
+  procedure and needs no block. A `CALL` written after `WHEN` or `NOT INVALID KEY`
+  on the same line is commented by a block above that line.
+- A comment that is already there stays as it is: add the block between it and the
+  `CALL`.
+
+**⚠️ Caveats**
+
+- A block that is wrong is worse than none. When you change what a procedure reads
+  or leaves behind, change the block above every call to it.
+- Inside a `.cfrm` the COBOL sits in an XML `CDATA` section, which `]]>` ends, so
+  never write those three characters in a comment.
+
 ### Value methods of a data item
 
 A `PIC X` field — or a group, a table occurrence, a reference-modified slice —
@@ -13296,6 +13346,9 @@ rules, which the servers give it on connecting and its reviewer checks:
     property used like a data item, a method's answer used inside the
     expression, the value methods of a data item, expressions in `MOVE`, `SET`
     and `STRING`, and the built-ins written inline — see *Code style* in §13.
+11. **A comment before every `CALL`** — what the procedure will do, which data
+    items it uses and what they hold when it returns, so a call can be read
+    without opening the procedure — see *A comment before every `CALL`* in §13.
 
 They also offer a **patterns pack**: working forms from the PowerDemo3 and
 PowerChat examples, each with a note on what it shows — the application shell

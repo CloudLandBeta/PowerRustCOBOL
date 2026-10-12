@@ -17,6 +17,15 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.18] — 2026-10-12
+
+### Added
+- **A comment before every `CALL` to a procedure is a golden rule (operator, 2026-10-12).** Directly above each `CALL "NAME"` — a procedure of the form, or a Common Code program — a `*>` block says what the procedure is about to do (the first line names it), `Uses:` which data items and control properties it reads with the value each holds at that call, and `Result:` which data items, control properties and files it leaves changed and how (`No data item changes.` when none). It is written from the procedure's own logic and is specific to the call: one procedure called from five places has five blocks. An inline built-in (`COBOL::"NAME" ( … )`) is not a CALL to a procedure and needs none; a CALL after `WHEN` or `NOT INVALID KEY` is commented by a block above its line; the layout is any comment block's (the CALL's column, a blank line before and after, at most 100 columns), and a comment already there is never edited — the block goes between it and the CALL.
+  - **In the Claude integration.** A twelfth golden rule, `call-comments`, in the server instructions (`cobolt-project-tools/src/content.rs`, right after `layout`), with a model that follows the layout rule and carries its own block; and a check in the reviewer agent's list, which rejects a block that says something the procedure does not do and a block pasted from a call whose items differ.
+  - **Tests.** `layout_rule.rs` gains three: the model in the new rule obeys the layout lint, the model's CALL has a blank line above it and a block with its name, `Uses:` and `Result:`, and the check is not vacuous (it names each way a CALL can be left uncommented). The plugin crate: 79 pass, the one ignored build test unchanged.
+  - **In the Developer's Guide and the README.** The golden-rules list has an eleventh item, and *Code style* has *A comment before every `CALL`*, with the model, notes and caveats. `CLAUDE.md` carries the rule as a standing rule, with the model form `examples/PowerSpatial/forms/rooms-form.cfrm`.
+  - *Not done here.* The examples that ship with the product follow it in 1.91.19.
+
 ## [PowerRustCOBOL 1.91.17] — 2026-10-12
 
 ### Added

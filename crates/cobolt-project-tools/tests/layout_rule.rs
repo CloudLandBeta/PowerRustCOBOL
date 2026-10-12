@@ -143,3 +143,65 @@ fn the_lint_finds_what_it_is_built_to_find() {
         assert!(breaches.iter().any(|b| b.contains(needle)), "missing `{needle}` in {breaches:#?}");
     }
 }
+
+/// The model printed inside the "call-comments" rule — everything after "The model:".
+fn call_comments_model() -> String {
+    let (_, rule) = APPLICATION_RULES.iter().find(|(id, _)| *id == "call-comments").expect("a `call-comments` rule");
+    rule.split_once("The model:\n").expect("the rule ends with its model").1.to_owned()
+}
+
+/// What the "call-comments" golden rule (operator, 2026-10-12) asks of every CALL to a
+/// procedure: a blank line above it, and above that a comment block that names the
+/// procedure and has a `Uses:` and a `Result:` part. One message per CALL that falls short.
+fn call_comment_breaches(src: &str) -> Vec<String> {
+    let lines: Vec<&str> = src.lines().collect();
+    let mut breaches = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim_start();
+        let Some(rest) = t.strip_prefix("CALL ") else { continue };
+        let name = rest.trim_start().trim_start_matches('"').split('"').next().unwrap_or("");
+        if i == 0 || !lines[i - 1].trim().is_empty() {
+            breaches.push(format!("line {}: no blank line above CALL \"{name}\"", i + 1));
+            continue;
+        }
+        let mut block = Vec::new();
+        let mut j = i.saturating_sub(2) as isize;
+        while j >= 0 && lines[j as usize].trim_start().starts_with("*>") {
+            block.push(lines[j as usize].trim_start());
+            j -= 1;
+        }
+        let text = block.join("\n");
+        if block.is_empty() {
+            breaches.push(format!("line {}: no comment block above CALL \"{name}\"", i + 1));
+        } else if !text.contains(name) || !text.contains("Uses:") || !text.contains("Result:") {
+            breaches.push(format!("line {}: the block above CALL \"{name}\" lacks the name, `Uses:` or `Result:`", i + 1));
+        }
+    }
+    breaches
+}
+
+#[test]
+fn the_model_in_the_call_comments_rule_obeys_the_layout() {
+    let model = call_comments_model();
+    let breaches = lint(&model);
+    assert!(breaches.is_empty(), "{breaches:#?}\n{model}");
+}
+
+#[test]
+fn the_model_in_the_call_comments_rule_comments_its_call() {
+    let model = call_comments_model();
+    assert!(model.contains("CALL "), "the model shows a CALL:\n{model}");
+    let breaches = call_comment_breaches(&model);
+    assert!(breaches.is_empty(), "{breaches:#?}\n{model}");
+}
+
+/// The check is not vacuous: it names each way a CALL can be left uncommented.
+#[test]
+fn the_call_comment_check_finds_what_it_is_built_to_find() {
+    let bare = "           SET     WS-A                          TO    1\n           CALL    \"P-ONE\"\n";
+    assert!(call_comment_breaches(bare).iter().any(|b| b.contains("no blank line above CALL \"P-ONE\"")));
+    let blank_only = "           SET     WS-A                          TO    1\n\n           CALL    \"P-TWO\"\n";
+    assert!(call_comment_breaches(blank_only).iter().any(|b| b.contains("no comment block above CALL \"P-TWO\"")));
+    let partial = "           SET     WS-A                          TO    1\n\n           *> P-THREE: does a thing.\n\n           CALL    \"P-THREE\"\n";
+    assert!(call_comment_breaches(partial).iter().any(|b| b.contains("lacks the name, `Uses:` or `Result:`")));
+}
