@@ -1,6 +1,6 @@
 # Spec — DataGrid: edit visually in the Designer, and write edits back to the bound source
 
-- **Status:** draft — findings and requirements; five questions open (§8) before `/plan`
+- **Status:** approved by the operator on 2026-10-12 with the decisions of §8; next: plan.md and tasks.md
 - **Folder:** specs/094-datagrid-write-back/
 - **Author:** operator request, written by Claude   **Date:** 2026-10-12
 - **Number:** 093 is the COMPUTE shorthand, drafted on `features-assignment-statement` and not yet merged; this takes 094 so the two cannot collide.
@@ -8,7 +8,8 @@
 ## 1. Overview
 The operator asked for three things:
 
-1. a DataGrid that can be **edited visually in the Form Designer**;
+1. a DataGrid **rendered in the Form Designer with fake data — never data-bound
+   there — and edited visually**;
 2. a bound DataGrid whose in-cell edits at run time are **saved back to the
    source** — an indexed file, a COBOL table or a SQL connection — with an
    **auto-commit** option: on, the change is written; off, an **event** is
@@ -93,7 +94,9 @@ deliberately chosen Button/Gauge/Image kind, width, order — but the column set
 its titles and its cell values are the binding's, regenerated each frame. The
 canvas itself draws static faces (`render_faces`); it takes no cell input. That
 is why a bound grid cannot be edited visually in the Designer: what is typed is
-rewritten the next frame, and nothing on the canvas takes the typing.
+rewritten the next frame, and nothing on the canvas takes the typing. Decision D1
+(§8) removes the cause: the Designer shows the grid's own fake data and the
+binding stops rewriting it.
 
 ### 2.7 The grid already edits a cell and says so
 `AllowCellEditing` (default off): double-click or F2 opens the cell in a text
@@ -122,7 +125,8 @@ gated on a writable binding (R8).
 
 ## 3. Goals / Non-goals
 - **Goals**
-  - A DataGrid can be edited on the Designer canvas, bound or not (§4.1).
+  - A DataGrid is drawn on the Designer canvas with fake data of its own — never
+    the bound source's — and can be edited there visually, bound or not (§4.1).
   - A bound grid with `AllowCellEditing` on writes a kept edit back to its
     source, per source kind (§4.3).
   - `AutoCommit` on writes it at once; off keeps it pending and lets the code
@@ -136,37 +140,37 @@ gated on a writable binding (R8).
   - No write-back for REST or Agent sources (they have their own update
     metadata, spec 022).
   - No adding or deleting rows from the grid in this spec — an edit of an
-    existing cell (Q4).
+    existing cell (D4).
   - No change to a grid that is not bound, or bound read-only, or has editing off.
 
 ## 4. Requirements (EARS)
 
-### 4.1 Visual editing in the Designer
-- **R1 (ubiquitous):** The Form Designer shall let the developer edit a
-  DataGrid's presentation directly on the canvas: resize a column by dragging
-  its edge, reorder by dragging its title, rename a title by double-clicking
-  it, and set frozen columns. Width, order and frozen panes are operations the
-  column-editor state layer (`data_grid_columns.rs`, `DataGridColumnEditorState`)
-  already performs on `AdvancedGrid`; the title rename is new. They shall be
-  reachable by direct manipulation as well as through *Edit DataGrid settings*.
-- **R2 (state):** While the grid has **no** binding, the developer shall also be
-  able to double-click a cell and edit its sample value, which is written to
-  `Rows`; add and remove a column and a row.
-- **R3 (state):** While the grid is **bound**, R1 shall hold and its edits shall
-  persist: `refresh_data_binding_target_properties` shall preserve a column's
-  title, width, order, frozen state, mask and control kind that the developer
-  set. Today it already preserves width, order, mask and a deliberately chosen
-  control kind; it **overwrites the title** with the field's display name every
-  frame (`merge_datagrid_binding_column`), which R3 changes — a title the
-  developer typed shall win over the binding's until it is cleared.
-- **R4 (state):** While the grid is bound, its column **set** and the values of
-  its cells shall be shown as the binding's, read-only on the canvas, and the
-  canvas shall say why (a note, or a tooltip: "from <source>; edit the binding").
-  Changing the set of fields is the Data Binding editor's job.
-- **R5 (event):** Every canvas edit shall be an ordinary property change —
-  undoable, saved in the `.cfrm` — as spec 088's grid edits are.
-- **R6 (ubiquitous):** The canvas editor shall be the grid's existing in-cell
-  editor, not a second one (§3).
+### 4.1 The Designer shows fake data, edited visually
+- **R1 (ubiquitous):** The Form Designer shall draw a DataGrid from the grid's
+  **own** `Columns`, `Rows` and `AdvancedGrid` — fake data — whether or not the
+  grid has a data binding. The canvas shall never read the bound source, and a
+  binding shall never rewrite what the developer has set on the canvas.
+- **R2 (event):** When the developer applies a data binding to a grid, or asks to
+  *Reset sample data*, the Designer shall seed the grid's `Columns`,
+  `AdvancedGrid` and sample `Rows` from the binding's fields **once**, as one
+  undoable command (`ApplyDataBinding` already snapshots the controls), and
+  never again on its own. A saved form whose bound grid has no columns shall be
+  seeded once when it opens.
+- **R3 (ubiquitous):** The developer shall edit the grid visually on the canvas:
+  double-click the grid to enter *grid edit mode*; there, double-click a cell to
+  edit its value, drag a column edge to resize, drag a title to reorder,
+  double-click a title to rename, and add or remove a column and a row from a
+  small floating toolbar. Esc, a click outside the grid, or a double-click on its
+  frame leaves the mode. The same for a bound grid and an unbound one.
+- **R4 (event):** Every such edit shall be an ordinary property change to
+  `Columns`, `Rows` or `AdvancedGrid` — undoable, saved in the `.cfrm` — as spec
+  088's grid edits are.
+- **R5 (constraint):** A column title the developer typed shall survive
+  re-applying the binding: `merge_datagrid_binding_column` overwrites the title
+  with the field's display name today, and shall keep a title that differs from
+  it.
+- **R6 (ubiquitous):** The cell editor on the canvas shall be the grid's existing
+  in-cell editor (§3), not a second one.
 
 ### 4.2 Auto-commit and the decision
 - **R7 (ubiquitous):** The DataGrid shall have an **`AutoCommit`** property, a
@@ -194,9 +198,10 @@ gated on a writable binding (R8).
   `PreviousValue` back, keep the failure in **`CommitStatus`** (the source's
   own: FILE STATUS, SQLSTATE) and raise **`onCommitError`** with it. The pending
   edit and row identity stay recoverable (Guide, §2.2).
-- **R14 (event):** `RefreshBinding()` while edits are pending shall not discard
-  them silently: it shall return the count it loaded and leave the pending
-  edits and their cells as they are, or raise the same decision (Q3).
+- **R14 (event):** While edits are pending, `RefreshBinding()` shall not discard
+  them: it shall load, return the count it loaded, keep the pending edits and
+  their cells as they are, and leave a non-zero `CommitStatus` so the code
+  notices (D3).
 
 ### 4.3 Writing to each source
 - **R15 (ubiquitous):** `binding_update` shall do what its name says, by source
@@ -214,7 +219,7 @@ gated on a writable binding (R8).
     at run time (§2.5); that work belongs to this spec's plan.**
 - **R16 (constraint):** A quick-bind grid has no `DataBindingDef`, so no mode:
   it shall be writable when `AllowCellEditing` is on and the `.cidx` declares a
-  primary key — and the Properties pane shall say so beside the checkbox (Q2).
+  primary key — and the Properties pane shall say so beside the checkbox (D2).
 - **R17 (constraint):** A write shall identify the row by its key as of the load.
   If that key is no longer in the source, the write fails with the source's
   "not found" status (R13); it shall never write to the wrong record because the
@@ -246,10 +251,11 @@ gated on a writable binding (R8).
   the quick-bind note of R16 — shall be a `Tr` field in all six languages.
 
 ## 5. Acceptance criteria
-- [ ] AC1 — R1–R6: Designer tests: a column dragged to a new width and a title
-  renamed survive a binding refresh; an unbound grid's cell edited on the
-  canvas lands in `Rows` and undoes; a bound grid's canvas cells do not take
-  input and say why.
+- [ ] AC1 — R1–R6: Designer tests: a bound grid draws its own `Rows`, not the
+  source's, and a frame later has not changed them; applying a binding seeds
+  `Columns`, `AdvancedGrid` and `Rows` once and one undo restores the grid; a cell
+  edited, a column resized and a title renamed on the canvas land in the
+  properties and undo; a renamed title survives re-applying the binding.
 - [ ] AC2 — R9, R13, R15 (indexed): a bound indexed grid, `AutoCommit` on: edit
   a cell, the file holds the new value after `rewrite_row` + `commit`, a
   re-read shows it; a handler that restores `PreviousValue` leaves the file
@@ -307,33 +313,24 @@ gated on a writable binding (R8).
    `DataGridColumnEditorState`; add the read-only note.
 4. KB, Guide, six-language strings, the `tests/cobol` program.
 
-## 8. Open questions
-- **Q1 — "edit visually in the Designer" — which of three things?** (a) the
-  grid's *presentation* — column widths, order, titles, frozen columns (R1, R3);
-  (b) its *sample values* — a cell typed on the canvas (R2, unbound only); (c)
-  the **real records** of the bound source, edited in the Designer like the
-  Indexed Editor does. This spec writes (a) for every grid and (b) for an unbound
-  one, and keeps a bound grid's values read-only on the canvas (R4) because the
-  Designer previews a binding with invented rows (§2.6) and writing real data
-  from a design surface is a different, riskier feature. *Recommended: (a)+(b).
-  If you meant (c), say so — it changes §4.1.*
-- **Q2 — a quick-bind grid has no mode.** Writable when `AllowCellEditing` is on
-  and the `.cidx` has a primary key (R16), or only through a `DataBindingDef`
-  marked Writable? The first makes PowerDemo3's grid work with one checkbox;
-  the second is stricter and needs the Data Binding editor. *Recommended: the
-  first, with the note beside the checkbox.*
-- **Q3 — `RefreshBinding()` with edits pending.** Keep them and return the count
-  (R14, first option), or raise the decision, or discard with a status?
-  *Recommended: keep, and return a non-zero `CommitStatus` so the code notices.*
-- **Q4 — rows.** This spec edits existing cells. Adding and deleting rows in a
-  bound grid (`AddRow`/`DeleteRow` already exist for `Rows`) is the same wire with
-  `write_row` / `delete_current`; in or out? *Recommended: out, a follow-up.*
-- **Q5 — names.** `AutoCommit`, `CommitStatus`, `onCommitError`, `CommitEdit()`,
-  `DiscardEdit()` are proposals. The code's decision could instead use the
-  built-ins directly (`COBOL::"BINDING-UPDATE"` to confirm,
-  `COBOL::"BINDING-MARK-CLEAN"` to discard) and add no method — fewer names, but
-  the discard would not restore the cell. *Recommended: the methods, as thin
-  wrappers over the built-ins.*
+## 8. Decisions (the operator's answers, 2026-10-12)
+- **D1 — the Designer shows fake data and nothing is bound there.** Asked
+  whether "edit visually in the Designer" meant column presentation, sample
+  values or the bound source's real records, the operator chose a fourth,
+  simpler thing: *the grid is rendered on the Designer with no data binding, just
+  fake data.* So a bound grid is drawn from its own `Columns` and `Rows` exactly
+  like an unbound one, and is edited visually (R1–R6). The Designer never reads
+  the source, and the earlier draft's read-only canvas for a bound grid is gone.
+  The binding still seeds the fake columns and rows once, when it is applied.
+- **D2 — a quick-bind grid is writable** when `AllowCellEditing` is on and the
+  `.cidx` declares a primary key (R16), with a note beside the checkbox.
+- **D3 — `RefreshBinding()` with edits pending** keeps them and leaves a
+  non-zero `CommitStatus`, so the code notices (R14).
+- **D4 — rows are out.** This spec edits existing cells; adding and deleting rows
+  of a bound grid is a follow-up.
+- **D5 — the names stand:** `AutoCommit`, `CommitStatus`, `onCommitError`,
+  `CommitEdit()`, `DiscardEdit()`, the methods as thin wrappers over the
+  built-ins.
 
 ## 9. Risks
 - **Two writers.** The grid's session opens the data file; a running program may
