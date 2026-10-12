@@ -17,6 +17,14 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.16] — 2026-10-12
+
+*(Written on `fixes-form-paste-menu` from `main` at 1.91.12 and merged after 1.91.13 to 1.91.15, so this entry follows them.)*
+
+### Fixed
+- **Paste Form is reachable: on the Forms item and on every folder of forms, as a menu entry and as an icon (spec 046 R3).** The context menu on **Forms** was hung on `header_hover`, a widget that senses only the pointer's presence, so a right-click on it never opened the menu (spec 046 was "pending operator manual verification" and no test had ever opened it); and a **folder of forms** had no Paste at all (operator, 2026-10-12: "no paste option — neither in the context menu nor as an icon beside the folder's name"). The menu now hangs on the category's label, a folder of forms has its own **Paste Form** entry (above New folder / Rename / Delete), and both get a 📋 button beside the name — the Forms item pastes into `forms/`, a folder into itself. The clipboard is read when the item is chosen, exactly as before: an empty or foreign clipboard is refused with the existing message.
+- *Tests.* Three: right-click the Forms item and press the entry, right-click a folder and press its entry, click each icon — each checks the destination (`forms`, `forms/customers`). With the old wiring the first fails ("`paste_menu_probe` was not drawn").
+
 ## [PowerRustCOBOL 1.91.15] — 2026-10-12
 
 *(Spec 094, written on `features-datagrid-write-back` and merged after `features-comment-blank-before`, so this entry follows 1.91.14.)*
