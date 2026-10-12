@@ -1044,7 +1044,10 @@ impl ProjectPanel {
                 }
                 let header_hover =
                     ui.interact(ui.max_rect(), id.with("cat_hover"), egui::Sense::hover());
-                ui.label(RichText::new(label).strong());
+                // The label is what a right-click lands on: `header_hover` only
+                // senses the pointer's presence, and a context menu needs a widget
+                // that senses clicks — so a menu hung on it never opened.
+                let label_resp = ui.label(RichText::new(label).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Generated Code is IDE-owned (forms populate it) — no file [+].
                     if let Some(kind) = kind {
@@ -1085,6 +1088,18 @@ impl ProjectPanel {
                     // New-folder affordance for every category (spec 033, R1) —
                     // except External Crates and SQL Connections, whose rows
                     // are not files.
+                    // Spec 046 R3 — Paste Form, one click: the icon beside the
+                    // name, for the people who do not look for a context menu.
+                    if cat == Category::Forms {
+                        let paste = ui.small_button("📋").on_hover_text(tr.tree_paste_form);
+                        #[cfg(test)]
+                        ui.data_mut(|d| d.insert_temp(egui::Id::new("paste_icon_probe"), paste.rect));
+                        if paste.clicked() {
+                            events.push(ProjectPanelEvent::PasteForm {
+                                dir_rel: PathBuf::from(cat.root_subdir()),
+                            });
+                        }
+                    }
                     if !matches!(cat, Category::ExternalCrates | Category::SqlConnections)
                         && ui
                             .small_button("📁+")
@@ -1105,7 +1120,7 @@ impl ProjectPanel {
                         }
                     }
                 });
-                header_hover
+                (header_hover, label_resp)
             })
             .body(|ui| {
                 if cat == Category::SqlConnections {
@@ -1183,7 +1198,7 @@ impl ProjectPanel {
         // dropped file must never be moved into it (spec 044 R3).
         if !matches!(cat, Category::ExternalCrates | Category::SqlConnections)
             && self.hovered_dir.is_none()
-            && header_inner.inner.contains_pointer()
+            && header_inner.inner.0.contains_pointer()
         {
             self.hovered_dir = Some(cat.root_subdir().to_string());
         }
@@ -1195,9 +1210,14 @@ impl ProjectPanel {
         // Spec 046 R3 — Paste Form lives on the Forms category itself, not
         // a per-file `[+]` (there's no source file to import from — the
         // form comes from the OS clipboard).
+        #[cfg(test)]
+        ui.data_mut(|d| d.insert_temp(egui::Id::new(("cat_label_probe", cat.root_subdir())), header_inner.inner.1.rect));
         if cat == Category::Forms {
-            header_inner.inner.context_menu(|ui| {
-                if ui.button(tr.tree_paste_form).clicked() {
+            header_inner.inner.1.context_menu(|ui| {
+                let paste = ui.button(tr.tree_paste_form);
+                #[cfg(test)]
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("paste_menu_probe"), paste.rect));
+                if paste.clicked() {
                     events.push(ProjectPanelEvent::PasteForm {
                         dir_rel: PathBuf::from(cat.root_subdir()),
                     });
@@ -1260,6 +1280,15 @@ impl ProjectPanel {
                                 });
                             }
                         }
+                        // Spec 046 R3 — paste a copied form into THIS folder.
+                        if cat == Category::Forms {
+                            let paste = ui.small_button("📋").on_hover_text(format!("{}: {name}", tr.tree_paste_form));
+                            #[cfg(test)]
+                            ui.data_mut(|d| d.insert_temp(egui::Id::new(("paste_icon_probe", folder_rel)), paste.rect));
+                            if paste.clicked() {
+                                events.push(ProjectPanelEvent::PasteForm { dir_rel: PathBuf::from(folder_rel) });
+                            }
+                        }
                         // Delete the folder and everything in it — same confirmed
                         // path as the context menu's entry, one click closer.
                         if ui
@@ -1293,7 +1322,9 @@ impl ProjectPanel {
             if header_resp.contains_pointer() {
                 self.hovered_dir = Some(folder_rel.to_string());
             }
-            folder_context_menu(&header_resp, folder_rel, &category_root, tr, events);
+            #[cfg(test)]
+            ui.data_mut(|d| d.insert_temp(egui::Id::new(("folder_label_probe", folder_rel)), header_resp.rect));
+            folder_context_menu(&header_resp, folder_rel, &category_root, cat == Category::Forms, tr, events);
             accept_file_drop(ui, &header_resp, folder_rel, events);
         }
         for rel in structure.files_of(dir_rel) {
@@ -1610,7 +1641,7 @@ impl ProjectPanel {
                 self.hovered_dir = Some(folder_rel.clone());
             }
             let category_root = Category::Assets.root_subdir().to_string();
-            folder_context_menu(&header_resp, &folder_rel, &category_root, tr, events);
+            folder_context_menu(&header_resp, &folder_rel, &category_root, false, tr, events);
             accept_file_drop(ui, &header_resp, &folder_rel, events);
             return;
         }
@@ -2006,10 +2037,22 @@ fn folder_context_menu(
     resp: &egui::Response,
     folder_rel: &str,
     category_root: &str,
+    forms: bool,
     tr: &Tr,
     events: &mut Vec<ProjectPanelEvent>,
 ) {
     resp.context_menu(|ui| {
+        // Spec 046 R3 — a folder of forms takes a pasted form like the category.
+        if forms {
+            let paste = ui.button(tr.tree_paste_form);
+            #[cfg(test)]
+            ui.data_mut(|d| d.insert_temp(egui::Id::new(("paste_menu_probe", folder_rel)), paste.rect));
+            if paste.clicked() {
+                events.push(ProjectPanelEvent::PasteForm { dir_rel: PathBuf::from(folder_rel) });
+                ui.close();
+            }
+            ui.separator();
+        }
         if ui.button(tr.tree_new_folder).clicked() {
             events.push(ProjectPanelEvent::CreateFolder {
                 parent_rel: PathBuf::from(folder_rel),
@@ -3277,5 +3320,118 @@ mod sql_connections_category_rows {
         let plus: egui::Rect = ctx.data(|d| d.get_temp(egui::Id::new("sql_plus_probe"))).expect("the [+] rendered");
         click(&ctx, 0.8, plus.center(), &mut panel, &proj, &mut out);
         assert!(out.iter().any(|e| matches!(e, ProjectPanelEvent::NewSqlConnection)), "the [+] asks for a new one");
+    }
+}
+
+/// Spec 046 R3 — Paste Form on the Forms item and on every folder of forms.
+///
+/// The menu on the category was hung on a widget that only senses the pointer's
+/// presence, so a right-click on **Forms** never opened it, and a folder of forms
+/// had no Paste at all (operator, 2026-10-12: "no paste option — neither in the
+/// context menu nor as an icon beside the folder's name"). Both now have the
+/// menu entry *and* an icon beside the name.
+#[cfg(test)]
+mod form_paste_tests {
+    use super::*;
+
+    fn frame(ctx: &egui::Context, at: f64, events_in: Vec<egui::Event>, panel: &mut ProjectPanel, proj: &CoboltProject, out: &mut Vec<ProjectPanelEvent>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(900.0, 700.0))),
+            time: Some(at),
+            events: events_in,
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let tr = crate::i18n::Language::English.tr();
+            Panel::left("project_panel").default_size(410.0).show(root_ui, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    let id = ui.make_persistent_id(("project_cat", tr.panel_forms));
+                    egui::collapsing_header::CollapsingState::load_with_default_open(&ctx, id, true).store(&ctx);
+                    let cur = None;
+                    panel.show_category(ui, Category::Forms, proj, &cur, out, &tr);
+                });
+            });
+        })
+        .textures_delta
+        .clear();
+    }
+
+    fn button(p: egui::Pos2, which: egui::PointerButton, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton { pos: p, button: which, pressed, modifiers: egui::Modifiers::default() }
+    }
+
+    struct Tree {
+        ctx: egui::Context,
+        panel: ProjectPanel,
+        proj: CoboltProject,
+        out: Vec<ProjectPanelEvent>,
+        t: f64,
+    }
+
+    impl Tree {
+        fn new() -> Self {
+            let mut proj = CoboltProject::new("Demo", "src/main.cbl");
+            proj.add_file_to("forms/login.cfrm", Category::Forms);
+            proj.add_file_to("forms/customers/order.cfrm", Category::Forms);
+            let mut tree = Tree { ctx: egui::Context::default(), panel: ProjectPanel::new(), proj, out: Vec::new(), t: 0.0 };
+            tree.frame(vec![]);
+            tree.frame(vec![]);
+            tree
+        }
+        fn frame(&mut self, events: Vec<egui::Event>) {
+            self.t += 0.1;
+            frame(&self.ctx, self.t, events, &mut self.panel, &self.proj, &mut self.out);
+        }
+        fn rect(&self, key: impl std::hash::Hash + std::fmt::Debug + Clone + Send + Sync + 'static) -> egui::Rect {
+            self.ctx.data(|d| d.get_temp(egui::Id::new(key.clone()))).unwrap_or_else(|| panic!("{key:?} was not drawn"))
+        }
+        fn click(&mut self, p: egui::Pos2, which: egui::PointerButton) {
+            self.frame(vec![egui::Event::PointerMoved(p), button(p, which, true)]);
+            self.frame(vec![button(p, which, false)]);
+        }
+        /// Right-click `label`, then press the Paste Form entry the menu shows.
+        fn paste_from_menu(&mut self, label: egui::Rect, entry: impl std::hash::Hash + std::fmt::Debug + Clone + Send + Sync + 'static) {
+            self.click(label.center(), egui::PointerButton::Secondary);
+            self.frame(vec![]);
+            let paste = self.rect(entry);
+            self.click(paste.center(), egui::PointerButton::Primary);
+        }
+        fn pasted(&self) -> Vec<String> {
+            self.out
+                .iter()
+                .filter_map(|e| match e {
+                    ProjectPanelEvent::PasteForm { dir_rel } => Some(dir_rel.to_string_lossy().into_owned()),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn right_click_on_forms_offers_paste_form() {
+        let mut tree = Tree::new();
+        let label = tree.rect(("cat_label_probe", "forms"));
+        tree.paste_from_menu(label, "paste_menu_probe");
+        assert_eq!(tree.pasted(), ["forms"], "the Forms item pastes into the forms folder");
+    }
+
+    #[test]
+    fn right_click_on_a_folder_of_forms_offers_paste_form_into_it() {
+        let mut tree = Tree::new();
+        let label = tree.rect(("folder_label_probe", "forms/customers"));
+        tree.paste_from_menu(label, ("paste_menu_probe", "forms/customers"));
+        assert_eq!(tree.pasted(), ["forms/customers"], "the folder pastes into itself");
+    }
+
+    #[test]
+    fn the_forms_item_and_each_folder_have_a_paste_icon_beside_the_name() {
+        let mut tree = Tree::new();
+        let category = tree.rect("paste_icon_probe");
+        tree.click(category.center(), egui::PointerButton::Primary);
+        let folder = tree.rect(("paste_icon_probe", "forms/customers"));
+        tree.click(folder.center(), egui::PointerButton::Primary);
+        assert_eq!(tree.pasted(), ["forms", "forms/customers"]);
+        println!("\n  Paste Form -- menu on the Forms item and on a folder of forms, and an icon beside each name: pastes into forms, forms/customers\n");
     }
 }
