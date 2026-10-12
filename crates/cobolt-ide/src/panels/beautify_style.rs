@@ -20,6 +20,8 @@
 //!    it goes to column 50 of the next line, and a blank line follows.
 //! 5. A comment sits in the column of the code below it …
 //! 6. … and a blank line separates it from that code.
+//! 6b. A comment block also has a blank line before it, unless the line above is
+//!    already blank or there is no line above (2026-10-12).
 //! 7. A sentence period is written only before a SECTION / paragraph and at the
 //!    end of the code; scopes are closed by their `END-<verb>`.
 //! 8. A blank line before and after a block of repeated verbs.
@@ -449,8 +451,10 @@ pub(super) fn finish(out: Out) -> Out {
     let mut blank_before = vec![false; n];
     let mut blank_after = vec![false; n];
 
-    // Rules 5 and 6 — a comment takes the column of the code below it, and a
-    // blank line separates it from that code.
+    // Rules 5, 6 and 11 — a comment takes the column of the code below it, a
+    // blank line separates it from that code, and another one from the code
+    // above (the last pass adds none when the line above is already blank, and
+    // none at the top).
     let mut i = 0;
     while i < n {
         if kinds[i] != Kind::Comment {
@@ -473,6 +477,10 @@ pub(super) fn finish(out: Out) -> Out {
         for k in start..i {
             let text = lines[k].trim().to_owned();
             lines[k] = format!("{}{}", " ".repeat(col - 1), text);
+        }
+        // A classic column-7 comment above is part of the same block.
+        if start > 0 && kinds[start - 1] != Kind::Pinned {
+            blank_before[start] = true;
         }
         // Not before a scope marker (`END-IF`, `ELSE`, …): that is no code.
         if i < n && !matches!(kinds[i], Kind::Blank | Kind::Gap | Kind::Marker { .. }) {

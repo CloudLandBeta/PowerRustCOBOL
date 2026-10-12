@@ -87,8 +87,12 @@ fn lint(src: &str) -> Vec<String> {
             breaches.push(format!("line {n}: INVOKE before a method call: {t}"));
         }
 
-        // Comments: the code's column, and a blank line before the code below.
+        // Comments: a blank line before the block, the code's column, and a blank
+        // line before the code below.
         if t.starts_with("*>") && !lines[i.saturating_sub(1)].trim_start().starts_with("*>") {
+            if i > 0 && !lines[i - 1].trim().is_empty() {
+                breaches.push(format!("line {n}: no blank line before the comment"));
+            }
             let mut j = i;
             while lines.get(j).map_or(false, |l| l.trim_start().starts_with("*>")) {
                 if indent(lines[j]) != indent(line) {
@@ -135,7 +139,7 @@ fn the_layout_program_obeys_the_layout() {
 fn the_lint_finds_what_it_is_built_to_find() {
     let bad = "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01 WS-A PIC X.\n       PROCEDURE DIVISION.\n           DISPLAY \"X\"\n           MOVE 1 TO WS-A\n           INVOKE TXT-1::Clear()\n           *> comment\n           SET     WS-B                          TO    2\n";
     let breaches = lint(bad);
-    for needle in ["no blank line before `WORKING-STORAGE SECTION.`", "`MOVE` is not followed by 4 spaces", "TO is not in column 50", "INVOKE before a method call", "no blank line", "`DISPLAY` is not followed by 4 spaces", "first data clause is not in column 50"] {
+    for needle in ["no blank line before `WORKING-STORAGE SECTION.`", "`MOVE` is not followed by 4 spaces", "TO is not in column 50", "INVOKE before a method call", "no blank line before the comment", "no blank line after the comment", "`DISPLAY` is not followed by 4 spaces", "first data clause is not in column 50"] {
         assert!(breaches.iter().any(|b| b.contains(needle)), "missing `{needle}` in {breaches:#?}");
     }
 }

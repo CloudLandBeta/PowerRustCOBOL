@@ -91,8 +91,9 @@ plugin):
    to reach it sends the clauses to column 50 of the next line, with a blank
    line after (unless a scope end follows). This replaces rule 5's per-run
    alignment, and its "never move PIC to the next line".
-3. **Blank lines.** Before every `DIVISION` except `ENVIRONMENT DIVISION`; after
-   a comment, before the code below it; before and after a block of two or more
+3. **Blank lines.** Before every `DIVISION` except `ENVIRONMENT DIVISION`; before
+   a comment block (operator, 2026-10-12 — none more when the line above is
+   already blank, none at the top) and after it, before the code below it; before and after a block of two or more
    consecutive statements of the same verb at the same level — never at the start
    or end of a scope, and never two in a row.
 4. **Comments** (`*>`) sit in the column of the code below them; the comment

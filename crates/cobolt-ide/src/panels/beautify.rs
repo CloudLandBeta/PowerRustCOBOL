@@ -2056,6 +2056,7 @@ mod tests {
             "MAIN-P.\nIF A = 1\nMOVE 1 TO B\nMOVE 2 TO C\nELSE\nDISPLAY \"X\"\nEND-IF.\n",
             "01 REC.\n05 A PIC X.\n05 LONG-NAME-OF-A-FIELD-THAT-NEEDS-ROOM-TO-BREATHE PIC X(10) VALUE \"A\".\n88 A-ON VALUE \"Y\".\n",
             "MAIN-P.\nMOVE \"a long literal that cannot reach column fifty\" TO WS-TARGET-NAME\nMOVE 1 TO B\n",
+            "01 A PIC X.\n*> note\n01 B PIC X.\nMAIN-P.\nDISPLAY \"A\"\n*> first\n*> second\nDISPLAY \"B\"\nIF A = 1\n*> inside\nDISPLAY \"C\"\nEND-IF.\n",
         ] {
             let once = styled(src);
             assert_eq!(styled(&once), once, "not a fixed point for:\n{src}\n--- first pass ---\n{once}");
@@ -2153,6 +2154,44 @@ mod tests {
         assert_eq!(col_of(lines[at]), 16, "{out}");
         assert!(lines[at + 1].trim().is_empty(), "{out}");
         assert_eq!(col_of(lines[at + 2]), 16, "{out}");
+    }
+
+    // Rule 11 — a blank line before a comment block (2026-10-12), and never a
+    // second one: not when the line above is already blank, not at the top.
+    #[test]
+    fn style_puts_a_blank_line_before_a_comment_block() {
+        let expected = concat!(
+            "       MAIN-P.\n",
+            "           DISPLAY    \"A\"\n",
+            "\n",
+            "           *> first\n",
+            "           *> second\n",
+            "\n",
+            "           DISPLAY    \"B\"\n",
+        );
+        assert_eq!(styled("MAIN-P.\nDISPLAY \"A\"\n*> first\n*> second\nDISPLAY \"B\"\n"), expected);
+    }
+
+    #[test]
+    fn style_adds_no_second_blank_line_before_a_comment() {
+        let expected = styled("MAIN-P.\nDISPLAY \"A\"\n*> why\nDISPLAY \"B\"\n");
+        assert_eq!(styled("MAIN-P.\nDISPLAY \"A\"\n\n*> why\nDISPLAY \"B\"\n"), expected);
+        assert_eq!(styled("MAIN-P.\nDISPLAY \"A\"\n\n\n\n*> why\nDISPLAY \"B\"\n"), expected);
+        assert!(!expected.contains("\n\n\n"), "{expected}");
+        // Nothing above a comment that opens the text, so nothing to separate it from.
+        assert!(!styled("*> note\nMAIN-P.\nDISPLAY \"A\"\n").starts_with('\n'));
+    }
+
+    #[test]
+    fn style_sets_a_comment_apart_wherever_it_follows_code() {
+        // After a header and after a scope's first line as well as after a statement.
+        let out = styled("MAIN-P.\n*> one\nIF A = 1\n*> two\nDISPLAY \"X\"\nEND-IF.\n");
+        let lines: Vec<&str> = out.lines().collect();
+        for word in ["one", "two"] {
+            let at = lines.iter().position(|l| l.contains(word)).unwrap();
+            assert!(lines[at - 1].trim().is_empty(), "no blank before {word:?}:\n{out}");
+        }
+        assert_eq!(styled(&out), out);
     }
 
     // Rule 7 — periods only where necessary; scopes closed by END-<verb>.

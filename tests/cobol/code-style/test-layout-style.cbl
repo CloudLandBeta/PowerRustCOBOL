@@ -13,6 +13,7 @@
        01 WS-FAILS                               PIC    9(4)    VALUE 0.
 
        PROCEDURE DIVISION.
+
            *> The "layout" rule of the plugin's golden rules, run. Case 1: a
            *> property is set from a literal and read back into a plain item
            *> and into another property, all with SET and no scratch field.

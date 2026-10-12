@@ -363,8 +363,8 @@ pub const APPLICATION_RULES: [(&str, &str); 11] = [
         "Readable layout, and comments before complex code — for every piece of COBOL you write: handlers, Common Code, examples. \
          Comment complex code: a calculation, a loop with an exit condition, an EVALUATE with several outcomes, a business \
          rule, a workaround. A `*>` comment of a few lines says why the code is there and what it must achieve, never \
-         what each verb does. A comment starts in the same column as the code below it, and a blank line separates it from \
-         that code. Layout: (1) indent with 4 spaces per level; (2) a blank line before every DIVISION and SECTION, except \
+         what each verb does. A comment block starts in the same column as the code below it, with a blank line before it \
+         (none more when the line above is already blank) and a blank line after it. Layout: (1) indent with 4 spaces per level; (2) a blank line before every DIVISION and SECTION, except \
          ENVIRONMENT DIVISION; (3) 4 spaces between every VERB and its predicate (SET takes 5, so its predicate lines up with \
          MOVE's); (4) in MOVE and SET put `TO` in column 50 followed by 4 spaces — when the operand before it is too long to \
          reach column 50, put `TO` in column 50 of the next line and leave a blank line after the statement; in a \

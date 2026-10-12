@@ -8580,8 +8580,9 @@ code you write by hand look alike.
 **Comment before complex code** — a calculation, a loop with an exit condition,
 an `EVALUATE` with several outcomes, a business rule, a workaround. A few lines of
 `*>` that say *why* the code is there and what it must achieve, not what each
-verb does. A comment starts in the same column as the code below it, and a blank
-line separates it from that code.
+verb does. A comment block starts in the same column as the code below it, with a
+blank line before it (none more when the line above is already blank) and a blank
+line after it.
 
 1. **Indent with 4 spaces** per level.
 2. **A blank line before every `DIVISION` and `SECTION`**, except

@@ -17,6 +17,13 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.13] — 2026-10-12
+
+### Added
+- **A comment block has a blank line before it (operator, 2026-10-12).** The PowerRustCOBOL style already put a blank line after a comment and aligned it with the code below; now the block also stands apart from the code above — `SET`, `DISPLAY`, a data item, a header, the first line of an `IF` — with **one** blank line and never two: nothing is added when the line above is already blank, or when the comment opens the text. Consecutive `*>` lines are one block, so the blank goes before the first only; a classic column-7 comment above counts as part of the same block. It is the same rule in all three places an agent or an operator meets it: **✨ Beautify** with the PowerRustCOBOL style on (`beautify_style::finish`), the plugin's `layout` golden rule ("A comment block starts in the same column as the code below it, with a blank line before it … and a blank line after it"), and the Developer's Guide (*Layout and comments*) and spec 043's addendum.
+  - *Tests.* Three in the Beautify module — the block with a blank on both sides (exact text), no second blank line however many are already there and none at the top, and the rule after a header and after an `IF` — and a new case in the fixed-point test. The plugin's layout lint now fails a comment that has no blank line before it, and `test-layout-style.cbl` (the program the lint and `test_layout_style` run) was run through Beautify; it still prints `TESTS RUN : 0007`, `OVERALL RESULT : PASS`.
+  - *Not done here.* The other example projects keep the layout they have until Beautify is run over them; PowerSpatial is the first (1.91.14).
+
 ## [PowerRustCOBOL 1.91.12] — 2026-10-12
 
 ### Fixed
