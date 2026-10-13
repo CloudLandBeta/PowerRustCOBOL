@@ -1214,6 +1214,51 @@ fn a_dropdown_cell_picks_on_the_canvas_and_undoes() {
     println!("095: a Dropdown pick in grid edit mode is 1 undo step on the sample Rows (the value, not the text)");
 }
 
+// ── The menu editor the Properties pane opens, in each language ──────────────
+
+/// The menu editor — its tree, its item properties, a shortcut being captured, the icon list — has
+/// none of its words left in English in every language. (A few of them were literals.)
+#[test]
+fn no_word_of_the_menu_editor_is_left_in_english_in_every_language() {
+    use cobolt_forms::menu::{MenuDefinition, MenuItem};
+    type Setup = Box<dyn Fn(&mut MenuEditorModal)>;
+    let cases: Vec<(&str, bool, Setup)> = vec![
+        ("nothing selected", false, Box::new(|_| {})),
+        ("an item", false, Box::new(|m| m.selected = vec![0])),
+        ("a sub item", false, Box::new(|m| m.selected = vec![0, 0])),
+        ("a SideMenu item", true, Box::new(|m| m.selected = vec![0])),
+        ("the icon list", false, Box::new(|m| {
+            m.selected = vec![0];
+            m.icon_picker_open = true;
+        })),
+    ];
+    let mut failures = Vec::new();
+    for (name, side, prepare) in &cases {
+        let words = crate::ui_text::probe::left_in_english(
+            &|| {
+                let mut d = DesignerPanel::new(Form::new("F", "F", 640, 480));
+                let mut file = MenuItem::new_action("file", "File");
+                file.items = vec![MenuItem::new_action("open", "Open")];
+                let def = MenuDefinition { menu: vec![file, MenuItem::new_separator("sep")], hash: String::new() };
+                let mut m = MenuEditorModal::new("Menu-1".into(), def).for_side_menu(*side);
+                prepare(&mut m);
+                d.menu_modal = Some(m);
+                d
+            },
+            &|d, ui, _tr| d.show_menu_editor(ui),
+        );
+        // A key name (Ctrl, Shift…) and the developer's own item names are data.
+        for w in words.into_iter().filter(|w| !matches!(w.as_str(), "Ctrl" | "Shift" | "Alt" | "Cmd")) {
+            failures.push(format!("{name}: {w:?}"));
+        }
+    }
+    for f in &failures {
+        println!("English in every language: {f}");
+    }
+    println!("{} states of the menu editor drawn in six languages, {} words left in English", cases.len(), failures.len());
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 // ── Which control a click on the canvas selects ──────────────────────────────
 
 /// A click on the canvas where two controls overlap selects the one drawn on top, for every

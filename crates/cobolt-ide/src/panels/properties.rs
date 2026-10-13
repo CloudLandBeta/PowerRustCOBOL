@@ -1091,14 +1091,14 @@ impl BindingEditorState {
     fn validate(&self) -> Result<(), String> {
         let source = self
             .selected_source
-            .ok_or_else(|| "A binding source must be selected.".to_owned())?;
+            .ok_or_else(|| crate::ui_text::tx("A binding source must be selected.").to_owned())?;
         if source == BindingEditorSourceKind::IndexedFile
             && self.selected_indexed_file.trim().is_empty()
         {
-            return Err("Indexed file must be selected.".to_owned());
+            return Err(crate::ui_text::tx("Indexed file must be selected.").to_owned());
         }
         if source == BindingEditorSourceKind::Sql && self.selected_sql_control.trim().is_empty() {
-            return Err("SQL control must be selected.".to_owned());
+            return Err(crate::ui_text::tx("SQL control must be selected.").to_owned());
         }
         if source == BindingEditorSourceKind::CobolTable {
             self.validate_cobol_table_source()?;
@@ -1107,26 +1107,26 @@ impl BindingEditorState {
             self.validate_rest_source()?;
         }
         if self.rows.is_empty() {
-            return Err("At least one source field must remain visible.".to_owned());
+            return Err(crate::ui_text::tx("At least one source field must remain visible.").to_owned());
         }
         if !self.rows.iter().any(|row| row.visible) {
-            return Err("At least one source field must be visible.".to_owned());
+            return Err(crate::ui_text::tx("At least one source field must be visible.").to_owned());
         }
         for row in &self.rows {
             if row.friendly_name.trim().is_empty() {
-                return Err(format!("{} needs a friendly name.", row.source_field));
+                return Err(crate::ui_text::txf("{} needs a friendly name.", &[&row.source_field]));
             }
             if source == BindingEditorSourceKind::RestApi && row.source_field.trim().is_empty() {
-                return Err("Every REST source field needs a JSONPath expression.".to_owned());
+                return Err(crate::ui_text::tx("Every REST source field needs a JSONPath expression.").to_owned());
             }
             if source == BindingEditorSourceKind::RestApi && !is_valid_jsonpath(&row.source_field) {
-                return Err(format!(
+                return Err(crate::ui_text::txf(
                     "{} is not a valid JSONPath expression.",
-                    row.source_field
+                    &[&row.source_field],
                 ));
             }
             if row.data_type != BindingDataType::Boolean && row.cobol_mask.trim().is_empty() {
-                return Err(format!("{} needs a COBOL mask.", row.source_field));
+                return Err(crate::ui_text::txf("{} needs a COBOL mask.", &[&row.source_field]));
             }
             if source != BindingEditorSourceKind::RestApi
                 && row.edit_control == BindingEditControl::Dropdown
@@ -1139,14 +1139,14 @@ impl BindingEditorState {
 
     fn validate_rest_source(&self) -> Result<(), String> {
         if self.rest_endpoint.trim().is_empty() {
-            return Err("REST API endpoint must be selected.".to_owned());
+            return Err(crate::ui_text::tx("REST API endpoint must be selected.").to_owned());
         }
         if !is_valid_url(&self.rest_endpoint) {
-            return Err("REST API endpoint must be a valid URL.".to_owned());
+            return Err(crate::ui_text::tx("REST API endpoint must be a valid URL.").to_owned());
         }
         for header in &self.rest_headers {
             if header.name.trim().is_empty() && !header.value.trim().is_empty() {
-                return Err("Header names must be filled when a value is provided.".to_owned());
+                return Err(crate::ui_text::tx("Header names must be filled when a value is provided.").to_owned());
             }
         }
         self.rest_auth.validate()
@@ -1154,20 +1154,20 @@ impl BindingEditorState {
 
     fn validate_cobol_table_source(&self) -> Result<(), String> {
         if self.selected_cobol_table.trim().is_empty() {
-            return Err("COBOL table must be selected.".to_owned());
+            return Err(crate::ui_text::tx("COBOL table must be selected.").to_owned());
         }
         if !self
             .cobol_tables
             .iter()
             .any(|table| table.name == self.selected_cobol_table)
         {
-            return Err(
-                "Selected COBOL table must resolve to an item with OCCURS, at any level, inside a GLOBAL 01."
-                    .to_owned(),
-            );
+            return Err(crate::ui_text::tx(
+                "Selected COBOL table must resolve to an item with OCCURS, at any level, inside a GLOBAL 01.",
+            )
+            .to_owned());
         }
         if self.selected_cobol_occurs_item().trim().is_empty() {
-            return Err("COBOL table occurs item must be resolved.".to_owned());
+            return Err(crate::ui_text::tx("COBOL table occurs item must be resolved.").to_owned());
         }
         Ok(())
     }
@@ -1424,21 +1424,21 @@ impl RestAuth {
             RestAuthMode::None => Ok(()),
             RestAuthMode::ApiKey => {
                 if self.api_key_name.trim().is_empty() || self.api_key_value.trim().is_empty() {
-                    Err("API key authentication needs key name and key value.".to_owned())
+                    Err(crate::ui_text::tx("API key authentication needs key name and key value.").to_owned())
                 } else {
                     Ok(())
                 }
             }
             RestAuthMode::BearerToken => {
                 if self.bearer_token.trim().is_empty() {
-                    Err("Bearer token authentication needs a token.".to_owned())
+                    Err(crate::ui_text::tx("Bearer token authentication needs a token.").to_owned())
                 } else {
                     Ok(())
                 }
             }
             RestAuthMode::BasicAuth => {
                 if self.username.trim().is_empty() || self.password.trim().is_empty() {
-                    Err("Basic auth needs username and password.".to_owned())
+                    Err(crate::ui_text::tx("Basic auth needs username and password.").to_owned())
                 } else {
                     Ok(())
                 }
@@ -1587,11 +1587,11 @@ impl DropdownConfig {
     fn validate(&self, field_name: &str) -> Result<(), String> {
         let origin = self
             .origin
-            .ok_or_else(|| format!("{field_name} needs a dropdown origin."))?;
+            .ok_or_else(|| crate::ui_text::txf("{} needs a dropdown origin.", &[&field_name]))?;
         match origin {
             DropdownOrigin::StaticValues => {
                 if self.static_options.trim().is_empty() {
-                    return Err(format!("{field_name} needs at least one static option."));
+                    return Err(crate::ui_text::txf("{} needs at least one static option.", &[&field_name]));
                 }
             }
             DropdownOrigin::IndexedFile
@@ -1599,18 +1599,19 @@ impl DropdownConfig {
             | DropdownOrigin::CobolTable
             | DropdownOrigin::RestApi => {
                 if self.line_limit <= 0 {
-                    return Err(format!(
-                        "{field_name} needs a positive dropdown line limit."
+                    return Err(crate::ui_text::txf(
+                        "{} needs a positive dropdown line limit.",
+                        &[&field_name],
                     ));
                 }
                 if self.source_ref.trim().is_empty() {
-                    return Err(format!("{field_name} needs a dropdown source."));
+                    return Err(crate::ui_text::txf("{} needs a dropdown source.", &[&field_name]));
                 }
                 if self.display_field.trim().is_empty() {
-                    return Err(format!("{field_name} needs a dropdown display field."));
+                    return Err(crate::ui_text::txf("{} needs a dropdown display field.", &[&field_name]));
                 }
                 if self.value_field.trim().is_empty() {
-                    return Err(format!("{field_name} needs a dropdown value field."));
+                    return Err(crate::ui_text::txf("{} needs a dropdown value field.", &[&field_name]));
                 }
             }
         }
@@ -2560,10 +2561,12 @@ fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState)
     // table with OCCURS is enough to bind to, so we no longer ask the user for it.
     let helper = if editor.selected_cobol_table.trim().is_empty() {
         if editor.cobol_tables.is_empty() {
-            "No working-storage item with OCCURS was found inside a GLOBAL 01.".to_owned()
+            crate::ui_text::tx("No working-storage item with OCCURS was found inside a GLOBAL 01.").to_owned()
         } else {
-            "Select a working-storage item with OCCURS (any level, inside a GLOBAL 01). Pagination is not required."
-                .to_owned()
+            crate::ui_text::tx(
+                "Select a working-storage item with OCCURS (any level, inside a GLOBAL 01). Pagination is not required.",
+            )
+            .to_owned()
         }
     } else {
         crate::ui_text::txf(
@@ -2745,7 +2748,7 @@ fn show_rest_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState)
                                 "Extra notes",
                             ] {
                                 ui.label(
-                                    RichText::new(header).small().color(crate::contrast::ink(Color32::from_gray(170))),
+                                    RichText::new(crate::ui_text::tx(header)).small().color(crate::contrast::ink(Color32::from_gray(170))),
                                 );
                             }
                             ui.end_row();
@@ -3063,7 +3066,7 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                         "Edit control",
                         "Extra configuration",
                     ] {
-                        ui.label(RichText::new(header).small().color(crate::contrast::ink(Color32::from_gray(170))));
+                        ui.label(RichText::new(crate::ui_text::tx(header)).small().color(crate::contrast::ink(Color32::from_gray(170))));
                     }
                     ui.end_row();
 
@@ -3214,7 +3217,7 @@ fn show_control_array_mapping_section(ui: &mut Ui, editor: &mut BindingEditorSta
         .striped(true)
         .show(ui, |ui| {
             for header in ["Source field", "Target control", "Property"] {
-                ui.label(RichText::new(header).small().color(crate::contrast::ink(Color32::from_gray(170))));
+                ui.label(RichText::new(crate::ui_text::tx(header)).small().color(crate::contrast::ink(Color32::from_gray(170))));
             }
             ui.end_row();
 
@@ -3341,7 +3344,7 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow,
                         DropdownOrigin::IndexedFile => "Select source indexed file",
                         _ => "Select source COBOL table",
                     };
-                    ui.label(RichText::new(source_label).small().color(Color32::GRAY));
+                    ui.label(RichText::new(crate::ui_text::tx(source_label)).small().color(Color32::GRAY));
                     egui::ComboBox::from_id_salt(format!(
                         "cobol_dropdown_source_{}",
                         row.source_field
@@ -6231,7 +6234,7 @@ impl PropertiesPanel {
                         Some(BindingEditorSourceKind::AgentAi) | None => {
                             source_placeholder(
                                 ui,
-                                "Select a binding source to configure settings.",
+                                crate::ui_text::tx("Select a binding source to configure settings."),
                             );
                         }
                     });
@@ -15657,6 +15660,212 @@ mod tests {
         editor.rows = editor.rows_for_selected_cobol_table(&[]);
     }
 
+    /// Every refusal of the binding editor — all 24 messages it can answer Apply with — reads in
+    /// the language of the IDE, with the name of the field it is about filled in; none is the
+    /// English one outside English. (The message is made when Apply is pressed, in the language
+    /// the pane is drawn in.)
+    #[test]
+    fn every_refusal_of_the_binding_editor_is_in_the_language_of_the_ide() {
+        use BindingEditorSourceKind as K;
+        let (form, grid) = form_with_cobol_binding_table();
+        let files = vec!["CUSTOMER-DATA (CUSTDAT)".to_owned()];
+        let make = |kind: K| BindingEditorState::new(&form, &grid, kind, &files).expect("the editor opens");
+        let cobol = || {
+            let mut e = make(K::CobolTable);
+            select_customer_cobol_table(&mut e);
+            e
+        };
+        // A dropdown column whose only fault is the one named by the case.
+        let dropdown = |fault: &dyn Fn(&mut DropdownConfig)| {
+            let mut e = cobol();
+            e.rows[0].edit_control = BindingEditControl::Dropdown;
+            e.rows[0].dropdown = DropdownConfig {
+                origin: Some(DropdownOrigin::IndexedFile),
+                source_ref: "CITY-MASTER (CITYMAST)".to_owned(),
+                display_field: "CITY-NAME (X(30))".to_owned(),
+                value_field: "CITY-ID (9(04))".to_owned(),
+                line_limit: 1000,
+                static_options: String::new(),
+            };
+            fault(&mut e.rows[0].dropdown);
+            e
+        };
+        type Case<'a> = (&'a str, bool, Box<dyn Fn() -> BindingEditorState + 'a>);
+        let cases: Vec<Case> = vec![
+            ("A binding source must be selected.", false, Box::new(|| { let mut e = make(K::Sql); e.selected_source = None; e })),
+            ("Indexed file must be selected.", false, Box::new(|| { let mut e = make(K::IndexedFile); e.selected_indexed_file.clear(); e })),
+            ("SQL control must be selected.", false, Box::new(|| { let mut e = make(K::Sql); e.selected_sql_control.clear(); e })),
+            ("At least one source field must remain visible.", false, Box::new(|| { let mut e = make(K::Sql); e.rows.clear(); e })),
+            ("At least one source field must be visible.", false, Box::new(|| { let mut e = make(K::Sql); e.rows.iter_mut().for_each(|r| r.visible = false); e })),
+            ("{} needs a friendly name.", true, Box::new(|| { let mut e = make(K::Sql); e.rows[0].friendly_name.clear(); e })),
+            ("Every REST source field needs a JSONPath expression.", false, Box::new(|| { let mut e = make(K::RestApi); e.rows[0].source_field.clear(); e })),
+            ("{} is not a valid JSONPath expression.", true, Box::new(|| { let mut e = make(K::RestApi); e.rows[0].source_field = "price".to_owned(); e })),
+            ("{} needs a COBOL mask.", true, Box::new(|| { let mut e = make(K::Sql); e.rows[0].data_type = BindingDataType::Text; e.rows[0].cobol_mask.clear(); e })),
+            ("REST API endpoint must be selected.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_endpoint.clear(); e })),
+            ("REST API endpoint must be a valid URL.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_endpoint = "not a url".to_owned(); e })),
+            ("Header names must be filled when a value is provided.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_headers.push(HttpHeaderRow { name: String::new(), value: "x".to_owned() }); e })),
+            ("COBOL table must be selected.", false, Box::new(|| make(K::CobolTable))),
+            ("Selected COBOL table must resolve to an item with OCCURS, at any level, inside a GLOBAL 01.", false, Box::new(|| { let mut e = cobol(); e.selected_cobol_table = "NO-SUCH-TABLE".to_owned(); e })),
+            ("COBOL table occurs item must be resolved.", false, Box::new(|| { let mut e = cobol(); e.cobol_tables[0].occurs_item.clear(); e })),
+            ("API key authentication needs key name and key value.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_auth.mode = RestAuthMode::ApiKey; e })),
+            ("Bearer token authentication needs a token.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_auth.mode = RestAuthMode::BearerToken; e })),
+            ("Basic auth needs username and password.", false, Box::new(|| { let mut e = make(K::RestApi); e.rest_auth.mode = RestAuthMode::BasicAuth; e })),
+            ("{} needs a dropdown origin.", true, Box::new(|| dropdown(&|d| d.origin = None))),
+            ("{} needs at least one static option.", true, Box::new(|| dropdown(&|d| d.origin = Some(DropdownOrigin::StaticValues)))),
+            ("{} needs a positive dropdown line limit.", true, Box::new(|| dropdown(&|d| d.line_limit = 0))),
+            ("{} needs a dropdown source.", true, Box::new(|| dropdown(&|d| d.source_ref.clear()))),
+            ("{} needs a dropdown display field.", true, Box::new(|| dropdown(&|d| d.display_field.clear()))),
+            ("{} needs a dropdown value field.", true, Box::new(|| dropdown(&|d| d.value_field.clear()))),
+        ];
+        let mut failures = Vec::new();
+        for (english, names_a_field, build) in &cases {
+            let editor = build();
+            let field = editor.rows.first().map(|r| r.source_field.clone()).unwrap_or_default();
+            let expected = english.replace("{}", &field);
+            let mut in_english = String::new();
+            for &lang in crate::i18n::Language::ALL.iter() {
+                crate::ui_text::begin(lang);
+                let message = match build().validate() {
+                    Err(m) => m,
+                    Ok(()) => {
+                        failures.push(format!("{english:?}: the case does not provoke the refusal"));
+                        break;
+                    }
+                };
+                if lang == crate::i18n::Language::English {
+                    if message != expected {
+                        failures.push(format!("{english:?}: English reads {message:?}, expected {expected:?}"));
+                    }
+                    in_english = message;
+                    continue;
+                }
+                if message == in_english {
+                    failures.push(format!("{english:?}: still English in {lang:?}"));
+                }
+                if message.contains("{}") || (*names_a_field && !message.contains(&field)) {
+                    failures.push(format!("{english:?}: {lang:?} reads {message:?} without the field {field:?}"));
+                }
+            }
+        }
+        crate::ui_text::begin(crate::i18n::Language::English);
+        println!("{} refusals checked in six languages, {} failures", cases.len(), failures.len());
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// A window the pane opens — the DataGrid settings, the data binding editor in each of its
+    /// sources and states, the dropdown configuration, the animation editor — has none of its
+    /// words left in English in every language (the closed pane is held to it by
+    /// `no_word_of_the_pane_is_left_in_english_in_every_language`).
+    #[test]
+    fn no_word_of_the_panes_windows_is_left_in_english_in_every_language() {
+        use std::collections::BTreeMap;
+        type Open = Box<dyn Fn(&mut PropertiesPanel)>;
+        let (form, grid) = form_with_cobol_binding_table();
+        let files = vec!["CUSTOMER-DATA (CUSTDAT)".to_owned()];
+        let editor = {
+            let form = form.clone();
+            let grid = grid.clone();
+            let files = files.clone();
+            move |kind: BindingEditorSourceKind| {
+                let mut e = BindingEditorState::new(&form, &grid, kind, &files).expect("editor opens");
+                if kind == BindingEditorSourceKind::CobolTable {
+                    select_customer_cobol_table(&mut e);
+                }
+                e
+            }
+        };
+        let mut cases: Vec<(String, Open)> = Vec::new();
+        {
+            let id = grid.id.clone();
+            cases.push(("DataGrid settings".into(), Box::new(move |p| p.datagrid_editor = Some(id.clone()))));
+        }
+        for kind in BindingEditorSourceKind::ALL {
+            let ed = editor.clone();
+            cases.push((format!("binding editor / {kind:?}"), Box::new(move |p| p.binding_editor = Some(ed(kind)))));
+            let ed = editor.clone();
+            cases.push((
+                format!("binding editor / {kind:?} / clear confirmation"),
+                Box::new(move |p| {
+                    let mut e = ed(kind);
+                    e.confirm_clear = true;
+                    p.binding_editor = Some(e);
+                }),
+            ));
+            // Each message the editor can refuse with, shown the way the window shows it.
+            let ed = editor.clone();
+            cases.push((
+                format!("binding editor / {kind:?} / refusal"),
+                Box::new(move |p| {
+                    let mut e = ed(kind);
+                    e.rows.clear();
+                    e.validation_error = e.validate().err();
+                    p.binding_editor = Some(e);
+                }),
+            ));
+        }
+        for origin in DropdownOrigin::ALL {
+            let ed = editor.clone();
+            cases.push((
+                format!("dropdown configuration / {origin:?}"),
+                Box::new(move |p| {
+                    let mut e = ed(BindingEditorSourceKind::CobolTable);
+                    e.rows[0].edit_control = BindingEditControl::Dropdown;
+                    e.rows[0].dropdown.origin = Some(origin);
+                    e.dropdown_config_row = Some(0);
+                    p.binding_editor = Some(e);
+                }),
+            ));
+        }
+        for mode in RestAuthMode::ALL {
+            let ed = editor.clone();
+            cases.push((
+                format!("binding editor / REST / {mode:?}"),
+                Box::new(move |p| {
+                    let mut e = ed(BindingEditorSourceKind::RestApi);
+                    e.rest_auth.mode = mode;
+                    e.rest_headers.push(HttpHeaderRow::default());
+                    p.binding_editor = Some(e);
+                }),
+            ));
+        }
+        // The test sees what is drawn: the wheel has to take a window to its last row.
+        {
+            let id = grid.id.clone();
+            let drawn = super::pane_words::texts(
+                crate::i18n::Language::English,
+                &form,
+                Some(&grid),
+                InspectorTab::Visuals,
+                &move |p| p.datagrid_editor = Some(id.clone()),
+            );
+            assert!(drawn.iter().any(|t| t == "Delimiter"), "the DataGrid settings window is scrolled to its end");
+        }
+        let mut left: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (name, open) in &cases {
+            for tab in [InspectorTab::Visuals] {
+                for t in super::pane_words::left_in_english(&form, Some(&grid), tab, open.as_ref()) {
+                    left.entry(t).or_default().push(name.clone());
+                }
+            }
+        }
+        // The animation editor, with an animation to edit, on a control that animates.
+        let mut button = Control::new("B".to_owned(), ControlType::Button, 0, 0);
+        button.animations.push(cobolt_forms::model::AnimationDef::new("fly-in"));
+        let mut animated = Form::new("F", "F", 640, 480);
+        animated.controls.push(button.clone());
+        for tab in [InspectorTab::Visuals, InspectorTab::Events] {
+            for t in super::pane_words::left_in_english(&animated, Some(&button), tab, &|_| {}) {
+                left.entry(t).or_default().push(format!("animations / {tab:?}"));
+            }
+        }
+        for (t, where_) in &left {
+            println!("English in every language: {t:?}  ({})", where_.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
+        }
+        crate::ui_text::begin(crate::i18n::Language::English);
+        println!("{} windows and states drawn in six languages, {} words left in English", cases.len() + 2, left.len());
+        assert!(left.is_empty(), "{} words of the pane's windows are English in every language", left.len());
+    }
+
     #[test]
     fn control_array_editor_maps_fields_to_member_properties() {
         let mut form = Form::new("MAIN", "Main", 800, 600);
@@ -17248,6 +17457,56 @@ mod property_split_tests {
     }
 }
 
+/// Drawing the pane in each language, for the tests that hold every word of it to the table.
+#[cfg(test)]
+mod pane_words {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// Every text the pane paints in `lang` once `open` has been applied to a new panel (to open
+    /// a window, say): windows included, scrolled to their ends.
+    pub(super) fn texts(
+        lang: crate::i18n::Language,
+        form: &Form,
+        ctrl: Option<&Control>,
+        tab: InspectorTab,
+        open: &dyn Fn(&mut PropertiesPanel),
+    ) -> Vec<String> {
+        crate::ui_text::probe::texts(
+            lang,
+            &|| {
+                let mut panel = PropertiesPanel::new();
+                panel.active_tab = tab;
+                open(&mut panel);
+                panel
+            },
+            &|panel, ui, tr| {
+                let _ = panel.show(ui, form, ctrl, &[], tr);
+            },
+        )
+    }
+
+    /// The words the pane paints in English that no other language changes.
+    pub(super) fn left_in_english(
+        form: &Form,
+        ctrl: Option<&Control>,
+        tab: InspectorTab,
+        open: &dyn Fn(&mut PropertiesPanel),
+    ) -> BTreeSet<String> {
+        crate::ui_text::probe::left_in_english(
+            &|| {
+                let mut panel = PropertiesPanel::new();
+                panel.active_tab = tab;
+                open(&mut panel);
+                panel
+            },
+            &|panel, ui, tr| {
+                let _ = panel.show(ui, form, ctrl, &[], tr);
+            },
+        )
+    }
+}
+
 #[cfg(test)]
 mod label_help_tests {
     use super::*;
@@ -17531,79 +17790,12 @@ mod label_help_tests {
     /// Every text the Properties pane paints that is a **word of the IDE** — a descriptive label,
     /// a section or group title, a hint, a note — comes out differently in at least one language:
     /// none is left in English everywhere. (Property and event names are the COBOL names the
-    /// developer types and stay as written, as do sample data and examples: the allow-list
-    /// below is those, and nothing else.)
+    /// developer types and stay as written, as do sample data and examples: the allow-list in
+    /// `pane_words` is those, and nothing else.) The windows the pane opens are held to the same
+    /// by `no_word_of_the_panes_windows_is_left_in_english_in_every_language`.
     #[test]
     fn no_word_of_the_pane_is_left_in_english_in_every_language() {
         use std::collections::{BTreeMap, BTreeSet};
-        let render = |lang: crate::i18n::Language, form: &Form, ctrl: Option<&Control>, tab: InspectorTab| -> Vec<String> {
-            let tr = &lang.tr();
-            let ctx = egui::Context::default();
-            crate::i18n::set_language(&ctx, lang);
-            let mut panel = PropertiesPanel::new();
-            panel.active_tab = tab;
-            let mut out = Vec::new();
-            for _ in 0..2 {
-                let mut full = ctx.run_ui(
-                    egui::RawInput {
-                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 20000.0))),
-                        ..Default::default()
-                    },
-                    |ui| {
-                        egui::CentralPanel::default().show_inside(ui, |ui| {
-                            let _ = panel.show(ui, form, ctrl, &[], tr);
-                        });
-                    },
-                );
-                full.textures_delta.clear();
-                fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
-                    match shape {
-                        egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
-                        egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
-                        _ => {}
-                    }
-                }
-                out.clear();
-                for cs in &full.shapes {
-                    texts(&cs.shape, &mut out);
-                }
-            }
-            out
-        };
-        // Names, values, samples and examples that are the same in every language on purpose.
-        let allowed: &[&str] = &[
-            "(Local)",
-            "/api/chat (override)",
-            "/path/to/image.png",
-            "Actual,Budget",
-            "FILE SECTION",
-            "Liquid Glass",
-            "Node 1\n  Child 1\n  Child 2\nNode 2",
-            "SALES-AMOUNT,SALES-BUDGET",
-            "Sales by Region",
-            "Tab1\nTab2",
-            "X(256)",
-            "You are a helpful assistant.",
-            "assets/KB",
-            "assets/logo.png",
-            "assets/mark.png",
-            "dd/MM/yyyy HH:mm",
-            "http://localhost:11434",
-            "https://api.example.com",
-            "sqlite::memory:",
-        ];
-        let is_word = |t: &str| {
-            let t = t.trim();
-            let identifier = t
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                && t.trim_end_matches(':').chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
-            !identifier
-                && t.chars().filter(|c| c.is_alphabetic()).count() >= 3
-                && !t.starts_with(['#', '['])
-                && !t.contains("INVOKE ")
-        };
         let form = Form::new("F", "F", 640, 480);
         let mut cases: Vec<(String, Option<Control>)> = vec![("Form".to_owned(), None)];
         for t in cobolt_forms::ControlType::ALL {
@@ -17616,16 +17808,8 @@ mod label_help_tests {
                 f.controls.push(c.clone());
             }
             for tab in [InspectorTab::Visuals, InspectorTab::Events] {
-                let en = render(crate::i18n::Language::English, &f, ctrl.as_ref(), tab);
-                let mut same: BTreeSet<String> = en.into_iter().filter(|t| is_word(t)).collect();
-                for &lang in crate::i18n::Language::ALL.iter().filter(|l| **l != crate::i18n::Language::English) {
-                    let other: BTreeSet<String> = render(lang, &f, ctrl.as_ref(), tab).into_iter().collect();
-                    same.retain(|t| other.contains(t));
-                }
-                for t in same {
-                    if !allowed.contains(&t.as_str()) {
-                        left.entry(t).or_default().insert(format!("{name}/{tab:?}"));
-                    }
+                for t in super::pane_words::left_in_english(&f, ctrl.as_ref(), tab, &|_| {}) {
+                    left.entry(t).or_default().insert(format!("{name}/{tab:?}"));
                 }
             }
         }
@@ -17712,6 +17896,77 @@ mod label_help_tests {
         Some(inner.replace("\\n", "\n").replace("\\\"", "\""))
     }
 
+    /// `(function, position)` of every parameter in `code` that carries a word for the person using
+    /// the IDE: a `&str` called `label`, `title`, `hint`, … Discovered, not listed by hand — a row
+    /// helper added tomorrow, with its label in any position, is held to the table without anyone
+    /// remembering to say so. The position does not count `self`.
+    fn wording_params(code: &str) -> Vec<(String, usize)> {
+        const NAMES: &[&str] =
+            &["label", "title", "hint", "placeholder", "message", "caption", "tooltip", "description", "heading", "tip", "note"];
+        let bytes = code.as_bytes();
+        let mut out = Vec::new();
+        let mut from = 0;
+        while let Some(at) = code[from..].find("fn ") {
+            let start = from + at + 3;
+            from = start;
+            if at > 0 && (bytes[start - 4] as char).is_ascii_alphanumeric() {
+                continue;
+            }
+            let name: String = code[start..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            if name.is_empty() {
+                continue;
+            }
+            // The parameter list: from the `(` after the name (and its generics) to its match.
+            let Some(open) = code[start + name.len()..].find('(').map(|o| start + name.len() + o) else {
+                continue;
+            };
+            if code[start + name.len()..open].contains(|c| matches!(c, ';' | '{' | '}')) {
+                continue;
+            }
+            let (mut depth, mut i, mut params, mut cur) = (0i32, open, Vec::new(), String::new());
+            while i < bytes.len() {
+                let c = bytes[i] as char;
+                match c {
+                    '(' | '[' | '{' | '<' if !(c == '<' && false) => {
+                        depth += 1;
+                        if depth > 1 {
+                            cur.push(c);
+                        }
+                    }
+                    '-' if bytes.get(i + 1) == Some(&b'>') => {
+                        // `->` is an arrow, not a closing `>`.
+                        cur.push_str("->");
+                        i += 1;
+                    }
+                    ')' | ']' | '}' | '>' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            params.push(cur.trim().to_owned());
+                            break;
+                        }
+                        cur.push(c);
+                    }
+                    ',' if depth == 1 => params.push(std::mem::take(&mut cur).trim().to_owned()),
+                    _ => cur.push(c),
+                }
+                i += 1;
+            }
+            let mut params: Vec<String> = params.into_iter().filter(|p| !p.is_empty()).collect();
+            if params.first().is_some_and(|p| p.ends_with("self")) {
+                params.remove(0);
+            }
+            for (k, p) in params.iter().enumerate() {
+                let p = p.trim_start_matches("mut ");
+                if let Some((pname, ty)) = p.split_once(':') {
+                    if NAMES.contains(&pname.trim()) && ty.contains("str") {
+                        out.push((name.clone(), k));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The production half of `properties.rs` (everything before its first test module).
     fn production_source() -> &'static str {
         let src = include_str!("properties.rs");
@@ -17720,6 +17975,8 @@ mod label_help_tests {
 
     /// Samples, examples and names that are the same in every language on purpose.
     const KEPT_AS_WRITTEN: &[&str] = &[
+        "assets/logo.png",
+        "assets/mark.png",
         "#4C9BE8,#E87A4C",
         "$.[*].price",
         "$.[*].title",
@@ -17789,6 +18046,13 @@ mod label_help_tests {
             ("text_row_hint", 5),
             ("text_row_hint", 6),
         ];
+        // …and every other function of the file with a word-carrying parameter.
+        let discovered = wording_params(code);
+        println!("{} word-carrying parameters found in the source", discovered.len());
+        assert!(
+            discovered.iter().any(|(n, k)| n == "datagrid_color_modal_row" && *k == 3),
+            "the discovery sees a helper not in the list above: {discovered:?}"
+        );
         let mut bare = std::collections::BTreeSet::new();
         for &(name, at) in widgets {
             for args in call_args(code, name) {
@@ -17800,7 +18064,14 @@ mod label_help_tests {
             }
         }
         let mut missing = std::collections::BTreeSet::new();
-        for &(name, at) in rows {
+        let every_row: Vec<(String, usize)> = rows
+            .iter()
+            .map(|&(n, k)| (n.to_owned(), k))
+            .chain(discovered)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        for (name, at) in every_row.iter().map(|(n, k)| (n.as_str(), *k)) {
             for args in call_args(code, name) {
                 if let Some(text) = args.get(at).and_then(|a| literal(a)) {
                     if wants_translation(&text) && !crate::ui_text::has(&text) {

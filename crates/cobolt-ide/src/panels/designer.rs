@@ -11302,6 +11302,8 @@ impl DesignerPanel {
 
         let screen = ui.ctx().content_rect();
         let tr = crate::i18n::current_tr(ui.ctx());
+        // The words of this window that are not `Tr` fields come from the Properties pane's table.
+        crate::ui_text::begin(crate::i18n::current_language(ui.ctx()));
 
         let modal_id = egui::Id::new("menu_editor_modal");
 
@@ -11447,7 +11449,7 @@ impl DesignerPanel {
                         egui::Vec2::new(left_w, pane_h),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
-                            ui.label(egui::RichText::new("Menu treeview").strong());
+                            ui.label(egui::RichText::new(crate::ui_text::tx("Menu treeview")).strong());
                             ui.separator();
 
                             egui::ScrollArea::vertical()
@@ -11470,7 +11472,7 @@ impl DesignerPanel {
                                                 let label = if item.item_type
                                                     == cobolt_forms::menu::MenuItemType::Separator
                                                 {
-                                                    "── separator ──".to_string()
+                                                    format!("── {} ──", crate::ui_text::tx("separator"))
                                                 } else {
                                                     let icon_str =
                                                         item.icon.as_deref().unwrap_or("");
@@ -11560,7 +11562,7 @@ impl DesignerPanel {
                         egui::Vec2::new(right_w, pane_h),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
-                            ui.label(egui::RichText::new("Item properties").strong());
+                            ui.label(egui::RichText::new(crate::ui_text::tx("Item properties")).strong());
                             ui.separator();
                             if let Some(item) =
                                 MenuEditorModal::item_at(&modal.def.menu, &modal.selected)
@@ -11696,7 +11698,7 @@ impl DesignerPanel {
                                             });
 
                                             let display = if parts.is_empty() {
-                                                "Press keys...".to_string()
+                                                crate::ui_text::tx("Press keys...").to_string()
                                             } else {
                                                 parts
                                                     .iter()
@@ -11729,7 +11731,7 @@ impl DesignerPanel {
                                             }
                                         } else {
                                             let display = if modal.accel_buf.is_empty() {
-                                                "(none)".to_string()
+                                                crate::ui_text::tx("(none)").to_string()
                                             } else {
                                                 modal.accel_buf.clone()
                                             };
@@ -11882,7 +11884,7 @@ impl DesignerPanel {
                                             let cur_form = modal.target_buf.clone();
                                             egui::ComboBox::from_id_salt("menu_form_select")
                                                 .selected_text(if cur_form.is_empty() {
-                                                    "(select form)"
+                                                    crate::ui_text::tx("(select form)")
                                                 } else {
                                                     &cur_form
                                                 })
@@ -11956,10 +11958,10 @@ impl DesignerPanel {
                                         });
                                     }
                                 } else {
-                                    ui.label("── separator ──");
+                                    ui.label(format!("── {} ──", crate::ui_text::tx("separator")));
                                 }
                             } else {
-                                ui.colored_label(Color32::GRAY, "Select an item to edit");
+                                ui.colored_label(Color32::GRAY, crate::ui_text::tx("Select an item to edit"));
                             }
                         },
                     );
@@ -11984,7 +11986,7 @@ impl DesignerPanel {
 
                 let screen = ui.ctx().content_rect();
                 let picker_id = egui::Id::new(("icon_picker", modal.icon_picker_gen));
-                egui::Window::new("Select Icon")
+                egui::Window::new(crate::ui_text::tx("Choose an icon"))
                     .id(picker_id)
                     .collapsible(false)
                     .resizable(true)
@@ -12023,13 +12025,14 @@ impl DesignerPanel {
                                             search.is_empty()
                                                 || n.contains(&search)
                                                 || cat_name.to_ascii_lowercase().contains(&search)
+                                                || crate::ui_text::txc("icon category", cat_name).to_lowercase().contains(&search)
                                         })
                                         .collect();
                                     if filtered.is_empty() {
                                         continue;
                                     }
 
-                                    ui.label(egui::RichText::new(*cat_name).strong().size(12.0));
+                                    ui.label(egui::RichText::new(crate::ui_text::txc("icon category", cat_name)).strong().size(12.0));
                                     ui.horizontal_wrapped(|ui| {
                                         for &&name in &filtered {
                                             let is_sel = cur_icon == name;
@@ -12074,10 +12077,10 @@ impl DesignerPanel {
 
                         ui.separator();
                         ui.horizontal(|ui| {
-                            if ui.button("Close").clicked() {
+                            if ui.button(crate::ui_text::tx("Close")).clicked() {
                                 modal.icon_picker_open = false;
                             }
-                            if ui.button("Clear icon").clicked() {
+                            if ui.button(crate::ui_text::tx("Clear icon")).clicked() {
                                 icon_picked = Some(None);
                             }
                         });
@@ -13094,10 +13097,10 @@ impl DesignerPanel {
 
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("💾  Save").clicked() {
+                    if ui.button(format!("💾  {}", tr.btn_save)).clicked() {
                         save_clicked = true;
                     }
-                    if ui.button("✖  Cancel").clicked() {
+                    if ui.button(format!("✖  {}", tr.btn_cancel)).clicked() {
                         cancel_clicked = true;
                     }
                 });

@@ -77,6 +77,20 @@ pub fn tx(english: &str) -> &str {
     localized(current(), english)
 }
 
+/// `english` in the language the pane is drawn in, looked up under a `context`: the table holds
+/// it as `"<context>: <english>"`, so a word that is also a property name elsewhere (`Status`,
+/// `Data`) can be a heading here without turning that property's row into another language.
+/// English, and any word the table does not have, is `english`.
+pub fn txc(context: &str, english: &str) -> String {
+    let lang = current();
+    if lang == Language::English {
+        return english.to_owned();
+    }
+    index()
+        .get(format!("{context}: {english}").as_str())
+        .map_or_else(|| english.to_owned(), |t| t.text[lang_index(lang)].to_owned())
+}
+
 /// `tx` for a text with `{}` holes, filled in order: the translated wording may move them
 /// around the sentence, but not drop or add one.
 pub fn txf(english: &str, args: &[&dyn std::fmt::Display]) -> String {
@@ -99,6 +113,138 @@ pub fn txf(english: &str, args: &[&dyn std::fmt::Display]) -> String {
 #[cfg(test)]
 pub(crate) fn has(english: &str) -> bool {
     index().contains_key(english)
+}
+
+/// For the tests that draw a part of the IDE in each language and hold every word of it to
+/// the table: what is drawn, and which words come out in English in every language.
+#[cfg(test)]
+pub(crate) mod probe {
+    use super::Language;
+    use std::collections::BTreeSet;
+
+    /// Names, values, samples and examples that are the same in every language on purpose.
+    const SAME_IN_EVERY_LANGUAGE: &[&str] = &[
+        "(Local)",
+        "/api/chat (override)",
+        "/path/to/image.png",
+        "Actual,Budget",
+        "FILE SECTION",
+        "Liquid Glass",
+        "Node 1\n  Child 1\n  Child 2\nNode 2",
+        "SALES-AMOUNT,SALES-BUDGET",
+        "Sales by Region",
+        "Tab1\nTab2",
+        "X(256)",
+        "You are a helpful assistant.",
+        "assets/KB",
+        "assets/logo.png",
+        "assets/mark.png",
+        "dd/MM/yyyy HH:mm",
+        "http://localhost:11434",
+        "https://api.example.com",
+        "https://api.example.com/v1/products",
+        "sqlite::memory:",
+        // A source button: its icon, then the source's name, which is the same word everywhere.
+        "(cloud) REST",
+        "(db) SQL",
+        // The friendly names the binding editor suggests for its sample fields: the field's name, spelt out.
+        "Acme Corporation",
+        "Category Id",
+        "Credit Limit",
+        "Customer ID",
+        "Customer Id",
+        "Customer Name",
+        "Customer Tier",
+        "Is Active",
+        "Region Id",
+    ];
+
+    /// A text that is a word of the IDE — not an identifier, a number or a sample.
+    pub(crate) fn is_word(t: &str) -> bool {
+        let t = t.trim();
+        let identifier = t.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && t.trim_end_matches(':').chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+        // A COBOL name or an acronym has no lower-case letter; a JSON or JSONPath sample starts with
+        // a quote or `$`; a picture is `PIC …` (alone or under its data type).
+        !identifier
+            && t.chars().filter(|c| c.is_alphabetic()).count() >= 3
+            && t.chars().any(char::is_lowercase)
+            && !t.starts_with(['#', '[', '"', '$'])
+            && !t.ends_with("\",")
+            && !t.starts_with("PIC ")
+            && !t.contains("\nPIC ")
+            && !t.contains("INVOKE ")
+            && !SAME_IN_EVERY_LANGUAGE.contains(&t)
+    }
+
+    /// Every text painted in `lang` by `draw` — called on a state `setup` makes, once per frame.
+    /// Three frames settle the layout; then the pointer sits over the middle of the screen, where a
+    /// window anchored at the centre is, and the wheel turns, so a window's rows below its fold are
+    /// drawn too. What each frame paints is kept.
+    pub(crate) fn texts<S>(
+        lang: Language,
+        setup: &dyn Fn() -> S,
+        draw: &dyn Fn(&mut S, &mut egui::Ui, &crate::i18n::Tr),
+    ) -> Vec<String> {
+        let tr = &lang.tr();
+        let ctx = egui::Context::default();
+        crate::i18n::set_language(&ctx, lang);
+        // A state that makes words while it is set up (a refusal, say) makes them in this language.
+        super::begin(lang);
+        let mut state = setup();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 20000.0));
+        let mut out = BTreeSet::new();
+        for frame in 0..18 {
+            let mut events = Vec::new();
+            if frame >= 3 {
+                if frame == 3 {
+                    events.push(egui::Event::PointerMoved(screen.center()));
+                }
+                events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -300.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Default::default(),
+                });
+            }
+            let mut full = ctx.run_ui(
+                egui::RawInput { screen_rect: Some(screen), time: Some(f64::from(frame) * 0.1), events, ..Default::default() },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| draw(&mut state, ui, tr));
+                },
+            );
+            full.textures_delta.clear();
+            fn collect(shape: &egui::Shape, out: &mut BTreeSet<String>) {
+                match shape {
+                    egui::Shape::Text(t) => {
+                        out.insert(t.galley.text().to_owned());
+                    }
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                collect(&cs.shape, &mut out);
+            }
+        }
+        // (The language it was last drawn in is a per-thread setting.)
+        super::begin(Language::English);
+        out.into_iter().collect()
+    }
+
+    /// The words that come out in English in every language.
+    pub(crate) fn left_in_english<S>(
+        setup: &dyn Fn() -> S,
+        draw: &dyn Fn(&mut S, &mut egui::Ui, &crate::i18n::Tr),
+    ) -> BTreeSet<String> {
+        let mut same: BTreeSet<String> =
+            texts(Language::English, setup, draw).into_iter().filter(|t| is_word(t)).collect();
+        for &lang in Language::ALL.iter().filter(|l| **l != Language::English) {
+            let other: BTreeSet<String> = texts(lang, setup, draw).into_iter().collect();
+            same.retain(|t| other.contains(t));
+        }
+        same
+    }
 }
 
 #[cfg(test)]

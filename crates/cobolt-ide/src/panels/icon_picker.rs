@@ -58,14 +58,15 @@ pub fn show(ctx: &egui::Context, state: &mut IconPickerState) -> Option<(String,
     let key = state.key.clone()?;
     let mut chosen = None;
     let mut close = false;
-    egui::Window::new("Icon")
+    crate::ui_text::begin(crate::i18n::current_language(ctx));
+    egui::Window::new(crate::ui_text::tx("Choose an icon"))
         .id(egui::Id::new(("icon_picker", state.generation)))
         .collapsible(false)
         .resizable(true)
         .default_size([420.0, 380.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Find:");
+                ui.label(crate::ui_text::tx("Find:"));
                 ui.text_edit_singleline(&mut state.search);
             });
             ui.separator();
@@ -73,7 +74,7 @@ pub fn show(ctx: &egui::Context, state: &mut IconPickerState) -> Option<(String,
                 chosen = Some((key.clone(), name));
             }
             ui.separator();
-            if ui.button("Close").clicked() {
+            if ui.button(crate::ui_text::tx("Close")).clicked() {
                 close = true;
             }
         });
@@ -152,6 +153,7 @@ pub fn name_row(
 ) -> (IconRowAction, bool) {
     let mut action = IconRowAction::None;
     let mut committed = false;
+    crate::ui_text::begin(crate::i18n::current_language(ui.ctx()));
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::hover());
         // An empty name is not "no icon" — it is "the platform's own", which is
@@ -170,7 +172,7 @@ pub fn name_row(
         );
         if ui
             .add(egui::Button::new("…").small())
-            .on_hover_text("Choose an icon")
+            .on_hover_text(crate::ui_text::tx("Choose an icon"))
             .clicked()
         {
             action = IconRowAction::Pick;
@@ -180,7 +182,7 @@ pub fn name_row(
         if !buf.trim().is_empty()
             && ui
                 .add(egui::Button::new("✕").small())
-                .on_hover_text("Use the default icon")
+                .on_hover_text(crate::ui_text::tx("Use the default icon"))
                 .clicked()
         {
             action = IconRowAction::Clear;
