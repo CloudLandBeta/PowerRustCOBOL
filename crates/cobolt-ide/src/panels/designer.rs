@@ -9045,7 +9045,7 @@ impl DesignerPanel {
                                 .unwrap_or_else(|| prompt.clone());
                             self.ai_history.push(crate::llm::ChatTurn::user(shown));
                             self.global_ai_prompt.clear();
-                            self.ai_status = Some("Thinking...".to_string());
+                            self.ai_status = Some(crate::ui_text::ide("Thinking...").to_string());
                             self.ai_error_modal = None;
                             let (sys_prompt, skills) = match project_root {
                                 Some(d) => (
@@ -9108,7 +9108,7 @@ impl DesignerPanel {
                         self.ai_history_font_size = (self.ai_history_font_size + 1.0).min(28.0);
                     }
                     if do_compact {
-                        self.ai_status = Some("Thinking...".to_string());
+                        self.ai_status = Some(crate::ui_text::ide("Thinking...").to_string());
                         self.ai_rx = Some(crate::llm::spawn_compaction(llm_cfg, &self.ai_history));
                     }
                     if do_save {

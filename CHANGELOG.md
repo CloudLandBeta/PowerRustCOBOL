@@ -17,6 +17,27 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.33] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.32.)*
+
+### Fixed
+- **The IDE's own messages, in six languages.** 1.91.32 listed 164 status-line and Output-panel messages it had not translated. They are translated now: every message the IDE writes on the UI thread — "Project saved → …", "Deleted form …", "Build blocked — … form(s) have code errors …", "Could not copy form …", "Created project '…'", the copybook, SQL-connection, Knowledge Base, model-provider and leaderboard notes, the Run/Debug refusals, the alert dialogs — follows the language chosen in the toolbar, with the file, form or count filled in. **183 call sites** (171 of them in `app.rs`) now go through `ide()` / `idef()`, and the IDE table grows from 325 to **495 texts** (170 new).
+  - *Sentences built around a verb:* "Cannot {}: form COBOL ID '{}' is already used by {}." and "{}: the project has no main form." take their verb from the table too ("import form", "save form", "create form", "Run", "Debug"), so each language gets a grammatical sentence, not English words in a foreign frame. French uses the noun form ("Importation du formulaire impossible : …") because an infinitive cannot elide before a vowel ("de importer").
+  - *Found on the way, by the stricter guard below:* the Debugger's call-stack rows ("line 12") and the process inspector's sparkline label ("peak 120 MB") were English in every language; a form-generated-program refusal ("This is a form's generated program — open the form and press Debug …") was written across two source lines, which every earlier scan skipped; two `agents_modal.rs` path templates and the folder-tree sample were listed as exempt but never matched.
+- *The tests that keep it so.*
+  - `no_english_message_reaches_the_output_panel_or_an_alert_anywhere_in_the_ide` (new) reads every source file, test modules cut out, and fails on a literal or `format!` template with an English word that is handed to `push_status`, `push_line`, `push_ai_line`, `set_form_error`, `set_alert_error`, `set_llm_test_error`, `set_indent_error`, `set_status`, `show_error` or `notify`, or assigned to a field whose name says it holds a status, error, message, notice, warning or hint. It was run red first: it caught the multi-line message above.
+  - `no_english_word_reaches_a_widget_outside_the_tables_anywhere_in_the_ide` is stricter: a `format!` template with holes in it used to be skipped whole (`!template.contains('{')`); the words are now read with every `{…}` taken out, which is how the two widget leftovers above came to light.
+  - `status_messages_read_as_sentences_in_each_language` (new) pins five messages and six verb-built sentences to their exact wording in the six languages; it is what showed "Impossible de importer".
+- *Measured:* `cobolt-ide` lib **1,640 passed, 1 failed** (`docs_embed::every_document_ships_in_every_language`, the intended red while the Guide's translations await the next minor); all six `ui_text` tests pass (495 table entries, 464 `ide()`/`idef()` keys checked, 20 direct messages checked); `cargo check --workspace --all-targets` is clean; the integration tests pass, the 24 PowerChat ones included once `examples/PowerChat/generated/` exists (it is git-ignored, so a fresh worktree lacks it until `cargo run -p cobolt-ide --example powerchat_regen`).
+- The Developer's Guide (*IDE languages*) says which messages follow the language and which do not.
+- *Not changed, on purpose:*
+  - messages made on a **worker thread** (`runner.rs`, the AI trace log in `llm.rs` / `grace_host.rs` / `model_policy.rs`): the frame's language is not set there, and they are the log of whoever debugs the IDE; the guard skips those three files by name;
+  - `debug: bad @DBG line: …`, a protocol diagnostic;
+  - **212 code-editor completion descriptions**, **65 sentences of the benchmark report's Markdown** and the **9 labels of the developer-only Debug settings window**, as listed in 1.91.32;
+  - four English messages still call the window "Models Manager" (the Spanish, Portuguese, Japanese, Chinese and French ones name it by its current title, *Model Providers Manager*, spec 048): `Models Manager: project settings saved to disk.`, the two "Semantic model not downloaded/installed …" notes and the Grace "Agentic AI is disabled …" line — as do three English strings in `i18n.rs` (`models_manage`, `leaderboard_empty`, `ai_keys_intro`). Renaming English is a separate decision.
+- *Still true:* the Spanish, Portuguese, Japanese, Chinese and French wording of these texts is not a native speaker's.
+
 ## [PowerRustCOBOL 1.91.32] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.31.)*

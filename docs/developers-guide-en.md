@@ -15550,7 +15550,11 @@ writes a per-control diagnostics dump named after the project.
   **English, Português, Español, Français, 日本語 and 中文** (the selector names
   each in its own language) — chosen from the toolbar language selector. CJK
   glyphs render via bundled font fallbacks, so 日本語 / 中文 display correctly on
-  any system.
+  any system. The messages the IDE itself writes — the status lines, the
+  **Output** panel's notes ("Project saved", "Deleted form …", "Build blocked …")
+  and the error dialogs — follow the same language and change with it. What the
+  compiler and the build tools report, and what your own program prints with
+  `DISPLAY`, is not translated.
 - **Text rendering.** The IDE renders text with the UI framework's modern font
   engine (hinting enabled), so glyphs are noticeably crisper at small sizes than
   in earlier releases. Form **Font** properties keep working exactly as before:

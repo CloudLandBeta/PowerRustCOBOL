@@ -1173,7 +1173,7 @@ impl DocShots {
                 // Armed, waiting for its subject: the same key calls it off,
                 // so an operator who changed their mind is not left with a
                 // recorder that starts on their next unrelated click.
-                self.status = Some("✗ recording cancelled".into());
+                self.status = Some(crate::ui_text::ide("✗ recording cancelled").into());
                 self.open = true;
                 self.popup_viewport = Some(ctx.viewport_id());
             } else if self.chooser.is_some() {

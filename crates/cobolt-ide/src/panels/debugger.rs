@@ -3760,8 +3760,9 @@ impl DebuggerPanel {
                             if f.line > 0 {
                                 ui.label(
                                     RichText::new(format!(
-                                        "     {:?}  line {}",
-                                        f.kind, f.line
+                                        "     {:?}  {}",
+                                        f.kind,
+                                        crate::ui_text::idef("line {}", &[&f.line])
                                     ))
                                     .monospace()
                                     .size(12.0)

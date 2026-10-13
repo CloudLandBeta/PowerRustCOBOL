@@ -521,6 +521,88 @@ mod ui_text_tests {
         (letters_run && !identifier) || one_word
     }
 
+    /// Whether a `format!` template carries an English word of its own, once every `{…}` hole or
+    /// named capture is taken out of it.
+    fn english_words_in(template: &str) -> bool {
+        let (mut outside, mut depth) = (String::new(), 0usize);
+        for c in template.chars() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth = depth.saturating_sub(1),
+                _ if depth == 0 => outside.push(c),
+                _ => {}
+            }
+        }
+        outside.as_bytes().windows(3).any(|w| w.iter().all(u8::is_ascii_alphabetic))
+    }
+
+    /// The text a message is made of when it is a string literal (with the conversion it is given
+    /// on its way to the Output panel: `.to_owned()`, `.to_string()`, `.into()`) or a `format!`
+    /// template. `None` when it is anything else: a variable, a call, a text already translated.
+    fn message_text(arg: &str) -> Option<String> {
+        let t = arg.trim().trim_start_matches('&').trim();
+        if let Some(template) = format_template(t) {
+            return Some(template);
+        }
+        let rest = t.strip_prefix('"')?;
+        let mut end = None;
+        let mut it = rest.char_indices();
+        while let Some((i, c)) = it.next() {
+            if c == '\\' {
+                it.next();
+            } else if c == '"' {
+                end = Some(i);
+                break;
+            }
+        }
+        let end = end?;
+        matches!(rest[end + 1..].trim(), "" | ".to_owned()" | ".to_string()" | ".into()")
+            .then(|| rest[..end].to_owned())
+    }
+
+    /// Every `<name> = <message>` where the name says it holds a message the person reads (a
+    /// status, an error, a notice, a hint …) and the message is a literal or a `format!` template,
+    /// as `(line, text)`.
+    fn message_assignments(code: &str) -> Vec<(usize, String)> {
+        const WORDS: [&str; 7] = ["status", "error", "message", "notice", "warning", "msg", "hint"];
+        let bytes = code.as_bytes();
+        let mut out = Vec::new();
+        for (at, _) in code.match_indices('=') {
+            let prev = at.checked_sub(1).map(|i| bytes[i]);
+            let next = bytes.get(at + 1).copied();
+            if matches!(prev, Some(b'=' | b'!' | b'<' | b'>' | b'+' | b'-' | b'*' | b'/' | b'|' | b'&'))
+                || matches!(next, Some(b'=' | b'>'))
+            {
+                continue;
+            }
+            let name: String = code[..at]
+                .trim_end()
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if !WORDS.iter().any(|w| name.to_ascii_lowercase().contains(w)) {
+                continue;
+            }
+            let line_start = code[..at].rfind('\n').map_or(0, |i| i + 1);
+            if code[line_start..].trim_start().starts_with("//") {
+                continue;
+            }
+            let Some(end) = code[at..].find(';') else { continue };
+            let mut rhs = code[at + 1..at + end].trim();
+            if let Some(inner) = rhs.strip_prefix("Some(").and_then(|r| r.trim_end().strip_suffix(')')) {
+                rhs = inner;
+            }
+            if let Some(text) = message_text(rhs) {
+                out.push((code[..at].matches('\n').count() + 1, text));
+            }
+        }
+        out
+    }
+
     /// The calls whose argument at `index` is text the person reads.
     const TEXT_CALLS: &[(&str, usize)] = &[
         (".weak", 0), (".strong", 0), (".small", 0), (".monospace", 0), (".heading", 0), (".label", 0),
@@ -553,7 +635,8 @@ mod ui_text_tests {
         "{name} = {value}",
         "{} — Markdown",
         "{indent}{branch}{name}  ·  pid {pid}  ·  CPU {cpu:.0}%  ·  RSS {mb:.0} MB",
-        "agentic_ai/{n}/\n├── {n}_prompt.md\n├── steering/\n├── policies.md\n├── skills/\n├── mcp.json\n├── knowledge/\n└── agent",
+        "{} agentic_ai/{}/{}_prompt.md",
+        "agentic_ai/{n}/\\n├── {n}_prompt.md\\n├── steering/\\n├── policies.md\\n├── skills/\\n├── mcp.json\\n├── knowledge/\\n└── agent.json",
     ];
 
     /// The keys that reach `ide()` through a variable (a table of names and descriptions, a
@@ -581,6 +664,22 @@ mod ui_text_tests {
         "Step 1: Set File Properties", "Step 2: Edit Record Structure (COBOL-85)",
         "👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator",
     ];
+
+    /// The sinks a message reaches the person through: the Output panel, an alert, a form's error
+    /// line, a status line. The index is the argument that holds the text.
+    const STATUS_CALLS: &[(&str, usize)] = &[
+        (".push_status", 0), (".push_line", 0), (".push_ai_line", 1), (".set_form_error", 0),
+        (".set_form_error_with_links", 0), (".set_alert_error", 0), (".set_llm_test_error", 0),
+        (".set_indent_error", 0), (".set_status", 0), (".show_error", 1), (".notify", 0),
+    ];
+
+    /// Files whose messages are made on a worker thread, where the frame's language is not set,
+    /// or that are the AI trace log: a translation there would be English anyway, and a trace is
+    /// read by the person who debugs the IDE, not by the one who builds with it.
+    const MESSAGES_WITHOUT_A_FRAME: &[&str] = &["grace_host.rs", "llm.rs", "model_policy.rs"];
+
+    /// Messages that are a protocol line or a diagnostic for whoever debugs the IDE.
+    const MESSAGES_NOT_TRANSLATED: &[&str] = &["debug: bad @DBG line: {json}"];
 
     fn source_files() -> Vec<(String, String)> {
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -631,12 +730,7 @@ mod ui_text_tests {
                             bare.insert(format!("{file}:{line}: {name}({text:?})"));
                         }
                     } else if let Some(template) = format_template(arg) {
-                        let words = template.replace("{}", "");
-                        let has_words = words
-                            .as_bytes()
-                            .windows(3)
-                            .any(|w| w.iter().all(u8::is_ascii_alphabetic));
-                        if has_words && !TEMPLATES_WITHOUT_WORDS.contains(&template.as_str()) && !template.contains('{') {
+                        if english_words_in(&template) && !TEMPLATES_WITHOUT_WORDS.contains(&template.as_str()) {
                             bare.insert(format!("{file}:{line}: {name}(format!({template:?}))"));
                         }
                     }
@@ -669,6 +763,42 @@ mod ui_text_tests {
         assert!(missing.is_empty(), "{} keys are not in the IDE table", missing.len());
     }
 
+    /// No English message reaches the Output panel, an alert, a form's error line or a status line
+    /// without the table: not a literal, not a `format!` template with words in it, not a message
+    /// assigned to a status or error field. (A message made on a worker thread is not held: the
+    /// frame's language is not set there.)
+    #[test]
+    fn no_english_message_reaches_the_output_panel_or_an_alert_anywhere_in_the_ide() {
+        let mut bare = std::collections::BTreeSet::new();
+        let mut held = 0usize;
+        for (file, code) in source_files() {
+            if MESSAGES_WITHOUT_A_FRAME.iter().any(|f| file.ends_with(f)) {
+                continue;
+            }
+            let mut check = |line: usize, how: &str, text: String| {
+                held += 1;
+                if english_words_in(&text) && !MESSAGES_NOT_TRANSLATED.contains(&text.as_str()) {
+                    bare.insert(format!("{file}:{line}: {how}({text:?})"));
+                }
+            };
+            for &(name, index) in STATUS_CALLS {
+                for (line, args) in calls(&code, name) {
+                    if let Some(text) = args.get(index).and_then(|a| message_text(a)) {
+                        check(line, name, text);
+                    }
+                }
+            }
+            for (line, text) in message_assignments(&code) {
+                check(line, "=", text);
+            }
+        }
+        for b in &bare {
+            println!("English message reaches the person -> {b}");
+        }
+        println!("{held} literal or format! messages checked");
+        assert!(bare.is_empty(), "{} English messages go straight to the person", bare.len());
+    }
+
     #[test]
     fn a_text_is_found_by_its_english_wording_and_a_template_is_filled_in_order() {
         assert_eq!(localized(Language::Spanish, "Corner radius"), "Radio de esquina");
@@ -677,6 +807,62 @@ mod ui_text_tests {
         begin(Language::Spanish);
         assert_eq!(txf("{} columns, {} frozen column(s), {} frozen row(s)", &[&3, &1, &0]), "3 columnas, 1 columna(s) inmovilizada(s), 0 fila(s) inmovilizada(s)");
         begin(Language::English);
+    }
+
+    /// The status messages read as sentences in each language, including the ones that are built
+    /// from a verb of their own ("Cannot {}: …") and the ones that name the project's own files.
+    #[test]
+    fn status_messages_read_as_sentences_in_each_language() {
+        let cases: &[(Language, String, &str)] = &[
+            (Language::Spanish, idef_in(Language::Spanish, "Project saved → {}", &[&"a.toml"]), "Proyecto guardado → a.toml"),
+            (Language::Portuguese, idef_in(Language::Portuguese, "Deleted form {}", &[&"F1"]), "Formulário excluído: F1"),
+            (Language::Japanese, idef_in(Language::Japanese, "Packaged {} files → {}", &[&3, &"bin"]), "3 個のファイルをパッケージ化しました → bin"),
+            (Language::Chinese, idef_in(Language::Chinese, "Could not open {}", &[&"x.cbl"]), "无法打开 x.cbl"),
+            (Language::French, idef_in(Language::French, "Created project '{}'", &[&"P"]), "Projet 'P' créé"),
+        ];
+        for (lang, got, want) in cases {
+            assert_eq!(got, want, "{lang:?}");
+        }
+        // A sentence built around a verb of its own: the verb is the table's, the frame is too.
+        let composed = |lang: Language, verb: &str| {
+            begin(lang);
+            let v = ide(verb);
+            let sentence = idef("Cannot {}: form COBOL ID '{}' is already used by {}.", &[&v, &"FRM-A", &"b.cfrm"]);
+            begin(Language::English);
+            sentence
+        };
+        assert_eq!(
+            composed(Language::English, "create form"),
+            "Cannot create form: form COBOL ID 'FRM-A' is already used by b.cfrm."
+        );
+        assert_eq!(
+            composed(Language::Spanish, "import form"),
+            "No se puede importar el formulario: el ID COBOL de formulario 'FRM-A' ya lo usa b.cfrm."
+        );
+        assert_eq!(
+            composed(Language::Portuguese, "save form"),
+            "Não é possível salvar o formulário: o ID COBOL de formulário 'FRM-A' já é usado por b.cfrm."
+        );
+        assert_eq!(
+            composed(Language::Japanese, "create form"),
+            "フォームを作成できません: フォームの COBOL ID 'FRM-A' は b.cfrm で既に使われています。"
+        );
+        assert_eq!(
+            composed(Language::Chinese, "save form"),
+            "无法保存窗体：窗体 COBOL ID 'FRM-A' 已被 b.cfrm 使用。"
+        );
+        assert_eq!(
+            composed(Language::French, "import form"),
+            "Importation du formulaire impossible : l'ID COBOL de formulaire 'FRM-A' est déjà utilisé par b.cfrm."
+        );
+        println!("5 status messages and 6 composed sentences read correctly");
+    }
+
+    fn idef_in(lang: Language, key: &str, args: &[&dyn std::fmt::Display]) -> String {
+        begin(lang);
+        let s = idef(key, args);
+        begin(Language::English);
+        s
     }
 
     /// The IDE table answers in the language the frame was begun in, fills its holes in order,

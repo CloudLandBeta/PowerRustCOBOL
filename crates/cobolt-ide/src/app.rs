@@ -2290,7 +2290,7 @@ impl CoboltApp {
             }
             Err(e) => {
                 app.output
-                    .push_status(format!("Agent access endpoint failed to start: {e}"));
+                    .push_status(crate::ui_text::idef("Agent access endpoint failed to start: {}", &[&e]));
             }
         }
         {
@@ -2610,14 +2610,11 @@ impl CoboltApp {
         else {
             self.output.clear_run_output();
             self.output
-                .push_status("Open a COBOL file, or open a project, to run.");
+                .push_status(crate::ui_text::ide("Open a COBOL file, or open a project, to run."));
             return;
         };
         self.output.clear_run_output();
-        self.output.push_status(format!(
-            "── Running {} ──",
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-        ));
+        self.output.push_status(crate::ui_text::idef("── Running {} ──", &[&path.file_name().and_then(|n| n.to_str()).unwrap_or("?")]));
         self.editor.clear_diags();
         self.runner.start(path.display().to_string(), source);
     }
@@ -2641,21 +2638,23 @@ impl CoboltApp {
             .unwrap_or_default();
         if forms.is_empty() {
             self.output.clear_run_output();
-            self.output.push_status(format!(
-                "A desktop project needs at least one form — create one to {verb}."
-            ));
+            self.output.push_status(crate::ui_text::ide(if debug {
+                "A desktop project needs at least one form — create one to debug."
+            } else {
+                "A desktop project needs at least one form — create one to run."
+            }));
             return;
         }
         let holder = match crate::main_form::normalize_main_form(&dir, &forms) {
             Ok(outcome) => outcome.holder().map(|s| s.to_owned()),
             Err(e) => {
-                self.output.push_status(format!("{verb}: {e}"));
+                self.output.push_status(format!("{}: {}", crate::ui_text::ide(verb), e));
                 None
             }
         };
         let Some(rel) = holder else {
             self.output
-                .push_status(format!("{verb}: the project has no main form."));
+                .push_status(crate::ui_text::idef("{}: the project has no main form.", &[&crate::ui_text::ide(verb)]));
             return;
         };
         let abs = dir.join(&rel);
@@ -2673,7 +2672,7 @@ impl CoboltApp {
             Ok(form) => self.spawn_form_run(abs, form, debug),
             Err(e) => {
                 self.output
-                    .push_status(format!("Run: could not load the main form {rel}: {e}"));
+                    .push_status(crate::ui_text::idef("Run: could not load the main form {}: {}", &[&rel, &e]));
             }
         }
     }
@@ -2958,7 +2957,7 @@ impl CoboltApp {
                 self.set_element_status(form_path, ElementStatus::Tested);
             }
             Err(e) => {
-                let msg = format!("Error starting {} for debugging: {e}", binary.display());
+                let msg = crate::ui_text::idef("Error starting {} for debugging: {}", &[&binary.display(), &e]);
                 self.output.push_status(msg.clone());
                 self.set_element_status(form_path, ElementStatus::Failed);
                 self.set_form_error(msg);
@@ -2991,7 +2990,7 @@ impl CoboltApp {
                 self.built_runs.push(run);
             }
             Err(e) => {
-                let msg = format!("Error starting {}: {e}", binary.display());
+                let msg = crate::ui_text::idef("Error starting {}: {}", &[&binary.display(), &e]);
                 self.output.push_status(msg.clone());
                 self.set_element_status(form_path, ElementStatus::Failed);
                 self.set_form_error(msg);
@@ -3039,7 +3038,7 @@ impl CoboltApp {
 
     fn do_stop(&mut self) {
         self.runner.stop();
-        self.output.push_status("── Stop requested ──");
+        self.output.push_status(crate::ui_text::ide("── Stop requested ──"));
     }
 
     // ── Debugger (Phase 7) ────────────────────────────────────────────────────
@@ -3082,23 +3081,21 @@ impl CoboltApp {
                     Ok(form) => self.spawn_form_run(form_path, form, true),
                     Err(e) => self
                         .output
-                        .push_status(format!("Cannot debug this form: {e}")),
+                        .push_status(crate::ui_text::idef("Cannot debug this form: {}", &[&e])),
                 }
             } else {
                 self.output.push_status(
-                    "This is a form's generated program — open the form and press \
-                     Debug to run it with its window."
-                        .to_owned(),
+                    crate::ui_text::ide(
+                        "This is a form's generated program — open the form and press Debug to run it with its window.",
+                    )
+                    .to_owned(),
                 );
             }
             return;
         }
 
         self.output.clear_run_output();
-        self.output.push_status(format!(
-            "── Debug {} ──",
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-        ));
+        self.output.push_status(crate::ui_text::idef("── Debug {} ──", &[&path.file_name().and_then(|n| n.to_str()).unwrap_or("?")]));
         self.editor.clear_diags();
         self.debugger.reset();
         // Watches start empty each debug session (operator): a clean slate,
@@ -3149,9 +3146,7 @@ impl CoboltApp {
         let removed = self.designers[idx].1.form.prune_orphaned_data_bindings();
         if removed > 0 {
             self.designers[idx].1.dirty = true;
-            self.output.push_status(format!(
-                "Removed {removed} orphaned data-binding item(s) whose target/source control no longer exists."
-            ));
+            self.output.push_status(crate::ui_text::idef("Removed {} orphaned data-binding item(s) whose target/source control no longer exists.", &[&removed]));
         }
         removed
     }
@@ -3231,13 +3226,12 @@ impl CoboltApp {
     /// open in a designer or not — spec 037 R5).
     fn spawn_form_run(&mut self, form_path: PathBuf, form: Form, debug: bool) {
         self.output.clear_run_output();
-        self.output.push_status(format!(
-            "── {} form {} ──",
-            if debug { "Debugging" } else { "Running" },
-            form_path
+        self.output.push_status(crate::ui_text::idef(
+            if debug { "── Debugging form {} ──" } else { "── Running form {} ──" },
+            &[&form_path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or("?")
+                .unwrap_or("?")],
         ));
 
         // Kill any existing run for this form first.
@@ -3257,7 +3251,7 @@ impl CoboltApp {
             let gen_path = self.generated_cbl_path(&form_path);
             if let Some(err) = first_form_error_with_origin(&form_path, &gen_path, &form) {
                 self.output
-                    .push_status(format!("Error launching form: {}", err.message));
+                    .push_status(crate::ui_text::idef("Error launching form: {}", &[&err.message]));
                 self.set_element_status(&form_path, ElementStatus::Failed);
                 // The error line is a LINK when it resolved to the developer's
                 // own code — click it to land there (operator, 2026-08-23).
@@ -3266,10 +3260,7 @@ impl CoboltApp {
                     .map(|origin| vec![(err.message.clone(), origin)])
                     .unwrap_or_default();
                 self.set_form_error_with_links(
-                    format!(
-                        "This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{}",
-                        err.message
-                    ),
+                    crate::ui_text::idef("This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{}", &[&err.message]),
                     links,
                 );
                 return;
@@ -3329,8 +3320,10 @@ impl CoboltApp {
             if self.cobolt_project.is_none() {
                 // Building needs a project manifest; a single form has none.
                 self.output.push_status(
-                    "EXEC RUST needs a project to build — open or create one to run this form."
-                        .to_owned(),
+                    crate::ui_text::ide(
+                        "EXEC RUST needs a project to build — open or create one to run this form.",
+                    )
+                    .to_owned(),
                 );
                 return;
             }
@@ -3438,7 +3431,7 @@ impl CoboltApp {
                     );
                 } else {
                     self.output
-                        .push_status("Form running as a separate rcrun process.");
+                        .push_status(crate::ui_text::ide("Form running as a separate rcrun process."));
                 }
                 self.external_runs.push(run);
                 // The form's code compiled clean → green semaphore.
@@ -3446,7 +3439,7 @@ impl CoboltApp {
             }
             Err(e) => {
                 self.output
-                    .push_status(format!("Error launching form: {e}"));
+                    .push_status(crate::ui_text::idef("Error launching form: {}", &[&e]));
                 self.set_element_status(&form_path, ElementStatus::Failed);
                 self.set_form_error(e);
             }
@@ -4331,10 +4324,7 @@ impl CoboltApp {
         let path = path.clone();
         let source = src.to_owned();
         self.output.clear_run_output();
-        self.output.push_status(format!(
-            "── Checking {} ──",
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-        ));
+        self.output.push_status(crate::ui_text::idef("── Checking {} ──", &[&path.file_name().and_then(|n| n.to_str()).unwrap_or("?")]));
         self.editor.clear_diags();
 
         use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
@@ -4352,8 +4342,8 @@ impl CoboltApp {
             Some(exp) => {
                 for (i, e) in exp.errors.iter().enumerate() {
                     match exp.error_lines.get(i).copied().unwrap_or(0) {
-                        0 => self.output.push_status(format!("copybook error: {e}")),
-                        line => self.output.push_status(format!("copybook error (line {line}): {e}")),
+                        0 => self.output.push_status(crate::ui_text::idef("copybook error: {}", &[&e])),
+                        line => self.output.push_status(crate::ui_text::idef("copybook error (line {}): {}", &[&line, &e])),
                     }
                 }
                 cobolt_lexer::tokenize_expansion(&exp)
@@ -4395,7 +4385,7 @@ impl CoboltApp {
             Some(prog) => {
                 let sem = analyze(&prog);
                 if parse_result.diagnostics.is_empty() && sem.diagnostics.is_empty() {
-                    self.output.push_status("Check OK — no issues found.");
+                    self.output.push_status(crate::ui_text::ide("Check OK — no issues found."));
                 }
                 for d in &sem.diagnostics {
                     use cobolt_semantic::Severity;
@@ -4511,7 +4501,7 @@ impl CoboltApp {
                     for sub in PROJECT_FOLDERS {
                         if let Err(e) = std::fs::create_dir_all(dir.join(sub)) {
                             self.output
-                                .push_status(format!("Could not create {sub}/: {e}"));
+                                .push_status(crate::ui_text::idef("Could not create {}/: {}", &[&sub, &e]));
                         }
                     }
                     // Scaffold a runnable starter main program so the project can
@@ -4552,12 +4542,12 @@ impl CoboltApp {
                     }
                 }
                 let name = self.cobolt_project.as_ref().unwrap().project.name.clone();
-                self.output.push_status(format!("Created project '{name}'"));
+                self.output.push_status(crate::ui_text::idef("Created project '{}'", &[&name]));
                 self.new_project.open = false;
             }
             Err(e) => {
                 self.output
-                    .push_status(format!("Failed to create project: {e}"));
+                    .push_status(crate::ui_text::idef("Failed to create project: {}", &[&e]));
             }
         }
     }
@@ -4630,7 +4620,7 @@ impl CoboltApp {
             Ok(root) => self.open_project_at(root.manifest().to_path_buf()),
             Err(_) => self
                 .output
-                .push_status(format!("--open: no PowerRustCOBOL project at {}", target.display())),
+                .push_status(crate::ui_text::idef("--open: no PowerRustCOBOL project at {}", &[&target.display()])),
         }
     }
 
@@ -4640,7 +4630,7 @@ impl CoboltApp {
                 let dir = path.parent().map(|p| p.to_owned());
                 let migrated_ai = self.activate_project_ai(&mut proj);
                 self.output
-                    .push_status(format!("Opened project '{}'", proj.project.name));
+                    .push_status(crate::ui_text::idef("Opened project '{}'", &[&proj.project.name]));
                 self.cobolt_project = Some(proj);
                 // The run threads read the project's engine choice from here;
                 // publishing it on load is what makes it take effect without
@@ -4659,7 +4649,8 @@ impl CoboltApp {
                 if migrated_ai {
                     self.do_save_project();
                     self.output.push_status(
-                        "Imported legacy AI models into this project's settings.".to_string(),
+                        crate::ui_text::ide("Imported legacy AI models into this project's settings.")
+                            .to_string(),
                     );
                 }
 
@@ -4706,7 +4697,7 @@ impl CoboltApp {
                     }
                     if created > 0 {
                         self.output
-                            .push_status(format!("Added {created} standard project folder(s)"));
+                            .push_status(crate::ui_text::idef("Added {} standard project folder(s)", &[&created]));
                     }
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
@@ -4726,10 +4717,7 @@ impl CoboltApp {
                 // opening or running anything.
                 let bad = self.revalidate_all_forms();
                 if !bad.is_empty() {
-                    self.output.push_status(format!(
-                        "⚠ {} form(s) have code errors (marked red in the tree).",
-                        bad.len()
-                    ));
+                    self.output.push_status(crate::ui_text::idef("⚠ {} form(s) have code errors (marked red in the tree).", &[&bad.len()]));
                 }
                 // Spec 037 R3 — exactly one main form per project.
                 self.apply_main_form_invariant();
@@ -4739,9 +4727,7 @@ impl CoboltApp {
                 self.detect_project_upgrades();
             }
             Err(e) => {
-                self.output.push_status(format!(
-                    "Failed to open project: {e}. Make sure you selected a valid project file (.toml with a [project] table)."
-                ));
+                self.output.push_status(crate::ui_text::idef("Failed to open project: {}. Make sure you selected a valid project file (.toml with a [project] table).", &[&e]));
             }
         }
     }
@@ -4777,7 +4763,7 @@ impl CoboltApp {
         if let Err(e) = self.llm.save() {
             tracing::warn!("could not save machine-local AI credentials: {e}");
             self.output
-                .push_status(format!("Could not save AI credentials: {e}"));
+                .push_status(crate::ui_text::idef("Could not save AI credentials: {}", &[&e]));
         }
         self.do_save_project();
     }
@@ -4823,10 +4809,10 @@ impl CoboltApp {
         match save_project(&proj, &path) {
             Ok(()) => {
                 self.output
-                    .push_status(format!("Project saved → {}", path.display()));
+                    .push_status(crate::ui_text::idef("Project saved → {}", &[&path.display()]));
             }
             Err(e) => {
-                self.output.push_status(format!("Save project failed: {e}"));
+                self.output.push_status(crate::ui_text::idef("Save project failed: {}", &[&e]));
             }
         }
     }
@@ -5224,7 +5210,7 @@ impl CoboltApp {
         }
         if self.cobolt_project.is_none() || self.project_path.is_none() {
             self.output
-                .push_status("Open or create a project first (File → New/Open Project).");
+                .push_status(crate::ui_text::ide("Open or create a project first (File → New/Open Project)."));
             return;
         }
 
@@ -5269,10 +5255,10 @@ impl CoboltApp {
         match package_project(&proj_snap, &proj_dir, &out_zip) {
             Ok(count) => {
                 self.output
-                    .push_status(format!("Packaged {count} files → {}", out_zip.display()));
+                    .push_status(crate::ui_text::idef("Packaged {} files → {}", &[&count, &out_zip.display()]));
             }
             Err(e) => {
-                self.output.push_status(format!("Package failed: {e}"));
+                self.output.push_status(crate::ui_text::idef("Package failed: {}", &[&e]));
             }
         }
     }
@@ -5349,7 +5335,7 @@ impl CoboltApp {
         self.regenerate_all_indexed_files();
         let Some(manifest) = self.project_path.clone() else {
             self.output
-                .push_status("Open or create a project first (File → New/Open Project).");
+                .push_status(crate::ui_text::ide("Open or create a project first (File → New/Open Project)."));
             return;
         };
         // 037 R3 — heal a project with more than one (or no) main form before
@@ -5364,7 +5350,7 @@ impl CoboltApp {
         if !bad_forms.is_empty() {
             self.output.clear_run_output();
             self.output
-                .push_status("── Build blocked: fix these code errors first ──");
+                .push_status(crate::ui_text::ide("── Build blocked: fix these code errors first ──"));
             for (path, err) in &bad_forms {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("form");
                 self.output.push_status(format!("  ✗ {name}: {}", err.message));
@@ -5394,11 +5380,7 @@ impl CoboltApp {
                 lines.push(format!("  … and {} more", bad_forms.len() - SHOWN));
             }
             self.set_form_error_with_links(
-                format!(
-                    "Build blocked — {} form(s) have code errors that must be fixed first:\n\n{}",
-                    bad_forms.len(),
-                    lines.join("\n")
-                ),
+                crate::ui_text::idef("Build blocked — {} form(s) have code errors that must be fixed first:\n\n{}", &[&bad_forms.len(), &lines.join("\n")]),
                 links,
             );
             return;
@@ -5406,7 +5388,7 @@ impl CoboltApp {
 
         self.output.clear_run_output();
         self.output
-            .push_status("── Building binary …  (this may take a minute) ──");
+            .push_status(crate::ui_text::ide("── Building binary …  (this may take a minute) ──"));
         // A full build discards every cached artefact, so it takes minutes
         // longer than an incremental one. Say why it is happening — otherwise
         // a Build that used to be quick just looks stuck.
@@ -6483,7 +6465,7 @@ impl CoboltApp {
             Ok(f) => f,
             Err(e) => {
                 self.output
-                    .push_status(format!("Default Theme Settings: could not read {rel}: {e}"));
+                    .push_status(crate::ui_text::idef("Default Theme Settings: could not read {}: {}", &[&rel, &e]));
                 return;
             }
         };
@@ -6492,9 +6474,7 @@ impl CoboltApp {
             + table.overrides.values().map(|o| o.len()).sum::<usize>();
         m.note_import(tr, count);
         m.set_draft(table);
-        self.output.push_status(format!(
-            "Default Theme Settings: read {count} values from {rel}."
-        ));
+        self.output.push_status(crate::ui_text::idef("Default Theme Settings: read {} values from {}.", &[&count, &rel]));
     }
 
     fn project_dir(&self) -> Option<PathBuf> {
@@ -6584,9 +6564,7 @@ impl CoboltApp {
         let mut db = crate::agents_db::AgentsDb::load(project_root);
         let changed = db.ensure_fixed_agents(&self.llm);
         if changed > 0 {
-            self.output.push_status(format!(
-                "Prepared {changed} fixed-agent or project-knowledge capability update(s)."
-            ));
+            self.output.push_status(crate::ui_text::idef("Prepared {} fixed-agent or project-knowledge capability update(s).", &[&changed]));
         }
         // Retire the model-profile layer before anything resolves a connection
         // (spec 048 R24). Asks nothing, blocks nothing — but every credential it
@@ -6602,7 +6580,7 @@ impl CoboltApp {
         if seed_default_model(&mut self.llm, &db) {
             if let Err(error) = self.llm.save() {
                 self.output
-                    .push_status(format!("Could not save model providers: {error}"));
+                    .push_status(crate::ui_text::idef("Could not save model providers: {}", &[&error]));
             }
         }
     }
@@ -6618,50 +6596,34 @@ impl CoboltApp {
             return;
         }
         if report.agents_migrated > 0 {
-            self.output.push_status(format!(
-                "Model providers: moved {} agent(s) off model profiles onto their own settings.",
-                report.agents_migrated
-            ));
+            self.output.push_status(crate::ui_text::idef("Model providers: moved {} agent(s) off model profiles onto their own settings.", &[&report.agents_migrated]));
         }
         if !report.providers_created.is_empty() {
-            self.output.push_status(format!(
-                "Model providers: configured {}.",
-                report.providers_created.join(", ")
-            ));
+            self.output.push_status(crate::ui_text::idef("Model providers: configured {}.", &[&report.providers_created.join(", ")]));
         }
         for (provider, label) in &report.discarded {
-            self.output.push_status(format!(
-                "Model providers: {provider} keeps one key — the credential from \"{label}\" was \
-                 dropped. Re-enter it in the Model Providers Manager if it was the one you wanted."
-            ));
+            self.output.push_status(crate::ui_text::idef("Model providers: {} keeps one key — the credential from \"{}\" was dropped. Re-enter it in the Model Providers Manager if it was the one you wanted.", &[&provider, &label]));
         }
         for (provider, endpoint) in &report.endpoint_conflicts {
-            self.output.push_status(format!(
-                "Model providers: {provider} had more than one endpoint on file; kept {endpoint}."
-            ));
+            self.output.push_status(crate::ui_text::idef("Model providers: {} had more than one endpoint on file; kept {}.", &[&provider, &endpoint]));
         }
         for agent in &report.dangling {
-            self.output.push_status(format!(
-                "Model providers: {agent} referenced a model profile that no longer exists and \
-                 now has no model."
-            ));
+            self.output.push_status(crate::ui_text::idef("Model providers: {} referenced a model profile that no longer exists and now has no model.", &[&agent]));
         }
         // (The default model is seeded by the caller, on every open.)
         if let Err(error) = self.llm.save() {
             self.output
-                .push_status(format!("Could not save model providers: {error}"));
+                .push_status(crate::ui_text::idef("Could not save model providers: {}", &[&error]));
         }
     }
 
     fn sync_project_documentation_membership(&mut self, project_root: &Path) {
         match cobolt_agents::project_knowledge::ensure_knowledge_base(project_root) {
-            Ok(moved) if moved > 0 => self.output.push_status(format!(
-                "Migrated {moved} legacy documentation file(s) into the project Knowledge Base."
-            )),
+            Ok(moved) if moved > 0 => self.output.push_status(crate::ui_text::idef("Migrated {} legacy documentation file(s) into the project Knowledge Base.", &[&moved])),
             Ok(_) => {}
             Err(error) => {
                 self.output
-                    .push_status(format!("Could not prepare project Knowledge Base: {error}"));
+                    .push_status(crate::ui_text::idef("Could not prepare project Knowledge Base: {}", &[&error]));
                 return;
             }
         }
@@ -6669,7 +6631,7 @@ impl CoboltApp {
             Ok(paths) => paths,
             Err(error) => {
                 self.output
-                    .push_status(format!("Could not scan project Knowledge Base: {error}"));
+                    .push_status(crate::ui_text::idef("Could not scan project Knowledge Base: {}", &[&error]));
                 return;
             }
         };
@@ -6699,9 +6661,7 @@ impl CoboltApp {
         if project.files.documentation != before {
             let count = project.files.documentation.len();
             self.do_save_project();
-            self.output.push_status(format!(
-                "Project Knowledge Base refreshed: {count} tracked file(s)."
-            ));
+            self.output.push_status(crate::ui_text::idef("Project Knowledge Base refreshed: {} tracked file(s).", &[&count]));
         }
     }
 
@@ -6727,7 +6687,7 @@ impl CoboltApp {
                 }
                 Err(error) => {
                     self.output
-                        .push_status(format!("Could not scan project indexed files: {error}"));
+                        .push_status(crate::ui_text::idef("Could not scan project indexed files: {}", &[&error]));
                     return;
                 }
             }
@@ -6755,9 +6715,7 @@ impl CoboltApp {
         if project.files.indexed != before_indexed || project.files.generated != before_generated {
             let count = project.files.indexed.len();
             self.do_save_project();
-            self.output.push_status(format!(
-                "Project indexed files refreshed: {count} tracked file(s)."
-            ));
+            self.output.push_status(crate::ui_text::idef("Project indexed files refreshed: {} tracked file(s).", &[&count]));
         }
         if let Some(inspector) = self.indexed_inspect.as_mut() {
             if let Ok(definition) = load_indexed(&inspector.path) {
@@ -6813,9 +6771,9 @@ impl CoboltApp {
         action: &str,
     ) -> bool {
         if let Some(conflict) = self.form_cobol_id_conflict(form_name, exclude_path) {
-            let msg = format!(
-                "Cannot {action}: form COBOL ID '{form_name}' is already used by {}.",
-                conflict.display()
+            let msg = crate::ui_text::idef(
+                "Cannot {}: form COBOL ID '{}' is already used by {}.",
+                &[&crate::ui_text::ide(action), &form_name, &conflict.display()],
             );
             self.output.push_status(msg.clone());
             self.set_alert_error(msg);
@@ -6886,7 +6844,7 @@ impl CoboltApp {
     fn create_new_text_file(&mut self, kind: FileKind, dir_rel: Option<String>) {
         use crate::project_model::Category;
         let Some(dir) = self.project_dir() else {
-            self.output.push_status("Save the project first.");
+            self.output.push_status(crate::ui_text::ide("Save the project first."));
             return;
         };
         let (root_sub, base, ext, category) = match kind {
@@ -6907,7 +6865,7 @@ impl CoboltApp {
         let sub_dir = dir.join(sub);
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
             self.output
-                .push_status(format!("Could not create {sub}/: {e}"));
+                .push_status(crate::ui_text::idef("Could not create {}/: {}", &[&sub, &e]));
             return;
         }
         let fname = Self::unique_file_name(&sub_dir, base, ext);
@@ -6923,7 +6881,7 @@ impl CoboltApp {
         let path = sub_dir.join(&fname);
         if let Err(e) = std::fs::write(&path, content) {
             self.output
-                .push_status(format!("Could not create file: {e}"));
+                .push_status(crate::ui_text::idef("Could not create file: {}", &[&e]));
             return;
         }
         let rel = format!("{sub}/{fname}");
@@ -6931,7 +6889,7 @@ impl CoboltApp {
             proj.add_file_to(&rel, category);
         }
         self.do_save_project();
-        self.output.push_status(format!("Created {rel}"));
+        self.output.push_status(crate::ui_text::idef("Created {}", &[&rel]));
         self.open_in_editor(path);
     }
 
@@ -6939,7 +6897,7 @@ impl CoboltApp {
         let proj_dir = match &self.project_path {
             Some(p) => p.parent().unwrap_or(p.as_path()).to_owned(),
             None => {
-                self.output.push_status("Save the project first.");
+                self.output.push_status(crate::ui_text::ide("Save the project first."));
                 return;
             }
         };
@@ -6990,7 +6948,7 @@ impl CoboltApp {
                 Ok(form) => form,
                 Err(e) => {
                     self.output
-                        .push_status(format!("Could not import form: {e}"));
+                        .push_status(crate::ui_text::idef("Could not import form: {}", &[&e]));
                     return;
                 }
             };
@@ -7013,27 +6971,22 @@ impl CoboltApp {
                     }
                 };
                 let Some(fname) = path.file_name() else {
-                    self.output.push_status("Invalid file name.");
+                    self.output.push_status(crate::ui_text::ide("Invalid file name."));
                     return;
                 };
                 let dest_dir = proj_dir.join(subdir);
                 if let Err(e) = std::fs::create_dir_all(&dest_dir) {
                     self.output
-                        .push_status(format!("Could not create {subdir}/: {e}"));
+                        .push_status(crate::ui_text::idef("Could not create {}/: {}", &[&subdir, &e]));
                     return;
                 }
                 let dest = dest_dir.join(fname);
                 if let Err(e) = std::fs::copy(&path, &dest) {
                     self.output
-                        .push_status(format!("Could not import file: {e}"));
+                        .push_status(crate::ui_text::idef("Could not import file: {}", &[&e]));
                     return;
                 }
-                self.output.push_status(format!(
-                    "Imported {} → {}/{}",
-                    fname.to_string_lossy(),
-                    subdir,
-                    fname.to_string_lossy()
-                ));
+                self.output.push_status(crate::ui_text::idef("Imported {} → {}/{}", &[&fname.to_string_lossy(), &subdir, &fname.to_string_lossy()]));
                 relative_to(&dest, &proj_dir)
                     .unwrap_or_else(|| format!("{subdir}/{}", fname.to_string_lossy()))
             }
@@ -7088,7 +7041,7 @@ impl CoboltApp {
         let name = def.name.clone();
         let Some(proj) = &mut self.cobolt_project else {
             self.output
-                .push_status("Open or create a project before creating a User Control.");
+                .push_status(crate::ui_text::ide("Open or create a project before creating a User Control."));
             return;
         };
         if proj
@@ -7097,13 +7050,13 @@ impl CoboltApp {
             .any(|existing| existing.name.eq_ignore_ascii_case(&name))
         {
             self.output
-                .push_status(format!("User Control '{name}' already exists."));
+                .push_status(crate::ui_text::idef("User Control '{}' already exists.", &[&name]));
             return;
         }
         proj.user_controls.push(def);
         self.do_save_project();
         self.output
-            .push_status(format!("User Control '{name}' saved to project."));
+            .push_status(crate::ui_text::idef("User Control '{}' saved to project.", &[&name]));
     }
 
     fn remove_user_control_def(&mut self, name: &str) {
@@ -7116,7 +7069,7 @@ impl CoboltApp {
         if proj.user_controls.len() != before {
             self.do_save_project();
             self.output
-                .push_status(format!("User Control '{name}' removed from project."));
+                .push_status(crate::ui_text::idef("User Control '{}' removed from project.", &[&name]));
         }
     }
 
@@ -7185,7 +7138,7 @@ impl CoboltApp {
                 self.egui_ctx.request_repaint();
             }
             Err(e) => {
-                self.output.push_status(format!("Failed to open form: {e}"));
+                self.output.push_status(crate::ui_text::idef("Failed to open form: {}", &[&e]));
             }
         }
     }
@@ -7220,7 +7173,7 @@ impl CoboltApp {
         match result {
             Ok(()) => {
                 self.designers[idx].1.dirty = false;
-                self.output.push_status(format!("Saved {}", path.display()));
+                self.output.push_status(crate::ui_text::idef("Saved {}", &[&path.display()]));
                 self.forms_list.refresh();
                 // Reflect the change in the tree + regenerate the backend COBOL.
                 self.after_form_saved(&path);
@@ -7232,7 +7185,7 @@ impl CoboltApp {
                 ));
             }
             Err(e) => {
-                self.output.push_status(format!("Save form failed: {e}"));
+                self.output.push_status(crate::ui_text::idef("Save form failed: {}", &[&e]));
             }
         }
     }
@@ -7316,10 +7269,7 @@ impl CoboltApp {
                 self.load_form_from_path(form_path.clone());
                 if let Some(i) = self.designers.iter().position(|(p, _)| p == form_path) {
                     if !self.designers[i].1.open_site_editor(site, *line, *col) {
-                        self.output.push_status(format!(
-                            "Could not open {}",
-                            site.display_path(&self.designers[i].1.form.name)
-                        ));
+                        self.output.push_status(crate::ui_text::idef("Could not open {}", &[&site.display_path(&self.designers[i].1.form.name)]));
                     }
                 }
             }
@@ -7445,7 +7395,7 @@ impl CoboltApp {
                     mtime,
                 });
             }
-            Err(e) => self.output.push_status(format!("Failed to read form: {e}")),
+            Err(e) => self.output.push_status(crate::ui_text::idef("Failed to read form: {}", &[&e])),
         }
     }
 
@@ -7480,7 +7430,7 @@ impl CoboltApp {
             }
             Err(e) => self
                 .output
-                .push_status(format!("Failed to read .cidx: {e}")),
+                .push_status(crate::ui_text::idef("Failed to read .cidx: {}", &[&e])),
         }
     }
 
@@ -7784,7 +7734,7 @@ impl CoboltApp {
         }
         self.editor.reload_file(&cbl);
         self.output
-            .push_status(format!("Regenerated {}", cbl.display()));
+            .push_status(crate::ui_text::idef("Regenerated {}", &[&cbl.display()]));
         // A form save can be the moment a MainForm claim reaches disk, so the
         // sealed copy in the project file is restated here too.
         self.reseal_project_designation();
@@ -7793,10 +7743,7 @@ impl CoboltApp {
         // green (clean) or red (has an error) right after a save — the developer
         // learns about a bad event handler immediately, not only at Run time.
         if let Some(err) = self.revalidate_form(cfrm_path, &form, true) {
-            self.output.push_status(format!(
-                "⚠ {} has a code error — fix it before running: {}",
-                form.name, err.message
-            ));
+            self.output.push_status(crate::ui_text::idef("⚠ {} has a code error — fix it before running: {}", &[&form.name, &err.message]));
         }
     }
 
@@ -8140,12 +8087,12 @@ impl CoboltApp {
         // The dialog already enforced !exists + full validity (group + RECORD KEY).
         let Some(mut def) = self.new_indexed.get_definition() else {
             self.output.push_status(
-                "Invalid indexed file parameters (incomplete or not COBOL-85 compliant)",
+                crate::ui_text::ide("Invalid indexed file parameters (incomplete or not COBOL-85 compliant)"),
             );
             return;
         };
         let Some(dir) = self.project_dir() else {
-            self.output.push_status("Save the project first.");
+            self.output.push_status(crate::ui_text::ide("Save the project first."));
             return;
         };
         // The folder whose [+] raised the dialog, or indexed/ from the category header.
@@ -8156,7 +8103,7 @@ impl CoboltApp {
         let sub_dir = dir.join(&sub);
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
             self.output
-                .push_status(format!("Could not create {sub}/: {e}"));
+                .push_status(crate::ui_text::idef("Could not create {}/: {}", &[&sub, &e]));
             return;
         };
         let stem = def.name.to_ascii_lowercase().replace('-', "_");
@@ -8166,7 +8113,7 @@ impl CoboltApp {
         // The dialog checks the assign_path; we also avoid overwriting a .cidx.
         if path.exists() {
             self.output
-                .push_status("Indexed definition already exists. Pick a different name.");
+                .push_status(crate::ui_text::ide("Indexed definition already exists. Pick a different name."));
             return;
         }
 
@@ -8185,7 +8132,7 @@ impl CoboltApp {
         }
 
         if save_indexed(&path, &def).is_err() {
-            self.output.push_status("Could not write .cidx");
+            self.output.push_status(crate::ui_text::ide("Could not write .cidx"));
             return;
         }
 
@@ -8196,7 +8143,7 @@ impl CoboltApp {
             }
             if let Err(e) = create_empty_from_definition(&def, &data_path) {
                 self.output
-                    .push_status(format!("Could not create empty indexed data file: {e}"));
+                    .push_status(crate::ui_text::idef("Could not create empty indexed data file: {}", &[&e]));
             }
         }
 
@@ -8255,7 +8202,7 @@ impl CoboltApp {
 
     fn import_indexed_data_file(&mut self, data_path: PathBuf) {
         let Some(proj_dir) = self.project_dir() else {
-            self.output.push_status("Save the project first.");
+            self.output.push_status(crate::ui_text::ide("Save the project first."));
             return;
         };
         let info = match inspect_any_path(&data_path) {
@@ -8295,14 +8242,14 @@ impl CoboltApp {
         let sub_dir = proj_dir.join("indexed");
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
             self.output
-                .push_status(format!("Could not create indexed/: {e}"));
+                .push_status(crate::ui_text::idef("Could not create indexed/: {}", &[&e]));
             return;
         }
         let base = stem.to_ascii_lowercase().replace('-', "_");
         let fname = Self::unique_file_name(&sub_dir, &base, "cidx");
         let cidx_path = sub_dir.join(&fname);
         if save_indexed(&cidx_path, &def).is_err() {
-            self.output.push_status("Could not write .cidx");
+            self.output.push_status(crate::ui_text::ide("Could not write .cidx"));
             return;
         }
         let rel = format!("indexed/{fname}");
@@ -8320,7 +8267,7 @@ impl CoboltApp {
         };
         let _ = self.write_indexed_fd_copybook(&def.name, &text_for_cpy);
         self.output
-            .push_status(format!("Imported indexed file → {rel}"));
+            .push_status(crate::ui_text::idef("Imported indexed file → {}", &[&rel]));
         self.open_indexed_inspect(cidx_path, None);
     }
 
@@ -8398,10 +8345,10 @@ impl CoboltApp {
                     self.llm.store_api_key(slot("password"), &password);
                 }
                 if let Err(e) = self.llm.save() {
-                    self.output.push_status(format!("could not store the SQL connection's credentials: {e}"));
+                    self.output.push_status(crate::ui_text::idef("could not store the SQL connection's credentials: {}", &[&e]));
                 }
                 self.do_save_project();
-                self.output.push_status(format!("Saved SQL connection {}", def.name));
+                self.output.push_status(crate::ui_text::idef("Saved SQL connection {}", &[&def.name]));
                 self.open_sql_editor(Some(&def.name));
             }
             SqlEditorAction::Remove => {
@@ -8411,10 +8358,10 @@ impl CoboltApp {
                     project.sql_connections.retain(|c| !c.name.eq_ignore_ascii_case(&name));
                     crate::form_runtime::move_sql_credentials(&mut self.llm, &app, &name, None);
                     if let Err(e) = self.llm.save() {
-                        self.output.push_status(format!("could not remove the SQL connection's credentials: {e}"));
+                        self.output.push_status(crate::ui_text::idef("could not remove the SQL connection's credentials: {}", &[&e]));
                     }
                     self.do_save_project();
-                    self.output.push_status(format!("Removed SQL connection {name}"));
+                    self.output.push_status(crate::ui_text::idef("Removed SQL connection {}", &[&name]));
                 }
                 self.sql_editor = None;
             }
@@ -8853,7 +8800,7 @@ impl CoboltApp {
                 Ok(crate::llm::LlmResponse::Chunk(_)) => {}
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.llm_test_status = Some("The test worker stopped unexpectedly.".into());
+                    self.llm_test_status = Some(crate::ui_text::ide("The test worker stopped unexpectedly.").into());
                     self.llm_test_from_model_selection = false;
                     self.llm_test_rx = None;
                 }
@@ -8920,7 +8867,7 @@ impl CoboltApp {
         self.llm_benchmark_progress = None;
         match final_result {
             Ok(report) => {
-                self.llm_benchmark_status = Some("COBOL proficiency check complete.".into());
+                self.llm_benchmark_status = Some(crate::ui_text::ide("COBOL proficiency check complete.").into());
                 self.save_llm_benchmark_stats(&report);
                 self.record_benchmark_success(&report);
                 self.llm_benchmark_report = Some(report);
@@ -8928,7 +8875,7 @@ impl CoboltApp {
             Err(e) => {
                 self.llm_benchmark_status = Some(e.clone());
                 self.record_benchmark_failure(&e);
-                self.set_llm_test_error(format!("COBOL proficiency check failed: {e}"));
+                self.set_llm_test_error(crate::ui_text::idef("COBOL proficiency check failed: {}", &[&e]));
             }
         }
     }
@@ -8936,7 +8883,7 @@ impl CoboltApp {
     /// Start a proficiency run, and alongside it the capability probe whose
     /// token limits land on the same leaderboard row (spec 040).
     fn start_proficiency_benchmark(&mut self, cfg: crate::llm::LlmConfig) {
-        self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+        self.llm_benchmark_status = Some(crate::ui_text::ide("Running COBOL proficiency check...").into());
         self.llm_benchmark_progress = Some(BenchmarkProgress::new());
         self.llm_benchmark_config = Some(cfg.clone());
         self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
@@ -9109,9 +9056,7 @@ impl CoboltApp {
                 }
                 None => {
                     if let Some(m) = self.leaderboard_modal.as_mut() {
-                        m.set_status(format!(
-                            "No stored report for {model} in this project — run the tests to produce one."
-                        ));
+                        m.set_status(crate::ui_text::idef("No stored report for {} in this project — run the tests to produce one.", &[&model]));
                     }
                 }
             }
@@ -9341,11 +9286,7 @@ impl CoboltApp {
         if removed.is_empty() {
             return;
         }
-        self.output.push_status(format!(
-            "Leaderboard housekeeping: dropped {} untested model(s) no agent uses — {}",
-            removed.len(),
-            removed.join(", ")
-        ));
+        self.output.push_status(crate::ui_text::idef("Leaderboard housekeeping: dropped {} untested model(s) no agent uses — {}", &[&removed.len(), &removed.join(", ")]));
         self.save_leaderboard();
     }
 
@@ -9432,7 +9373,7 @@ impl CoboltApp {
     fn save_leaderboard(&mut self) {
         if let Err(e) = self.leaderboard.save() {
             self.output
-                .push_status(format!("Could not save the leaderboard: {e}"));
+                .push_status(crate::ui_text::idef("Could not save the leaderboard: {}", &[&e]));
         }
     }
 
@@ -9475,7 +9416,7 @@ impl CoboltApp {
         let dir = root.join("agentic_ai");
         if let Err(e) = std::fs::create_dir_all(&dir) {
             self.output
-                .push_status(format!("Could not create benchmark folder: {e}"));
+                .push_status(crate::ui_text::idef("Could not create benchmark folder: {}", &[&e]));
             return;
         }
         let path = dir.join("model-benchmarks.jsonl");
@@ -9498,12 +9439,12 @@ impl CoboltApp {
             Ok(mut f) => {
                 if let Err(e) = writeln!(f, "{entry}") {
                     self.output
-                        .push_status(format!("Could not save benchmark result: {e}"));
+                        .push_status(crate::ui_text::idef("Could not save benchmark result: {}", &[&e]));
                 }
             }
             Err(e) => self
                 .output
-                .push_status(format!("Could not open benchmark history: {e}")),
+                .push_status(crate::ui_text::idef("Could not open benchmark history: {}", &[&e])),
         }
     }
 
@@ -10780,15 +10721,11 @@ impl CoboltApp {
                         }
                     }
                 }
-                self.llm_test_status = Some(format!(
-                    "Detected {}: {n} model(s){}",
-                    found.provider,
-                    if sample.is_empty() {
+                self.llm_test_status = Some(crate::ui_text::idef("Detected {}: {} model(s){}", &[&found.provider, &n, &if sample.is_empty() {
                         String::new()
                     } else {
                         format!(" — {}", sample.join(", "))
-                    }
-                ));
+                    }]));
             }
             Some(Err(e)) => self.llm_test_status = Some(e),
             None => {}
@@ -10858,7 +10795,7 @@ impl CoboltApp {
                     }
                     form.set_available_models(models);
                 }
-                self.llm_test_status = Some(format!("{n} model(s) available"));
+                self.llm_test_status = Some(crate::ui_text::idef("{} model(s) available", &[&n]));
             }
             Some(Err(e)) => self.llm_test_status = Some(e),
             None => {}
@@ -10996,7 +10933,7 @@ impl CoboltApp {
                 }
                 if act.save_requested {
                     self.output
-                        .push_status("Models Manager: project settings saved to disk.");
+                        .push_status(crate::ui_text::ide("Models Manager: project settings saved to disk."));
                 }
                 if !self.llm.agentic_ai_enabled {
                     self.use_grace = true;
@@ -11522,7 +11459,7 @@ impl CoboltApp {
             }
         }
         if let Err(e) = self.editor.save_all_dirty() {
-            self.output.push_status(format!("Save failed: {e}"));
+            self.output.push_status(crate::ui_text::idef("Save failed: {}", &[&e]));
         }
         if self.settings_dirty() {
             self.save_settings_form();
@@ -12169,7 +12106,7 @@ impl CoboltApp {
             Ok(()) => {
                 self.gen_maps.insert(cbl_path.clone(), entry);
                 self.output
-                    .push_status(format!("Generated {}", cbl_path.display()));
+                    .push_status(crate::ui_text::idef("Generated {}", &[&cbl_path.display()]));
                 // Auto-add to project if applicable.
                 let proj_dir = self
                     .project_path
@@ -12202,7 +12139,7 @@ impl CoboltApp {
                 self.pending_open_in_editor = Some(cbl_path);
             }
             Err(e) => {
-                self.output.push_status(format!("Generate failed: {e}"));
+                self.output.push_status(crate::ui_text::idef("Generate failed: {}", &[&e]));
             }
         }
     }
@@ -12299,10 +12236,7 @@ impl CoboltApp {
                 }
             }
         }
-        self.output.push_status(format!(
-            "Deleted procedure {} — undo restores it.",
-            pending.name
-        ));
+        self.output.push_status(crate::ui_text::idef("Deleted procedure {} — undo restores it.", &[&pending.name]));
     }
 
     /// "This project was last fully built by an older PowerRustCOBOL" — shown
@@ -13868,7 +13802,7 @@ impl CoboltApp {
                 Ok(form) => form,
                 Err(e) => {
                     self.output
-                        .push_status(format!("Could not copy form {}: {e}", cfrm_path.display()));
+                        .push_status(crate::ui_text::idef("Could not copy form {}: {}", &[&cfrm_path.display(), &e]));
                     return;
                 }
             },
@@ -13876,10 +13810,10 @@ impl CoboltApp {
         match form_to_string(&form) {
             Ok(xml) => {
                 ctx.copy_text(xml);
-                self.output.push_status(format!("Copied form \"{}\" to the clipboard", form.name));
+                self.output.push_status(crate::ui_text::idef("Copied form \"{}\" to the clipboard", &[&form.name]));
             }
             Err(e) => {
-                self.output.push_status(format!("Could not copy form \"{}\": {e}", form.name));
+                self.output.push_status(crate::ui_text::idef("Could not copy form \"{}\": {}", &[&form.name, &e]));
             }
         }
     }
@@ -14059,7 +13993,7 @@ impl CoboltApp {
     fn register_pasted_form(&mut self, form: Form, dest_dir: &Path) {
         let path = dest_dir.join(pasted_form_file_name(&form.name));
         if let Err(e) = save_form(&form, &path) {
-            self.output.push_status(format!("Could not paste form: {e}"));
+            self.output.push_status(crate::ui_text::idef("Could not paste form: {}", &[&e]));
             return;
         }
         if let Some(parent) = path.parent() {
@@ -14080,7 +14014,7 @@ impl CoboltApp {
         }
         self.write_generated_for(&path, &form);
         self.output
-            .push_status(format!("Pasted form \"{}\"", form.name));
+            .push_status(crate::ui_text::idef("Pasted form \"{}\"", &[&form.name]));
         let mut dp = DesignerPanel::new(form);
         dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
         self.designers.push((path, dp));
@@ -14110,7 +14044,7 @@ impl CoboltApp {
         let h: u32 = self.new_form.height.parse().unwrap_or(480);
         let form_name = self.new_form.form_name.trim().to_owned();
         if form_name.is_empty() {
-            self.output.push_status("Form COBOL ID cannot be empty.");
+            self.output.push_status(crate::ui_text::ide("Form COBOL ID cannot be empty."));
             return;
         }
         if self.reject_duplicate_form_cobol_id(&form_name, None, "create form") {
@@ -14205,7 +14139,7 @@ impl CoboltApp {
         }
         if let Err(e) = save_form(&form, &path) {
             self.output
-                .push_status(format!("Could not save new form: {e}"));
+                .push_status(crate::ui_text::idef("Could not save new form: {}", &[&e]));
             return;
         }
         if let Some(parent) = path.parent() {
@@ -14272,7 +14206,7 @@ impl CoboltApp {
                     crate::main_form::MainFormOutcome::Unchanged { .. } => {}
                 }
             }
-            Err(e) => self.output.push_status(format!("Main form check: {e}")),
+            Err(e) => self.output.push_status(crate::ui_text::idef("Main form check: {}", &[&e])),
         }
         self.reseal_project_designation();
     }
@@ -14303,7 +14237,7 @@ impl CoboltApp {
         let proj = proj.clone();
         if let Err(e) = save_project(&proj, &path) {
             self.output
-                .push_status(format!("Main form seal not written: {e}"));
+                .push_status(crate::ui_text::idef("Main form seal not written: {}", &[&e]));
         }
     }
 
@@ -14389,13 +14323,13 @@ impl CoboltApp {
                             prev = cleared.into_iter().next();
                         }
                     }
-                    Err(e) => self.output.push_status(format!("Main form change: {e}")),
+                    Err(e) => self.output.push_status(crate::ui_text::idef("Main form change: {}", &[&e])),
                 }
                 // … and the claim itself, so the files hold exactly one main
                 // even before the claiming designer is saved.
                 match crate::main_form::restore_holder_on_disk(&dir, &rel, &[]) {
                     Ok(_) => self.project.refresh_form(&path),
-                    Err(e) => self.output.push_status(format!("Main form change: {e}")),
+                    Err(e) => self.output.push_status(crate::ui_text::idef("Main form change: {}", &[&e])),
                 }
                 self.output.push_status(
                     tr.status_main_form_now
@@ -14419,7 +14353,7 @@ impl CoboltApp {
                             Ok(_) => self.project.refresh_form(&prev_abs),
                             Err(e) => self
                                 .output
-                                .push_status(format!("Main form restore: {e}")),
+                                .push_status(crate::ui_text::idef("Main form restore: {}", &[&e])),
                         }
                         match crate::main_form::clear_other_holders_on_disk(
                             &dir, &forms, &prev_rel, &[],
@@ -14431,7 +14365,7 @@ impl CoboltApp {
                             }
                             Err(e) => self
                                 .output
-                                .push_status(format!("Main form restore: {e}")),
+                                .push_status(crate::ui_text::idef("Main form restore: {}", &[&e])),
                         }
                         self.output.push_status(
                             tr.status_main_form_restored.replacen("{}", &prev_rel, 1),
@@ -14504,20 +14438,17 @@ impl CoboltApp {
             FileRequest::SaveErrorText(text) => match std::fs::write(&path, text) {
                 Ok(()) => self
                     .output
-                    .push_status(format!("Error message saved to {}", path.display())),
-                Err(e) => self.output.push_status(format!(
-                    "Could not save error message to {}: {e}",
-                    path.display()
-                )),
+                    .push_status(crate::ui_text::idef("Error message saved to {}", &[&path.display()])),
+                Err(e) => self.output.push_status(crate::ui_text::idef("Could not save error message to {}: {}", &[&path.display(), &e])),
             },
             FileRequest::SaveBuildLog(text) => {
                 match std::fs::write(&path, &text) {
                     Ok(()) => self
                         .output
-                        .push_status(format!("Build log saved → {}", path.display())),
+                        .push_status(crate::ui_text::idef("Build log saved → {}", &[&path.display()])),
                     Err(e) => self
                         .output
-                        .push_status(format!("Build log save failed: {e}")),
+                        .push_status(crate::ui_text::idef("Build log save failed: {}", &[&e])),
                 }
             }
             FileRequest::SaveBenchmarkPdf(report) => {
@@ -14529,11 +14460,8 @@ impl CoboltApp {
                 match crate::pdf_export::export(crate::ui_text::ide("COBOL proficiency report"), &markdown, &path) {
                     Ok(()) => self
                         .output
-                        .push_status(format!("COBOL proficiency PDF saved to {}", path.display())),
-                    Err(e) => self.output.push_status(format!(
-                        "Could not save COBOL proficiency PDF to {}: {e}",
-                        path.display()
-                    )),
+                        .push_status(crate::ui_text::idef("COBOL proficiency PDF saved to {}", &[&path.display()])),
+                    Err(e) => self.output.push_status(crate::ui_text::idef("Could not save COBOL proficiency PDF to {}: {}", &[&path.display(), &e])),
                 }
             }
             FileRequest::ExportAiConfig => self.export_ai_config(&path),
@@ -14605,7 +14533,7 @@ impl CoboltApp {
         let summary =
             crate::ai_bundle::apply(&bundle, &mut self.llm, db.as_mut(), &mut self.leaderboard);
         if let Err(e) = self.llm.save() {
-            self.output.push_status(format!("Could not save the model configuration: {e}"));
+            self.output.push_status(crate::ui_text::idef("Could not save the model configuration: {}", &[&e]));
         }
         self.save_leaderboard();
         // The managers hold their own copies; reopen them to see the import.
@@ -14642,7 +14570,7 @@ impl CoboltApp {
                     .push_status(tr.ai_keys_saved.replacen("{}", &n.to_string(), 1)),
                 Err(e) => self
                     .output
-                    .push_status(format!("Could not save the model configuration: {e}")),
+                    .push_status(crate::ui_text::idef("Could not save the model configuration: {}", &[&e])),
             }
         }
         if m.open {
@@ -14947,8 +14875,7 @@ impl CoboltApp {
                 // Once per session: the next document add must not nag again.
                 self.semantic_offer_declined = true;
                 self.output.push_status(
-                    "Semantic model not downloaded — Knowledge Base search stays lexical. \
-                     Download it any time from the Models Manager.",
+                    crate::ui_text::ide("Semantic model not downloaded — Knowledge Base search stays lexical. Download it any time from the Models Manager."),
                 );
             }
         }
@@ -14971,10 +14898,7 @@ impl CoboltApp {
         }
         match finished {
             Some(Ok(dir)) => {
-                self.output.push_status(format!(
-                    "Semantic search model installed in {} — Knowledge Base search is now multilingual.",
-                    dir.display()
-                ));
+                self.output.push_status(crate::ui_text::idef("Semantic search model installed in {} — Knowledge Base search is now multilingual.", &[&dir.display()]));
                 self.semantic_download = None;
                 if let Some(manager) = &mut self.models_modal {
                     manager.invalidate_semantic_probe();
@@ -15035,8 +14959,7 @@ impl CoboltApp {
         }
         if continue_without {
             self.output.push_status(
-                "Semantic model not installed — Knowledge Base search stays lexical. \
-                 Download it any time from the Models Manager.",
+                crate::ui_text::ide("Semantic model not installed — Knowledge Base search stays lexical. Download it any time from the Models Manager."),
             );
             self.semantic_download = None;
             self.semantic_offer_declined = true;
@@ -15078,10 +15001,7 @@ impl CoboltApp {
             }
             let _ = tx.send(pk::download_semantic_model(&worker));
         });
-        self.output.push_status(format!(
-            "Downloading {} …",
-            cobolt_agents::bert_embedder::MODEL_ID
-        ));
+        self.output.push_status(crate::ui_text::idef("Downloading {} …", &[&cobolt_agents::bert_embedder::MODEL_ID]));
         self.semantic_download = Some(SemanticModelDownload {
             progress,
             rx,
@@ -15520,9 +15440,7 @@ impl eframe::App for CoboltApp {
                                     if let Err(e) =
                                         crate::project_model::save_project(proj, &path)
                                     {
-                                        self.output.push_status(format!(
-                                            "⚠️  Could not record the build version: {e}"
-                                        ));
+                                        self.output.push_status(crate::ui_text::idef("⚠️  Could not record the build version: {}", &[&e]));
                                     }
                                 }
                             }
@@ -15544,7 +15462,7 @@ impl eframe::App for CoboltApp {
                 }
                 Ok(Err(e)) => {
                     let took = took();
-                    self.output.push_status(format!("❌ Build failed after {took}: {e}"));
+                    self.output.push_status(crate::ui_text::idef("❌ Build failed after {}: {}", &[&took, &e]));
                     self.build_log
                         .push((BuildLogKind::Error, format!("Build failed after {took}: {e}")));
                     // Errors are what the details window exists for — open it.
@@ -15572,7 +15490,7 @@ impl eframe::App for CoboltApp {
                     ctx.request_repaint(); // keep polling
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    let msg = "Build thread disconnected unexpectedly.";
+                    let msg = crate::ui_text::ide("Build thread disconnected unexpectedly.");
                     self.output.push_status(format!("❌ {msg}"));
                     self.build_log.push((BuildLogKind::Error, msg.to_string()));
                     // Without an outcome the dialog would spin forever with a
@@ -15606,7 +15524,7 @@ impl eframe::App for CoboltApp {
                     }
                     Ok(KbReindexMsg::Done(Err(e))) => {
                         self.output
-                            .push_status(format!("❌ Knowledge Base reindex: {e}"));
+                            .push_status(crate::ui_text::idef("❌ Knowledge Base reindex: {}", &[&e]));
                         finished = true;
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
@@ -15614,7 +15532,7 @@ impl eframe::App for CoboltApp {
                         // Worker gone without a Done (panic): report, stop.
                         if !finished {
                             self.output
-                                .push_status("❌ Knowledge Base reindex stopped unexpectedly.");
+                                .push_status(crate::ui_text::ide("❌ Knowledge Base reindex stopped unexpectedly."));
                         }
                         finished = true;
                         break;
@@ -16586,13 +16504,13 @@ impl eframe::App for CoboltApp {
                 route(&run, &mut self.output, &mut dbg_events);
                 if let Some(err) = run.take_exit_error() {
                     self.output
-                        .push_status(format!("Form {} failed: {err}", run.form_name));
+                        .push_status(crate::ui_text::idef("Form {} failed: {}", &[&run.form_name, &err]));
                     if ext_error.is_none() {
                         ext_error = Some(err);
                     }
                 } else {
                     self.output
-                        .push_status(format!("── Form {} finished ──", run.form_name));
+                        .push_status(crate::ui_text::idef("── Form {} finished ──", &[&run.form_name]));
                 }
                 // The debug child ended → close the debug session with it.
                 if run.debug
@@ -17423,19 +17341,11 @@ impl CoboltApp {
                 // thing this whole area exists to stop: the developer cannot tell
                 // "Preview does not run COBOL" from "my action is broken".
                 PreviewPress::LeaveToTheForm => {
-                    self.output.push_status(format!(
-                        "Preview: {ctrl_id}/{button_id} — `{}` is the form's own COBOL, \
-                         which Preview does not run. Use Run Form.",
-                        parsed.to_action_string()
-                    ));
+                    self.output.push_status(crate::ui_text::idef("Preview: {}/{} — `{}` is the form's own COBOL, which Preview does not run. Use Run Form.", &[&ctrl_id, &button_id, &parsed.to_action_string()]));
                     continue;
                 }
                 PreviewPress::NeedsRunForm => {
-                    self.output.push_status(format!(
-                        "Preview: {ctrl_id}/{button_id} — `{}` captures the form's own \
-                         window, which only exists under Run Form",
-                        parsed.verb()
-                    ));
+                    self.output.push_status(crate::ui_text::idef("Preview: {}/{} — `{}` captures the form's own window, which only exists under Run Form", &[&ctrl_id, &button_id, &parsed.verb()]));
                     continue;
                 }
                 PreviewPress::Perform => {}
@@ -17488,7 +17398,7 @@ impl CoboltApp {
             // Nothing fails in silence: the Output pane carries the reason, the
             // same way the running host logs it.
             self.output
-                .push_status(format!("Preview: {}", outcome.message()));
+                .push_status(crate::ui_text::idef("Preview: {}", &[&outcome.message()]));
             // A Cut or a Paste changed the focused field — feed it back through
             // the update path a keystroke would have taken.
             if let (Some(text), Some((target, _))) = (new_text, focused) {
@@ -17866,7 +17776,7 @@ impl CoboltApp {
         p.text(
             plot.left_bottom() + egui::vec2(0.0, 2.0),
             egui::Align2::LEFT_TOP,
-            format!("peak {peak:.0}{unit}"),
+            crate::ui_text::idef("peak {}{}", &[&format!("{peak:.0}"), &unit]),
             egui::FontId::proportional(9.0),
             egui::Color32::from_rgb(110, 120, 140),
         );
@@ -18016,14 +17926,12 @@ impl CoboltApp {
             ) {
                 Ok(path) => {
                     self.output
-                        .push_status(format!("Created Knowledge Base folder {}", path.display()));
+                        .push_status(crate::ui_text::idef("Created Knowledge Base folder {}", &[&path.display()]));
                     self.knowledge_folder_parent = None;
                     self.knowledge_folder_name.clear();
                 }
                 Err(error) => {
-                    self.set_alert_error(format!(
-                        "Could not create Knowledge Base folder.\n\n{error}"
-                    ))
+                    self.set_alert_error(crate::ui_text::idef("Could not create Knowledge Base folder.\n\n{}", &[&error]))
                 }
             }
         }
@@ -18079,15 +17987,10 @@ impl CoboltApp {
                         self.editor.active = self.editor.tabs.len() - 1;
                     }
                     self.sync_project_documentation_membership(&root);
-                    self.output.push_status(format!(
-                        "Deleted Knowledge Base folder {}",
-                        deleted.display()
-                    ));
+                    self.output.push_status(crate::ui_text::idef("Deleted Knowledge Base folder {}", &[&deleted.display()]));
                 }
                 Err(error) => {
-                    self.set_alert_error(format!(
-                        "Could not delete Knowledge Base folder.\n\n{error}"
-                    ))
+                    self.set_alert_error(crate::ui_text::idef("Could not delete Knowledge Base folder.\n\n{}", &[&error]))
                 }
             }
         }
@@ -18182,7 +18085,7 @@ impl CoboltApp {
             match crate::project_fs::create_folder(&root, &parent_rel, &name) {
                 Ok(rel) => {
                     self.output
-                        .push_status(format!("Created folder {}", rel.display()));
+                        .push_status(crate::ui_text::idef("Created folder {}", &[&rel.display()]));
                     self.folder_create = None;
                 }
                 Err(err) => {
@@ -18252,7 +18155,7 @@ impl CoboltApp {
                     self.rewrite_open_paths(&root, &old, &new);
                     self.do_save_project();
                     self.output
-                        .push_status(format!("Renamed folder to {new}"));
+                        .push_status(crate::ui_text::idef("Renamed folder to {}", &[&new]));
                     self.folder_rename = None;
                 }
                 Err(err) => {
@@ -18322,7 +18225,7 @@ impl CoboltApp {
                     }
                     self.do_save_project();
                     self.output
-                        .push_status(format!("Deleted folder {dir}"));
+                        .push_status(crate::ui_text::idef("Deleted folder {}", &[&dir]));
                 }
                 Err(err) => {
                     let message = self.folder_err_message(tr, &err);
@@ -18349,7 +18252,7 @@ impl CoboltApp {
                 }
                 self.rewrite_open_paths(&root, &src_rel, &new);
                 self.do_save_project();
-                self.output.push_status(format!("Moved {src_rel} → {new}"));
+                self.output.push_status(crate::ui_text::idef("Moved {} → {}", &[&src_rel, &new]));
             }
             Err(err) => {
                 let tr = self.lang.tr();
@@ -18400,7 +18303,7 @@ impl CoboltApp {
             return;
         }
         if let Err(e) = std::fs::copy(&src, &dest) {
-            self.output.push_status(format!("Could not import {fname}: {e}"));
+            self.output.push_status(crate::ui_text::idef("Could not import {}: {}", &[&fname, &e]));
             return;
         }
         let rel = format!("{}/{fname}", dest_dir_rel.trim_end_matches('/'));
@@ -18408,7 +18311,7 @@ impl CoboltApp {
             proj.add_file_to(&rel, crate::project_model::Category::of_path(&rel));
         }
         self.do_save_project();
-        self.output.push_status(format!("Imported {rel}"));
+        self.output.push_status(crate::ui_text::idef("Imported {}", &[&rel]));
     }
 
     /// Rewrite open editor tabs, designer and indexed views whose path lies under
@@ -18523,16 +18426,16 @@ impl CoboltApp {
             Ok(()) => {
                 self.forms_list.refresh();
                 self.output
-                    .push_status(format!("Deleted form {}", path.display()));
+                    .push_status(crate::ui_text::idef("Deleted form {}", &[&path.display()]));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 self.forms_list.refresh();
                 self.output
-                    .push_status(format!("Form file was already missing: {}", path.display()));
+                    .push_status(crate::ui_text::idef("Form file was already missing: {}", &[&path.display()]));
             }
             Err(e) => {
                 self.output
-                    .push_status(format!("Could not delete form {}: {e}", path.display()));
+                    .push_status(crate::ui_text::idef("Could not delete form {}: {}", &[&path.display(), &e]));
             }
         }
         // Spec 037 R3 — deleting the main form auto-assigns the first
@@ -18597,19 +18500,13 @@ impl CoboltApp {
         match std::fs::remove_file(&path) {
             Ok(()) => {
                 self.output
-                    .push_status(format!("Deleted generated COBOL {}", path.display()));
+                    .push_status(crate::ui_text::idef("Deleted generated COBOL {}", &[&path.display()]));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                self.output.push_status(format!(
-                    "Generated COBOL file was already missing: {}",
-                    path.display()
-                ));
+                self.output.push_status(crate::ui_text::idef("Generated COBOL file was already missing: {}", &[&path.display()]));
             }
             Err(e) => {
-                self.output.push_status(format!(
-                    "Could not delete generated COBOL {}: {e}",
-                    path.display()
-                ));
+                self.output.push_status(crate::ui_text::idef("Could not delete generated COBOL {}: {}", &[&path.display(), &e]));
             }
         }
     }
@@ -18668,14 +18565,11 @@ impl CoboltApp {
         match std::fs::remove_file(&path) {
             Ok(()) => self
                 .output
-                .push_status(format!("Deleted asset {}", path.display())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.output.push_status(format!(
-                "Asset file was already missing: {}",
-                path.display()
-            )),
+                .push_status(crate::ui_text::idef("Deleted asset {}", &[&path.display()])),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.output.push_status(crate::ui_text::idef("Asset file was already missing: {}", &[&path.display()])),
             Err(e) => self
                 .output
-                .push_status(format!("Could not delete asset {}: {e}", path.display())),
+                .push_status(crate::ui_text::idef("Could not delete asset {}: {}", &[&path.display(), &e])),
         }
     }
 
@@ -18878,7 +18772,7 @@ impl CoboltApp {
         }
         if let Err(e) = self.llm.save() {
             self.output
-                .push_status(format!("could not store the credential: {e}"));
+                .push_status(crate::ui_text::idef("could not store the credential: {}", &[&e]));
         }
     }
 

@@ -351,7 +351,7 @@ impl GraceChatPanel {
                             self.history.push(ChatTurn::telemetry(line));
                         }
                     }
-                    self.status = Some(format!("Workflow {} completed.", record.workflow_id));
+                    self.status = Some(crate::ui_text::idef("Workflow {} completed.", &[&record.workflow_id]));
                     let _ = self.persist();
                 }
                 Err(error) => {
@@ -366,7 +366,7 @@ impl GraceChatPanel {
                         self.history.push(ChatTurn::assistant(
                             "Stopped at your request. Nothing further was executed.",
                         ));
-                        self.status = Some("Workflow stopped.".into());
+                        self.status = Some(crate::ui_text::ide("Workflow stopped.").into());
                         let _ = self.persist();
                     } else {
                         self.error_modal = Some(error);
@@ -393,7 +393,7 @@ impl GraceChatPanel {
                         "Conversation summary:\n\n{}",
                         summary.trim()
                     ))];
-                    self.status = Some("Conversation compacted.".into());
+                    self.status = Some(crate::ui_text::ide("Conversation compacted.").into());
                     let _ = self.persist();
                 }
                 LlmResponse::Err(error) => self.error_modal = Some(error),
@@ -929,11 +929,11 @@ impl GraceChatPanel {
                 session.stop();
             }
             self.status =
-                Some("Stopping — waiting for the current agent call to return.".into());
+                Some(crate::ui_text::ide("Stopping — waiting for the current agent call to return.").into());
         }
         if save {
             match self.persist() {
-                Ok(()) => self.status = Some("Conversation saved in this project.".into()),
+                Ok(()) => self.status = Some(crate::ui_text::ide("Conversation saved in this project.").into()),
                 Err(error) => self.error_modal = Some(error),
             }
         }
@@ -944,7 +944,7 @@ impl GraceChatPanel {
         if send {
             if !llm.agentic_ai_enabled {
                 self.error_modal = Some(
-                    "Agentic AI is disabled for this project. Enable it in Models Manager before using Grace."
+                    crate::ui_text::ide("Agentic AI is disabled for this project. Enable it in Models Manager before using Grace.")
                         .into(),
                 );
             } else {

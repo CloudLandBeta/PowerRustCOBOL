@@ -1877,7 +1877,7 @@ pub(crate) fn chat_bubble_with_response_actions(
         if let Some(root) = project_root {
             match save_agent_response_as_markdown(root, &path, content) {
                 Ok(relative) => {
-                    state.status = Some(format!("Saved {}", relative.display()));
+                    state.status = Some(crate::ui_text::idef("Saved {}", &[&relative.display()]));
                     state.error = None;
                 }
                 Err(error) => {
@@ -1927,7 +1927,7 @@ pub(crate) fn chat_bubble_with_response_actions(
                 Err(error) => {
                     state.status = None;
                     let message =
-                        format!("Could not prepare the project Knowledge Base: {error}");
+                        crate::ui_text::idef("Could not prepare the project Knowledge Base: {}", &[&error]);
                     crate::error_log::record(&message);
                     state.error = Some(message);
                 }
