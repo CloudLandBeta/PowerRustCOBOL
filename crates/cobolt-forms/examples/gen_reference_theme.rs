@@ -18,6 +18,13 @@ use image::{Rgba, RgbaImage};
 
 /// Draw a rounded-rectangle 9-slice tile: `radius`-cornered `border`-stroked
 /// panel over a vertical fill gradient. Returns a `size`×`size` RGBA image.
+///
+/// Everything is measured from the signed distance to the rounded outline, so the
+/// rim is `border_w` wide along the straight edges AND around each corner arc, and
+/// the arc's outer edge is anti-aliased. (It was measured from the nearest straight
+/// edge instead, which is far from the outline on a corner's diagonal: the rim
+/// stopped where each arc began and the fill was left chamfered — the broken
+/// corners of every Cobalt Steel card.)
 fn rounded_tile(
     size: u32,
     radius: f32,
@@ -28,23 +35,21 @@ fn rounded_tile(
 ) -> RgbaImage {
     let mut img = RgbaImage::new(size, size);
     let s = size as f32;
+    let half = s / 2.0;
     for y in 0..size {
         for x in 0..size {
             let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            // Signed distance to the rounded-rect boundary.
-            let cx = fx.min(s - fx);
-            let cy = fy.min(s - fy);
-            // distance from the nearest corner centre (radius inset)
-            let inside = {
-                let rx = (radius - fx).max(fx - (s - radius)).max(0.0);
-                let ry = (radius - fy).max(fy - (s - radius)).max(0.0);
-                (rx * rx + ry * ry).sqrt() <= radius
-                    || (fx >= radius && fx <= s - radius)
-                    || (fy >= radius && fy <= s - radius)
-            };
-            if !inside && (cx < radius && cy < radius) {
-                // outside the rounded corner → transparent
-                img.put_pixel(x, y, Rgba([0, 0, 0, 0]));
+            // Signed distance to the rounded rectangle, negative inside: the box
+            // distance with the corner radius taken off each half-extent.
+            let qx = (fx - half).abs() - (half - radius);
+            let qy = (fy - half).abs() - (half - radius);
+            let d = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - radius;
+            // How much of this pixel the shape covers: all of it inside, none
+            // outside, a one-pixel ramp across the outline.
+            let cover = (0.5 - d).clamp(0.0, 1.0);
+            if cover <= 0.0 {
+                // Transparent, but in the rim's colour so a filtered edge has no dark fringe.
+                img.put_pixel(x, y, Rgba([border[0], border[1], border[2], 0]));
                 continue;
             }
             // vertical gradient fill
@@ -56,11 +61,11 @@ fn rounded_tile(
                 lerp(fill_top[2], fill_bot[2]),
                 lerp(fill_top[3], fill_bot[3]),
             ];
-            // border band near the edge / corner arc
-            let edge = cx.min(cy);
-            if edge < border_w {
+            // Rim: within `border_w` of the outline, measured along its normal.
+            if -d < border_w {
                 px = border;
             }
+            px[3] = (px[3] as f32 * cover).round() as u8;
             img.put_pixel(x, y, Rgba(px));
         }
     }
