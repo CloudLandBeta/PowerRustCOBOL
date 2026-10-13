@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.29] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.28.)*
+
+### Fixed
+- **The example corpus tests did not know the Layers demo.** `PowerDemo3/forms/General/layers-form.cfrm` came in with 1.91.20 and nothing that counts or records the examples was told. Three tests stood red since, and two of them stopped looking:
+  - `every_example_form_round_trips_056` expected 74 example forms, there are 75;
+  - `no_example_form_gains_responsive_markup_on_save_056` expected 15 forms that are responsive by design, there are 16 — the Layers demo carries a `<FormLayout>` (fluid fonts) on purpose; the message now names it;
+  - the two corpus render-golden tests (`cobolt-forms`: `every_example_form_renders_as_its_golden`, `cobolt-form-host`: `host::parity::corpus_golden`) panicked at the first form without a golden — `General__layers-form` — so every form after it in the walk (the responsive demos, `sidebar-form`) was **never compared**. Both goldens are captured now, with the project's own procedure (`COBOLT_WRITE_GOLDEN=1`); no other golden changed.
+- *Measured:* `cobolt-forms` 1,523 passed, 0 failed (it had 3 failing); `cobolt-form-host` 197 passed, 0 failed (it had 1); each corpus test now compares all 75 forms.
+
 ## [PowerRustCOBOL 1.91.28] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.27.)*

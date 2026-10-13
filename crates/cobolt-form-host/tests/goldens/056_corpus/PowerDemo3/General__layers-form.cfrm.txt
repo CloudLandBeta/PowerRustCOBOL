@@ -1,0 +1,181 @@
+# PowerDemo3/General/layers-form.cfrm
+## Window 0.75x 825x495
+BTN-COUNT rect=[788 180 1060 220] font=16
+BTN-ERROR-OK rect=- font=16
+BTN-HELP rect=[542 180 772 220] font=16
+BTN-HELP-CLOSE rect=- font=16
+BTN-SAVE rect=[376 180 526 220] font=16
+LBL-BUSY rect=- font=20
+LBL-BUSY-NOTE rect=- font=13
+LBL-CLICKS rect=[992 232 1060 260] font=14
+LBL-CLICKS-TEXT rect=[788 232 988 260] font=14
+LBL-DIM rect=- font=14
+LBL-ERROR-TEXT rect=- font=16
+LBL-HELP-BODY rect=- font=14
+LBL-HELP-HEAD rect=- font=22
+LBL-INTRO rect=[40 84 1060 132] font=15
+LBL-NAME rect=[40 148 340 176] font=14
+LBL-RESULT rect=[40 232 760 260] font=15
+LBL-STATE rect=[40 276 1060 304] font=13
+LBL-TITLE rect=[40 24 760 80] font=32
+LBL-TRY1 rect=[40 332 1060 388] font=14
+LBL-TRY2 rect=[40 392 1060 448] font=14
+LBL-TRY3 rect=[40 452 1060 508] font=14
+LBL-TRY4 rect=[40 522 1060 578] font=14
+PBR-WORK rect=- font=14
+PNL-BUSY rect=- font=14
+PNL-ERROR rect=- font=14
+PNL-HELP rect=- font=14
+SLD-DIM rect=- font=14
+TMR-WORK rect=[0 0 48 48] font=14
+TXT-NAME rect=[40 180 360 220] font=16
+## Occupant 0.75x 825x495
+BTN-COUNT rect=[1008 208 1280 248] font=16
+BTN-ERROR-OK rect=- font=16
+BTN-HELP rect=[762 208 992 248] font=16
+BTN-HELP-CLOSE rect=- font=16
+BTN-SAVE rect=[596 208 746 248] font=16
+LBL-BUSY rect=- font=20
+LBL-BUSY-NOTE rect=- font=13
+LBL-CLICKS rect=[1212 260 1280 288] font=14
+LBL-CLICKS-TEXT rect=[1008 260 1208 288] font=14
+LBL-DIM rect=- font=14
+LBL-ERROR-TEXT rect=- font=16
+LBL-HELP-BODY rect=- font=14
+LBL-HELP-HEAD rect=- font=22
+LBL-INTRO rect=[260 112 1280 160] font=15
+LBL-NAME rect=[260 176 560 204] font=14
+LBL-RESULT rect=[260 260 980 288] font=15
+LBL-STATE rect=[260 304 1280 332] font=13
+LBL-TITLE rect=[260 52 980 108] font=32
+LBL-TRY1 rect=[260 360 1280 416] font=14
+LBL-TRY2 rect=[260 420 1280 476] font=14
+LBL-TRY3 rect=[260 480 1280 536] font=14
+LBL-TRY4 rect=[260 550 1280 606] font=14
+PBR-WORK rect=- font=14
+PNL-BUSY rect=- font=14
+PNL-ERROR rect=- font=14
+PNL-HELP rect=- font=14
+SLD-DIM rect=- font=14
+TMR-WORK rect=[220 28 268 76] font=14
+TXT-NAME rect=[260 208 580 248] font=16
+## Window 1x 1100x660
+BTN-COUNT rect=[788 180 1060 220] font=16
+BTN-ERROR-OK rect=- font=16
+BTN-HELP rect=[542 180 772 220] font=16
+BTN-HELP-CLOSE rect=- font=16
+BTN-SAVE rect=[376 180 526 220] font=16
+LBL-BUSY rect=- font=20
+LBL-BUSY-NOTE rect=- font=13
+LBL-CLICKS rect=[992 232 1060 260] font=14
+LBL-CLICKS-TEXT rect=[788 232 988 260] font=14
+LBL-DIM rect=- font=14
+LBL-ERROR-TEXT rect=- font=16
+LBL-HELP-BODY rect=- font=14
+LBL-HELP-HEAD rect=- font=22
+LBL-INTRO rect=[40 84 1060 132] font=15
+LBL-NAME rect=[40 148 340 176] font=14
+LBL-RESULT rect=[40 232 760 260] font=15
+LBL-STATE rect=[40 276 1060 304] font=13
+LBL-TITLE rect=[40 24 760 80] font=32
+LBL-TRY1 rect=[40 332 1060 388] font=14
+LBL-TRY2 rect=[40 392 1060 448] font=14
+LBL-TRY3 rect=[40 452 1060 508] font=14
+LBL-TRY4 rect=[40 522 1060 578] font=14
+PBR-WORK rect=- font=14
+PNL-BUSY rect=- font=14
+PNL-ERROR rect=- font=14
+PNL-HELP rect=- font=14
+SLD-DIM rect=- font=14
+TMR-WORK rect=[0 0 48 48] font=14
+TXT-NAME rect=[40 180 360 220] font=16
+## Occupant 1x 1100x660
+BTN-COUNT rect=[1008 208 1280 248] font=16
+BTN-ERROR-OK rect=- font=16
+BTN-HELP rect=[762 208 992 248] font=16
+BTN-HELP-CLOSE rect=- font=16
+BTN-SAVE rect=[596 208 746 248] font=16
+LBL-BUSY rect=- font=20
+LBL-BUSY-NOTE rect=- font=13
+LBL-CLICKS rect=[1212 260 1280 288] font=14
+LBL-CLICKS-TEXT rect=[1008 260 1208 288] font=14
+LBL-DIM rect=- font=14
+LBL-ERROR-TEXT rect=- font=16
+LBL-HELP-BODY rect=- font=14
+LBL-HELP-HEAD rect=- font=22
+LBL-INTRO rect=[260 112 1280 160] font=15
+LBL-NAME rect=[260 176 560 204] font=14
+LBL-RESULT rect=[260 260 980 288] font=15
+LBL-STATE rect=[260 304 1280 332] font=13
+LBL-TITLE rect=[260 52 980 108] font=32
+LBL-TRY1 rect=[260 360 1280 416] font=14
+LBL-TRY2 rect=[260 420 1280 476] font=14
+LBL-TRY3 rect=[260 480 1280 536] font=14
+LBL-TRY4 rect=[260 550 1280 606] font=14
+PBR-WORK rect=- font=14
+PNL-BUSY rect=- font=14
+PNL-ERROR rect=- font=14
+PNL-HELP rect=- font=14
+SLD-DIM rect=- font=14
+TMR-WORK rect=[220 28 268 76] font=14
+TXT-NAME rect=[260 208 580 248] font=16
+## Window 1.5x 1650x990
+BTN-COUNT rect=[788 180 1060 220] font=16
+BTN-ERROR-OK rect=- font=16
+BTN-HELP rect=[542 180 772 220] font=16
+BTN-HELP-CLOSE rect=- font=16
+BTN-SAVE rect=[376 180 526 220] font=16
+LBL-BUSY rect=- font=20
+LBL-BUSY-NOTE rect=- font=13
+LBL-CLICKS rect=[992 232 1060 260] font=14
+LBL-CLICKS-TEXT rect=[788 232 988 260] font=14
+LBL-DIM rect=- font=14
+LBL-ERROR-TEXT rect=- font=16
+LBL-HELP-BODY rect=- font=14
+LBL-HELP-HEAD rect=- font=22
+LBL-INTRO rect=[40 84 1060 132] font=15
+LBL-NAME rect=[40 148 340 176] font=14
+LBL-RESULT rect=[40 232 760 260] font=15
+LBL-STATE rect=[40 276 1060 304] font=13
+LBL-TITLE rect=[40 24 760 80] font=32
+LBL-TRY1 rect=[40 332 1060 388] font=14
+LBL-TRY2 rect=[40 392 1060 448] font=14
+LBL-TRY3 rect=[40 452 1060 508] font=14
+LBL-TRY4 rect=[40 522 1060 578] font=14
+PBR-WORK rect=- font=14
+PNL-BUSY rect=- font=14
+PNL-ERROR rect=- font=14
+PNL-HELP rect=- font=14
+SLD-DIM rect=- font=14
+TMR-WORK rect=[0 0 48 48] font=14
+TXT-NAME rect=[40 180 360 220] font=16
+## Occupant 1.5x 1650x990
+BTN-COUNT rect=[1008 208 1280 248] font=16
+BTN-ERROR-OK rect=- font=16
+BTN-HELP rect=[762 208 992 248] font=16
+BTN-HELP-CLOSE rect=- font=16
+BTN-SAVE rect=[596 208 746 248] font=16
+LBL-BUSY rect=- font=20
+LBL-BUSY-NOTE rect=- font=13
+LBL-CLICKS rect=[1212 260 1280 288] font=14
+LBL-CLICKS-TEXT rect=[1008 260 1208 288] font=14
+LBL-DIM rect=- font=14
+LBL-ERROR-TEXT rect=- font=16
+LBL-HELP-BODY rect=- font=14
+LBL-HELP-HEAD rect=- font=22
+LBL-INTRO rect=[260 112 1280 160] font=15
+LBL-NAME rect=[260 176 560 204] font=14
+LBL-RESULT rect=[260 260 980 288] font=15
+LBL-STATE rect=[260 304 1280 332] font=13
+LBL-TITLE rect=[260 52 980 108] font=32
+LBL-TRY1 rect=[260 360 1280 416] font=14
+LBL-TRY2 rect=[260 420 1280 476] font=14
+LBL-TRY3 rect=[260 480 1280 536] font=14
+LBL-TRY4 rect=[260 550 1280 606] font=14
+PBR-WORK rect=- font=14
+PNL-BUSY rect=- font=14
+PNL-ERROR rect=- font=14
+PNL-HELP rect=- font=14
+SLD-DIM rect=- font=14
+TMR-WORK rect=[220 28 268 76] font=14
+TXT-NAME rect=[260 208 580 248] font=16
