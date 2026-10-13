@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.36] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.35.)*
+
+### Fixed
+- **Moving through the theme list with ↑/↓ now applies each theme as you land on it.** The Settings form already previewed its draft theme live — a click shows the theme at once and Cancel puts the saved one back — but the keyboard did not take part: with the list open, ↑/↓ were egui's own focus keys, which jump to the nearest widget *anywhere on the page* (the first ↓ landed on the "Default Indexed File Engine" button under the list, measured), the theme changed only on Enter, and a list opened with the mouse, where no widget has focus, ignored the arrows altogether.
+  - While the list is open it now holds focus and keeps the vertical arrows for itself, as a text field does (`EventFilter::vertical_arrows`), and steps the draft one theme per press: ↓ the next, ↑ the previous, stopping at the first and the last. Each step is the theme the IDE draws with on the next frame, and the row it landed on is scrolled into view. A project that never chose a theme starts from the first.
+  - Enter keeps the theme it is on; Escape closes the list and keeps it too (Cancel on the form is what puts the saved theme back, as before). A closed list is left alone: its arrows are still egui's.
+- *The tests that keep it so:* `theme_keyboard_tests` drive the real Settings form through its accessibility tree (Tab to the list, Enter, arrows; and a mouse click, then arrows). **Red first**: ↓ left the draft on "Light+". Green now: 4 tests — ↓/↑ apply the next/previous theme from a keyboard-opened and a mouse-opened list; they stop at the ends; a closed list's arrows change nothing; an empty draft starts from the first.
+- The Developer's Guide (*Appearance and internationalisation ▸ Themes*) says it.
+- *Not changed:* the project's **form** theme (`form_theme_id`) is not previewed by the Settings form at all — its draft is read only when you Save — and the theme-defaults window's two selectors choose *whose defaults you are editing*, not a theme to apply. Neither has a live effect for the arrows to bring forward. Say if you want a form-theme preview built.
+
 ## [PowerRustCOBOL 1.91.35] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.34.)*

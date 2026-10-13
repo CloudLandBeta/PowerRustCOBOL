@@ -15496,7 +15496,10 @@ writes a per-control diagnostics dump named after the project.
 ---
 ## 20. Appearance and internationalisation
 
-- **Themes.** ⚙ ▸ *Settings* offers 41 colour themes — dark (Dark Glass
+- **Themes.** ⚙ ▸ *Settings* offers 41 colour themes, and shows each one as you
+  reach it: open the list and press ↑ or ↓, and the IDE takes on the theme under
+  your cursor without waiting for Enter (Enter keeps it; **Cancel** on the form
+  puts back the saved one) — dark (Dark Glass
   [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
   more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
   Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
