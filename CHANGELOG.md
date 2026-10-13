@@ -17,6 +17,31 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.34] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.33.)*
+
+### Fixed
+- **The code editor's completion list and the Debug settings window, in six languages.** 1.91.32 and 1.91.33 listed them as left in English; they are translated now. The IDE table grows from 495 to **896 texts** (401 new).
+  - *The completion popup* (`CTRL::`, `COBOL::`, `WS-ITEM::`, keywords, paragraphs, data items): the sentence beside each method and the word beside each other entry follow the language. The count was **378 distinct texts, not the 212 reported earlier** — 1.91.32 counted the description literals in `panels/editor.rs`, which include `properties_for_type`, a table of property descriptions that nothing draws any more (`#[allow(dead_code)]`), and it missed what the popup folds in: the System KB's method docs, which `methods_for_type` adds for every control type (the KB's long sentences: `AppendHtml`, `Save()`, a Snackbar's `AddButton()`, `RegisterFile` …), the runtime's 56 built-ins for the `COBOL` object, and the words "keyword", "property", "paragraph", "data item", "qualifier", "<Type> control" and "Method". The enumeration is the test, not a source scan: it walks `ControlType::ALL`, so a control added later is held too.
+  - *How:* an item keeps the English the code and the tests read (`AcItem::detail`); the row translates it as it is drawn (`localized_detail`), so a language switch applies to a popup already open. For the `COBOL` object's `( params ) — sentence` only the sentence is translated: the parameter list is notation.
+  - *Quoted names are held:* every `` `code span` `` of an English sentence (`onComplete`, `ResponseBody`, `AllowWrite`, `s3://bucket/key`, the `RegisterFile` refusal codes …) must appear unchanged in each of the six languages, or the test fails — 378 sentences checked, none lost.
+  - *The Debug settings window:* its 9 switch names and 9 explanations, and the "Env: …" line of each hover (now "Variable de entorno: …", "環境変数: …"). The environment variable's own name, file names (`databinding.log`, `prc-event-trace.log`), paths (`/tmp`, `%TEMP%`), keys (`F12`, `Shift+F12`) and settings (`cobolt-runtime=trace`) are held the same way.
+  - *The Designer's AI-prompt popup:* the word beside each suggestion ("control", "procedure", "event", "property", "data item") — five words in `prompt_complete.rs`, the same class, found while looking.
+- *The tests that keep it so.*
+  - `every_completion_description_exists_in_six_languages` (new) — red first, 378 missing; green: 378 checked, 0 missing, 0 quoted names lost.
+  - `a_popup_row_shows_its_detail_in_the_language_of_the_ide` (new) — the row is Spanish and Japanese while the item still says "keyword".
+  - `every_debug_switch_text_exists_in_six_languages`, `no_word_of_the_debug_settings_window_is_left_in_english_in_every_language` (draws all 5 tabs in 6 languages; **red first with exactly the 9 switch names**, green now) and `a_switch_hover_names_its_variable_in_the_language_of_the_ide` (new).
+  - `the_word_beside_a_suggestion_exists_in_six_languages` (new).
+- *Measured:* `cobolt-ide` lib **1,646 passed, 1 failed** (`docs_embed::every_document_ships_in_every_language`, the intended red while the Guide's translations await the next minor); every integration test passes (the 24 PowerChat ones need `examples/PowerChat/generated/`, see 1.91.33); `cargo check --workspace --all-targets` is clean.
+- The Developer's Guide (*IDE languages*) says the completion descriptions and the Debug settings window follow the language.
+- *Found and not changed:*
+  - `me::` and `super::` list the form's methods with the description "Method" only — `FORM_METHODS` in the runtime carries a sentence for each, and the popup does not show it. Showing it is a change to what the popup says, not a translation; it is the next thing to do if the sentences are wanted.
+  - The Debug settings combo boxes show the values the environment variable takes (`off`, `basic`, `full`, `text`, `json`), and the filter's hint is `warn`: they are the values, not words of the IDE, and stay as written.
+  - The `COBOL` object's parameter lists (`path in, text in, [status out]`) are a notation and stay as written.
+  - Still English, as in 1.91.33: the 65 sentences of the benchmark report's Markdown, the worker-thread logs, and the four "Models Manager" English messages.
+- *Still true:* the Spanish, Portuguese, Japanese, Chinese and French wording of these texts is not a native speaker's, and the 378 popup sentences are long technical prose: a native reader should go through them.
+
 ## [PowerRustCOBOL 1.91.33] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.32.)*

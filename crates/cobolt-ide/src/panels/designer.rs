@@ -3590,9 +3590,9 @@ impl DesignerPanel {
                         // the same row, right-aligned and quiet.
                         let hint = match &item.owner {
                             Some(t) if item.kind != crate::prompt_complete::Kind::Control => {
-                                format!("{} · {t}", item.kind.detail())
+                                format!("{} · {t}", crate::ui_text::ide(item.kind.detail()))
                             }
-                            _ => item.kind.detail().to_string(),
+                            _ => crate::ui_text::ide(item.kind.detail()).to_string(),
                         };
                         if prompt_ac_row(ui, label, &hint, selected).clicked() {
                             clicked = Some(i);

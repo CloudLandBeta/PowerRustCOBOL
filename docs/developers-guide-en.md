@@ -15552,7 +15552,9 @@ writes a per-control diagnostics dump named after the project.
   glyphs render via bundled font fallbacks, so 日本語 / 中文 display correctly on
   any system. The messages the IDE itself writes — the status lines, the
   **Output** panel's notes ("Project saved", "Deleted form …", "Build blocked …")
-  and the error dialogs — follow the same language and change with it. What the
+  and the error dialogs — follow the same language and change with it, and so
+  do the one-line descriptions in the code editor's completion list (the sentence
+  beside each method after `CTRL::`) and the Debug settings window. What the
   compiler and the build tools report, and what your own program prints with
   `DISPLAY`, is not translated.
 - **Text rendering.** The IDE renders text with the UI framework's modern font

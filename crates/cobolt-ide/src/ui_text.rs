@@ -151,7 +151,6 @@ pub(crate) fn has(english: &str) -> bool {
 }
 
 /// Whether the IDE table has `english`.
-#[cfg(test)]
 pub(crate) fn has_ide(english: &str) -> bool {
     ide_index().contains_key(english)
 }

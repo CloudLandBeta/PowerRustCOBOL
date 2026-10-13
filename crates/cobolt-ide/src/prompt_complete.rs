@@ -348,4 +348,24 @@ mod tests {
         text.replace_range(member.replace, "onGotFocus");
         assert_eq!(text, "em TXT-NAME::onGotFocus");
     }
+
+    /// The word beside each suggestion ("control", "procedure" …) is in the table, and the popup
+    /// shows it in the language of the IDE while `detail()` stays the English the code reads.
+    #[test]
+    fn the_word_beside_a_suggestion_exists_in_six_languages() {
+        use crate::i18n::Language;
+        use crate::ui_text::{begin, has_ide, ide};
+        let kinds = [Kind::Control, Kind::DataItem, Kind::Procedure, Kind::Property, Kind::Event];
+        for k in kinds {
+            assert!(has_ide(k.detail()), "{:?}: {:?} is not in the IDE table", k, k.detail());
+        }
+        begin(Language::Spanish);
+        let es: Vec<&str> = kinds.iter().map(|k| ide(k.detail())).collect();
+        begin(Language::Japanese);
+        let ja: Vec<&str> = kinds.iter().map(|k| ide(k.detail())).collect();
+        begin(Language::English);
+        assert_eq!(es, ["control", "elemento de datos", "procedimiento", "propiedad", "evento"]);
+        assert_eq!(ja, ["コントロール", "データ項目", "プロシージャ", "プロパティ", "イベント"]);
+        assert_eq!(Kind::Procedure.detail(), "procedure");
+    }
 }
