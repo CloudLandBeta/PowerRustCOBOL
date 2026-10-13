@@ -442,6 +442,16 @@
                OPEN    I-O MODELS-FILE
            END-IF
            SET     WS-SET-NAME                   TO    "MODELS-ADOPTED"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" (set just above; it is the record key) and the
+           *>         settings file.
+           *> Result: WS-SET-VALUE = "Y" when the models PowerChat kept before were already handed
+           *>         to the application, otherwise SPACES (setting never saved). The IF below acts
+           *>         on it.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE NOT = "Y"
                SET     MDL-NAME                  TO    LOW-VALUES
@@ -460,6 +470,15 @@
 
                SET     WS-SET-NAME               TO    "MODELS-ADOPTED"
                SET     WS-SET-VALUE              TO    "Y"
+
+               *> PC-SETTING-PUT: stores one setting in the settings file (indexed, settings.idx in
+               *> the data folder): inserts the record or replaces it, and commits at once. A
+               *> missing file is created empty first.
+               *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" and WS-SET-VALUE = "Y" (both set just
+               *>         above).
+               *> Result: The settings file holds MODELS-ADOPTED = "Y", committed, so later runs
+               *>         skip this one-time handover. The record area (SET-NAME, SET-VALUE) and
+               *>         WS-FS are overwritten; WS-SET-NAME and WS-SET-VALUE are not changed.
 
                CALL    "PC-SETTING-PUT"
            END-IF
@@ -605,11 +624,30 @@
            PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                SET     WS-SET-NAME               TO    SPACES
                STRING    "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+
+               *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in
+               *> the data folder) by its name. It never writes a setting; a missing file is only
+               *> created empty.
+               *> Uses:   WS-SET-NAME = "AGENT-n-ENTRY" with n = WS-A, 1 to 3 (built by the STRING
+               *>         just above), and the settings file.
+               *> Result: WS-SET-VALUE = the name of the connection agent n uses, or SPACES when
+               *>         none was saved; the next line stores its first 30 characters in
+               *>         WS-AGENT-ENTRY(WS-A).
+
                CALL    "PC-SETTING-GET"
                SET     WS-AGENT-ENTRY(WS-A)      TO    WS-SET-VALUE
            END-PERFORM
            IF    WS-AGENT-ENTRY(1) = SPACES
                SET     WS-SET-NAME               TO    "MODEL-ENTRY"
+
+               *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in
+               *> the data folder) by its name. It never writes a setting; a missing file is only
+               *> created empty.
+               *> Uses:   WS-SET-NAME = "MODEL-ENTRY" (set just above): the single model setting
+               *>         PowerChat 1 kept, read only because AGENT-1-ENTRY is blank.
+               *> Result: WS-SET-VALUE = that connection name, or SPACES; the next line copies its
+               *>         first 30 characters to WS-AGENT-ENTRY(1).
+
                CALL    "PC-SETTING-GET"
                SET     WS-AGENT-ENTRY(1)         TO    WS-SET-VALUE
            END-IF
@@ -626,8 +664,29 @@
            SET     WS-MODEL-COUNT                TO    0
            SET     WS-WITH-MODEL                 TO    0
 
+           *> PC-LOAD-AGENTS: reads which connection each of the chat's three agents uses.
+           *> Uses:   the settings AGENT-1-ENTRY, AGENT-2-ENTRY and AGENT-3-ENTRY, and MODEL-ENTRY
+           *>         as the fallback of agent 1 only.
+           *> Result: WS-AGENT-ENTRY(1) to WS-AGENT-ENTRY(3) = the connection name of each agent (30
+           *>         characters), SPACES for an agent that has none. WS-SET-NAME and WS-SET-VALUE
+           *>         end holding the last setting read. The entries tag the model rows built below
+           *>         with [agent n].
+
            CALL    "PC-LOAD-AGENTS"
            *>   The application's models, mirrored first (spec 085).
+
+           *> PC-SYNC-MODELS: makes the models file (models.idx) mirror the application's own model
+           *> list, which the runtime keeps for every form of the application.
+           *> Uses:   the application's model list (MODEL-COUNT, MODEL-GET), MODELS-FILE
+           *>         (WS-MODELS-PATH, built by PC-PATHS) and the setting MODELS-ADOPTED in the
+           *>         settings file. It runs before MODELS-FILE is read to build the list.
+           *> Result: MODELS-FILE holds one record per model of the application: a new one gets
+           *>         MDL-TOOLS = "N" and MDL-RANK = 5, a known one only has API, URL and model name
+           *>         refreshed (its tools and rank stay), and records the application no longer
+           *>         lists are deleted. Once only, the models PowerChat kept before are first
+           *>         handed to the application and MODELS-ADOPTED is set to "Y". Committed.
+           *>         WS-SET-NAME and WS-SET-VALUE end as "MODELS-ADOPTED" and "Y". A missing
+           *>         MODELS-FILE is created empty first.
 
            CALL    "PC-SYNC-MODELS"
            OPEN    I-O MODELS-FILE
@@ -657,6 +716,19 @@
                            END-IF
                            COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
                            SET     WS-PROV-ID    TO    MDL-API
+
+                           *> PC-PROVIDER-LABEL: finds a provider in the IDE's provider list by its
+                           *> id (any case) and loads its label, default endpoint and whether it
+                           *> needs an API key.
+                           *> Uses:   WS-PROV-ID = MDL-API of the connection just read (set on the
+                           *>         line above) and WS-PROV-COUNT, the number of providers (set in
+                           *>         onLoad).
+                           *> Result: WS-PROV-LABEL = the provider's display name (the stored id
+                           *>         itself when the IDE does not list it), used next in the row
+                           *>         text. WS-PROV-IX (0 = unknown), WS-PROV-ID (the IDE's own
+                           *>         spelling), WS-PROV-EP and WS-PROV-NEEDS are set too. It also
+                           *>         uses WS-XVAL, WS-XNAME and WS-P as scratch.
+
                            CALL    "PC-PROVIDER-LABEL"
                            SET     WS-ROW        TO    SPACES
                            STRING    FUNCTION TRIM(MDL-NAME) " - "
@@ -669,6 +741,14 @@
 
                            IF    MDL-TOOLS = "Y"
                                SET     WS-FMT    TO    T-ROW-TOOLS
+
+                               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to
+                               *> WS-ARG4 into WS-FMT-OUT.
+                               *> Uses:   WS-FMT = T-ROW-TOOLS (", tools" in English), a text
+                               *>         without placeholders.
+                               *> Result: WS-FMT-OUT = the same text; the lines below append it to
+                               *>         WS-ROW as the tag of a model that calls tools.
+
                                CALL    "PC-FMT"
 
                                SET     WS-ARG4   TO    WS-ROW
@@ -680,6 +760,14 @@
                                SET     WS-FMT    TO    T-ROW-RANK
                                SET     WS-ARG1   TO    MDL-RANK
 
+                               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to
+                               *> WS-ARG4 into WS-FMT-OUT.
+                               *> Uses:   WS-FMT = T-ROW-RANK (", rank &1" in English); WS-ARG1 =
+                               *>         MDL-RANK, the rank digit of this connection (set just
+                               *>         above).
+                               *> Result: WS-FMT-OUT = that text with &1 replaced by the rank; the
+                               *>         lines below append it to WS-ROW.
+
                                CALL    "PC-FMT"
 
                                SET     WS-ARG4   TO    WS-ROW
@@ -689,6 +777,14 @@
                            END-IF
                            IF    WS-KEY-FLAG = "Y"
                                SET     WS-FMT    TO    T-ROW-KEY-SET
+
+                               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to
+                               *> WS-ARG4 into WS-FMT-OUT.
+                               *> Uses:   WS-FMT = T-ROW-KEY-SET ("(key set)" in English), a text
+                               *>         without placeholders.
+                               *> Result: WS-FMT-OUT = the same text; the lines below append it to
+                               *>         WS-ROW as the tag of a connection whose API key is stored.
+
                                CALL    "PC-FMT"
 
                                SET     WS-ARG4   TO    WS-ROW
@@ -703,6 +799,14 @@
 
                                    SET     WS-ARG1
                                                  TO    WS-A
+
+                                   *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1
+                                   *> to WS-ARG4 into WS-FMT-OUT.
+                                   *> Uses:   WS-FMT = T-ROW-AGENT ("[agent &1]" in English);
+                                   *>         WS-ARG1 = WS-A, the number (1 to 3) of the agent whose
+                                   *>         entry is this connection.
+                                   *> Result: WS-FMT-OUT = that text with &1 replaced by the agent
+                                   *>         number; the lines below append it to WS-ROW.
 
                                    CALL    "PC-FMT"
                                    SET     WS-ARG4
@@ -872,11 +976,35 @@
 
            INVOKE    super::"PC-REFRESH"()
            SET     WS-SET-NAME                   TO    "KB-LOCATION"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "KB-LOCATION" (set just above): the Knowledge Base folder chosen
+           *>         in its dialog.
+           *> Result: WS-SET-VALUE = that folder, or SPACES when none was saved (the lines below
+           *>         then show "assets/KB" in Lbl-KbSum::Caption).
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE = SPACES
                SET     WS-SET-VALUE              TO    "assets/KB"
            END-IF
            SET     Lbl-KbSum::Caption            TO    WS-SET-VALUE
+
+           *> PC-LOAD-MODELS: fills the model list of the pane with one row per saved connection and
+           *> counts them.
+           *> Uses:   MODELS-FILE (mirrored from the application's model list first), whether an API
+           *>         key is stored for each connection, the agent settings and the provider list.
+           *> Result: Lst-Models is cleared and refilled, one row per connection: name, provider and
+           *>         model, followed by the tags ", tools", ", rank n", "(key set)" and "[agent n]"
+           *>         that apply. WS-MODEL-COUNT = the number of connections (read by PC-REFRESH and
+           *>         by the Model selection and Agents buttons); WS-WITH-MODEL = how many have a
+           *>         model chosen (read by PC-REFRESH only); WS-AGENT-ENTRY(1..3) = the connection
+           *>         each agent uses (read for the [agent n] tags above and by PC-REFRESH);
+           *>         WS-MODEL-NAME(1..) = the connection names in key order (stored, not read again
+           *>         by this form). A row is cut at 160 characters (WS-ROW). MODELS-FILE is
+           *>         mirrored first (PC-SYNC-MODELS): records may be added, updated or deleted.
+
            CALL    "PC-LOAD-MODELS"
            IF    WS-MODEL-COUNT = 0
                SET     Lbl-ProvSum::Caption      TO    T-SUM-NO-CONNS::Trim()
@@ -894,6 +1022,13 @@
            SET     WS-NE                         TO    WS-MODEL-COUNT
            SET     WS-ARG1                       TO    WS-NE
 
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-SUM-CONNS ("&1 connection(s)" in English); WS-ARG1 = WS-NE,
+           *>         WS-MODEL-COUNT edited (set just above).
+           *> Result: WS-FMT-OUT = "<WS-MODEL-COUNT> connection(s)"; the next line shows it in
+           *>         Lbl-ProvSum::Caption.
+
            CALL    "PC-FMT"
 
            SET     Lbl-ProvSum::Caption          TO    WS-FMT-OUT::Trim()
@@ -901,6 +1036,13 @@
            SET     WS-NE2                        TO    WS-WITH-MODEL
            SET     WS-ARG1                       TO    WS-NE2
            SET     WS-ARG2                       TO    WS-NE
+
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-SUM-MODELS ("&1 of &2 connection(s) have a model" in English);
+           *>         WS-ARG1 = WS-NE2 (WS-WITH-MODEL), WS-ARG2 = WS-NE (WS-MODEL-COUNT).
+           *> Result: WS-FMT-OUT = "<WS-WITH-MODEL> of <WS-MODEL-COUNT> connection(s) have a model";
+           *>         the next line shows it in Lbl-ModelSum::Caption.
 
            CALL    "PC-FMT"
 
@@ -916,6 +1058,13 @@
            SET     WS-FMT                        TO    T-SUM-AGENTS
            SET     WS-ARG1                       TO    WS-AGENTS-ON
 
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-SUM-AGENTS ("&1 of 3 agents on" in English); WS-ARG1 =
+           *>         WS-AGENTS-ON, how many of the three WS-AGENT-ENTRY items are not blank.
+           *> Result: WS-FMT-OUT = "<WS-AGENTS-ON> of 3 agents on"; the next line shows it in
+           *>         Lbl-AgentSum::Caption.
+
            CALL    "PC-FMT"
            SET     Lbl-AgentSum::Caption         TO    WS-FMT-OUT::Trim()
 ]]></Event>
@@ -929,6 +1078,15 @@
            *>   whenever the language changes (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the settings
+           *>         file.
+           *> Result: WS-SET-VALUE = the saved interface language code (PC-TEXTS below accepts "en",
+           *>         "pt", "es", "fr", "jp" and "cn"), or SPACES when none was ever saved.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            *> Unset or unknown falls back to English, and WS-LANG says "en" too:
@@ -1038,10 +1196,48 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PATHS: builds the paths of PowerChat's two indexed files from its data folder.
+           *> Uses:   the environment variable POWERCHAT_DATA, the data folder; when it is not set
+           *>         the folder is "data".
+           *> Result: WS-DATA-DIR = POWERCHAT_DATA or "data"; WS-SETTINGS-PATH = WS-DATA-DIR
+           *>         followed by "/settings.idx"; WS-MODELS-PATH = WS-DATA-DIR followed by
+           *>         "/models.idx". No file is opened; the OPEN of SETTINGS-FILE and of MODELS-FILE
+           *>         needs these two paths.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the interface texts in the language the user picked and puts them on
+           *> the form's captions.
+           *> Uses:   the setting "LANG" in the settings file (WS-SETTINGS-PATH, built by PC-PATHS
+           *>         just above) and PC-TEXT-TABLE, 25 texts in 6 languages (en, pt, es, fr, jp,
+           *>         cn).
+           *> Result: WS-LANG = the saved code, "en" when unset or unknown; WS-LANG-IX = 1 to 6, its
+           *>         column; PC-TEXT-NOW (the T-... names) = the 25 texts in that language.
+           *>         Captions: Lbl-Title, Btn-KbFolder, Btn-Providers, Btn-ModelSel, Btn-Agents,
+           *>         Lbl-Models, Btn-Export, Btn-Import, Lbl-Status.
+
            CALL    "PC-TEXTS"
 
            COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
+
+           *> PC-REFRESH: brings the summaries of the pane up to date: the Knowledge Base folder,
+           *> the model list and what each of the four group buttons holds.
+           *> Uses:   WS-PROV-COUNT (set just above from PROVIDER-COUNT), the setting KB-LOCATION,
+           *>         MODELS-FILE and the agent settings. It also reads the application's model list
+           *>         and the key store.
+           *> Result: INVOKE super::"PC-REFRESH"() asks CHAT-FORM, the main form that owns the menu,
+           *>         to run its PC-REFRESH. The call returns at once (fire-and-forget): the chat
+           *>         runs it when its event loop is next idle, handing its agents their connections
+           *>         and the Knowledge Base folder again, reloading the topic (a blank conversation
+           *>         if it changed to another topic) and rebuilding the conversation list, menu
+           *>         rows and status line. Here: Lbl-KbSum, Lst-Models, Lbl-ProvSum, Lbl-ModelSum
+           *>         and Lbl-AgentSum are rebuilt; WS-MODEL-COUNT and WS-WITH-MODEL are recomputed.
+           *>         With no connection, Btn-ModelSel and Btn-Agents are disabled and their
+           *>         summaries say so; otherwise they are enabled. MODELS-FILE is first mirrored
+           *>         from the application's model list (PC-SYNC-MODELS): records may be added,
+           *>         updated or deleted.
+
            CALL    "PC-REFRESH"
 ]]></Event>
     <Event name="onActivate" paragraph="SETTINGS-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1051,7 +1247,34 @@
        PROCEDURE DIVISION.
            *>   Back on the pane: the language may have changed meanwhile (R46).
 
+           *> PC-TEXTS: loads the interface texts in the language the user picked and puts them on
+           *> the form's captions.
+           *> Uses:   the setting "LANG" as it is now (the language may have changed while the pane
+           *>         was away) and PC-TEXT-TABLE, 25 texts in 6 languages (en, pt, es, fr, jp, cn).
+           *> Result: WS-LANG = the code saved now ("en" when unset or unknown); WS-LANG-IX = 1 to
+           *>         6; PC-TEXT-NOW (the T-... names) = the 25 texts in that language. Captions
+           *>         rewritten: Lbl-Title, Btn-KbFolder, Btn-Providers, Btn-ModelSel, Btn-Agents,
+           *>         Lbl-Models, Btn-Export, Btn-Import, Lbl-Status.
+
            CALL    "PC-TEXTS"
+
+           *> PC-REFRESH: brings the summaries of the pane up to date: the Knowledge Base folder,
+           *> the model list and what each of the four group buttons holds.
+           *> Uses:   the setting KB-LOCATION, MODELS-FILE and the agent settings as they are now,
+           *>         and the texts PC-TEXTS has just loaded. It also reads the application's model
+           *>         list and the key store.
+           *> Result: INVOKE super::"PC-REFRESH"() asks CHAT-FORM, the main form that owns the menu,
+           *>         to run its PC-REFRESH. The call returns at once (fire-and-forget): the chat
+           *>         runs it when its event loop is next idle, handing its agents their connections
+           *>         and the Knowledge Base folder again, reloading the topic (a blank conversation
+           *>         if it changed to another topic) and rebuilding the conversation list, menu
+           *>         rows and status line. Here: Lbl-KbSum, Lst-Models, Lbl-ProvSum, Lbl-ModelSum
+           *>         and Lbl-AgentSum are rebuilt; WS-MODEL-COUNT and WS-WITH-MODEL are recomputed.
+           *>         With no connection, Btn-ModelSel and Btn-Agents are disabled and their
+           *>         summaries say so; otherwise they are enabled. MODELS-FILE is first mirrored
+           *>         from the application's model list (PC-SYNC-MODELS): records may be added,
+           *>         updated or deleted.
+
            CALL    "PC-REFRESH"
 ]]></Event>
     <Event name="onClose" paragraph="SETTINGS-FORM--ONCLOSE">
@@ -1142,6 +1365,21 @@
            *>   The Knowledge Base folder in its own dialog; the summary is read again after.
 
            INVOKE    ME::OpenFormSync("KB-FOLDER-FORM")
+
+           *> PC-REFRESH: brings the summaries of the pane up to date: the Knowledge Base folder,
+           *> the model list and what each of the four group buttons holds.
+           *> Uses:   the setting KB-LOCATION, which the Knowledge Base folder dialog
+           *>         (KB-FOLDER-FORM, modal, closed just above) may have just saved, and the
+           *>         connections and agents as before. It also reads the application's model list
+           *>         and the key store.
+           *> Result: It also asks CHAT-FORM, with INVOKE super::"PC-REFRESH"(), to run its own
+           *>         PC-REFRESH (fire-and-forget: the chat runs it when its event loop is next
+           *>         idle), so the chat follows the change. Lbl-KbSum::Caption = the folder now
+           *>         saved ("assets/KB" if none), which the chat takes over as its Knowledge Base
+           *>         location; the other summaries and Lst-Models are rebuilt as well. MODELS-FILE
+           *>         is first mirrored from the application's model list (PC-SYNC-MODELS): records
+           *>         may be added, updated or deleted.
+
            CALL    "PC-REFRESH"
 ]]></Event>
   </Control>
@@ -1230,6 +1468,21 @@
            *>   The connections: provider, address and key in its own dialog; the summary is read again after.
 
            INVOKE    ME::OpenFormSync("PROVIDERS-FORM")
+
+           *> PC-REFRESH: brings the summaries of the pane up to date: the Knowledge Base folder,
+           *> the model list and what each of the four group buttons holds.
+           *> Uses:   the connections in MODELS-FILE, which the Model providers dialog
+           *>         (PROVIDERS-FORM, modal, closed just above) may have added, changed or deleted,
+           *>         and the agent settings it clears for a deleted connection. It also reads the
+           *>         application's model list and the key store.
+           *> Result: It also asks CHAT-FORM, with INVOKE super::"PC-REFRESH"(), to run its own
+           *>         PC-REFRESH (fire-and-forget: the chat runs it when its event loop is next
+           *>         idle), so the chat follows the change. Lst-Models, Lbl-ProvSum, Lbl-ModelSum
+           *>         and Lbl-AgentSum show the connections as they are now; Btn-ModelSel and
+           *>         Btn-Agents are enabled only while at least one connection exists. MODELS-FILE
+           *>         is first mirrored from the application's model list (PC-SYNC-MODELS): records
+           *>         may be added, updated or deleted.
+
            CALL    "PC-REFRESH"
 ]]></Event>
   </Control>
@@ -1323,6 +1576,20 @@
                EXIT PROGRAM
            END-IF
            INVOKE    ME::OpenFormSync("MODEL-FORM")
+
+           *> PC-REFRESH: brings the summaries of the pane up to date: the Knowledge Base folder,
+           *> the model list and what each of the four group buttons holds.
+           *> Uses:   the model, rank and tools flag that the Model selection dialog (MODEL-FORM,
+           *>         modal, closed just above) may have saved onto a connection in MODELS-FILE. It
+           *>         also reads the application's model list and the key store.
+           *> Result: It also asks CHAT-FORM, with INVOKE super::"PC-REFRESH"(), to run its own
+           *>         PC-REFRESH (fire-and-forget: the chat runs it when its event loop is next
+           *>         idle), so the chat follows the change. Lst-Models rows show the new model,
+           *>         rank and tools tag; Lbl-ModelSum = how many connections now have a model; the
+           *>         other summaries are rebuilt too. MODELS-FILE is first mirrored from the
+           *>         application's model list (PC-SYNC-MODELS): records may be added, updated or
+           *>         deleted.
+
            CALL    "PC-REFRESH"
 ]]></Event>
   </Control>
@@ -1416,6 +1683,20 @@
                EXIT PROGRAM
            END-IF
            INVOKE    ME::OpenFormSync("AGENTS-FORM")
+
+           *> PC-REFRESH: brings the summaries of the pane up to date: the Knowledge Base folder,
+           *> the model list and what each of the four group buttons holds.
+           *> Uses:   the settings AGENT-1-ENTRY to AGENT-3-ENTRY, which the Agents dialog
+           *>         (AGENTS-FORM, modal, closed just above) may have saved. It also reads the
+           *>         application's model list and the key store.
+           *> Result: It also asks CHAT-FORM, with INVOKE super::"PC-REFRESH"(), to run its own
+           *>         PC-REFRESH (fire-and-forget: the chat runs it when its event loop is next
+           *>         idle), so the chat follows the change. Lbl-AgentSum = how many of the three
+           *>         agents are on; the [agent n] tags in Lst-Models follow the new choice; the
+           *>         other summaries are rebuilt too. MODELS-FILE is first mirrored from the
+           *>         application's model list (PC-SYNC-MODELS): records may be added, updated or
+           *>         deleted.
+
            CALL    "PC-REFRESH"
 ]]></Event>
   </Control>
@@ -1598,26 +1879,86 @@
            SET     WS-XROOT                      TO    "N"
            SET     WS-XLINE                      TO    '<?xml version="1.0" encoding="UTF-8"?>'
 
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XROOT = "N" (set above), so this is the first line; WS-XML-PATH = the file
+           *>         chosen in the save dialog; WS-XLINE = the XML declaration <?xml version="1.0"
+           *>         encoding="UTF-8"?>.
+           *> Result: The file at WS-XML-PATH exists and holds that one line (an old file is
+           *>         replaced); WS-XROOT = "Y". WS-LONG = SPACES when the write worked, otherwise
+           *>         the file system's error text, which the IF below tests.
+
            CALL    "PC-XML-PUT"
            IF    WS-LONG NOT = SPACES
                SET     WS-FMT                    TO    T-FILE-UNWRITABLE
                SET     WS-ARG1                   TO    WS-XML-PATH
                SET     WS-ARG2                   TO    WS-LONG
 
+               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+               *> WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-FILE-UNWRITABLE ("Could not write &1: &2" in English); WS-ARG1
+               *>         = WS-XML-PATH, the file chosen, and WS-ARG2 = WS-LONG, the reason the
+               *>         write failed (each cut to its first 300 characters).
+               *> Result: WS-FMT-OUT = that text with the path and the reason; the next line shows
+               *>         it in Lbl-Status::Caption and the export stops.
+
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
            END-IF
            SET     WS-XLINE                      TO    '<rag-settings application="PowerChat" version="1">'
+
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XML-PATH; WS-XLINE = <rag-settings application="PowerChat" version="1">,
+           *>         the opening of the root element (set just above); WS-XROOT = "Y" now, so it is
+           *>         appended.
+           *> Result: The file gains that second line (WS-LONG = SPACES, or the error text if the
+           *>         write failed).
+
            CALL    "PC-XML-PUT"
            SET     WS-SET-NAME                   TO    "KB-LOCATION"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "KB-LOCATION" (set just above): the Knowledge Base folder.
+           *> Result: WS-SET-VALUE = the folder saved, or SPACES when none was (no default is
+           *>         applied here); the next line copies it to WS-XIN.
+
            CALL    "PC-SETTING-GET"
            SET     WS-XIN                        TO    WS-SET-VALUE
+
+           *> PC-XML-ESC: turns WS-XIN into text that is safe inside an XML attribute: & < > " and '
+           *> become &amp; &lt; &gt; &quot; &apos;.
+           *> Uses:   WS-XIN = the Knowledge Base folder (WS-SET-VALUE, copied there just above).
+           *> Result: WS-XOUT = that folder with the five characters escaped (SPACES when WS-XIN is
+           *>         blank; cut at 600 characters); the <knowledge-base> line is built from it
+           *>         next.
+
            CALL    "PC-XML-ESC"
            SET     WS-XLINE                      TO    SPACES
            STRING    '  <knowledge-base folder="' WS-XOUT::Trim() '"/>' INTO WS-XLINE
+
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XLINE = the <knowledge-base folder="..."/> line built just above from
+           *>         WS-XOUT; WS-XML-PATH. WS-XROOT = "Y" (the file is already started: the line is
+           *>         appended).
+           *> Result: The file gains that line (WS-LONG = SPACES, or the error text if the write
+           *>         failed).
+
            CALL    "PC-XML-PUT"
            SET     WS-XLINE                      TO    '  <models>'
+
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XLINE = "  <models>", the line that opens the list of models (set just
+           *>         above); WS-XML-PATH. WS-XROOT = "Y" (the file is already started: the line is
+           *>         appended).
+           *> Result: The file gains that line (WS-LONG = SPACES, or the error text if the write
+           *>         failed).
+
            CALL    "PC-XML-PUT"
            OPEN    INPUT MODELS-FILE
            IF    WS-FS = "00"
@@ -1636,20 +1977,64 @@
 
                            STRING    '    <model' INTO WS-XLINE WITH POINTER WS-P
                            SET     WS-XIN        TO    MDL-NAME
+
+                           *> PC-XML-ESC: turns WS-XIN into text that is safe inside an XML
+                           *> attribute: & < > " and ' become &amp; &lt; &gt; &quot; &apos;.
+                           *> Uses:   WS-XIN = MDL-NAME, the name of the connection being exported
+                           *>         (set just above).
+                           *> Result: WS-XOUT = the name escaped; the next line puts it in the
+                           *>         name="..." attribute of the <model> line being built in
+                           *>         WS-XLINE.
+
                            CALL    "PC-XML-ESC"
                            STRING    ' name="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            SET     WS-XIN        TO    MDL-API
+
+                           *> PC-XML-ESC: turns WS-XIN into text that is safe inside an XML
+                           *> attribute: & < > " and ' become &amp; &lt; &gt; &quot; &apos;.
+                           *> Uses:   WS-XIN = MDL-API, the provider id of the connection (set just
+                           *>         above).
+                           *> Result: WS-XOUT = the provider id escaped; the next line puts it in
+                           *>         the provider="..." attribute.
+
                            CALL    "PC-XML-ESC"
                            STRING    ' provider="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            SET     WS-XIN        TO    MDL-URL
+
+                           *> PC-XML-ESC: turns WS-XIN into text that is safe inside an XML
+                           *> attribute: & < > " and ' become &amp; &lt; &gt; &quot; &apos;.
+                           *> Uses:   WS-XIN = MDL-URL, the endpoint of the connection (set just
+                           *>         above).
+                           *> Result: WS-XOUT = the endpoint escaped (cut at 600 characters); the
+                           *>         next line puts it in the endpoint="..." attribute.
+
                            CALL    "PC-XML-ESC"
                            STRING    ' endpoint="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            SET     WS-XIN        TO    MDL-MODEL
+
+                           *> PC-XML-ESC: turns WS-XIN into text that is safe inside an XML
+                           *> attribute: & < > " and ' become &amp; &lt; &gt; &quot; &apos;.
+                           *> Uses:   WS-XIN = MDL-MODEL, the model chosen for the connection (set
+                           *>         just above).
+                           *> Result: WS-XOUT = the model name escaped; the next line puts it in the
+                           *>         model="..." attribute.
+
                            CALL    "PC-XML-ESC"
 
                            STRING    ' model="' WS-XOUT::Trim() '"' INTO WS-XLINE WITH POINTER WS-P
                            STRING    ' tools="' MDL-TOOLS '" rank="' MDL-RANK '"/>'
                                DELIMITED BY SIZE INTO WS-XLINE WITH POINTER WS-P
+
+                           *> PC-XML-PUT: appends WS-XLINE as one line to the export file
+                           *> WS-XML-PATH (the first line, with WS-XROOT = "N", starts the file anew
+                           *> instead).
+                           *> Uses:   WS-XLINE = the <model name=... provider=... endpoint=...
+                           *>         model=... tools=... rank=.../> line of the connection just
+                           *>         read, built above; WS-XML-PATH. The API key is never part of
+                           *>         it. WS-XROOT = "Y" (the file is already started: the line is
+                           *>         appended).
+                           *> Result: The file gains that line (WS-LONG = SPACES, or the error text
+                           *>         if the write failed).
 
                            CALL    "PC-XML-PUT"
                    END-READ
@@ -1657,27 +2042,95 @@
                CLOSE    MODELS-FILE
            END-IF
            SET     WS-XLINE                      TO    '  </models>'
+
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XLINE = "  </models>", which closes the list of models (set just above);
+           *>         WS-XML-PATH. WS-XROOT = "Y" (the file is already started: the line is
+           *>         appended).
+           *> Result: The file gains that line (WS-LONG = SPACES, or the error text if the write
+           *>         failed).
+
            CALL    "PC-XML-PUT"
            SET     WS-XLINE                      TO    '  <agents>'
 
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XLINE = "  <agents>", the line that opens the list of agents (set just
+           *>         above); WS-XML-PATH. WS-XROOT = "Y" (the file is already started: the line is
+           *>         appended).
+           *> Result: The file gains that line (WS-LONG = SPACES, or the error text if the write
+           *>         failed).
+
            CALL    "PC-XML-PUT"
+
+           *> PC-LOAD-AGENTS: reads which connection each of the chat's three agents uses.
+           *> Uses:   the settings AGENT-1-ENTRY, AGENT-2-ENTRY and AGENT-3-ENTRY, and MODEL-ENTRY
+           *>         as the fallback of agent 1 only.
+           *> Result: WS-AGENT-ENTRY(1) to WS-AGENT-ENTRY(3) = the connection name of each agent,
+           *>         SPACES for an agent that has none; the loop below writes them to the export
+           *>         file.
+
            CALL    "PC-LOAD-AGENTS"
 
            PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                SET     WS-XIN                    TO    WS-AGENT-ENTRY(WS-A)
+
+               *> PC-XML-ESC: turns WS-XIN into text that is safe inside an XML attribute: & < > "
+               *> and ' become &amp; &lt; &gt; &quot; &apos;.
+               *> Uses:   WS-XIN = WS-AGENT-ENTRY(WS-A), the connection agent WS-A uses (set just
+               *>         above).
+               *> Result: WS-XOUT = that name escaped, for the model="..." attribute of the <agent>
+               *>         line built next.
+
                CALL    "PC-XML-ESC"
                SET     WS-XLINE                  TO    SPACES
                STRING    '    <agent number="' WS-A '" model="' WS-XOUT::Trim() '"/>'
                    DELIMITED BY SIZE INTO WS-XLINE
+
+               *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+               *> line, with WS-XROOT = "N", starts the file anew instead).
+               *> Uses:   WS-XLINE = the <agent number="n" model="..."/> line for agent WS-A (n =
+               *>         WS-A, 1 to 3), built just above; WS-XML-PATH. WS-XROOT = "Y" (the file is
+               *>         already started: the line is appended).
+               *> Result: The file gains that line (WS-LONG = SPACES, or the error text if the write
+               *>         failed).
+
                CALL    "PC-XML-PUT"
            END-PERFORM
            SET     WS-XLINE                      TO    '  </agents>'
+
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XLINE = "  </agents>", which closes the list of agents (set just above);
+           *>         WS-XML-PATH. WS-XROOT = "Y" (the file is already started: the line is
+           *>         appended).
+           *> Result: The file gains that line (WS-LONG = SPACES, or the error text if the write
+           *>         failed).
+
            CALL    "PC-XML-PUT"
            SET     WS-XLINE                      TO    '</rag-settings>'
+
+           *> PC-XML-PUT: appends WS-XLINE as one line to the export file WS-XML-PATH (the first
+           *> line, with WS-XROOT = "N", starts the file anew instead).
+           *> Uses:   WS-XLINE = "</rag-settings>", which closes the root element (set just above);
+           *>         WS-XML-PATH. WS-XROOT = "Y" (the file is already started: the line is
+           *>         appended).
+           *> Result: The file gains the last line of the export (WS-LONG = SPACES, or the error
+           *>         text if the write failed).
+
            CALL    "PC-XML-PUT"
 
            SET     WS-FMT                        TO    T-EXPORTED
            SET     WS-ARG1                       TO    WS-XML-PATH
+
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-EXPORTED ("Settings exported to &1 (API keys are never exported)."
+           *>         in English); WS-ARG1 = WS-XML-PATH, the file written (its first 300
+           *>         characters).
+           *> Result: WS-FMT-OUT = that text with the path; the next line shows it in
+           *>         Lbl-Status::Caption.
 
            CALL    "PC-FMT"
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
@@ -1769,6 +2222,16 @@
                                CONTINUE
                            WHEN WS-XLINE(1:15) = "<knowledge-base"
                                SET     WS-XNAME  TO    "folder"
+
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <knowledge-base .../> line just read
+                               *>         (trimmed); WS-XNAME = "folder" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The IF below saves it when it is not blank.
+
                                CALL    "PC-XML-ATTR"
                                IF    WS-XVAL NOT = SPACES
                                    SET     WS-SET-NAME
@@ -1777,36 +2240,108 @@
                                    SET     WS-SET-VALUE
                                                  TO    WS-XVAL
 
+                                   *> PC-SETTING-PUT: stores one setting in the settings file
+                                   *> (indexed, settings.idx in the data folder): inserts the record
+                                   *> or replaces it, and commits at once. A missing file is created
+                                   *> empty first.
+                                   *> Uses:   WS-SET-NAME = "KB-LOCATION" and WS-SET-VALUE =
+                                   *>         WS-XVAL, the folder read from the file (its first 200
+                                   *>         characters; both set just above).
+                                   *> Result: The setting KB-LOCATION now holds the imported folder,
+                                   *>         committed. The record area (SET-NAME, SET-VALUE) and
+                                   *>         WS-FS are overwritten; WS-SET-NAME and WS-SET-VALUE
+                                   *>         are not changed.
+
                                    CALL    "PC-SETTING-PUT"
                                END-IF
                            WHEN WS-XLINE(1:7) = "<model "
                                SET     MODEL-REC TO    SPACES
                                SET     WS-XNAME  TO    "name"
 
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <model .../> line just read (trimmed);
+                               *>         WS-XNAME = "name" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The next line copies its first 30 characters
+                               *>         to MDL-NAME, the key of the new record.
+
                                CALL    "PC-XML-ATTR"
 
                                SET     MDL-NAME  TO    WS-XVAL
                                SET     WS-XNAME  TO    "provider"
+
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <model .../> line just read; WS-XNAME =
+                               *>         "provider" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The next line copies its first 12 characters
+                               *>         to MDL-API, the provider id.
 
                                CALL    "PC-XML-ATTR"
 
                                SET     MDL-API   TO    WS-XVAL
                                SET     WS-XNAME  TO    "endpoint"
 
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <model .../> line just read; WS-XNAME =
+                               *>         "endpoint" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The next line copies its first 200 characters
+                               *>         to MDL-URL.
+
                                CALL    "PC-XML-ATTR"
 
                                SET     MDL-URL   TO    WS-XVAL
                                SET     WS-XNAME  TO    "model"
+
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <model .../> line just read; WS-XNAME =
+                               *>         "model" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The next line copies its first 80 characters
+                               *>         to MDL-MODEL.
 
                                CALL    "PC-XML-ATTR"
 
                                SET     MDL-MODEL TO    WS-XVAL
                                SET     WS-XNAME  TO    "tools"
 
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <model .../> line just read; WS-XNAME =
+                               *>         "tools" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The next line copies its first character to
+                               *>         MDL-TOOLS.
+
                                CALL    "PC-XML-ATTR"
 
                                SET     MDL-TOOLS TO    WS-XVAL(1:1)
                                SET     WS-XNAME  TO    "rank"
+
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <model .../> line just read; WS-XNAME =
+                               *>         "rank" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The IF below sets MDL-RANK to its first
+                               *>         character when that is a digit, otherwise to 5.
 
                                CALL    "PC-XML-ATTR"
                                IF    WS-XVAL(1:1) IS NUMERIC
@@ -1817,6 +2352,17 @@
                                                  TO    5
                                END-IF
                                SET     WS-XNAME  TO    "key"
+
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <model .../> line just read; WS-XNAME =
+                               *>         "key" (set just above): the API key the export never
+                               *>         writes but a hand-edited file may carry.
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The next line copies it to WS-KEY.
+
                                CALL    "PC-XML-ATTR"
                                SET     WS-KEY    TO    WS-XVAL
                                IF    MDL-NAME NOT = SPACES
@@ -1838,6 +2384,19 @@
                                    SET     WS-PROV-ID
                                                  TO    MDL-API
 
+                                   *> PC-PROVIDER-LABEL: finds a provider in the IDE's provider list
+                                   *> by its id (any case) and loads its label, default endpoint and
+                                   *> whether it needs an API key.
+                                   *> Uses:   WS-PROV-ID = MDL-API of the model just stored (set
+                                   *>         above) and WS-PROV-COUNT, the number of providers.
+                                   *> Result: WS-PROV-NEEDS = "Y" or "N": whether that provider
+                                   *>         needs an API key (the lines below add the model to
+                                   *>         WS-NEED-KEYS when it does and none is stored).
+                                   *>         WS-PROV-IX (0 = unknown), WS-PROV-ID, WS-PROV-LABEL
+                                   *>         and WS-PROV-EP are set too. It also overwrites WS-XVAL
+                                   *>         and WS-XNAME (the import's XML scratch items, set
+                                   *>         again before their next use) and WS-P.
+
                                    CALL    "PC-PROVIDER-LABEL"
                                    COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
                                    IF    WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
@@ -1858,10 +2417,31 @@
                                END-IF
                            WHEN WS-XLINE(1:7) = "<agent "
                                SET     WS-XNAME  TO    "number"
+
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <agent .../> line just read; WS-XNAME =
+                               *>         "number" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. The next line copies its first character to
+                               *>         WS-AGENT.
+
                                CALL    "PC-XML-ATTR"
 
                                SET     WS-AGENT  TO    WS-XVAL(1:1)
                                SET     WS-XNAME  TO    "model"
+
+                               *> PC-XML-ATTR: finds the attribute named in WS-XNAME on the XML line
+                               *> in WS-XLINE and returns its value with the entities (&amp; &lt;
+                               *> &gt; &quot; &apos;) turned back into characters.
+                               *> Uses:   WS-XLINE = the <agent .../> line just read; WS-XNAME =
+                               *>         "model" (set just above).
+                               *> Result: WS-XVAL = the value (at most 300 characters), SPACES when
+                               *>         the line has no such attribute; WS-XFOUND = "Y" or "N"
+                               *>         accordingly. It is the connection that agent uses; the IF
+                               *>         below stores it when WS-AGENT is 1, 2 or 3.
 
                                CALL    "PC-XML-ATTR"
                                IF    WS-AGENT = "1" OR WS-AGENT = "2" OR WS-AGENT = "3"
@@ -1872,6 +2452,20 @@
                                        INTO WS-SET-NAME
                                    SET     WS-SET-VALUE
                                                  TO    WS-XVAL
+
+                                   *> PC-SETTING-PUT: stores one setting in the settings file
+                                   *> (indexed, settings.idx in the data folder): inserts the record
+                                   *> or replaces it, and commits at once. A missing file is created
+                                   *> empty first.
+                                   *> Uses:   WS-SET-NAME = "AGENT-n-ENTRY" with n = WS-AGENT (1 to
+                                   *>         3), built just above, and WS-SET-VALUE = WS-XVAL, the
+                                   *>         connection name read from the file (its first 200
+                                   *>         characters).
+                                   *> Result: The setting AGENT-n-ENTRY now holds that connection
+                                   *>         name, committed: the agent uses the imported
+                                   *>         connection. The record area (SET-NAME, SET-VALUE) and
+                                   *>         WS-FS are overwritten; WS-SET-NAME and WS-SET-VALUE
+                                   *>         are not changed.
 
                                    CALL    "PC-SETTING-PUT"
                                END-IF
@@ -1887,17 +2481,44 @@
                SET     Lbl-Status::Caption       TO    T-NOT-RAG-FILE::Trim()
                EXIT PROGRAM
            END-IF
+
+           *> PC-REFRESH: brings the summaries of the pane up to date: the Knowledge Base folder,
+           *> the model list and what each of the four group buttons holds.
+           *> Uses:   the settings, MODELS-FILE and the agent settings as the import has just left
+           *>         them. It also reads the application's model list and the key store.
+           *> Result: It also asks CHAT-FORM, with INVOKE super::"PC-REFRESH"(), to run its own
+           *>         PC-REFRESH (fire-and-forget: the chat runs it when its event loop is next
+           *>         idle), so the chat follows the change. The summaries and Lst-Models show the
+           *>         imported folder, models and agents; Btn-ModelSel and Btn-Agents follow the
+           *>         number of connections. MODELS-FILE is first mirrored from the application's
+           *>         model list (PC-SYNC-MODELS): records may be added, updated or deleted.
+
            CALL    "PC-REFRESH"
 
            SET     WS-FMT                        TO    T-IMPORTED
            SET     WS-NE                         TO    WS-IMPORTED
            SET     WS-ARG1                       TO    WS-NE
 
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-IMPORTED ("&1 models imported." in English); WS-ARG1 = WS-NE,
+           *>         WS-IMPORTED edited (set just above).
+           *> Result: WS-FMT-OUT = that text with &1 replaced by the number of models imported; the
+           *>         next line copies it to WS-LONG (600 characters).
+
            CALL    "PC-FMT"
            SET     WS-LONG                       TO    WS-FMT-OUT
            IF    WS-NEED-KEYS NOT = SPACES
                SET     WS-FMT                    TO    T-IMPORT-KEYS
                SET     WS-ARG1                   TO    WS-NEED-KEYS
+
+               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+               *> WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-IMPORT-KEYS ("Set the API key of: &1" in English); WS-ARG1 =
+               *>         WS-NEED-KEYS, the comma-separated names of the imported connections that
+               *>         need a key and have none (its first 300 characters).
+               *> Result: WS-FMT-OUT = that text with the names; the lines below append it to
+               *>         WS-LONG (600 characters), the status shown in Lbl-Status::Caption.
 
                CALL    "PC-FMT"
 
@@ -1987,8 +2608,25 @@
            *>   A flag in the chat's menu changes the language while this form is
            *>   on the pane; nothing tells a pane occupant, so it looks (R46).
 
+           *> PC-LANG-NOW: reads the language saved now (setting LANG) without creating anything.
+           *> Uses:   SETTINGS-FILE, opened for input, record "LANG"; polled by the timer Tmr-Lang
+           *>         every second (Interval 1000).
+           *> Result: WS-LANG-NOW = "pt", "es", "fr", "jp" or "cn" as saved, otherwise "en" (unset,
+           *>         "en", unknown or a file that cannot be opened). The IF below compares it with
+           *>         WS-LANG, the language of the texts on screen.
+
            CALL    "PC-LANG-NOW"
            IF    WS-LANG-NOW NOT = WS-LANG
+
+               *> SETTINGS-FORM--ONACTIVATE: the form's own onActivate event: reloads the texts and
+               *> the summaries.
+               *> Uses:   the setting LANG (through PC-TEXTS) and the settings, MODELS-FILE and
+               *>         agent settings (through PC-REFRESH). It runs because WS-LANG-NOW differs
+               *>         from WS-LANG (the IF just above).
+               *> Result: PC-TEXTS sets WS-LANG to the language saved now and rewrites the captions
+               *>         in it; PC-REFRESH redraws the summaries and Lst-Models. WS-LANG then
+               *>         equals WS-LANG-NOW, so the next tick finds no change.
+
                CALL    "SETTINGS-FORM--ONACTIVATE"
            END-IF
 ]]></Event>

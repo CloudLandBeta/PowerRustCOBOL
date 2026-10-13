@@ -250,6 +250,15 @@
            *>   designed caption and hint that shows one (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the saved language code (PC-TEXTS reads its first two
+           *>         characters), or SPACES when it was never saved. WS-SET-NAME is unchanged;
+           *>         WS-FS and the record area SETTINGS-REC are overwritten.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            EVALUATE    WS-LANG
@@ -333,6 +342,18 @@
            IF    WS-SET-VALUE = SPACES
                SET     WS-SET-VALUE              TO    "assets/KB"
            END-IF
+
+           *> PC-SETTING-PUT: writes one setting to SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx): the record is added, or its value replaced when the name
+           *> is already there, and committed at once.
+           *> Uses:   WS-SET-NAME = "KB-LOCATION" and WS-SET-VALUE = Txt-KbLocation::Text, the
+           *>         folder the user typed, or "assets/KB" when it was blank (both set just above).
+           *> Result: The record KB-LOCATION of SETTINGS-FILE = WS-SET-VALUE: written, or rewritten
+           *>         when it existed, and committed (the file is created first when missing).
+           *>         DOCUMENTS-FORM reads it back as the Knowledge Base folder. WS-SET-NAME and
+           *>         WS-SET-VALUE keep their values; WS-FS and the record area SETTINGS-REC are
+           *>         overwritten.
+
            CALL    "PC-SETTING-PUT"
            SET     Lbl-Status::Caption           TO    T-KB-FOLDER-SAVED::Trim()
            INVOKE    ME::Close()
@@ -354,10 +375,38 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PATHS: sets the paths of the two indexed files PowerChat reads here.
+           *> Uses:   The environment variable POWERCHAT_DATA.
+           *> Result: WS-DATA-DIR = $POWERCHAT_DATA, or "data" when that is empty; WS-SETTINGS-PATH
+           *>         = <WS-DATA-DIR>/settings.idx and WS-MODELS-PATH = <WS-DATA-DIR>/models.idx. No
+           *>         file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the form's texts in the language the user picked and sets every
+           *> designed caption and tooltip that shows one.
+           *> Uses:   The LANG setting in the settings file whose path PC-PATHS just set
+           *>         (WS-SETTINGS-PATH), and PC-TEXT (9 texts x 6 languages en pt es fr jp cn).
+           *> Result: WS-LANG = the saved code ("en" when unset or unknown), WS-LANG-IX = its column
+           *>         1-6, PC-TEXT-NOW(1..9) (the T-... names) = that column; the title, label, Save
+           *>         / Cancel captions of both button rows, Lbl-Status::Caption = T-STATUS and the
+           *>         two tooltips are set in that language. WS-SET-NAME = "LANG" and WS-SET-VALUE
+           *>         hold the lookup. WS-TX-I and WS-FS are overwritten.
+
            CALL    "PC-TEXTS"
 
            SET     WS-SET-NAME                   TO    "KB-LOCATION"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "KB-LOCATION" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the Knowledge Base folder saved before, or SPACES; the next
+           *>         lines fall back to "assets/KB" and show it in Txt-KbLocation::Text.
+           *>         WS-SET-NAME is unchanged; WS-FS and the record area SETTINGS-REC are
+           *>         overwritten.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE = SPACES
                SET     WS-SET-VALUE              TO    "assets/KB"
@@ -627,6 +676,12 @@
        PROCEDURE DIVISION.
            *>   The same code as the Cancel button at the top.
 
+           *> PC-CANCEL: closes the dialog without saving anything (here: the Cancel button at the
+           *> bottom was pressed).
+           *> Uses:   No data item is read.
+           *> Result: The dialog closes (ME::Close()); the settings file is not touched. No data
+           *>         item changes.
+
            CALL    "PC-CANCEL"
 ]]></Event>
   </Control>
@@ -677,6 +732,13 @@
        PROCEDURE DIVISION.
            *>   The same code as the Save button at the top.
 
+           *> PC-SAVE: saves the Knowledge Base folder typed in Txt-KbLocation as the KB-LOCATION
+           *> setting and closes the dialog.
+           *> Uses:   Txt-KbLocation::Text, the folder the user typed (or left as loaded).
+           *> Result: SETTINGS-FILE holds KB-LOCATION = the typed folder, or "assets/KB" when the
+           *>         field was blank (WS-SET-NAME and WS-SET-VALUE carry it to PC-SETTING-PUT);
+           *>         Lbl-Status::Caption = T-KB-FOLDER-SAVED; the dialog closes.
+
            CALL    "PC-SAVE"
 ]]></Event>
   </Control>
@@ -723,6 +785,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-CANCEL: closes the dialog without saving anything (here: the Cancel button at the
+           *> top was pressed).
+           *> Uses:   No data item is read.
+           *> Result: The dialog closes (ME::Close()); the settings file is not touched. No data
+           *>         item changes.
+
            CALL    "PC-CANCEL"
 ]]></Event>
   </Control>
@@ -769,6 +838,14 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE: saves the Knowledge Base folder typed in Txt-KbLocation as the KB-LOCATION
+           *> setting and closes the dialog.
+           *> Uses:   Txt-KbLocation::Text, the folder the user typed (or left as loaded).
+           *> Result: SETTINGS-FILE holds KB-LOCATION = the typed folder, or "assets/KB" when the
+           *>         field was blank (WS-SET-NAME and WS-SET-VALUE carry it to PC-SETTING-PUT);
+           *>         Lbl-Status::Caption = T-KB-FOLDER-SAVED; the dialog closes.
+
            CALL    "PC-SAVE"
 ]]></Event>
   </Control>

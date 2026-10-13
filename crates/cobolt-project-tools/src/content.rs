@@ -246,7 +246,7 @@ pub fn server_instructions(version: &str) -> String {
 
 /// The golden rules for every application a coding agent builds (operator,
 /// 2026-10-03): `(id, rule)`, in the order they are told.
-pub const APPLICATION_RULES: [(&str, &str); 11] = [
+pub const APPLICATION_RULES: [(&str, &str); 12] = [
     (
         "responsive",
         "Responsive. Every form is responsive (`responsive=\"true\"`) and holds together at any screen \
@@ -399,6 +399,31 @@ pub const APPLICATION_RULES: [(&str, &str); 11] = [
          \x20      SETTING-VIEWER.\n\
          \x20          Txt-Log::AppendText(\"Viewer demo ready.\")\n\
          \x20          Txt-Log::AppendText(WS-NL).\n",
+    ),
+    (
+        "call-comments",
+        "Comment every CALL to a procedure (operator, 2026-10-12) — in every piece of COBOL you write: handlers, \
+         Common Code, examples. Directly above each `CALL \"NAME\"` — a procedure of the form, or a Common Code \
+         program — put a `*>` block of three parts: the first line names the procedure and says what it is about \
+         to do; `Uses:` lists the data items and control properties it reads, with the value each holds at that \
+         call when the lines above set it; `Result:` lists the data items, control properties and files it leaves \
+         changed, and how (`No data item changes.` when there is none). Take all of it from the procedure's own \
+         logic: read the procedure first, and write only what you verified. Make the block specific to the call — \
+         one procedure called from five places gets five blocks, each naming that call's items and values. An \
+         inline built-in, `COBOL::\"NAME\" ( … )`, is not a CALL to a procedure and needs no block; a CALL written \
+         after `WHEN` or `NOT INVALID KEY` on its line is commented by a block above that line. Lay the block out \
+         as any comment block: in the CALL's column, a blank line before it and a blank line after it, at most \
+         100 columns, and never `]]>` (it would end the form's CDATA). A comment that is already there stays \
+         exactly as it is: add the block between it and the CALL. The model:\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20          SET     WS-SET-NAME                   TO    \"LANG\"\n\
+         \n\
+         \x20          *> PS-SETTING-GET: reads one setting from the settings file by its name; it changes none.\n\
+         \x20          *> Uses:   WS-SET-NAME = \"LANG\" (set just above; it is the record key) and the file.\n\
+         \x20          *> Result: WS-SET-VALUE = the saved language code (\"pt\", \"es\", ...), or SPACES when\n\
+         \x20          *>         the setting was never kept or the file cannot be opened.\n\
+         \n\
+         \x20          CALL    \"PS-SETTING-GET\" USING WS-SET-NAME WS-SET-VALUE.\n",
     ),
     (
         "powerchat",
@@ -1042,6 +1067,10 @@ fn reviewer() -> Reviewer {
                complex code, in the code's column and followed by a blank line; 4-space indent; \
                `TO` in column 50; SET preferred to MOVE; method calls without `INVOKE`; periods \
                only where needed, every other verb closed with its END-<verb>."),
+            s("Every `CALL \"NAME\"` to a procedure has, directly above it, the comment block of the \
+               call-comments rule: the procedure's name and what it does, `Uses:` and `Result:`. Read \
+               the procedure and reject a block that says something it does not do, and a block \
+               pasted from another call whose items differ."),
             s("Every new handler is bound by an `<Event>` element in its control; form-level data a \
                handler uses is `GLOBAL`, and so is the `FD` of a file it reads."),
             s("Exactly one form carries `main-form=\"true\"`; every control inside a container names \

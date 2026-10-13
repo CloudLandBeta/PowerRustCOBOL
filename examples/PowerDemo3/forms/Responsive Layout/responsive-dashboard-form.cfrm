@@ -141,7 +141,22 @@
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
 
+           *> DSH-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint, as declared in the form: Compact, Medium, Expanded) and
+           *>         WS-FSC (me::FontScale), copied just above as the form loads.
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
+
            CALL    "DSH-SHOW-INFO"
+
+           *> DSH-CHARTS: loads the sample data into the three charts.
+           *> Uses:   No data item: the labels and values are literals in the procedure.
+           *> Result: DB-BAR (bar chart) is cleared and gets Mon 182, Tue 214, Wed 199, Thu 241, Fri
+           *>         276, Sat 133; DB-LINE (line chart) is cleared and gets W1 31, W2 35, W3 33, W4
+           *>         41, W5 44, W6 40, W7 47, W8 52; DB-PIE (pie chart) is cleared and gets Shop
+           *>         46, Web 38, Phone 16. No data item changes.
+
            CALL    "DSH-CHARTS"
 ]]></Event>
     <Event name="onClose" paragraph="RESPONSIVE-DASHBOARD-FORM--ONCLOSE">
@@ -158,6 +173,13 @@
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
 
+           *> DSH-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint, as declared in the form: Compact, Medium, Expanded) and
+           *>         WS-FSC (me::FontScale), copied just above after the resize settled.
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
+
            CALL    "DSH-SHOW-INFO"
 ]]></Event>
     <Event name="onBreakpointChanged" paragraph="RESPONSIVE-DASHBOARD-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -171,6 +193,14 @@
            SET     WS-WIN-H                      TO    WS-NUM
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
+
+           *> DSH-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint, as declared in the form: Compact, Medium, Expanded) and
+           *>         WS-FSC (me::FontScale), copied just above after the window crossed into
+           *>         another breakpoint (WS-BP is the new one).
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
 
            CALL    "DSH-SHOW-INFO"
 ]]></Event>

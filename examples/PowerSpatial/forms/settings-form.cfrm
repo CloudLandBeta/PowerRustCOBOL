@@ -51,6 +51,14 @@
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PS-SETTING-GET: reads one setting from the settings file (indexed, data/settings.idx
+           *> or $POWERSPATIAL_DATA/settings.idx) by its name. It never writes a setting (the OPEN
+           *> only leaves an empty settings.idx.lck beside the file).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the file.
+           *> Result: WS-SET-VALUE = the saved language code ("pt", "es", ...), or SPACES when the
+           *>         setting was never kept or the file is missing or cannot be opened.
+
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
 
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
@@ -70,6 +78,17 @@
 
            IF    WS-NEW-IX NOT = WS-LANG-IX
                SET     WS-LANG-IX                TO    WS-NEW-IX
+
+               *> PS-APPLY-TEXT: writes the texts of the chosen language on this window and selects
+               *> it in the combo.
+               *> Uses:   WS-LANG-IX (just set to WS-NEW-IX, 1-6) as the PS-TEXT column.
+               *> Result: Lbl-Title::Caption = PS-TEXT row 1, Lbl-Language::Caption = row 2,
+               *>         Btn-Close::Caption = row 3 (trimmed); Cmb-Language::SelectedIndex =
+               *>         WS-LANG-IX, so the combo shows the language in use. No data item changes
+               *>         here. That write raises onSelectedIndexChanged (so PS-SAVE-LANGUAGE runs)
+               *>         only if the combo already holds a different index; the .cfrm designs none,
+               *>         so the first write (at load) and a write of the pick raise nothing.
+
                CALL    "PS-APPLY-TEXT"
            END-IF
 ]]></Event>
@@ -106,10 +125,29 @@
                WHEN OTHER MOVE "en" TO WS-SET-VALUE
            END-EVALUATE
 
+           *> PS-SETTING-PUT: keeps one setting in the settings file (indexed, data/settings.idx or
+           *> $POWERSPATIAL_DATA/settings.idx): written when new, rewritten when it was already
+           *> there. The file is made the first time a setting is kept.
+           *> Uses:   WS-SET-NAME = "LANG" (the record key) and WS-SET-VALUE = the code of the
+           *>         language picked ("en", "pt", "es", "fr", "jp" or "cn", chosen just above from
+           *>         WS-PICK).
+           *> Result: The record LANG in the file holds WS-SET-VALUE. No data item changes. If the
+           *>         file will not open, the setting is dropped without any sign.
+
            CALL    "PS-SETTING-PUT" USING WS-SET-NAME WS-SET-VALUE
 
            *> Re-read at once so this window follows now; the other windows catch
            *> up on their one-second Tmr-Lang tick.
+
+           *> PS-LANG-CHECK: reads the saved language back and, when it is not the one on screen,
+           *> applies its texts.
+           *> Uses:   The LANG setting just kept (read through PS-SETTING-GET) and WS-LANG-IX, the
+           *>         language on screen before the pick.
+           *> Result: WS-SET-NAME = "LANG"; WS-SET-VALUE = the code just kept; WS-NEW-IX = 1-6 for
+           *>         it. When WS-NEW-IX differs from WS-LANG-IX, WS-LANG-IX = WS-NEW-IX and
+           *>         PS-APPLY-TEXT sets the Lbl-Title, Lbl-Language and Btn-Close captions and
+           *>         Cmb-Language::SelectedIndex (a write of the index the combo already holds
+           *>         raises no event).
 
            CALL    "PS-LANG-CHECK"
 ]]></Event>
@@ -120,6 +158,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-LANG-CHECK: reads the saved language and, when it is not the one on screen, applies
+           *> its texts.
+           *> Uses:   The LANG setting in the settings file, WS-LANG-IX = 0 (its VALUE at load) and,
+           *>         for the captions, the PS-TEXT table.
+           *> Result: WS-SET-NAME = "LANG"; WS-SET-VALUE = the code read (SPACES if none); WS-NEW-IX
+           *>         = 1-6; WS-LANG-IX = WS-NEW-IX, so the first call always sets the captions and
+           *>         selects the saved language in Cmb-Language. The combo holds no SelectedIndex
+           *>         yet (the .cfrm designs none), so that write raises no onSelectedIndexChanged:
+           *>         PS-SAVE-LANGUAGE does not run and nothing is saved at load.
+
            CALL    "PS-LANG-CHECK"
 ]]></Event>
   </form-events>
@@ -163,6 +212,23 @@ Français
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-SAVE-LANGUAGE: keeps the language the operator picked in the combo and applies it
+           *> to this window.
+           *> Uses:   Cmb-Language::SelectedIndex = the entry picked by the operator (1 English, 2
+           *>         Portuguese, 3 Spanish, 4 French, 5 Japanese, 6 Chinese: the order of its
+           *>         Items). It can also run after PS-APPLY-TEXT writes a different index, which
+           *>         happens only if the saved language changed outside this window. PS-LANG-CHECK
+           *>         also reads the settings file and WS-LANG-IX.
+           *> Result: WS-PICK = that index; WS-SET-NAME = "LANG"; WS-SET-VALUE = "en", "pt", "es",
+           *>         "fr", "jp" or "cn". PS-SETTING-PUT keeps it in the settings file, then
+           *>         PS-LANG-CHECK reads it back: WS-NEW-IX = WS-PICK and, if that is a new
+           *>         language, WS-LANG-IX = WS-PICK and PS-APPLY-TEXT sets the three captions and
+           *>         Cmb-Language::SelectedIndex, so this window follows now. The other windows
+           *>         follow on their Tmr-Lang tick (within a second), except the one that opened
+           *>         this window (the rail or the main form): it is parked in OpenFormSync and
+           *>         follows when this window closes.
+
            CALL    "PS-SAVE-LANGUAGE"
 ]]></Event>
   </Control>
@@ -188,6 +254,16 @@ Français
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-LANG-CHECK: Tmr-Lang fires every 1000 ms; each tick re-reads the saved language.
+           *> Uses:   The LANG setting in the settings file, WS-LANG-IX (the language on screen)
+           *>         and, for the captions, the PS-TEXT table.
+           *> Result: Every tick: WS-SET-NAME = "LANG", WS-SET-VALUE = the code read (SPACES if
+           *>         none), WS-NEW-IX = 1-6. Only when WS-NEW-IX differs from WS-LANG-IX are
+           *>         WS-LANG-IX and the texts changed (PS-APPLY-TEXT; its
+           *>         Cmb-Language::SelectedIndex write raises onSelectedIndexChanged, and so runs
+           *>         PS-SAVE-LANGUAGE, only if the combo already holds a different index).
+
            CALL    "PS-LANG-CHECK"
 ]]></Event>
   </Control>
