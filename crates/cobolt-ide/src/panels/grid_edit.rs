@@ -11,7 +11,7 @@
 //! header, the filter wells and the rows exist only in the interactive renderer.
 //! So the canvas draws **every** DataGrid through that renderer
 //! (`cobolt_forms::render::render_form_scoped`, `RenderMode::Interactive`) in a
-//! child `Ui` at the grid's rect ([`draw_grids`]): display-only for all of them
+//! child `Ui` at the grid's rect ([`draw_grid`]): display-only for all of them
 //! (a disabled `Ui`, so the Designer's own selection, move and resize work over
 //! it), and live for the one in edit mode — so the in-cell editor, the
 //! column-edge resize and the reorder arrows that run are the grid's own (R6),
@@ -908,7 +908,7 @@ pub(crate) fn show_toolbar(
 
 /// A `FormState` that draws everything the state it wraps draws except the
 /// controls in `hide` — the DataGrids, which the canvas draws itself
-/// ([`draw_grids`]) because the static face the shared painter has for a grid is
+/// ([`draw_grid`]) because the static face the shared painter has for a grid is
 /// a placeholder label, not the grid.
 pub(crate) struct Without<'a> {
     pub inner: &'a dyn cobolt_forms::render::FormState,
@@ -1005,11 +1005,13 @@ pub(crate) fn without_input<R>(ctx: &egui::Context, draw: impl FnOnce() -> R) ->
     out
 }
 
-/// Draw every DataGrid of the form on the canvas, each through the shared
-/// interactive renderer in a child `Ui` at its rect — the picture Run Form
-/// gives (header band, filter wells, row-number gutter, the grid's own `Rows`,
-/// column colours, separators, rounded corners), because the static face the
-/// canvas has for a grid is only a label.
+/// Draw one DataGrid of the form on the canvas, through the shared interactive renderer
+/// in a child `Ui` at its rect — the picture Run Form gives (header band, filter wells,
+/// row-number gutter, the grid's own `Rows`, column colours, separators, rounded
+/// corners), because the static face the canvas has for a grid is only a label. The
+/// canvas calls this from the engine's paint order (`render_faces_with`), so the grid
+/// is where its layer and z-order put it, under what is above it and over what is
+/// below.
 ///
 /// The grid in `editing` is drawn live and its `prop_updates` come back (R3,
 /// R6). Every other grid is drawn **display-only**: its `Ui` is disabled — so
@@ -1018,9 +1020,9 @@ pub(crate) fn without_input<R>(ctx: &egui::Context, draw: impl FnOnce() -> R) ->
 /// resize and rubber band work over it as over any other control — at full
 /// opacity (`disable` fades the painter), and with the input queue taken away
 /// ([`without_input`]).
-pub(crate) fn draw_grids(
+pub(crate) fn draw_grid(
     ui: &mut egui::Ui,
-    frames: &[GridFrame],
+    f: &GridFrame,
     editing: Option<&str>,
     glass: bool,
     canvas: Rect,
@@ -1028,41 +1030,37 @@ pub(crate) fn draw_grids(
 ) -> Vec<(String, String, String)> {
     let ctx = ui.ctx().clone();
     let active = cobolt_forms::containers::ActiveTabs::new();
-    let mut updates = Vec::new();
-    for f in frames {
-        let live = editing == Some(f.grid.id.as_str());
-        let copy = if live {
-            render_copy(&f.grid, f.screen.size(), f.container_clip.clone())
-        } else {
-            view_copy(&f.grid, f.screen.size(), f.container_clip.clone())
-        };
-        let controls = [copy];
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(f.screen));
-        child.set_clip_rect(f.clip.unwrap_or(canvas).intersect(ui.clip_rect()));
-        child.set_min_size(f.screen.size());
-        if !live {
-            child.disable();
-            child.set_opacity(1.0);
-        }
-        let input = cobolt_forms::render::RenderInput {
-            controls: &controls,
-            state: &cobolt_forms::render::DesignedState,
-            form_size: f.screen.size(),
-            glass,
-            mode: cobolt_forms::render::RenderMode::Interactive,
-            active_tabs: &active,
-            backdrop: cobolt_forms::render::Backdrop::behind(behind),
-        };
-        if live {
-            let out = cobolt_forms::render::render_form_scoped(&mut child, &input, None, scope());
-            updates.extend(out.prop_updates);
-        } else {
-            without_input(&ctx, || {
-                cobolt_forms::render::render_form_scoped(&mut child, &input, None, view_scope());
-            });
-        }
+    let live = editing == Some(f.grid.id.as_str());
+    let copy = if live {
+        render_copy(&f.grid, f.screen.size(), f.container_clip.clone())
+    } else {
+        view_copy(&f.grid, f.screen.size(), f.container_clip.clone())
+    };
+    let controls = [copy];
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(f.screen));
+    child.set_clip_rect(f.clip.unwrap_or(canvas).intersect(ui.clip_rect()));
+    child.set_min_size(f.screen.size());
+    if !live {
+        child.disable();
+        child.set_opacity(1.0);
     }
-    updates
+    let input = cobolt_forms::render::RenderInput {
+        controls: &controls,
+        state: &cobolt_forms::render::DesignedState,
+        form_size: f.screen.size(),
+        glass,
+        mode: cobolt_forms::render::RenderMode::Interactive,
+        active_tabs: &active,
+        backdrop: cobolt_forms::render::Backdrop::behind(behind),
+    };
+    if live {
+        cobolt_forms::render::render_form_scoped(&mut child, &input, None, scope()).prop_updates
+    } else {
+        without_input(&ctx, || {
+            cobolt_forms::render::render_form_scoped(&mut child, &input, None, view_scope());
+        });
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

@@ -669,7 +669,7 @@ fn the_edited_grid_saves_and_reloads_with_its_new_shape() {
 // ── T13: the interactive grid on a static canvas — z-order, clipping, geometry
 
 #[test]
-fn the_edited_grid_is_drawn_last_and_clipped_to_its_container() {
+fn the_edited_grid_is_drawn_in_its_z_order_and_clipped_to_its_container() {
     let mut form = Form::new("F", "F", 800, 600);
     let mut panel = Control::new("PNL", ControlType::Panel, 20, 20);
     panel.rect.w = 360;
@@ -691,8 +691,8 @@ fn the_edited_grid_is_drawn_last_and_clipped_to_its_container() {
     let order = |t: &str| rig.painted.iter().position(|p| p.0 == t);
     let (button, cell) = (order("OnTop").expect("button drawn"), order("Bob").expect("grid drawn"));
     assert!(
-        cell > button,
-        "the edited grid is painted after (over) a sibling above it: button #{button}, grid cell #{cell}"
+        cell < button,
+        "the edited grid is painted before (under) a sibling above it in z-order: button #{button}, grid cell #{cell}"
     );
 
     // The frame the canvas hands the overlay: the panel's content rect as its
@@ -714,7 +714,7 @@ fn the_edited_grid_is_drawn_last_and_clipped_to_its_container() {
         want.expand(1.0).contains_rect(*cell_clip),
         "cell text clipped to the panel content: {cell_clip:?} vs {want:?}"
     );
-    println!("094 T13: edited grid painted after a sibling above it ({cell} > {button}); clip {cell_clip:?} inside panel content {want:?}");
+    println!("094 T13: edited grid painted under a sibling above it ({cell} < {button}); clip {cell_clip:?} inside panel content {want:?}");
 }
 
 #[test]
@@ -990,19 +990,59 @@ fn a_grid_only_looked_at_is_not_dimmed() {
     );
 }
 
+/// A label at (60, 60) — over the grid's first rows — with `caption`.
+fn label_over_the_grid(caption: &str, z: i32) -> Control {
+    let mut label = Control::new(caption.to_owned(), ControlType::Label, 60, 60);
+    label.set_prop("Caption", PropValue::String(caption.into()));
+    label.z_order = z;
+    label
+}
+
+/// The canvas paints a grid where its z-order puts it, like every other control: a control
+/// above it that overlaps it is on top of it, one below it is underneath. (The grids used
+/// to be drawn in a pass of their own, after every other face, so they were always on top.)
 #[test]
-fn a_grid_is_painted_after_every_other_face_which_is_the_cost_of_a_separate_pass() {
-    // The engine's static pass draws the faces in z-order but cannot draw the real
-    // grid (it only has a painter), so the grids are drawn right after it. The cost:
-    // a control ABOVE a grid in z-order that overlaps it is under it on the canvas.
+fn a_grid_is_painted_in_its_z_order_among_the_other_faces() {
+    let painted_order = |form: Form| {
+        let rig = Rig::new(form);
+        let at = |t: &str| rig.painted.iter().position(|p| p.0 == t).unwrap_or_else(|| panic!("{t} painted: {:?}", rig.painted));
+        (at("Bob"), at("Above"), at("Below"))
+    };
     let mut form = grid_form();
-    let mut label = Control::new("LBL", ControlType::Label, 60, 60);
-    label.set_prop("Caption", PropValue::String("Above".into()));
-    label.z_order = 90;
-    form.controls.push(label);
-    let rig = Rig::new(form);
-    let order = |t: &str| rig.painted.iter().position(|p| p.0 == t).unwrap();
-    assert!(order("Bob") > order("Above"), "the grid's rows are painted after the label that is above it in z-order");
+    form.controls[0].z_order = 50;
+    form.controls.push(label_over_the_grid("Above", 90));
+    form.controls.push(label_over_the_grid("Below", 10));
+    let (grid, above, below) = painted_order(form);
+    assert!(above > grid, "the label above the grid in z-order is painted after the grid's rows");
+    assert!(below < grid, "the label below the grid in z-order is painted before the grid's rows");
+    println!("canvas z-order: below {below} < grid {grid} < above {above}");
+}
+
+/// Layers are drawn base first, then each layer from the lowest: a control in a layer is
+/// over a base grid whatever its z-order, and a grid in a layer is over the base's controls.
+#[test]
+fn a_grid_is_painted_in_its_layer_order() {
+    let layered = |grid_layer: Option<&str>, label_layer: Option<&str>, grid_z: i32, label_z: i32| {
+        let mut form = grid_form();
+        form.layers.push(cobolt_forms::model::Layer::new("L1"));
+        form.controls[0].layer = grid_layer.map(str::to_owned);
+        form.controls[0].z_order = grid_z;
+        let mut label = label_over_the_grid("Above", label_z);
+        label.layer = label_layer.map(str::to_owned);
+        form.controls.push(label);
+        let mut rig = Rig::new(form);
+        // The designer shows a layer while its box is ticked.
+        rig.d.tabs.set_shown("L1", true);
+        rig.settle();
+        let at = |t: &str| rig.painted.iter().position(|p| p.0 == t).unwrap_or_else(|| panic!("{t} painted: {:?}", rig.painted));
+        (at("Bob"), at("Above"))
+    };
+    // The label sits in the layer above the base grid, with a LOWER z-order: still on top.
+    let (grid, label) = layered(None, Some("L1"), 80, 5);
+    assert!(label > grid, "a control in a layer is over a base grid");
+    // The grid sits in the layer, the label in the base with a HIGHER z-order: still under.
+    let (grid, label) = layered(Some("L1"), None, 5, 80);
+    assert!(label < grid, "a grid in a layer is over the base's controls");
 }
 
 // ── Spec 095: the binding editor's one-click fix ─────────────────────────────

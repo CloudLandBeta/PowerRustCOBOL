@@ -17,6 +17,14 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.26] — 2026-10-13
+
+*(Written on `fixes`, from `main` at 1.91.25.)*
+
+### Fixed
+- **A DataGrid on the Designer canvas is drawn in its layer and z-order, like every other control.** The canvas drew every grid in a pass of its own *after* all the other faces, so a grid was always on top: a label or button above it in z-order, and any control of a higher layer, was hidden under the grid wherever they overlapped (spec 094 had written this down as an accepted cost of the separate pass). The faces pass — `render_faces`, which orders layer by layer and by z-order within a layer — now has a variant, `render_faces_with`, that hands each DataGrid back to the canvas at its own place in that order, and the canvas draws the grid there (`grid_edit::draw_grid`, the old `draw_grids` loop made one grid at a time) into the same painter layer. The grid in edit mode is no exception: it too is under what is above it. The run form and the preview already drew in this order (a test now holds them to it).
+- *Tests.* `a_grid_is_painted_in_its_z_order_among_the_other_faces` and `a_grid_is_painted_in_its_layer_order` (Designer canvas: a label above and one below the grid in z-order; a layer's control over a base grid with the lower z-order; a grid in a layer over the base's control with the higher z-order) — both failed before the change and pass after; `a_grid_is_drawn_in_z_order_and_layer_order` (run form and preview) passed before the change too, which is how the canvas was found to be the only surface at fault. Spec 094's `the_edited_grid_is_drawn_last…` asserted the old order and now asserts the corrected one (`…_in_its_z_order…`).
+
 ## [PowerRustCOBOL 1.91.25] — 2026-10-13
 
 *(Spec 095, after the operator's answers of 2026-10-13 (spec §8.1). Follows 1.91.24 and replaces several decisions 1.91.21 to 1.91.23 were built on.)*

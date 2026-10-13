@@ -4317,6 +4317,25 @@ pub fn render_faces(
     origin: egui::Pos2,
     input: &RenderInput<'_>,
 ) -> RenderOutput {
+    render_faces_with(painter, origin, input, &mut |_| {})
+}
+
+/// [`render_faces`], calling `at_grid` for each DataGrid at its place in the paint order
+/// — layer by layer, and by z-order within a layer, like every other face.
+///
+/// The static face this engine has for a DataGrid is a placeholder label, so the canvas
+/// draws the real grid itself (through the interactive renderer) and keeps it out of this
+/// pass with its [`FormState::visible`]. Drawn *after* the pass it was always on top of
+/// everything it overlapped, whatever the layers and z-orders said; drawn from here, into
+/// the same painter's layer, it lands exactly where its turn comes. The hook is called for
+/// every DataGrid of the list, hidden or not, before the engine decides whether to draw
+/// it: whether the grid is on show is the caller's to say.
+pub fn render_faces_with(
+    painter: &egui::Painter,
+    origin: egui::Pos2,
+    input: &RenderInput<'_>,
+    at_grid: &mut dyn FnMut(&Control),
+) -> RenderOutput {
     let mut out = RenderOutput::default();
     let controls = input.controls;
     // Layer-major, as `render_form` draws (spec 091 R9, R10): both surfaces ask
@@ -4372,6 +4391,9 @@ pub fn render_faces(
             }
         }
         let base = &controls[idx];
+        if base.control_type == ControlType::DataGrid {
+            at_grid(base);
+        }
         if !visible_in(input, base) {
             continue;
         }

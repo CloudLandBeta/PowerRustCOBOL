@@ -7366,7 +7366,7 @@ impl DesignerPanel {
     }
 
     /// Carry out what was done to the grid in edit mode, and draw the mode's own
-    /// chrome. The grid itself was drawn with the others ([`ge::draw_grids`]),
+    /// chrome. The grid itself was drawn with the others ([`ge::draw_grid`]),
     /// through the shared interactive renderer, and `reported` is what that
     /// renderer reported for it (R6: the in-cell editor, the column-edge drag
     /// and the reorder arrows that ran are the grid's own). Called once per
@@ -9908,14 +9908,14 @@ impl DesignerPanel {
                     self.tabs.is_non_visuals().then(|| self.non_visuals_view());
                 let controls_for_render: &[cobolt_forms::model::Control] =
                     nv_view.as_deref().unwrap_or(controls_for_render);
-                // Spec 094 — the DataGrids are drawn by the interactive renderer
-                // (below), not as static faces: the face the shared painter has for
-                // a grid is a label ("⊞ DataGrid (5 cols)"), not the grid. They are
-                // left out of this pass and drawn right after it, in the engine's
-                // order among themselves, with their rects put back in the map so
-                // the chrome that reads `control_rects` finds them. A grid is drawn
-                // after every other control's face — a control above it in z-order
-                // that overlaps it is under it on the canvas.
+                // Spec 094 — the DataGrids are drawn by the interactive renderer, not
+                // as static faces: the face the shared painter has for a grid is a
+                // label ("⊞ DataGrid (5 cols)"), not the grid. They are left out of
+                // the faces pass, which hands each one back at its own place in the
+                // paint order (`render_faces_with`) to be drawn there — so a grid is
+                // under the controls above it and over those below it, in its layer's
+                // order — with their rects put back in the map so the chrome that
+                // reads `control_rects` finds them.
                 let grid_frames = {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     self.grid_frames(controls_for_render, origin, st)
@@ -9930,6 +9930,10 @@ impl DesignerPanel {
                     self.grid_edit = None;
                 }
                 let hidden_grids: HashSet<String> = grid_frames.iter().map(|f| f.grid.id.clone()).collect();
+                // …and drawn as the faces pass reaches them: every grid display-only, the
+                // one in edit mode live.
+                let edit_id = self.grid_edit.as_ref().map(|e| e.id.clone());
+                let mut grid_reports: Vec<(String, String, String)> = Vec::new();
                 let mut control_rects = {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     let without = super::grid_edit::Without { inner: st, hide: &hidden_grids };
@@ -9949,21 +9953,23 @@ impl DesignerPanel {
                             ..Default::default()
                         },
                     };
-                    cobolt_forms::render::render_faces(&painter, origin, &input).control_rects
+                    cobolt_forms::render::render_faces_with(&painter, origin, &input, &mut |base| {
+                        if let Some(f) = grid_frames.iter().find(|f| f.grid.id == base.id) {
+                            grid_reports.extend(super::grid_edit::draw_grid(
+                                ui,
+                                f,
+                                edit_id.as_deref(),
+                                self.glass_mode,
+                                resp.rect,
+                                notch_fill,
+                            ));
+                        }
+                    })
+                    .control_rects
                 };
                 for f in &grid_frames {
                     control_rects.insert(f.grid.id.clone(), f.screen);
                 }
-                // …and drawn: every grid display-only, the one in edit mode live.
-                let edit_id = self.grid_edit.as_ref().map(|e| e.id.clone());
-                let grid_reports = super::grid_edit::draw_grids(
-                    ui,
-                    &grid_frames,
-                    edit_id.as_deref(),
-                    self.glass_mode,
-                    resp.rect,
-                    notch_fill,
-                );
 
                 // ── Corner-notch masks (spec 017 / 057) ─────────────────────────
                 // After the faces are drawn, repaint the corner notches of each

@@ -109,7 +109,9 @@ marker from a runtime-only `_PendingCells` property the renderer reads (R12).
    Designer's own select / move / resize / rubber band work over them. Fallback (overlay
    over `DataGridLayout`) was not needed. Cost: the grids are drawn after every other
    face, so a control above a grid in z-order that overlaps it is under it on the canvas
-   (a separate pass per grid would repeat the layer backgrounds). The two gestures the
+   (a separate pass per grid would repeat the layer backgrounds). **Fixed in 1.91.26:** the static pass
+   now hands each grid back at its own place in the paint order (`render_faces_with`), so a grid
+   is under what is above it, in its layer's order. The two gestures the
    renderer lacks — rename a title, drag a title — use a replica of the header
    arithmetic (`grid_edit::header_cells`), guarded by a test against the painted titles.
 
