@@ -488,26 +488,26 @@ impl GraceChatPanel {
         CentralPanel::default().frame(frame).show(panel_ui, |ui| {
                 crate::aurora::glow_card(ui);
             ui.horizontal_wrapped(|ui| {
-                ui.heading(GRACE_TITLE);
+                ui.heading(crate::ui_text::ide(GRACE_TITLE));
                 if busy {
                     ui.add(egui::Spinner::new());
                     // Stop sign, visible only while the spinner is: halts
                     // Grace/agents as soon as the in-flight call returns.
                     if stop_requested {
                         ui.label(
-                            RichText::new("Stopping…")
+                            RichText::new(crate::ui_text::ide("Stopping…"))
                                 .small()
                                 .color(crate::theme::active().text_dim),
                         );
                     } else if ui
                         .button(RichText::new("🛑").size(16.0))
-                        .on_hover_text("Stop Grace and the agents")
+                        .on_hover_text(crate::ui_text::ide("Stop Grace and the agents"))
                         .clicked()
                     {
                         stop = true;
                     }
                     ui.label(
-                        RichText::new("Coordinating specialists...")
+                        RichText::new(crate::ui_text::ide("Coordinating specialists..."))
                             .small()
                             .color(crate::theme::active().text_dim),
                     );
@@ -634,13 +634,13 @@ impl GraceChatPanel {
 
             if let Some(command) = &pending_command {
                 ui.separator();
-                ui.label(RichText::new("Grace requests approval").strong());
+                ui.label(RichText::new(crate::ui_text::ide("Grace requests approval")).strong());
                 ui.label(RichText::new(command).monospace().small());
                 ui.horizontal(|ui| {
-                    if ui.button("Approve").clicked() {
+                    if ui.button(crate::ui_text::ide("Approve")).clicked() {
                         confirm = Some(true);
                     }
-                    if ui.button("Deny").clicked() {
+                    if ui.button(crate::ui_text::ide("Deny")).clicked() {
                         confirm = Some(false);
                     }
                 });
@@ -743,7 +743,7 @@ impl GraceChatPanel {
                             ui.add(
                                 egui::TextEdit::multiline(&mut self.prompt)
                                     .id(prompt_edit_id)
-                                    .hint_text("How can I help you today?")
+                                    .hint_text(crate::ui_text::ide("How can I help you today?"))
                                     .desired_rows(rows)
                                     .desired_width(f32::INFINITY)
                                     .interactive(!busy),
@@ -811,7 +811,7 @@ impl GraceChatPanel {
                 if ui
                     .add_enabled(
                         !busy && !self.prompt.trim().is_empty(),
-                        egui::Button::new("Send")
+                        egui::Button::new(crate::ui_text::ide("Send"))
                             .min_size(egui::vec2(super::CHAT_SEND_BUTTON_WIDTH, 36.0)),
                     )
                     .clicked()
@@ -832,8 +832,9 @@ impl GraceChatPanel {
                 );
                 if let Some((input_tokens, output_tokens)) = token_totals {
                     ui.label(
-                        RichText::new(format!(
-                            "Tokens: {input_tokens} in / {output_tokens} out"
+                        RichText::new(crate::ui_text::idef(
+                            "Tokens: {} in / {} out",
+                            &[&input_tokens, &output_tokens],
                         ))
                         .small()
                         .color(crate::theme::active().text_dim),
@@ -842,7 +843,7 @@ impl GraceChatPanel {
             });
             ui.horizontal_wrapped(|ui| {
                 if ui
-                    .add_enabled(!self.history.is_empty(), egui::Button::new("Save history"))
+                    .add_enabled(!self.history.is_empty(), egui::Button::new(crate::ui_text::ide("Save history")))
                     .clicked()
                 {
                     save = true;
@@ -850,7 +851,7 @@ impl GraceChatPanel {
                 if ui
                     .add_enabled(
                         !busy && !self.history.is_empty(),
-                        egui::Button::new("Compact history"),
+                        egui::Button::new(crate::ui_text::ide("Compact history")),
                     )
                     .clicked()
                 {
@@ -859,7 +860,7 @@ impl GraceChatPanel {
                 if ui
                     .add_enabled(
                         !busy && !self.history.is_empty(),
-                        egui::Button::new("Clear"),
+                        egui::Button::new(crate::ui_text::ide("Clear")),
                     )
                     .clicked()
                 {
@@ -873,7 +874,7 @@ impl GraceChatPanel {
                 if ui.small_button("+").clicked() {
                     self.history_font_size = (self.history_font_size + 1.0).min(28.0);
                 }
-                if ui.button("Close Grace").clicked() {
+                if ui.button(crate::ui_text::ide("Close Grace")).clicked() {
                     close = true;
                 }
                 if let Some(status) = &self.status {
@@ -1034,7 +1035,7 @@ impl GraceChatPanel {
         if let Some(message) = self.error_modal.clone() {
             let mut open = true;
             let mut displayed_message = message.clone();
-            egui::Window::new("Grace error")
+            egui::Window::new(crate::ui_text::ide("Grace error"))
                 .collapsible(false)
                 .resizable(true)
                 .default_size(egui::vec2(800.0, 450.0))
@@ -1048,7 +1049,7 @@ impl GraceChatPanel {
                         );
                     });
                     ui.horizontal(|ui| {
-                        if ui.button("Copy").clicked() {
+                        if ui.button(crate::ui_text::ide("Copy")).clicked() {
                             ui.ctx().copy_text(message.clone());
                         }
                         if ui.button("OK").clicked() {

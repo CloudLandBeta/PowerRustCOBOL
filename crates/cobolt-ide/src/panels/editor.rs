@@ -1579,8 +1579,9 @@ pub(crate) fn token_counter(
         .size(font_size - 1.0)
         .color(fg.gamma_multiply(0.75)),
     )
-    .on_hover_text(format!(
-        "{input} input / {output} output tokens, counted as each model call returns"
+    .on_hover_text(crate::ui_text::idef(
+        "{} input / {} output tokens, counted as each model call returns",
+        &[&input, &output],
     ));
 }
 
@@ -1891,17 +1892,17 @@ pub(crate) fn chat_bubble_with_response_actions(
     ui.horizontal(|ui| {
         if ui
             .small_button("📋")
-            .on_hover_text("Copy agent response to the clipboard")
+            .on_hover_text(crate::ui_text::ide("Copy agent response to the clipboard"))
             .clicked()
         {
             ui.ctx().copy_text(content.to_owned());
-            state.status = Some("Copied to clipboard".into());
+            state.status = Some(crate::ui_text::ide("Copied to clipboard").into());
         }
 
         let save_tooltip = if project_root.is_some() {
-            "Save agent response as a Markdown file in this project's Knowledge Base"
+            crate::ui_text::ide("Save agent response as a Markdown file in this project's Knowledge Base")
         } else {
-            "Open a project before saving an agent response"
+            crate::ui_text::ide("Open a project before saving an agent response")
         };
         if ui
             .add_enabled(
@@ -1945,7 +1946,7 @@ pub(crate) fn chat_bubble_with_response_actions(
     if let Some(error) = state.error.clone() {
         let mut open = true;
         let mut dismiss = false;
-        egui::Window::new("Save agent response error")
+        egui::Window::new(crate::ui_text::ide("Save agent response error"))
             .id(action_id.with("error"))
             .collapsible(false)
             .resizable(true)
@@ -1953,7 +1954,7 @@ pub(crate) fn chat_bubble_with_response_actions(
             .show(ui.ctx(), |ui| {
                 ui.label(&error);
                 ui.horizontal(|ui| {
-                    if ui.small_button("📋").on_hover_text("Copy error").clicked() {
+                    if ui.small_button("📋").on_hover_text(crate::ui_text::ide("Copy error")).clicked() {
                         ui.ctx().copy_text(error.clone());
                     }
                     if ui.button("OK").clicked() {
@@ -3285,7 +3286,7 @@ impl EditorPanel {
             let mode = if self.overwrite { "OVR" } else { "INS" };
             if ui
                 .add(egui::Label::new(txt(mode.into())).sense(egui::Sense::click()))
-                .on_hover_text("Toggle Insert/Overwrite (Insert key)")
+                .on_hover_text(crate::ui_text::ide("Toggle Insert/Overwrite (Insert key)"))
                 .clicked()
             {
                 self.overwrite = !self.overwrite;
@@ -3295,14 +3296,14 @@ impl EditorPanel {
                 if show_beautify
                     && ui
                         .add_enabled(!read_only, egui::Button::new(txt("✨ Beautify".into())))
-                        .on_hover_text("Reformat to the RustCOBOL layout rules")
+                        .on_hover_text(crate::ui_text::ide("Reformat to the RustCOBOL layout rules"))
                         .clicked()
                 {
                     do_beautify = true;
                 }
                 ui.add_enabled(
                     !read_only,
-                    egui::Checkbox::new(&mut self.trim_on_save, txt("Trim on save".into())),
+                    egui::Checkbox::new(&mut self.trim_on_save, txt(crate::ui_text::ide("Trim on save").into())),
                 );
             });
         });
@@ -3348,14 +3349,14 @@ impl EditorPanel {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .small_button("A+")
-                        .on_hover_text("Increase font size")
+                        .on_hover_text(crate::ui_text::ide("Increase font size"))
                         .clicked()
                     {
                         self.font_size = (self.font_size + 1.0).min(24.0);
                     }
                     if ui
                         .small_button("A−")
-                        .on_hover_text("Decrease font size")
+                        .on_hover_text(crate::ui_text::ide("Decrease font size"))
                         .clicked()
                     {
                         self.font_size = (self.font_size - 1.0).max(8.0);
@@ -3426,7 +3427,7 @@ impl EditorPanel {
         if self.tabs.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    egui::RichText::new("Select an item in the project tree to see its details.")
+                    egui::RichText::new(crate::ui_text::ide("Select an item in the project tree to see its details."))
                         .color(Color32::from_gray(150))
                         .size(15.0),
                 );
@@ -4221,7 +4222,7 @@ impl EditorPanel {
 
                             if member_mode {
                                 ui.label(
-                                    egui::RichText::new("  Properties & Methods")
+                                    egui::RichText::new(format!("  {}", crate::ui_text::ide("Properties & Methods")))
                                         .small()
                                         .color(Color32::from_gray(160)),
                                 );
@@ -4325,7 +4326,7 @@ impl EditorPanel {
                             ui.separator();
                             ui.label(
                                 egui::RichText::new(
-                                    "↑↓ navigate   Tab/↵ insert   Esc dismiss   Ctrl+Space force",
+                                    crate::ui_text::ide("↑↓ navigate   Tab/↵ insert   Esc dismiss   Ctrl+Space force"),
                                 )
                                 .small()
                                 .color(Color32::from_gray(130)),
@@ -4422,7 +4423,7 @@ impl EditorPanel {
                                     TextEdit::singleline(&mut self.search.query)
                                         .id(search_input_id)
                                         .desired_width(165.0)
-                                        .hint_text("Find…"),
+                                        .hint_text(crate::ui_text::ide("Find…")),
                                 );
 
                                 if te_resp.changed() || self.search.query != prev_query {
@@ -4437,7 +4438,7 @@ impl EditorPanel {
                                 let (count_txt, count_col) = if self.search.query.is_empty() {
                                     ("".to_owned(), crate::theme::active().text_dim)
                                 } else if total == 0 {
-                                    ("No matches".to_owned(), Color32::from_rgb(255, 100, 100))
+                                    (crate::ui_text::ide("No matches").to_owned(), Color32::from_rgb(255, 100, 100))
                                 } else {
                                     let cur = self.search.current + 1;
                                     (format!("{cur}/{total}"), crate::theme::active().text_bright)
@@ -4449,7 +4450,7 @@ impl EditorPanel {
                                 // Case-insensitive toggle (on by default).
                                 if ui
                                     .selectable_label(self.search.case_insensitive, "Aa")
-                                    .on_hover_text("Case-insensitive search")
+                                    .on_hover_text(crate::ui_text::ide("Case-insensitive search"))
                                     .clicked()
                                 {
                                     self.search.case_insensitive = !self.search.case_insensitive;
@@ -4462,7 +4463,7 @@ impl EditorPanel {
                                 // < previous match
                                 if ui
                                     .small_button("<")
-                                    .on_hover_text("Previous match (Shift+Enter)")
+                                    .on_hover_text(crate::ui_text::ide("Previous match (Shift+Enter)"))
                                     .clicked()
                                 {
                                     self.search_prev();
@@ -4470,13 +4471,13 @@ impl EditorPanel {
                                 // > next match
                                 if ui
                                     .small_button(">")
-                                    .on_hover_text("Next match (Enter)")
+                                    .on_hover_text(crate::ui_text::ide("Next match (Enter)"))
                                     .clicked()
                                 {
                                     self.search_next();
                                 }
                                 // ✕ close
-                                if ui.small_button("✕").on_hover_text("Close (Esc)").clicked() {
+                                if ui.small_button("✕").on_hover_text(crate::ui_text::ide("Close (Esc)")).clicked() {
                                     self.search.visible = false;
                                 }
                             });
@@ -4492,22 +4493,22 @@ impl EditorPanel {
                                     TextEdit::singleline(&mut self.search.replace)
                                         .id(replace_input_id)
                                         .desired_width(165.0)
-                                        .hint_text("Replace…"),
+                                        .hint_text(crate::ui_text::ide("Replace…")),
                                 );
                                 ui.separator();
                                 let can = !active_ro
                                     && !self.search.query.is_empty()
                                     && !self.search.matches.is_empty();
                                 if ui
-                                    .add_enabled(can, egui::Button::new("Replace").small())
-                                    .on_hover_text("Replace this match")
+                                    .add_enabled(can, egui::Button::new(crate::ui_text::ide("Replace")).small())
+                                    .on_hover_text(crate::ui_text::ide("Replace this match"))
                                     .clicked()
                                 {
                                     do_replace_one = true;
                                 }
                                 if ui
                                     .add_enabled(can, egui::Button::new("All").small())
-                                    .on_hover_text("Replace all matches")
+                                    .on_hover_text(crate::ui_text::ide("Replace all matches"))
                                     .clicked()
                                 {
                                     do_replace_all = true;
@@ -4516,7 +4517,7 @@ impl EditorPanel {
 
                             ui.label(
                                 egui::RichText::new(
-                                    "Enter = next   Shift+Enter = prev   Esc = close",
+                                    crate::ui_text::ide("Enter = next   Shift+Enter = prev   Esc = close"),
                                 )
                                 .small()
                                 .color(Color32::from_gray(120)),

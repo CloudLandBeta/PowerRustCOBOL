@@ -1034,7 +1034,7 @@ impl SettingsForm {
                                 let w = ui.available_width();
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.draft.llm_endpoint)
-                                        .hint_text("https://…/v1/chat/completions or /v1/responses")
+                                        .hint_text(crate::ui_text::ide("https://…/v1/chat/completions or /v1/responses"))
                                         .desired_width(w),
                                 );
                             });
@@ -1208,7 +1208,7 @@ impl SettingsForm {
                                         action.show_debug = true;
                                     }
                                     ui.separator();
-                                    ui.label(RichText::new("Timeout (s)").small());
+                                    ui.label(RichText::new(crate::ui_text::ide("Timeout (s)")).small());
                                     ui.add(
                                         egui::DragValue::new(&mut self.draft.llm_timeout)
                                             .speed(1.0)
@@ -1216,7 +1216,7 @@ impl SettingsForm {
                                     )
                                     .on_hover_text(tr.settings_ai_timeout_hint);
                                     ui.add_space(8.0);
-                                    ui.label(RichText::new("Max Tokens").small());
+                                    ui.label(RichText::new(crate::ui_text::ide("Max Tokens")).small());
                                     ui.add(
                                         egui::DragValue::new(&mut self.draft.llm_max_tokens)
                                             .speed(100.0)
@@ -1423,14 +1423,14 @@ impl SettingsForm {
                                 ui.horizontal(|ui| {
                                     ui.label(
                                         RichText::new(
-                                            "Tests applied to models to measure COBOL code generation.",
+                                            crate::ui_text::ide("Tests applied to models to measure COBOL code generation."),
                                         )
                                         .small(),
                                     );
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
-                                            if ui.button("Restore").clicked() {
+                                            if ui.button(crate::ui_text::ide("Restore")).clicked() {
                                                 self.draft.llm_cobol_proficiency_prompt =
                                                     crate::llm::default_cobol_proficiency_prompt();
                                                 self.sync_cobol_proficiency_prompt_editor_from_draft();
@@ -2056,18 +2056,18 @@ impl SettingsForm {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
-                                ui.add(egui::Label::new("Project icon").truncate());
+                                ui.add(egui::Label::new(crate::ui_text::ide("Project icon")).truncate());
                             });
                             ui.allocate_space(egui::vec2(resizer_width, 0.0));
                             ui.add_space(gap_after_resizer);
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 ui.horizontal(|ui| {
-                                    if ui.button("Select image...").clicked() {
+                                    if ui.button(crate::ui_text::ide("Select image...")).clicked() {
                                         action.browse_project_icon = true;
                                     }
                                     let shown = if self.draft.project_icon.is_empty() {
-                                        "No icon".to_owned()
+                                        crate::ui_text::ide("No icon").to_owned()
                                     } else {
                                         self.draft.project_icon.clone()
                                     };
@@ -2728,7 +2728,7 @@ impl SettingsForm {
                                 .0;
                             ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.set_min_width(splitter);
-                                section(ui, "Run-Form inspector", &theme);
+                                section(ui, crate::ui_text::ide("Run-Form inspector"), &theme);
                             });
                             ui.allocate_space(egui::vec2(resizer_width, 0.0));
                             ui.add_space(gap_after_resizer);
@@ -2747,18 +2747,16 @@ impl SettingsForm {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
-                                ui.add(egui::Label::new("Dump on suspicious activity").truncate());
+                                ui.add(egui::Label::new(crate::ui_text::ide("Dump on suspicious activity")).truncate());
                             });
                             ui.allocate_space(egui::vec2(resizer_width, 0.0));
                             ui.add_space(gap_after_resizer);
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 ui.checkbox(&mut self.draft.insp_dump_enabled, "")
-                                    .on_hover_text(
-                                        "When the inspector detects a memory leak, runaway CPU, or \
-                                         rogue subprocesses while a form runs, write a process/memory \
-                                         dump to the file below (console output is always on).",
-                                    );
+                                    .on_hover_text(crate::ui_text::ide(
+                                        "When the inspector detects a memory leak, runaway CPU, or rogue subprocesses while a form runs, write a process/memory dump to the file below (console output is always on).",
+                                    ));
                             });
                         });
                         // Dump file path.
@@ -2773,7 +2771,7 @@ impl SettingsForm {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
-                                ui.add(egui::Label::new("Dump file path").truncate());
+                                ui.add(egui::Label::new(crate::ui_text::ide("Dump file path")).truncate());
                             });
                             ui.allocate_space(egui::vec2(resizer_width, 0.0));
                             ui.add_space(gap_after_resizer);

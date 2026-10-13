@@ -15,9 +15,9 @@ use crate::runner::{DiagMsg, DiagOrigin, DiagSeverity, RunMsg};
 
 fn severity_prefix(severity: DiagSeverity) -> (&'static str, Color32) {
     match severity {
-        DiagSeverity::Error => ("✖ error", Color32::from_rgb(240, 80, 80)),
-        DiagSeverity::Warning => ("⚠ warning", Color32::from_rgb(255, 200, 50)),
-        DiagSeverity::Info => ("ℹ note", Color32::from_gray(180)),
+        DiagSeverity::Error => (crate::ui_text::ide("✖ error"), Color32::from_rgb(240, 80, 80)),
+        DiagSeverity::Warning => (crate::ui_text::ide("⚠ warning"), Color32::from_rgb(255, 200, 50)),
+        DiagSeverity::Info => (crate::ui_text::ide("ℹ note"), Color32::from_gray(180)),
     }
 }
 
@@ -262,7 +262,7 @@ impl OutputPanel {
                     ui.separator();
                     if ui
                         .small_button("−")
-                        .on_hover_text("Decrease log font size")
+                        .on_hover_text(crate::ui_text::ide("Decrease log font size"))
                         .clicked()
                     {
                         self.font_size = (self.font_size - 1.0).max(MIN_LOG_FONT_SIZE);
@@ -274,22 +274,22 @@ impl OutputPanel {
                     );
                     if ui
                         .small_button("+")
-                        .on_hover_text("Increase log font size")
+                        .on_hover_text(crate::ui_text::ide("Increase log font size"))
                         .clicked()
                     {
                         self.font_size = (self.font_size + 1.0).min(MAX_LOG_FONT_SIZE);
                     }
                     ui.separator();
                     if ui
-                        .add_enabled(!self.lines.is_empty(), egui::Button::new("Copy log"))
-                        .on_hover_text("Copy the entire current log to the clipboard")
+                        .add_enabled(!self.lines.is_empty(), egui::Button::new(crate::ui_text::ide("Copy log")))
+                        .on_hover_text(crate::ui_text::ide("Copy the entire current log to the clipboard"))
                         .clicked()
                     {
                         ui.ctx().copy_text(self.all_text());
                     }
                     if ui
-                        .add_enabled(!self.lines.is_empty(), egui::Button::new("Save log"))
-                        .on_hover_text("Save the entire current log to an .ai.log file")
+                        .add_enabled(!self.lines.is_empty(), egui::Button::new(crate::ui_text::ide("Save log")))
+                        .on_hover_text(crate::ui_text::ide("Save the entire current log to an .ai.log file"))
                         .clicked()
                     {
                         if let Some(path) = rfd::FileDialog::new()

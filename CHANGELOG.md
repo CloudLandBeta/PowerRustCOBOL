@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.32] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.31.)*
+
+### Fixed
+- **The rest of the IDE's window text, in six languages.** 1.91.31 listed 169 English literals handed straight to widgets in 13 files outside the Properties pane. They are translated now — the error dialogs (Copy, Save…, font size), the Stop button, the benchmark dashboard and the COBOL proficiency check and report (headings, buttons, the decision words, the metric names and their one-line descriptions, the radar), the asset preview and its Metadata table, the About box, the Building… window, the Help menu, the Run-Form inspector's statistics, the Knowledge Base folder dialogs, every delete and remove confirmation, the "Save changes to…?" question, the documentation capture, the debugger's windows, the **Designer's toolbar tooltips** (Undo, Save & Generate COBOL, Toggle Grid, Bring to Front, the alignment tools…) and its right-click menu, the AI Assistant panel, the event editor's syntax hints, the code editor's find-and-replace bar and hints, the Grace chat, the indexed-file dialogs and editor, the Output panel, the project tree, the forms list and the Settings form. 286 call sites, 325 texts, from a **second table** (`ui_text::ide`, `idef`) kept apart from the Properties pane's so that a plain word such as `Size`, `Type` or `File` there can never turn a property row of that name into another language; the language is set once per frame at the app's entry, so every window — the designers and the debugger included — is drawn in it.
+  - *Found on the way:* the prompt popup's hint (`↑↓ escolher · Tab/Enter aceitar · Esc fechar`) was written in **Portuguese** in the source, so English and every other language saw Portuguese; it is English now and translated. Two messages written with `\` line continuations (the missing documentation tree, the inspector-dump tooltip) had slipped past the first scans.
+- *The test that keeps it so.* `no_english_word_reaches_a_widget_outside_the_tables_anywhere_in_the_ide` reads every source file of the IDE (test modules cut out, the Properties pane excluded: its own test holds it) and fails on any English literal, or `format!` template with words, handed to a label, button, heading, hover text, window title, menu, radio, checkbox, painter text or toolbar tooltip, and on any key given to `ide()` that the table lacks; it fails (checked) when one literal is un-wrapped. `ide_language_tests` draws the New indexed file dialog (both steps and a refusal), the Output panel and the Settings form in all six languages: 0 words left in English. The six-language table test now covers both tables (matching `{}` holes, Japanese and Chinese in their scripts).
+- *Found and not changed — separate classes, not widget text:*
+  - **164 status-line and Output-panel messages** (`push_status` and its kin: "Created project '…'", "Saved SQL connection …", 151 of them in `app.rs`);
+  - **212 code-editor completion descriptions** ("Raise the onClick event", "Remove all items"…) in `panels/editor.rs`;
+  - **65 sentences of the benchmark report's Markdown** (the saved/exported report, not the dashboard);
+  - the 9 labels of the developer-only Debug settings window.
+  The prompts sent to models stay English by design.
+- *Still true:* the Spanish, Portuguese, Japanese, Chinese and French wording of these texts is not a native speaker's.
+
 ## [PowerRustCOBOL 1.91.31] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.30.)*

@@ -59,6 +59,8 @@ pub mod prompt_complete;
 pub mod prompt_polish;
 pub mod prop_help;
 pub mod ui_text;
+#[cfg(test)]
+mod ide_language_tests;
 pub mod prop_search;
 mod project_fs;
 mod project_model;

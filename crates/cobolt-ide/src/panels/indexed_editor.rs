@@ -280,9 +280,9 @@ impl IndexedEditorPanel {
                         self.show_indent_alert = false;
                         let new_len = def.record_length();
                         let msg = if old_len != new_len {
-                            format!("Record structure updated successfully. Record length changed from {} to {} characters.", old_len, new_len)
+                            crate::ui_text::idef("Record structure updated successfully. Record length changed from {} to {} characters.", &[&old_len, &new_len])
                         } else {
-                            format!("Record structure updated successfully. Record length remains {} characters.", new_len)
+                            crate::ui_text::idef("Record structure updated successfully. Record length remains {} characters.", &[&new_len])
                         };
                         self.apply_success_msg = Some(msg);
                         applied = true;
@@ -294,7 +294,7 @@ impl IndexedEditorPanel {
                     }
                 }
             }
-            if ui.button("Reload from current structure").clicked() {
+            if ui.button(crate::ui_text::ide("Reload from current structure")).clicked() {
                 self.raw_text = record_to_text(def);
                 self.indent_error = None;
                 self.show_indent_alert = false;
@@ -303,8 +303,8 @@ impl IndexedEditorPanel {
             // Best-effort auto-repair of common syntax errors (omitted PIC keyword,
             // missing terminating period). Anything it can't infer stays an error.
             if ui
-                .button("Fix errors")
-                .on_hover_text("Insert an omitted PIC keyword and missing periods")
+                .button(crate::ui_text::ide("Fix errors"))
+                .on_hover_text(crate::ui_text::ide("Insert an omitted PIC keyword and missing periods"))
                 .clicked()
             {
                 self.raw_text = fix_record_text(&self.raw_text);
@@ -315,8 +315,8 @@ impl IndexedEditorPanel {
             // Reformat to the canonical COBOL-85 layout (level indentation, aligned
             // clauses). Only possible when the text parses, so surface parse errors.
             if ui
-                .button("Beautify")
-                .on_hover_text("Reformat to canonical COBOL-85 layout")
+                .button(crate::ui_text::ide("Beautify"))
+                .on_hover_text(crate::ui_text::ide("Reformat to canonical COBOL-85 layout"))
                 .clicked()
             {
                 let mut tmp = def.clone();
@@ -339,7 +339,7 @@ impl IndexedEditorPanel {
         if let Some(e) = &self.indent_error {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 80, 80),
-                format!("COBOL-85 validation error: {}", e),
+                crate::ui_text::idef("COBOL-85 validation error: {}", &[&e]),
             );
         }
         if let Some(msg) = &self.apply_success_msg {

@@ -1298,15 +1298,15 @@ fn error_modal_body_ui(
                 }
                 ui.separator();
                 if ui
-                    .button("Copy")
-                    .on_hover_text("Copy the error message to the clipboard")
+                    .button(crate::ui_text::ide("Copy"))
+                    .on_hover_text(crate::ui_text::ide("Copy the error message to the clipboard"))
                     .clicked()
                 {
                     ui.ctx().copy_text(msg.to_owned());
                 }
                 if ui
-                    .button("Save…")
-                    .on_hover_text("Save the error message to a text file")
+                    .button(crate::ui_text::ide("Save…"))
+                    .on_hover_text(crate::ui_text::ide("Save the error message to a text file"))
                     .clicked()
                 {
                     act.save = true;
@@ -1314,7 +1314,7 @@ fn error_modal_body_ui(
                 ui.separator();
                 if ui
                     .small_button("A−")
-                    .on_hover_text("Decrease font size")
+                    .on_hover_text(crate::ui_text::ide("Decrease font size"))
                     .clicked()
                 {
                     *font_size = (*font_size - 1.0).max(MIN_ERROR_FONT_SIZE);
@@ -1322,7 +1322,7 @@ fn error_modal_body_ui(
                 ui.label(egui::RichText::new(format!("{} px", font_size.round() as i32)).small());
                 if ui
                     .small_button("A+")
-                    .on_hover_text("Increase font size")
+                    .on_hover_text(crate::ui_text::ide("Increase font size"))
                     .clicked()
                 {
                     *font_size = (*font_size + 1.0).min(MAX_ERROR_FONT_SIZE);
@@ -5696,13 +5696,13 @@ impl CoboltApp {
                         if grace_running {
                             if grace_stop_requested {
                                 ui.label(
-                                    egui::RichText::new("Stopping…")
+                                    egui::RichText::new(crate::ui_text::ide("Stopping…"))
                                         .small()
                                         .color(Color32::from_gray(170)),
                                 );
                             } else if ui
                                 .button(egui::RichText::new("🛑").size(14.0))
-                                .on_hover_text("Stop Grace and the agents")
+                                .on_hover_text(crate::ui_text::ide("Stop Grace and the agents"))
                                 .clicked()
                             {
                                 do_grace_stop = true;
@@ -5750,8 +5750,9 @@ impl CoboltApp {
                 // Up-to-date token usage, refreshed as each model returns.
                 if let Some((tokens_in, tokens_out)) = grace_tokens {
                     ui.label(
-                        egui::RichText::new(format!(
-                            "Tokens: {tokens_in} in / {tokens_out} out"
+                        egui::RichText::new(crate::ui_text::idef(
+                            "Tokens: {} in / {} out",
+                            &[&tokens_in, &tokens_out],
                         ))
                         .small()
                         .color(Color32::from_gray(170)),
@@ -8444,7 +8445,7 @@ impl CoboltApp {
             if st.prefer_raw_editor {
                 ui.colored_label(
                     egui::Color32::from_rgb(200, 160, 60),
-                    "This file uses the COBOL text editor as the primary definition surface (properties pane is secondary/read-only for structure to avoid desync with COBOL-85 source).",
+                    crate::ui_text::ide("This file uses the COBOL text editor as the primary definition surface (properties pane is secondary/read-only for structure to avoid desync with COBOL-85 source)."),
                 );
                 ui.add_space(4.0);
             }
@@ -10020,7 +10021,7 @@ impl CoboltApp {
     fn display_or_unknown(value: &str) -> String {
         let trimmed = value.trim();
         if trimmed.is_empty() {
-            "not set".to_string()
+            crate::ui_text::ide("not set").to_string()
         } else {
             trimmed.to_string()
         }
@@ -10084,14 +10085,14 @@ impl CoboltApp {
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("Model tested").strong().size(16.0));
+                    ui.label(egui::RichText::new(crate::ui_text::ide("Model tested")).strong().size(16.0));
                     ui.separator();
                     Self::metadata_chip(ui, "Provider", &Self::provider_label(cfg));
                     Self::metadata_chip(ui, "Model", &Self::display_or_unknown(&cfg.model));
                     Self::metadata_chip(
                         ui,
                         "Subscription",
-                        "verified; no subscription error returned",
+                        crate::ui_text::ide("verified; no subscription error returned"),
                     );
                     Self::metadata_chip(
                         ui,
@@ -10123,16 +10124,16 @@ impl CoboltApp {
                     Self::metadata_chip(ui, "Max out", &cfg.max_tokens.to_string());
                 });
                 ui.add_space(4.0);
-                ui.weak(format!(
+                ui.weak(crate::ui_text::idef(
                     "Endpoint: {}",
-                    Self::display_or_unknown(&cfg.endpoint)
+                    &[&Self::display_or_unknown(&cfg.endpoint)],
                 ));
             });
     }
 
     fn metadata_chip(ui: &mut egui::Ui, label: &str, value: &str) {
         ui.label(
-            egui::RichText::new(format!("{label}: "))
+            egui::RichText::new(format!("{}: ", crate::ui_text::ide(label)))
                 .strong()
                 .color(Color32::from_rgb(169, 206, 236)),
         );
@@ -10252,16 +10253,16 @@ impl CoboltApp {
         ui.add_space(16.0);
         ui.separator();
         ui.add_space(10.0);
-        ui.heading("Benchmark dashboard");
+        ui.heading(crate::ui_text::ide("Benchmark dashboard"));
         if inferred {
             ui.weak(
-                "Structured metrics JSON was not found or was incomplete; this dashboard uses any score fields that could be recovered from the report text.",
+                crate::ui_text::ide("Structured metrics JSON was not found or was incomplete; this dashboard uses any score fields that could be recovered from the report text."),
             );
         }
         if Self::benchmark_scores_are_all_perfect(metrics) {
             ui.colored_label(
                 Color32::from_rgb(230, 187, 79),
-                "Warning: all metrics are 100%. This is model-estimated and was not compiler/runtime verified.",
+                crate::ui_text::ide("Warning: all metrics are 100%. This is model-estimated and was not compiler/runtime verified."),
             );
         }
         ui.add_space(8.0);
@@ -10289,7 +10290,7 @@ impl CoboltApp {
             painter.text(
                 rect.center_top() + egui::vec2(0.0, 18.0),
                 egui::Align2::CENTER_TOP,
-                "Overall competency",
+                crate::ui_text::ide("Overall competency"),
                 egui::FontId::proportional(17.0),
                 ui.visuals().strong_text_color(),
             );
@@ -10306,14 +10307,14 @@ impl CoboltApp {
                 metrics
                     .get("recommended_usage")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("Review report before production use"),
+                    .unwrap_or(crate::ui_text::ide("Review report before production use")),
                 egui::FontId::proportional(12.0),
                 ui.visuals().weak_text_color(),
             );
 
             ui.add_space(14.0);
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new("Supported-scope scores").strong());
+                ui.label(egui::RichText::new(crate::ui_text::ide("Supported-scope scores")).strong());
                 ui.add_space(4.0);
                 for (label, key, fallback_key) in scores {
                     if let Some(v) = Self::benchmark_metric_score(metrics, key, fallback_key) {
@@ -10338,14 +10339,14 @@ impl CoboltApp {
                     >= 90.0
                 && Self::metric_score(metrics, "hallucination_resistance").unwrap_or(0.0) >= 90.0
             {
-                ("Recommended", Color32::from_rgb(61, 205, 139))
+                (crate::ui_text::ide("Recommended"), Color32::from_rgb(61, 205, 139))
             } else if overall >= 75.0 {
-                ("Use with review", Color32::from_rgb(230, 187, 79))
+                (crate::ui_text::ide("Use with review"), Color32::from_rgb(230, 187, 79))
             } else {
-                ("Not recommended", Color32::from_rgb(238, 101, 101))
+                (crate::ui_text::ide("Not recommended"), Color32::from_rgb(238, 101, 101))
             };
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new("Decision").strong());
+                ui.label(egui::RichText::new(crate::ui_text::ide("Decision")).strong());
                 ui.colored_label(
                     decision.1,
                     egui::RichText::new(decision.0).strong().size(22.0),
@@ -10355,12 +10356,12 @@ impl CoboltApp {
                     metrics
                         .get("recommended_usage")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("Use this model only after reviewing the full report."),
+                        .unwrap_or(crate::ui_text::ide("Use this model only after reviewing the full report.")),
                 );
             });
             ui.add_space(30.0);
             ui.vertical(|ui| {
-                ui.label(egui::RichText::new("Scope fit").strong());
+                ui.label(egui::RichText::new(crate::ui_text::ide("Scope fit")).strong());
                 for (label, key) in [
                     ("COBOL-85 coverage", "cobol85_score"),
                     ("PowerRustCOBOL coverage", "powerrustcobol_score"),
@@ -10417,10 +10418,10 @@ impl CoboltApp {
             .corner_radius(8.0)
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
-                ui.colored_label(accent, egui::RichText::new(title).strong());
+                ui.colored_label(accent, egui::RichText::new(crate::ui_text::ide(title)).strong());
                 ui.add_space(4.0);
                 if items.is_empty() {
-                    ui.weak(empty);
+                    ui.weak(crate::ui_text::ide(empty));
                 } else {
                     for item in items.iter().take(4) {
                         ui.label(format!("- {item}"));
@@ -10444,14 +10445,14 @@ impl CoboltApp {
         text_painter.text(
             rect.left_top() + egui::vec2(0.0, 9.0),
             egui::Align2::LEFT_CENTER,
-            label,
+            crate::ui_text::ide(label),
             egui::FontId::proportional(12.5),
             ui.visuals().text_color(),
         );
         text_painter.text(
             rect.left_top() + egui::vec2(0.0, 30.0),
             egui::Align2::LEFT_CENTER,
-            description,
+            crate::ui_text::ide(description),
             egui::FontId::proportional(10.5),
             ui.visuals().weak_text_color(),
         );
@@ -10493,7 +10494,7 @@ impl CoboltApp {
         painter.text(
             rect.center_top() + egui::vec2(0.0, 10.0),
             egui::Align2::CENTER_TOP,
-            "Ability radar",
+            crate::ui_text::ide("Ability radar"),
             egui::FontId::proportional(16.0),
             ui.visuals().strong_text_color(),
         );
@@ -10539,7 +10540,7 @@ impl CoboltApp {
             painter.text(
                 label_pos,
                 align,
-                format!("{} {score}", Self::radar_label(label)),
+                format!("{} {score}", crate::ui_text::ide(Self::radar_label(label))),
                 egui::FontId::proportional(11.0),
                 ui.visuals().text_color(),
             );
@@ -10572,27 +10573,27 @@ impl CoboltApp {
         if let Some(cfg) = self.llm_benchmark_offer.clone() {
             let mut run = false;
             let mut skip = false;
-            egui::Window::new("COBOL proficiency check")
+            egui::Window::new(crate::ui_text::ide("COBOL proficiency check"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .show(ctx, |ui| {
                     ui.set_max_width(520.0);
                     ui.label(
-                        egui::RichText::new(format!(
+                        egui::RichText::new(crate::ui_text::idef(
                             "Model `{}` is reachable. Do you want to check how proficient it is at producing valid COBOL-85 and PowerRustCOBOL code?",
-                            cfg.model
+                            &[&cfg.model],
                         ))
                         .strong(),
                     );
                     ui.add_space(6.0);
-                    ui.label("This runs a lightweight benchmark prompt, shows a report, and saves the result for later model comparisons. It will not modify the project.");
+                    ui.label(crate::ui_text::ide("This runs a lightweight benchmark prompt, shows a report, and saves the result for later model comparisons. It will not modify the project."));
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Run check").clicked() {
+                        if ui.button(crate::ui_text::ide("Run check")).clicked() {
                             run = true;
                         }
-                        if ui.button("Not now").clicked() {
+                        if ui.button(crate::ui_text::ide("Not now")).clicked() {
                             skip = true;
                         }
                     });
@@ -10619,7 +10620,7 @@ impl CoboltApp {
         }
 
         if self.llm_benchmark_rx.is_some() {
-            egui::Window::new("COBOL proficiency check")
+            egui::Window::new(crate::ui_text::ide("COBOL proficiency check"))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -10628,7 +10629,7 @@ impl CoboltApp {
                     ui.label(
                         self.llm_benchmark_status
                             .as_deref()
-                            .unwrap_or("Running COBOL proficiency check..."),
+                            .unwrap_or(crate::ui_text::ide("Running COBOL proficiency check...")),
                     );
                     if let Some(p) = &self.llm_benchmark_progress {
                         let tr = self.lang.tr();
@@ -10661,13 +10662,13 @@ impl CoboltApp {
                 .as_ref()
                 .unwrap_or(&self.llm)
                 .clone();
-            egui::Window::new("COBOL proficiency report")
+            egui::Window::new(crate::ui_text::ide("COBOL proficiency report"))
                 .id(egui::Id::new("llm_cobol_proficiency_report"))
                 .collapsible(false)
                 .resizable(true)
                 .default_size(egui::vec2(980.0, 700.0))
                 .show(ctx, |ui| {
-                    ui.label("Use this report to decide whether this model is suitable for COBOL-85 and PowerRustCOBOL work. No project action is applied.");
+                    ui.label(crate::ui_text::ide("Use this report to decide whether this model is suitable for COBOL-85 and PowerRustCOBOL work. No project action is applied."));
                     ui.add_space(8.0);
                     let scroll_h = (ctx.content_rect().height() * 0.72).clamp(320.0, 680.0);
                     egui::ScrollArea::both()
@@ -10711,7 +10712,7 @@ impl CoboltApp {
                                     ui.label(egui::RichText::new(code).monospace());
                                 },
                             );
-                            ui.heading("Model report");
+                            ui.heading(crate::ui_text::ide("Model report"));
                             ui.add_space(4.0);
                             crate::panels::md_render::render(ui, &report, &opts, &mut |ui, code| {
                                 ui.label(egui::RichText::new(code).monospace());
@@ -10719,13 +10720,13 @@ impl CoboltApp {
                         });
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Copy").clicked() {
+                        if ui.button(crate::ui_text::ide("Copy")).clicked() {
                             copy = true;
                         }
-                        if ui.button("Save as PDF").clicked() {
+                        if ui.button(crate::ui_text::ide("Save as PDF")).clicked() {
                             save_pdf = true;
                         }
-                        if ui.button("Close").clicked() {
+                        if ui.button(crate::ui_text::ide("Close")).clicked() {
                             close = true;
                         }
                     });
@@ -11748,9 +11749,9 @@ impl CoboltApp {
             .show(panel_ui, |ui| {
                 crate::aurora::glow_card(ui);
                 ui.horizontal(|ui| {
-                    ui.heading("Asset preview");
+                    ui.heading(crate::ui_text::ide("Asset preview"));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Close").clicked() {
+                        if ui.button(crate::ui_text::ide("Close")).clicked() {
                             close = true;
                         }
                     });
@@ -11770,7 +11771,7 @@ impl CoboltApp {
                     matches!(&preview.content, AssetPreviewContent::Animation { .. });
                 if is_image {
                     ui.horizontal(|ui| {
-                        if ui.button("-").on_hover_text("Zoom out").clicked() {
+                        if ui.button("-").on_hover_text(crate::ui_text::ide("Zoom out")).clicked() {
                             zoom_delta = -10.0;
                         }
                         let mut z = format!("{:.0}%", preview.zoom_percent);
@@ -11785,7 +11786,7 @@ impl CoboltApp {
                                 zoom_exact = Some(value);
                             }
                         }
-                        if ui.button("+").on_hover_text("Zoom in").clicked() {
+                        if ui.button("+").on_hover_text(crate::ui_text::ide("Zoom in")).clicked() {
                             zoom_delta = 10.0;
                         }
                         let mut slider_zoom = if preview.zoom_percent <= 0.0 {
@@ -11814,11 +11815,12 @@ impl CoboltApp {
                             if let AssetPreviewContent::Animation { frames, .. } = &preview.content
                             {
                                 ui.label(
-                                    egui::RichText::new(format!(
+                                    egui::RichText::new(crate::ui_text::idef(
                                         "Frame {}/{}",
-                                        preview.animation_frame.min(frames.len().saturating_sub(1))
-                                            + 1,
-                                        frames.len()
+                                        &[
+                                            &(preview.animation_frame.min(frames.len().saturating_sub(1)) + 1),
+                                            &frames.len(),
+                                        ],
                                     ))
                                     .small()
                                     .color(theme.text_dim),
@@ -11830,7 +11832,7 @@ impl CoboltApp {
                 } else if let AssetPreviewContent::Text(text) = &preview.content {
                     if preview.search_open {
                         ui.horizontal(|ui| {
-                            ui.label("Search");
+                            ui.label(crate::ui_text::ide("Search"));
                             let mut query = preview.search_query.clone();
                             let resp = ui.add_sized(
                                 egui::vec2(260.0, 28.0),
@@ -11849,7 +11851,7 @@ impl CoboltApp {
                                     .count()
                             };
                             ui.label(
-                                egui::RichText::new(format!("{count} match(es)"))
+                                egui::RichText::new(crate::ui_text::idef("{} match(es)", &[&count]))
                                     .small()
                                     .color(theme.text_dim),
                             );
@@ -12071,13 +12073,13 @@ impl CoboltApp {
             _ => "-".to_string(),
         };
 
-        ui.label(egui::RichText::new("Metadata").strong());
+        ui.label(egui::RichText::new(crate::ui_text::ide("Metadata")).strong());
         egui::Grid::new("asset_metadata_table")
             .num_columns(4)
             .striped(true)
             .min_col_width(120.0)
             .show(ui, |ui| {
-                ui.label("File");
+                ui.label(crate::ui_text::ide("File"));
                 ui.label(
                     preview
                         .path
@@ -12085,25 +12087,25 @@ impl CoboltApp {
                         .and_then(|n| n.to_str())
                         .unwrap_or(""),
                 );
-                ui.label("Type");
+                ui.label(crate::ui_text::ide("Type"));
                 ui.label(kind);
                 ui.end_row();
 
-                ui.label("Path");
+                ui.label(crate::ui_text::ide("Path"));
                 ui.label(preview.path.display().to_string());
-                ui.label("Extension");
+                ui.label(crate::ui_text::ide("Extension"));
                 ui.label(if ext.is_empty() { "-" } else { ext.as_str() });
                 ui.end_row();
 
-                ui.label("Size");
+                ui.label(crate::ui_text::ide("Size"));
                 ui.label(size);
-                ui.label("Dimensions");
+                ui.label(crate::ui_text::ide("Dimensions"));
                 ui.label(dimensions);
                 ui.end_row();
 
-                ui.label("Modified");
+                ui.label(crate::ui_text::ide("Modified"));
                 ui.label(modified);
-                ui.label("Frames");
+                ui.label(crate::ui_text::ide("Frames"));
                 ui.label(frame_count);
                 ui.end_row();
             });
@@ -12421,7 +12423,7 @@ impl CoboltApp {
         let win_id = egui::Id::new("form_runtime_error");
         let salt = per_viewport_salt(ctx, "form_runtime_error_resize");
         raise_modal_layer(ctx, win_id);
-        egui::Window::new("⛔ COBOL error")
+        egui::Window::new(crate::ui_text::ide("⛔ COBOL error"))
             .id(win_id)
             .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
@@ -12433,7 +12435,7 @@ impl CoboltApp {
                 close = self.error_modal_resize_box(ui, &salt, |app, ui| {
                     app.error_modal_body(
                         ui,
-                        Some("Execution stopped. See the Output panel for details."),
+                        Some(crate::ui_text::ide("Execution stopped. See the Output panel for details.")),
                         &msg,
                         &links,
                     )
@@ -12455,7 +12457,7 @@ impl CoboltApp {
         let win_id = egui::Id::new("alert_error_dialog");
         let salt = per_viewport_salt(ctx, "alert_error_resize");
         raise_modal_layer(ctx, win_id);
-        egui::Window::new("⛔ Error")
+        egui::Window::new(crate::ui_text::ide("⛔ Error"))
             .id(win_id)
             .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
@@ -12517,7 +12519,7 @@ impl CoboltApp {
             self.begin_file_dialog(
                 FileRequest::SaveErrorText(msg.to_owned()),
                 crate::file_dialog::DialogSpec::save()
-                    .filter("Text file", &["txt"])
+                    .filter(crate::ui_text::ide("Text file"), &["txt"])
                     .file_name("error.txt"),
             );
         }
@@ -12537,7 +12539,7 @@ impl CoboltApp {
             return;
         }
         let mut open = self.about_open;
-        egui::Window::new(format!("About {}", crate::theme::brand_name()))
+        egui::Window::new(crate::ui_text::idef("About {}", &[&crate::theme::brand_name()]))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -12560,14 +12562,14 @@ impl CoboltApp {
                         22.0,
                         ui.visuals().strong_text_color(),
                     ));
-                    ui.label(format!("Version {VERSION}"));
+                    ui.label(crate::ui_text::idef("Version {}", &[&VERSION]));
                     ui.add_space(4.0);
-                    ui.label("A modern, Rust-powered RAD environment for COBOL.");
+                    ui.label(crate::ui_text::ide("A modern, Rust-powered RAD environment for COBOL."));
                     ui.add_space(6.0);
                     ui.label("© 2026 Emerson Lopes and PowerRustCOBOL contributors");
-                    ui.label("Distributed under the Apache 2.0 License.");
+                    ui.label(crate::ui_text::ide("Distributed under the Apache 2.0 License."));
                     ui.add_space(12.0);
-                    if ui.button("Close").clicked() {
+                    if ui.button(crate::ui_text::ide("Close")).clicked() {
                         self.about_open = false;
                     }
                     ui.add_space(4.0);
@@ -13419,7 +13421,7 @@ impl CoboltApp {
     fn show_building_modal_legacy_window(&mut self, ctx: &Context) {
         let (frac, msg) = (self.build_phase.0, self.build_phase.1.clone());
 
-        egui::Window::new("Building…")
+        egui::Window::new(crate::ui_text::ide("Building…"))
             .id(egui::Id::new("building_modal_legacy"))
             .order(egui::Order::Foreground)
             .collapsible(false)
@@ -14524,7 +14526,7 @@ impl CoboltApp {
                     .unwrap_or_else(|| Self::fallback_benchmark_metrics(&report));
                 let benchmark_cfg = self.llm_benchmark_config.as_ref().unwrap_or(&self.llm);
                 let markdown = Self::benchmark_pdf_markdown(&report, Some(&metrics), benchmark_cfg);
-                match crate::pdf_export::export("COBOL proficiency report", &markdown, &path) {
+                match crate::pdf_export::export(crate::ui_text::ide("COBOL proficiency report"), &markdown, &path) {
                     Ok(()) => self
                         .output
                         .push_status(format!("COBOL proficiency PDF saved to {}", path.display())),
@@ -15212,6 +15214,10 @@ impl eframe::App for CoboltApp {
         // Context; the root `Ui` itself hosts nothing directly.
         let ctx = root_ui.ctx().clone();
         let ctx = &ctx;
+        // The language of the words that are not `Tr` fields (`ui_text::ide`, `tx`), for every
+        // window of this frame — the designers, the debugger and the dialogs are all drawn from
+        // here, on this thread.
+        crate::ui_text::begin(self.lang);
 
         // Spec 059 R4/R5 — while the tour is up it owns the keyboard. This must
         // be the FIRST thing the frame does: `doc_shots.poll` reads F12 further
@@ -15792,7 +15798,7 @@ impl eframe::App for CoboltApp {
                     let building = self.pending_build_rx.is_some();
                     let build_label = if building { "⏳ Building…" } else { "🔨 Build Binary  (bin/)" };
                     if ui.add_enabled(has_project && !building, egui::Button::new(build_label))
-                        .on_hover_text("Compile project → single native executable in bin/")
+                        .on_hover_text(crate::ui_text::ide("Compile project → single native executable in bin/"))
                         .clicked()
                     {
                         self.do_build_binary_button(); ui.close();
@@ -15867,7 +15873,7 @@ impl eframe::App for CoboltApp {
                 });
 
                 // ── Help / Bug report ────────────────────────────────────────
-                ui.menu_button("Help", |ui| {
+                ui.menu_button(crate::ui_text::ide("Help"), |ui| {
                     if ui.button(tr.doc_menu_label).clicked() {
                         self.doc_viewer.open(self.lang);
                         ui.close();
@@ -15947,7 +15953,7 @@ impl eframe::App for CoboltApp {
                     }
                     ui.separator();
                     if ui
-                        .button(format!("ℹ About {}", crate::theme::brand_name()))
+                        .button(crate::ui_text::idef("ℹ About {}", &[&crate::theme::brand_name()]))
                         .clicked()
                     {
                         self.about_open = true;
@@ -17606,12 +17612,12 @@ impl CoboltApp {
     fn inspector_body(&mut self, ui: &mut egui::Ui, form_running: bool) {
         {
             ui.horizontal(|ui| {
-                ui.strong("📊 Run-Form Inspector");
+                ui.strong(crate::ui_text::ide("📊 Run-Form Inspector"));
                 ui.separator();
                 if !form_running {
                     ui.colored_label(
                         egui::Color32::from_rgb(200, 170, 90),
-                        "no form running — start Run Form to sample",
+                        crate::ui_text::ide("no form running — start Run Form to sample"),
                     );
                 } else if let Some(a) = &self.inspector.last_anomaly {
                     ui.colored_label(egui::Color32::from_rgb(240, 100, 100), format!("⚠ {a}"));
@@ -17624,9 +17630,13 @@ impl CoboltApp {
                 if self.perf_fps > 0 {
                     ui.separator();
                     ui.label(
-                        egui::RichText::new(format!(
-                            "IDE: {} fps · {:.1} ms/frame (max {:.1})",
-                            self.perf_fps, self.perf_avg_ms, self.perf_max_ms
+                        egui::RichText::new(crate::ui_text::idef(
+                            "IDE: {} fps · {} ms/frame (max {})",
+                            &[
+                                &self.perf_fps,
+                                &format!("{:.1}", self.perf_avg_ms),
+                                &format!("{:.1}", self.perf_max_ms),
+                            ],
                         ))
                         .monospace()
                         .size(11.0)
@@ -17634,7 +17644,7 @@ impl CoboltApp {
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("✕ close").clicked() {
+                    if ui.small_button(crate::ui_text::ide("✕ close")).clicked() {
                         self.show_inspector = false;
                     }
                     let dumping = self.inspector.config.dump_enabled;
@@ -17670,7 +17680,7 @@ impl CoboltApp {
             // (5th panel) fills the rest of the window below.
             let chart_h = (avail.y * 0.55).clamp(64.0, 190.0);
             ui.horizontal(|ui| {
-                ui.strong("IDE stats");
+                ui.strong(crate::ui_text::ide("IDE stats"));
             });
             ui.horizontal(|ui| {
                 Self::sparkline(
@@ -17719,7 +17729,7 @@ impl CoboltApp {
                 );
             });
             if n == 0 && form_running {
-                ui.weak("sampling…");
+                ui.weak(crate::ui_text::ide("sampling…"));
             }
 
             // ── Per-form CPU charts ─────────────────────────────────────────
@@ -17730,8 +17740,8 @@ impl CoboltApp {
             if child_count > 0 {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.strong("Per-form CPU (rcrun)");
-                    ui.weak(format!("({child_count} running)"));
+                    ui.strong(crate::ui_text::ide("Per-form CPU (rcrun)"));
+                    ui.weak(crate::ui_text::idef("({} running)", &[&child_count]));
                 });
                 let palette = [
                     egui::Color32::from_rgb(120, 200, 255),
@@ -17776,8 +17786,8 @@ impl CoboltApp {
             // ── 5th panel: application process tree ───────────────────────
             ui.separator();
             ui.horizontal(|ui| {
-                ui.strong("Process tree");
-                ui.weak("(this app + any child processes)");
+                ui.strong(crate::ui_text::ide("Process tree"));
+                ui.weak(crate::ui_text::ide("(this app + any child processes)"));
             });
             let tree = self.inspector.process_tree();
             egui::ScrollArea::vertical()
@@ -17824,7 +17834,7 @@ impl CoboltApp {
         p.text(
             rect.left_top() + egui::vec2(6.0, 4.0),
             egui::Align2::LEFT_TOP,
-            title,
+            crate::ui_text::ide(title),
             egui::FontId::proportional(11.0),
             egui::Color32::from_rgb(170, 180, 200),
         );
@@ -17960,15 +17970,15 @@ impl CoboltApp {
         };
         let mut cancel = false;
         let mut create = false;
-        egui::Window::new("New Knowledge Base subfolder")
+        egui::Window::new(crate::ui_text::ide("New Knowledge Base subfolder"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(format!("Create inside {}", parent.display()));
+                ui.label(crate::ui_text::idef("Create inside {}", &[&parent.display()]));
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.knowledge_folder_name)
-                        .hint_text("Folder name")
+                        .hint_text(crate::ui_text::ide("Folder name"))
                         .desired_width(320.0),
                 );
                 if response.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter)) {
@@ -17982,7 +17992,7 @@ impl CoboltApp {
                     if ui
                         .add_enabled(
                             !self.knowledge_folder_name.trim().is_empty(),
-                            egui::Button::new("Create"),
+                            egui::Button::new(crate::ui_text::ide("Create")),
                         )
                         .clicked()
                     {
@@ -18025,18 +18035,18 @@ impl CoboltApp {
         };
         let mut cancel = false;
         let mut confirm = false;
-        egui::Window::new("Delete Knowledge Base folder")
+        egui::Window::new(crate::ui_text::ide("Delete Knowledge Base folder"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(format!(
+                ui.label(crate::ui_text::idef(
                     "Delete '{}' and every document and subfolder inside it?",
-                    folder.display()
+                    &[&folder.display()],
                 ));
                 ui.label(
                     egui::RichText::new(
-                        "This action removes the files from disk and cannot be undone.",
+                        crate::ui_text::ide("This action removes the files from disk and cannot be undone."),
                     )
                     .color(Color32::from_rgb(230, 150, 120)),
                 );
@@ -18541,14 +18551,14 @@ impl CoboltApp {
         let mut cancel = false;
         let mut confirm = false;
 
-        egui::Window::new("Delete generated COBOL")
+        egui::Window::new(crate::ui_text::ide("Delete generated COBOL"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(format!(
+                ui.label(crate::ui_text::idef(
                     "Delete generated COBOL '{}' from the project and remove its .cbl file from disk?",
-                    name
+                    &[&name],
                 ));
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new(path.display().to_string()).small());
@@ -18612,14 +18622,14 @@ impl CoboltApp {
         let mut cancel = false;
         let mut confirm = false;
 
-        egui::Window::new("Delete asset")
+        egui::Window::new(crate::ui_text::ide("Delete asset"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(format!(
+                ui.label(crate::ui_text::idef(
                     "Delete asset '{}' from the project and remove it from disk?",
-                    name
+                    &[&name],
                 ));
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new(path.display().to_string()).small());
@@ -18726,19 +18736,19 @@ impl CoboltApp {
 
         let win_id = egui::Id::new("indexed_delete_confirm");
         raise_modal_layer(ctx, win_id);
-        egui::Window::new("Confirm removal")
+        egui::Window::new(crate::ui_text::ide("Confirm removal"))
             .id(win_id)
             .order(egui::Order::Foreground) // above every ordinary window
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.label(format!("Remove indexed file '{}' from the project?", stem));
+                ui.label(crate::ui_text::idef("Remove indexed file '{}' from the project?", &[&stem]));
                 ui.add_space(8.0);
 
                 // Option to delete configuration file (.cidx)
                 if let Some(p) = &cidx_path {
-                    let text = format!("Delete configuration file from disk\n  ({})", p.display());
+                    let text = crate::ui_text::idef("Delete configuration file from disk\n  ({})", &[&p.display()]);
                     ui.checkbox(&mut self.delete_cidx_file, text);
                     ui.add_space(4.0);
                 }
@@ -18746,13 +18756,13 @@ impl CoboltApp {
                 // Option to delete data file (.idx)
                 if let Some(p) = &data_path {
                     if p.exists() {
-                        let text = format!("Delete data file from disk\n  ({})", p.display());
+                        let text = crate::ui_text::idef("Delete data file from disk\n  ({})", &[&p.display()]);
                         ui.checkbox(&mut self.delete_data_file, text);
                     } else {
                         ui.add_enabled_ui(false, |ui| {
-                            let text = format!(
+                            let text = crate::ui_text::idef(
                                 "Delete data file from disk (file not found)\n  ({})",
-                                p.display()
+                                &[&p.display()],
                             );
                             let mut dummy = false;
                             ui.checkbox(&mut dummy, text);
@@ -18894,7 +18904,7 @@ impl CoboltApp {
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("form");
-            let title = format!("Save changes to '{stem}'?");
+            let title = crate::ui_text::idef("Save changes to '{}'?", &[&stem]);
             let mut close_confirm = true; // controls the egui::Window open state
             let win_id = egui::Id::new(("designer_close_confirm", idx));
             raise_modal_layer(ctx, win_id);
@@ -23080,7 +23090,7 @@ mod error_modal_tests {
                     error_modal_scaffold(ui, "test_error_modal_resize", |ui| {
                         let _ = error_modal_body_ui(
                             ui,
-                            Some("Execution stopped. See the Output panel for details."),
+                            Some(crate::ui_text::ide("Execution stopped. See the Output panel for details.")),
                             msg,
                             font,
                             &[],

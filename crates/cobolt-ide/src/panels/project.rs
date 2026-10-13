@@ -415,7 +415,7 @@ impl ProjectPanel {
                     let button_width = ui.available_width().max(150.0);
                     if ui
                         .add_sized([button_width, 34.0], egui::Button::new("👑 Grace"))
-                        .on_hover_text("Open the project-wide Grace chatbot")
+                        .on_hover_text(crate::ui_text::ide("Open the project-wide Grace chatbot"))
                         .clicked()
                     {
                         events.push(ProjectPanelEvent::OpenGraceChat);
@@ -1426,7 +1426,7 @@ impl ProjectPanel {
         let entries = sorted_directory_entries(&directory);
         if entries.is_empty() {
             ui.label(
-                RichText::new("  No Knowledge Base documents or subfolders.")
+                RichText::new(format!("  {}", crate::ui_text::ide("No Knowledge Base documents or subfolders.")))
                     .color(crate::theme::active().text_dim)
                     .small(),
             );
@@ -1542,7 +1542,7 @@ impl ProjectPanel {
         let _ = std::fs::create_dir_all(&dir);
         if !dir.exists() {
             ui.label(
-                RichText::new("  Could not create Assets folder.")
+                RichText::new(format!("  {}", crate::ui_text::ide("Could not create Assets folder.")))
                     .color(Color32::from_rgb(220, 120, 120))
                     .small(),
             );
@@ -1574,7 +1574,7 @@ impl ProjectPanel {
 
         if entries.is_empty() {
             ui.label(
-                RichText::new("  Drop/import files into Assets.")
+                RichText::new(format!("  {}", crate::ui_text::ide("Drop/import files into Assets.")))
                     .color(crate::theme::active().text_dim)
                     .small(),
             );
@@ -1656,7 +1656,7 @@ impl ProjectPanel {
                 tree_icon(ui, draw_document_icon);
                 if ui
                     .small_button("🗑")
-                    .on_hover_text(format!("Delete asset {rel}"))
+                    .on_hover_text(crate::ui_text::idef("Delete asset {}", &[&rel]))
                     .clicked()
                 {
                     events.push(ProjectPanelEvent::ConfirmRemoveAsset(path.to_path_buf()));
@@ -1704,7 +1704,7 @@ impl ProjectPanel {
                     if let Some(p) = &abs {
                         let delete_resp = ui
                             .small_button("🗑")
-                            .on_hover_text(format!("Delete form {rel}"));
+                            .on_hover_text(crate::ui_text::idef("Delete form {}", &[&rel]));
                         if delete_resp.clicked() {
                             events.push(ProjectPanelEvent::ConfirmRemoveForm(p.clone()));
                         }
@@ -1727,7 +1727,7 @@ impl ProjectPanel {
                 .body(|ui| {
                     let Some(form) = &form else {
                         ui.label(
-                            RichText::new("  (could not read form)")
+                            RichText::new(format!("  {}", crate::ui_text::ide("(could not read form)")))
                                 .color(crate::theme::active().text_dim)
                                 .small(),
                         );
@@ -1825,7 +1825,7 @@ impl ProjectPanel {
                     tree_icon(ui, draw_indexed_icon);
                     if ui
                         .small_button("🗑")
-                        .on_hover_text("Remove indexed file from project")
+                        .on_hover_text(crate::ui_text::ide("Remove indexed file from project"))
                         .clicked()
                     {
                         remove_clicked = true;
@@ -1835,7 +1835,7 @@ impl ProjectPanel {
                 .body(|ui| {
                     let Some(def) = &def else {
                         ui.label(
-                            RichText::new("  (could not read .cidx)")
+                            RichText::new(format!("  {}", crate::ui_text::ide("(could not read .cidx)")))
                                 .color(crate::theme::active().text_dim)
                                 .small(),
                         );
@@ -1851,7 +1851,7 @@ impl ProjectPanel {
         let resp = header_inner.inner;
         resp.dnd_set_drag_payload(rel.to_string());
         resp.context_menu(|ui| {
-            if ui.button("Remove from project").clicked() {
+            if ui.button(crate::ui_text::ide("Remove from project")).clicked() {
                 remove_clicked = true;
                 ui.close();
             }
@@ -2396,7 +2396,7 @@ fn file_row(
                 if let Some(dir) = root {
                     if ui
                         .small_button("🗑")
-                        .on_hover_text(format!("Delete generated COBOL {rel}"))
+                        .on_hover_text(crate::ui_text::idef("Delete generated COBOL {}", &[&rel]))
                         .clicked()
                     {
                         events.push(ProjectPanelEvent::ConfirmRemoveGenerated(dir.join(rel)));
@@ -2419,7 +2419,7 @@ fn file_row(
     }
     if removable {
         resp.context_menu(|ui| {
-            if ui.button("Remove from project").clicked() {
+            if ui.button(crate::ui_text::ide("Remove from project")).clicked() {
                 events.push(ProjectPanelEvent::Remove(rel.to_string()));
                 ui.close();
             }

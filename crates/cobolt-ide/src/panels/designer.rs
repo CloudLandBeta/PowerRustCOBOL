@@ -2544,19 +2544,19 @@ fn validate_handler_semantics(
 fn explain_syntax_error(message: &str) -> &'static str {
     let m = message.to_ascii_lowercase();
     if m.contains("has no property") {
-        "That property does not exist on this control. Use a real one — e.g. a control's depth (Neumorphic) is ShadowBlurStrength, not Depth. Check the properties pane."
+        crate::ui_text::ide("That property does not exist on this control. Use a real one — e.g. a control's depth (Neumorphic) is ShadowBlurStrength, not Depth. Check the properties pane.")
     } else if m.contains("has no method") {
-        "That method does not exist on this control. Type `control-id::` in the editor to see the methods it actually supports."
+        crate::ui_text::ide("That method does not exist on this control. Type `control-id::` in the editor to see the methods it actually supports.")
     } else if m.contains("period") || m.contains("'.'") || m.contains("expected `.`") {
-        "A COBOL sentence must end with a period. Add a `.` at the end of the statement."
+        crate::ui_text::ide("A COBOL sentence must end with a period. Add a `.` at the end of the statement.")
     } else if m.contains("expected") && (m.contains("identifier") || m.contains("name")) {
-        "The parser expected a name (a data item, paragraph, or control id) at this point."
+        crate::ui_text::ide("The parser expected a name (a data item, paragraph, or control id) at this point.")
     } else if m.contains("unexpected") || m.contains("unmatched") {
-        "There is an out-of-place or unmatched token here — check for a missing keyword, quote, or scope terminator (e.g. END-IF, END-PERFORM)."
+        crate::ui_text::ide("There is an out-of-place or unmatched token here — check for a missing keyword, quote, or scope terminator (e.g. END-IF, END-PERFORM).")
     } else if m.contains("string") || m.contains("quote") {
-        "A quoted literal is not closed — add the missing closing quote."
+        crate::ui_text::ide("A quoted literal is not closed — add the missing closing quote.")
     } else {
-        "Correct the highlighted statement so it matches COBOL-85 syntax, then check again."
+        crate::ui_text::ide("Correct the highlighted statement so it matches COBOL-85 syntax, then check again.")
     }
 }
 
@@ -3599,7 +3599,7 @@ impl DesignerPanel {
                         }
                     }
                     ui.label(
-                        egui::RichText::new("↑↓ escolher · Tab/Enter aceitar · Esc fechar")
+                        egui::RichText::new(crate::ui_text::ide("↑↓ choose · Tab/Enter accept · Esc close"))
                             .small()
                             .color(egui::Color32::from_gray(120)),
                     );
@@ -6291,7 +6291,7 @@ impl DesignerPanel {
                     );
                     (pid, String::new())
                 });
-            (pid, code, format!("Form · {}", event_name))
+            (pid, code, crate::ui_text::idef("Form · {}", &[&event_name]))
         } else if let Some(found) =
             cobolt_forms::toolbar::find_button(&self.form.controls, ctrl_id)
         {
@@ -8421,7 +8421,7 @@ impl DesignerPanel {
         let resp = panel.show(ui, |ui| {
                 if !self.ai_pane_open {
                     ui.vertical_centered(|ui| {
-                        if ui.button("AI Assistant").clicked() {
+                        if ui.button(crate::ui_text::ide("AI Assistant")).clicked() {
                             self.ai_pane_open = true;
                         }
                     });
@@ -8738,7 +8738,7 @@ impl DesignerPanel {
                                                 )
                                                 .id(te_id)
                                                 .frame(egui::Frame::NONE)
-                                                .hint_text("How can I help you today?")
+                                                .hint_text(crate::ui_text::ide("How can I help you today?"))
                                                 .desired_width(f32::INFINITY)
                                                 .desired_rows(prompt_rows)
                                                 .interactive(!busy)
@@ -8868,13 +8868,13 @@ impl DesignerPanel {
                                 } else {
                                     ui.horizontal(|ui| {
                                         ui.label(
-                                            egui::RichText::new("AI error")
+                                            egui::RichText::new(crate::ui_text::ide("AI error"))
                                                 .small()
                                                 .color(egui::Color32::from_rgb(220, 120, 120)),
                                         );
                                         if ui
-                                            .small_button("Details")
-                                            .on_hover_text("Open the full AI error message")
+                                            .small_button(crate::ui_text::ide("Details"))
+                                            .on_hover_text(crate::ui_text::ide("Open the full AI error message"))
                                             .clicked()
                                         {
                                             show_error_modal = true;
@@ -8916,7 +8916,7 @@ impl DesignerPanel {
                                 ui.separator();
                                 if ui
                                     .add(egui::Button::new("−"))
-                                    .on_hover_text("Decrease history font size")
+                                    .on_hover_text(crate::ui_text::ide("Decrease history font size"))
                                     .clicked()
                                 {
                                     decrease_history_font = true;
@@ -8931,7 +8931,7 @@ impl DesignerPanel {
                                 );
                                 if ui
                                     .add(egui::Button::new("+"))
-                                    .on_hover_text("Increase history font size")
+                                    .on_hover_text(crate::ui_text::ide("Increase history font size"))
                                     .clicked()
                                 {
                                     increase_history_font = true;
@@ -8942,7 +8942,7 @@ impl DesignerPanel {
                                 // right edge, so once the row ran out of room
                                 // the button was drawn back over the controls
                                 // already there — it covered the font "+".
-                                if ui.button("Close AI Assistant").clicked() {
+                                if ui.button(crate::ui_text::ide("Close AI Assistant")).clicked() {
                                     do_close = true;
                                 }
                             });
@@ -10108,7 +10108,7 @@ impl DesignerPanel {
                             egui::Id::new(("anim_badge", ctrl.id.as_str())),
                             egui::Sense::hover(),
                         )
-                        .on_hover_text(format!("Animations set:\n{anim_summary}"));
+                        .on_hover_text(crate::ui_text::idef("Animations set:\n{}", &[&anim_summary]));
                     }
                 }
 
@@ -10586,24 +10586,24 @@ impl DesignerPanel {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("🗑 Delete").clicked() {
+                    if ui.button(crate::ui_text::ide("🗑 Delete")).clicked() {
                         self.delete_selected();
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("⬆ Bring to Front").clicked() {
+                    if ui.button(crate::ui_text::ide("⬆ Bring to Front")).clicked() {
                         self.bring_to_front();
                         ui.close();
                     }
-                    if ui.button("⬇ Send to Back").clicked() {
+                    if ui.button(crate::ui_text::ide("⬇ Send to Back")).clicked() {
                         self.send_to_back();
                         ui.close();
                     }
-                    if ui.button("+1 Forward").clicked() {
+                    if ui.button(crate::ui_text::ide("+1 Forward")).clicked() {
                         self.bring_forward();
                         ui.close();
                     }
-                    if ui.button("-1 Backward").clicked() {
+                    if ui.button(crate::ui_text::ide("-1 Backward")).clicked() {
                         self.send_backward();
                         ui.close();
                     }
@@ -10645,7 +10645,7 @@ impl DesignerPanel {
                             })
                         });
                     if let Some((sid, anim_names)) = anim_preview {
-                        ui.menu_button("▶ Preview Animation", |ui| {
+                        ui.menu_button(crate::ui_text::ide("▶ Preview Animation"), |ui| {
                             for aname in &anim_names {
                                 if ui.button(aname).clicked() {
                                     self.play_animation_preview(&sid, aname);
@@ -10675,7 +10675,7 @@ impl DesignerPanel {
                     if let Some((gid, is_rep)) = gb_rep {
                         ui.separator();
                         if is_rep {
-                            if ui.button("▦ Unset Repeating Group").clicked() {
+                            if ui.button(crate::ui_text::ide("▦ Unset Repeating Group")).clicked() {
                                 let old = self
                                     .form
                                     .find_control(&gid)
@@ -10688,7 +10688,7 @@ impl DesignerPanel {
                                 });
                                 ui.close();
                             }
-                        } else if ui.button("▦ Set as Repeating Group").clicked() {
+                        } else if ui.button(crate::ui_text::ide("▦ Set as Repeating Group")).clicked() {
                             // Seed ArrayName with the control id when still empty.
                             let cur_an = self
                                 .form
@@ -10723,7 +10723,7 @@ impl DesignerPanel {
                         }
                     }
                     ui.separator();
-                    if ui.button("🏷 Auto-arrange Labels").clicked() {
+                    if ui.button(crate::ui_text::ide("🏷 Auto-arrange Labels")).clicked() {
                         self.auto_arrange_labels();
                         ui.close();
                     }
@@ -12127,7 +12127,7 @@ impl DesignerPanel {
         // so the modal cannot grow on its own.
         let win_id = egui::Id::new("form_designer_ai_error_modal");
         crate::app::raise_modal_layer(ctx, win_id);
-        egui::Window::new("AI Assistant Error")
+        egui::Window::new(crate::ui_text::ide("AI Assistant Error"))
             .id(win_id)
             .order(egui::Order::Foreground) // above the Event/Menu/Structure windows
             .open(&mut open)
@@ -12178,7 +12178,7 @@ impl DesignerPanel {
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 ui.label(
-                    egui::RichText::new("The model returned an error or unusable response.")
+                    egui::RichText::new(crate::ui_text::ide("The model returned an error or unusable response."))
                         .strong()
                         .color(egui::Color32::from_rgb(240, 160, 130)),
                 );
@@ -12205,15 +12205,15 @@ impl DesignerPanel {
             }
             ui.separator();
             if ui
-                .button("Copy")
-                .on_hover_text("Copy the full error message to the clipboard")
+                .button(crate::ui_text::ide("Copy"))
+                .on_hover_text(crate::ui_text::ide("Copy the full error message to the clipboard"))
                 .clicked()
             {
                 ui.ctx().copy_text(message.to_owned());
             }
             if ui
                 .button("Save...")
-                .on_hover_text("Save the full error message to a text file")
+                .on_hover_text(crate::ui_text::ide("Save the full error message to a text file"))
                 .clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -12227,7 +12227,7 @@ impl DesignerPanel {
             ui.separator();
             if ui
                 .small_button("A-")
-                .on_hover_text("Decrease error font size")
+                .on_hover_text(crate::ui_text::ide("Decrease error font size"))
                 .clicked()
             {
                 self.ai_error_font_size = (self.ai_error_font_size - 1.0).max(8.0);
@@ -12238,7 +12238,7 @@ impl DesignerPanel {
             );
             if ui
                 .small_button("A+")
-                .on_hover_text("Increase error font size")
+                .on_hover_text(crate::ui_text::ide("Increase error font size"))
                 .clicked()
             {
                 self.ai_error_font_size = (self.ai_error_font_size + 1.0).min(28.0);
@@ -12265,7 +12265,7 @@ impl DesignerPanel {
                 return;
             };
             (
-                format!("COBOL Event Editor  —  {}", m.ctrl_display),
+                crate::ui_text::idef("COBOL Event Editor  —  {}", &[&m.ctrl_display]),
                 m.program_id.clone(),
                 m.ctrl_id.clone(),
                 m.event_name.clone(),
@@ -13029,8 +13029,9 @@ impl DesignerPanel {
                         let (input_tokens, output_tokens) = crate::llm::token_meter();
                         if input_tokens > 0 || output_tokens > 0 {
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "Tokens: {input_tokens} in / {output_tokens} out"
+                                egui::RichText::new(crate::ui_text::idef(
+                                    "Tokens: {} in / {} out",
+                                    &[&input_tokens, &output_tokens],
                                 ))
                                 .small()
                                 .color(crate::theme::active().text_dim),
@@ -13337,7 +13338,7 @@ impl DesignerPanel {
                             for d in &errs {
                                 ui.horizontal_wrapped(|ui| {
                                     ui.label(
-                                        egui::RichText::new(format!("line {}:{}", d.line, d.col))
+                                        egui::RichText::new(crate::ui_text::idef("line {}:{}", &[&d.line, &d.col]))
                                             .monospace()
                                             .strong()
                                             .color(Color32::from_rgb(240, 130, 100)),
@@ -17504,10 +17505,10 @@ pub(crate) fn draw_icon_toolbar(
         ui.add_space(4.0);
 
         // ── Group 1: History ─────────────────────────────────────────────────
-        if icon_btn(ui, can_undo, false, "Undo  (⌘Z)", &icon_undo) {
+        if icon_btn(ui, can_undo, false, crate::ui_text::ide("Undo  (⌘Z)"), &icon_undo) {
             action = DesignerToolbarAction::Undo;
         }
-        if icon_btn(ui, can_redo, false, "Redo  (⌘⇧Z)", &icon_redo) {
+        if icon_btn(ui, can_redo, false, crate::ui_text::ide("Redo  (⌘⇧Z)"), &icon_redo) {
             action = DesignerToolbarAction::Redo;
         }
 
@@ -17523,10 +17524,10 @@ pub(crate) fn draw_icon_toolbar(
         }
         let save_icon: &dyn Fn(&mut Vec<Shape>, Rect, Color32) =
             if saved_flash { &icon_check } else { &icon_save };
-        if icon_btn(ui, true, false, "Save & Generate COBOL  (⌘S)", save_icon) {
+        if icon_btn(ui, true, false, crate::ui_text::ide("Save & Generate COBOL  (⌘S)"), save_icon) {
             action = DesignerToolbarAction::SaveAndGenerate;
         }
-        if icon_btn(ui, true, false, "Generate COBOL only", &icon_generate) {
+        if icon_btn(ui, true, false, crate::ui_text::ide("Generate COBOL only"), &icon_generate) {
             action = DesignerToolbarAction::GenerateOnly;
         }
 
@@ -17537,7 +17538,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             true,
             preview_on,
-            "Toggle Live Preview window",
+            crate::ui_text::ide("Toggle Live Preview window"),
             &icon_preview,
         ) {
             action = DesignerToolbarAction::TogglePreview;
@@ -17546,15 +17547,15 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             true,
             false,
-            "Play all OnFormLoad animations",
+            crate::ui_text::ide("Play all OnFormLoad animations"),
             &icon_anim_play,
         ) {
             action = DesignerToolbarAction::ToggleAnimPreview;
         }
-        if icon_btn(ui, true, grid_on, "Toggle Grid", &icon_grid) {
+        if icon_btn(ui, true, grid_on, crate::ui_text::ide("Toggle Grid"), &icon_grid) {
             action = DesignerToolbarAction::ToggleGrid;
         }
-        if icon_btn(ui, true, glass_on, "Toggle Glass Theme", &icon_glass) {
+        if icon_btn(ui, true, glass_on, crate::ui_text::ide("Toggle Glass Theme"), &icon_glass) {
             action = DesignerToolbarAction::ToggleGlass;
         }
         if icon_btn(ui, true, magnifier_on, magnifier_tip, &icon_magnifier) {
@@ -17565,7 +17566,7 @@ pub(crate) fn draw_icon_toolbar(
 
         // ── Group 4: Run ─────────────────────────────────────────────────────
         if form_running {
-            if icon_btn(ui, true, true, "Stop Running Form", &icon_stop) {
+            if icon_btn(ui, true, true, crate::ui_text::ide("Stop Running Form"), &icon_stop) {
                 action = DesignerToolbarAction::StopForm;
             }
         } else if run_busy {
@@ -17573,9 +17574,9 @@ pub(crate) fn draw_icon_toolbar(
             // engaged — same accent treatment as a toggled Grid/Glass button.
             // Disabled (a second Run mid-build would queue a second build), and
             // "toggled wins over disabled" in icon_btn keeps it high-contrast.
-            let _ = icon_btn(ui, false, true, "Run Form — building/running…", &icon_run);
+            let _ = icon_btn(ui, false, true, crate::ui_text::ide("Run Form — building/running…"), &icon_run);
         } else {
-            if icon_btn(ui, true, false, "Run Form (live interpreter)", &icon_run) {
+            if icon_btn(ui, true, false, crate::ui_text::ide("Run Form (live interpreter)"), &icon_run) {
                 action = DesignerToolbarAction::RunForm;
             }
         }
@@ -17584,7 +17585,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             !form_running && !debug_active,
             debug_active,
-            "Debug Form — step through generated COBOL with breakpoints",
+            crate::ui_text::ide("Debug Form — step through generated COBOL with breakpoints"),
             &icon_bug,
         ) {
             action = DesignerToolbarAction::DebugForm;
@@ -17594,7 +17595,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             form_running,
             inspector_on,
-            "Run-Form Inspector — CPU / memory / process charts",
+            crate::ui_text::ide("Run-Form Inspector — CPU / memory / process charts"),
             &icon_inspector,
         ) {
             action = DesignerToolbarAction::ToggleInspector;
@@ -17619,54 +17620,54 @@ pub(crate) fn draw_icon_toolbar(
         if icon_btn(ui, has_sel, false, &duplicate_tip, &icon_duplicate) {
             action = DesignerToolbarAction::Duplicate;
         }
-        if icon_btn(ui, has_sel, false, "Delete selected  (Del)", &icon_delete) {
+        if icon_btn(ui, has_sel, false, crate::ui_text::ide("Delete selected  (Del)"), &icon_delete) {
             action = DesignerToolbarAction::Delete;
         }
-        if icon_btn(ui, has_sel, false, "Bring to Front", &icon_bring_front) {
+        if icon_btn(ui, has_sel, false, crate::ui_text::ide("Bring to Front"), &icon_bring_front) {
             action = DesignerToolbarAction::BringToFront;
         }
-        if icon_btn(ui, has_sel, false, "Send to Back", &icon_send_back) {
+        if icon_btn(ui, has_sel, false, crate::ui_text::ide("Send to Back"), &icon_send_back) {
             action = DesignerToolbarAction::SendToBack;
         }
-        if icon_btn(ui, has_sel, false, "Bring Forward (+1 z-order)", &icon_fwd) {
+        if icon_btn(ui, has_sel, false, crate::ui_text::ide("Bring Forward (+1 z-order)"), &icon_fwd) {
             action = DesignerToolbarAction::BringForward;
         }
-        if icon_btn(ui, has_sel, false, "Send Backward (-1 z-order)", &icon_bwd) {
+        if icon_btn(ui, has_sel, false, crate::ui_text::ide("Send Backward (-1 z-order)"), &icon_bwd) {
             action = DesignerToolbarAction::SendBackward;
         }
 
         group_separator(ui, group_gap);
 
         // ── Group 6: Align ───────────────────────────────────────────────────
-        if icon_btn(ui, has_multi, false, "Align Left Edges", &icon_align_left) {
+        if icon_btn(ui, has_multi, false, crate::ui_text::ide("Align Left Edges"), &icon_align_left) {
             action = DesignerToolbarAction::AlignLeft;
         }
-        if icon_btn(ui, has_multi, false, "Align Right Edges", &icon_align_right) {
+        if icon_btn(ui, has_multi, false, crate::ui_text::ide("Align Right Edges"), &icon_align_right) {
             action = DesignerToolbarAction::AlignRight;
         }
-        if icon_btn(ui, has_multi, false, "Align Top Edges", &icon_align_top) {
+        if icon_btn(ui, has_multi, false, crate::ui_text::ide("Align Top Edges"), &icon_align_top) {
             action = DesignerToolbarAction::AlignTop;
         }
         if icon_btn(
             ui,
             has_multi,
             false,
-            "Align Bottom Edges",
+            crate::ui_text::ide("Align Bottom Edges"),
             &icon_align_bottom,
         ) {
             action = DesignerToolbarAction::AlignBottom;
         }
-        if icon_btn(ui, has_multi, false, "Center Horizontally", &icon_center_h) {
+        if icon_btn(ui, has_multi, false, crate::ui_text::ide("Center Horizontally"), &icon_center_h) {
             action = DesignerToolbarAction::CenterH;
         }
-        if icon_btn(ui, has_multi, false, "Center Vertically", &icon_center_v) {
+        if icon_btn(ui, has_multi, false, crate::ui_text::ide("Center Vertically"), &icon_center_v) {
             action = DesignerToolbarAction::CenterV;
         }
         if icon_btn(
             ui,
             has_multi,
             false,
-            "Space Evenly (horizontal)",
+            crate::ui_text::ide("Space Evenly (horizontal)"),
             &icon_space_h,
         ) {
             action = DesignerToolbarAction::SpaceH;
@@ -17675,7 +17676,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             has_multi,
             false,
-            "Space Evenly (vertical)",
+            crate::ui_text::ide("Space Evenly (vertical)"),
             &icon_space_v,
         ) {
             action = DesignerToolbarAction::SpaceV;
@@ -17697,7 +17698,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             true,
             false,
-            "Auto-arrange: labels left, inputs right",
+            crate::ui_text::ide("Auto-arrange: labels left, inputs right"),
             &icon_auto_arrange,
         ) {
             action = DesignerToolbarAction::AutoArrange;
