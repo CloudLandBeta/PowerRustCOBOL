@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.27] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.26.)*
+
+### Fixed
+- **The Properties pane's own words were English in every language.** The tooltip on each property name was already in all six languages (`prop_help`), but a few hundred other texts of the pane — descriptive row labels ("Corner radius", "Show legend", "Light shadow color", "Duration (ms)"), the form's event groups ("Activation & Focus", "Drag & Drop"…), hints and examples under a box, buttons, notes ("DroppedFiles, RejectedFiles… are populated at runtime…"), the notices of the Agent, REST, Search and SQL connection rows, the summaries ("3 columns, 1 frozen column(s)…"), the Data Binding editor, the DataGrid settings window, the animations editor and five hover texts of its own — were literals in the code, so Spanish, Portuguese, Japanese, Chinese and French users saw them in English between labels that were translated. They now come from a table of **432 texts in the six languages** (`ui_text`, the same arrangement as `prop_help`: a text is looked up by its English wording, and the wording itself shows where the table has none), wired where the words are drawn: the pane's row helpers (`property_row_keyed`, `help_label`, `section_header`, the search that finds a row by either wording) translate every row label and title in one place, 137 direct widget calls are wrapped, and the sentences with names in them became templates with `{}` holes filled in order (`txf`).
+  - *What stays as written, by design:* the names of properties and events (`Width`, `BackgroundColor`, `onClick`) — they are the COBOL names the developer types, and each is explained on hover in the IDE's language — control type names, the values stored in the form (`Fill`, `Left`), and sample data and examples (`WS-SALES-TABLE`, `dd/MM/yyyy HH:mm`).
+  - *A tooltip lost outside English:* the SQL connection row of a SqlDatabase took its tooltip's key from its translated label, so it had none in the other five languages. It now names its property.
+  - *Not done here:* the validation messages of the Data Binding editor ("… needs a friendly name.") are built from the field's name and are still English; the Spanish, Portuguese, Japanese, Chinese and French wording of the 432 texts is the assistant's and has not been read by a native speaker.
+- *Tests.* `no_word_of_the_pane_is_left_in_english_in_every_language` draws the pane for the form and for every control type, on both tabs, in all six languages and fails on any word that comes out identical in all of them (it found ten before the last fixes); `the_pane_hands_no_bare_english_literal_to_a_widget_and_every_row_label_is_in_the_table` reads the pane's source and fails on a literal handed straight to a label, button, heading, hint, hover text or window title, and on a row label that is not in the table; `every_text_exists_in_six_languages` holds the table (six non-empty texts, Japanese and Chinese in their scripts, a sentence not copied from English, the same holes in every language); `every_label_on_the_props_tab_has_a_tooltip` used to print and now asserts, for all six languages.
+
 ## [PowerRustCOBOL 1.91.26] — 2026-10-13
 
 *(Written on `fixes`, from `main` at 1.91.25.)*

@@ -630,9 +630,9 @@ pub struct MultiSelection {
 /// blank box and concludes the save failed.
 fn cred_hint(on_file: bool) -> &'static str {
     if on_file {
-        "stored on this machine"
+        crate::ui_text::tx("stored on this machine")
     } else {
-        "no key on file"
+        crate::ui_text::tx("no key on file")
     }
 }
 
@@ -1619,7 +1619,7 @@ impl DropdownConfig {
 
     fn summary(&self) -> &'static str {
         match self.origin {
-            Some(origin) => origin.summary(),
+            Some(origin) => crate::ui_text::tx(origin.summary()),
             None => "-",
         }
     }
@@ -2219,11 +2219,11 @@ fn show_clear_selection_banner(ui: &mut Ui, editor: &mut BindingEditorState) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.colored_label(Color32::from_rgb(255, 115, 100), "!");
-                ui.label("Clearing the selection will delete the previous binding configuration.");
+                ui.label(crate::ui_text::tx("Clearing the selection will delete the previous binding configuration."));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .button(
-                            RichText::new("Clear selection")
+                            RichText::new(crate::ui_text::tx("Clear selection"))
                                 .color(Color32::from_rgb(255, 120, 110)),
                         )
                         .clicked()
@@ -2236,21 +2236,21 @@ fn show_clear_selection_banner(ui: &mut Ui, editor: &mut BindingEditorState) {
 
     if editor.confirm_clear {
         let mut confirm_open = true;
-        egui::Window::new("Clear binding configuration?")
+        egui::Window::new(crate::ui_text::tx("Clear binding configuration?"))
             .collapsible(false)
             .resizable(false)
             .open(&mut confirm_open)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ui.ctx(), |ui| {
-                ui.label("The previous binding configuration will be deleted.");
+                ui.label(crate::ui_text::tx("The previous binding configuration will be deleted."));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(crate::ui_text::tx("Cancel")).clicked() {
                         editor.confirm_clear = false;
                     }
                     if ui
                         .button(
-                            RichText::new("Confirm clear").color(Color32::from_rgb(255, 120, 110)),
+                            RichText::new(crate::ui_text::tx("Confirm clear")).color(Color32::from_rgb(255, 120, 110)),
                         )
                         .clicked()
                     {
@@ -2265,10 +2265,10 @@ fn show_clear_selection_banner(ui: &mut Ui, editor: &mut BindingEditorState) {
 }
 
 fn show_indexed_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
-    ui.heading("Indexed file source");
+    ui.heading(crate::ui_text::tx("Indexed file source"));
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.label("Indexed file:");
+        ui.label(crate::ui_text::tx("Indexed file:"));
         egui::ComboBox::from_id_salt("data_binding_indexed_file")
             .selected_text(clean_or_default(
                 &editor.selected_indexed_file,
@@ -2288,7 +2288,7 @@ fn show_indexed_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
     });
     ui.add_space(8.0);
     ui.label(
-        RichText::new("File records are rows. Browse records below to preview data.")
+        RichText::new(crate::ui_text::tx("File records are rows. Browse records below to preview data."))
             .small()
             .color(Color32::GRAY),
     );
@@ -2299,7 +2299,7 @@ fn show_indexed_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
 }
 
 fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr) {
-    ui.heading("SQL control");
+    ui.heading(crate::ui_text::tx("SQL control"));
     ui.add_space(8.0);
     egui::ComboBox::from_id_salt("data_binding_sql_control")
         .selected_text(clean_or_default(
@@ -2341,7 +2341,7 @@ fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr
     ui.add_space(8.0);
     ui.label(
         RichText::new(
-            "Records are fetched from the selected SQL control result set with pagination.",
+            crate::ui_text::tx("Records are fetched from the selected SQL control result set with pagination."),
         )
         .small()
         .color(Color32::GRAY),
@@ -2364,7 +2364,7 @@ fn show_preview_pagination(
         if ui.button("‹").clicked() {
             editor.page = (editor.page - 1).max(1);
         }
-        ui.label("Page");
+        ui.label(crate::ui_text::tx("Page"));
         ui.add(
             DragValue::new(&mut editor.page)
                 .speed(1)
@@ -2391,7 +2391,7 @@ fn show_preview_pagination(
             if editor.page_size != old_size {
                 editor.page = 1;
             }
-            ui.label("Page size:");
+            ui.label(crate::ui_text::tx("Page size:"));
         });
     });
 }
@@ -2434,13 +2434,13 @@ fn show_preview_grid(ui: &mut Ui) {
 }
 
 fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
-    ui.heading("REST API source");
+    ui.heading(crate::ui_text::tx("REST API source"));
     ui.add_space(10.0);
     egui::Grid::new("rest_api_source_settings")
         .num_columns(2)
         .spacing([18.0, 10.0])
         .show(ui, |ui| {
-            ui.label("API endpoint");
+            ui.label(crate::ui_text::tx("API endpoint"));
             ui.add(
                 egui::TextEdit::singleline(&mut editor.rest_endpoint)
                     .desired_width(560.0)
@@ -2448,7 +2448,7 @@ fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
             );
             ui.end_row();
 
-            ui.label("Method");
+            ui.label(crate::ui_text::tx("Method"));
             egui::ComboBox::from_id_salt("rest_api_method")
                 .selected_text(editor.rest_method.label())
                 .width(150.0)
@@ -2459,9 +2459,9 @@ fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                 });
             ui.end_row();
 
-            ui.label("Headers (optional)");
+            ui.label(crate::ui_text::tx("Headers (optional)"));
             ui.horizontal(|ui| {
-                if ui.button("+ Add header").clicked() {
+                if ui.button(crate::ui_text::tx("+ Add header")).clicked() {
                     editor.rest_headers.push(HttpHeaderRow::default());
                 }
             });
@@ -2476,12 +2476,12 @@ fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                             ui.add(
                                 egui::TextEdit::singleline(&mut header.name)
                                     .desired_width(190.0)
-                                    .hint_text("Header name"),
+                                    .hint_text(crate::ui_text::tx("Header name")),
                             );
                             ui.add(
                                 egui::TextEdit::singleline(&mut header.value)
                                     .desired_width(250.0)
-                                    .hint_text("Header value"),
+                                    .hint_text(crate::ui_text::tx("Header value")),
                             );
                             if ui.small_button("X").clicked() {
                                 remove_header = Some(index);
@@ -2495,13 +2495,13 @@ fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                 ui.end_row();
             }
 
-            ui.label("Authentication (optional)");
+            ui.label(crate::ui_text::tx("Authentication (optional)"));
             egui::ComboBox::from_id_salt("rest_api_auth")
-                .selected_text(editor.rest_auth.mode.label())
+                .selected_text(crate::ui_text::tx(editor.rest_auth.mode.label()))
                 .width(150.0)
                 .show_ui(ui, |ui| {
                     for mode in RestAuthMode::ALL {
-                        ui.selectable_value(&mut editor.rest_auth.mode, mode, mode.label());
+                        ui.selectable_value(&mut editor.rest_auth.mode, mode, crate::ui_text::tx(mode.label()));
                     }
                 });
             ui.end_row();
@@ -2509,7 +2509,7 @@ fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
 
     show_rest_auth_fields(ui, &mut editor.rest_auth);
     ui.add_space(12.0);
-    ui.label("API response preview");
+    ui.label(crate::ui_text::tx("API response preview"));
     ui.add_space(4.0);
     show_json_code_preview(ui, rest_response_preview_json(), 220.0);
     ui.add_space(8.0);
@@ -2525,10 +2525,10 @@ fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
 }
 
 fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
-    ui.heading("Configure COBOL table binding");
+    ui.heading(crate::ui_text::tx("Configure COBOL table binding"));
     ui.add_space(10.0);
     ui.label(
-        RichText::new("Table (an item with OCCURS, at any level, inside a GLOBAL 01)")
+        RichText::new(crate::ui_text::tx("Table (an item with OCCURS, at any level, inside a GLOBAL 01)"))
             .small()
             .color(Color32::GRAY),
     );
@@ -2538,7 +2538,7 @@ fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState)
         .width(380.0)
         .show_ui(ui, |ui| {
             if editor.cobol_tables.is_empty() {
-                ui.label(RichText::new("None").color(Color32::GRAY));
+                ui.label(RichText::new(crate::ui_text::tx("None")).color(Color32::GRAY));
             }
             for table in &editor.cobol_tables {
                 ui.selectable_value(
@@ -2566,9 +2566,9 @@ fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState)
                 .to_owned()
         }
     } else {
-        format!(
+        crate::ui_text::txf(
             "Binding occurs to the COBOL table structure ({}). Pagination is not required.",
-            editor.selected_cobol_table,
+            &[&editor.selected_cobol_table],
         )
     };
     ui.label(RichText::new(helper).small().color(Color32::GRAY));
@@ -2587,22 +2587,22 @@ fn show_rest_auth_fields(ui: &mut Ui, auth: &mut RestAuth) {
                         ui.add(
                             egui::TextEdit::singleline(&mut auth.api_key_name)
                                 .desired_width(160.0)
-                                .hint_text("Key name"),
+                                .hint_text(crate::ui_text::tx("Key name")),
                         );
                         ui.add(
                             egui::TextEdit::singleline(&mut auth.api_key_value)
                                 .desired_width(220.0)
-                                .hint_text("Key value"),
+                                .hint_text(crate::ui_text::tx("Key value")),
                         );
                         egui::ComboBox::from_id_salt("rest_auth_api_key_location")
-                            .selected_text(auth.api_key_location.label())
+                            .selected_text(crate::ui_text::tx(auth.api_key_location.label()))
                             .width(100.0)
                             .show_ui(ui, |ui| {
                                 for location in ApiKeyLocation::ALL {
                                     ui.selectable_value(
                                         &mut auth.api_key_location,
                                         location,
-                                        location.label(),
+                                        crate::ui_text::tx(location.label()),
                                     );
                                 }
                             });
@@ -2619,7 +2619,7 @@ fn show_rest_auth_fields(ui: &mut Ui, auth: &mut RestAuth) {
                     ui.add(
                         egui::TextEdit::singleline(&mut auth.bearer_token)
                             .desired_width(360.0)
-                            .hint_text("Bearer token"),
+                            .hint_text(crate::ui_text::tx("Bearer token")),
                     );
                     ui.end_row();
                 });
@@ -2634,13 +2634,13 @@ fn show_rest_auth_fields(ui: &mut Ui, auth: &mut RestAuth) {
                         ui.add(
                             egui::TextEdit::singleline(&mut auth.username)
                                 .desired_width(180.0)
-                                .hint_text("Username"),
+                                .hint_text(crate::ui_text::tx("Username")),
                         );
                         ui.add(
                             egui::TextEdit::singleline(&mut auth.password)
                                 .password(true)
                                 .desired_width(180.0)
-                                .hint_text("Password"),
+                                .hint_text(crate::ui_text::tx("Password")),
                         );
                     });
                     ui.end_row();
@@ -2699,13 +2699,13 @@ fn show_jsonpath_hint_row(ui: &mut Ui, editor: &mut BindingEditorState) {
         ui.colored_label(Color32::from_rgb(70, 145, 255), "i");
         ui.label(
             RichText::new(
-                "JSON keys are mapped to COBOL types using JSONPath syntax. Use the help panel for examples and guidance.",
+                crate::ui_text::tx("JSON keys are mapped to COBOL types using JSONPath syntax. Use the help panel for examples and guidance."),
             )
             .small()
             .color(Color32::GRAY),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("ⓘ JSONPath help").clicked() {
+            if ui.button(crate::ui_text::tx("ⓘ JSONPath help")).clicked() {
                 editor.show_jsonpath_help = !editor.show_jsonpath_help;
             }
         });
@@ -2713,7 +2713,7 @@ fn show_jsonpath_hint_row(ui: &mut Ui, editor: &mut BindingEditorState) {
 }
 
 fn show_rest_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
-    ui.heading("Source fields");
+    ui.heading(crate::ui_text::tx("Source fields"));
     ui.add_space(8.0);
     egui::ScrollArea::horizontal()
         .id_salt("rest_data_binding_source_fields_scroll")
@@ -2807,7 +2807,7 @@ fn show_rest_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState)
 
 fn show_rest_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) {
     ui.horizontal(|ui| {
-        if ui.button("+ Add field").clicked() {
+        if ui.button(crate::ui_text::tx("+ Add field")).clicked() {
             let mut row = BindingFieldRow::new(
                 "",
                 "PIC X(255)",
@@ -2822,7 +2822,7 @@ fn show_rest_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) {
             row.enabled = true;
             editor.rows.push(row);
         }
-        if ui.button("Restore removed fields").clicked() {
+        if ui.button(crate::ui_text::tx("Restore removed fields")).clicked() {
             editor.rows.append(&mut editor.removed_rows);
         }
     });
@@ -2853,7 +2853,7 @@ fn show_cobol_table_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) 
                         );
                     }
                 });
-            if ui.button("+ Add field").clicked() {
+            if ui.button(crate::ui_text::tx("+ Add field")).clicked() {
                 if let Some(field) = missing_fields
                     .iter()
                     .find(|field| field.name == editor.selected_cobol_field_to_add)
@@ -2864,7 +2864,7 @@ fn show_cobol_table_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) 
                 }
             }
         }
-        if ui.button("Restore removed fields").clicked() {
+        if ui.button(crate::ui_text::tx("Restore removed fields")).clicked() {
             let available_names = editor
                 .selected_cobol_table_meta()
                 .map(|table| {
@@ -2903,28 +2903,28 @@ fn show_jsonpath_help_panel(ui: &mut Ui) {
         .corner_radius(egui::CornerRadius::same(6))
         .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, |ui| {
-            ui.heading("JSONPath help");
+            ui.heading(crate::ui_text::tx("JSONPath help"));
             ui.add_space(8.0);
             ui.columns(2, |columns| {
                 columns[0].label(
                     RichText::new(
-                        "Use JSONPath expressions to extract values from the JSON response. JSON keys are mapped to COBOL types based on the detected data type.",
+                        crate::ui_text::tx("Use JSONPath expressions to extract values from the JSON response. JSON keys are mapped to COBOL types based on the detected data type."),
                     )
                     .small()
                     .color(Color32::from_gray(205)),
                 );
                 columns[0].add_space(8.0);
-                columns[0].label("Sample JSON response");
+                columns[0].label(crate::ui_text::tx("Sample JSON response"));
                 show_json_code_preview(&mut columns[0], rest_help_sample_json(), 130.0);
 
-                columns[1].label("Examples");
+                columns[1].label(crate::ui_text::tx("Examples"));
                 egui::Grid::new("jsonpath_examples")
                     .num_columns(2)
                     .spacing([28.0, 6.0])
                     .striped(true)
                     .show(&mut columns[1], |ui| {
-                        ui.label(RichText::new("Source field (JSONPath)").small());
-                        ui.label(RichText::new("Friendly name").small());
+                        ui.label(RichText::new(crate::ui_text::tx("Source field (JSONPath)")).small());
+                        ui.label(RichText::new(crate::ui_text::tx("Friendly name")).small());
                         ui.end_row();
                         ui.monospace("$.[*].title");
                         ui.label("Title");
@@ -2934,12 +2934,12 @@ fn show_jsonpath_help_panel(ui: &mut Ui) {
                         ui.end_row();
                     });
                 columns[1].add_space(8.0);
-                columns[1].label(RichText::new("- $ : Root of the JSON document").small());
-                columns[1].label(RichText::new("- [*] : All items in the root array").small());
-                columns[1].label(RichText::new("- .key : Select the key from each item").small());
+                columns[1].label(RichText::new(crate::ui_text::tx("- $ : Root of the JSON document")).small());
+                columns[1].label(RichText::new(crate::ui_text::tx("- [*] : All items in the root array")).small());
+                columns[1].label(RichText::new(crate::ui_text::tx("- .key : Select the key from each item")).small());
                 columns[1].add_space(8.0);
                 let _ = columns[1].button(
-                    RichText::new("Learn more about JSONPath ↗")
+                    RichText::new(crate::ui_text::tx("Learn more about JSONPath ↗"))
                         .color(Color32::from_rgb(85, 160, 255)),
                 );
             });
@@ -3033,7 +3033,7 @@ fn show_writable_section(
 }
 
 fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
-    ui.heading("Source fields");
+    ui.heading(crate::ui_text::tx("Source fields"));
     ui.add_space(8.0);
     let show_sql_type = editor.selected_source == Some(BindingEditorSourceKind::Sql);
     let show_cobol_table = editor.selected_source == Some(BindingEditorSourceKind::CobolTable);
@@ -3127,7 +3127,7 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                                 }
                             });
                             if row.edit_control == BindingEditControl::Dropdown
-                                && ui.small_button("Edit...").clicked()
+                                && ui.small_button(crate::ui_text::tx("Edit...")).clicked()
                             {
                                 row_clicked = true;
                             }
@@ -3199,10 +3199,10 @@ fn show_control_array_mapping_section(ui: &mut Ui, editor: &mut BindingEditorSta
     }
     let members = editor.member_controls.clone();
     ui.add_space(16.0);
-    ui.heading("Map fields to controls");
+    ui.heading(crate::ui_text::tx("Map fields to controls"));
     ui.label(
         RichText::new(
-            "Each mapped source field fills a control's property in every repeated item.",
+            crate::ui_text::tx("Each mapped source field fills a control's property in every repeated item."),
         )
         .small()
         .color(crate::contrast::ink(Color32::GRAY)),
@@ -3235,7 +3235,7 @@ fn show_control_array_mapping_section(ui: &mut Ui, editor: &mut BindingEditorSta
                         ui.selectable_value(
                             &mut editor.rows[row_index].target_member,
                             String::new(),
-                            "(none)",
+                            crate::ui_text::tx("(none)"),
                         );
                         for member in &members {
                             ui.selectable_value(
@@ -3277,10 +3277,7 @@ fn show_dropdown_config_modal(ctx: &egui::Context, editor: &mut BindingEditorSta
         cobol_tables: editor.cobol_tables.clone(),
         indexed_files: editor.indexed_files.clone(),
     };
-    let title = format!(
-        "Dropdown configuration - {}",
-        editor.rows[row_index].source_field
-    );
+    let title = crate::ui_text::txf("Dropdown configuration - {}", &[&editor.rows[row_index].source_field]);
     let mut open = true;
     egui::Window::new(title)
         .id(egui::Id::new((
@@ -3313,7 +3310,7 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow,
         .inner_margin(egui::Margin::symmetric(14, 10))
         .show(ui, |ui| {
             ui.label(
-                RichText::new("Dropdown configuration")
+                RichText::new(crate::ui_text::tx("Dropdown configuration"))
                     .small()
                     .color(Color32::from_gray(190)),
             );
@@ -3321,10 +3318,10 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow,
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Origin of data").small().color(Color32::GRAY));
+                    ui.label(RichText::new(crate::ui_text::tx("Origin of data")).small().color(Color32::GRAY));
                     for origin in [DropdownOrigin::CobolTable, DropdownOrigin::IndexedFile] {
                         let selected = row.dropdown.origin == Some(origin);
-                        if ui.radio(selected, origin.summary()).clicked() && !selected {
+                        if ui.radio(selected, crate::ui_text::tx(origin.summary())).clicked() && !selected {
                             row.dropdown = match origin {
                                 DropdownOrigin::CobolTable => {
                                     DropdownConfig::category_cobol_table()
@@ -3365,7 +3362,7 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow,
                     });
                     ui.add_space(8.0);
                     ui.label(
-                        RichText::new("Display / name field (shown in dropdown)")
+                        RichText::new(crate::ui_text::tx("Display / name field (shown in dropdown)"))
                             .small()
                             .color(Color32::GRAY),
                     );
@@ -3385,7 +3382,7 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow,
                         }
                     });
                     ui.label(
-                        RichText::new("Displayed to the user.")
+                        RichText::new(crate::ui_text::tx("Displayed to the user."))
                             .small()
                             .color(Color32::GRAY),
                     );
@@ -3393,7 +3390,7 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow,
                 ui.add_space(24.0);
                 ui.vertical(|ui| {
                     ui.label(
-                        RichText::new("ID / value field (stored as bound value)")
+                        RichText::new(crate::ui_text::tx("ID / value field (stored as bound value)"))
                             .small()
                             .color(Color32::GRAY),
                     );
@@ -3413,12 +3410,12 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow,
                         }
                     });
                     ui.label(
-                        RichText::new("Stored as the selected value.")
+                        RichText::new(crate::ui_text::tx("Stored as the selected value."))
                             .small()
                             .color(Color32::GRAY),
                     );
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Line limit").small().color(Color32::GRAY));
+                    ui.label(RichText::new(crate::ui_text::tx("Line limit")).small().color(Color32::GRAY));
                     egui::ComboBox::from_id_salt(format!(
                         "cobol_dropdown_line_limit_{}",
                         row.source_field
@@ -3447,7 +3444,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
             ui.label(
-                RichText::new("Dropdown configuration")
+                RichText::new(crate::ui_text::tx("Dropdown configuration"))
                     .small()
                     .color(Color32::from_gray(190)),
             );
@@ -3455,13 +3452,13 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Origin of data").small().color(Color32::GRAY));
+                    ui.label(RichText::new(crate::ui_text::tx("Origin of data")).small().color(Color32::GRAY));
                     egui::ComboBox::from_id_salt(format!("dropdown_origin_{}", row.source_field))
                         .selected_text(
                             row.dropdown
                                 .origin
-                                .map(|origin| origin.label())
-                                .unwrap_or("Select origin"),
+                                .map(|origin| crate::ui_text::tx(origin.label()))
+                                .unwrap_or(crate::ui_text::tx("Select origin")),
                         )
                         .width(220.0)
                         .show_ui(ui, |ui| {
@@ -3470,7 +3467,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
                                     .selectable_value(
                                         &mut row.dropdown.origin,
                                         Some(origin),
-                                        origin.label(),
+                                        crate::ui_text::tx(origin.label()),
                                     )
                                     .clicked()
                                 {
@@ -3481,7 +3478,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
                 });
                 ui.add_space(36.0);
                 if let Some(origin) = row.dropdown.origin {
-                    if let Some(source_label) = origin.source_label() {
+                    if let Some(source_label) = origin.source_label().map(crate::ui_text::tx) {
                         ui.vertical(|ui| {
                             ui.label(RichText::new(source_label).small().color(Color32::GRAY));
                             egui::ComboBox::from_id_salt(format!(
@@ -3506,7 +3503,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
                     } else {
                         ui.vertical(|ui| {
                             ui.label(
-                                RichText::new("Static value editor")
+                                RichText::new(crate::ui_text::tx("Static value editor"))
                                     .small()
                                     .color(Color32::GRAY),
                             );
@@ -3524,7 +3521,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.label(
-                        RichText::new("Display / name field (shown in dropdown)")
+                        RichText::new(crate::ui_text::tx("Display / name field (shown in dropdown)"))
                             .small()
                             .color(Color32::GRAY),
                     );
@@ -3541,9 +3538,9 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
                             }
                         });
                     ui.label(
-                        RichText::new(format!(
+                        RichText::new(crate::ui_text::txf(
                             "{} will be displayed in the dropdown list.",
-                            field_name_only(&row.dropdown.display_field)
+                            &[&field_name_only(&row.dropdown.display_field)],
                         ))
                         .small()
                         .color(Color32::GRAY),
@@ -3552,7 +3549,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
                 ui.add_space(20.0);
                 ui.vertical(|ui| {
                     ui.label(
-                        RichText::new("ID / value field (stored as option value)")
+                        RichText::new(crate::ui_text::tx("ID / value field (stored as option value)"))
                             .small()
                             .color(Color32::GRAY),
                     );
@@ -3569,9 +3566,9 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
                             }
                         });
                     ui.label(
-                        RichText::new(format!(
+                        RichText::new(crate::ui_text::txf(
                             "{} will be stored as the selected value.",
-                            field_name_only(&row.dropdown.value_field)
+                            &[&field_name_only(&row.dropdown.value_field)],
                         ))
                         .small()
                         .color(Color32::GRAY),
@@ -3581,7 +3578,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Line limit").small().color(Color32::GRAY));
+                    ui.label(RichText::new(crate::ui_text::tx("Line limit")).small().color(Color32::GRAY));
                     egui::ComboBox::from_id_salt(format!(
                         "dropdown_line_limit_{}",
                         row.source_field
@@ -3600,7 +3597,7 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &D
                 });
                 ui.add_space(10.0);
                 ui.label(
-                    RichText::new("Maximum number of items to retrieve.")
+                    RichText::new(crate::ui_text::tx("Maximum number of items to retrieve."))
                         .small()
                         .color(Color32::GRAY),
                 );
@@ -4053,6 +4050,8 @@ impl PropertiesPanel {
         multi: Option<MultiSelection>,
     ) -> InspectorAction {
         let mut action = InspectorAction::default();
+        // The words that are not property names are drawn in the IDE's language (`ui_text`).
+        crate::ui_text::begin(crate::i18n::current_language(ui.ctx()));
         self.hints.seen.clear();
         // The whole pane reads two points smaller than the IDE's body text —
         // tabs, labels and values alike (operator, 2026-09-30).
@@ -4325,11 +4324,8 @@ impl PropertiesPanel {
                         let existing = form.binding_for_control(&ctrl.id).cloned();
                         if let Some(binding) = &existing {
                             if ui
-                                .button(format!(
-                                    "✎ Edit current binding ({})",
-                                    binding.display_name
-                                ))
-                                .on_hover_text("Reopen this control's saved binding configuration")
+                                .button(crate::ui_text::txf("✎ Edit current binding ({})", &[&binding.display_name]))
+                                .on_hover_text(crate::ui_text::tx("Reopen this control's saved binding configuration"))
                                 .clicked()
                             {
                                 self.binding_editor = BindingEditorState::from_existing(
@@ -4687,7 +4683,7 @@ impl PropertiesPanel {
                     action.cs_del_proc = Some(i);
                 }
                 if ui
-                    .selectable_label(false, egui::RichText::new("Open").monospace())
+                    .selectable_label(false, egui::RichText::new(crate::ui_text::tx("Open")).monospace())
                     .clicked()
                 {
                     action.cs_open = Some(CsTarget::Procedure(i));
@@ -4857,7 +4853,7 @@ impl PropertiesPanel {
                     .set_props
                     .push((id.to_owned(), "ZOrder".into(), PropValue::Int(z)));
             }
-            ui.label(RichText::new("(z-order)").small().color(Color32::GRAY));
+            ui.label(RichText::new(crate::ui_text::tx("(z-order)")).small().color(Color32::GRAY));
         });
         // Spec 091 R3, R31 — the layer a control is in. Every control but a
         // non-visual one (R47) names one; a control inside a container follows its
@@ -4979,7 +4975,7 @@ impl PropertiesPanel {
                 .add(
                     egui::TextEdit::singleline(buf)
                         .id(wid)
-                        .hint_text(hint)
+                        .hint_text(crate::ui_text::tx(hint))
                         .desired_width(f32::INFINITY),
                 )
                 .lost_focus()
@@ -5277,7 +5273,7 @@ impl PropertiesPanel {
                         ui.selectable_value(
                             &mut sel,
                             cur.clone(),
-                            format!("{cur}  (not installed)"),
+                            crate::ui_text::txf("{} (not installed)", &[&cur]),
                         );
                     }
                     let row_h = ui.text_style_height(&egui::TextStyle::Button);
@@ -5526,7 +5522,7 @@ impl PropertiesPanel {
                 .add(
                     egui::TextEdit::singleline(buf)
                         .id(wid)
-                        .hint_text("(shown on hover)")
+                        .hint_text(crate::ui_text::tx("(shown on hover)"))
                         .desired_width(ui.available_width()),
                 )
                 .lost_focus()
@@ -5687,7 +5683,7 @@ impl PropertiesPanel {
         }
 
         let mut open = true;
-        egui::Window::new("Edit DataGrid settings")
+        egui::Window::new(crate::ui_text::tx("Edit DataGrid settings"))
             .id(egui::Id::new(("datagrid_settings", &ctrl.id)))
             .collapsible(false)
             .resizable(true)
@@ -5790,7 +5786,7 @@ impl PropertiesPanel {
                         let mut advanced = DataGridAdvanced::from_control(ctrl);
                         let mut changed_advanced = false;
                         if advanced.columns.is_empty() {
-                            ui.label(RichText::new("No columns defined yet. Use data binding or the Columns property to create fields.").small().color(Color32::GRAY));
+                            ui.label(RichText::new(crate::ui_text::tx("No columns defined yet. Use data binding or the Columns property to create fields.")).small().color(Color32::GRAY));
                         }
                         for (index, column) in advanced.columns.iter_mut().enumerate() {
                             egui::CollapsingHeader::new(format!(
@@ -5808,13 +5804,13 @@ impl PropertiesPanel {
                                         ui.label("Title");
                                         changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.title).desired_width(180.0)).changed();
                                         ui.end_row();
-                                        ui.label("Source field");
+                                        ui.label(crate::ui_text::tx("Source field"));
                                         ui.label(RichText::new(&column.source_name).monospace().color(Color32::GRAY));
                                         ui.end_row();
-                                        ui.label("COBOL mask");
+                                        ui.label(crate::ui_text::tx("COBOL mask"));
                                         changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.cobol_mask).desired_width(120.0)).changed();
                                         ui.end_row();
-                                        ui.label("Edit control");
+                                        ui.label(crate::ui_text::tx("Edit control"));
                                         let before_edit = column.edit_control.clone();
                                         egui::ComboBox::from_id_salt(format!("dg_col_edit_{}_{}", ctrl.id, index))
                                             .selected_text(if column.edit_control.trim().is_empty() { "Textbox" } else { &column.edit_control })
@@ -5885,7 +5881,7 @@ impl PropertiesPanel {
                                             ui.end_row();
                                         }
                                         if column.edit_control.eq_ignore_ascii_case("Image") {
-                                            ui.label("Image corner radius");
+                                            ui.label(crate::ui_text::tx("Image corner radius"));
                                             changed_advanced |= ui
                                                 .add(
                                                     DragValue::new(&mut column.image_corner_radius)
@@ -5894,7 +5890,7 @@ impl PropertiesPanel {
                                                 )
                                                 .changed();
                                             ui.end_row();
-                                            ui.label("Image drop shadow");
+                                            ui.label(crate::ui_text::tx("Image drop shadow"));
                                             changed_advanced |= ui
                                                 .checkbox(&mut column.image_shadow, "")
                                                 .changed();
@@ -5904,7 +5900,7 @@ impl PropertiesPanel {
                                         // narrow predictable ones hold their size while the
                                         // prose ones follow the form. The range follows the
                                         // unit, because 32..=1600 is meaningless as a percent.
-                                        ui.label("Column width");
+                                        ui.label(crate::ui_text::tx("Column width"));
                                         ui.horizontal(|ui| {
                                             let percent = matches!(
                                                 column.width_unit,
@@ -5967,35 +5963,35 @@ impl PropertiesPanel {
                                             }
                                         });
                                         ui.end_row();
-                                        ui.label("Header font size");
+                                        ui.label(crate::ui_text::tx("Header font size"));
                                         let mut header_size = column.header_font_size as i64;
                                         if ui.add(DragValue::new(&mut header_size).speed(1).range(6..=72)).changed() {
                                             column.header_font_size = header_size as u16;
                                             changed_advanced = true;
                                         }
                                         ui.end_row();
-                                        ui.label("Cell font size");
+                                        ui.label(crate::ui_text::tx("Cell font size"));
                                         let mut cell_size = column.font_size as i64;
                                         if ui.add(DragValue::new(&mut cell_size).speed(1).range(0..=72)).changed() {
                                             column.font_size = cell_size as u16;
                                             changed_advanced = true;
                                         }
                                         ui.end_row();
-                                        ui.label("Cell foreground");
+                                        ui.label(crate::ui_text::tx("Cell foreground"));
                                         let mut fg = hex_to_color32(&column.foreground_color);
                                         if color_edit_button_closing(ui, &mut fg).changed() {
                                             column.foreground_color = color32_to_hex(fg);
                                             changed_advanced = true;
                                         }
                                         ui.end_row();
-                                        ui.label("Cell background");
+                                        ui.label(crate::ui_text::tx("Cell background"));
                                         let mut bg = hex_to_color32(&column.background_color);
                                         if color_edit_button_closing(ui, &mut bg).changed() {
                                             column.background_color = color32_to_hex(bg);
                                             changed_advanced = true;
                                         }
                                         ui.end_row();
-                                        ui.label("Background pattern");
+                                        ui.label(crate::ui_text::tx("Background pattern"));
                                         let before_pattern = column.background_pattern.clone();
                                         egui::ComboBox::from_id_salt(format!("dg_col_pattern_{}_{}", ctrl.id, index))
                                             .selected_text(if column.background_pattern.trim().is_empty() { "None" } else { &column.background_pattern })
@@ -6007,10 +6003,10 @@ impl PropertiesPanel {
                                             });
                                         changed_advanced |= before_pattern != column.background_pattern;
                                         ui.end_row();
-                                        ui.label("Background image");
+                                        ui.label(crate::ui_text::tx("Background image"));
                                         changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.background_image).desired_width(180.0)).changed();
                                         ui.end_row();
-                                        ui.label("Text align");
+                                        ui.label(crate::ui_text::tx("Text align"));
                                         let before_align = column.text_alignment;
                                         egui::ComboBox::from_id_salt(format!("dg_col_align_{}_{}", ctrl.id, index))
                                             .selected_text(match column.text_alignment {
@@ -6026,45 +6022,45 @@ impl PropertiesPanel {
                                             });
                                         changed_advanced |= before_align != column.text_alignment;
                                         ui.end_row();
-                                        ui.label("Filter enabled");
+                                        ui.label(crate::ui_text::tx("Filter enabled"));
                                         changed_advanced |= ui.checkbox(&mut column.filter_enabled, "").changed();
                                         ui.end_row();
-                                        ui.label("Inner shape");
+                                        ui.label(crate::ui_text::tx("Inner shape"));
                                         if column.frame.is_none() {
                                             column.frame = Some(DataGridCellFrame::default());
                                         }
                                         if let Some(frame) = column.frame.as_mut() {
-                                            changed_advanced |= ui.checkbox(&mut frame.enabled, "Enabled").changed();
+                                            changed_advanced |= ui.checkbox(&mut frame.enabled, crate::ui_text::tx("Enabled")).changed();
                                             ui.end_row();
-                                            ui.label("Shape padding");
+                                            ui.label(crate::ui_text::tx("Shape padding"));
                                             let mut padding = frame.padding as i64;
                                             if ui.add(DragValue::new(&mut padding).speed(1).range(0..=32)).changed() {
                                                 frame.padding = padding as u16;
                                                 changed_advanced = true;
                                             }
                                             ui.end_row();
-                                            ui.label("Shape radius");
+                                            ui.label(crate::ui_text::tx("Shape radius"));
                                             let mut radius = frame.corner_radius as i64;
                                             if ui.add(DragValue::new(&mut radius).speed(1).range(0..=64)).changed() {
                                                 frame.corner_radius = radius as u16;
                                                 changed_advanced = true;
                                             }
                                             ui.end_row();
-                                            ui.label("Shape color");
+                                            ui.label(crate::ui_text::tx("Shape color"));
                                             let mut frame_bg = hex_to_color32(&frame.background_color);
                                             if color_edit_button_closing(ui, &mut frame_bg).changed() {
                                                 frame.background_color = color32_to_hex(frame_bg);
                                                 changed_advanced = true;
                                             }
                                             ui.end_row();
-                                            ui.label("Inner shape color");
+                                            ui.label(crate::ui_text::tx("Inner shape color"));
                                             ui.vertical(|ui| {
                                                 let mut remove_rule = None;
                                                 for (rule_index, rule) in column.value_style_rules.iter_mut().enumerate() {
                                                     ui.horizontal(|ui| {
                                                         let value_resp = ui.add(
                                                             egui::TextEdit::singleline(&mut rule.value)
-                                                                .hint_text("Value")
+                                                                .hint_text(crate::ui_text::tx("Value"))
                                                                 .desired_width(120.0),
                                                         );
                                                         changed_advanced |= value_resp.changed();
@@ -6073,7 +6069,7 @@ impl PropertiesPanel {
                                                             rule.frame_background_color = color32_to_hex(color);
                                                             changed_advanced = true;
                                                         }
-                                                        if ui.button("X").on_hover_text("Remove value color").clicked() {
+                                                        if ui.button("X").on_hover_text(crate::ui_text::tx("Remove value color")).clicked() {
                                                             remove_rule = Some(rule_index);
                                                         }
                                                     });
@@ -6082,7 +6078,7 @@ impl PropertiesPanel {
                                                     column.value_style_rules.remove(rule_index);
                                                     changed_advanced = true;
                                                 }
-                                                if ui.button("New definition").clicked() {
+                                                if ui.button(crate::ui_text::tx("New definition")).clicked() {
                                                     column.value_style_rules.push(DataGridValueStyleRule {
                                                         value: String::new(),
                                                         frame_background_color: "#1BC47D".to_owned(),
@@ -6099,9 +6095,9 @@ impl PropertiesPanel {
                                             column.gauge = Some(DataGridGauge::default());
                                         }
                                         if let Some(gauge) = column.gauge.as_mut() {
-                                            changed_advanced |= ui.checkbox(&mut gauge.enabled, "Enabled").changed();
+                                            changed_advanced |= ui.checkbox(&mut gauge.enabled, crate::ui_text::tx("Enabled")).changed();
                                             ui.end_row();
-                                            ui.label("Gauge min / max");
+                                            ui.label(crate::ui_text::tx("Gauge min / max"));
                                             ui.horizontal(|ui| {
                                                 changed_advanced |= ui.add(DragValue::new(&mut gauge.min).speed(1.0)).changed();
                                                 changed_advanced |= ui.add(DragValue::new(&mut gauge.max).speed(1.0)).changed();
@@ -6179,7 +6175,7 @@ impl PropertiesPanel {
         let mut close_editor = false;
         let mut apply_binding = false;
         let mut remove_binding: Option<String> = None;
-        egui::Window::new("Edit data binding settings")
+        egui::Window::new(crate::ui_text::tx("Edit data binding settings"))
             .id(egui::Id::new((
                 "data_binding_settings",
                 &editor.target_control_id,
@@ -6194,7 +6190,7 @@ impl PropertiesPanel {
             .show(&ctx, |ui| {
                 ui.set_max_width((modal_size.x - 34.0).max(640.0));
                 ui.add_space(6.0);
-                ui.label("Create binding from:");
+                ui.label(crate::ui_text::tx("Create binding from:"));
                 ui.add_space(6.0);
                 show_binding_source_selector(ui, editor, tr);
                 ui.add_space(10.0);
@@ -6253,7 +6249,7 @@ impl PropertiesPanel {
                     if editor.selected_source != Some(BindingEditorSourceKind::RestApi)
                         && editor.selected_source != Some(BindingEditorSourceKind::CobolTable)
                     {
-                        if ui.button("+ Add field").clicked() {
+                        if ui.button(crate::ui_text::tx("+ Add field")).clicked() {
                             let (field_prefix, mask, data_type) =
                                 if editor.selected_source == Some(BindingEditorSourceKind::Sql) {
                                     ("SQL_FIELD", "X(30)", BindingDataType::Text)
@@ -6269,7 +6265,7 @@ impl PropertiesPanel {
                                 DropdownConfig::empty(),
                             ));
                         }
-                        if ui.button("Restore removed fields").clicked() {
+                        if ui.button(crate::ui_text::tx("Restore removed fields")).clicked() {
                             editor.rows.append(&mut editor.removed_rows);
                         }
                     }
@@ -6277,7 +6273,7 @@ impl PropertiesPanel {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("Apply").color(Color32::WHITE).strong(),
+                                    RichText::new(crate::ui_text::tx("Apply")).color(Color32::WHITE).strong(),
                                 )
                                 .fill(Color32::from_rgb(45, 112, 230))
                                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(80, 145, 255))),
@@ -6363,7 +6359,7 @@ impl PropertiesPanel {
                 let lbl = ui
                     .add(
                         egui::Label::new(
-                            RichText::new("Edit").color(crate::contrast::ink(Color32::from_rgb(200, 200, 100))),
+                            RichText::new(crate::ui_text::tx("Edit")).color(crate::contrast::ink(Color32::from_rgb(200, 200, 100))),
                         )
                         .sense(egui::Sense::click()),
                     )
@@ -6409,8 +6405,8 @@ impl PropertiesPanel {
 
         ui.label(
             RichText::new(
-                "Each animation is a named effect triggered by an event or from COBOL.\n\
-             COBOL: INVOKE ctrl-id 'PlayAnimation' USING BY VALUE 'fly-in'",
+                crate::ui_text::tx("Each animation is a named effect triggered by an event or from COBOL.\n\
+             COBOL: INVOKE ctrl-id 'PlayAnimation' USING BY VALUE 'fly-in'"),
             )
             .small()
             .color(Color32::GRAY)
@@ -6424,7 +6420,7 @@ impl PropertiesPanel {
 
         if anim_count == 0 {
             ui.label(
-                RichText::new("(no animations — add one below)")
+                RichText::new(crate::ui_text::tx("(no animations — add one below)"))
                     .small()
                     .color(Color32::GRAY),
             );
@@ -6629,14 +6625,14 @@ impl PropertiesPanel {
 
                 // Preview + Remove buttons
                 ui.horizontal(|ui| {
-                    if ui.button("▶ Preview").clicked() {
+                    if ui.button(crate::ui_text::tx("▶ Preview")).clicked() {
                         action.set_props.push((
                             id.to_owned(),
                             format!("_PreviewAnim{sel}"),
                             PropValue::String(anim.name.clone()),
                         ));
                     }
-                    if ui.button("🗑 Remove").clicked() {
+                    if ui.button(crate::ui_text::tx("🗑 Remove")).clicked() {
                         action.set_props.push((
                             id.to_owned(),
                             format!("_RemoveAnim{sel}"),
@@ -6658,7 +6654,7 @@ impl PropertiesPanel {
         ui.add_space(4.0);
         ui.separator();
         ui.horizontal(|ui| {
-            ui.label("New animation name:");
+            ui.label(crate::ui_text::tx("New animation name:"));
             ui.add(
                 egui::TextEdit::singleline(&mut self.new_anim_name)
                     // The hint IS the default, so the field shows what leaving
@@ -6666,7 +6662,7 @@ impl PropertiesPanel {
                     .hint_text(next_default.as_str())
                     .desired_width(120.0),
             );
-            if ui.button("➕ Add").clicked() {
+            if ui.button(crate::ui_text::tx("➕ Add")).clicked() {
                 action.set_props.push((
                     id.to_owned(),
                     "_AddAnimation".to_owned(),
@@ -7200,7 +7196,7 @@ impl PropertiesPanel {
                         .unwrap_or(true);
                     if search_shows(ui, "Show frame", Some("ShowFrame"))
                         && ui
-                            .checkbox(&mut show, "Show frame (uncheck = image only)")
+                            .checkbox(&mut show, crate::ui_text::tx("Show frame (uncheck = image only)"))
                             .changed()
                     {
                         action.set_props.push((
@@ -7296,10 +7292,10 @@ impl PropertiesPanel {
                 if !search_hides_extras() {
                     ui.label(
                         egui::RichText::new(
-                            "At runtime: Value / SelectedIndex is the ACTIVE row; \
+                            crate::ui_text::tx("At runtime: Value / SelectedIndex is the ACTIVE row; \
                              SelectedItems is the Ctrl-click (Cmd on a Mac) selection, \
                              drawn dimmed; CheckedItems is the ticked set. All three are \
-                             newline-separated where they hold more than one.",
+                             newline-separated where they hold more than one."),
                         )
                         .small()
                         .weak(),
@@ -7682,7 +7678,7 @@ impl PropertiesPanel {
 
                 ui.add_space(4.0);
                 if !search_active() {
-                    ui.label(egui::RichText::new("Radial style").small().weak());
+                    ui.label(egui::RichText::new(crate::ui_text::tx("Radial style")).small().weak());
                 }
                 bool_row_inline(ui, id, "ShowScale", "Show scale", ctrl, action);
                 // Where the value + Unit sit: inside the dial, or under the
@@ -7691,13 +7687,13 @@ impl PropertiesPanel {
                 combo_row_inline(ui, id, "ReadoutPosition", ctrl, action, &["Up", "Down"]);
                 ui.add_space(4.0);
                 if !search_active() {
-                    ui.label(egui::RichText::new("Linear style").small().weak());
+                    ui.label(egui::RichText::new(crate::ui_text::tx("Linear style")).small().weak());
                 }
                 int_prop_row(ui, id, "BarHeight", "Bar height", ctrl, action, 6..=200, None, 14);
                 bool_row_inline(ui, id, "ShowThumb", "Show thumb", ctrl, action);
                 ui.add_space(4.0);
                 if !search_active() {
-                    ui.label(egui::RichText::new("Donut style").small().weak());
+                    ui.label(egui::RichText::new(crate::ui_text::tx("Donut style")).small().weak());
                 }
                 int_prop_row(
                     ui,
@@ -7834,10 +7830,10 @@ impl PropertiesPanel {
                 if !search_hides_extras() {
                     ui.label(
                         egui::RichText::new(
-                            "DroppedFiles, RejectedFiles, StagedFiles and CommitSummary are \
+                            crate::ui_text::tx("DroppedFiles, RejectedFiles, StagedFiles and CommitSummary are \
                              populated at runtime by a drop or the native file picker — not \
                              design-time properties. A blank Extensions accepts any file; 0 KB \
-                             is no size limit; a blank Destination leaves files where they are.",
+                             is no size limit; a blank Destination leaves files where they are."),
                         )
                         .small()
                         .weak(),
@@ -7846,11 +7842,11 @@ impl PropertiesPanel {
                 if !search_hides_extras() {
                     ui.label(
                         egui::RichText::new(
-                            "With \"Confirm before copying\" on, a drop copies nothing: the \
+                            crate::ui_text::tx("With \"Confirm before copying\" on, a drop copies nothing: the \
                              files are listed with a tick box each, and your COBOL calls \
                              CommitFiles() when the operator is happy. Unticked files are \
                              skipped. The list is an ordinary ListBox — the one created with \
-                             this zone, or any other you name here.",
+                             this zone, or any other you name here."),
                         )
                         .small()
                         .weak(),
@@ -7934,16 +7930,14 @@ impl PropertiesPanel {
                 let advanced = DataGridAdvanced::from_control(ctrl);
                 if search_shows(ui, "Edit DataGrid settings", Some("Columns")) {
                 ui.label(
-                    RichText::new(format!(
+                    RichText::new(crate::ui_text::txf(
                         "{} columns, {} frozen column(s), {} frozen row(s)",
-                        advanced.columns.len(),
-                        advanced.frozen_columns,
-                        advanced.frozen_rows
+                        &[&advanced.columns.len(), &advanced.frozen_columns, &advanced.frozen_rows],
                     ))
                     .small()
                     .color(Color32::GRAY),
                 );
-                if ui.button("Edit DataGrid settings...").clicked() {
+                if ui.button(crate::ui_text::tx("Edit DataGrid settings...")).clicked() {
                     self.datagrid_editor = Some(id.to_owned());
                 }
                 }
@@ -9253,13 +9247,11 @@ impl PropertiesPanel {
                 let def = cobolt_forms::toolbar::ToolbarDef::from_control(ctrl);
                 ui.label(
                     egui::RichText::new(if def.is_empty() {
-                        "No groups yet.".to_owned()
+                        crate::ui_text::tx("No groups yet.").to_owned()
                     } else {
-                        format!(
+                        crate::ui_text::txf(
                             "{} group(s), {} button(s), {}px wide",
-                            def.groups.len(),
-                            def.buttons().count(),
-                            def.layout_width()
+                            &[&def.groups.len(), &def.buttons().count(), &def.layout_width()],
                         )
                     })
                     .small()
@@ -9269,11 +9261,9 @@ impl PropertiesPanel {
                 // off the end — worth saying here, where the width is editable.
                 if !def.is_empty() && def.layout_width() > ctrl.rect.w as i64 {
                     ui.label(
-                        egui::RichText::new(format!(
-                            "⚠ Needs {}px but the control is {}px — the last group(s) \
-                             will not be drawn.",
-                            def.layout_width(),
-                            ctrl.rect.w
+                        egui::RichText::new(crate::ui_text::txf(
+                            "⚠ Needs {}px but the control is {}px — the last group(s) will not be drawn.",
+                            &[&def.layout_width(), &ctrl.rect.w],
                         ))
                         .small()
                         .color(egui::Color32::from_rgb(220, 160, 60)),
@@ -9531,7 +9521,7 @@ impl PropertiesPanel {
                 } else {
                     match bound {
                         Some(c) => c.name.clone(),
-                        None => format!("⚠ not configured ({cur_id})"),
+                        None => crate::ui_text::txf("⚠ not configured ({})", &[&cur_id]),
                     }
                 };
                 property_row(ui, "Configuration:", |ui| {
@@ -9563,21 +9553,18 @@ impl PropertiesPanel {
                 if missing {
                     ui.label(
                         RichText::new(
-                            "This machine has no such model provider configured. Add it \
+                            crate::ui_text::tx("This machine has no such model provider configured. Add it \
                              in the Model Providers Manager, or choose (Local) to use \
-                             the settings below.",
+                             the settings below."),
                         )
                         .small()
                         .color(Color32::from_rgb(220, 120, 90)),
                     );
                 } else if let Some(c) = bound {
                     ui.label(
-                        RichText::new(format!(
-                            "Using the model provider “{}” ({}). Its API key stays in \
-                             the Model Providers Manager and never reaches this form. \
-                             The model and the tuning below are still this control's own.",
-                            c.name,
-                            if c.endpoint.is_empty() { "default endpoint" } else { &c.endpoint },
+                        RichText::new(crate::ui_text::txf(
+                            "Using the model provider “{}” ({}). Its API key stays in the Model Providers Manager and never reaches this form. The model and the tuning below are still this control's own.",
+                            &[&c.name, &if c.endpoint.is_empty() { crate::ui_text::tx("default endpoint") } else { &c.endpoint }],
                         ))
                         .small()
                         .color(Color32::GRAY)
@@ -9863,24 +9850,24 @@ impl PropertiesPanel {
                 if missing {
                     ui.label(
                         RichText::new(
-                            "This control names a project connection that no longer exists. \
-                             Pick another, or (Local) to use the settings below.",
+                            crate::ui_text::tx("This control names a project connection that no longer exists. \
+                             Pick another, or (Local) to use the settings below."),
                         )
                         .small()
                         .color(Color32::from_rgb(220, 120, 90)),
                     );
                 } else if let Some(c) = bound {
                     ui.label(
-                        RichText::new(format!(
-                            "Using the project connection “{}”: {} {}, auth {}, {} s timeout.\n\
-                             The settings below are this control's own and are not in use \
-                             while a connection is selected — they are kept, and apply again \
-                             if you switch back to {LOCAL_CONFIG_LABEL}.",
-                            c.name,
-                            c.default_method,
-                            if c.base_url.is_empty() { "(no base URL)" } else { &c.base_url },
-                            c.auth_type,
-                            c.timeout_seconds,
+                        RichText::new(crate::ui_text::txf(
+                            "Using the project connection “{}”: {} {}, auth {}, {} s timeout.\nThe settings below are this control's own and are not in use while a connection is selected — they are kept, and apply again if you switch back to {}.",
+                            &[
+                                &c.name,
+                                &c.default_method,
+                                &if c.base_url.is_empty() { crate::ui_text::tx("(no base URL)") } else { &c.base_url },
+                                &c.auth_type,
+                                &c.timeout_seconds,
+                                &LOCAL_CONFIG_LABEL,
+                            ],
                         ))
                         .small()
                         .color(Color32::GRAY)
@@ -10114,7 +10101,7 @@ impl PropertiesPanel {
                     } else {
                         cur.clone()
                     };
-                    property_row(ui, tr.prop_sql_connection, |ui| {
+                    property_row_keyed(ui, tr.prop_sql_connection, Some("SqlConnection"), |ui| {
                         egui::ComboBox::from_id_salt(format!("cb_{id}_SqlConnection"))
                             .selected_text(selected_text)
                             .width(ui.available_width().min(200.0))
@@ -10207,7 +10194,7 @@ impl PropertiesPanel {
                     .unwrap_or_default();
                 property_row_keyed(ui, "Indexed file:", Some("IndexedFile"), |ui| {
                     let selected = if current_file.trim().is_empty() {
-                        "Select indexed file"
+                        crate::ui_text::tx("Select indexed file")
                     } else {
                         current_file.as_str()
                     };
@@ -10218,7 +10205,7 @@ impl PropertiesPanel {
                             if indexed_files.is_empty() {
                                 ui.add_enabled(
                                     false,
-                                    egui::Label::new("No indexed files in project"),
+                                    egui::Label::new(crate::ui_text::tx("No indexed files in project")),
                                 );
                             } else {
                                 for file in indexed_files {
@@ -10333,8 +10320,8 @@ impl PropertiesPanel {
                 if missing {
                     ui.label(
                         RichText::new(
-                            "This control names a search connection that no longer \
-                             exists. Pick another, or (Local) to use the settings below.",
+                            crate::ui_text::tx("This control names a search connection that no longer \
+                             exists. Pick another, or (Local) to use the settings below."),
                         )
                         .small()
                         .color(Color32::from_rgb(220, 120, 90)),
@@ -10345,23 +10332,19 @@ impl PropertiesPanel {
                     // connection, so leaving them visible would be six boxes
                     // that do nothing.
                     ui.label(
-                        RichText::new(format!(
-                            "Using the project search connection “{}”: {}{}.\n\
-                             Its API key is stored with the connection, not on \
-                             this form. Results and safe search stay this \
-                             control's own.",
-                            c.name,
-                            c.provider,
-                            if c.provider.eq_ignore_ascii_case("searxng") && !c.endpoint.is_empty()
-                            {
-                                format!(" at {}", c.endpoint)
-                            } else if c.provider.eq_ignore_ascii_case("google")
-                                && !c.search_engine_id.is_empty()
-                            {
-                                format!(" (engine {})", c.search_engine_id)
-                            } else {
-                                String::new()
-                            },
+                        RichText::new(crate::ui_text::txf(
+                            "Using the project search connection “{}”: {}{}.\nIts API key is stored with the connection, not on this form. Results and safe search stay this control's own.",
+                            &[
+                                &c.name,
+                                &c.provider,
+                                &if c.provider.eq_ignore_ascii_case("searxng") && !c.endpoint.is_empty() {
+                                    format!(" {}", crate::ui_text::txf("at {}", &[&c.endpoint]))
+                                } else if c.provider.eq_ignore_ascii_case("google") && !c.search_engine_id.is_empty() {
+                                    format!(" ({})", crate::ui_text::txf("engine {}", &[&c.search_engine_id]))
+                                } else {
+                                    String::new()
+                                },
+                            ],
                         ))
                         .small()
                         .color(Color32::GRAY)
@@ -10497,10 +10480,7 @@ impl PropertiesPanel {
                         // Said plainly rather than shown as a control that does
                         // nothing: this provider has no filter to set.
                         ui.label(
-                            RichText::new(format!(
-                                "{} has no SafeSearch setting.",
-                                provider.as_str()
-                            ))
+                            RichText::new(crate::ui_text::txf("{} has no SafeSearch setting.", &[&provider.as_str()]))
                             .small()
                             .color(Color32::GRAY)
                             .italics(),
@@ -11409,7 +11389,7 @@ impl PropertiesPanel {
                     let cur = form.target.as_str();
                     // Show current selection + dimensions hint
                     let display = if cur == "Custom" {
-                        format!("Custom ({}×{})", form.width, form.height)
+                        crate::ui_text::txf("Custom ({}×{})", &[&form.width, &form.height])
                     } else {
                         // Find preset dims
                         TARGET_PRESETS
@@ -12242,7 +12222,7 @@ impl PropertiesPanel {
                                 let lbl = ui
                                     .add(
                                         egui::Label::new(
-                                            RichText::new("Edit")
+                                            RichText::new(crate::ui_text::tx("Edit"))
                                                 .color(crate::contrast::ink(Color32::from_rgb(200, 200, 100))),
                                         )
                                         .sense(egui::Sense::click()),
@@ -12273,7 +12253,7 @@ impl PropertiesPanel {
                         rows(ui);
                     } else {
                         egui::CollapsingHeader::new(
-                            RichText::new(group).strong().color(crate::contrast::ink(Color32::from_gray(170))),
+                            RichText::new(crate::ui_text::tx(group)).strong().color(crate::contrast::ink(Color32::from_gray(170))),
                         )
                         .id_salt(format!("form-evgrp-{group}"))
                         .default_open(any_code)
@@ -12304,7 +12284,7 @@ impl PropertiesPanel {
                     .collect();
                 if !retired.is_empty() {
                     egui::CollapsingHeader::new(
-                        RichText::new("Retired (no longer fired)")
+                        RichText::new(crate::ui_text::tx("Retired (no longer fired)"))
                             .strong()
                             .color(crate::contrast::ink(Color32::from_rgb(210, 170, 100))),
                     )
@@ -12313,9 +12293,9 @@ impl PropertiesPanel {
                     .show(ui, |ui| {
                         ui.label(
                             RichText::new(
-                                "These events are no longer raised. Your code is kept and \
+                                crate::ui_text::tx("These events are no longer raised. Your code is kept and \
                                  still compiles — move it to an event that fires, then \
-                                 delete it here.",
+                                 delete it here."),
                             )
                             .small()
                             .color(crate::contrast::ink(Color32::GRAY)),
@@ -12330,7 +12310,7 @@ impl PropertiesPanel {
                                 let lbl = ui
                                     .add(
                                         egui::Label::new(
-                                            RichText::new("Edit")
+                                            RichText::new(crate::ui_text::tx("Edit"))
                                                 .color(crate::contrast::ink(Color32::from_rgb(200, 200, 100))),
                                         )
                                         .sense(egui::Sense::click()),
@@ -12360,7 +12340,7 @@ impl PropertiesPanel {
                 section_header(ui, tr.sec_animations);
                 property_row(ui, "Form animations", |ui| {
                     ui.label(
-                        RichText::new("No form-level animation properties").color(crate::contrast::ink(Color32::GRAY)),
+                        RichText::new(crate::ui_text::tx("No form-level animation properties")).color(crate::contrast::ink(Color32::GRAY)),
                     );
                 });
             }
@@ -12606,10 +12586,12 @@ fn search_admits(label: &str, key: Option<&str>) -> RowAdmission {
         let mut b = s.borrow_mut();
         let Some(st) = b.as_mut() else { return RowAdmission::Shown };
         let prop = key.unwrap_or(label);
+        // A row is found by the wording it is drawn with and by its English one.
+        let shown = crate::ui_text::tx(label);
         let ty = HELP_TYPE.with(|t| t.borrow().clone());
         let help = crate::prop_help::lookup(st.lang, &ty, prop).unwrap_or("");
         let help_en = crate::prop_help::lookup(crate::i18n::Language::English, &ty, prop).unwrap_or("");
-        let ok = st.section_hit || st.query.matches(&[label, prop], &[&st.section, help, help_en]);
+        let ok = st.section_hit || st.query.matches(&[label, shown, prop], &[&st.section, help, help_en]);
         if !ok {
             return RowAdmission::Hidden;
         }
@@ -12686,9 +12668,11 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
         RowAdmission::FirstInSection(title) => draw_section_header(ui, &title),
         RowAdmission::Shown => {}
     }
+    // The wording the row is drawn with (the key, below, comes from the English one).
+    let shown = crate::ui_text::tx(label);
     // Its A–Z place in the section, when the section is sorted.
     if !search_active() {
-        sort_place(ui, label);
+        sort_place(ui, shown);
     }
     let enabled = ROWS_ENABLED.with(|e| e.get());
     // Rows sit flush against one another so the only separators are the dashed grid
@@ -12707,7 +12691,9 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
         .y
         .max(ui.text_style_height(&egui::TextStyle::Body) + 10.0);
     let approx_chars_per_line = ((split - 6.0) / 8.0).floor().max(1.0) as usize;
-    let label_lines = label.len().div_ceil(approx_chars_per_line).clamp(1, 3);
+    // A wide (CJK) character takes two places.
+    let label_width: usize = shown.chars().map(|c| if c.is_ascii() { 1 } else { 2 }).sum();
+    let label_lines = label_width.div_ceil(approx_chars_per_line).clamp(1, 3);
     let content_height =
         base_height.max(ui.text_style_height(&egui::TextStyle::Body) * label_lines as f32 + 10.0);
     let row_height = content_height + 2.0 * V_PAD;
@@ -12784,7 +12770,7 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                         RESET_REQUEST.with(|r| *r.borrow_mut() = Some(key.clone()));
                     }
                 }
-                let r = ui.add(egui::Label::new(label).wrap());
+                let r = ui.add(egui::Label::new(shown).wrap());
                 match prop_help_text(ui, &key) {
                     Some(t) => {
                         r.on_hover_text(t);
@@ -13257,7 +13243,7 @@ fn draw_section_header(ui: &mut Ui, title: &str) {
         ui.painter().text(
             rect.left_center() + egui::vec2(8.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            title.to_uppercase(),
+            crate::ui_text::tx(title).to_uppercase(),
             egui::FontId::proportional(13.0),
             pal.band_ink,
         );
@@ -13287,7 +13273,7 @@ fn draw_section_header(ui: &mut Ui, title: &str) {
     ui.painter().text(
         rect.left_center() + egui::vec2(3.0, 0.0),
         egui::Align2::LEFT_CENTER,
-        title,
+        crate::ui_text::tx(title),
         egui::TextStyle::Button.resolve(ui.style()),
         Color32::WHITE,
     );
@@ -13418,7 +13404,7 @@ fn color_row_effective(
         if named
             && ui
                 .small_button("↺")
-                .on_hover_text("Back to the default colour")
+                .on_hover_text(crate::ui_text::tx("Back to the default colour"))
                 .clicked()
         {
             action.set_props.push((
@@ -13431,7 +13417,7 @@ fn color_row_effective(
             RichText::new(if named {
                 color32_to_hex(color)
             } else {
-                "default".to_owned()
+                crate::ui_text::tx("default").to_owned()
             })
             .monospace()
             .small()
@@ -13530,7 +13516,7 @@ fn icon_preview(ui: &mut Ui, current: &str, built_in: &str) {
         if known {
             name.to_owned()
         } else {
-            format!("{name} — not in the catalogue")
+            crate::ui_text::txf("{} — not in the catalogue", &[&name])
         },
         egui::FontId::proportional(10.0),
         if known {
@@ -13574,7 +13560,7 @@ fn text_row_hint(
         let resp = ui.add(
             egui::TextEdit::singleline(&mut buf.text)
                 .id(widget_id)
-                .hint_text(hint)
+                .hint_text(crate::ui_text::tx(hint))
                 .desired_width(ui.available_width()),
         );
         if resp.lost_focus() {
@@ -13656,7 +13642,7 @@ fn folder_row_hint(
         // arithmetic — nothing here can be squeezed out of the cell.
         if ui
             .button("📂")
-            .on_hover_text("Choose the destination folder…")
+            .on_hover_text(crate::ui_text::tx("Choose the destination folder…"))
             .clicked()
         {
             // Asynchronous, like every other picker here: a synchronous dialog
@@ -13679,7 +13665,7 @@ fn folder_row_hint(
         let has_value = !buf.text.trim().is_empty();
         if ui
             .add_enabled(has_value, egui::Button::new("✕"))
-            .on_hover_text("Clear the destination folder")
+            .on_hover_text(crate::ui_text::tx("Clear the destination folder"))
             .clicked()
         {
             commit = Some(String::new());
@@ -13687,7 +13673,7 @@ fn folder_row_hint(
         let resp = ui.add(
             egui::TextEdit::singleline(&mut buf.text)
                 .id(widget_id)
-                .hint_text(hint)
+                .hint_text(crate::ui_text::tx(hint))
                 .desired_width(f32::INFINITY),
         );
         if resp.lost_focus() {
@@ -13729,7 +13715,7 @@ fn datagrid_color_modal_row(
     action: &mut InspectorAction,
     fallback: &str,
 ) {
-    help_label(ui, label, key);
+    help_label(ui, crate::ui_text::tx(label), key);
     // An EMPTY value means "unset — the form theme decides", which is not the
     // same as absent and must not fall through to `hex_to_color32`'s generic
     // grey: the swatch would claim #F0F0F0 for a field the renderer actually
@@ -13766,7 +13752,7 @@ fn datagrid_text_modal_row(
     action: &mut InspectorAction,
     fallback: &str,
 ) {
-    help_label(ui, label, key);
+    help_label(ui, crate::ui_text::tx(label), key);
     let mut value = ctrl
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
@@ -13791,7 +13777,7 @@ fn datagrid_int_modal_row(
     range: std::ops::RangeInclusive<i64>,
     fallback: i64,
 ) {
-    help_label(ui, label, key);
+    help_label(ui, crate::ui_text::tx(label), key);
     let mut value = ctrl.get_prop(key).map(|v| v.as_i64()).unwrap_or(fallback);
     if ui
         .add(DragValue::new(&mut value).speed(1).range(range))
@@ -13813,7 +13799,7 @@ fn datagrid_advanced_int_modal_row(
     range: std::ops::RangeInclusive<i64>,
     fallback: i64,
 ) {
-    help_label(ui, label, key);
+    help_label(ui, crate::ui_text::tx(label), key);
     let advanced = DataGridAdvanced::from_control(ctrl);
     let mut value = match key {
         "RowHeight" => advanced.row_height as i64,
@@ -13851,7 +13837,7 @@ fn datagrid_grid_line_style_modal_row(
     ctrl: &Control,
     action: &mut InspectorAction,
 ) {
-    ui.label("Grid line style");
+    ui.label(crate::ui_text::tx("Grid line style"));
     let current = DataGridAdvanced::from_control(ctrl).grid_line_style;
     egui::ComboBox::from_id_salt(format!("cb_{id}_GridLineStyle"))
         .selected_text(current.as_str())
@@ -13887,7 +13873,7 @@ fn bool_row(
     ctrl: &Control,
     action: &mut InspectorAction,
 ) {
-    help_label(ui, label, key);
+    help_label(ui, crate::ui_text::tx(label), key);
     let mut v = ctrl.get_prop(key).map(|p| p.as_bool()).unwrap_or(false);
     if ui.checkbox(&mut v, "").changed() {
         action
@@ -13904,7 +13890,7 @@ fn busy_row_readonly(ui: &mut Ui, ctrl: &Control) {
     let busy = ctrl.get_prop("Busy").map(|p| p.as_bool()).unwrap_or(false);
     property_row(ui, "Busy:", |ui| {
         ui.add_enabled_ui(false, |ui| {
-            ui.label(if busy { "running" } else { "idle" });
+            ui.label(if busy { crate::ui_text::tx("running") } else { crate::ui_text::tx("idle") });
         });
     });
 }
@@ -14006,7 +13992,7 @@ fn combo_row_labeled(
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| opts[0].to_owned());
-    help_label(ui, label, key);
+    help_label(ui, crate::ui_text::tx(label), key);
     egui::ComboBox::from_id_salt(format!("cb_{ctrl_id}_{key}"))
         .selected_text(&cur)
         .width(140.0)
@@ -14488,7 +14474,7 @@ fn image_browse_row(
             .add(
                 egui::TextEdit::singleline(buf)
                     .id(wid)
-                    .hint_text("(none)")
+                    .hint_text(crate::ui_text::tx("(none)"))
                     .desired_width(f32::INFINITY),
             )
             .lost_focus()
@@ -14554,7 +14540,7 @@ fn items_file_row(
             .add(
                 egui::TextEdit::singleline(buf)
                     .id(wid)
-                    .hint_text("(none)")
+                    .hint_text(crate::ui_text::tx("(none)"))
                     .desired_width(f32::INFINITY),
             )
             .on_hover_text(tr.items_file_browse)
@@ -14719,7 +14705,7 @@ fn items_multiline(
     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
         *buf = cur;
     }
-    ui.label("Items (one per line):");
+    ui.label(crate::ui_text::tx("Items (one per line):"));
     let resp = bounded_multiline_editor(ui, wid, buf).response;
     if resp.lost_focus() {
         action.set_props.push((
@@ -17536,6 +17522,300 @@ mod label_help_tests {
             println!("no tooltip [{lang:?}]: {ty} / {label:?}");
         }
         println!("{lang:?}: {} label(s) without a tooltip", misses.len());
+        // A row relabelled for a language still explains itself: the explanation is looked up by
+        // the property, not by the wording drawn (the SQL connection row lost it outside English).
+        assert!(misses.is_empty(), "{lang:?}: {} labels have no tooltip: {misses:?}", misses.len());
         }
+    }
+
+    /// Every text the Properties pane paints that is a **word of the IDE** — a descriptive label,
+    /// a section or group title, a hint, a note — comes out differently in at least one language:
+    /// none is left in English everywhere. (Property and event names are the COBOL names the
+    /// developer types and stay as written, as do sample data and examples: the allow-list
+    /// below is those, and nothing else.)
+    #[test]
+    fn no_word_of_the_pane_is_left_in_english_in_every_language() {
+        use std::collections::{BTreeMap, BTreeSet};
+        let render = |lang: crate::i18n::Language, form: &Form, ctrl: Option<&Control>, tab: InspectorTab| -> Vec<String> {
+            let tr = &lang.tr();
+            let ctx = egui::Context::default();
+            crate::i18n::set_language(&ctx, lang);
+            let mut panel = PropertiesPanel::new();
+            panel.active_tab = tab;
+            let mut out = Vec::new();
+            for _ in 0..2 {
+                let mut full = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 20000.0))),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        egui::CentralPanel::default().show_inside(ui, |ui| {
+                            let _ = panel.show(ui, form, ctrl, &[], tr);
+                        });
+                    },
+                );
+                full.textures_delta.clear();
+                fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+                    match shape {
+                        egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                        _ => {}
+                    }
+                }
+                out.clear();
+                for cs in &full.shapes {
+                    texts(&cs.shape, &mut out);
+                }
+            }
+            out
+        };
+        // Names, values, samples and examples that are the same in every language on purpose.
+        let allowed: &[&str] = &[
+            "(Local)",
+            "/api/chat (override)",
+            "/path/to/image.png",
+            "Actual,Budget",
+            "FILE SECTION",
+            "Liquid Glass",
+            "Node 1\n  Child 1\n  Child 2\nNode 2",
+            "SALES-AMOUNT,SALES-BUDGET",
+            "Sales by Region",
+            "Tab1\nTab2",
+            "X(256)",
+            "You are a helpful assistant.",
+            "assets/KB",
+            "assets/logo.png",
+            "assets/mark.png",
+            "dd/MM/yyyy HH:mm",
+            "http://localhost:11434",
+            "https://api.example.com",
+            "sqlite::memory:",
+        ];
+        let is_word = |t: &str| {
+            let t = t.trim();
+            let identifier = t
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && t.trim_end_matches(':').chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+            !identifier
+                && t.chars().filter(|c| c.is_alphabetic()).count() >= 3
+                && !t.starts_with(['#', '['])
+                && !t.contains("INVOKE ")
+        };
+        let form = Form::new("F", "F", 640, 480);
+        let mut cases: Vec<(String, Option<Control>)> = vec![("Form".to_owned(), None)];
+        for t in cobolt_forms::ControlType::ALL {
+            cases.push((format!("{t:?}"), Some(Control::new("X".to_owned(), t.clone(), 0, 0))));
+        }
+        let mut left: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (name, ctrl) in &cases {
+            let mut f = form.clone();
+            if let Some(c) = ctrl {
+                f.controls.push(c.clone());
+            }
+            for tab in [InspectorTab::Visuals, InspectorTab::Events] {
+                let en = render(crate::i18n::Language::English, &f, ctrl.as_ref(), tab);
+                let mut same: BTreeSet<String> = en.into_iter().filter(|t| is_word(t)).collect();
+                for &lang in crate::i18n::Language::ALL.iter().filter(|l| **l != crate::i18n::Language::English) {
+                    let other: BTreeSet<String> = render(lang, &f, ctrl.as_ref(), tab).into_iter().collect();
+                    same.retain(|t| other.contains(t));
+                }
+                for t in same {
+                    if !allowed.contains(&t.as_str()) {
+                        left.entry(t).or_default().insert(format!("{name}/{tab:?}"));
+                    }
+                }
+            }
+        }
+        for (t, where_) in &left {
+            println!("English in every language: {t:?}  ({})", where_.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
+        }
+        // (The language the pane was last drawn in is a per-thread setting.)
+        crate::ui_text::begin(crate::i18n::Language::English);
+        assert!(left.is_empty(), "{} words of the pane are English in every language", left.len());
+    }
+
+    // ── Source scan: no bare English literal is handed to a widget ───────────
+
+    /// The arguments of every call of `name(` in `code`, as source text, split at the commas
+    /// that are not inside brackets, strings or character literals.
+    fn call_args(code: &str, name: &str) -> Vec<Vec<String>> {
+        let bytes = code.as_bytes();
+        let mut out = Vec::new();
+        let mut from = 0;
+        while let Some(at) = code[from..].find(name) {
+            let start = from + at;
+            from = start + name.len();
+            // A whole word / path: not the tail of a longer name.
+            if start > 0 {
+                let before = bytes[start - 1] as char;
+                if before.is_ascii_alphanumeric() || before == '_' {
+                    continue;
+                }
+            }
+            if bytes.get(from) != Some(&b'(') {
+                continue;
+            }
+            let (mut depth, mut i, mut arg_start) = (0usize, from, from + 1);
+            let mut args = Vec::new();
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'"' => {
+                        i += 1;
+                        while i < bytes.len() && bytes[i] != b'"' {
+                            if bytes[i] == b'\\' {
+                                i += 1;
+                            }
+                            i += 1;
+                        }
+                    }
+                    b'\'' => {
+                        // 'x' or '\n' is a character; 'a in `&'a str` is a lifetime.
+                        if bytes.get(i + 2) == Some(&b'\'') {
+                            i += 2;
+                        } else if bytes.get(i + 1) == Some(&b'\\') {
+                            i += 2;
+                            while i < bytes.len() && bytes[i] != b'\'' {
+                                i += 1;
+                            }
+                        }
+                    }
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            args.push(code[arg_start..i].trim().to_owned());
+                            break;
+                        }
+                    }
+                    b',' if depth == 1 => {
+                        args.push(code[arg_start..i].trim().to_owned());
+                        arg_start = i + 1;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            out.push(args);
+        }
+        out
+    }
+
+    /// The text of a string literal that is the whole argument, if it is one.
+    fn literal(arg: &str) -> Option<String> {
+        let inner = arg.strip_prefix('"')?.strip_suffix('"')?;
+        if inner.contains('"') && !inner.contains("\\\"") {
+            return None;
+        }
+        Some(inner.replace("\\n", "\n").replace("\\\"", "\""))
+    }
+
+    /// The production half of `properties.rs` (everything before its first test module).
+    fn production_source() -> &'static str {
+        let src = include_str!("properties.rs");
+        &src[..src.find("#[cfg(test)]\nmod ").expect("a test module")]
+    }
+
+    /// Samples, examples and names that are the same in every language on purpose.
+    const KEPT_AS_WRITTEN: &[&str] = &[
+        "#4C9BE8,#E87A4C",
+        "$.[*].price",
+        "$.[*].title",
+        "/api/chat (override)",
+        "/path/to/image.png",
+        "Actual,Budget",
+        "CODE=Label",
+        "Gauge",
+        "Price",
+        "RRGGBBAA",
+        "SALES-AMOUNT,SALES-BUDGET",
+        "Sales by Region",
+        "Title",
+        "dd/MM/yyyy HH:mm",
+        "http://localhost:11434",
+        "https://api.example.com",
+        "https://api.example.com/v1/products",
+        "https://search.example.com",
+        "sqlite::memory:",
+    ];
+
+    fn wants_translation(text: &str) -> bool {
+        let t = text.trim();
+        let identifier = t.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && t.trim_end_matches(':').chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+        !identifier
+            && t.chars().filter(|c| c.is_alphabetic()).count() >= 2
+            && !KEPT_AS_WRITTEN.contains(&t)
+            && !t.starts_with("Table binding:")
+    }
+
+    /// The pane draws its words through `ui_text`: a literal that goes straight into a label, a
+    /// button, a heading, a hint, a hover text or a window title is a word that stays English in
+    /// every language. (A row label handed to a row helper is translated by the helper, so it
+    /// is held to the table instead: it must be in it.)
+    #[test]
+    fn the_pane_hands_no_bare_english_literal_to_a_widget_and_every_row_label_is_in_the_table() {
+        let code = production_source();
+        // (call, the argument that is the text)
+        let widgets: &[(&str, usize)] = &[
+            (".label", 0),
+            (".button", 0),
+            (".small_button", 0),
+            (".heading", 0),
+            ("RichText::new", 0),
+            ("Label::new", 0),
+            ("Button::new", 0),
+            (".hint_text", 0),
+            (".on_hover_text", 0),
+            (".checkbox", 1),
+            ("Window::new", 0),
+            ("CollapsingHeader::new", 0),
+            (".selectable_label", 1),
+        ];
+        let rows: &[(&str, usize)] = &[
+            ("property_row", 1),
+            ("property_row_keyed", 1),
+            ("section_header", 1),
+            ("bool_row", 3),
+            ("bool_row_inline", 3),
+            ("int_row_inline", 3),
+            ("int_prop_row", 3),
+            ("color_row_labeled", 3),
+            ("color_row_effective", 3),
+            ("combo_row_labeled", 3),
+            ("combo_row_inline_labeled", 3),
+            ("text_row_hint", 5),
+            ("text_row_hint", 6),
+        ];
+        let mut bare = std::collections::BTreeSet::new();
+        for &(name, at) in widgets {
+            for args in call_args(code, name) {
+                if let Some(text) = args.get(at).and_then(|a| literal(a)) {
+                    if wants_translation(&text) {
+                        bare.insert(format!("{name}: {text:?}"));
+                    }
+                }
+            }
+        }
+        let mut missing = std::collections::BTreeSet::new();
+        for &(name, at) in rows {
+            for args in call_args(code, name) {
+                if let Some(text) = args.get(at).and_then(|a| literal(a)) {
+                    if wants_translation(&text) && !crate::ui_text::has(&text) {
+                        missing.insert(format!("{name}: {text:?}"));
+                    }
+                }
+            }
+        }
+        for b in &bare {
+            println!("bare English literal -> {b}");
+        }
+        for m in &missing {
+            println!("row label not in the table -> {m}");
+        }
+        assert!(bare.is_empty(), "{} bare English literals go straight to a widget", bare.len());
+        assert!(missing.is_empty(), "{} row labels are not in the ui_text table", missing.len());
     }
 }
