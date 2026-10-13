@@ -108,7 +108,7 @@ TR-4-C-6 rect=[588 488 852 512] font=13
 TR-4-C-7 rect=[48 518 312 538] font=13
 TR-4-C-8 rect=[318 518 582 538] font=13
 TR-4-C-9 rect=[588 518 852 538] font=13
-shapes=359 digest=b842441864700942
+shapes=359 digest=d196025166311972
 ## Run 0.75x 900x585
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -218,7 +218,7 @@ TR-4-C-6 rect=[588 488 852 512] font=13
 TR-4-C-7 rect=[48 518 312 538] font=13
 TR-4-C-8 rect=[318 518 582 538] font=13
 TR-4-C-9 rect=[588 518 852 538] font=13
-shapes=360 digest=725faaf11230c6b4
+shapes=360 digest=2be05babd0e52414
 ## Preview 0.75x 900x585
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -328,7 +328,7 @@ TR-4-C-6 rect=[588 488 852 512] font=13
 TR-4-C-7 rect=[48 518 312 538] font=13
 TR-4-C-8 rect=[318 518 582 538] font=13
 TR-4-C-9 rect=[588 518 852 538] font=13
-shapes=360 digest=725faaf11230c6b4
+shapes=360 digest=2be05babd0e52414
 ## Canvas 1x 1200x780
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -438,7 +438,7 @@ TR-4-C-6 rect=[788 634 1152 698] font=13
 TR-4-C-7 rect=[48 704 412 724] font=13
 TR-4-C-8 rect=[418 704 782 724] font=13
 TR-4-C-9 rect=[788 704 1152 724] font=13
-shapes=359 digest=cb1d282fdbe4aee4
+shapes=359 digest=06e87aeb692c71b8
 ## Run 1x 1200x780
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -548,7 +548,7 @@ TR-4-C-6 rect=[788 634 1152 698] font=13
 TR-4-C-7 rect=[48 704 412 724] font=13
 TR-4-C-8 rect=[418 704 782 724] font=13
 TR-4-C-9 rect=[788 704 1152 724] font=13
-shapes=360 digest=8a44a743d0912f6b
+shapes=360 digest=fb99087a6133ed5f
 ## Preview 1x 1200x780
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -658,7 +658,7 @@ TR-4-C-6 rect=[788 634 1152 698] font=13
 TR-4-C-7 rect=[48 704 412 724] font=13
 TR-4-C-8 rect=[418 704 782 724] font=13
 TR-4-C-9 rect=[788 704 1152 724] font=13
-shapes=360 digest=8a44a743d0912f6b
+shapes=360 digest=fb99087a6133ed5f
 ## Canvas 1.5x 1800x1170
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -768,7 +768,7 @@ TR-4-C-6 rect=[1188 926 1752 1088] font=13
 TR-4-C-7 rect=[48 1094 612 1114] font=13
 TR-4-C-8 rect=[618 1094 1182 1114] font=13
 TR-4-C-9 rect=[1188 1094 1752 1114] font=13
-shapes=359 digest=f89061178ce059b2
+shapes=359 digest=72826fdb74e9ec8e
 ## Run 1.5x 1800x1170
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -878,7 +878,7 @@ TR-4-C-6 rect=[1188 926 1752 1088] font=13
 TR-4-C-7 rect=[48 1094 612 1114] font=13
 TR-4-C-8 rect=[618 1094 1182 1114] font=13
 TR-4-C-9 rect=[1188 1094 1752 1114] font=13
-shapes=360 digest=19590ae9b3a337ab
+shapes=360 digest=3e67d98cc988ae7f
 ## Preview 1.5x 1800x1170
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
@@ -988,4 +988,4 @@ TR-4-C-6 rect=[1188 926 1752 1088] font=13
 TR-4-C-7 rect=[48 1094 612 1114] font=13
 TR-4-C-8 rect=[618 1094 1182 1114] font=13
 TR-4-C-9 rect=[1188 1094 1752 1114] font=13
-shapes=360 digest=19590ae9b3a337ab
+shapes=360 digest=3e67d98cc988ae7f

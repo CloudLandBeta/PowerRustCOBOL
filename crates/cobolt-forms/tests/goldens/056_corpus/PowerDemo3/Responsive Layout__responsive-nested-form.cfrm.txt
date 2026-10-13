@@ -45,7 +45,7 @@ NS-W-7 rect=- font=13
 NS-W-8 rect=- font=13
 NS-W-9 rect=- font=13
 SB-INFO rect=[12 547 888 573] font=13
-shapes=190 digest=4513b8aa926aa580
+shapes=190 digest=cf7351116a2128ec
 ## Run 0.75x 900x585
 NS-F1 rect=[50 476 130 510] font=13
 NS-F2 rect=[326 476 586 510] font=13
@@ -92,7 +92,7 @@ NS-W-7 rect=- font=13
 NS-W-8 rect=- font=13
 NS-W-9 rect=- font=13
 SB-INFO rect=[12 547 888 573] font=13
-shapes=198 digest=0395590688aba18b
+shapes=198 digest=8a92bff8152aa377
 ## Preview 0.75x 900x585
 NS-F1 rect=[50 476 130 510] font=13
 NS-F2 rect=[326 476 586 510] font=13
@@ -139,7 +139,7 @@ NS-W-7 rect=- font=13
 NS-W-8 rect=- font=13
 NS-W-9 rect=- font=13
 SB-INFO rect=[12 547 888 573] font=13
-shapes=198 digest=0395590688aba18b
+shapes=198 digest=8a92bff8152aa377
 ## Canvas 1x 1200x780
 NS-F1 rect=[342 671 422 705] font=13
 NS-F2 rect=[622 671 882 705] font=13
@@ -186,7 +186,7 @@ NS-W-7 rect=[156 122 220 146] font=13
 NS-W-8 rect=[226 122 266 146] font=13
 NS-W-9 rect=[24 152 76 176] font=13
 SB-INFO rect=[12 742 1188 768] font=13
-shapes=316 digest=eccbc41d8c3e5a34
+shapes=316 digest=f273b9555372c5d2
 ## Run 1x 1200x780
 NS-F1 rect=[342 671 422 705] font=13
 NS-F2 rect=[622 671 882 705] font=13
@@ -233,7 +233,7 @@ NS-W-7 rect=[156 122 220 146] font=13
 NS-W-8 rect=[226 122 266 146] font=13
 NS-W-9 rect=[24 152 76 176] font=13
 SB-INFO rect=[12 742 1188 768] font=13
-shapes=324 digest=cce5b360097eefe3
+shapes=324 digest=0ab42038c1b4749f
 ## Preview 1x 1200x780
 NS-F1 rect=[342 671 422 705] font=13
 NS-F2 rect=[622 671 882 705] font=13
@@ -280,7 +280,7 @@ NS-W-7 rect=[156 122 220 146] font=13
 NS-W-8 rect=[226 122 266 146] font=13
 NS-W-9 rect=[24 152 76 176] font=13
 SB-INFO rect=[12 742 1188 768] font=13
-shapes=324 digest=cce5b360097eefe3
+shapes=324 digest=0ab42038c1b4749f
 ## Canvas 1.5x 1800x1170
 NS-F1 rect=[342 1061 422 1095] font=13
 NS-F2 rect=[922 1061 1182 1095] font=13
@@ -327,7 +327,7 @@ NS-W-7 rect=[156 122 220 146] font=13
 NS-W-8 rect=[226 122 266 146] font=13
 NS-W-9 rect=[24 152 76 176] font=13
 SB-INFO rect=[12 1132 1788 1158] font=13
-shapes=316 digest=6dcf764c7dc8107b
+shapes=316 digest=dbe507389dd5d501
 ## Run 1.5x 1800x1170
 NS-F1 rect=[342 1061 422 1095] font=13
 NS-F2 rect=[922 1061 1182 1095] font=13
@@ -374,7 +374,7 @@ NS-W-7 rect=[156 122 220 146] font=13
 NS-W-8 rect=[226 122 266 146] font=13
 NS-W-9 rect=[24 152 76 176] font=13
 SB-INFO rect=[12 1132 1788 1158] font=13
-shapes=324 digest=45b1134b6f0aa6f8
+shapes=324 digest=112b8246819eac70
 ## Preview 1.5x 1800x1170
 NS-F1 rect=[342 1061 422 1095] font=13
 NS-F2 rect=[922 1061 1182 1095] font=13
@@ -421,4 +421,4 @@ NS-W-7 rect=[156 122 220 146] font=13
 NS-W-8 rect=[226 122 266 146] font=13
 NS-W-9 rect=[24 152 76 176] font=13
 SB-INFO rect=[12 1132 1788 1158] font=13
-shapes=324 digest=45b1134b6f0aa6f8
+shapes=324 digest=112b8246819eac70

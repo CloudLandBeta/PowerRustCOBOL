@@ -852,7 +852,7 @@ fn ac_popup_width(items: &[AcItem]) -> f32 {
     const DETAIL_BUDGET: usize = 26;
     let detail_chars = items
         .iter()
-        .map(|it| it.detail.chars().count())
+        .map(|it| localized_detail(&it.detail).chars().count())
         .max()
         .unwrap_or(0)
         .min(DETAIL_BUDGET);
@@ -861,6 +861,24 @@ fn ac_popup_width(items: &[AcItem]) -> f32 {
     // Clamped so one long signature cannot stretch the popup across the window,
     // and a one-word list still reads as a list.
     (text_w + 78.0).clamp(200.0, 460.0)
+}
+
+/// A popup row's detail in the language of the IDE. `AcItem::detail` stays the English the
+/// code and the tests read; this is what the row shows: a word ("keyword", "property"), a
+/// method's sentence, the `COBOL` object's `( params ) — sentence` (only the sentence is
+/// translated: the parameters are notation), or "<Type> control".
+fn localized_detail(detail: &str) -> String {
+    use crate::ui_text::{has_ide, ide, idef};
+    if has_ide(detail) {
+        return ide(detail).to_owned();
+    }
+    if let Some((params, sentence)) = detail.strip_prefix("( ").and_then(|d| d.split_once(" ) — ")) {
+        return format!("( {params} ) — {}", ide(sentence));
+    }
+    if let Some(ty) = detail.strip_suffix(" control") {
+        return idef("{} control", &[&ty]);
+    }
+    detail.to_owned()
 }
 
 #[derive(Clone)]
@@ -1579,8 +1597,9 @@ pub(crate) fn token_counter(
         .size(font_size - 1.0)
         .color(fg.gamma_multiply(0.75)),
     )
-    .on_hover_text(format!(
-        "{input} input / {output} output tokens, counted as each model call returns"
+    .on_hover_text(crate::ui_text::idef(
+        "{} input / {} output tokens, counted as each model call returns",
+        &[&input, &output],
     ));
 }
 
@@ -1876,7 +1895,7 @@ pub(crate) fn chat_bubble_with_response_actions(
         if let Some(root) = project_root {
             match save_agent_response_as_markdown(root, &path, content) {
                 Ok(relative) => {
-                    state.status = Some(format!("Saved {}", relative.display()));
+                    state.status = Some(crate::ui_text::idef("Saved {}", &[&relative.display()]));
                     state.error = None;
                 }
                 Err(error) => {
@@ -1891,17 +1910,17 @@ pub(crate) fn chat_bubble_with_response_actions(
     ui.horizontal(|ui| {
         if ui
             .small_button("📋")
-            .on_hover_text("Copy agent response to the clipboard")
+            .on_hover_text(crate::ui_text::ide("Copy agent response to the clipboard"))
             .clicked()
         {
             ui.ctx().copy_text(content.to_owned());
-            state.status = Some("Copied to clipboard".into());
+            state.status = Some(crate::ui_text::ide("Copied to clipboard").into());
         }
 
         let save_tooltip = if project_root.is_some() {
-            "Save agent response as a Markdown file in this project's Knowledge Base"
+            crate::ui_text::ide("Save agent response as a Markdown file in this project's Knowledge Base")
         } else {
-            "Open a project before saving an agent response"
+            crate::ui_text::ide("Open a project before saving an agent response")
         };
         if ui
             .add_enabled(
@@ -1926,7 +1945,7 @@ pub(crate) fn chat_bubble_with_response_actions(
                 Err(error) => {
                     state.status = None;
                     let message =
-                        format!("Could not prepare the project Knowledge Base: {error}");
+                        crate::ui_text::idef("Could not prepare the project Knowledge Base: {}", &[&error]);
                     crate::error_log::record(&message);
                     state.error = Some(message);
                 }
@@ -1945,7 +1964,7 @@ pub(crate) fn chat_bubble_with_response_actions(
     if let Some(error) = state.error.clone() {
         let mut open = true;
         let mut dismiss = false;
-        egui::Window::new("Save agent response error")
+        egui::Window::new(crate::ui_text::ide("Save agent response error"))
             .id(action_id.with("error"))
             .collapsible(false)
             .resizable(true)
@@ -1953,7 +1972,7 @@ pub(crate) fn chat_bubble_with_response_actions(
             .show(ui.ctx(), |ui| {
                 ui.label(&error);
                 ui.horizontal(|ui| {
-                    if ui.small_button("📋").on_hover_text("Copy error").clicked() {
+                    if ui.small_button("📋").on_hover_text(crate::ui_text::ide("Copy error")).clicked() {
                         ui.ctx().copy_text(error.clone());
                     }
                     if ui.button("OK").clicked() {
@@ -3285,7 +3304,7 @@ impl EditorPanel {
             let mode = if self.overwrite { "OVR" } else { "INS" };
             if ui
                 .add(egui::Label::new(txt(mode.into())).sense(egui::Sense::click()))
-                .on_hover_text("Toggle Insert/Overwrite (Insert key)")
+                .on_hover_text(crate::ui_text::ide("Toggle Insert/Overwrite (Insert key)"))
                 .clicked()
             {
                 self.overwrite = !self.overwrite;
@@ -3295,14 +3314,14 @@ impl EditorPanel {
                 if show_beautify
                     && ui
                         .add_enabled(!read_only, egui::Button::new(txt("✨ Beautify".into())))
-                        .on_hover_text("Reformat to the RustCOBOL layout rules")
+                        .on_hover_text(crate::ui_text::ide("Reformat to the RustCOBOL layout rules"))
                         .clicked()
                 {
                     do_beautify = true;
                 }
                 ui.add_enabled(
                     !read_only,
-                    egui::Checkbox::new(&mut self.trim_on_save, txt("Trim on save".into())),
+                    egui::Checkbox::new(&mut self.trim_on_save, txt(crate::ui_text::ide("Trim on save").into())),
                 );
             });
         });
@@ -3348,14 +3367,14 @@ impl EditorPanel {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .small_button("A+")
-                        .on_hover_text("Increase font size")
+                        .on_hover_text(crate::ui_text::ide("Increase font size"))
                         .clicked()
                     {
                         self.font_size = (self.font_size + 1.0).min(24.0);
                     }
                     if ui
                         .small_button("A−")
-                        .on_hover_text("Decrease font size")
+                        .on_hover_text(crate::ui_text::ide("Decrease font size"))
                         .clicked()
                     {
                         self.font_size = (self.font_size - 1.0).max(8.0);
@@ -3426,7 +3445,7 @@ impl EditorPanel {
         if self.tabs.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    egui::RichText::new("Select an item in the project tree to see its details.")
+                    egui::RichText::new(crate::ui_text::ide("Select an item in the project tree to see its details."))
                         .color(Color32::from_gray(150))
                         .size(15.0),
                 );
@@ -4221,7 +4240,7 @@ impl EditorPanel {
 
                             if member_mode {
                                 ui.label(
-                                    egui::RichText::new("  Properties & Methods")
+                                    egui::RichText::new(format!("  {}", crate::ui_text::ide("Properties & Methods")))
                                         .small()
                                         .color(Color32::from_gray(160)),
                                 );
@@ -4280,7 +4299,7 @@ impl EditorPanel {
                                                         ui.add(
                                                             egui::Label::new(
                                                                 egui::RichText::new(
-                                                                    &item.detail,
+                                                                    localized_detail(&item.detail),
                                                                 )
                                                                 .small()
                                                                 .color(Color32::from_gray(
@@ -4307,8 +4326,9 @@ impl EditorPanel {
                                         // The elided detail in full. Truncating
                                         // the row must not lose the sentence —
                                         // for a method it is the documentation.
-                                        let click_resp = if item.detail.chars().count() > 26 {
-                                            click_resp.on_hover_text(&item.detail)
+                                        let detail = localized_detail(&item.detail);
+                                        let click_resp = if detail.chars().count() > 26 {
+                                            click_resp.on_hover_text(detail)
                                         } else {
                                             click_resp
                                         };
@@ -4325,7 +4345,7 @@ impl EditorPanel {
                             ui.separator();
                             ui.label(
                                 egui::RichText::new(
-                                    "↑↓ navigate   Tab/↵ insert   Esc dismiss   Ctrl+Space force",
+                                    crate::ui_text::ide("↑↓ navigate   Tab/↵ insert   Esc dismiss   Ctrl+Space force"),
                                 )
                                 .small()
                                 .color(Color32::from_gray(130)),
@@ -4422,7 +4442,7 @@ impl EditorPanel {
                                     TextEdit::singleline(&mut self.search.query)
                                         .id(search_input_id)
                                         .desired_width(165.0)
-                                        .hint_text("Find…"),
+                                        .hint_text(crate::ui_text::ide("Find…")),
                                 );
 
                                 if te_resp.changed() || self.search.query != prev_query {
@@ -4437,7 +4457,7 @@ impl EditorPanel {
                                 let (count_txt, count_col) = if self.search.query.is_empty() {
                                     ("".to_owned(), crate::theme::active().text_dim)
                                 } else if total == 0 {
-                                    ("No matches".to_owned(), Color32::from_rgb(255, 100, 100))
+                                    (crate::ui_text::ide("No matches").to_owned(), Color32::from_rgb(255, 100, 100))
                                 } else {
                                     let cur = self.search.current + 1;
                                     (format!("{cur}/{total}"), crate::theme::active().text_bright)
@@ -4449,7 +4469,7 @@ impl EditorPanel {
                                 // Case-insensitive toggle (on by default).
                                 if ui
                                     .selectable_label(self.search.case_insensitive, "Aa")
-                                    .on_hover_text("Case-insensitive search")
+                                    .on_hover_text(crate::ui_text::ide("Case-insensitive search"))
                                     .clicked()
                                 {
                                     self.search.case_insensitive = !self.search.case_insensitive;
@@ -4462,7 +4482,7 @@ impl EditorPanel {
                                 // < previous match
                                 if ui
                                     .small_button("<")
-                                    .on_hover_text("Previous match (Shift+Enter)")
+                                    .on_hover_text(crate::ui_text::ide("Previous match (Shift+Enter)"))
                                     .clicked()
                                 {
                                     self.search_prev();
@@ -4470,13 +4490,13 @@ impl EditorPanel {
                                 // > next match
                                 if ui
                                     .small_button(">")
-                                    .on_hover_text("Next match (Enter)")
+                                    .on_hover_text(crate::ui_text::ide("Next match (Enter)"))
                                     .clicked()
                                 {
                                     self.search_next();
                                 }
                                 // ✕ close
-                                if ui.small_button("✕").on_hover_text("Close (Esc)").clicked() {
+                                if ui.small_button("✕").on_hover_text(crate::ui_text::ide("Close (Esc)")).clicked() {
                                     self.search.visible = false;
                                 }
                             });
@@ -4492,22 +4512,22 @@ impl EditorPanel {
                                     TextEdit::singleline(&mut self.search.replace)
                                         .id(replace_input_id)
                                         .desired_width(165.0)
-                                        .hint_text("Replace…"),
+                                        .hint_text(crate::ui_text::ide("Replace…")),
                                 );
                                 ui.separator();
                                 let can = !active_ro
                                     && !self.search.query.is_empty()
                                     && !self.search.matches.is_empty();
                                 if ui
-                                    .add_enabled(can, egui::Button::new("Replace").small())
-                                    .on_hover_text("Replace this match")
+                                    .add_enabled(can, egui::Button::new(crate::ui_text::ide("Replace")).small())
+                                    .on_hover_text(crate::ui_text::ide("Replace this match"))
                                     .clicked()
                                 {
                                     do_replace_one = true;
                                 }
                                 if ui
                                     .add_enabled(can, egui::Button::new("All").small())
-                                    .on_hover_text("Replace all matches")
+                                    .on_hover_text(crate::ui_text::ide("Replace all matches"))
                                     .clicked()
                                 {
                                     do_replace_all = true;
@@ -4516,7 +4536,7 @@ impl EditorPanel {
 
                             ui.label(
                                 egui::RichText::new(
-                                    "Enter = next   Shift+Enter = prev   Esc = close",
+                                    crate::ui_text::ide("Enter = next   Shift+Enter = prev   Esc = close"),
                                 )
                                 .small()
                                 .color(Color32::from_gray(120)),
@@ -7665,5 +7685,122 @@ mod layer_known_controls_091 {
         // A form with no layers offers none.
         let none = build_known_controls(&Form::new("F", "F", 640, 480));
         assert!(none.iter().all(|k| k.ctrl_type != "Layer"));
+    }
+}
+
+#[cfg(test)]
+mod completion_text_tests {
+    use super::*;
+    use crate::ui_text::{begin, has_ide, ide};
+    use crate::i18n::Language;
+    use std::collections::BTreeSet;
+
+    /// Every English sentence or word the completion popup can show in its detail column: the
+    /// editor's own method tables, the System KB's method docs folded in for each control type,
+    /// the value methods of a data item, the runtime's built-ins (the `COBOL` object), the two
+    /// descriptions `member_completions` writes itself, and the words of a keyword, a property,
+    /// a paragraph, a data item and an `OF` qualifier.
+    fn shown() -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for ct in cobolt_forms::ControlType::ALL {
+            for (_, d) in methods_for_type(ct.as_str()) {
+                out.insert(d.to_owned());
+            }
+        }
+        for (_, d) in methods_for_type(DATA_ITEM_TYPE) {
+            out.insert(d.to_owned());
+        }
+        for b in cobolt_runtime::builtins::BUILTINS {
+            out.insert(b.description.to_owned());
+        }
+        let known = KnownControl {
+            id: "X".into(),
+            ctrl_type: "Button".into(),
+            properties: vec!["Caption".into()],
+            extra_methods: vec!["RefreshBinding".into(), "AnyOther".into()],
+        };
+        for it in member_completions(&known, "") {
+            out.insert(it.detail);
+        }
+        for it in [AcItem::kw("MOVE"), AcItem::property("Caption"), AcItem::para("P"), AcItem::data("D")] {
+            out.insert(it.detail);
+        }
+        for it in of_qualifier_items("") {
+            out.insert(it.detail);
+        }
+        out
+    }
+
+    /// The code spans of a sentence (`like this`): names the person types, never translated.
+    fn code_spans(text: &str) -> Vec<&str> {
+        text.split('`').skip(1).step_by(2).collect()
+    }
+
+    /// Nothing the popup can say is left in English: every description is in the IDE table, in all
+    /// six languages, with the code names it quotes kept as they are.
+    #[test]
+    fn every_completion_description_exists_in_six_languages() {
+        let all = shown();
+        let mut missing = Vec::new();
+        let mut spans_lost = Vec::new();
+        for d in &all {
+            if !has_ide(d) {
+                missing.push(d.clone());
+                continue;
+            }
+            for &lang in Language::ALL {
+                let t = crate::ui_text::ide_localized(lang, d);
+                for span in code_spans(d) {
+                    if !t.contains(span) {
+                        spans_lost.push(format!("{lang:?}: `{span}` lost in {d:?}"));
+                    }
+                }
+            }
+        }
+        for m in &missing {
+            println!("completion text not in the table -> {m:?}");
+        }
+        for s in &spans_lost {
+            println!("{s}");
+        }
+        println!("{} completion descriptions checked, {} missing, {} with a code name lost", all.len(), missing.len(), spans_lost.len());
+        assert!(has_ide("{} control"), "\"<Type> control\" is in the table");
+        assert!(missing.is_empty(), "{} completion descriptions are English only", missing.len());
+        assert!(spans_lost.is_empty(), "{} translations lost a quoted code name", spans_lost.len());
+    }
+
+    /// The row shows the language of the IDE, while the item keeps the English the code reads.
+    #[test]
+    fn a_popup_row_shows_its_detail_in_the_language_of_the_ide() {
+        let item = AcItem::kw("MOVE");
+        let method = AcItem::method("Clear", "Remove all items");
+        let ctrl = AcItem::ctrl("BTN-OK", "Button");
+        let builtin = cobolt_runtime::builtins::BUILTINS
+            .iter()
+            .find(|b| !b.params.is_empty())
+            .expect("a built-in with parameters");
+        let composed = format!("( {} ) — {}", builtin.params, builtin.description);
+
+        begin(Language::English);
+        assert_eq!(localized_detail(&item.detail), "keyword");
+        assert_eq!(localized_detail(&method.detail), "Remove all items");
+        assert_eq!(localized_detail(&ctrl.detail), "Button control");
+        assert_eq!(localized_detail(&composed), composed, "English is left as it is");
+
+        begin(Language::Spanish);
+        assert_eq!(localized_detail(&item.detail), "palabra clave");
+        assert_eq!(localized_detail(&method.detail), "Quitar todos los elementos");
+        assert_eq!(localized_detail(&ctrl.detail), "control Button");
+        let es = localized_detail(&composed);
+        assert!(es.starts_with(&format!("( {} ) — ", builtin.params)), "the parameters are notation: {es}");
+        assert_eq!(es, format!("( {} ) — {}", builtin.params, ide(builtin.description)));
+        assert_ne!(es, composed, "the sentence after the dash is translated");
+
+        begin(Language::Japanese);
+        assert_eq!(localized_detail(&item.detail), "キーワード");
+        begin(Language::English);
+        // The items themselves are never changed: tests and the insertion read English.
+        assert_eq!(item.detail, "keyword");
+        println!("a popup row follows the language in 3 of 6 languages; the item keeps its English");
     }
 }

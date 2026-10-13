@@ -337,7 +337,7 @@ fn a_layer_background_obeys_its_transparency_091() {
     }
 }
 
-// ── The passes that paint over controls run per layer (spec 090 / 017) ──────
+// ── The passes that paint over a container run as its own turn ends (spec 090 / 017) ──
 
 #[test]
 fn a_base_groupbox_caption_does_not_land_above_a_layer_control_091() {
@@ -348,9 +348,8 @@ fn a_base_groupbox_caption_does_not_land_above_a_layer_control_091() {
     let over = label("OVER", "TXT-OVER", Some("Layer-1"), 0);
     let controls = [group, over];
 
-    // The group's caption is a deferred pass — painted after the controls —
-    // so with no layers it follows `OVER`; with a layer the base's pass runs
-    // when the base ends, UNDER the layer's control.
+    // The group's caption is painted as the group's own turn ends — over what is inside it, and
+    // under what is drawn after it, in a layer or not.
     for path in PATHS {
         let layered = paint(&controls, vec![layer("Layer-1", "#00000000")], &DesignedState, path);
         let (cap, over) = (
@@ -359,11 +358,20 @@ fn a_base_groupbox_caption_does_not_land_above_a_layer_control_091() {
         );
         assert!(cap < over, "{path:?}: the base's caption ({cap}) must not paint over Layer-1's control ({over})");
 
+        // …and in a form with no layers, a control listed after the group is over its caption:
+        // the caption used to be held back to the end of the form and so was over every control.
         let mut flat = controls.clone();
         flat[1].layer = None;
         let plain = paint(&flat, Vec::new(), &DesignedState, path);
         let (cap, over) = (text_at(&plain, "TXT-CAPTION").unwrap(), text_at(&plain, "TXT-OVER").unwrap());
-        assert!(over < cap, "{path:?}: unchanged for a form with no layers — the caption is deferred ({cap} after {over})");
+        assert!(cap < over, "{path:?}: a control drawn after the group is over its caption ({over} before {cap})");
+
+        // A control drawn BEFORE the group (a lower z-order) is under the caption.
+        let mut under = flat.clone();
+        under[1].z_order = -5;
+        let below = paint(&under, Vec::new(), &DesignedState, path);
+        let (cap, over) = (text_at(&below, "TXT-CAPTION").unwrap(), text_at(&below, "TXT-OVER").unwrap());
+        assert!(over < cap, "{path:?}: a control drawn before the group is under its caption ({cap} before {over})");
     }
 }
 

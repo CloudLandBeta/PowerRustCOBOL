@@ -75,7 +75,7 @@ impl FormsListPanel {
     pub fn refresh_button(&mut self, ui: &mut Ui) {
         if ui
             .small_button("⟳")
-            .on_hover_text("Refresh form list")
+            .on_hover_text(crate::ui_text::ide("Refresh form list"))
             .clicked()
         {
             self.needs_rescan = true;
@@ -147,7 +147,7 @@ impl FormsListPanel {
                     ui.horizontal(|ui| {
                         let delete_resp = ui
                             .small_button("🗑")
-                            .on_hover_text(format!("Delete form {}", path.display()));
+                            .on_hover_text(crate::ui_text::idef("Delete form {}", &[&path.display()]));
                         if delete_resp.clicked() {
                             action = Some(FormsListAction::Delete(path.clone()));
                         }

@@ -1732,7 +1732,7 @@ impl DebuggerPanel {
 
         let need_scroll = self.should_center_current_line();
 
-        egui::Window::new(format!("Debugging {debug_name} generated code"))
+        egui::Window::new(crate::ui_text::idef("Debugging {} generated code", &[&debug_name]))
             .id(egui::Id::new("debugger_window"))
             .resizable(false) // the inner `Resize` grip is the sole size control
             .collapsible(false)
@@ -1829,7 +1829,7 @@ impl DebuggerPanel {
                         .size(14.0),
                 );
                 ui.label(
-                    RichText::new(format!("line {}", self.current_line))
+                    RichText::new(crate::ui_text::idef("line {}", &[&self.current_line]))
                         .color(sk.chrome_dim)
                         .size(13.5),
                 );
@@ -2189,7 +2189,7 @@ impl DebuggerPanel {
             (
                 path.file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("(no source)")
+                    .unwrap_or(crate::ui_text::ide("(no source)"))
                     .to_owned(),
                 path.parent()
                     .and_then(|p| p.file_name())
@@ -3138,7 +3138,7 @@ impl DebuggerPanel {
             );
             ui.label(RichText::new("│").size(12.0).color(Color32::from_gray(70)));
             ui.label(
-                RichText::new("COBOL source mapping ✓")
+                RichText::new(crate::ui_text::ide("COBOL source mapping ✓"))
                     .size(12.0)
                     .color(Color32::from_gray(130)),
             );
@@ -3152,20 +3152,20 @@ impl DebuggerPanel {
                 .map(|f| f.program.clone())
                 .unwrap_or_else(|| "—".to_owned());
             ui.label(
-                RichText::new(format!("Main thread · {thread}"))
+                RichText::new(crate::ui_text::idef("Main thread · {}", &[&thread]))
                     .size(12.0)
                     .color(Color32::from_gray(130)),
             );
             ui.label(RichText::new("│").size(12.0).color(Color32::from_gray(70)));
             ui.label(
-                RichText::new(format!("Frame {}", self.selected_frame))
+                RichText::new(crate::ui_text::idef("Frame {}", &[&self.selected_frame]))
                     .size(12.0)
                     .color(Color32::from_gray(130)),
             );
             if self.current_line > 0 {
                 ui.label(RichText::new("│").size(12.0).color(Color32::from_gray(70)));
                 ui.label(
-                    RichText::new(format!("line {}", self.current_line))
+                    RichText::new(crate::ui_text::idef("line {}", &[&self.current_line]))
                         .size(12.0)
                         .color(Color32::from_gray(130)),
                 );
@@ -3228,7 +3228,7 @@ impl DebuggerPanel {
             }
             if ui
                 .add(egui::Label::new(RichText::new("🗑").size(15.0)).sense(egui::Sense::click()))
-                .on_hover_text("Clear")
+                .on_hover_text(crate::ui_text::ide("Clear"))
                 .clicked()
             {
                 self.dock.clear();
@@ -3760,8 +3760,9 @@ impl DebuggerPanel {
                             if f.line > 0 {
                                 ui.label(
                                     RichText::new(format!(
-                                        "     {:?}  line {}",
-                                        f.kind, f.line
+                                        "     {:?}  {}",
+                                        f.kind,
+                                        crate::ui_text::idef("line {}", &[&f.line])
                                     ))
                                     .monospace()
                                     .size(12.0)
@@ -3933,7 +3934,7 @@ impl DebuggerPanel {
         };
 
         let mut open = true;
-        egui::Window::new(format!("Data item ({})", var.name))
+        egui::Window::new(crate::ui_text::idef("Data item ({})", &[&var.name]))
             .id(egui::Id::new("debugger_data_item_value"))
             .collapsible(false)
             .resizable(true)
@@ -3969,10 +3970,10 @@ impl DebuggerPanel {
                     .column(Column::remainder().at_least(180.0).resizable(true))
                     .header(22.0, |mut header| {
                         header.col(|ui| {
-                            ui.strong("Value");
+                            ui.strong(crate::ui_text::ide("Value"));
                         });
                         header.col(|ui| {
-                            ui.strong("Hex representation");
+                            ui.strong(crate::ui_text::ide("Hex representation"));
                         });
                     })
                     .body(|mut body| {

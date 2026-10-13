@@ -2540,8 +2540,15 @@ image and mode, transparency — and nothing else. A layer has no corner radius
 
 **Painting and layout.** Every control of a layer paints above every control of
 the layers below it, whatever their `ZOrder`; `ZOrder`, **Bring to Front** and
-**Send to Back** order only the controls that share a layer and a container. Only
-`Form` is laid out: a control in a layer keeps the `X`, `Y`, `Width` and `Height`
+**Send to Back** order only the controls that share a layer and a container.
+That order covers everything a control paints: a GroupBox's caption, a
+TabControl's tab strip, the corners of a rounded Panel and a DataGrid are painted
+at the container's own place in the stacking order, so a control above it in that
+order covers them. The same order decides who answers the mouse: where two controls
+overlap, a click, a wheel turn or a hover is reported by the one in front — and by the
+container it sits in — and not by the controls behind it. A control with nothing
+painted at that point, such as a Label away from its text or a Panel with
+`HideBackground`, lets the mouse through. Only `Form` is laid out: a control in a layer keeps the `X`, `Y`, `Width` and `Height`
 you designed, and its Properties pane offers no Dock, Anchor or layout. A layer
 covers exactly the form — it never changes the form's size — and whatever a layer
 control paints outside the form is cut at the form's edge.
@@ -15543,7 +15550,13 @@ writes a per-control diagnostics dump named after the project.
   **English, Português, Español, Français, 日本語 and 中文** (the selector names
   each in its own language) — chosen from the toolbar language selector. CJK
   glyphs render via bundled font fallbacks, so 日本語 / 中文 display correctly on
-  any system.
+  any system. The messages the IDE itself writes — the status lines, the
+  **Output** panel's notes ("Project saved", "Deleted form …", "Build blocked …")
+  and the error dialogs — follow the same language and change with it, and so
+  do the one-line descriptions in the code editor's completion list (the sentence
+  beside each method after `CTRL::`) and the Debug settings window. What the
+  compiler and the build tools report, and what your own program prints with
+  `DISPLAY`, is not translated.
 - **Text rendering.** The IDE renders text with the UI framework's modern font
   engine (hinting enabled), so glyphs are noticeably crisper at small sizes than
   in earlier releases. Form **Font** properties keep working exactly as before:

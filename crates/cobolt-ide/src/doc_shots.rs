@@ -1173,7 +1173,7 @@ impl DocShots {
                 // Armed, waiting for its subject: the same key calls it off,
                 // so an operator who changed their mind is not left with a
                 // recorder that starts on their next unrelated click.
-                self.status = Some("✗ recording cancelled".into());
+                self.status = Some(crate::ui_text::ide("✗ recording cancelled").into());
                 self.open = true;
                 self.popup_viewport = Some(ctx.viewport_id());
             } else if self.chooser.is_some() {
@@ -1454,7 +1454,7 @@ impl DocShots {
         let mut chosen: Option<ShotMode> = None;
         let mut cancelled = false;
 
-        egui::Window::new("📷 Documentation capture")
+        egui::Window::new(crate::ui_text::ide("📷 Documentation capture"))
             .id(egui::Id::new("doc_shots_chooser"))
             .open(&mut open)
             .collapsible(false)
@@ -1462,7 +1462,7 @@ impl DocShots {
             .default_width(360.0)
             .show(ctx, |ui| {
                 ui.set_max_width(360.0);
-                ui.label("What should F12 capture?");
+                ui.label(crate::ui_text::ide("What should F12 capture?"));
                 ui.add_space(6.0);
 
                 for (mode, label, hint) in [
@@ -1484,15 +1484,15 @@ impl DocShots {
                          starts it, and F12 stops it.",
                     ),
                 ] {
-                    if ui.radio_value(&mut self.mode, mode, label).clicked() {
+                    if ui.radio_value(&mut self.mode, mode, crate::ui_text::ide(label)).clicked() {
                         chosen = Some(mode);
                     }
-                    ui.label(egui::RichText::new(hint).small().weak());
+                    ui.label(egui::RichText::new(crate::ui_text::ide(hint)).small().weak());
                     ui.add_space(4.0);
                 }
 
                 ui.separator();
-                if ui.button("Cancel").clicked() {
+                if ui.button(crate::ui_text::ide("Cancel")).clicked() {
                     cancelled = true;
                 }
             });
@@ -1531,7 +1531,7 @@ impl DocShots {
         // outside (operator, 2026-09-04: "F12 is not working anywhere").
         if self.pending.is_none() {
             let mut open = true;
-            egui::Window::new("📷 Documentation screenshot")
+            egui::Window::new(crate::ui_text::ide("📷 Documentation screenshot"))
                 .id(egui::Id::new("doc_shots_popup"))
                 .open(&mut open)
                 .collapsible(false)
@@ -1545,7 +1545,7 @@ impl DocShots {
                     ui.label(
                         self.status
                             .clone()
-                            .unwrap_or_else(|| "✗ the capture produced no image".into()),
+                            .unwrap_or_else(|| crate::ui_text::ide("✗ the capture produced no image").into()),
                     );
                 });
             if !open {
@@ -1559,13 +1559,13 @@ impl DocShots {
         let mut close = false;
         let headline = match &self.pending {
             Some(Capture::Still(image)) => {
-                format!("Captured {} × {} px.", image.size[0], image.size[1])
+                crate::ui_text::idef("Captured {} × {} px.", &[&image.size[0], &image.size[1]])
             }
-            Some(Capture::Movie(movie)) => format!("Recorded {}.", movie.report()),
+            Some(Capture::Movie(movie)) => crate::ui_text::idef("Recorded {}.", &[&movie.report()]),
             None => String::new(),
         };
 
-        egui::Window::new("📷 Documentation screenshot")
+        egui::Window::new(crate::ui_text::ide("📷 Documentation screenshot"))
             .id(egui::Id::new("doc_shots_popup"))
             .open(&mut open)
             .collapsible(false)
@@ -1576,8 +1576,7 @@ impl DocShots {
                 if repo_root().is_none() {
                     ui.colored_label(
                         ui.visuals().error_fg_color,
-                        "The documentation tree this build came from is gone. \
-                         Set PRC_DOCS_ROOT to point at a checkout.",
+                        crate::ui_text::ide("The documentation tree this build came from is gone. Set PRC_DOCS_ROOT to point at a checkout."),
                     );
                     return;
                 }
@@ -1590,9 +1589,9 @@ impl DocShots {
                 if matches!(self.pending, Some(Capture::Movie(_))) {
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.label(format!("File name — saved to {MOVIES_REL}/:"));
+                        ui.label(crate::ui_text::idef("File name — saved to {}/:", &[&MOVIES_REL]));
                         ui.text_edit_singleline(&mut self.name_input);
-                        if ui.button("Save recording only").clicked() {
+                        if ui.button(crate::ui_text::ide("Save recording only")).clicked() {
                             match self.save_movie_only(backdrop) {
                                 Ok(message) => {
                                     self.status = Some(message);
@@ -1613,7 +1612,7 @@ impl DocShots {
                 }
 
                 if self.docs.is_empty() {
-                    ui.label("No English document holds a screenshot slot.");
+                    ui.label(crate::ui_text::ide("No English document holds a screenshot slot."));
                     if let Some(status) = &self.status {
                         ui.separator();
                         ui.label(status.clone());
@@ -1622,7 +1621,7 @@ impl DocShots {
                 }
                 ui.separator();
 
-                ui.label("Document");
+                ui.label(crate::ui_text::ide("Document"));
                 egui::ScrollArea::vertical()
                     .id_salt("doc_shots_docs")
                     .max_height(110.0)
@@ -1642,7 +1641,7 @@ impl DocShots {
                     return;
                 };
                 ui.separator();
-                ui.label("Slot — pick where this shot belongs");
+                ui.label(crate::ui_text::ide("Slot — pick where this shot belongs"));
 
                 let mut chosen: Option<usize> = None;
                 egui::ScrollArea::vertical()
@@ -1671,7 +1670,7 @@ impl DocShots {
                 if needs_name {
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.label("File name for a [SCREENSHOT] slot:");
+                        ui.label(crate::ui_text::ide("File name for a [SCREENSHOT] slot:"));
                         ui.text_edit_singleline(&mut self.name_input);
                     });
                 }

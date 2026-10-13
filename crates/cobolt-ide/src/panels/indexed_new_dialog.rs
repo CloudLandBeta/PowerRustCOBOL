@@ -359,7 +359,7 @@ impl NewIndexedDialog {
         if let Some(_) = self.get_definition_from_raw() {
             self.raw_error = None;
         } else if self.raw_text.trim().is_empty() {
-            self.set_raw_error("Enter a COBOL-85 record description (01 group + key).");
+            self.set_raw_error(crate::ui_text::ide("Enter a COBOL-85 record description (01 group + key)."));
         } else {
             // Provide a generic or more specific error by attempting parse.
             let mut temp = IndexedDefinition {
@@ -396,7 +396,7 @@ impl NewIndexedDialog {
                     if let Err(e) = cobolt_indexed::validate_definition(&temp) {
                         self.set_raw_error(e);
                     } else {
-                        self.set_raw_error("Definition parsed but is missing a record group (01) or compliant RECORD KEY.");
+                        self.set_raw_error(crate::ui_text::ide("Definition parsed but is missing a record group (01) or compliant RECORD KEY."));
                     }
                 }
                 Err(e) => {
@@ -423,11 +423,11 @@ impl NewIndexedDialog {
         let mut action = NewIndexedAction::None;
 
         ui.vertical_centered(|ui| {
-            ui.heading(if self.raw_mode {
+            ui.heading(crate::ui_text::ide(if self.raw_mode {
                 "Step 2: Edit Record Structure (COBOL-85)"
             } else {
                 "Step 1: Set File Properties"
-            });
+            }));
         });
         ui.add_space(4.0);
 
@@ -447,13 +447,13 @@ impl NewIndexedDialog {
             if let Some(e) = &self.raw_error {
                 ui.colored_label(
                     egui::Color32::from_rgb(220, 80, 80),
-                    format!("Parse / validation error: {}", e),
+                    crate::ui_text::idef("Parse / validation error: {}", &[&e]),
                 );
-                ui.label("Fix the COBOL-85 record description before creating the file.");
+                ui.label(crate::ui_text::ide("Fix the COBOL-85 record description before creating the file."));
             } else if !self.raw_text.trim().is_empty() {
                 ui.colored_label(
                     egui::Color32::from_rgb(80, 180, 80),
-                    "Valid COBOL-85 record definition (group + RECORD KEY present).",
+                    crate::ui_text::ide("Valid COBOL-85 record definition (group + RECORD KEY present)."),
                 );
             }
         } else {
@@ -516,18 +516,18 @@ impl NewIndexedDialog {
         });
 
         ui.separator();
-        ui.label("Alternate Keys");
+        ui.label(crate::ui_text::ide("Alternate Keys"));
         let mut remove_idx = None;
         for (idx, alt) in self.alternates.iter_mut().enumerate() {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(format!("Alt Key #{}:", idx + 1));
+                    ui.label(crate::ui_text::idef("Alt Key #{}:", &[&(idx + 1)]));
                     if ui.button("🗑").clicked() {
                         remove_idx = Some(idx);
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Field name:");
+                    ui.label(crate::ui_text::ide("Field name:"));
                     if ui.text_edit_singleline(&mut alt.name).changed() {
                         key_changed = true;
                     }
@@ -541,7 +541,7 @@ impl NewIndexedDialog {
                     if ui.text_edit_singleline(&mut alt.length).changed() {
                         key_changed = true;
                     }
-                    if ui.checkbox(&mut alt.duplicates, "Duplicates").changed() {
+                    if ui.checkbox(&mut alt.duplicates, crate::ui_text::ide("Duplicates")).changed() {
                         key_changed = true;
                     }
                 });
@@ -551,7 +551,7 @@ impl NewIndexedDialog {
             self.alternates.remove(idx);
             key_changed = true;
         }
-        if ui.button("+ Add Alternate Key").clicked() {
+        if ui.button(crate::ui_text::ide("+ Add Alternate Key")).clicked() {
             self.alternates.push(NewAlternateKey {
                 name: format!("ALT-KEY-{}", self.alternates.len() + 1),
                 offset: "0".into(),
@@ -572,7 +572,7 @@ impl NewIndexedDialog {
         if path_exists {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 80, 80),
-                "The file already exists at the informed path. Choose a different assign path.",
+                crate::ui_text::ide("The file already exists at the informed path. Choose a different assign path."),
             );
         }
 
@@ -581,17 +581,17 @@ impl NewIndexedDialog {
             let can = self.can_create();
             if !can && !path_exists {
                 if self.raw_error.is_some() {
-                    ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "Fix COBOL-85 errors in the record text (must define at least one 01 group and a compliant RECORD KEY).");
+                    ui.colored_label(egui::Color32::from_rgb(220, 80, 80), crate::ui_text::ide("Fix COBOL-85 errors in the record text (must define at least one 01 group and a compliant RECORD KEY)."));
                 } else {
                     ui.colored_label(
                         egui::Color32::from_rgb(200, 160, 60),
-                        "Complete the definition (valid group + key) to enable Create.",
+                        crate::ui_text::ide("Complete the definition (valid group + key) to enable Create."),
                     );
                 }
             }
 
             ui.horizontal(|ui| {
-                if ui.button("Back").clicked() {
+                if ui.button(crate::ui_text::ide("Back")).clicked() {
                     self.raw_mode = false;
                 }
                 if ui
@@ -609,7 +609,7 @@ impl NewIndexedDialog {
                 !self.name.trim().is_empty() && !self.assign_path.trim().is_empty() && !path_exists;
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(can_next, egui::Button::new("Next"))
+                    .add_enabled(can_next, egui::Button::new(crate::ui_text::ide("Next")))
                     .clicked()
                 {
                     self.raw_mode = true;

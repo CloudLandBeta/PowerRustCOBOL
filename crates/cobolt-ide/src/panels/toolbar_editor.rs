@@ -239,6 +239,9 @@ pub enum EditorOutcome {
 /// Draw the modal. Returns what the designer should do about it.
 pub fn show(modal: &mut ToolbarEditorModal, ctx: &egui::Context) -> EditorOutcome {
     let tr = crate::i18n::current_tr(ctx);
+    // The words of this window that are not `Tr` fields come from the same table as the
+    // Properties pane's, in the language the IDE is set to.
+    crate::ui_text::begin(crate::i18n::current_language(ctx));
     let screen = ctx.content_rect();
 
     // The scrim: this is modal, and it should look it.
@@ -414,11 +417,9 @@ pub fn show(modal: &mut ToolbarEditorModal, ctx: &egui::Context) -> EditorOutcom
                 }
                 ui.separator();
                 ui.label(
-                    egui::RichText::new(format!(
+                    egui::RichText::new(crate::ui_text::txf(
                         "{} group(s), {} button(s), {}px wide",
-                        modal.def.groups.len(),
-                        modal.def.buttons().count(),
-                        modal.def.layout_width()
+                        &[&modal.def.groups.len(), &modal.def.buttons().count(), &modal.def.layout_width()],
                     ))
                     .small()
                     .weak(),
@@ -582,7 +583,7 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
                 }
                 // The same appearance a button has, applied to every button in
                 // the group unless that button says otherwise.
-                section(ui, "Defaults for this group's buttons");
+                section(ui, crate::ui_text::tx("Defaults for this group's buttons"));
                 style_rows(ui, &mut g.button_defaults, &ButtonStyle::default(), "theme");
             });
         }
@@ -615,10 +616,10 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
                         b.set_label(label);
                     }
                     id_row(ui, tr, &b.id);
-                    ui.label("Icon:");
+                    ui.label(crate::ui_text::tx("Icon:"));
                     ui.horizontal(|ui| {
                         let shown = if b.icon.trim().is_empty() {
-                            "(none)".to_owned()
+                            crate::ui_text::tx("(none)").to_owned()
                         } else {
                             b.icon.clone()
                         };
@@ -632,11 +633,11 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
                     ui.end_row();
                     ui.label("");
                     ui.label(
-                        egui::RichText::new(if b.icon.trim().is_empty() {
+                        egui::RichText::new(crate::ui_text::tx(if b.icon.trim().is_empty() {
                             "A label or an icon — setting one clears the other."
                         } else {
                             "Icon set; a label would replace it."
-                        })
+                        }))
                         .small()
                         .weak(),
                     );
@@ -879,7 +880,7 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
     };
     let mut changed = false;
 
-    ui.label("Does:");
+    ui.label(crate::ui_text::tx("Does:"));
     egui::ComboBox::from_id_salt(("tb-action", b.id.clone()))
         .selected_text(verb.clone())
         .show_ui(ui, |ui| {
@@ -892,15 +893,15 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
         });
     ui.end_row();
     if ToolbarAction::takes_target(&verb) {
-        let hint = match verb.as_str() {
+        let hint = crate::ui_text::tx(match verb.as_str() {
             "procedure" => "the procedure to PERFORM",
             "open-modal" => "a STANDALONE form's name",
             "print" => "file path, or a data item holding one",
             "run-app" => "path to the application, then any arguments",
             "open-terminal" => "folder to open in (blank = the project's)",
             _ => "",
-        };
-        ui.label("With:");
+        });
+        ui.label(crate::ui_text::tx("With:"));
         ui.add(
             egui::TextEdit::singleline(&mut target).desired_width(ACTION_NOTE_WRAP_W),
         )
@@ -912,7 +913,7 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
         }
     }
     // What this action means, in one line, so the developer is not guessing.
-    let explain = match verb.as_str() {
+    let explain = crate::ui_text::tx(match verb.as_str() {
         "event" => "Fires this button's onClick handler; your COBOL decides.",
         "procedure" => "PERFORMs one of the form's procedures.",
         "open-modal" => "Opens a standalone form as a modal window.",
@@ -925,7 +926,7 @@ fn action_row(ui: &mut egui::Ui, b: &mut ToolbarButton, _tr: &crate::i18n::Tr) {
         "run-app" => "Launches another application.",
         "open-terminal" => "Opens a terminal window.",
         _ => "",
-    };
+    });
     if !explain.is_empty() {
         action_note_row(ui, explain);
     }
@@ -980,20 +981,20 @@ fn id_row(ui: &mut egui::Ui, tr: &crate::i18n::Tr, id: &str) {
 }
 
 fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String) -> bool {
-    ui.label(label);
+    ui.label(crate::ui_text::tx(label));
     let changed = ui.text_edit_singleline(value).changed();
     ui.end_row();
     changed
 }
 
 fn bool_row(ui: &mut egui::Ui, label: &str, value: &mut bool) {
-    ui.label(label);
+    ui.label(crate::ui_text::tx(label));
     ui.checkbox(value, "");
     ui.end_row();
 }
 
 fn int_row(ui: &mut egui::Ui, label: &str, value: &mut i64, lo: i64, hi: i64) {
-    ui.label(label);
+    ui.label(crate::ui_text::tx(label));
     ui.add(egui::DragValue::new(value).range(lo..=hi).speed(0.4));
     ui.end_row();
 }
@@ -1007,7 +1008,7 @@ fn opt_int_row(
     hi: i64,
     inherited: i64,
 ) {
-    ui.label(label);
+    ui.label(crate::ui_text::tx(label));
     ui.horizontal(|ui| {
         let mut shown = value.unwrap_or(inherited);
         if ui
@@ -1018,7 +1019,7 @@ fn opt_int_row(
         }
         match value {
             None => {
-                ui.label(egui::RichText::new("group").small().weak());
+                ui.label(egui::RichText::new(crate::ui_text::tx("group")).small().weak());
             }
             Some(_) => {
                 if ui.small_button("✕").clicked() {
@@ -1032,7 +1033,7 @@ fn opt_int_row(
 
 /// An inheritable switch: blank means "whatever my group says".
 fn opt_bool_row(ui: &mut egui::Ui, label: &str, value: &mut Option<bool>, inherited: bool) {
-    ui.label(label);
+    ui.label(crate::ui_text::tx(label));
     ui.horizontal(|ui| {
         let mut shown = value.unwrap_or(inherited);
         if ui.checkbox(&mut shown, "").changed() {
@@ -1040,7 +1041,7 @@ fn opt_bool_row(ui: &mut egui::Ui, label: &str, value: &mut Option<bool>, inheri
         }
         match value {
             None => {
-                ui.label(egui::RichText::new("group").small().weak());
+                ui.label(egui::RichText::new(crate::ui_text::tx("group")).small().weak());
             }
             Some(_) => {
                 if ui.small_button("✕").clicked() {
@@ -1060,7 +1061,7 @@ fn combo_row(ui: &mut egui::Ui, label: &str, value: &mut String, options: &[&str
     } else {
         value.clone()
     };
-    ui.label(label);
+    ui.label(crate::ui_text::tx(label));
     egui::ComboBox::from_id_salt((label, options.len()))
         .selected_text(shown.clone())
         .show_ui(ui, |ui| {
@@ -1088,7 +1089,7 @@ fn combo_row(ui: &mut egui::Ui, label: &str, value: &mut String, options: &[&str
 fn color_row(ui: &mut egui::Ui, label: &str, value: &mut String, unset_hint: &str) {
     use crate::panels::properties::{color32_to_hex, color_edit_button_closing, hex_to_color32};
 
-    ui.label(label);
+    ui.label(crate::ui_text::tx(label));
     ui.horizontal(|ui| {
         let unset = value.trim().is_empty();
         let mut color = if unset {
@@ -1100,7 +1101,7 @@ fn color_row(ui: &mut egui::Ui, label: &str, value: &mut String, unset_hint: &st
             *value = color32_to_hex(color);
         }
         if value.trim().is_empty() {
-            ui.label(egui::RichText::new(unset_hint).small().weak());
+            ui.label(egui::RichText::new(crate::ui_text::tx(unset_hint)).small().weak());
         } else {
             ui.label(
                 egui::RichText::new(color32_to_hex(color))
@@ -1164,6 +1165,62 @@ mod tests {
 
     fn modal() -> ToolbarEditorModal {
         ToolbarEditorModal::new("TB-1".into(), ToolbarDef::default())
+    }
+
+    /// Every state of the editor — a group, a button, a button for each action it can take, the
+    /// icon picker — comes out in the language of the IDE: none of its words is left in English in
+    /// every language. (Its row labels used to be literals.)
+    #[test]
+    fn no_word_of_the_toolbar_editor_is_left_in_english_in_every_language() {
+        use std::collections::BTreeMap;
+        type Setup = Box<dyn Fn(&mut ToolbarEditorModal)>;
+        let mut cases: Vec<(String, Setup)> = vec![
+            ("group".into(), Box::new(|m| m.selected = Selection::Group(0))),
+            ("button".into(), Box::new(|m| m.selected = Selection::Button(0, 0))),
+            ("icon picker".into(), Box::new(|m| {
+                m.selected = Selection::Button(0, 0);
+                m.icon_picker.open("0:0".to_owned());
+            })),
+        ];
+        for verb in ToolbarAction::VERBS {
+            let verb = (*verb).to_owned();
+            cases.push((
+                format!("button doing {verb}"),
+                Box::new(move |m| {
+                    m.selected = Selection::Button(0, 0);
+                    m.def.groups[0].buttons[0].action = if ToolbarAction::takes_target(&verb) {
+                        format!("{verb}:TARGET")
+                    } else {
+                        verb.clone()
+                    };
+                }),
+            ));
+        }
+        let mut left: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (name, prepare) in &cases {
+            let words = crate::ui_text::probe::left_in_english(
+                &|| {
+                    let mut g = ToolbarGroup::new("group-1", "File");
+                    g.buttons = vec![ToolbarButton::new("button-1", "New")];
+                    let mut m = ToolbarEditorModal::new("TB-1".into(), ToolbarDef { groups: vec![g], ..ToolbarDef::default() });
+                    prepare(&mut m);
+                    m
+                },
+                &|m, ui, _tr| {
+                    let _ = show(m, ui.ctx());
+                },
+            );
+            // The tree's rows are the developer's own names between a glyph and a verb token or a
+            // count (`· New   [copy]`, `▣ File  (1)`): data, not words of the IDE.
+            for w in words.into_iter().filter(|w| !w.contains('[') && !w.starts_with(['▣', '▢'])) {
+                left.entry(w).or_default().push(name.clone());
+            }
+        }
+        for (t, where_) in &left {
+            println!("English in every language: {t:?}  ({})", where_.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
+        }
+        println!("{} states of the toolbar editor drawn in six languages, {} words left in English", cases.len(), left.len());
+        assert!(left.is_empty(), "{} words of the toolbar editor are English in every language", left.len());
     }
 
     /// Building a toolbar in the editor: groups, buttons into the right group,

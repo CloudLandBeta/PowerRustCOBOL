@@ -43,6 +43,9 @@ struct Rig {
     ink: Vec<(Color32, f32)>,
     /// Every filled rectangle the last frame painted, in paint order.
     fills: Vec<(Rect, Color32)>,
+    /// Every shape the last frame painted, in paint order: a text is its string, anything
+    /// else its kind, with the rect it covers.
+    sequence: Vec<(String, Rect)>,
     /// The cursor the last frame asked for.
     cursor: egui::CursorIcon,
 }
@@ -57,6 +60,7 @@ impl Rig {
             painted: Vec::new(),
             ink: Vec::new(),
             fills: Vec::new(),
+            sequence: Vec::new(),
             cursor: egui::CursorIcon::Default,
         };
         rig.settle();
@@ -85,7 +89,18 @@ impl Rig {
             texts: &mut Vec<(String, Rect, Rect)>,
             ink: &mut Vec<(Color32, f32)>,
             fills: &mut Vec<(Rect, Color32)>,
+            sequence: &mut Vec<(String, Rect)>,
         ) {
+            match shape {
+                egui::Shape::Vec(_) | egui::Shape::Noop => {}
+                egui::Shape::Text(t) => {
+                    sequence.push((t.galley.text().to_owned(), t.galley.rect.translate(t.pos.to_vec2())));
+                }
+                other => {
+                    let name = format!("{other:?}");
+                    sequence.push((name.split(['(', ' ', '{']).next().unwrap_or("").to_owned(), other.visual_bounding_rect()));
+                }
+            }
             match shape {
                 egui::Shape::Text(t) => {
                     texts.push((
@@ -103,15 +118,16 @@ impl Rig {
                     ink.push((color, t.opacity_factor));
                 }
                 egui::Shape::Rect(r) => fills.push((r.rect, r.fill)),
-                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, texts, ink, fills)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, texts, ink, fills, sequence)),
                 _ => {}
             }
         }
         self.painted.clear();
         self.ink.clear();
         self.fills.clear();
+        self.sequence.clear();
         for clipped in &out.shapes {
-            walk(&clipped.shape, clipped.clip_rect, &mut self.painted, &mut self.ink, &mut self.fills);
+            walk(&clipped.shape, clipped.clip_rect, &mut self.painted, &mut self.ink, &mut self.fills, &mut self.sequence);
         }
         self.cursor = out.platform_output.cursor_icon;
     }
@@ -669,7 +685,7 @@ fn the_edited_grid_saves_and_reloads_with_its_new_shape() {
 // ── T13: the interactive grid on a static canvas — z-order, clipping, geometry
 
 #[test]
-fn the_edited_grid_is_drawn_last_and_clipped_to_its_container() {
+fn the_edited_grid_is_drawn_in_its_z_order_and_clipped_to_its_container() {
     let mut form = Form::new("F", "F", 800, 600);
     let mut panel = Control::new("PNL", ControlType::Panel, 20, 20);
     panel.rect.w = 360;
@@ -691,8 +707,8 @@ fn the_edited_grid_is_drawn_last_and_clipped_to_its_container() {
     let order = |t: &str| rig.painted.iter().position(|p| p.0 == t);
     let (button, cell) = (order("OnTop").expect("button drawn"), order("Bob").expect("grid drawn"));
     assert!(
-        cell > button,
-        "the edited grid is painted after (over) a sibling above it: button #{button}, grid cell #{cell}"
+        cell < button,
+        "the edited grid is painted before (under) a sibling above it in z-order: button #{button}, grid cell #{cell}"
     );
 
     // The frame the canvas hands the overlay: the panel's content rect as its
@@ -714,7 +730,7 @@ fn the_edited_grid_is_drawn_last_and_clipped_to_its_container() {
         want.expand(1.0).contains_rect(*cell_clip),
         "cell text clipped to the panel content: {cell_clip:?} vs {want:?}"
     );
-    println!("094 T13: edited grid painted after a sibling above it ({cell} > {button}); clip {cell_clip:?} inside panel content {want:?}");
+    println!("094 T13: edited grid painted under a sibling above it ({cell} < {button}); clip {cell_clip:?} inside panel content {want:?}");
 }
 
 #[test]
@@ -990,19 +1006,101 @@ fn a_grid_only_looked_at_is_not_dimmed() {
     );
 }
 
+/// A label at (60, 60) — over the grid's first rows — with `caption`.
+fn label_over_the_grid(caption: &str, z: i32) -> Control {
+    let mut label = Control::new(caption.to_owned(), ControlType::Label, 60, 60);
+    label.set_prop("Caption", PropValue::String(caption.into()));
+    label.z_order = z;
+    label
+}
+
+/// The canvas paints a grid where its z-order puts it, like every other control: a control
+/// above it that overlaps it is on top of it, one below it is underneath. (The grids used
+/// to be drawn in a pass of their own, after every other face, so they were always on top.)
 #[test]
-fn a_grid_is_painted_after_every_other_face_which_is_the_cost_of_a_separate_pass() {
-    // The engine's static pass draws the faces in z-order but cannot draw the real
-    // grid (it only has a painter), so the grids are drawn right after it. The cost:
-    // a control ABOVE a grid in z-order that overlaps it is under it on the canvas.
+fn a_grid_is_painted_in_its_z_order_among_the_other_faces() {
+    let painted_order = |form: Form| {
+        let rig = Rig::new(form);
+        let at = |t: &str| rig.painted.iter().position(|p| p.0 == t).unwrap_or_else(|| panic!("{t} painted: {:?}", rig.painted));
+        (at("Bob"), at("Above"), at("Below"))
+    };
     let mut form = grid_form();
-    let mut label = Control::new("LBL", ControlType::Label, 60, 60);
-    label.set_prop("Caption", PropValue::String("Above".into()));
-    label.z_order = 90;
-    form.controls.push(label);
+    form.controls[0].z_order = 50;
+    form.controls.push(label_over_the_grid("Above", 90));
+    form.controls.push(label_over_the_grid("Below", 10));
+    let (grid, above, below) = painted_order(form);
+    assert!(above > grid, "the label above the grid in z-order is painted after the grid's rows");
+    assert!(below < grid, "the label below the grid in z-order is painted before the grid's rows");
+    println!("canvas z-order: below {below} < grid {grid} < above {above}");
+}
+
+/// Layers are drawn base first, then each layer from the lowest: a control in a layer is
+/// over a base grid whatever its z-order, and a grid in a layer is over the base's controls.
+#[test]
+fn a_grid_is_painted_in_its_layer_order() {
+    let layered = |grid_layer: Option<&str>, label_layer: Option<&str>, grid_z: i32, label_z: i32| {
+        let mut form = grid_form();
+        form.layers.push(cobolt_forms::model::Layer::new("L1"));
+        form.controls[0].layer = grid_layer.map(str::to_owned);
+        form.controls[0].z_order = grid_z;
+        let mut label = label_over_the_grid("Above", label_z);
+        label.layer = label_layer.map(str::to_owned);
+        form.controls.push(label);
+        let mut rig = Rig::new(form);
+        // The designer shows a layer while its box is ticked.
+        rig.d.tabs.set_shown("L1", true);
+        rig.settle();
+        let at = |t: &str| rig.painted.iter().position(|p| p.0 == t).unwrap_or_else(|| panic!("{t} painted: {:?}", rig.painted));
+        (at("Bob"), at("Above"))
+    };
+    // The label sits in the layer above the base grid, with a LOWER z-order: still on top.
+    let (grid, label) = layered(None, Some("L1"), 80, 5);
+    assert!(label > grid, "a control in a layer is over a base grid");
+    // The grid sits in the layer, the label in the base with a HIGHER z-order: still under.
+    let (grid, label) = layered(Some("L1"), None, 5, 80);
+    assert!(label < grid, "a grid in a layer is over the base's controls");
+}
+
+/// A rounded Panel whose DataGrid child reaches its corner gets its corner notch repainted (the
+/// grid cannot clip itself to the arc). The mask is part of the Panel's turn: a control drawn
+/// after the Panel that overlaps the corner is over the mask — it used to be repainted after
+/// every face and so wiped a corner of whatever overlapped it.
+#[test]
+fn the_corner_notch_mask_is_painted_at_its_containers_turn() {
+    let mut form = Form::new("F", "F", 800, 600);
+    let mut panel = Control::new("PNL", ControlType::Panel, 40, 40);
+    panel.rect.w = 300;
+    panel.rect.h = 200;
+    panel.set_prop("CornerRadius", PropValue::Int(40));
+    panel.z_order = 10;
+    let mut grid = Control::new("DG", ControlType::DataGrid, 1, 1);
+    grid.rect.w = 150;
+    grid.rect.h = 100;
+    grid.parent = Some("PNL".into());
+    grid.set_prop("Columns", PropValue::String("Name:string".into()));
+    grid.set_prop("Rows", PropValue::String("Bob".into()));
+    // A label right in the panel's top-left corner notch, drawn after the panel.
+    let mut over = label_over_the_grid("OVER", 90);
+    over.rect = cobolt_forms::model::Rect::new(40, 40, 60, 20);
+    form.controls = vec![panel, grid, over];
     let rig = Rig::new(form);
-    let order = |t: &str| rig.painted.iter().position(|p| p.0 == t).unwrap();
-    assert!(order("Bob") > order("Above"), "the grid's rows are painted after the label that is above it in z-order");
+    let label = rig.sequence.iter().position(|(k, _)| k == "OVER").expect("the label was painted");
+    let label_rect = rig.sequence[label].1;
+    let kinds = |range: std::ops::Range<usize>| -> Vec<&str> {
+        rig.sequence[range]
+            .iter()
+            .filter(|(k, r)| k != "OVER" && r.intersects(label_rect))
+            .map(|(k, _)| k.as_str())
+            .collect()
+    };
+    let before = kinds(0..label);
+    let after = kinds(label + 1..rig.sequence.len());
+    println!("over the label's rect — before it: {before:?}; after it: {after:?}");
+    assert!(
+        before.iter().any(|k| *k == "Mesh" || *k == "Path"),
+        "the notch mask is painted, under the label: {before:?}"
+    );
+    assert!(after.is_empty(), "nothing is painted over the label after it — the mask went under it: {after:?}");
 }
 
 // ── Spec 095: the binding editor's one-click fix ─────────────────────────────
@@ -1114,4 +1212,84 @@ fn a_dropdown_cell_picks_on_the_canvas_and_undoes() {
     rig.d.undo();
     assert_eq!(rig.prop("DG", "Rows"), "Ana\tD\nBia\tC\nCid\t", "one undo puts it back");
     println!("095: a Dropdown pick in grid edit mode is 1 undo step on the sample Rows (the value, not the text)");
+}
+
+// ── The menu editor the Properties pane opens, in each language ──────────────
+
+/// The menu editor — its tree, its item properties, a shortcut being captured, the icon list — has
+/// none of its words left in English in every language. (A few of them were literals.)
+#[test]
+fn no_word_of_the_menu_editor_is_left_in_english_in_every_language() {
+    use cobolt_forms::menu::{MenuDefinition, MenuItem};
+    type Setup = Box<dyn Fn(&mut MenuEditorModal)>;
+    let cases: Vec<(&str, bool, Setup)> = vec![
+        ("nothing selected", false, Box::new(|_| {})),
+        ("an item", false, Box::new(|m| m.selected = vec![0])),
+        ("a sub item", false, Box::new(|m| m.selected = vec![0, 0])),
+        ("a SideMenu item", true, Box::new(|m| m.selected = vec![0])),
+        ("the icon list", false, Box::new(|m| {
+            m.selected = vec![0];
+            m.icon_picker_open = true;
+        })),
+    ];
+    let mut failures = Vec::new();
+    for (name, side, prepare) in &cases {
+        let words = crate::ui_text::probe::left_in_english(
+            &|| {
+                let mut d = DesignerPanel::new(Form::new("F", "F", 640, 480));
+                let mut file = MenuItem::new_action("file", "File");
+                file.items = vec![MenuItem::new_action("open", "Open")];
+                let def = MenuDefinition { menu: vec![file, MenuItem::new_separator("sep")], hash: String::new() };
+                let mut m = MenuEditorModal::new("Menu-1".into(), def).for_side_menu(*side);
+                prepare(&mut m);
+                d.menu_modal = Some(m);
+                d
+            },
+            &|d, ui, _tr| d.show_menu_editor(ui),
+        );
+        // A key name (Ctrl, Shift…) and the developer's own item names are data.
+        for w in words.into_iter().filter(|w| !matches!(w.as_str(), "Ctrl" | "Shift" | "Alt" | "Cmd")) {
+            failures.push(format!("{name}: {w:?}"));
+        }
+    }
+    for f in &failures {
+        println!("English in every language: {f}");
+    }
+    println!("{} states of the menu editor drawn in six languages, {} words left in English", cases.len(), failures.len());
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// ── Which control a click on the canvas selects ──────────────────────────────
+
+/// A click on the canvas where two controls overlap selects the one drawn on top, for every
+/// visual control type: the Label above it in z-order is picked, and the Label below it is not.
+#[test]
+fn a_click_on_the_canvas_selects_the_control_on_top_for_every_visual_control() {
+    let mut checked = 0usize;
+    let mut failures = Vec::new();
+    for ty in ControlType::ALL.iter().filter(|t| !t.is_non_visual()) {
+        for (label_z, expected) in [(90, "Label1"), (10, "A")] {
+            let mut form = Form::new("F", "F", 800, 600);
+            let mut a = Control::new("A", ty.clone(), 40, 40);
+            a.rect.w = 300;
+            a.rect.h = 200;
+            a.z_order = 50;
+            let mut label = Control::new("Label1", ControlType::Label, 40, 40);
+            label.rect.w = 300;
+            label.rect.h = 200;
+            label.z_order = label_z;
+            form.controls = vec![a, label];
+            let d = DesignerPanel::new(form);
+            let got = d.hit_top_id(190, 140);
+            checked += 1;
+            if got.as_deref() != Some(expected) {
+                failures.push(format!("{ty:?} with a Label at z {label_z}: selected {got:?}, expected {expected}"));
+            }
+        }
+    }
+    for f in &failures {
+        println!("WRONG CONTROL SELECTED: {f}");
+    }
+    println!("{checked} canvas clicks checked, {} failures", failures.len());
+    assert!(failures.is_empty(), "{failures:#?}");
 }

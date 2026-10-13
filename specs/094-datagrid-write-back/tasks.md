@@ -147,6 +147,8 @@ Branch: `features-datagrid-write-back`. Sweeps are `--no-fail-fast`, every
        rejected: with layers, every `render_faces` call paints all the remaining layer
        backgrounds at its end. PowerDemo3's Datagrid form is unaffected (its Labels and
        Buttons do not overlap the grid).
+       **Fixed in 1.91.26** (the operator reported grids drawn out of layer order): `render_faces_with`
+       calls the canvas back at each grid's own place in the paint order, so the cost above is gone.
     5. *Clipping:* the child `Ui` is clipped to the intersection of the ancestors'
        content rects (`containers::clip_rect`) and the grid is given the rounded
        parent's arc through the renderer's own `_ContainerClip` descriptor

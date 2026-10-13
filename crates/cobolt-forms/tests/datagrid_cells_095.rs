@@ -234,3 +234,100 @@ fn a_dropdown_cell_is_painted_the_same_on_run_preview_and_the_designer_canvas() 
         started.elapsed().as_millis()
     );
 }
+
+// ── The grid is drawn in the order of the layers and z-orders ───────────────────────────
+
+/// Every shape painted by `controls` on `surface`, with the form's `layers`, one line each.
+fn painted_layers(surface: Surface, controls: &[Control], layers: Vec<cobolt_forms::model::Layer>) -> Vec<String> {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(egui::FontDefinitions::default());
+    let active = ActiveTabs::new();
+    let mut shapes = Vec::new();
+    for frame in 0..2 {
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))),
+                time: Some(frame as f64 * 0.05),
+                ..Default::default()
+            },
+            |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(400.0, 300.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop { layers: layers.clone(), ..Backdrop::default() },
+                    };
+                    match surface {
+                        Surface::Run => {
+                            render_form(ui, &input);
+                        }
+                        Surface::Preview => {
+                            render_form_with_chrome(ui, &input, None);
+                        }
+                        Surface::DesignerCanvas => {
+                            render_form_scoped(ui, &input, None, egui::Id::new("designer-grid-edit"));
+                        }
+                    }
+                });
+            },
+        );
+        full.textures_delta.clear();
+        shapes = full.shapes;
+    }
+    let mut lines = Vec::new();
+    for clipped in &shapes {
+        dump(&mut lines, &clipped.shape);
+    }
+    lines
+}
+
+/// Where a text is among the shapes painted.
+fn text_at(lines: &[String], text: &str) -> usize {
+    let hash = format!("str={:016x}", fnv64(text));
+    lines.iter().position(|l| l.contains(&hash)).unwrap_or_else(|| panic!("{text:?} was not painted"))
+}
+
+/// A label over the grid's first rows, in `layer` at `z`.
+fn label_over(caption: &str, layer: Option<&str>, z: i32) -> Control {
+    let mut label = Control::new(caption, ControlType::Label, 40, 40);
+    label.set_prop("Caption", PropValue::String(caption.into()));
+    label.layer = layer.map(str::to_owned);
+    label.z_order = z;
+    label
+}
+
+/// A grid is drawn where its z-order and its layer put it, as every other control is: on the
+/// running form and the preview, a control above it is over it, one below it is under it, a
+/// layer's controls are over the base's and a grid in a layer is over the base's controls.
+#[test]
+fn a_grid_is_drawn_in_z_order_and_layer_order() {
+    let mut plain = dropdown_grid(&["D", "C"]);
+    plain.z_order = 50;
+    let l1 = || vec![cobolt_forms::model::Layer::new("L1")];
+    for surface in [Surface::Run, Surface::Preview] {
+        // z-order, on the base.
+        let controls = vec![plain.clone(), label_over("Above", None, 90), label_over("Below", None, 10)];
+        let lines = painted_layers(surface, &controls, Vec::new());
+        let grid = text_at(&lines, "Drama");
+        assert!(text_at(&lines, "Above") > grid, "{surface:?}: above the grid in z-order, over it");
+        assert!(text_at(&lines, "Below") < grid, "{surface:?}: below the grid in z-order, under it");
+        // A layer's control is over a base grid even with the lower z-order.
+        let mut base_grid = plain.clone();
+        base_grid.z_order = 80;
+        let controls = vec![base_grid, label_over("Above", Some("L1"), 5)];
+        let lines = painted_layers(surface, &controls, l1());
+        assert!(text_at(&lines, "Above") > text_at(&lines, "Drama"), "{surface:?}: a layer's control is over a base grid");
+        // A grid in a layer is over the base's controls, even with the higher z-order.
+        let mut layer_grid = plain.clone();
+        layer_grid.layer = Some("L1".into());
+        layer_grid.z_order = 5;
+        let controls = vec![layer_grid, label_over("Above", None, 80)];
+        let lines = painted_layers(surface, &controls, l1());
+        assert!(text_at(&lines, "Above") < text_at(&lines, "Drama"), "{surface:?}: a grid in a layer is over the base's controls");
+    }
+}

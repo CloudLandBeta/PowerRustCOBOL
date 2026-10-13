@@ -411,6 +411,12 @@ impl DebugSettingsModal {
     }
 }
 
+/// What a switch says when the pointer rests on it: its explanation, then the variable it mirrors,
+/// in the language of the IDE (the variable's own name is never translated).
+fn switch_hover(hint: &str, env: &str) -> String {
+    format!("{}\n\n{}", crate::ui_text::ide(hint), crate::ui_text::idef("Env: {}", &[&env]))
+}
+
 /// One label + editor row. Returns `true` when the value changed.
 fn switch_row(ui: &mut egui::Ui, switch: &Switch, settings: &mut DebugSettings) -> bool {
     let (label, hint, env) = match switch {
@@ -426,7 +432,9 @@ fn switch_row(ui: &mut egui::Ui, switch: &Switch, settings: &mut DebugSettings) 
     };
     // The env var stays visible: these switches replace it as the interface, not
     // as the mechanism, and a developer still needs it for a shell run.
-    let hover = format!("{hint}\n\nEnv: {env}");
+    let hover = switch_hover(hint, env);
+    // `label` stays the English the combo box's id is made from; `shown` is what is read.
+    let shown = crate::ui_text::ide(label);
 
     // `truncate()` alone lets the grid column collapse to its minimum, which is
     // how every label had become "Fra…", "Da…", "Ro…". The width is stated
@@ -437,7 +445,7 @@ fn switch_row(ui: &mut egui::Ui, switch: &Switch, settings: &mut DebugSettings) 
         egui::vec2(SWITCH_LABEL_WIDTH, 0.0),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            ui.add(egui::Label::new(label).truncate())
+            ui.add(egui::Label::new(shown).truncate())
                 .on_hover_text(hover.clone());
         },
     );
@@ -482,6 +490,104 @@ fn switch_row(ui: &mut egui::Ui, switch: &Switch, settings: &mut DebugSettings) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The words of every switch in the window — its name, its explanation and the line that names
+    /// the environment variable — exist in all six languages, and the names a person types or
+    /// searches for (`F12`, `databinding.log`, `%TEMP%`, `COBOLT_LOG`, a `code span`) come through
+    /// each translation untouched.
+    #[test]
+    fn every_debug_switch_text_exists_in_six_languages() {
+        use crate::i18n::Language;
+        use crate::ui_text::{has_ide, ide_localized};
+        fn verbatim(text: &str) -> Vec<String> {
+            let mut out: Vec<String> = text.split('`').skip(1).step_by(2).map(str::to_owned).collect();
+            for w in text.split_whitespace() {
+                let w = w.trim_matches(|c: char| ".,;:()\"'·".contains(c));
+                // A path (`/tmp`, `docs/`, `a/b/c`), a name with a dot or an underscore, a number,
+                // a setting (`a=b`). A pair of words with a slash between them is prose.
+                let path = w.starts_with('/') || w.ends_with('/') || w.matches('/').count() >= 2;
+                let odd = path
+                    || w.chars().any(|c| "_=%<>+".contains(c) || c.is_ascii_digit())
+                    || w.trim_end_matches('.').contains('.');
+                if odd && !w.is_empty() && !w.contains('`') {
+                    out.push(w.to_owned());
+                }
+            }
+            out
+        }
+        let mut texts: Vec<&str> = vec!["Env: {}"];
+        for section in SECTIONS {
+            for switch in section.switches {
+                let (Switch::Flag { label, hint, .. }
+                | Switch::Choice { label, hint, .. }
+                | Switch::Text { label, hint, .. }) = switch;
+                texts.push(label);
+                texts.push(hint);
+            }
+        }
+        let (mut missing, mut lost) = (Vec::new(), Vec::new());
+        for t in &texts {
+            if !has_ide(t) {
+                missing.push(*t);
+                continue;
+            }
+            for &lang in Language::ALL {
+                let tr = ide_localized(lang, t);
+                for v in verbatim(t) {
+                    if !tr.contains(&v) {
+                        lost.push(format!("{lang:?}: {v:?} lost in {t:?}"));
+                    }
+                }
+            }
+        }
+        for m in &missing {
+            println!("debug switch text not in the table -> {m:?}");
+        }
+        for l in &lost {
+            println!("{l}");
+        }
+        println!("{} debug switch texts checked, {} missing, {} with a name lost", texts.len(), missing.len(), lost.len());
+        assert!(missing.is_empty(), "{} debug switch texts are English only", missing.len());
+        assert!(lost.is_empty(), "{} translations changed a name the person types", lost.len());
+    }
+
+    /// The window drawn on each of its tabs in each of the six languages: none of its words is left
+    /// in English in every language. (What a hover says is held by the test above and the next one;
+    /// a painted frame has no hover.)
+    #[test]
+    fn no_word_of_the_debug_settings_window_is_left_in_english_in_every_language() {
+        use crate::ui_text::probe::left_in_english;
+        let tabs = SECTIONS.iter().filter(|s| !s.switches.is_empty()).count();
+        let mut found = std::collections::BTreeSet::new();
+        for tab in 0..tabs {
+            found.extend(left_in_english(
+                &|| (DebugSettingsModal { open: true, tab }, DebugSettings::default()),
+                &|(modal, settings), ui, tr| {
+                    let _ = modal.show(ui.ctx(), settings, tr);
+                },
+            ));
+        }
+        for w in &found {
+            println!("English in every language: {w:?}");
+        }
+        println!("debug settings window: {tabs} tabs drawn in 6 languages, {} words left in English", found.len());
+        assert!(found.is_empty(), "{} words of the debug window are English in every language", found.len());
+    }
+
+    /// A switch's hover is its explanation and then the variable it mirrors, both in the language of
+    /// the IDE; the variable's name is left alone.
+    #[test]
+    fn a_switch_hover_names_its_variable_in_the_language_of_the_ide() {
+        use crate::i18n::Language;
+        let (hint, env) = ("Event trace", "COBOLT_EVENT_TRACE");
+        crate::ui_text::begin(Language::English);
+        assert_eq!(switch_hover(hint, env), "Event trace\n\nEnv: COBOLT_EVENT_TRACE");
+        crate::ui_text::begin(Language::Spanish);
+        assert_eq!(switch_hover(hint, env), "Traza de eventos\n\nVariable de entorno: COBOLT_EVENT_TRACE");
+        crate::ui_text::begin(Language::Japanese);
+        assert_eq!(switch_hover(hint, env), "イベント トレース\n\n環境変数: COBOLT_EVENT_TRACE");
+        crate::ui_text::begin(Language::English);
+    }
 
     #[test]
     fn no_empty_sections_are_declared() {
