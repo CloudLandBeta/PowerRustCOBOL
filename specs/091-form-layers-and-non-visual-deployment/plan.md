@@ -21,6 +21,9 @@ base is laid out (R21); and the designer edits **one tab at a time** — `Non-Vi
 | 0 | Spec approved; the operator's answers applied; AC1 baseline walker | R2, R39 | **done** `cfc5f82` (1.90.27) |
 | 1 | `Layer`, `Form.layers`, `Control.layer`, names, 64 cap, add / rename / re-stack / move, R8 container rule, `<Layer/>` and `layer=` (never `Visible`), `render_order_in`, pure `nv_grid` | R1–R8, R39, R40 | **done** `cd5eca8` (1.90.28) |
 | 2a | Engine draws layers on all three paint paths: layer-major order, backgrounds between layers, hidden layers, per-layer deferred passes, Tab order | R9–R12, R15 | **done** `8053bf6` (1.90.29) |
+
+> **Fixed in 1.91.28.** "Per-layer deferred passes" held a container's tab strip, group caption and corner-notch mask back to the end of the layer, over every control of it that overlapped them. They run when the container's own subtree ends now (`render_form` and `render_faces_with`), so the stacking order inside a layer applies to them too.
+
 | 2b | A layer's controls are cut at the form edge (62 types × 3 paths) | R13, R14 | **done** `9ecdf91` (1.90.30) |
 | 2c | The layout engine leaves layer controls alone | R13, R21 | **done** `2a03dc8` (1.90.31) |
 | 2d | The layers hold the pointer: `pointer_claim`, blockers, event gate, opaque shields | R17–R20 | **done** `52a9239` (1.90.32) |

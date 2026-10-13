@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.28] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.27.)*
+
+### Fixed
+- **Some parts of a container were painted over controls that sit above it.** 1.91.26 fixed the DataGrid, which the Designer canvas painted in a pass of its own, so it was over every control that overlapped it. All 38 visual control types were then checked on the three paint paths (run form, preview, Designer canvas) against a label above them in z-order, a label below them, a control in a layer above them and one in a layer below, and the same pass of its own turned up in three more places, all in what a container paints *over its own controls*:
+  - a **TabControl**'s tab strip (4 of its 10 shapes in the probe);
+  - a **GroupBox**'s caption;
+  - the **corner-notch mask** of a rounded Panel, GroupBox or Maps, which repaints the form's backdrop at a corner a child pokes out of.
+
+  They ran once at the end of the layer (the Designer canvas ran its mask after every face), so a control placed above the container in the stacking order, and overlapping the tab strip, the caption or the corner, was painted *under* them. They now run when the container's own subtree ends, right after its last control, so they stay over the container's controls and under whatever is drawn after the container. The Designer canvas's mask moved into the faces pass for the same reason (`render_faces_with` takes an `after_container` hook, as it takes `at_grid`).
+  - *The expand icon of a Panel or GroupBox* (spec 090) follows: it is painted at the card's turn, so a card drawn over it covers it by painting order; the click on it is settled when the whole form is drawn, as it was, because only then is it known whether a later control covers it.
+  - *Measured:* the new probe `every_visual_control_is_painted_in_z_order_and_layer_order` (456 cases) fails 8 of them on the previous code (GroupBox and TabControl on the run form, the preview and the canvas; Panel on the run form and the preview) and passes all 456 now; `the_corner_notch_mask_is_painted_at_its_containers_turn` fails on the old order (a mesh and 3 circles over the label) and passes. Ten of the 75 example forms (`files-form`, `prompts-form`, `groupbox-form`, `tabcontrol-form`, five `responsive-*` forms and `sidebar-form`) paint the same shapes in another order; their render goldens were recaptured, and a check of all 75 against the recaptured goldens passes.
+  - *Not changed:* what is drawn in front of everything on purpose — an open ComboBox list, a date picker, a menu, the focus ring, a snackbar, the editor's selection handles.
+  - *Baseline, not from this change:* the render golden of `General__layers-form` has never been captured, so `every_example_form_renders_as_its_golden` stops there with "golden … missing" (capture it with `COBOLT_WRITE_GOLDEN=1`); the two spec-056 example-count tests and the `docs_embed` guard are red as before.
+
 ## [PowerRustCOBOL 1.91.27] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.26.)*

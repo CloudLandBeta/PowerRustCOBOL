@@ -30,7 +30,7 @@ OB-T3 rect=[405 132 554 153] font=11
 OB-TB-CAP rect=[10 8 160 40] font=11
 OB-TOOLBAR rect=[0 0 600 48] font=11
 OB-TYPE rect=[390 54 582 171] font=11
-shapes=306 digest=dca54992281e127a
+shapes=306 digest=fb310c1e7dc15b0a
 ## Run 0.75x 600x420
 OB-ADDRESS rect=[98 117 368 140] font=11
 OB-CANCEL rect=[414 339 495 366] font=11
@@ -62,7 +62,7 @@ OB-T3 rect=[405 132 554 153] font=11
 OB-TB-CAP rect=[10 8 160 40] font=11
 OB-TOOLBAR rect=[0 0 600 48] font=11
 OB-TYPE rect=[390 54 582 171] font=11
-shapes=322 digest=bff5d4736bbe107e
+shapes=322 digest=bc247f078f26a2ee
 ## Preview 0.75x 600x420
 OB-ADDRESS rect=[98 117 368 140] font=11
 OB-CANCEL rect=[414 339 495 366] font=11
@@ -94,7 +94,7 @@ OB-T3 rect=[405 132 554 153] font=11
 OB-TB-CAP rect=[10 8 160 40] font=11
 OB-TOOLBAR rect=[0 0 600 48] font=11
 OB-TYPE rect=[390 54 582 171] font=11
-shapes=322 digest=bff5d4736bbe107e
+shapes=322 digest=bc247f078f26a2ee
 ## Canvas 1x 800x560
 OB-ADDRESS rect=[130 156 490 186] font=13
 OB-CANCEL rect=[552 452 660 488] font=13
@@ -126,7 +126,7 @@ OB-T3 rect=[540 176 740 204] font=13
 OB-TB-CAP rect=[10 8 160 40] font=13
 OB-TOOLBAR rect=[0 0 800 48] font=13
 OB-TYPE rect=[520 72 776 228] font=13
-shapes=306 digest=b2787a3b3a2603d5
+shapes=306 digest=c34cc354016be05d
 ## Run 1x 800x560
 OB-ADDRESS rect=[130 156 490 186] font=13
 OB-CANCEL rect=[552 452 660 488] font=13
@@ -158,7 +158,7 @@ OB-T3 rect=[540 176 740 204] font=13
 OB-TB-CAP rect=[10 8 160 40] font=13
 OB-TOOLBAR rect=[0 0 800 48] font=13
 OB-TYPE rect=[520 72 776 228] font=13
-shapes=322 digest=dc34145fad671c45
+shapes=322 digest=ffc184ca8a8f1a4d
 ## Preview 1x 800x560
 OB-ADDRESS rect=[130 156 490 186] font=13
 OB-CANCEL rect=[552 452 660 488] font=13
@@ -190,7 +190,7 @@ OB-T3 rect=[540 176 740 204] font=13
 OB-TB-CAP rect=[10 8 160 40] font=13
 OB-TOOLBAR rect=[0 0 800 48] font=13
 OB-TYPE rect=[520 72 776 228] font=13
-shapes=322 digest=dc34145fad671c45
+shapes=322 digest=ffc184ca8a8f1a4d
 ## Canvas 1.5x 1200x840
 OB-ADDRESS rect=[195 234 735 279] font=19.5
 OB-CANCEL rect=[828 678 990 732] font=19.5
@@ -222,7 +222,7 @@ OB-T3 rect=[809 264 1111 306] font=19.5
 OB-TB-CAP rect=[10 8 160 40] font=19.5
 OB-TOOLBAR rect=[0 0 1200 48] font=19.5
 OB-TYPE rect=[780 108 1164 342] font=19.5
-shapes=306 digest=22605d6165438c3c
+shapes=306 digest=e43260948974f330
 ## Run 1.5x 1200x840
 OB-ADDRESS rect=[195 234 735 279] font=19.5
 OB-CANCEL rect=[828 678 990 732] font=19.5
@@ -254,7 +254,7 @@ OB-T3 rect=[809 264 1111 306] font=19.5
 OB-TB-CAP rect=[10 8 160 40] font=19.5
 OB-TOOLBAR rect=[0 0 1200 48] font=19.5
 OB-TYPE rect=[780 108 1164 342] font=19.5
-shapes=322 digest=94358aaf6a562dfc
+shapes=322 digest=7b0e341204c9caf0
 ## Preview 1.5x 1200x840
 OB-ADDRESS rect=[195 234 735 279] font=19.5
 OB-CANCEL rect=[828 678 990 732] font=19.5
@@ -286,4 +286,4 @@ OB-T3 rect=[809 264 1111 306] font=19.5
 OB-TB-CAP rect=[10 8 160 40] font=19.5
 OB-TOOLBAR rect=[0 0 1200 48] font=19.5
 OB-TYPE rect=[780 108 1164 342] font=19.5
-shapes=322 digest=94358aaf6a562dfc
+shapes=322 digest=7b0e341204c9caf0

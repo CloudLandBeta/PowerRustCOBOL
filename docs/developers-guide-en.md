@@ -2540,8 +2540,11 @@ image and mode, transparency — and nothing else. A layer has no corner radius
 
 **Painting and layout.** Every control of a layer paints above every control of
 the layers below it, whatever their `ZOrder`; `ZOrder`, **Bring to Front** and
-**Send to Back** order only the controls that share a layer and a container. Only
-`Form` is laid out: a control in a layer keeps the `X`, `Y`, `Width` and `Height`
+**Send to Back** order only the controls that share a layer and a container.
+That order covers everything a control paints: a GroupBox's caption, a
+TabControl's tab strip, the corners of a rounded Panel and a DataGrid are painted
+at the container's own place in the stacking order, so a control above it in that
+order covers them. Only `Form` is laid out: a control in a layer keeps the `X`, `Y`, `Width` and `Height`
 you designed, and its Properties pane offers no Dock, Anchor or layout. A layer
 covers exactly the form — it never changes the form's size — and whatever a layer
 control paints outside the form is cut at the form's edge.

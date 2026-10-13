@@ -43,6 +43,9 @@ struct Rig {
     ink: Vec<(Color32, f32)>,
     /// Every filled rectangle the last frame painted, in paint order.
     fills: Vec<(Rect, Color32)>,
+    /// Every shape the last frame painted, in paint order: a text is its string, anything
+    /// else its kind, with the rect it covers.
+    sequence: Vec<(String, Rect)>,
     /// The cursor the last frame asked for.
     cursor: egui::CursorIcon,
 }
@@ -57,6 +60,7 @@ impl Rig {
             painted: Vec::new(),
             ink: Vec::new(),
             fills: Vec::new(),
+            sequence: Vec::new(),
             cursor: egui::CursorIcon::Default,
         };
         rig.settle();
@@ -85,7 +89,18 @@ impl Rig {
             texts: &mut Vec<(String, Rect, Rect)>,
             ink: &mut Vec<(Color32, f32)>,
             fills: &mut Vec<(Rect, Color32)>,
+            sequence: &mut Vec<(String, Rect)>,
         ) {
+            match shape {
+                egui::Shape::Vec(_) | egui::Shape::Noop => {}
+                egui::Shape::Text(t) => {
+                    sequence.push((t.galley.text().to_owned(), t.galley.rect.translate(t.pos.to_vec2())));
+                }
+                other => {
+                    let name = format!("{other:?}");
+                    sequence.push((name.split(['(', ' ', '{']).next().unwrap_or("").to_owned(), other.visual_bounding_rect()));
+                }
+            }
             match shape {
                 egui::Shape::Text(t) => {
                     texts.push((
@@ -103,15 +118,16 @@ impl Rig {
                     ink.push((color, t.opacity_factor));
                 }
                 egui::Shape::Rect(r) => fills.push((r.rect, r.fill)),
-                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, texts, ink, fills)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, texts, ink, fills, sequence)),
                 _ => {}
             }
         }
         self.painted.clear();
         self.ink.clear();
         self.fills.clear();
+        self.sequence.clear();
         for clipped in &out.shapes {
-            walk(&clipped.shape, clipped.clip_rect, &mut self.painted, &mut self.ink, &mut self.fills);
+            walk(&clipped.shape, clipped.clip_rect, &mut self.painted, &mut self.ink, &mut self.fills, &mut self.sequence);
         }
         self.cursor = out.platform_output.cursor_icon;
     }
@@ -1043,6 +1059,48 @@ fn a_grid_is_painted_in_its_layer_order() {
     // The grid sits in the layer, the label in the base with a HIGHER z-order: still under.
     let (grid, label) = layered(Some("L1"), None, 5, 80);
     assert!(label < grid, "a grid in a layer is over the base's controls");
+}
+
+/// A rounded Panel whose DataGrid child reaches its corner gets its corner notch repainted (the
+/// grid cannot clip itself to the arc). The mask is part of the Panel's turn: a control drawn
+/// after the Panel that overlaps the corner is over the mask — it used to be repainted after
+/// every face and so wiped a corner of whatever overlapped it.
+#[test]
+fn the_corner_notch_mask_is_painted_at_its_containers_turn() {
+    let mut form = Form::new("F", "F", 800, 600);
+    let mut panel = Control::new("PNL", ControlType::Panel, 40, 40);
+    panel.rect.w = 300;
+    panel.rect.h = 200;
+    panel.set_prop("CornerRadius", PropValue::Int(40));
+    panel.z_order = 10;
+    let mut grid = Control::new("DG", ControlType::DataGrid, 1, 1);
+    grid.rect.w = 150;
+    grid.rect.h = 100;
+    grid.parent = Some("PNL".into());
+    grid.set_prop("Columns", PropValue::String("Name:string".into()));
+    grid.set_prop("Rows", PropValue::String("Bob".into()));
+    // A label right in the panel's top-left corner notch, drawn after the panel.
+    let mut over = label_over_the_grid("OVER", 90);
+    over.rect = cobolt_forms::model::Rect::new(40, 40, 60, 20);
+    form.controls = vec![panel, grid, over];
+    let rig = Rig::new(form);
+    let label = rig.sequence.iter().position(|(k, _)| k == "OVER").expect("the label was painted");
+    let label_rect = rig.sequence[label].1;
+    let kinds = |range: std::ops::Range<usize>| -> Vec<&str> {
+        rig.sequence[range]
+            .iter()
+            .filter(|(k, r)| k != "OVER" && r.intersects(label_rect))
+            .map(|(k, _)| k.as_str())
+            .collect()
+    };
+    let before = kinds(0..label);
+    let after = kinds(label + 1..rig.sequence.len());
+    println!("over the label's rect — before it: {before:?}; after it: {after:?}");
+    assert!(
+        before.iter().any(|k| *k == "Mesh" || *k == "Path"),
+        "the notch mask is painted, under the label: {before:?}"
+    );
+    assert!(after.is_empty(), "nothing is painted over the label after it — the mask went under it: {after:?}");
 }
 
 // ── Spec 095: the binding editor's one-click fix ─────────────────────────────

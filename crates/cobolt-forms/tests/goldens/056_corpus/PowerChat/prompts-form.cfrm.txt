@@ -15,7 +15,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=211 digest=2c3d22773b997373
+shapes=211 digest=66e2230380ae28ab
 ## Run 0.75x 768x402
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -32,7 +32,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=228 digest=80a296b8b84ffbc3
+shapes=228 digest=e730e37792a16fbb
 ## Preview 0.75x 768x402
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -49,7 +49,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=228 digest=80a296b8b84ffbc3
+shapes=228 digest=e730e37792a16fbb
 ## Canvas 1x 1024x536
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -66,7 +66,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=211 digest=ce234bd3760510e8
+shapes=211 digest=328bacf3feef4c78
 ## Run 1x 1024x536
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -83,7 +83,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=228 digest=4ddc5d01d89405a5
+shapes=228 digest=f325a7df54c2808d
 ## Preview 1x 1024x536
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -100,7 +100,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=228 digest=4ddc5d01d89405a5
+shapes=228 digest=f325a7df54c2808d
 ## Canvas 1.5x 1536x804
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -117,7 +117,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=211 digest=1e0f898c5a4a63f7
+shapes=211 digest=0b24164861b1466f
 ## Run 1.5x 1536x804
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -134,7 +134,7 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=228 digest=56e34102f5adfffa
+shapes=228 digest=66dbd4959a73736a
 ## Preview 1.5x 1536x804
 Btn-Cancel rect=- font=14
 Btn-Cancel-Bottom rect=- font=14
@@ -151,4 +151,4 @@ Lbl-Title rect=[24 16 656 48] font=20
 Tab-Crud rect=[24 56 1000 456] font=14
 Tmr-Lang rect=[952 16 1000 64] font=14
 Txt-Prompt rect=- font=14
-shapes=228 digest=56e34102f5adfffa
+shapes=228 digest=66dbd4959a73736a

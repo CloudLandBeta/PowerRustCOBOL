@@ -1424,7 +1424,7 @@ pub fn corner_notch_rounding(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn mask_container_notches(
+fn mask_container_notch(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
     controls: &[Control],
@@ -1439,10 +1439,10 @@ fn mask_container_notches(
     // enabled), collected by the render loop. It cannot be recomputed here: the
     // animation transform only exists inside that loop.
     alphas: &HashMap<String, f32>,
-    // Which controls this pass is for — see `draw_expand_icons`. Only the BASE
-    // is masked: the mask repaints the form's own backdrop in a corner notch,
-    // which would erase what the layers below a layer's control show there.
-    only: &dyn Fn(&Control) -> bool,
+    // The container to mask (an index into `controls`). Only a BASE control is masked: the mask
+    // repaints the form's own backdrop in a corner notch, which would erase what the layers
+    // below a layer's control show there.
+    idx: usize,
 ) {
     // `controls` is the EFFECTIVE (post-`expand_repeating_groups`) list the render
     // loop drew from â NOT `input.controls`. The notch-mask guardian
@@ -1452,108 +1452,124 @@ fn mask_container_notches(
     // container's expanded card instances invisible to the guardian, so it would
     // mask nothing and the card content bleeds past the container arc (spec 015/024
     // repeating groups Ã the spec 017 notch mask).
-    for (idx, base) in controls.iter().enumerate() {
-        if !only(base) {
-            continue;
-        }
-        // Which control types can need a mask is `notch_mask_rounding`'s to
-        // decide — this loop only skips what is not on screen.
-        if !visible_in(input, base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
-            continue;
-        }
-        let live = input.state.live(base);
-        let rad = crate::paint::corner_radius(&live);
-        let Some(&screen) = out.control_rects.get(&live.id) else {
-            continue;
-        };
-        // One rule, both call sites: which corners need repainting, if any.
-        let Some(rounding) =
-            notch_mask_rounding(controls, idx, screen, rad, &out.control_rects)
-        else {
-            continue;
-        };
-        // The backdrop is not everything behind this control: its own drop shadow
-        // (or Neumorphic halo) is painted there too and shows through the notch.
-        // Repainting the flat backdrop alone erased it inside the bbox while it
-        // survived outside — the grey wedge at every rounded corner of a Maps
-        // control (operator, 2026-08-21). The alpha it was DRAWN with, not 1.0:
-        // restoring a full-strength shadow behind a faded or animating control
-        // would trade one wedge for another.
-        let stack = crate::paint::control_shadow_stack(
-            painter.ctx(),
-            &live,
-            screen,
-            alphas.get(&live.id).copied().unwrap_or(1.0),
-        );
-        // On a TILED backdrop the mask must repaint the tile this corner
-        // actually sits on, not the first one: the mask maps UV from a single
-        // destination rect, so handing it tile (0,0) for a notch three tiles
-        // over would stretch the whole image across that corner.
-        let notch_image = match (image, image_tile) {
-            (Some((tex, first)), Some(step)) => {
-                Some((tex, tile_under(first, step, screen.center())))
-            }
-            (img, _) => img,
-        };
-        crate::paint::draw_container_notch_mask(
-            painter,
-            screen,
-            rounding,
-            bg,
-            gradient,
-            notch_image,
-            img_alpha,
-            (!stack.is_empty()).then_some(&stack),
-        );
-        // The notch mask repaints the backdrop over the corner arcs it touched,
-        // erasing the container's own border/rim there. Restore the rim on exactly
-        // those corners (`rounding`) â restoring an unmasked corner would
-        // double-stroke the face's own rim and leave a light spur.
-        crate::paint::restore_container_outline(
-            painter,
-            &live,
-            screen,
-            rad,
-            input.glass,
-            rounding,
-            alphas.get(&live.id).copied().unwrap_or(1.0),
-        );
+    let base = &controls[idx];
+    // Which control types can need a mask is `notch_mask_rounding`'s to
+    // decide — this loop only skips what is not on screen.
+    if !visible_in(input, base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| visible_in(input, c)) {
+        return;
     }
+    let live = input.state.live(base);
+    let rad = crate::paint::corner_radius(&live);
+    let Some(&screen) = out.control_rects.get(&live.id) else {
+        return;
+    };
+    // One rule, both call sites: which corners need repainting, if any.
+    let Some(rounding) =
+        notch_mask_rounding(controls, idx, screen, rad, &out.control_rects)
+    else {
+        return;
+    };
+    // The backdrop is not everything behind this control: its own drop shadow
+    // (or Neumorphic halo) is painted there too and shows through the notch.
+    // Repainting the flat backdrop alone erased it inside the bbox while it
+    // survived outside — the grey wedge at every rounded corner of a Maps
+    // control (operator, 2026-08-21). The alpha it was DRAWN with, not 1.0:
+    // restoring a full-strength shadow behind a faded or animating control
+    // would trade one wedge for another.
+    let stack = crate::paint::control_shadow_stack(
+        painter.ctx(),
+        &live,
+        screen,
+        alphas.get(&live.id).copied().unwrap_or(1.0),
+    );
+    // On a TILED backdrop the mask must repaint the tile this corner
+    // actually sits on, not the first one: the mask maps UV from a single
+    // destination rect, so handing it tile (0,0) for a notch three tiles
+    // over would stretch the whole image across that corner.
+    let notch_image = match (image, image_tile) {
+        (Some((tex, first)), Some(step)) => {
+            Some((tex, tile_under(first, step, screen.center())))
+        }
+        (img, _) => img,
+    };
+    crate::paint::draw_container_notch_mask(
+        painter,
+        screen,
+        rounding,
+        bg,
+        gradient,
+        notch_image,
+        img_alpha,
+        (!stack.is_empty()).then_some(&stack),
+    );
+    // The notch mask repaints the backdrop over the corner arcs it touched,
+    // erasing the container's own border/rim there. Restore the rim on exactly
+    // those corners (`rounding`) â restoring an unmasked corner would
+    // double-stroke the face's own rim and leave a light spur.
+    crate::paint::restore_container_outline(
+        painter,
+        &live,
+        screen,
+        rad,
+        input.glass,
+        rounding,
+        alphas.get(&live.id).copied().unwrap_or(1.0),
+    );
 }
 
-/// Spec 090 — the expand/collapse icon of every Panel and GroupBox that offers
-/// one, painted over what is inside it, and — on an interactive surface — a
-/// click on it. The click flips `Expanded` (the host writes it into the design
-/// the layout reads) and is not a click on the card: the `onClick` the card's
-/// own pointer pass queued for this press is taken back.
-fn draw_expand_icons(
+/// Spec 090 — the expand/collapse icon of a Panel or a GroupBox that offers one, painted over what
+/// is inside it. It is painted as the card's own subtree ends, so what is drawn after the card — a
+/// dropdown's overlay card, a panel laid on top — is over it, as it is over the card (operator,
+/// 2026-10-08: the icons of the cards behind a dropdown showed on top of it). The click on it is
+/// [`expand_icon_clicks`].
+fn draw_expand_icon(
     ui: Option<&egui::Ui>,
     painter: &egui::Painter,
     input: &RenderInput<'_>,
-    out: &mut RenderOutput,
-    // Which controls this pass is for: a form with layers paints the passes once
-    // per layer, in stack order, so a card's icon never lands above a layer
-    // drawn over it (spec 091). Without layers: every control, once.
-    only: &dyn Fn(&Control) -> bool,
+    out: &RenderOutput,
+    // The card (an index into `input.controls`).
+    idx: usize,
 ) {
-    let clicked_at = ui.and_then(|ui| {
+    let base = &input.controls[idx];
+    if !matches!(base.control_type, ControlType::Panel | ControlType::GroupBox)
+        || !visible_in(input, base)
+        || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
+    {
+        return;
+    }
+    let live = input.state.live(base);
+    let Some(&screen) = out.control_rects.get(&live.id) else {
+        return;
+    };
+    if !crate::paint::shows_expand_icon(&live, screen) {
+        return;
+    }
+    let enabled = input.state.enabled(base)
+        && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
+    let alpha = containers::ancestor_opacity(input.controls, idx)
+        * input.state.transform(base).alpha
+        * if enabled { 1.0 } else { 0.45 };
+    let hit = crate::paint::expand_icon_rect(&live, screen);
+    let hovered = enabled && ui.is_some_and(|ui| ui.rect_contains_pointer(hit));
+    crate::paint::draw_expand_icon(painter, &live, screen, alpha, hovered);
+}
+
+/// A click on an expand icon: it flips `Expanded` (the host writes it into the design the layout
+/// reads) and is not a click on the card, so the `onClick` the card's own pointer pass queued for
+/// this press is taken back. Run once the whole form is drawn, because whether another control
+/// covers the icon is only known then — a click on a control drawn over an icon is not a click on
+/// the icon.
+fn expand_icon_clicks(ui: &egui::Ui, input: &RenderInput<'_>, out: &mut RenderOutput) {
+    let Some(clicked_at) =
         ui.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None })
-    });
-    // The icons are painted after everything, so what is drawn OVER a card —
-    // a dropdown's overlay card, a panel laid on top — would show them through.
-    // An icon is left out while a later control that is not part of the card
-    // covers it, and with it goes the click (operator, 2026-10-08: the icons of
-    // the cards behind a dropdown showed on top of it).
-    //
-    // The paint order is asked for when the FIRST card with an icon turns up, not
-    // before: this pass runs once per layer, and ordering every control of a form
-    // for each of 64 layers that hold no card at all was 357 ms of a 384 ms frame
-    // (spec 091 AC15, measured).
+    else {
+        return;
+    };
+    // The paint order is asked for when the FIRST card with an icon under the click turns up, not
+    // before: ordering every control of a form for each of 64 layers that hold no card at all was
+    // 357 ms of a 384 ms frame (spec 091 AC15, measured).
     let mut order_cache: Option<Vec<usize>> = None;
     for (idx, base) in input.controls.iter().enumerate() {
-        if !only(base) {
-            continue;
-        }
         if !matches!(base.control_type, ControlType::Panel | ControlType::GroupBox)
             || !visible_in(input, base)
             || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
@@ -1569,10 +1585,10 @@ fn draw_expand_icons(
         }
         let enabled = input.state.enabled(base)
             && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
-        let alpha = containers::ancestor_opacity(input.controls, idx)
-            * input.state.transform(base).alpha
-            * if enabled { 1.0 } else { 0.45 };
         let hit = crate::paint::expand_icon_rect(&live, screen);
+        if !enabled || !hit.contains(clicked_at) {
+            continue;
+        }
         let order = order_cache
             .get_or_insert_with(|| containers::render_order_in(input.controls, &input.backdrop.layers));
         let here = order.iter().position(|&i| i == idx).unwrap_or(usize::MAX);
@@ -1586,51 +1602,57 @@ fn draw_expand_icons(
         if covered {
             continue;
         }
-        let hovered = enabled && ui.is_some_and(|ui| ui.rect_contains_pointer(hit));
-        crate::paint::draw_expand_icon(painter, &live, screen, alpha, hovered);
-        if enabled && clicked_at.is_some_and(|p| hit.contains(p)) {
-            let now = !live.get_prop("Expanded").is_some_and(|v| v.as_bool());
-            out.prop_updates
-                .push((live.id.clone(), "Expanded".to_owned(), if now { "1" } else { "0" }.to_owned()));
-            out.events.retain(|e| !(e.ctrl_id == live.id && e.event == "onClick"));
-        }
+        let now = !live.get_prop("Expanded").is_some_and(|v| v.as_bool());
+        out.prop_updates
+            .push((live.id.clone(), "Expanded".to_owned(), if now { "1" } else { "0" }.to_owned()));
+        out.events.retain(|e| !(e.ctrl_id == live.id && e.event == "onClick"));
     }
 }
 
-fn draw_deferred_groupbox_captions(
+/// Whether the control paints something over its descendants once they are drawn (the notch
+/// mask, the group caption, the tab strip, the expand icon), and so has to stay open until its
+/// subtree ends.
+fn has_chrome_over_children(c: &Control) -> bool {
+    matches!(
+        c.control_type,
+        ControlType::Panel | ControlType::GroupBox | ControlType::TabControl | ControlType::Maps
+    )
+}
+
+fn draw_deferred_groupbox_caption(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
     out: &RenderOutput,
-    only: &dyn Fn(&Control) -> bool,
+    // The container (an index into `input.controls`).
+    idx: usize,
 ) {
-    for (idx, base) in input.controls.iter().enumerate() {
-        if !matches!(base.control_type, ControlType::GroupBox) || !only(base) {
-            continue;
-        }
-        if !visible_in(input, base)
-            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
-        {
-            continue;
-        }
-        let live = input.state.live(base);
-        let Some(&screen) = out.control_rects.get(&live.id) else {
-            continue;
-        };
-        let tf = input.state.transform(base);
-        let enabled = input.state.enabled(base)
-            && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
-        let alpha = containers::ancestor_opacity(input.controls, idx)
-            * tf.alpha
-            * if enabled { 1.0 } else { 0.45 };
-        let mut face = live.clone();
-        face.rect = crate::model::Rect::new(
-            0,
-            0,
-            screen.width().round() as i32,
-            screen.height().round() as i32,
-        );
-        crate::paint::draw_groupbox_caption(painter, screen.min, &face, alpha);
+    let base = &input.controls[idx];
+    if !matches!(base.control_type, ControlType::GroupBox) {
+        return;
     }
+    if !visible_in(input, base)
+        || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
+    {
+        return;
+    }
+    let live = input.state.live(base);
+    let Some(&screen) = out.control_rects.get(&live.id) else {
+        return;
+    };
+    let tf = input.state.transform(base);
+    let enabled = input.state.enabled(base)
+        && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
+    let alpha = containers::ancestor_opacity(input.controls, idx)
+        * tf.alpha
+        * if enabled { 1.0 } else { 0.45 };
+    let mut face = live.clone();
+    face.rect = crate::model::Rect::new(
+        0,
+        0,
+        screen.width().round() as i32,
+        screen.height().round() as i32,
+    );
+    crate::paint::draw_groupbox_caption(painter, screen.min, &face, alpha);
 }
 
 /// Whether an animation has the control bigger than its place: scaled up past
@@ -1711,36 +1733,36 @@ fn draw_deferred_tabcontrol_tabs(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
     out: &RenderOutput,
-    only: &dyn Fn(&Control) -> bool,
+    // The container (an index into `input.controls`).
+    idx: usize,
 ) {
-    for (idx, base) in input.controls.iter().enumerate() {
-        if !matches!(base.control_type, ControlType::TabControl) || !only(base) {
-            continue;
-        }
-        if !visible_in(input, base)
-            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
-        {
-            continue;
-        }
-        let live = input.state.live(base);
-        let Some(&screen) = out.control_rects.get(&live.id) else {
-            continue;
-        };
-        let tf = input.state.transform(base);
-        let enabled = input.state.enabled(base)
-            && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
-        let alpha = containers::ancestor_opacity(input.controls, idx)
-            * tf.alpha
-            * if enabled { 1.0 } else { 0.45 };
-        let mut face = live.clone();
-        face.rect = crate::model::Rect::new(
-            0,
-            0,
-            screen.width().round() as i32,
-            screen.height().round() as i32,
-        );
-        crate::paint::draw_tabcontrol_tabs(painter, screen.min, &face, alpha);
+    let base = &input.controls[idx];
+    if !matches!(base.control_type, ControlType::TabControl) {
+        return;
     }
+    if !visible_in(input, base)
+        || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| visible_in(input, c))
+    {
+        return;
+    }
+    let live = input.state.live(base);
+    let Some(&screen) = out.control_rects.get(&live.id) else {
+        return;
+    };
+    let tf = input.state.transform(base);
+    let enabled = input.state.enabled(base)
+        && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
+    let alpha = containers::ancestor_opacity(input.controls, idx)
+        * tf.alpha
+        * if enabled { 1.0 } else { 0.45 };
+    let mut face = live.clone();
+    face.rect = crate::model::Rect::new(
+        0,
+        0,
+        screen.width().round() as i32,
+        screen.height().round() as i32,
+    );
+    crate::paint::draw_tabcontrol_tabs(painter, screen.min, &face, alpha);
 }
 
 /// A GroupBox marked as a repeating group (spec 015 control array).
@@ -2827,23 +2849,29 @@ fn render_form_inner(
     } else {
         None
     };
-    // 091 — what runs over a layer's controls once they are all drawn: the passes
-    // that paint ON TOP of controls (the notch mask, group captions, tab strips,
-    // expand icons). Run at the end of each layer, they sit under the next
-    // layer's background and controls instead of over them. A macro, because the
-    // body borrows `out` and `ui` and a closure could not hold them across the
-    // loop.
-    macro_rules! finish_group {
-        ($g:expr) => {{
-            let g: usize = $g;
-            let only = |c: &Control| {
-                ranks.is_empty() || rank_by_id.get(c.id.as_str()).copied().unwrap_or(0) == g
-            };
+    // What runs over a container's controls once they are all drawn: the passes that paint ON TOP
+    // of them (the notch mask, the group caption, the tab strip, the expand icon). Each runs when
+    // the container's own subtree ends — right after its last descendant — so a control drawn
+    // later (a higher z-order, a higher layer) is over them, not under. (They used to run once at
+    // the end of the layer, which put a tab strip over every control of the layer that overlapped
+    // it.) A macro, because the body borrows `out` and `ui` and a closure could not hold them
+    // across the loop.
+    let depths = containers::depths(controls);
+    let mut open_containers: Vec<usize> = Vec::new();
+    // The passes below look the control up in `input.controls`; a repeating group's expanded
+    // instances are not there, and have never had them.
+    let input_pos: Option<HashMap<&str, usize>> = expanded.is_some().then(|| {
+        input.controls.iter().enumerate().map(|(i, c)| (c.id.as_str(), i)).collect()
+    });
+    macro_rules! close_container {
+        ($c:expr) => {{
+            let c: usize = $c;
+            let g = ranks.get(c).copied().unwrap_or(0);
             // Only the base is masked: the mask repaints the FORM's backdrop in a
             // corner notch, which is wrong for a layer, whose controls clip
             // themselves to the arc instead (R14).
             if g == 0 {
-                mask_container_notches(
+                mask_container_notch(
                     &painter,
                     input,
                     controls,
@@ -2864,7 +2892,7 @@ fn render_form_inner(
                         )
                     }),
                     &control_alphas,
-                    &only,
+                    c,
                 );
             }
             // A layer's captions, tab strips and icons are cut at the form's edge
@@ -2874,9 +2902,23 @@ fn render_form_inner(
             } else {
                 painter.clone()
             };
-            draw_deferred_groupbox_captions(&clipped, input, &out, &only);
-            draw_deferred_tabcontrol_tabs(&clipped, input, &out, &only);
-            draw_expand_icons(interactive.then_some(&*ui), &clipped, input, &mut out, &only);
+            let at = match &input_pos {
+                None => Some(c),
+                Some(pos) => pos.get(controls[c].id.as_str()).copied(),
+            };
+            if let Some(at) = at {
+                draw_deferred_groupbox_caption(&clipped, input, &out, at);
+                draw_deferred_tabcontrol_tabs(&clipped, input, &out, at);
+                draw_expand_icon(interactive.then_some(&*ui), &clipped, input, &out, at);
+            }
+        }};
+    }
+    // The end of a layer, and of the form: every container still open is finished.
+    macro_rules! close_open_containers {
+        () => {{
+            while let Some(c) = open_containers.pop() {
+                close_container!(c);
+            }
         }};
     }
     // Spec 091 R19, R20 — what takes the pointer over from the layers below it,
@@ -2906,18 +2948,27 @@ fn render_form_inner(
         }};
     }
     for &idx in &order {
+        // Leaving a container's subtree: what paints over its controls goes on now.
+        while open_containers.last().is_some_and(|&c| depths[c] >= depths[idx]) {
+            if let Some(c) = open_containers.pop() {
+                close_container!(c);
+            }
+        }
         // Entering a higher layer: finish the one below, then paint the
         // backgrounds of every layer up to this one — a layer with no control of
         // its own still draws its background, in its place in the stack (R9, R15).
         if !ranks.is_empty() {
             let r = ranks[idx].max(group);
             if r > group {
-                finish_group!(group);
+                close_open_containers!();
                 for layer in &input.backdrop.layers[group..r] {
                     show_layer!(layer);
                 }
                 group = r;
             }
+        }
+        if has_chrome_over_children(&controls[idx]) {
+            open_containers.push(idx);
         }
         // A layer is the form's own rectangle and nothing more (spec 091 R13,
         // R14): a control in one is clipped to it, where a base control may use
@@ -3275,8 +3326,11 @@ fn render_form_inner(
 
     // ââ Corner-notch masks: cut any child content that bled past a rounded
     // container's arc by repainting the backdrop in its corner notches (spec 017).
-    // (Spec 091: with layers this runs once per layer, as each one is finished.)
-    finish_group!(group);
+    // (Each runs as its container's subtree ends; the ones still open end with the form.)
+    close_open_containers!();
+    if interactive {
+        expand_icon_clicks(ui, input, &mut out);
+    }
     // Layers above the last one that held a control: their backgrounds still
     // draw, in stack order (R9, R15) — also when no control holds any layer, so
     // asked of the layers themselves, not of the controls' ranks.
@@ -4317,7 +4371,7 @@ pub fn render_faces(
     origin: egui::Pos2,
     input: &RenderInput<'_>,
 ) -> RenderOutput {
-    render_faces_with(painter, origin, input, &mut |_| {})
+    render_faces_with(painter, origin, input, &mut |_| {}, &mut |_, _| {})
 }
 
 /// [`render_faces`], calling `at_grid` for each DataGrid at its place in the paint order
@@ -4330,11 +4384,19 @@ pub fn render_faces(
 /// the same painter's layer, it lands exactly where its turn comes. The hook is called for
 /// every DataGrid of the list, hidden or not, before the engine decides whether to draw
 /// it: whether the grid is on show is the caller's to say.
+///
+/// `after_container` is called with the index of each container (a Panel, a GroupBox, a
+/// TabControl, a Maps) and the rects of the controls drawn so far, as the container's own
+/// subtree ends, before the container's caption, tab strip and icon are painted. It is the
+/// place for what paints over a container's controls and under what is drawn after the
+/// container, as the canvas's corner-notch mask does: run once after the whole pass, that
+/// mask was over every control of the form that overlapped the corner.
 pub fn render_faces_with(
     painter: &egui::Painter,
     origin: egui::Pos2,
     input: &RenderInput<'_>,
     at_grid: &mut dyn FnMut(&Control),
+    after_container: &mut dyn FnMut(usize, &HashMap<String, Rect>),
 ) -> RenderOutput {
     let mut out = RenderOutput::default();
     let controls = input.controls;
@@ -4348,40 +4410,44 @@ pub fn render_faces_with(
     // layers' controls, so this paints those, over the form's own extent.
     let form_rect = Rect::from_min_size(origin, input.form_size);
     let ranks = layer_ranks(controls, &input.backdrop.layers);
-    let rank_by_id: HashMap<&str, usize> = if ranks.is_empty() {
-        HashMap::new()
-    } else {
-        controls
-            .iter()
-            .zip(&ranks)
-            .map(|(c, &r)| (c.id.as_str(), r))
-            .collect()
-    };
     let mut group = 0usize;
-    // The passes that paint on top of a layer's controls, run as each layer ends
-    // (see `render_form`'s `finish_group!`).
-    macro_rules! finish_group {
-        ($g:expr) => {{
-            let g: usize = $g;
-            let only = |c: &Control| {
-                ranks.is_empty() || rank_by_id.get(c.id.as_str()).copied().unwrap_or(0) == g
-            };
+    // The passes that paint on top of a container's controls, run as its subtree ends (see
+    // `render_form`'s `close_container!`).
+    let depths = containers::depths(controls);
+    let mut open_containers: Vec<usize> = Vec::new();
+    macro_rules! close_container {
+        ($c:expr) => {{
+            let c: usize = $c;
+            let g = ranks.get(c).copied().unwrap_or(0);
             // Cut at the form's edge for a layer, as its controls are (R14).
             let clipped = if g > 0 {
                 painter.with_clip_rect(painter.clip_rect().intersect(form_rect))
             } else {
                 painter.clone()
             };
-            draw_deferred_groupbox_captions(&clipped, input, &out, &only);
-            draw_deferred_tabcontrol_tabs(&clipped, input, &out, &only);
-            draw_expand_icons(None, &clipped, input, &mut out, &only);
+            after_container(c, &out.control_rects);
+            draw_deferred_groupbox_caption(&clipped, input, &out, c);
+            draw_deferred_tabcontrol_tabs(&clipped, input, &out, c);
+            draw_expand_icon(None, &clipped, input, &out, c);
+        }};
+    }
+    macro_rules! close_open_containers {
+        () => {{
+            while let Some(c) = open_containers.pop() {
+                close_container!(c);
+            }
         }};
     }
     for &idx in &order {
+        while open_containers.last().is_some_and(|&c| depths[c] >= depths[idx]) {
+            if let Some(c) = open_containers.pop() {
+                close_container!(c);
+            }
+        }
         if !ranks.is_empty() {
             let r = ranks[idx].max(group);
             if r > group {
-                finish_group!(group);
+                close_open_containers!();
                 for layer in &input.backdrop.layers[group..r] {
                     if input.state.layer_visible(&layer.name) {
                         paint_layer_backdrop(painter, form_rect, layer, window);
@@ -4389,6 +4455,9 @@ pub fn render_faces_with(
                 }
                 group = r;
             }
+        }
+        if has_chrome_over_children(&controls[idx]) {
+            open_containers.push(idx);
         }
         let base = &controls[idx];
         if base.control_type == ControlType::DataGrid {
@@ -4505,7 +4574,7 @@ pub fn render_faces_with(
         );
 
     }
-    finish_group!(group);
+    close_open_containers!();
     // Layers above the last one that held a control still draw their
     // backgrounds, in stack order — also when no control holds any layer.
     if !input.backdrop.layers.is_empty() {
@@ -16624,8 +16693,59 @@ mod tests {
         found
     }
 
+    /// Whether a later control's face is painted OVER the icon of a 200×100 expandable GroupBox
+    /// at 40,40: some filled shape that holds the whole icon square comes after the icon's last
+    /// stroke in the frame's paint order.
+    fn expand_icon_is_painted_over(later: Vec<Control>) -> bool {
+        let mut card = ctrl("Card", ControlType::GroupBox, 40, 40, 200, 100);
+        card.set_prop("Expandable", PropValue::Bool(true));
+        card.set_prop(crate::layout::apply::LAID_OUT, PropValue::Bool(true));
+        let hit = crate::paint::expand_icon_rect(&card, Rect::from_min_size(pos2(40.0, 40.0), Vec2::new(200.0, 100.0)));
+        let mut controls = vec![card];
+        controls.extend(later);
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                ui.set_min_size(Vec2::new(300.0, 200.0));
+                let rin = RenderInput {
+                    controls: &controls,
+                    state: &DesignedState,
+                    form_size: Vec2::new(300.0, 200.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let painter = ui.painter().clone();
+                let origin = ui.min_rect().min;
+                let _ = render_faces(&painter, origin, &rin);
+            });
+        });
+        out.textures_delta.clear();
+        fn flat<'a>(s: &'a egui::Shape, into: &mut Vec<&'a egui::Shape>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| flat(s, into)),
+                other => into.push(other),
+            }
+        }
+        let mut shapes = Vec::new();
+        for cs in &out.shapes {
+            flat(&cs.shape, &mut shapes);
+        }
+        let last_stroke = shapes
+            .iter()
+            .rposition(|s| matches!(s, egui::Shape::LineSegment { points, .. } if points.iter().all(|p| hit.expand(1.0).contains(*p))))
+            .expect("the icon was painted");
+        shapes[last_stroke + 1..].iter().any(|s| {
+            matches!(s, egui::Shape::Rect(r) if r.fill.a() > 0)
+                && s.visual_bounding_rect().contains_rect(hit)
+        })
+    }
+
     /// A card drawn OVER an expandable one — a dropdown's overlay card — covers
-    /// its icon, and the icon does not show through it (operator, 2026-10-08).
+    /// its icon: the icon is painted before the card, so it does not show through
+    /// it (operator, 2026-10-08).
     #[test]
     fn a_card_over_an_expandable_one_hides_its_icon() {
         let overlay = || {
@@ -16634,17 +16754,92 @@ mod tests {
             o
         };
         assert_eq!(expand_icon_strokes_over(Vec::new(), true, true, false).len(), 5, "control: nothing over it");
+        assert!(!expand_icon_is_painted_over(Vec::new()), "control: nothing is painted over it");
+        assert!(expand_icon_is_painted_over(vec![overlay()]), "a card drawn over the icon is painted over it");
+        // Below the card in z-order it is the card that is under: the icon is painted after it.
+        let mut under = overlay();
+        under.z_order = -1;
         assert!(
-            expand_icon_strokes_over(vec![overlay()], true, true, false).is_empty(),
-            "a card drawn over the icon hides it"
+            !expand_icon_is_painted_over(vec![under]),
+            "a card drawn under the one with the icon does not cover it"
         );
         // A frameless layout panel over it paints nothing, so it hides nothing.
         let mut ghost = ctrl("Ghost", ControlType::Panel, 30, 30, 250, 150);
         ghost.set_prop("HideBackground", PropValue::Bool(true));
-        assert_eq!(
-            expand_icon_strokes_over(vec![ghost], true, true, false).len(),
-            5,
+        assert!(
+            !expand_icon_is_painted_over(vec![ghost]),
             "a panel with no face of its own does not cover the icon"
+        );
+    }
+
+    /// The `Expanded` values written by a click on the icon of a 200×100 expandable GroupBox at
+    /// 40,40, on a running form, when `later` controls are drawn after it.
+    fn expanded_writes_after_clicking_the_icon(later: Vec<Control>) -> Vec<String> {
+        let mut card = ctrl("Card", ControlType::GroupBox, 40, 40, 200, 100);
+        card.set_prop("Expandable", PropValue::Bool(true));
+        card.set_prop(crate::layout::apply::LAID_OUT, PropValue::Bool(true));
+        let at = crate::paint::expand_icon_rect(&card, Rect::from_min_size(pos2(40.0, 40.0), Vec2::new(200.0, 100.0))).center();
+        let mut controls = vec![card];
+        controls.extend(later);
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let button = |pressed: bool| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let frames = [vec![], vec![egui::Event::PointerMoved(at)], vec![button(true)], vec![button(false)]];
+        let mut writes = Vec::new();
+        for (i, events) in frames.into_iter().enumerate() {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(300.0, 200.0))),
+                time: Some(i as f64 * 0.05),
+                events,
+                focused: true,
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(raw, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(300.0, 200.0));
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(300.0, 200.0),
+                        glass: false,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let out = render_form(ui, &rin);
+                    writes.extend(
+                        out.prop_updates.iter().filter(|(id, p, _)| id == "Card" && p == "Expanded").map(|(_, _, v)| v.clone()),
+                    );
+                });
+            });
+            full.textures_delta.clear();
+        }
+        writes
+    }
+
+    /// The icon is a button: a click on it flips `Expanded`. A click on a card drawn over it is
+    /// not a click on the icon, and nor is a click on a card drawn under it.
+    #[test]
+    fn a_click_on_the_expand_icon_flips_expanded_unless_a_card_is_over_it() {
+        assert_eq!(expanded_writes_after_clicking_the_icon(Vec::new()), vec!["1".to_string()], "control: it toggles");
+        let mut over = ctrl("Over", ControlType::GroupBox, 30, 30, 250, 150);
+        over.z_order = 99;
+        assert!(
+            expanded_writes_after_clicking_the_icon(vec![over]).is_empty(),
+            "a card drawn over the icon takes the click"
+        );
+        let mut under = ctrl("Under", ControlType::GroupBox, 30, 30, 250, 150);
+        under.z_order = -1;
+        assert_eq!(
+            expanded_writes_after_clicking_the_icon(vec![under]),
+            vec!["1".to_string()],
+            "a card drawn under the one with the icon does not"
         );
     }
 

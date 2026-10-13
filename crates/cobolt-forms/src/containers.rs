@@ -102,6 +102,34 @@ pub fn render_order_in(controls: &[Control], layers: &[Layer]) -> Vec<usize> {
     out
 }
 
+/// How deep each control sits: 0 on the form, one more than its parent otherwise. In
+/// [`render_order_in`]'s pre-order a container's subtree is the run of controls after it that
+/// are deeper than it, so the first control that is not marks where the subtree ends.
+pub fn depths(controls: &[Control]) -> Vec<usize> {
+    let by_id: HashMap<&str, usize> = controls
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.id.as_str(), i))
+        .collect();
+    controls
+        .iter()
+        .map(|c| {
+            // A hand-edited file can hold a parent cycle: stop after one lap.
+            let (mut depth, mut cur) = (0, c);
+            while depth <= controls.len() {
+                match cur.parent.as_deref().and_then(|p| by_id.get(p)) {
+                    Some(&i) => {
+                        cur = &controls[i];
+                        depth += 1;
+                    }
+                    None => break,
+                }
+            }
+            depth
+        })
+        .collect()
+}
+
 /// `true` if `idx` is inside `ancestor` (its parent chain reaches `ancestor`).
 pub fn is_descendant(controls: &[Control], idx: usize, ancestor: usize) -> bool {
     let anc_id = controls[ancestor].id.as_str();

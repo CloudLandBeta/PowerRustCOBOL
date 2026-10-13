@@ -9934,6 +9934,9 @@ impl DesignerPanel {
                 // one in edit mode live.
                 let edit_id = self.grid_edit.as_ref().map(|e| e.id.clone());
                 let mut grid_reports: Vec<(String, String, String)> = Vec::new();
+                // What the notch mask needs of `ui`, taken before the grid hook holds it.
+                let notch_ctx = ui.ctx().clone();
+                let panel_fill = ui.visuals().panel_fill;
                 let mut control_rects = {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     let without = super::grid_edit::Without { inner: st, hide: &hidden_grids };
@@ -9964,89 +9967,79 @@ impl DesignerPanel {
                                 notch_fill,
                             ));
                         }
+                    }, &mut |idx, drawn| {
+                        // ── Corner-notch masks (spec 017 / 057) ─────────────────────
+                        // As a container's own subtree ends, repaint the corner notches
+                        // of a rounded GroupBox/Panel that content which CANNOT clip
+                        // itself reaches — `notch_mask_rounding` decides, the same rule
+                        // the run/preview renderer applies (a self-clipping child draws
+                        // its frame lifted to the arc and needs nothing repainted). Done
+                        // here, at the container's turn, a control drawn after it is over
+                        // the mask, not under it (it used to follow every face). The
+                        // rects are the faces' so far, with the grids put back.
+                        let ctrl = &controls_for_render[idx];
+                        if !matches!(ctrl.control_type, ControlType::GroupBox | ControlType::Panel | ControlType::Maps) {
+                            return;
+                        }
+                        let mut rects = drawn.clone();
+                        for f in &grid_frames {
+                            rects.insert(f.grid.id.clone(), f.screen);
+                        }
+                        let Some(crect) = rects.get(&ctrl.id).copied() else {
+                            return;
+                        };
+                        let img_alpha = (255.0 * form_alpha_mul) as u8;
+                        let rad = cobolt_forms::paint::corner_radius(ctrl);
+                        // The SAME rule the run/preview renderer uses — which corners
+                        // (if any) need the backdrop repainted over them. Two copies of
+                        // this diverged once already; the canvas is where the divergence
+                        // shows first, because it is where forms are designed.
+                        let Some(rounding) =
+                            cobolt_forms::render::notch_mask_rounding(controls_for_render, idx, crect, rad, &rects)
+                        else {
+                            return;
+                        };
+                        let notch_shadow =
+                            cobolt_forms::paint::control_shadow_stack(&notch_ctx, ctrl, crect, form_alpha_mul);
+                        cobolt_forms::paint::draw_container_notch_mask(
+                            &painter,
+                            crect,
+                            rounding,
+                            notch_fill,
+                            canvas_gradient.map(|(start, end)| {
+                                (
+                                    resp.rect,
+                                    cobolt_forms::paint::composite_premultiplied_over(start, panel_fill),
+                                    cobolt_forms::paint::composite_premultiplied_over(end, panel_fill),
+                                    self.form.background_gradient_direction.as_str(),
+                                )
+                            }),
+                            notch_img,
+                            img_alpha,
+                            // The control's own shadow, put back on top of the repainted
+                            // backdrop — the canvas must show the same corner the run
+                            // form does, or a shadow fixed in one is still broken in the
+                            // other.
+                            (!notch_shadow.is_empty()).then_some(&notch_shadow),
+                        );
+                        if self.show_grid {
+                            draw_grid_in_rounded_notches(
+                                &painter,
+                                resp.rect,
+                                crect,
+                                // Only the corners the mask repainted: the grid lines
+                                // under a self-clipping child's corner are still there.
+                                rounding,
+                                self.form.grid_size.max(4) as f32,
+                                self.glass_mode,
+                                notch_fill,
+                            );
+                        }
                     })
                     .control_rects
                 };
                 for f in &grid_frames {
                     control_rects.insert(f.grid.id.clone(), f.screen);
-                }
-
-                // ── Corner-notch masks (spec 017 / 057) ─────────────────────────
-                // After the faces are drawn, repaint the corner notches of each
-                // rounded GroupBox/Panel that content which CANNOT clip itself
-                // reaches — `notch_mask_rounding` decides, the same rule the
-                // run/preview renderer applies (a self-clipping child draws its
-                // frame lifted to the arc and needs nothing repainted). Walk the
-                // list the faces were rendered from, which `control_rects` is
-                // keyed by, not the model.
-                {
-                    let img_alpha = (255.0 * form_alpha_mul) as u8;
-                    for (idx, ctrl) in controls_for_render.iter().enumerate() {
-                        let rad = cobolt_forms::paint::corner_radius(ctrl);
-                        if let Some(crect) = control_rects.get(&ctrl.id) {
-                            // The SAME rule the run/preview renderer uses — which
-                            // corners (if any) need the backdrop repainted over
-                            // them. Two copies of this diverged once already; the
-                            // canvas is where the divergence shows first, because
-                            // it is where forms are designed.
-                            let Some(rounding) = cobolt_forms::render::notch_mask_rounding(
-                                controls_for_render,
-                                idx,
-                                *crect,
-                                rad,
-                                &control_rects,
-                            ) else {
-                                continue;
-                            };
-                            let notch_shadow = cobolt_forms::paint::control_shadow_stack(
-                                ui.ctx(),
-                                ctrl,
-                                *crect,
-                                form_alpha_mul,
-                            );
-                            cobolt_forms::paint::draw_container_notch_mask(
-                                &painter,
-                                *crect,
-                                rounding,
-                                notch_fill,
-                                canvas_gradient.map(|(start, end)| {
-                                    (
-                                        resp.rect,
-                                        cobolt_forms::paint::composite_premultiplied_over(
-                                            start,
-                                            ui.visuals().panel_fill,
-                                        ),
-                                        cobolt_forms::paint::composite_premultiplied_over(
-                                            end,
-                                            ui.visuals().panel_fill,
-                                        ),
-                                        self.form.background_gradient_direction.as_str(),
-                                    )
-                                }),
-                                notch_img,
-                                img_alpha,
-                                // The control's own shadow, put back on top of the
-                                // repainted backdrop — the canvas must show the
-                                // same corner the run form does, or a shadow fixed
-                                // in one is still broken in the other.
-                                (!notch_shadow.is_empty()).then_some(&notch_shadow),
-                            );
-                            if self.show_grid {
-                                draw_grid_in_rounded_notches(
-                                    &painter,
-                                    resp.rect,
-                                    *crect,
-                                    // Only the corners the mask repainted: the
-                                    // grid lines under a self-clipping child's
-                                    // corner are still there.
-                                    rounding,
-                                    self.form.grid_size.max(4) as f32,
-                                    self.glass_mode,
-                                    notch_fill,
-                                );
-                            }
-                        }
-                    }
                 }
 
                 // ── Editor badges on top of the faces ───────────────────────────

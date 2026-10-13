@@ -17,7 +17,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=46 digest=24094d58db41b8aa
+shapes=46 digest=fc7302d86d1d4582
 ## Run 0.75x 750x495
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -36,7 +36,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=960dc41f574964cb
+shapes=55 digest=ffb1dd9347631a1b
 ## Preview 0.75x 750x495
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -55,7 +55,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=b67fd65d83f7b450
+shapes=55 digest=c89e2c1040ecf0e0
 ## Canvas 1x 1000x660
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -74,7 +74,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=46 digest=7086397bef31b52c
+shapes=46 digest=ae602317e72c84ac
 ## Run 1x 1000x660
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -93,7 +93,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=13d36bf2abea6ab9
+shapes=55 digest=fa41a514d39e88e1
 ## Preview 1x 1000x660
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -112,7 +112,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=75105481eac69e76
+shapes=55 digest=c3a0b2c4804558ee
 ## Canvas 1.5x 1500x990
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -131,7 +131,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=46 digest=2cdec8c6b9e7133c
+shapes=46 digest=2dfa3520c03aaf7c
 ## Run 1.5x 1500x990
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -150,7 +150,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=d22f1eef9aeea6ab
+shapes=55 digest=b830cf54ca4cab7b
 ## Preview 1.5x 1500x990
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -169,4 +169,4 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=a49b0235a7a62330
+shapes=55 digest=9c3cec127844f240
