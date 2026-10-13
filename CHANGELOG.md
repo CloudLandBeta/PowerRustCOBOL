@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.35] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.34.)*
+
+### Fixed
+- **The corners of every Cobalt Steel card were broken — the Help card of the Layers demo, in a screenshot.** The rim ran straight along the sides, stopped where each corner began, and left the fill chamfered with no edge there, with a stair-step where the rim ended. It is not the renderer: it is the pack's own art. `gen_reference_theme` drew `panel.png` (and seven more pieces) deciding "is this pixel rim?" from the distance to the nearest **straight** edge — on a corner's diagonal that is far from the outline, so the arc got fill instead of rim — and cut the corner with a hard on/off alpha. The generator now measures everything from the signed distance to the rounded outline: the rim is as wide round the arc as along the sides, and the outer edge of the arc is anti-aliased (and transparent pixels keep the rim's colour, so a filtered edge has no dark fringe).
+  - *Regenerated (8 PNGs):* `panel`, `groupbox`, `button`, `button_hover`, `button_pressed`, `textbox`, `combobox`, `listbox` — so every Panel, GroupBox, Button, TextBox, ComboBox and ListBox of a form in the Cobalt Steel theme gets the right corner, not only the card. `background.png` and `theme.toml` come out byte-identical.
+  - *How it was found:* the corners of the screenshot, enlarged 8×, show the rim missing along the arc; the enlarged `panel.png` shows the same chamfer, so the picture was already wrong before any renderer touched it. The renderer was checked first and ruled out: a layer's controls are not corner-masked at all (spec 091 R14), and the form rendered without the pack draws a clean arc.
+- *The test that keeps it so:* `cobalt_steel_art_has_its_rim_all_the_way_round` reads the PNGs the pack **ships** (a test of the generator alone would pass with an old copy checked in again): every outline pixel of every piece is rim-coloured, arcs included; the four corners are mirrors of one another; every arc has half-covered pixels. **Red first on the old art** (outline pixels `[43, 54, 82]` where the rim is `[120, 150, 210]`); green now: 8 pieces of art, 1,056 outline pixels, 0 not rim, 37,440 mirror pairs of alpha.
+- *Measured:* `cobolt-forms` (render feature) and `cobolt-form-host`, every test binary: **1,727 passed, 0 failed** — the 75-form corpus goldens included (they dump shapes, which the art does not change).
+- *Not checked on screen:* please open **General ▸ Layers**, press Help, and look at the card's four corners (and any other form in the Cobalt Steel theme).
+- *Not changed:* the pack also carries decomposed pieces (`panel/tl.png`, `t.png` …) that `theme.toml` does not name; they were not touched.
+
 ## [PowerRustCOBOL 1.91.34] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.33.)*
