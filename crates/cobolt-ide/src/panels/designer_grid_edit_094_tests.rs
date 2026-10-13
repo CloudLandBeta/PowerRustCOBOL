@@ -1213,3 +1213,38 @@ fn a_dropdown_cell_picks_on_the_canvas_and_undoes() {
     assert_eq!(rig.prop("DG", "Rows"), "Ana\tD\nBia\tC\nCid\t", "one undo puts it back");
     println!("095: a Dropdown pick in grid edit mode is 1 undo step on the sample Rows (the value, not the text)");
 }
+
+// ── Which control a click on the canvas selects ──────────────────────────────
+
+/// A click on the canvas where two controls overlap selects the one drawn on top, for every
+/// visual control type: the Label above it in z-order is picked, and the Label below it is not.
+#[test]
+fn a_click_on_the_canvas_selects_the_control_on_top_for_every_visual_control() {
+    let mut checked = 0usize;
+    let mut failures = Vec::new();
+    for ty in ControlType::ALL.iter().filter(|t| !t.is_non_visual()) {
+        for (label_z, expected) in [(90, "Label1"), (10, "A")] {
+            let mut form = Form::new("F", "F", 800, 600);
+            let mut a = Control::new("A", ty.clone(), 40, 40);
+            a.rect.w = 300;
+            a.rect.h = 200;
+            a.z_order = 50;
+            let mut label = Control::new("Label1", ControlType::Label, 40, 40);
+            label.rect.w = 300;
+            label.rect.h = 200;
+            label.z_order = label_z;
+            form.controls = vec![a, label];
+            let d = DesignerPanel::new(form);
+            let got = d.hit_top_id(190, 140);
+            checked += 1;
+            if got.as_deref() != Some(expected) {
+                failures.push(format!("{ty:?} with a Label at z {label_z}: selected {got:?}, expected {expected}"));
+            }
+        }
+    }
+    for f in &failures {
+        println!("WRONG CONTROL SELECTED: {f}");
+    }
+    println!("{checked} canvas clicks checked, {} failures", failures.len());
+    assert!(failures.is_empty(), "{failures:#?}");
+}

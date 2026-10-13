@@ -2544,7 +2544,11 @@ the layers below it, whatever their `ZOrder`; `ZOrder`, **Bring to Front** and
 That order covers everything a control paints: a GroupBox's caption, a
 TabControl's tab strip, the corners of a rounded Panel and a DataGrid are painted
 at the container's own place in the stacking order, so a control above it in that
-order covers them. Only `Form` is laid out: a control in a layer keeps the `X`, `Y`, `Width` and `Height`
+order covers them. The same order decides who answers the mouse: where two controls
+overlap, a click, a wheel turn or a hover is reported by the one in front — and by the
+container it sits in — and not by the controls behind it. A control with nothing
+painted at that point, such as a Label away from its text or a Panel with
+`HideBackground`, lets the mouse through. Only `Form` is laid out: a control in a layer keeps the `X`, `Y`, `Width` and `Height`
 you designed, and its Properties pane offers no Dock, Anchor or layout. A layer
 covers exactly the form — it never changes the form's size — and whatever a layer
 control paints outside the form is cut at the form's edge.

@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.30] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.29.)*
+
+### Fixed
+- **A click where two controls overlap went to both of them, whatever their stacking order.** 1.91.26 and 1.91.28 made what is *painted* follow `ZOrder` and the layers; this is what *answers*. The pointer events of a running form (`onClick`, `onMouseDown`, `onMouseUp`, `onRightClick`, `onHoverEnter`, `onMouseMove`, the wheel…) are read from the pointer's position, one control at a time, so a Button drawn over another Button, a Label over a ListBox, a Panel over a TextBox — all 38 visual control types — reported the click on **both**: the one in front and the one the person could not even see. Spec 091 had settled this between *layers* (a control with something painted at the point takes the event, the layers below get nothing); inside a layer nothing did. It does now, by the same rule:
+  - the **control that owns the pointer** at that point is the topmost one with a press handler bound or something painted there; every control **under** it that contains the point reports nothing and changes nothing;
+  - what has *always* worked keeps working: a click on a child is still heard by the container it sits in; a see-through Panel, a container with `HideBackground` (a layout row) and a Label away from its text let the click through to what is under them, as they let the eye through;
+  - left alone while something is being dragged (a slider's drag goes on across whatever it passes over) and while a popup holds the pointer (a calendar, a menu).
+  - **An open ComboBox list** (and a DataGrid *Dropdown* cell's) is the owner over its own rectangle: a pick used to be reported **and** clicked through to the control under the list; now only the pick is.
+- *Measured:* the new probe `a_click_goes_to_the_control_on_top` clicks every visual control type with a Button above it and below it in z-order, and with a Button in a layer above and below: **152 cases; 76 sent the click to both controls before, 0 now**. `an_open_list_takes_the_click_over_a_control_above_its_combo` and `a_click_still_reaches_what_the_eye_sees_through_to` hold the open list and the cases that must not change. The Designer canvas already selected the control on top: `a_click_on_the_canvas_selects_the_control_on_top_for_every_visual_control` checks 76 clicks, 0 wrong.
+- The Developer's Guide (*Painting and layout*) and the System KB (`ZOrder`) say it, and the pre-embedded KB is regenerated (2,973 records).
+
 ## [PowerRustCOBOL 1.91.29] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.28.)*

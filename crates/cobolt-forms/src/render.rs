@@ -3362,6 +3362,20 @@ fn render_form_inner(
     }
 
     // ââ Second pass: open ComboBox dropdowns float above everything. ââââââââââ
+    // Where the open lists are, kept before the pass below takes them: a list is drawn over the
+    // whole form, so the pointer over one is the list's, whatever lies under it.
+    let open_lists: Vec<(String, Rect)> = open_combos
+        .iter()
+        .map(|c| {
+            // The control a pick answers for: the ComboBox itself, or the DataGrid whose Dropdown
+            // cell the list belongs to (its pick is an edit of that grid).
+            let owner = match &c.target {
+                ComboTarget::Control => c.id.clone(),
+                ComboTarget::GridCell(cell) => cell.grid_id.clone(),
+            };
+            (owner, crate::paint::combo_popup_rect(c.header, c.items.len(), c.item_h, c.max_h))
+        })
+        .collect();
     for combo in open_combos {
         let OpenCombo {
             id: cid,
@@ -3549,7 +3563,94 @@ fn render_form_inner(
             }
         }
     }
+
+    // ── The same rule inside a layer: the control on top answers. Two controls drawn one
+    // over the other both contain the pointer, and the pointer pass reads geometry alone —
+    // so a click where they overlap used to be reported by BOTH, whatever their z-order. The
+    // control that owns the pointer there (the topmost one with something painted at that
+    // point, or a press handler) keeps it; the controls under it — all but its own
+    // containers, which a click on a child has always reached — report nothing and change
+    // nothing. Left alone while a popup holds the pointer (an open list is drawn above the
+    // whole form) and while something is being dragged (a drag that began on a control
+    // goes on across whatever it passes over).
+    if interactive {
+        if let Some(p) = ui.input(|i| i.pointer.interact_pos()) {
+            let over_the_form = ui.ctx().layer_id_at(p).is_none_or(|l| l == ui.layer_id());
+            if over_the_form && ui.ctx().dragged_id().is_none() {
+                let under = controls_under_the_owner(ui.ctx(), controls, &order, &out, &open_lists, p);
+                if !under.is_empty() {
+                    let acted = ui.input(|i| {
+                        i.events.iter().any(|e| {
+                            matches!(e, egui::Event::PointerButton { .. } | egui::Event::MouseWheel { .. })
+                        })
+                    });
+                    if acted {
+                        out.events.retain(|e| !under.contains(e.ctrl_id.as_str()));
+                        out.prop_updates.retain(|(id, _, _)| !under.contains(id.as_str()));
+                    } else {
+                        out.events.retain(|e| {
+                            !(under.contains(e.ctrl_id.as_str()) && POINTER_EVENTS.contains(&e.event.as_str()))
+                        });
+                    }
+                }
+            }
+        }
+    }
     out
+}
+
+/// The ids of the controls that lie under whatever owns the pointer at `p`: those drawn before
+/// the owner, with `p` inside their rectangle, that are not its containers. Empty when nothing
+/// owns the pointer there. `order` is the paint order, bottom first.
+///
+/// The owner is an open ComboBox list when `p` is on one (it is drawn over the whole form), and
+/// otherwise the topmost control that owns the pointer ([`owns_pointer_at`]): a press handler
+/// bound, or something painted at `p`. A see-through Panel or a Label's empty rectangle lets the
+/// pointer through to what is below, as it lets the eye through — and so does a container with no
+/// face of its own (`HideBackground`), which only arranges its children.
+fn controls_under_the_owner<'a>(
+    ctx: &egui::Context,
+    controls: &'a [Control],
+    order: &[usize],
+    out: &RenderOutput,
+    open_lists: &[(String, Rect)],
+    p: egui::Pos2,
+) -> std::collections::HashSet<&'a str> {
+    let contains_p = |c: &Control| out.control_rects.get(&c.id).is_some_and(|r| r.contains(p));
+    let mut under = std::collections::HashSet::new();
+    if let Some((combo, _)) = open_lists.iter().find(|(_, list)| list.contains(p)) {
+        under.extend(
+            controls
+                .iter()
+                .filter(|c| !c.control_type.is_non_visual() && c.id != *combo && contains_p(c))
+                .map(|c| c.id.as_str()),
+        );
+        return under;
+    }
+    let owner = order.iter().rposition(|&i| {
+        let c = &controls[i];
+        let faceless = matches!(c.control_type, ControlType::Panel | ControlType::GroupBox | ControlType::Splitter)
+            && crate::paint::paints_no_card(c)
+            && !binds_a_press(c);
+        !c.control_type.is_non_visual()
+            && !faceless
+            && out
+                .control_rects
+                .get(&c.id)
+                .filter(|r| r.contains(p))
+                .is_some_and(|r| owns_pointer_at(ctx, c, *r, out.caption_rects.get(&c.id).copied(), p))
+    });
+    let Some(at) = owner else {
+        return under;
+    };
+    let owner_idx = order[at];
+    for &i in &order[..at] {
+        let c = &controls[i];
+        if !c.control_type.is_non_visual() && contains_p(c) && !containers::is_descendant(controls, owner_idx, i) {
+            under.insert(c.id.as_str());
+        }
+    }
+    under
 }
 
 /// Whether an open dropdown's `panel` needs a window of its own: the form wears
