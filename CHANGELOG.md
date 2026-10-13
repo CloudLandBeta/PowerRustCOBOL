@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.20] — 2026-10-12
+
+### Added
+- **PowerDemo3 has a Layers demo (operator, 2026-10-12): Samples ▸ General ▸ Layers (`layers-form`).** One form, three layers above its base, each shown and hidden by name from COBOL (`SET HELP-LAYER::Visible TO TRUE`) — the spec 091 feature in a working screen:
+  - **`HELP-LAYER`** — a translucent layer (a Panel card on it, a Close button, and a slider that writes `HELP-LAYER::Transparency`). While the layer is translucent a click beside the card reaches the form's own button (a counter counts those clicks); drag the slider to 0 and the layer turns **opaque**, shielding everything under it, which the card's own controls still escape.
+  - **`BUSY-LAYER`** — an opaque curtain with a progress bar, put up by **Save** and taken down by a Timer after four ticks, which then writes the result line.
+  - **`ERROR-LAYER`** — a red banner with a Dismiss button, shown by **Save** when the name is empty; its layer has no background of its own, so only the banner paints and takes clicks.
+  - A line on the form lists which layers are shown, kept by one procedure (`LAYERS-SHOW-STATE`), whose calls carry the 1.91.18 comment block.
+  - *Checked by running.* Off screen, through `run_form`: every layer starts hidden; the Help button shows its layer and the status line follows; the slider writes `Transparency` and its caption; three clicks count 3; Save with an empty name shows the banner and Dismiss hides it; Save with a name raises the curtain, the Timer fills the bar in four ticks and takes it down, and the result line reads `Saved: <name>`. Pictures of the help card, the curtain and the banner over the dimmed form show the stack in order. The project's Check: 61 forms, 0 errors, 0 warnings.
+  - *Registered the sanctioned way.* The form by `add_to_project` (the manifest's form and generated lists and the main-form seal), the menu entry through `save_menu`, which recomputes the menu's HMAC; the manifest's other uncommitted change (the operator's IDE re-stamp of `built_with_version`) is left out. The Guide's *Showing and hiding a layer* points to the demo.
+
 ## [PowerRustCOBOL 1.91.19] — 2026-10-12
 
 ### Changed

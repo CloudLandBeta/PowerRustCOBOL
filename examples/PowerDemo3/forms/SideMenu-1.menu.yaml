@@ -403,4 +403,10 @@ menu:
       icon: window
       action: open-form:props-parent-form
       enabled: true
-hash: 9a23246222b154cc5668e8fbfda686333bbea8fa66d45bf1b12fbcfe4fb2bf97
+    - id: lyrd
+      label: Layers
+      type: action
+      icon: layers
+      action: open-form:layers-form
+      enabled: true
+hash: f3cb34567df3edbd3d18eae4157feb696ca30bf2c475cfecc67b95192b2a954f

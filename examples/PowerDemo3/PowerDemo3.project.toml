@@ -92,7 +92,7 @@ forms = [
     "forms/Responsive Layout/responsive-collide-form.cfrm",
     "forms/Responsive Layout/responsive-obsolete-form.cfrm",
     "forms/Responsive Layout/responsive-dashboard-form.cfrm",
-    "forms/General/modern-form.cfrm",
+    "forms/General/modern-form.cfrm", "forms/General/layers-form.cfrm",
 ]
 assets = []
 documentation = [
@@ -179,7 +179,7 @@ generated = [
     "generated/responsive-runtime-form.cbl",
     "generated/responsive-collide-form.cbl",
     "generated/responsive-obsolete-form.cbl",
-    "generated/responsive-dashboard-form.cbl",
+    "generated/responsive-dashboard-form.cbl", "generated/layers-form.cbl",
 ]
 indexed = ["indexed/actors.cidx"]
 
@@ -214,7 +214,7 @@ focus-ring-pulse = true
 responsive = false
 breakpoints = ""
 main-form = "SIDEBAR-FORM"
-main-form-seal = "a009b05c3f4947f9df3ec2ef83ba78956ebecfe06d6e73e36966231212361874"
+main-form-seal = "2d9bef039daf78f56b44978656da49c2f02673ec3555719a6db369c4b406c08e"
 
 [ai]
 schema_version = 1

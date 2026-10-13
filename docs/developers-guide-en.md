@@ -7439,6 +7439,11 @@ A control on a layer is reached by its name like any other — `MOVE "Done" TO
 BTN-CLOSE-HELP::Caption` — whichever layer it is on. The result is the same in a
 form run from the IDE, a form embedded as a child, and a built binary.
 
+PowerDemo3 has a working example — **General ▸ Layers** (`layers-form`): a
+translucent help layer whose card carries a slider that turns the layer opaque at
+0, a busy curtain that a Timer takes down, and an error banner above both, each
+shown and hidden by name from COBOL.
+
 ### Member-access chains and collections
 
 The `::` operator **chains**, so you can reach a member of a member to any depth
