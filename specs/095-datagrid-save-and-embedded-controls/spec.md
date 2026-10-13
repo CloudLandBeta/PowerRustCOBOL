@@ -1,6 +1,6 @@
 # Spec — DataGrid: reach write-back from the Designer, `Save()` in one transaction, and cells that take a click
 
-- **Status:** draft — for the operator's review; next: `/plan`
+- **Status:** approved by the operator on 2026-10-12 with the decisions of §8; amended 2026-10-13 (§8.1: Save() writes inserts and deletes too, the check is in, a failed save restores); implementing — see tasks.md
 - **Folder:** specs/095-datagrid-save-and-embedded-controls/
 - **Author:** operator request, written by Claude   **Date:** 2026-10-12
 - **Builds on:** spec 094 (*DataGrid write-back*, shipped as 1.91.15). 094 is read, not
@@ -78,12 +78,11 @@ none recalled:
   - A COBOL table is updated by any such change when the binding is writable, without
     code (§4.4).
 - **Non-goals**
-  - **Adding or deleting rows** of a bound grid — 094's D4 stands. *Changed rows only.*
+  - ~~Adding or deleting rows of a bound grid~~ — **now in scope** (§8.1, D3).
   - Date picker, numeric up/down, progress or user controls inside a cell, and an
     embedded ComboBox *control* — the two cell kinds above are the scope.
   - Write-back for REST or Agent sources (spec 022).
-  - Optimistic concurrency (comparing the old values in the `WHERE`): a row is found by
-    its key, as in 094. See Q4.
+  - ~~Optimistic concurrency~~ — **now in scope** (§8.1, Q4).
   - A new binding model, storage engine or event loop.
 
 ## 4. Requirements (EARS)
@@ -107,6 +106,11 @@ none recalled:
   languages.
 
 ### 4.2 `Save()` — one transaction
+> **Amended by §8.1 (2026-10-13).** Where R6–R12 and R19–R21 differ from §8.1, §8.1 wins: `Save()` also inserts and
+> deletes rows (blank lines never), checks the source against what the grid loaded (`96`), puts the old values back
+> when it fails, joins a transaction the program began (status `94` is retired), and regenerates a COBOL table
+> whole from the grid; `CommitEdit()` is a deprecated alias.
+
 - **R5 (ubiquitous):** The DataGrid shall have a **`Save()`** method. It acts on a grid
   that is writable (094's R8) and answers a status the code can test, the same one
   `CommitStatus` holds.
@@ -208,44 +212,67 @@ none recalled:
   shall be brought in line. Translations are deleted (Golden Rule 8).
 
 ## 5. Acceptance criteria
-- [ ] **AC1 — R1–R4.** Designer tests: a new binding is read-only; ticking Writable
+> AC2–AC4 and AC6 keep their scenarios; read their "edits stay pending" and "transaction-open status" as §8.1 now says
+> (old values back; the save joins the program's transaction). §8.1 adds: **AC13** insert, update and delete in one
+> unit over an indexed file and a SQL table (blank line never inserted, changed key never written, key read-only on
+> a loaded row); **AC14** the changed-since-load check (`96`) for an update and a delete; **AC15** a COBOL table
+> regenerated from the grid after an edit, a sort, an add and a delete; **AC16** `BeginTransaction()`/`Commit()`/
+> `Rollback()`/`IsInTransaction()` and a save that joins and survives the program's transaction.
+
+- [x] **AC1 — R1–R4.** Designer tests: a new binding is read-only; ticking Writable
   saves `mode = Writable` and a reopened form still has it; the editor names the missing
   key and the missing *Allow cell editing*; a COBOL-table binding with no key marked
   validates when Writable; every string exists in six languages.
-- [ ] **AC2 — R5–R9, indexed.** A bound indexed grid, `AutoCommit` off: edit three cells
+  *Verified by:* `cobolt-ide`: `a_new_binding_is_read_only`, `reopening_a_writable_binding_and_applying_keeps_it_writable`, `writable_needs_names_what_the_grid_still_lacks`, `the_writable_section_lists_the_needs_and_the_fix_turns_cell_editing_on` (a real click), the six-language strings test; `cobolt-project-tools`: `a_writable_cobol_table_without_a_key_is_allowed`.
+- [x] **AC2 — R5–R9, indexed.** A bound indexed grid, `AutoCommit` off: edit three cells
   in two records, `Save()` → both records hold the new values after a re-read, one
   engine `COMMIT`, `SavedRows` 2, `onSaved` once. A bad PICTURE in the second record →
   **neither** record changed, `CommitStatus` set, both edits still pending,
   `onCommitError` raised.
-- [ ] **AC3 — R6, R7, SQL.** Against the in-memory SQLite connection of the SQL tests:
+  *Verified by:* `test_grid_write_back`: `three_cells_in_two_records_are_one_save`, `a_bad_value_in_the_second_record_changes_neither` (§8.1: the old values back, the cell marked, `onCommitError` once).
+- [x] **AC3 — R6, R7, SQL.** Against the in-memory SQLite connection of the SQL tests:
   the same two scenarios; the statements the run sent are `BEGIN`, one `UPDATE` per row,
   `COMMIT` (or `ROLLBACK`); a constraint failure on the second row leaves the first row's
   value unchanged in the table. A program-opened transaction → the transaction-open
   status, nothing written, the program's transaction untouched.
-- [ ] **AC4 — R6, R19–R21, COBOL table.** A writable grid bound to a WS table: a text
+  *Verified by:* `test_grid_write_back`: `a_save_sends_begin_one_update_per_row_and_commit`, `a_failing_second_row_leaves_the_first_unchanged`; §8.1: `a_save_joins_the_programs_transaction_and_leaves_the_commit_to_it`, `a_failed_save_inside_the_programs_transaction_undoes_only_its_own_writes`.
+- [x] **AC4 — R6, R19–R21, COBOL table.** A writable grid bound to a WS table: a text
   edit with `AutoCommit` on stores the value; with `AutoCommit` off nothing is stored
   until `Save()`; a non-numeric value in a numeric item stores none of a multi-edit save.
-- [ ] **AC5 — R9.** `Save()` with nothing pending opens no transaction (the statement log
+  *Verified by:* `test_grid_write_back`: `with_auto_commit_off_nothing_is_stored_in_the_table_until_save`, `one_non_numeric_value_stores_none_of_a_multi_edit_save`, `a_table_binding_stores_the_edit_in_the_table_and_picture_rules_apply`.
+- [x] **AC5 — R9.** `Save()` with nothing pending opens no transaction (the statement log
   has no `BEGIN`) and answers `00`.
-- [ ] **AC6 — R10, R11.** `AutoCommit` on, a handler that makes two edits (`SetCellValue`
+  *Verified by:* `test_grid_write_back`: `an_empty_save_opens_no_transaction`.
+- [x] **AC6 — R10, R11.** `AutoCommit` on, a handler that makes two edits (`SetCellValue`
   is not an edit; two cell edits in one event are) writes them in one unit; `CommitEdit()`
   and `Save()` give the same result on the same pending set.
-- [ ] **AC7 — R13–R18.** Render and interaction tests (`cobolt-forms`, headless): a click
+  *Verified by:* `test_grid_write_back`: `auto_commit_writes_the_edits_kept_so_far_as_one_unit`, `commit_edit_and_save_give_the_same_result`.
+- [x] **AC7 — R13–R18.** Render and interaction tests (`cobolt-forms`, headless): a click
   on a Checkbox cell toggles it and raises `onCellEdited` with the right values; Space
   does the same; a disabled grid and `AllowCellEditing` off do nothing; a Dropdown opens,
   picks, and Escape closes without a change; the column's `CheckedValue`/`UncheckedValue`
   are written and drawn consistently; the Button, Gauge and Image kinds are unchanged.
-- [ ] **AC8 — R22.** The existing 094 tests and `a_datagrid_cell_is_edited_in_place_when_
+  *Verified by:* `cobolt-forms` render tests: the Checkbox set (`a_click_on_a_checkbox_cell_toggles_it_and_raises_on_cell_edited` …) and the Dropdown set (`picking_an_item_stores_its_value_and_raises_on_cell_edited`, `escape_and_a_click_outside_close_the_list_and_change_nothing`, `a_disabled_grid_or_editing_off_opens_no_list_and_paints_alike` …); `a_button_cell_is_still_only_a_click_when_editing_is_allowed`.
+- [x] **AC8 — R22.** The existing 094 tests and `a_datagrid_cell_is_edited_in_place_when_
   editing_is_allowed` unchanged and green.
-- [ ] **AC9 — R23.** The same scenarios through the interpreter that `rcrun run-form`, the
+  *Verified by:* The 21 spec-094 tests and `a_datagrid_cell_is_edited_in_place_when_editing_is_allowed` are green. Three of 094's expectations changed with the operator's answers (§8.1) — the old values back after a failure, the table regenerated, the record found by its load — each with the reason in the test.
+- [x] **AC9 — R23.** The same scenarios through the interpreter that `rcrun run-form`, the
   child-form host and `run_form_app` each construct; a golden render of a Checkbox and a
   Dropdown cell equal on canvas, Preview and Run Form.
-- [ ] **AC10 — R24.** The DataGrid quality agent's report attached, 18 scenarios green.
-- [ ] **AC11 — R25, R26.** KB freshness test green with a regenerated `chunked.data`; the
+  *Verified by:* `cobolt-forms/tests/datagrid_cells_095.rs` (Checkbox 30 and Dropdown 34 identical shapes on run, preview and the Designer canvas); the interpreter is the one all hosts construct (no host edit).
+- [x] **AC10 — R24.** The DataGrid quality agent's report attached, 18 scenarios green.
+  *Verified by:* `quality-m3.md` and `quality-m4.md`.
+- [x] **AC11 — R25, R26.** KB freshness test green with a regenerated `chunked.data`; the
   Guide updated; `Save` accepted by Check, completion and the validator.
-- [ ] **AC12 — Golden Rule 7.** A quantified program under `tests/cobol` reports the
+  *Verified by:* The IDE suite's `prebuilt_chunked_kb_matches_the_published_documentation` passes on the regenerated `chunked.data`; `Save` is accepted by the vocabulary, the dispatch and the editor's completion test; the Guide is updated (the translations are deliberately not — the one allowed red, `docs_embed`).
+- [x] **AC12 — Golden Rule 7.** A quantified program under `tests/cobol` reports the
   cases it ran (atomic save ok, atomic save rolled back, empty save, checkbox, dropdown,
   COBOL table on/off) and a `TESTS RUN` / `TESTS FAILED` / `OVERALL RESULT` tally.
+  *Verified by:* The Rust test `save_report` (a console COBOL program has no event loop to carry a grid's report, so the block is printed from the Rust test, as 094's was): `TESTS FAILED 0000`.
+- [x] **AC13 — D3.** `test_grid_write_back`: `a_save_deletes_updates_and_inserts_in_one_unit`, `nothing_inserts_or_deletes_until_save_is_called`, `a_blank_line_is_never_inserted`, `a_new_row_needs_its_key_and_a_duplicate_key_undoes_the_whole_unit`, `a_row_whose_key_was_changed_is_never_written`, `clear_rows_is_not_a_delete`, `a_sql_save_deletes_updates_and_inserts_in_one_transaction`, `a_sql_insert_needs_its_key_and_a_duplicate_undoes_the_whole_unit`, `a_sql_key_change_and_clear_rows_send_nothing`; `cobolt-forms`: `the_key_of_a_loaded_row_is_read_only_and_a_new_rows_is_not`.
+- [x] **AC14 — Q4.** `a_row_changed_by_someone_else_is_not_overwritten`, `a_change_to_another_column_of_the_row_survives`, `a_row_changed_by_someone_else_is_not_deleted`, `a_sql_row_changed_by_someone_else_fails_the_save`.
+- [x] **AC15 — Q2.** `a_table_is_regenerated_from_the_grid` (edit, Sort, DeleteRow, AddRow), `a_grid_with_more_rows_than_the_table_holds_is_refused`.
+- [x] **AC16 — Risk.** `test_sql::the_transaction_verbs_commit_roll_back_and_refuse_what_cannot_apply` and the two joined-transaction tests of AC3.
 
 ## 6. Constraints & steering check
 - **i18n:** yes — R4 (and any Designer string R2 adds).
@@ -282,6 +309,47 @@ none recalled:
   and a Dropdown cell picks; both write back like a text edit (§4.3). Not text only.
 - **D3 — `Save()` writes changed rows only.** One transaction; not every loaded row; no
   `INSERT`/`DELETE` (094's D4 stands).
+
+### 8.1 Amendment — the operator's answers of 2026-10-13 (they replace the defaults of §9)
+D3 is widened and every question of §9 has its answer. Where this section and §4/§9 differ,
+**this section wins**; the requirements below say what changes.
+
+- **D3 (replaced) — `Save()` writes updates, inserts and deletes.** For an Indexed or SQL
+  source, in one transaction: edited cells → `UPDATE`/`REWRITE` (one per changed row);
+  rows added with `AddRow` → `INSERT`/`WRITE`; rows removed with `DeleteRow` → `DELETE`.
+  **Not** blank lines (an added row with every cell blank is never inserted), and **never
+  a row whose key has been modified** — an Indexed or SQL key is **read-only** on a row
+  that came from the source (editable only on a row added in the grid, which has no key
+  yet). Inserts and deletes are written only by an explicit `Save()`; `AutoCommit` still
+  settles cell edits alone. `ClearRows()` empties the display and forgets what was
+  loaded — it is not a request to delete the table. Replaces 094's D4 and the non-goal
+  "adding or deleting rows".
+- **Q1 — `Save()` is the name.** `CommitEdit()` stays as a deprecated alias for forms
+  written against 1.91.15; the Guide stops mentioning it.
+- **Q2 — a COBOL table is regenerated whole from the grid.** `Save()` (and `AutoCommit`)
+  on a COBOL-table grid writes **every row of the grid** into the table's occurrences in
+  grid order and blanks the occurrences after the last row: sorts, adds and deletes in the
+  grid become the table. No key and no hidden occurrence column are needed. Blank rows are
+  not written. Items of the table the grid does not show are left where they are.
+- **Q3 — a Dropdown cell holds the value and shows the text.** When the item has display
+  text, the cell shows the text and returns the value; when only a value is defined it
+  shows and returns the value. (Built in M4.)
+- **Q4 — the changed-since-load check is IN.** Before it writes, `Save()` compares what
+  the source holds now with what the grid loaded: for an `UPDATE` the edited columns, for
+  a `DELETE` every shown column of the row. A difference fails the unit with status
+  **`96`** (the row was changed by someone else), writing nothing.
+- **Q5 — default:** an `Async` connection refuses `Save()` with status `95`.
+- **Q6 — a failed `Save()` puts the old values back.** The grid returns to what was last
+  loaded or saved (edited cells, added rows and deleted rows undone), `CommitStatus` and
+  `LastError` say why, `onCommitError` fires, and the cell that failed carries the red mark
+  until the next edit. (Replaces "leave every edit pending".)
+- **Risk — a transaction around a connection the program also uses.** The `SqlDatabase`
+  control gets **`BeginTransaction()`, `Commit()`, `Rollback()` and `IsInTransaction()`**.
+  `Save()` on a connection with a transaction open **joins it** under a savepoint — the
+  program's `Commit()`/`Rollback()` stays the program's, and a failed save undoes only
+  its own writes. Status `94` of the first plan is retired.
+- **Risks — a click that changes data, rendering regressions, scope: accepted as
+  planned** (the §4.3 gates, the R24 quality pass, three areas in one spec).
 
 ## 9. Open questions
 - **Q1 — `Save()` and `CommitEdit()`.** Two names for one action is a cost: a developer

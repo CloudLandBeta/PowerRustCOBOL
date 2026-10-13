@@ -1562,6 +1562,21 @@ pub struct Tr {
     pub dg_sql_query: &'static str,
     pub dg_sql_table: &'static str,
     pub dg_sql_hint: &'static str,
+    pub dg_writable_switch: &'static str,
+    pub dg_writable_hint: &'static str,
+    pub dg_writable_needs: &'static str,
+    pub dg_writable_need_key: &'static str,
+    pub dg_writable_need_table: &'static str,
+    pub dg_writable_need_editing: &'static str,
+    pub dg_writable_fix_editing: &'static str,
+    pub dg_writable_whole_table: &'static str,
+    pub dg_writable_ready: &'static str,
+    pub dg_col_checked_value: &'static str,
+    pub dg_col_unchecked_value: &'static str,
+    pub dg_col_checkbox_hint: &'static str,
+    pub dg_col_dropdown_items: &'static str,
+    pub dg_col_dropdown_hint: &'static str,
+    pub dg_col_dropdown_from: &'static str,
     pub bt_apply: &'static str,
     pub bt_ok: &'static str,
     pub bt_err_title: &'static str,
@@ -3414,6 +3429,21 @@ const EN: Tr = Tr {
     dg_sql_query: "Query (SELECT that fills the grid)",
     dg_sql_table: "Table that an edit updates",
     dg_sql_hint: "The query runs on the open connection of the SQL control; each bound field is matched to a result column by name. An edit becomes UPDATE <table> SET … WHERE <key fields> = …",
+    dg_writable_switch: "Writable — write edits made in the grid back to this source",
+    dg_writable_hint: "Off: the grid only shows the data. On: Save() — and AutoCommit — write what the operator changes in the grid (edited cells, added rows, removed rows) to the source.",
+    dg_writable_needs: "The grid still needs:",
+    dg_writable_need_key: "A key field — tick Key on the field that identifies a row (the Key column above).",
+    dg_writable_need_table: "A table — name the table an edit updates (Table, above).",
+    dg_writable_need_editing: "Allow cell editing — it is off, so the operator cannot edit a cell.",
+    dg_writable_fix_editing: "Turn on cell editing",
+    dg_writable_whole_table: "No key is needed: a COBOL table is rewritten whole from the grid when it is saved — every row, in the grid's order.",
+    dg_writable_ready: "Everything the grid needs to write back is in place.",
+    dg_col_checked_value: "Checked value",
+    dg_col_unchecked_value: "Unchecked value",
+    dg_col_checkbox_hint: "Empty: the pair the cell's data already uses (Y/N, 1/0, true/false); Y/N for an empty cell.",
+    dg_col_dropdown_items: "Dropdown items",
+    dg_col_dropdown_hint: "One per line: CODE=Label. The cell holds the code; the list shows the label.",
+    dg_col_dropdown_from: "List read from {} (set in the binding)",
     bt_apply:           "Beautify",
     bt_ok:              "OK",
     bt_err_title:       "Beautify blocked",
@@ -5092,6 +5122,21 @@ const ES: Tr = Tr {
     dg_sql_query: "Consulta (SELECT que llena el grid)",
     dg_sql_table: "Tabla que actualiza una edición",
     dg_sql_hint: "La consulta se ejecuta en la conexión abierta del control SQL; cada campo enlazado se asocia por nombre a una columna del resultado. Una edición se convierte en UPDATE <tabla> SET … WHERE <campos clave> = …",
+    dg_writable_switch: "Escribible — escribir en este origen las ediciones hechas en el grid",
+    dg_writable_hint: "Desactivado: el grid solo muestra los datos. Activado: Save() — y AutoCommit — escriben en el origen lo que el operador cambia en el grid (celdas editadas, filas añadidas y filas eliminadas).",
+    dg_writable_needs: "Al grid todavía le falta:",
+    dg_writable_need_key: "Un campo clave — marque Key en el campo que identifica una fila (la columna Key de arriba).",
+    dg_writable_need_table: "Una tabla — indique la tabla que actualiza una edición (Tabla, arriba).",
+    dg_writable_need_editing: "Allow cell editing — está desactivado, así que el operador no puede editar una celda.",
+    dg_writable_fix_editing: "Activar la edición de celdas",
+    dg_writable_whole_table: "No se necesita clave: la tabla COBOL se reescribe entera a partir del grid al guardar — todas las filas, en el orden del grid.",
+    dg_writable_ready: "El grid tiene todo lo necesario para escribir de vuelta.",
+    dg_col_checked_value: "Valor marcado",
+    dg_col_unchecked_value: "Valor desmarcado",
+    dg_col_checkbox_hint: "Vacío: el par que ya usan los datos de la celda (Y/N, 1/0, true/false); Y/N para una celda vacía.",
+    dg_col_dropdown_items: "Elementos de la lista",
+    dg_col_dropdown_hint: "Uno por línea: CÓDIGO=Etiqueta. La celda guarda el código; la lista muestra la etiqueta.",
+    dg_col_dropdown_from: "Lista leída de {} (definido en el enlace)",
     bt_apply:           "Embellecer",
     bt_ok:              "Aceptar",
     bt_err_title:       "Embellecido bloqueado",
@@ -6770,6 +6815,21 @@ const PT: Tr = Tr {
     dg_sql_query: "Consulta (SELECT que preenche a grade)",
     dg_sql_table: "Tabela que uma edição atualiza",
     dg_sql_hint: "A consulta é executada na conexão aberta do controle SQL; cada campo vinculado é associado pelo nome a uma coluna do resultado. Uma edição vira UPDATE <tabela> SET … WHERE <campos chave> = …",
+    dg_writable_switch: "Gravável — gravar nesta origem as edições feitas na grade",
+    dg_writable_hint: "Desativado: a grade apenas mostra os dados. Ativado: Save() — e AutoCommit — gravam na origem o que o operador altera na grade (células editadas, linhas adicionadas e linhas removidas).",
+    dg_writable_needs: "A grade ainda precisa de:",
+    dg_writable_need_key: "Um campo chave — marque Key no campo que identifica uma linha (a coluna Key acima).",
+    dg_writable_need_table: "Uma tabela — informe a tabela que uma edição atualiza (Tabela, acima).",
+    dg_writable_need_editing: "Allow cell editing — está desativado, então o operador não pode editar uma célula.",
+    dg_writable_fix_editing: "Ativar a edição de células",
+    dg_writable_whole_table: "Não é preciso chave: a tabela COBOL é reescrita inteira a partir da grade ao gravar — todas as linhas, na ordem da grade.",
+    dg_writable_ready: "A grade tem tudo o que precisa para gravar de volta.",
+    dg_col_checked_value: "Valor marcado",
+    dg_col_unchecked_value: "Valor desmarcado",
+    dg_col_checkbox_hint: "Vazio: o par que os dados da célula já usam (Y/N, 1/0, true/false); Y/N para uma célula vazia.",
+    dg_col_dropdown_items: "Itens da lista",
+    dg_col_dropdown_hint: "Um por linha: CÓDIGO=Rótulo. A célula guarda o código; a lista mostra o rótulo.",
+    dg_col_dropdown_from: "Lista lida de {} (definido na vinculação)",
     bt_apply:           "Embelezar",
     bt_ok:              "OK",
     bt_err_title:       "Embelezamento bloqueado",
@@ -8447,6 +8507,21 @@ const JA: Tr = Tr {
     dg_sql_query: "クエリ（グリッドを満たす SELECT）",
     dg_sql_table: "編集で更新するテーブル",
     dg_sql_hint: "クエリは SQL コントロールの開いている接続で実行され、バインドした各フィールドは名前で結果列に対応づけられます。編集は UPDATE <テーブル> SET … WHERE <キーフィールド> = … になります。",
+    dg_writable_switch: "書き込み可能 — グリッドでの編集をこのソースへ書き戻す",
+    dg_writable_hint: "オフ：グリッドはデータを表示するだけです。オン：Save()（および AutoCommit）が、オペレーターがグリッドで行った変更（編集したセル、追加した行、削除した行）をソースへ書き込みます。",
+    dg_writable_needs: "グリッドにはまだ次が必要です：",
+    dg_writable_need_key: "キーフィールド — 行を識別するフィールドの Key にチェックを入れてください（上の Key 列）。",
+    dg_writable_need_table: "テーブル — 編集で更新するテーブルを指定してください（上の「テーブル」）。",
+    dg_writable_need_editing: "Allow cell editing — オフのため、オペレーターはセルを編集できません。",
+    dg_writable_fix_editing: "セル編集をオンにする",
+    dg_writable_whole_table: "キーは不要です。保存時に COBOL テーブルはグリッドの内容から全体が書き直されます（すべての行をグリッドの順序で）。",
+    dg_writable_ready: "グリッドが書き戻すために必要なものはすべて揃っています。",
+    dg_col_checked_value: "チェック時の値",
+    dg_col_unchecked_value: "未チェック時の値",
+    dg_col_checkbox_hint: "空欄：セルのデータがすでに使っている組（Y/N、1/0、true/false）。空のセルは Y/N。",
+    dg_col_dropdown_items: "ドロップダウンの項目",
+    dg_col_dropdown_hint: "1行に1つ：コード=ラベル。セルにはコードが入り、リストにはラベルが表示されます。",
+    dg_col_dropdown_from: "リストの読み込み元：{}（バインディングで設定）",
     bt_apply:           "整形",
     bt_ok:              "OK",
     bt_err_title:       "整形できません",
@@ -10130,6 +10205,21 @@ const ZH: Tr = Tr {
     dg_sql_query: "查询（填充网格的 SELECT）",
     dg_sql_table: "编辑所更新的表",
     dg_sql_hint: "查询在 SQL 控件已打开的连接上运行；每个绑定字段按名称匹配结果列。编辑会变成 UPDATE <表> SET … WHERE <键字段> = …",
+    dg_writable_switch: "可写入 — 将在网格中所做的编辑写回此数据源",
+    dg_writable_hint: "关闭：网格只显示数据。开启：Save()（以及 AutoCommit）会把操作员在网格中所做的更改（编辑的单元格、新增的行、删除的行）写入数据源。",
+    dg_writable_needs: "网格仍然需要：",
+    dg_writable_need_key: "键字段 — 在用于标识一行的字段上勾选 Key（上方的 Key 列）。",
+    dg_writable_need_table: "表 — 指定编辑所更新的表（上方的“表”）。",
+    dg_writable_need_editing: "Allow cell editing — 当前已关闭，操作员无法编辑单元格。",
+    dg_writable_fix_editing: "开启单元格编辑",
+    dg_writable_whole_table: "无需键：保存时，COBOL 表会根据网格整体重写——所有行，按网格的顺序。",
+    dg_writable_ready: "网格写回所需的一切均已就绪。",
+    dg_col_checked_value: "选中时的值",
+    dg_col_unchecked_value: "未选中时的值",
+    dg_col_checkbox_hint: "留空：沿用单元格数据已在使用的一对值（Y/N、1/0、true/false）；空单元格使用 Y/N。",
+    dg_col_dropdown_items: "下拉列表项",
+    dg_col_dropdown_hint: "每行一项：代码=标签。单元格保存代码，列表显示标签。",
+    dg_col_dropdown_from: "列表来自 {}（在数据绑定中设置）",
     bt_apply: "美化",
     bt_ok: "确定",
     bt_err_title: "无法美化",
@@ -11809,6 +11899,21 @@ const FR: Tr = Tr {
     dg_sql_query: "Requête (SELECT qui remplit la grille)",
     dg_sql_table: "Table mise à jour par une modification",
     dg_sql_hint: "La requête s'exécute sur la connexion ouverte du contrôle SQL ; chaque champ lié est associé par son nom à une colonne du résultat. Une modification devient UPDATE <table> SET … WHERE <champs clé> = …",
+    dg_writable_switch: "Modifiable — réécrire dans cette source les modifications faites dans la grille",
+    dg_writable_hint: "Désactivé : la grille n'affiche que les données. Activé : Save() — et AutoCommit — écrivent dans la source ce que l'opérateur change dans la grille (cellules modifiées, lignes ajoutées, lignes supprimées).",
+    dg_writable_needs: "La grille a encore besoin de :",
+    dg_writable_need_key: "Un champ clé — cochez Key sur le champ qui identifie une ligne (la colonne Key ci-dessus).",
+    dg_writable_need_table: "Une table — indiquez la table mise à jour par une modification (Table, ci-dessus).",
+    dg_writable_need_editing: "Allow cell editing — il est désactivé, l'opérateur ne peut donc pas modifier une cellule.",
+    dg_writable_fix_editing: "Activer la modification des cellules",
+    dg_writable_whole_table: "Aucune clé n'est nécessaire : la table COBOL est réécrite entièrement à partir de la grille à l'enregistrement — toutes les lignes, dans l'ordre de la grille.",
+    dg_writable_ready: "La grille a tout ce qu'il faut pour réécrire dans la source.",
+    dg_col_checked_value: "Valeur cochée",
+    dg_col_unchecked_value: "Valeur décochée",
+    dg_col_checkbox_hint: "Vide : la paire que les données de la cellule utilisent déjà (Y/N, 1/0, true/false) ; Y/N pour une cellule vide.",
+    dg_col_dropdown_items: "Éléments de la liste",
+    dg_col_dropdown_hint: "Un par ligne : CODE=Libellé. La cellule garde le code ; la liste montre le libellé.",
+    dg_col_dropdown_from: "Liste lue depuis {} (définie dans la liaison)",
     bt_apply:           "Embellir",
     bt_ok:              "OK",
     bt_err_title:       "Embellissement bloqué",
@@ -12989,5 +13094,53 @@ mod layer_strings_091 {
             }
         }
         println!("i18n 091: {checked} layer strings checked (23 keys × {} languages)", Language::ALL.len());
+    }
+}
+
+#[cfg(test)]
+mod writable_strings_095 {
+    use super::*;
+
+    /// Spec 095 R4 — the strings of the Data Binding editor's *Writable* switch and
+    /// of the list of what the grid still needs, and of a Checkbox column's pair: non-empty in every language,
+    /// translated (not a copy of English), and every `{}` the English carries kept.
+    #[test]
+    fn the_writable_strings_are_in_every_language() {
+        let pick = |t: &Tr| {
+            [
+                ("dg_writable_switch", t.dg_writable_switch),
+                ("dg_writable_hint", t.dg_writable_hint),
+                ("dg_writable_needs", t.dg_writable_needs),
+                ("dg_writable_need_key", t.dg_writable_need_key),
+                ("dg_writable_need_table", t.dg_writable_need_table),
+                ("dg_writable_need_editing", t.dg_writable_need_editing),
+                ("dg_writable_fix_editing", t.dg_writable_fix_editing),
+                ("dg_writable_whole_table", t.dg_writable_whole_table),
+                ("dg_writable_ready", t.dg_writable_ready),
+                ("dg_col_checked_value", t.dg_col_checked_value),
+                ("dg_col_unchecked_value", t.dg_col_unchecked_value),
+                ("dg_col_checkbox_hint", t.dg_col_checkbox_hint),
+                ("dg_col_dropdown_items", t.dg_col_dropdown_items),
+                ("dg_col_dropdown_hint", t.dg_col_dropdown_hint),
+                ("dg_col_dropdown_from", t.dg_col_dropdown_from),
+            ]
+        };
+        let en = pick(&Language::English.tr());
+        let mut checked = 0;
+        for &lang in Language::ALL {
+            for ((name, text), (_, english)) in pick(&lang.tr()).into_iter().zip(en) {
+                assert!(!text.trim().is_empty(), "{lang:?}/{name} is empty");
+                assert_eq!(
+                    text.matches("{}").count(),
+                    english.matches("{}").count(),
+                    "{lang:?}/{name}: placeholders differ from English in {text:?}"
+                );
+                if lang != Language::English {
+                    assert_ne!(text, english, "{lang:?}/{name} is untranslated");
+                }
+                checked += 1;
+            }
+        }
+        println!("i18n 095: {checked} strings checked (15 keys × {} languages)", Language::ALL.len());
     }
 }

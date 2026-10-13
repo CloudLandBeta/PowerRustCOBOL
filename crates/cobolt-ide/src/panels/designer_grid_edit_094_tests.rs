@@ -1004,3 +1004,114 @@ fn a_grid_is_painted_after_every_other_face_which_is_the_cost_of_a_separate_pass
     let order = |t: &str| rig.painted.iter().position(|p| p.0 == t).unwrap();
     assert!(order("Bob") > order("Above"), "the grid's rows are painted after the label that is above it in z-order");
 }
+
+// ── Spec 095: the binding editor's one-click fix ─────────────────────────────
+
+/// R2: the *Turn on cell editing* button of the Writable section pushes the grid's
+/// `AllowCellEditing` through `InspectorAction::set_props`, which the application
+/// applies with `set_property` — an ordinary property change, one undo step.
+#[test]
+fn turning_on_cell_editing_from_the_binding_editor_is_one_undoable_step() {
+    let mut rig = Rig::new(bound_form());
+    assert_ne!(rig.prop("BG", "AllowCellEditing"), "1", "a new grid does not allow cell editing");
+    let steps = rig.d.undo_stack.len();
+    rig.d.set_property("BG", "AllowCellEditing", PropValue::Bool(true));
+    assert_eq!(rig.d.undo_stack.len(), steps + 1, "one step");
+    assert_eq!(rig.prop("BG", "AllowCellEditing"), "1", "a Bool is saved as 1");
+    rig.d.undo();
+    assert_ne!(rig.prop("BG", "AllowCellEditing"), "1", "one undo puts it back");
+    println!("095 R2: AllowCellEditing on is 1 undo step, and 1 undo turns it off again");
+}
+
+/// Spec 095 R13: in the Designer's grid edit mode (which forces cell editing on)
+/// a click on a Checkbox cell changes the sample `Rows` — one undo step — and
+/// reports nothing a saved form would keep.
+#[test]
+fn a_checkbox_cell_toggles_on_the_canvas_and_undoes() {
+    use cobolt_forms::model::DataGridColumn;
+    let mut advanced = DataGridAdvanced::default();
+    for (id, kind) in [("Name", ""), ("Done", "Checkbox")] {
+        advanced.columns.push(DataGridColumn {
+            id: id.into(),
+            title: id.into(),
+            source_name: id.into(),
+            value_type: "string".into(),
+            width: 100.0,
+            control_kind: kind.into(),
+            ..DataGridColumn::default()
+        });
+    }
+    let mut form = grid_form();
+    {
+        let g = form.controls.iter_mut().find(|c| c.id == "DG").unwrap();
+        g.set_prop("Columns", PropValue::String("Name:string\nDone:string".into()));
+        g.set_prop("Rows", PropValue::String("Ana\tY\nBia\tN\nCid\t".into()));
+        g.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(advanced.to_json().unwrap()));
+    }
+    let mut rig = Rig::new(form);
+    enter(&mut rig, "DG");
+    let depth = rig.d.undo_stack.len();
+    // Bia's box: column 2, row 2.
+    rig.click(rig.at(40.0 + 100.0 + 50.0, 40.0 + 22.0 + 22.0 + 11.0));
+    assert_eq!(rig.prop("DG", "Rows"), "Ana\tY\nBia\tY\nCid\t", "N -> Y in the sample data");
+    assert_eq!(rig.d.undo_stack.len(), depth + 1, "one toggle, one undo step");
+    for run_time in ["EditedRow", "EditedColumn", "EditedValue", "PreviousValue"] {
+        assert!(rig.d.form.find_control("DG").unwrap().get_prop(run_time).is_none(), "{run_time} is not saved");
+    }
+    rig.d.undo();
+    assert_eq!(rig.prop("DG", "Rows"), "Ana\tY\nBia\tN\nCid\t", "one undo puts it back");
+    println!("095: a Checkbox toggle in grid edit mode is 1 undo step on the sample Rows");
+}
+
+/// Spec 095 R15: in the Designer's grid edit mode a click on a Dropdown cell opens its
+/// list on the canvas, a pick writes the item's VALUE into the sample `Rows` — one undo
+/// step — and the cell shows the item's text. The list is the engine's own, so the
+/// canvas and the running form cannot differ.
+#[test]
+fn a_dropdown_cell_picks_on_the_canvas_and_undoes() {
+    use cobolt_forms::model::{DataGridColumn, DataGridDropdown};
+    let mut advanced = DataGridAdvanced::default();
+    for (id, kind) in [("Name", ""), ("Category", "Dropdown")] {
+        advanced.columns.push(DataGridColumn {
+            id: id.into(),
+            title: id.into(),
+            source_name: id.into(),
+            value_type: "string".into(),
+            width: 100.0,
+            control_kind: kind.into(),
+            dropdown: (!kind.is_empty())
+                .then(|| DataGridDropdown { items: "D=Drama\nC=Crime\nT=Thriller".into(), ..Default::default() }),
+            ..DataGridColumn::default()
+        });
+    }
+    let mut form = grid_form();
+    {
+        let g = form.controls.iter_mut().find(|c| c.id == "DG").unwrap();
+        g.set_prop("Columns", PropValue::String("Name:string\nCategory:string".into()));
+        g.set_prop("Rows", PropValue::String("Ana\tD\nBia\tC\nCid\t".into()));
+        g.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(advanced.to_json().unwrap()));
+    }
+    let mut rig = Rig::new(form);
+    enter(&mut rig, "DG");
+    let depth = rig.d.undo_stack.len();
+    // Bia's cell: column 2, row 2.
+    let cell = rig.at(40.0 + 100.0 + 50.0, 40.0 + 22.0 + 22.0 + 11.0);
+    rig.click(cell);
+    rig.settle();
+    let thriller = rig
+        .painted
+        .iter()
+        .position(|p| p.0 == "Thriller")
+        .expect("the list is open on the canvas: its third item is painted");
+    assert_eq!(rig.d.undo_stack.len(), depth, "opening the list changes nothing");
+    let at = rig.painted[thriller].1.center();
+    rig.click(at);
+    assert_eq!(rig.prop("DG", "Rows"), "Ana\tD\nBia\tT\nCid\t", "C -> T: the value, in the sample data");
+    assert_eq!(rig.d.undo_stack.len(), depth + 1, "one pick, one undo step");
+    for run_time in ["EditedRow", "EditedColumn", "EditedValue", "PreviousValue"] {
+        assert!(rig.d.form.find_control("DG").unwrap().get_prop(run_time).is_none(), "{run_time} is not saved");
+    }
+    rig.d.undo();
+    assert_eq!(rig.prop("DG", "Rows"), "Ana\tD\nBia\tC\nCid\t", "one undo puts it back");
+    println!("095: a Dropdown pick in grid edit mode is 1 undo step on the sample Rows (the value, not the text)");
+}

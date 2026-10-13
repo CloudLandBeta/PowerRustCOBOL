@@ -3323,6 +3323,7 @@ fn render_form_inner(
             max_h,
             reveal,
             type_ahead,
+            target,
         } = combo;
         let gesture = ui
             .data(|d| d.get_temp(combo_gesture_id(scope, &cid)))
@@ -3418,8 +3419,30 @@ fn render_form_inner(
 
             }
         });
-        match outcome.action {
-            Some(crate::paint::GlassComboAction::Select(idx, val)) => {
+        match (outcome.action, &target) {
+            // A Dropdown cell: a pick is a cell edit — the item's VALUE goes into the
+            // cell, by the road a typed edit takes — and either way the list closes.
+            (Some(action), ComboTarget::GridCell(cell)) => {
+                if let crate::paint::GlassComboAction::Select(idx, _) = action {
+                    if let Some(code) = cell.codes.get(idx) {
+                        push_cell_edit(
+                            &mut out,
+                            &cell.grid_id,
+                            &cell.rows,
+                            &cell.display_cols,
+                            &DataGridEdit {
+                                row_index: cell.row_index,
+                                display_col: cell.display_col,
+                                text: code.clone(),
+                                original: cell.raw.clone(),
+                                fresh: false,
+                            },
+                        );
+                    }
+                }
+                ui.data_mut(|d| d.remove::<DataGridDropdownOpen>(cell.open_id));
+            }
+            (Some(crate::paint::GlassComboAction::Select(idx, val)), ComboTarget::Control) => {
                 out.prop_updates
                     .push((cid.clone(), "Value".to_owned(), val.clone()));
                 out.prop_updates
@@ -3428,10 +3451,10 @@ fn render_form_inner(
                 out.events.push(UiEvent::ev(&cid, "onSelectedIndexChanged"));
                 ui.data_mut(|d| d.insert_temp(open_id, false));
             }
-            Some(crate::paint::GlassComboAction::Close) => {
+            (Some(crate::paint::GlassComboAction::Close), ComboTarget::Control) => {
                 ui.data_mut(|d| d.insert_temp(open_id, false));
             }
-            None => {}
+            (None, _) => {}
         }
         if !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false) {
             let had_focus = rt_id_in(scope, &cid).with("combo_window_focused");
@@ -3654,6 +3677,45 @@ struct OpenCombo {
     reveal: Option<usize>,
     /// A pick-only combo: typed letters and digits search the list.
     type_ahead: bool,
+    /// What a pick or a dismissal acts on.
+    target: ComboTarget,
+}
+
+/// What an open list belongs to: a ComboBox control, whose pick is its `Value`, or
+/// (spec 095) a DataGrid Dropdown cell, whose pick is a cell edit.
+enum ComboTarget {
+    Control,
+    GridCell(Box<GridCellPick>),
+}
+
+/// The cell a Dropdown list belongs to, and what a pick needs to write into it.
+/// Carried to the popup pass, when the grid it came from is out of reach.
+struct GridCellPick {
+    grid_id: String,
+    /// Where the grid keeps which cell's list is open; cleared when the list closes.
+    open_id: egui::Id,
+    row_index: usize,
+    display_col: usize,
+    /// What the cell held when the list opened.
+    raw: String,
+    /// The value of each item, in the order the list shows them.
+    codes: Vec<String>,
+    rows: Vec<Vec<String>>,
+    display_cols: Vec<(usize, String, String)>,
+}
+
+/// The Dropdown cell whose list is open (spec 095), kept in the grid's own state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DataGridDropdownOpen {
+    row_index: usize,
+    display_col: usize,
+    /// The list has just opened: scroll to the current item, once.
+    fresh: bool,
+}
+
+/// The id a Dropdown cell's list goes by in the popup pass — the grid's, made its own.
+fn dropdown_list_id(grid_id: &str) -> String {
+    format!("{grid_id}#dropdown")
 }
 
 /// Where a ComboBox keeps the item it is highlighting between frames.
@@ -7196,6 +7258,10 @@ struct TreeRename {
 /// written to the source (spec 094): amber, readable on every grid theme.
 const DATAGRID_PENDING_MARK: Color32 = Color32::from_rgb(255, 176, 0);
 
+/// The same square, red, on the cell a failed save could not write (spec 095):
+/// every edit is still pending, and this is the one to fix.
+const DATAGRID_FAILED_MARK: Color32 = Color32::from_rgb(229, 57, 53);
+
 /// A DataGrid cell open for editing (`AllowCellEditing`).
 #[derive(Clone, Debug, Default)]
 struct DataGridEdit {
@@ -7237,6 +7303,33 @@ fn datagrid_commit_edit(
         ("PreviousValue", edit.original.clone()),
         ("EditedValue", text),
     ])
+}
+
+/// A DataGrid cell has just been changed by the operator — typed in its text box,
+/// or (spec 095) toggled or picked from a list — and the change must reach the
+/// host: the grid's `Rows`, the cell's coordinates and its old and new text as
+/// property updates, then `onCellEdited`. Every kind of edit takes this one road,
+/// so the runtime's note-and-settle (spec 094) and the handler's right to refuse
+/// it apply to all of them alike. `false` when the text did not change.
+fn push_cell_edit(
+    out: &mut RenderOutput,
+    id: &str,
+    rows: &[Vec<String>],
+    display_cols: &[(usize, String, String)],
+    edit: &DataGridEdit,
+) -> bool {
+    let Some(update) = datagrid_commit_edit(rows, display_cols, edit) else {
+        return false;
+    };
+    for (key, value) in update {
+        out.prop_updates.push((id.to_owned(), key.to_owned(), value));
+    }
+    out.events.push(UiEvent::with_value(
+        id,
+        "onCellEdited",
+        &format!("{},{}", edit.row_index, edit.display_col),
+    ));
+    true
 }
 
 fn sort_datagrid_rows(indices: &mut [usize], rows: &[Vec<String>], source: usize, ty: &str, descending: bool) {
@@ -9131,6 +9224,7 @@ fn render_interactive(
                         .clamp(1.0, 4000.0),
                     reveal,
                     type_ahead: !typable,
+                    target: ComboTarget::Control,
                 });
             }
         }
@@ -10767,33 +10861,153 @@ fn render_interactive(
             // Spec 094: the cells whose edit is kept and not yet written (the
             // runtime's `_PendingCells`, `row,column` pairs from 1 — data
             // positions, so a sorted or filtered grid marks the right cell).
-            let pending_cells: std::collections::HashSet<(usize, usize)> = sv(ctrl, "_PendingCells")
-                .split(';')
-                .filter_map(|pair| {
-                    let (row, col) = pair.split_once(',')?;
-                    Some((row.trim().parse::<usize>().ok()?.checked_sub(1)?, col.trim().parse::<usize>().ok()?.checked_sub(1)?))
-                })
-                .collect();
+            let cells_named = |prop: &str| -> std::collections::HashSet<(usize, usize)> {
+                sv(ctrl, prop)
+                    .split(';')
+                    .filter_map(|pair| {
+                        let (row, col) = pair.split_once(',')?;
+                        Some((row.trim().parse::<usize>().ok()?.checked_sub(1)?, col.trim().parse::<usize>().ok()?.checked_sub(1)?))
+                    })
+                    .collect()
+            };
+            let pending_cells = cells_named("_PendingCells");
+            // Spec 095: the cell a failed save could not write (`_FailedCells`, the
+            // same pairs) — it wears the red mark in place of the amber one.
+            let failed_cells = cells_named("_FailedCells");
             let edit_id = ctrl_id.with("datagrid-edit");
             let editing: Option<DataGridEdit> =
                 if allow_cell_edit { ui.data(|d| d.get_temp(edit_id)) } else { None };
-            // A column holds editable text unless it has no data behind it or
-            // shows its value as an image.
-            let column_editable = |display_col: usize| -> bool {
-                display_cols.get(display_col).is_some_and(|(src, _, _)| *src != usize::MAX)
-                    && !advanced_grid.columns.get(display_col).is_some_and(|c| {
+            // The kind of cell a column holds, lower-cased: its own `control_kind`, else
+            // its `edit_control`.
+            let column_kind = |display_col: usize| -> String {
+                advanced_grid
+                    .columns
+                    .get(display_col)
+                    .map(|c| {
                         let kind =
                             if c.control_kind.trim().is_empty() { &c.edit_control } else { &c.control_kind };
-                        kind.eq_ignore_ascii_case("image")
+                        kind.trim().to_ascii_lowercase()
                     })
+                    .unwrap_or_default()
             };
+            // Spec 095: what each Dropdown column offers this frame — its own list of
+            // `CODE=Label` lines, or what the runtime read from a table or an indexed
+            // file (`_ColumnItems`) — worked out once. A Dropdown column with nothing to
+            // pick from is edited as text, as it always was.
+            let published_items = sv(ctrl, "_ColumnItems");
+            let dropdown_lists: Vec<Vec<(String, String)>> = advanced_grid
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(i, column)| {
+                    if column_kind(i) == "dropdown" {
+                        crate::datagrid::dropdown_items(column, &published_items)
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .collect();
+            let dropdown_cell = |display_col: usize| -> bool {
+                dropdown_lists.get(display_col).is_some_and(|list| !list.is_empty())
+            };
+            // Spec 095: the key of a row that came from the source is read-only — the key
+            // is what finds the row again — while a row the program added, which has no
+            // key yet, takes one. The runtime says which columns are keys (`_KeyColumns`,
+            // data columns from 1) and which lines of `Rows` it loaded (`_RowOrigins`).
+            let key_columns: std::collections::HashSet<usize> = sv(ctrl, "_KeyColumns")
+                .split(',')
+                .filter_map(|n| n.trim().parse::<usize>().ok()?.checked_sub(1))
+                .collect();
+            let loaded_rows: Vec<bool> = if key_columns.is_empty() {
+                Vec::new()
+            } else {
+                sv(ctrl, "_RowOrigins").split('\n').map(|origin| !origin.is_empty()).collect()
+            };
+            let cell_locked = |row_index: usize, display_col: usize| -> bool {
+                display_cols.get(display_col).is_some_and(|(src, _, _)| key_columns.contains(src))
+                    && loaded_rows.get(row_index).copied().unwrap_or(false)
+            };
+            // A column holds editable text unless it has no data behind it, shows its
+            // value as an image, or (spec 095) is a Checkbox, which a click toggles, or a
+            // Dropdown with a list, which a click opens.
+            let column_editable = |display_col: usize| -> bool {
+                display_cols.get(display_col).is_some_and(|(src, _, _)| *src != usize::MAX)
+                    && !matches!(column_kind(display_col).as_str(), "image" | "checkbox")
+                    && !dropdown_cell(display_col)
+            };
+            // Spec 095: a cell the operator changes with a click rather than with the
+            // text box — a Checkbox, or a Dropdown with a list — and only where the grid
+            // allows cell editing.
+            let cell_click_kind = |display_col: usize| -> bool {
+                allow_cell_edit
+                    && display_cols.get(display_col).is_some_and(|(src, _, _)| *src != usize::MAX)
+                    && (matches!(column_kind(display_col).as_str(), "checkbox") || dropdown_cell(display_col))
+            };
+            // Whose list is open (spec 095). It closes with the right to edit, with its
+            // row, and with its list.
+            let dropdown_state_id = ctrl_id.with("datagrid-dropdown");
+            let mut dropdown_open: Option<DataGridDropdownOpen> = ui.data(|d| d.get_temp(dropdown_state_id));
+            if dropdown_open.is_some_and(|o| {
+                !allow_cell_edit
+                    || rows.get(o.row_index).is_none()
+                    || !dropdown_cell(o.display_col)
+                    || cell_locked(o.row_index, o.display_col)
+            }) {
+                ui.data_mut(|d| d.remove::<DataGridDropdownOpen>(dropdown_state_id));
+                dropdown_open = None;
+            }
+            // Where the open list hangs: the visible part of its cell, found as the
+            // rows are painted.
+            let mut dropdown_header: Option<Rect> = None;
+            // Open the list of the cell `(row_index, display_col)` holding `raw`, on the
+            // item it holds.
+            let open_dropdown = |ui: &egui::Ui, row_index: usize, display_col: usize, raw: &str| {
+                let list_id = dropdown_list_id(id);
+                let at = dropdown_lists
+                    .get(display_col)
+                    .and_then(|list| crate::datagrid::dropdown_position(list, raw))
+                    .unwrap_or(0);
+                ui.data_mut(|d| {
+                    d.insert_temp(dropdown_state_id, DataGridDropdownOpen { row_index, display_col, fresh: true });
+                    d.insert_temp(combo_highlight_id(scope, &list_id), at);
+                    d.insert_temp(combo_gesture_id(scope, &list_id), paint::ComboGesture::None);
+                });
+                ui.ctx().request_repaint();
+            };
+            // A Checkbox column's own pair of values (empty: the pair the data uses).
+            let checkbox_values = |display_col: usize| -> (String, String) {
+                advanced_grid
+                    .columns
+                    .get(display_col)
+                    .map(|c| (c.checked_value.clone(), c.unchecked_value.clone()))
+                    .unwrap_or_default()
+            };
+            // Spec 095: F2 or Alt+Down on the selected Dropdown cell opens its list — taken
+            // before the F2 below and the arrow keys, which would otherwise have them.
+            if dropdown_open.is_none() && allow_cell_edit && editing.is_none() && has_keyboard {
+                if let Some(sel) = ui.data(|d| d.get_temp::<DataGridCellSelection>(selection_id)) {
+                    if dropdown_cell(sel.display_column_index)
+                        && !cell_locked(sel.row_index, sel.display_column_index)
+                        && ui.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::F2)
+                                || i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowDown)
+                        })
+                    {
+                        let src = display_cols[sel.display_column_index].0;
+                        let raw = rows.get(sel.row_index).and_then(|r| r.get(src)).cloned().unwrap_or_default();
+                        open_dropdown(ui, sel.row_index, sel.display_column_index, &raw);
+                        dropdown_open =
+                            Some(DataGridDropdownOpen { row_index: sel.row_index, display_col: sel.display_column_index, fresh: true });
+                    }
+                }
+            }
             if allow_cell_edit
                 && editing.is_none()
                 && has_keyboard
                 && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F2))
             {
                 if let Some(sel) = ui.data(|d| d.get_temp::<DataGridCellSelection>(selection_id)) {
-                    if column_editable(sel.display_column_index) {
+                    if column_editable(sel.display_column_index) && !cell_locked(sel.row_index, sel.display_column_index) {
                         let src = display_cols[sel.display_column_index].0;
                         let text = rows
                             .get(sel.row_index)
@@ -10815,8 +11029,37 @@ fn render_interactive(
                     }
                 }
             }
+            // Space on the selected Checkbox cell toggles it (spec 095) — unless a text
+            // box (a filter, say) has the keyboard, which then keeps its Space.
+            if editing.is_none() && dropdown_open.is_none() && has_keyboard && !ui.ctx().egui_wants_keyboard_input() {
+                if let Some(sel) = ui.data(|d| d.get_temp::<DataGridCellSelection>(selection_id)) {
+                    if cell_click_kind(sel.display_column_index)
+                        && column_kind(sel.display_column_index) == "checkbox"
+                        && !cell_locked(sel.row_index, sel.display_column_index)
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space))
+                    {
+                        let src = display_cols[sel.display_column_index].0;
+                        let current = rows.get(sel.row_index).and_then(|r| r.get(src)).cloned().unwrap_or_default();
+                        let (checked, unchecked) = checkbox_values(sel.display_column_index);
+                        push_cell_edit(
+                            out,
+                            id,
+                            &rows,
+                            &display_cols,
+                            &DataGridEdit {
+                                row_index: sel.row_index,
+                                display_col: sel.display_column_index,
+                                text: crate::datagrid::checkbox_next(&current, &checked, &unchecked),
+                                original: current,
+                                fresh: false,
+                            },
+                        );
+                    }
+                }
+            }
             if enabled
                 && editing.is_none()
+                && dropdown_open.is_none()
                 && has_keyboard
                 && !displayed_row_indices.is_empty()
                 && ncols > 0
@@ -11587,13 +11830,6 @@ fn render_interactive(
                         Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h));
                     // Content/image/frame stay inset so cells keep a small gutter.
                     let cell_rect = col_rect.shrink2(vec2(2.0, 0.0));
-                    if pending_cells.contains(&(row_index, *source_index)) {
-                        body_painter.rect_filled(
-                            Rect::from_min_size(pos2(cell_rect.max.x - 8.0, cell_rect.min.y + 1.0), vec2(6.0, 6.0)),
-                            1.0,
-                            DATAGRID_PENDING_MARK,
-                        );
-                    }
                     // Alternating-column highlight: fill every other column's full
                     // width for this row segment, beneath any per-cell/column colour.
                     if alt_cols && col.index % 2 == 1 {
@@ -11605,13 +11841,26 @@ fn render_interactive(
                     {
                         edit_rect = Some(cell_rect.intersect(body_painter.clip_rect()));
                     }
+                    if dropdown_open.is_some_and(|o| o.row_index == row_index && o.display_col == col.index) {
+                        dropdown_header = Some(cell_rect.intersect(body_painter.clip_rect()));
+                    }
                     let mut cell_selected = false;
-                    if prop_bool(ctrl, "SelectableText", true) {
+                    // Spec 095: a cell the operator changes with a click takes it only
+                    // where it can be SEEN — the part under the frozen band or past the
+                    // body's edge is another cell's — and whether or not text is
+                    // selectable.
+                    let click_cell = cell_click_kind(col.index) && !cell_locked(row_index, col.index);
+                    let hit_rect =
+                        if click_cell { cell_rect.intersect(body_painter.clip_rect()) } else { cell_rect };
+                    if prop_bool(ctrl, "SelectableText", true) || click_cell {
                         let cell_resp = ui.interact(
-                            cell_rect,
+                            hit_rect,
                             ctrl_id.with(("dg-cell", row_index, col.index)),
                             Sense::click(),
                         );
+                        if click_cell && cell_resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
                         // Which cell, for the handler: the data row and data
                         // column numbered from 1, as `GetCellValue` counts
                         // (0 for a column with no data behind it). The event
@@ -11640,10 +11889,44 @@ fn render_interactive(
                                 "onCellClick",
                                 &format!("{row_index},{}", col.index),
                             ));
+                            // Spec 095: a click on a Dropdown cell opens its list, or closes it
+                            // when it is the open one; a double-click leaves it open. Neither
+                            // opens a text box (`column_editable` is false here).
+                            if click_cell && editing.is_none() && dropdown_cell(col.index) {
+                                let this = DataGridDropdownOpen { row_index, display_col: col.index, fresh: true };
+                                let is_open = dropdown_open.is_some_and(|o| (o.row_index, o.display_col) == (row_index, col.index));
+                                if is_open && !cell_resp.double_clicked() {
+                                    ui.data_mut(|d| d.remove::<DataGridDropdownOpen>(dropdown_state_id));
+                                    dropdown_open = None;
+                                } else if !is_open {
+                                    open_dropdown(ui, row_index, col.index, raw);
+                                    dropdown_open = Some(this);
+                                    dropdown_header = Some(hit_rect);
+                                }
+                            }
+                            // Spec 095: a click on a Checkbox cell toggles it, through the
+                            // same road a typed edit takes. A double-click is two clicks,
+                            // and opens no text box (`column_editable` is false here).
+                            else if click_cell && editing.is_none() {
+                                let (checked, unchecked) = checkbox_values(col.index);
+                                push_cell_edit(
+                                    out,
+                                    id,
+                                    &rows,
+                                    &display_cols,
+                                    &DataGridEdit {
+                                        row_index,
+                                        display_col: col.index,
+                                        text: crate::datagrid::checkbox_next(raw, &checked, &unchecked),
+                                        original: raw.to_owned(),
+                                        fresh: false,
+                                    },
+                                );
+                            }
                         }
                         if cell_resp.double_clicked() {
                             report_cell(out);
-                            if allow_cell_edit && column_editable(col.index) {
+                            if allow_cell_edit && column_editable(col.index) && !cell_locked(row_index, col.index) {
                                 ui.data_mut(|d| {
                                     d.insert_temp(
                                         edit_id,
@@ -11796,6 +12079,17 @@ fn render_interactive(
                             );
                         }
                     }
+                    // The pending / failed mark (specs 094, 095) goes on after every
+                    // background layer — an opaque cell or column colour must not hide
+                    // the cell the operator has to fix — and under the cell's content.
+                    let failed = failed_cells.contains(&(row_index, *source_index));
+                    if failed || pending_cells.contains(&(row_index, *source_index)) {
+                        body_painter.rect_filled(
+                            Rect::from_min_size(pos2(cell_rect.max.x - 8.0, cell_rect.min.y + 1.0), vec2(6.0, 6.0)),
+                            1.0,
+                            if failed { DATAGRID_FAILED_MARK } else { DATAGRID_PENDING_MARK },
+                        );
+                    }
                     let edit_control = column_meta
                         .map(|column| {
                             if column.control_kind.trim().is_empty() {
@@ -11941,10 +12235,10 @@ fn render_interactive(
                             Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 180)),
                             egui::StrokeKind::Middle,
                         );
-                        let truthy = matches!(
-                            raw.trim().to_ascii_lowercase().as_str(),
-                            "y" | "yes" | "true" | "1" | "x" | "checked"
-                        );
+                        let (checked_value, unchecked_value) = column_meta
+                            .map(|column| (column.checked_value.as_str(), column.unchecked_value.as_str()))
+                            .unwrap_or(("", ""));
+                        let truthy = crate::datagrid::checkbox_checked(raw, checked_value, unchecked_value);
                         if truthy {
                             body_painter.line_segment(
                                 [
@@ -11987,10 +12281,15 @@ fn render_interactive(
                             dropdown_rect.min + vec2(6.0, 0.0),
                             pos2(dropdown_rect.max.x - 18.0, dropdown_rect.max.y),
                         );
+                        // The cell holds an item's value; it shows that item's text.
+                        let shown = crate::datagrid::dropdown_text(
+                            dropdown_lists.get(col.index).map(Vec::as_slice).unwrap_or(&[]),
+                            raw,
+                        );
                         body_painter.with_clip_rect(text_clip).text(
                             pos2(text_clip.min.x, dropdown_rect.center().y),
                             Align2::LEFT_CENTER,
-                            raw,
+                            shown,
                             grid_font(
                                 column_meta
                                     .map(|column| column.font_size)
@@ -12156,18 +12455,52 @@ fn render_interactive(
                     ui.data_mut(|d| d.remove::<DataGridEdit>(edit_id));
                 } else if resp.lost_focus() || enter {
                     ui.data_mut(|d| d.remove::<DataGridEdit>(edit_id));
-                    if let Some(update) = datagrid_commit_edit(&rows, &display_cols, &edit) {
-                        for (key, value) in update {
-                            out.prop_updates.push((id.to_owned(), key.to_owned(), value));
-                        }
-                        out.events.push(UiEvent::with_value(
-                            id,
-                            "onCellEdited",
-                            &format!("{},{}", edit.row_index, edit.display_col),
-                        ));
-                    }
+                    push_cell_edit(out, id, &rows, &display_cols, &edit);
                 } else {
                     ui.data_mut(|d| d.insert_temp(edit_id, edit));
+                }
+            }
+            // Spec 095: an open Dropdown cell's list floats above everything, drawn in the
+            // popup pass the ComboBox lists are drawn in; a pick there is a cell edit. A
+            // list whose cell has scrolled out of sight is closed.
+            if let Some(open) = dropdown_open {
+                let ready = dropdown_header.zip(dropdown_lists.get(open.display_col)).zip(rows.get(open.row_index));
+                match ready {
+                    Some(((header, list), row)) if !list.is_empty() => {
+                        let src = display_cols[open.display_col].0;
+                        let raw = row.get(src).cloned().unwrap_or_default();
+                        let at = crate::datagrid::dropdown_position(list, &raw);
+                        let list_id = dropdown_list_id(id);
+                        open_combos.push(OpenCombo {
+                            id: list_id,
+                            items: list.iter().map(|(_, text)| text.clone()).collect(),
+                            header,
+                            current: at.map(|at| list[at].1.clone()).unwrap_or_default(),
+                            fills: paint::combo_popup_fills(ctrl),
+                            face: paint::combo_popup_face(ctrl),
+                            item_h: crate::model::text_line_height(ctrl) + crate::model::LIST_ROW_PAD * 2.0,
+                            font: grid_font(font_size),
+                            text: cell_fg,
+                            style: paint::FontStyle::of(ctrl),
+                            max_h: sv(ctrl, "DropDownHeight").parse::<f32>().unwrap_or(200.0).clamp(1.0, 4000.0),
+                            reveal: open.fresh.then_some(at.unwrap_or(0)),
+                            type_ahead: true,
+                            target: ComboTarget::GridCell(Box::new(GridCellPick {
+                                grid_id: id.to_owned(),
+                                open_id: dropdown_state_id,
+                                row_index: open.row_index,
+                                display_col: open.display_col,
+                                raw,
+                                codes: list.iter().map(|(code, _)| code.clone()).collect(),
+                                rows: rows.to_vec(),
+                                display_cols: display_cols.to_vec(),
+                            })),
+                        });
+                        if open.fresh {
+                            ui.data_mut(|d| d.insert_temp(dropdown_state_id, DataGridDropdownOpen { fresh: false, ..open }));
+                        }
+                    }
+                    _ => ui.data_mut(|d| d.remove::<DataGridDropdownOpen>(dropdown_state_id)),
                 }
             }
             // The grid's background is the whole GRID's, not its rows' (operator,
@@ -21681,10 +22014,41 @@ mod tests {
         (events, props)
     }
 
+    /// [`drive`] with the controls named in `disabled` switched off by the form's
+    /// state, the way a running form disables one (`FormState::enabled`).
+    fn drive_disabling(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+        disabled: &[&str],
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>) {
+        let (events, props, _) = drive_core(controls, frames, false, disabled);
+        (events, props)
+    }
+
     fn drive_inner(
         controls: &[Control],
         frames: Vec<(f64, Vec<Event>)>,
         timed: bool,
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
+        drive_core(controls, frames, timed, &[])
+    }
+
+    /// [`MapState`] that also reports the controls in `.1` as disabled.
+    struct DisablingMapState<'a>(&'a RefCell<Map<String, Map<String, String>>>, &'a [&'a str]);
+    impl FormState for DisablingMapState<'_> {
+        fn live(&self, base: &Control) -> Control {
+            MapState(self.0).live(base)
+        }
+        fn enabled(&self, base: &Control) -> bool {
+            !self.1.contains(&base.id.as_str())
+        }
+    }
+
+    fn drive_core(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+        timed: bool,
+        disabled: &[&str],
     ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
@@ -21715,7 +22079,7 @@ mod tests {
 
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
-            let st = MapState(&overrides);
+            let st = DisablingMapState(&overrides, disabled);
             let mut full = ctx.run_ui(input, |root_ui| {
                 let ctx = root_ui.ctx().clone();
                 let ctx = &ctx;
@@ -25541,6 +25905,729 @@ mod tests {
         assert_eq!(marks("1,1;3,2"), 2, "two pending cells, two marks");
         assert_eq!(marks("9,9"), 0, "a cell that is not there is not marked");
         println!("\n  DataGrid pending edits -- _PendingCells marks exactly the cells it names (0, 1 and 2 marks; a missing cell none)\n");
+    }
+
+    // ── Spec 095: a Checkbox cell takes a click ──────────────────────────────
+
+    /// A grid whose second column is a Checkbox: `Ana` is checked (`Y`), `Bia` is
+    /// not (`N`), `Cid` has nothing. Row 2's checkbox is at (170, 75).
+    fn checkbox_grid(extra: &[(&str, &str)]) -> Control {
+        checkbox_grid_sized(300, 200, extra)
+    }
+
+    fn checkbox_grid_sized(w: i32, h: i32, extra: &[(&str, &str)]) -> Control {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        for (id, kind) in [("Name", ""), ("Done", "Checkbox")] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                control_kind: kind.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let mut props: Vec<(&str, &str)> = vec![
+            ("Columns", "Name:string\nDone:string"),
+            ("Rows", "Ana\tY\nBia\tN\nCid\t"),
+            ("ShowCSVExportButton", "false"),
+            ("RowHeight", "22"),
+            (DATAGRID_ADVANCED_PROP, json.as_str()),
+        ];
+        props.extend_from_slice(extra);
+        ctrlp("DG", ControlType::DataGrid, 20, 20, w, h, &props)
+    }
+
+    fn edited(events: &[UiEvent]) -> usize {
+        events.iter().filter(|e| e.ctrl_id == "DG" && e.event == "onCellEdited").count()
+    }
+
+    /// R13: a click on a Checkbox cell toggles it, writes the new value into
+    /// `Rows` and raises `onCellEdited` with the same report a typed edit makes.
+    #[test]
+    fn a_click_on_a_checkbox_cell_toggles_it_and_raises_on_cell_edited() {
+        let (events, props) = drive(&[checkbox_grid(&[("AllowCellEditing", "true")])], click_at(pos2(170.0, 75.0), 0.0));
+        let dg = props.get("DG").expect("the toggle reported");
+        assert_eq!(dg.get("Rows").map(String::as_str), Some("Ana\tY\nBia\tY\nCid\t"), "Bia: N -> Y");
+        assert_eq!(dg.get("EditedRow").map(String::as_str), Some("2"));
+        assert_eq!(dg.get("EditedColumn").map(String::as_str), Some("2"));
+        assert_eq!(dg.get("PreviousValue").map(String::as_str), Some("N"));
+        assert_eq!(dg.get("EditedValue").map(String::as_str), Some("Y"));
+        assert_eq!(edited(&events), 1);
+        assert!(events.iter().any(|e| e.event == "onCellClick"), "the click is still a cell click");
+        // A checked cell unchecks, an empty one checks.
+        let (_, props) = drive(&[checkbox_grid(&[("AllowCellEditing", "true")])], click_at(pos2(170.0, 53.0), 0.0));
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tN\nBia\tN\nCid\t"), "Ana: Y -> N");
+        let (_, props) = drive(&[checkbox_grid(&[("AllowCellEditing", "true")])], click_at(pos2(170.0, 97.0), 0.0));
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tY\nBia\tN\nCid\tY"), "Cid: empty -> Y");
+        println!("\n  DataGrid checkbox -- a click toggles Y->N, N->Y and empty->Y, writes Rows and raises onCellEdited\n");
+    }
+
+    /// R14: the column's own pair is what a click writes — and what the box shows.
+    #[test]
+    fn a_checkbox_column_writes_its_own_pair() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        for (id, kind, c, u) in [("Name", "", "", ""), ("Done", "Checkbox", "Yes!", "No!")] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                control_kind: kind.into(),
+                checked_value: c.into(),
+                unchecked_value: u.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("Columns", "Name:string\nDone:string"),
+                ("Rows", "Ana\tYes!\nBia\tNo!"),
+                ("ShowCSVExportButton", "false"),
+                ("RowHeight", "22"),
+                ("AllowCellEditing", "true"),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        let (_, props) = drive(&[grid.clone()], click_at(pos2(170.0, 75.0), 0.0));
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tYes!\nBia\tYes!"), "No! -> Yes!");
+        let (_, props) = drive(&[grid], click_at(pos2(170.0, 53.0), 0.0));
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tNo!\nBia\tNo!"), "Yes! -> No!");
+    }
+
+    /// R13: Space on the selected Checkbox cell does the same.
+    #[test]
+    fn space_toggles_the_selected_checkbox_cell() {
+        let key = |t: f64, k: egui::Key| {
+            vec![
+                (t, vec![key_ev(k)]),
+                (
+                    t + 0.02,
+                    vec![Event::Key { key: k, physical_key: None, pressed: false, repeat: false, modifiers: Default::default() }],
+                ),
+            ]
+        };
+        // Select Bia's name (a plain cell), move right onto her checkbox, press Space.
+        let mut frames = click_at(pos2(60.0, 75.0), 0.0);
+        frames.extend(key(0.3, egui::Key::ArrowRight));
+        frames.extend(key(0.5, egui::Key::Space));
+        let (events, props) = drive(&[checkbox_grid(&[("AllowCellEditing", "true")])], frames);
+        let dg = props.get("DG").expect("Space reported");
+        assert_eq!(dg.get("Rows").map(String::as_str), Some("Ana\tY\nBia\tY\nCid\t"), "Bia: N -> Y");
+        assert_eq!(dg.get("EditedRow").map(String::as_str), Some("2"));
+        assert_eq!(edited(&events), 1, "one Space, one edit");
+        println!("\n  DataGrid checkbox -- Space on the selected checkbox cell toggles it\n");
+    }
+
+    /// R16/R17: a grid that is read-only (`AllowCellEditing` off) or disabled does
+    /// nothing, and a Checkbox cell is painted exactly as it is when editing is on.
+    #[test]
+    fn a_disabled_grid_or_editing_off_does_nothing_and_paints_alike() {
+        for (what, extra, disabled) in [("editing off", vec![], vec![]), ("disabled", vec![("AllowCellEditing", "true")], vec!["DG"])] {
+            let (events, props) = drive_disabling(&[checkbox_grid(&extra)], click_at(pos2(170.0, 75.0), 0.0), &disabled);
+            assert_eq!(edited(&events), 0, "{what}: no edit");
+            assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none(), "{what}: Rows untouched");
+        }
+        let frames = || vec![(0.0, vec![]), (0.05, vec![])];
+        let on = drive_painted(&[checkbox_grid(&[("AllowCellEditing", "true")])], frames());
+        let off = drive_painted(&[checkbox_grid(&[])], frames());
+        assert_eq!(on.fills, off.fills, "R17: the same boxes whether or not editing is on");
+        assert_eq!(on.texts.len(), off.texts.len());
+    }
+
+    /// A double-click is two clicks — two toggles — and opens no text box: typing
+    /// after it changes nothing.
+    #[test]
+    fn a_double_click_on_a_checkbox_cell_is_two_toggles_and_opens_no_text_box() {
+        let at = pos2(170.0, 75.0);
+        let mut frames = vec![(0.0, vec![Event::PointerMoved(at)])];
+        for t in [0.05, 0.15] {
+            frames.push((t, vec![press(at)]));
+            frames.push((t + 0.04, vec![release(at)]));
+        }
+        frames.push((0.4, vec![Event::Text("zzz".into())]));
+        frames.push((0.45, vec![key_ev(egui::Key::Enter)]));
+        let (events, props) = drive(&[checkbox_grid(&[("AllowCellEditing", "true")])], frames);
+        assert_eq!(edited(&events), 2, "two clicks, two toggles");
+        let rows = props["DG"].get("Rows").expect("Rows reported");
+        assert_eq!(rows, "Ana\tY\nBia\tN\nCid\t", "N -> Y -> N: back where it began");
+        assert!(!rows.contains("zzz"), "no text box took the typing: {rows:?}");
+    }
+
+    /// A Checkbox cell works with `SelectableText` off, which stops every other cell
+    /// taking a click.
+    #[test]
+    fn a_checkbox_toggles_even_when_text_is_not_selectable() {
+        let (events, props) =
+            drive(&[checkbox_grid(&[("AllowCellEditing", "true"), ("SelectableText", "false")])], click_at(pos2(170.0, 75.0), 0.0));
+        assert_eq!(edited(&events), 1);
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tY\nBia\tY\nCid\t"));
+        // …while a plain cell of that grid still takes no click.
+        let (events, _) = drive(&[checkbox_grid(&[("AllowCellEditing", "true"), ("SelectableText", "false")])], click_at(pos2(60.0, 75.0), 0.0));
+        assert!(!events.iter().any(|e| e.event == "onCellClick"), "a plain cell takes no click");
+    }
+
+    /// A row the body's edge cuts off does not take the click of a control below
+    /// the grid: the Checkbox cell's hit area is the part that can be SEEN.
+    #[test]
+    fn a_clipped_checkbox_row_does_not_steal_the_click_of_a_control_below() {
+        // The grid ends at y = 80; row 2 (64..86) is cut there. A Button sits under
+        // the cut part and is registered first, so the grid — registered later —
+        // would win the overlap if its cell kept the whole 64..86 area.
+        let mut below = ctrlp("B", ControlType::Button, 20, 80, 300, 40, &[("Caption", "Below")]);
+        // A Button reports a click only where a handler is bound to it.
+        below.events.push(crate::model::EventBinding { event: "onClick".into(), paragraph: "B--ONCLICK".into(), code: String::new() });
+        let grid = checkbox_grid_sized(300, 60, &[("AllowCellEditing", "true")]);
+        let (events, props) = drive(&[below, grid], click_at(pos2(170.0, 83.0), 0.0));
+        assert!(events.iter().any(|e| e.ctrl_id == "B" && e.event == "onClick"), "the button got its click: {events:?}");
+        assert_eq!(edited(&events), 0, "the cut-off row did not toggle");
+        assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none());
+    }
+
+    /// Scenario 18 (frozen panes): a Checkbox column scrolled under the frozen
+    /// column does not take a click that lands on the frozen cell above it. The
+    /// scrolled cell's hit area is the part that can be seen.
+    #[test]
+    fn a_scrolled_checkbox_under_the_frozen_band_does_not_steal_the_frozen_cells_click() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        advanced.frozen_columns = 1;
+        for (id, kind) in [("Name", ""), ("Done", "Checkbox"), ("Extra", "")] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                control_kind: kind.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            160,
+            200,
+            &[
+                ("Columns", "Name:string\nDone:string\nExtra:string"),
+                ("Rows", "Ana\tY\tx\nBia\tN\ty"),
+                ("ShowCSVExportButton", "false"),
+                ("RowHeight", "22"),
+                ("AllowCellEditing", "true"),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        // Scroll right by 60: Done now starts at 40 inside the grid, so its first 60
+        // points sit under the frozen Name column (0..100). Click the second row of
+        // the frozen band at x = 70 — Name's cell, over Done's hidden part.
+        let at = pos2(20.0 + 70.0, 75.0);
+        let mut frames = vec![(
+            0.0,
+            vec![
+                Event::PointerMoved(at),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(-60.0, 0.0),
+                    modifiers: Default::default(),
+                    phase: egui::TouchPhase::Move,
+                },
+            ],
+        )];
+        frames.push((0.05, vec![]));
+        frames.extend(click_at(at, 0.1));
+        let (events, props) = drive(&[grid], frames);
+        assert_eq!(edited(&events), 0, "the click was on the frozen cell, not on the checkbox under it");
+        let dg = props.get("DG").expect("the click reported its cell");
+        assert_eq!(dg.get("ClickedColumn").map(String::as_str), Some("1"), "it hit the Name column");
+        assert!(dg.get("Rows").is_none());
+    }
+
+    // ── Spec 095: a Dropdown cell opens a list and picks ─────────────────────
+
+    /// A grid whose second column is a Dropdown over `list`: `Ana` holds `D`, `Bia`
+    /// `C`, `Cid` nothing. Row 2's cell is at (170, 75).
+    fn dropdown_grid(list: Option<crate::model::DataGridDropdown>, extra: &[(&str, &str)]) -> Control {
+        dropdown_grid_sized(list, 300, 200, extra)
+    }
+
+    fn dropdown_grid_sized(list: Option<crate::model::DataGridDropdown>, w: i32, h: i32, extra: &[(&str, &str)]) -> Control {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        for (id, kind) in [("Name", ""), ("Category", "Dropdown")] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                control_kind: kind.into(),
+                dropdown: if kind.is_empty() { None } else { list.clone() },
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let mut props: Vec<(&str, &str)> = vec![
+            ("Columns", "Name:string\nCategory:string"),
+            ("Rows", "Ana\tD\nBia\tC\nCid\t"),
+            ("ShowCSVExportButton", "false"),
+            ("RowHeight", "22"),
+            (DATAGRID_ADVANCED_PROP, json.as_str()),
+        ];
+        props.extend_from_slice(extra);
+        ctrlp("DG", ControlType::DataGrid, 20, 20, w, h, &props)
+    }
+
+    fn drama_crime_thriller() -> crate::model::DataGridDropdown {
+        crate::model::DataGridDropdown { items: "D=Drama\nC=Crime\nT=Thriller".into(), ..Default::default() }
+    }
+
+    /// The centre of the list's `n`th item (from 0) when it hangs from row 2's cell.
+    fn dropdown_item(grid: &Control, n: usize) -> Pos2 {
+        let pitch = crate::model::text_line_height(grid) + crate::model::LIST_ROW_PAD * 2.0;
+        // Row 2 is 64..86; the panel starts a pixel below it and keeps a frame's padding.
+        pos2(170.0, 86.0 + 1.0 + crate::model::LIST_FRAME_PAD + pitch * (n as f32 + 0.5))
+    }
+
+    fn shown(painted: &Painted, text: &str) -> usize {
+        painted.texts.iter().filter(|t| t.text == text).count()
+    }
+
+    fn pause() -> Vec<(f64, Vec<Event>)> {
+        vec![(0.0, vec![]), (0.05, vec![])]
+    }
+
+    /// A Dropdown cell shows its item's TEXT while it holds the item's VALUE; a value no
+    /// item has is shown as it is.
+    #[test]
+    fn a_dropdown_cell_shows_the_text_of_the_item_it_holds() {
+        let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+        let painted = drive_painted(&[grid], pause());
+        assert_eq!(shown(&painted, "Drama"), 1, "Ana holds D");
+        assert_eq!(shown(&painted, "Crime"), 1, "Bia holds C");
+        assert_eq!(shown(&painted, "D"), 0, "the value is not what is shown");
+        let odd = Control {
+            ..dropdown_grid(Some(drama_crime_thriller()), &[("Rows", "Ana\tZ")])
+        };
+        assert_eq!(shown(&drive_painted(&[odd], pause()), "Z"), 1, "a value no item has shows as it is");
+    }
+
+    /// R15: a click on a Dropdown cell opens a list of its items hanging from the cell.
+    #[test]
+    fn a_click_on_a_dropdown_cell_opens_its_list() {
+        let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+        let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+        frames.push((0.5, vec![]));
+        let painted = drive_painted(&[grid.clone()], frames);
+        assert_eq!(shown(&painted, "Drama"), 2, "the cell and the list");
+        assert_eq!(shown(&painted, "Crime"), 2);
+        assert_eq!(shown(&painted, "Thriller"), 1, "the list has the third item");
+        let thriller = painted.texts.iter().find(|t| t.text == "Thriller").unwrap();
+        let at = thriller.full.center();
+        assert!(at.y > 86.0, "the list hangs below the cell (row 2 ends at 86): {at:?}");
+        assert!((dropdown_item(&grid, 2).y - at.y).abs() < 2.0, "the test's item geometry ({:?}) matches the paint ({at:?})", dropdown_item(&grid, 2));
+        println!("\n  DataGrid dropdown -- a click opens the list: Drama, Crime, Thriller below the cell\n");
+    }
+
+    /// R15: picking stores the item's VALUE in the cell and reports it as a typed edit
+    /// is reported — `Rows`, the cell's coordinates, the old and new value, `onCellEdited`.
+    #[test]
+    fn picking_an_item_stores_its_value_and_raises_on_cell_edited() {
+        let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+        let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+        frames.push((0.3, vec![Event::PointerMoved(dropdown_item(&grid, 2))]));
+        frames.extend(click_at(dropdown_item(&grid, 2), 0.4));
+        frames.push((0.8, vec![]));
+        let (events, props) = drive(&[grid.clone()], frames.clone());
+        let dg = props.get("DG").expect("the pick reported");
+        assert_eq!(dg.get("Rows").map(String::as_str), Some("Ana\tD\nBia\tT\nCid\t"), "Bia: C -> T, the value not the text");
+        assert_eq!(dg.get("EditedRow").map(String::as_str), Some("2"));
+        assert_eq!(dg.get("EditedColumn").map(String::as_str), Some("2"));
+        assert_eq!(dg.get("PreviousValue").map(String::as_str), Some("C"));
+        assert_eq!(dg.get("EditedValue").map(String::as_str), Some("T"));
+        assert_eq!(edited(&events), 1, "one pick, one edit");
+        // …and the list is closed again, the cell showing the new item.
+        let painted = drive_painted(&[grid], frames);
+        assert_eq!(shown(&painted, "Thriller"), 1, "the cell shows Thriller; the list is gone");
+        assert_eq!(shown(&painted, "Drama"), 1);
+        println!("\n  DataGrid dropdown -- picking Thriller writes T into Bia's cell, reports C -> T once, and closes the list\n");
+    }
+
+    /// Picking the item the cell already holds changes nothing and says nothing.
+    #[test]
+    fn picking_the_item_the_cell_holds_is_no_edit() {
+        let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+        let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+        frames.extend(click_at(dropdown_item(&grid, 1), 0.4));
+        let (events, props) = drive(&[grid], frames);
+        assert_eq!(edited(&events), 0, "Bia already holds C");
+        assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none());
+    }
+
+    /// Escape, and a click away from the list, close it and change nothing.
+    #[test]
+    fn escape_and_a_click_outside_close_the_list_and_change_nothing() {
+        let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+        for how in ["escape", "outside"] {
+            let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+            frames.push((0.3, vec![]));
+            match how {
+                "escape" => frames.push((0.4, vec![key_ev(egui::Key::Escape)])),
+                _ => frames.extend(click_at(pos2(500.0, 500.0), 0.4)),
+            }
+            frames.push((0.8, vec![]));
+            let (events, props) = drive(&[grid.clone()], frames.clone());
+            assert_eq!(edited(&events), 0, "{how}: no edit");
+            assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none(), "{how}: Rows untouched");
+            let painted = drive_painted(&[grid.clone()], frames);
+            assert_eq!(shown(&painted, "Thriller"), 0, "{how}: the list is closed");
+        }
+    }
+
+    /// The arrows and Enter work the open list: they do not move the grid's selection, and
+    /// Enter picks the highlighted item — which starts on the cell's own.
+    #[test]
+    fn the_arrow_keys_and_enter_work_the_open_list() {
+        let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+        let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+        frames.push((0.3, vec![]));
+        frames.push((0.4, vec![key_ev(egui::Key::ArrowDown)]));
+        frames.push((0.5, vec![key_ev(egui::Key::Enter)]));
+        frames.push((0.6, vec![]));
+        let (events, props) = drive(&[grid.clone()], frames);
+        // Bia holds C (second); Down is the third item, T.
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tD\nBia\tT\nCid\t"), "Down then Enter picks the next item");
+        assert_eq!(edited(&events), 1);
+        // Up from C is D.
+        let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+        frames.push((0.3, vec![]));
+        frames.push((0.4, vec![key_ev(egui::Key::ArrowUp)]));
+        frames.push((0.5, vec![key_ev(egui::Key::Enter)]));
+        let (_, props) = drive(&[grid], frames);
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tD\nBia\tD\nCid\t"));
+    }
+
+    /// F2 and Alt+Down on the selected Dropdown cell open its list, and F2 opens no text box.
+    #[test]
+    fn f2_and_alt_down_open_the_list_and_no_text_box() {
+        let alt_down = Event::Key {
+            key: egui::Key::ArrowDown,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::ALT,
+        };
+        for (what, open) in [("F2", key_ev(egui::Key::F2)), ("Alt+Down", alt_down)] {
+            let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+            // Select Bia's name, move right onto her Category, open the list from the keyboard.
+            let mut frames = click_at(pos2(60.0, 75.0), 0.0);
+            frames.push((0.3, vec![key_ev(egui::Key::ArrowRight)]));
+            frames.push((0.4, vec![open]));
+            frames.push((0.5, vec![]));
+            let painted = drive_painted(&[grid.clone()], frames.clone());
+            assert_eq!(shown(&painted, "Thriller"), 1, "{what}: the list is open");
+            // Typing goes to the list's type-ahead, not to a text box: Enter picks what it found.
+            frames.push((0.6, vec![Event::Text("t".into())]));
+            frames.push((0.7, vec![key_ev(egui::Key::Enter)]));
+            frames.push((0.8, vec![]));
+            let (events, props) = drive(&[grid], frames);
+            assert_eq!(edited(&events), 1, "{what}: one pick");
+            assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tD\nBia\tT\nCid\t"), "{what}: type-ahead t picks Thriller");
+        }
+    }
+
+    /// A double-click on a Dropdown cell leaves its list open and opens no text box.
+    #[test]
+    fn a_double_click_on_a_dropdown_cell_leaves_the_list_open_and_opens_no_text_box() {
+        let grid = dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")]);
+        let at = pos2(170.0, 75.0);
+        let mut frames = vec![(0.0, vec![Event::PointerMoved(at)])];
+        for t in [0.05, 0.15] {
+            frames.push((t, vec![press(at)]));
+            frames.push((t + 0.04, vec![release(at)]));
+        }
+        frames.push((0.4, vec![]));
+        let painted = drive_painted(&[grid.clone()], frames.clone());
+        assert_eq!(shown(&painted, "Thriller"), 1, "the list is open after the double-click");
+        let (events, props) = drive(&[grid], frames);
+        assert_eq!(edited(&events), 0);
+        assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none());
+    }
+
+    /// R16/R17: a read-only or disabled grid opens no list, and a Dropdown cell is painted
+    /// exactly as it is when editing is on.
+    #[test]
+    fn a_disabled_grid_or_editing_off_opens_no_list_and_paints_alike() {
+        for (what, extra, disabled) in [("editing off", vec![], vec![]), ("disabled", vec![("AllowCellEditing", "true")], vec!["DG"])] {
+            let grid = dropdown_grid(Some(drama_crime_thriller()), &extra);
+            let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+            frames.push((0.5, vec![]));
+            let (events, props) = drive_disabling(&[grid.clone()], frames, &disabled);
+            assert_eq!(edited(&events), 0, "{what}: no edit");
+            assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none(), "{what}: Rows untouched");
+            // The list did not open: the item only the list has is not on the screen.
+            let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+            frames.push((0.5, vec![]));
+            if disabled.is_empty() {
+                assert_eq!(shown(&drive_painted(&[grid], frames), "Thriller"), 0, "{what}: no list");
+            }
+        }
+        let on = drive_painted(&[dropdown_grid(Some(drama_crime_thriller()), &[("AllowCellEditing", "true")])], pause());
+        let off = drive_painted(&[dropdown_grid(Some(drama_crime_thriller()), &[])], pause());
+        assert_eq!(on.fills, off.fills, "R17: the same cells whether or not editing is on");
+        assert_eq!(on.texts.len(), off.texts.len());
+    }
+
+    /// A Dropdown column with nothing to pick from is edited as text, as it always was; one
+    /// whose list the runtime reads takes the published items.
+    #[test]
+    fn a_dropdown_without_a_list_is_still_text_and_a_published_list_is_used() {
+        // No list at all: a double-click opens the text box, typing changes the cell.
+        let at = pos2(170.0, 75.0);
+        let mut frames = vec![(0.0, vec![Event::PointerMoved(at)])];
+        for t in [0.05, 0.15] {
+            frames.push((t, vec![press(at)]));
+            frames.push((t + 0.04, vec![release(at)]));
+        }
+        frames.push((0.25, vec![]));
+        frames.push((
+            0.3,
+            vec![Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            }],
+        ));
+        frames.push((0.35, vec![Event::Text("Zed".into())]));
+        frames.push((0.4, vec![key_ev(egui::Key::Enter)]));
+        frames.push((0.45, vec![]));
+        let (events, props) = drive(&[dropdown_grid(None, &[("AllowCellEditing", "true")])], frames);
+        assert_eq!(edited(&events), 1, "a Dropdown with no list takes typed text");
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tD\nBia\tZed\nCid\t"));
+
+        // A COBOL-table list: the items arrive in `_ColumnItems`, and a pick stores the code.
+        let table = crate::model::DataGridDropdown {
+            origin: crate::model::DataGridDropdownOrigin::CobolTable,
+            source: "WS-CATEGORY-TABLE".into(),
+            value_field: "CATEGORY-ID".into(),
+            display_field: "CATEGORY-NAME".into(),
+            ..Default::default()
+        };
+        let items = "Category\tD\tDrama\nOther\tX\tNot ours\nCategory\tC\tCrime\nCategory\tT\tThriller";
+        let grid = dropdown_grid(Some(table), &[("AllowCellEditing", "true"), ("_ColumnItems", items)]);
+        let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+        frames.push((0.3, vec![]));
+        let painted = drive_painted(&[grid.clone()], frames);
+        assert_eq!(shown(&painted, "Thriller"), 1, "the published items are the list");
+        assert_eq!(shown(&painted, "Not ours"), 0, "another column's items are not");
+        let mut frames = click_at(pos2(170.0, 75.0), 0.0);
+        frames.extend(click_at(dropdown_item(&grid, 2), 0.4));
+        let (_, props) = drive(&[grid], frames);
+        assert_eq!(props["DG"].get("Rows").map(String::as_str), Some("Ana\tD\nBia\tT\nCid\t"));
+    }
+
+    /// A Dropdown row the body's edge cuts off does not open its list from the part that
+    /// cannot be seen, and does not take the click of a control below the grid.
+    #[test]
+    fn a_clipped_dropdown_row_does_not_steal_the_click_of_a_control_below() {
+        let mut below = ctrlp("B", ControlType::Button, 20, 80, 300, 40, &[("Caption", "Below")]);
+        below.events.push(crate::model::EventBinding { event: "onClick".into(), paragraph: "B--ONCLICK".into(), code: String::new() });
+        let grid = dropdown_grid_sized(Some(drama_crime_thriller()), 300, 60, &[("AllowCellEditing", "true")]);
+        let mut frames = click_at(pos2(170.0, 83.0), 0.0);
+        frames.push((0.5, vec![]));
+        let (events, _) = drive(&[below.clone(), grid.clone()], frames.clone());
+        assert!(events.iter().any(|e| e.ctrl_id == "B" && e.event == "onClick"), "the button got its click: {events:?}");
+        let painted = drive_painted(&[below, grid], frames);
+        assert_eq!(shown(&painted, "Thriller"), 0, "no list opened from the cut-off row");
+    }
+
+    // ── Spec 095 §8.1: the key of a loaded row is read-only ──────────────────
+
+    /// A key column of a row that came from the source opens no editor — by
+    /// double-click or by F2 — while the same column of a row the program added takes
+    /// a key; a grid that names no key column is as it was.
+    #[test]
+    fn the_key_of_a_loaded_row_is_read_only_and_a_new_rows_is_not() {
+        let key_grid = |extra: &[(&str, &str)]| {
+            let mut props = vec![("AllowCellEditing", "true"), ("_KeyColumns", "1"), ("_RowOrigins", "k\u{1f}Bob\nk\u{1f}ann\n")];
+            props.extend_from_slice(extra);
+            audit_grid(&props)
+        };
+        let typing = |first: Vec<(f64, Vec<Event>)>| -> Vec<(f64, Vec<Event>)> {
+            let mut frames = first;
+            frames.push((0.25, vec![]));
+            frames.push((
+                0.3,
+                vec![Event::Key {
+                    key: egui::Key::A,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::COMMAND,
+                }],
+            ));
+            frames.push((0.35, vec![Event::Text("Zed".to_owned())]));
+            frames.push((0.4, vec![key_ev(egui::Key::Enter)]));
+            frames.push((0.45, vec![]));
+            frames
+        };
+        let double_click = |p: Pos2| {
+            vec![
+                (0.0, vec![Event::PointerMoved(p)]),
+                (0.05, vec![press(p)]),
+                (0.10, vec![release(p)]),
+                (0.15, vec![press(p)]),
+                (0.20, vec![release(p)]),
+            ]
+        };
+        // A loaded row (line 1): its key cell takes no editor.
+        let (events, props) = drive(&[key_grid(&[])], typing(double_click(pos2(100.0, 53.0))));
+        assert!(!events.iter().any(|e| e.event == "onCellEdited"), "the key of a loaded row was edited: {events:?}");
+        assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none());
+        // …nor does F2 on it.
+        let mut select_then_f2 = vec![(0.0, vec![Event::PointerMoved(pos2(100.0, 53.0))]), (0.05, vec![press(pos2(100.0, 53.0))]), (0.10, vec![release(pos2(100.0, 53.0))])];
+        select_then_f2.push((0.15, vec![key_ev(egui::Key::F2)]));
+        let (events, _) = drive(&[key_grid(&[])], typing(select_then_f2));
+        assert!(!events.iter().any(|e| e.event == "onCellEdited"), "F2 opened the key of a loaded row: {events:?}");
+        // The other column of the loaded row is still editable.
+        let (events, props) = drive(&[key_grid(&[])], typing(double_click(pos2(250.0, 53.0))));
+        assert!(events.iter().any(|e| e.event == "onCellEdited"), "a non-key cell of a loaded row edits: {events:?}");
+        assert!(props["DG"]["Rows"].starts_with("Bob\tZed"), "{:?}", props["DG"]["Rows"]);
+        // A row the program added (line 3, no origin) takes a key.
+        let (events, props) = drive(&[key_grid(&[])], typing(double_click(pos2(100.0, 97.0))));
+        assert!(events.iter().any(|e| e.event == "onCellEdited"), "the key of a new row edits: {events:?}");
+        assert_eq!(props["DG"]["Rows"], "Bob\t30\nann\t9\nZed\t100");
+        // A grid that names no key column edits everywhere, as before.
+        let mut plain = audit_grid(&[("AllowCellEditing", "true")]);
+        plain.set_prop("_RowOrigins", crate::PropValue::String("k\u{1f}Bob\nk\u{1f}ann\n".into()));
+        let (events, _) = drive(&[plain], typing(double_click(pos2(100.0, 53.0))));
+        assert!(events.iter().any(|e| e.event == "onCellEdited"), "no key columns, no lock: {events:?}");
+        println!("\n  DataGrid keys -- the key cell of a loaded row opens no editor (double-click, F2); a non-key cell and a new row's key do; no _KeyColumns, no lock\n");
+    }
+
+    /// R18: Button, Gauge and Image cells stay non-editable — a click is an
+    /// `onCellClick`, never an edit, even with `AllowCellEditing` on.
+    #[test]
+    fn a_button_cell_is_still_only_a_click_when_editing_is_allowed() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        for (id, kind) in [("Name", ""), ("Go", "Button")] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                control_kind: kind.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("Columns", "Name:string\nGo:string"),
+                ("Rows", "Ana\tgo\nBia\tgo"),
+                ("ShowCSVExportButton", "false"),
+                ("RowHeight", "22"),
+                ("AllowCellEditing", "true"),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        let (events, props) = drive(&[grid], click_at(pos2(170.0, 75.0), 0.0));
+        assert!(events.iter().any(|e| e.event == "onCellClick"), "{events:?}");
+        assert_eq!(edited(&events), 0);
+        assert!(props["DG"].get("Rows").is_none(), "a Button cell edits nothing");
+    }
+
+    /// Spec 095: the cell a failed save could not write wears a red mark in place
+    /// of the amber one; the other pending cells keep theirs.
+    #[test]
+    fn a_datagrid_marks_the_cell_whose_save_failed() {
+        let marks = |pending: &str, failed: &str| -> (usize, usize) {
+            let painted = drive_painted(
+                &[audit_grid(&[("_PendingCells", pending), ("_FailedCells", failed)])],
+                vec![(0.0, vec![]), (0.05, vec![])],
+            );
+            let count = |mark: Color32| painted.fills.iter().filter(|(_, c)| *c == mark).count();
+            (count(DATAGRID_PENDING_MARK), count(DATAGRID_FAILED_MARK))
+        };
+        assert_eq!(marks("", ""), (0, 0), "nothing pending, nothing failed");
+        assert_eq!(marks("1,1;3,2", ""), (2, 0), "pending cells are amber");
+        assert_eq!(marks("1,1;3,2", "3,2"), (1, 1), "the failing cell is red, not also amber");
+        assert_eq!(marks("", "2,1"), (0, 1), "a failed cell is marked even when the pending list is not published");
+        assert_eq!(marks("1,1", "9,9"), (1, 0), "a failed cell that is not there is not marked");
+        println!("\n  DataGrid failed save -- _FailedCells marks exactly the cell it names, red, in place of the amber pending mark\n");
+    }
+
+    /// Spec 095: a column's own opaque background must not hide the mark — the
+    /// cell to fix is exactly the one that has to be seen.
+    #[test]
+    fn a_columns_own_background_does_not_hide_the_failed_mark() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        for id in ["Name", "Age"] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                background_color: if id == "Name" { "#336699FF".into() } else { "#00000000".into() },
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("Columns", "Name:string\nAge:string"),
+                ("Rows", "Bob\t30\nann\t9"),
+                ("ShowCSVExportButton", "false"),
+                ("RowHeight", "22"),
+                ("_FailedCells", "1,1"),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        let painted = drive_painted(&[grid], vec![(0.0, vec![]), (0.05, vec![])]);
+        let at = painted.fills.iter().position(|(_, c)| *c == DATAGRID_FAILED_MARK).expect("the failed cell is marked");
+        let centre = painted.fills[at].0.center();
+        let beneath: Vec<usize> = painted
+            .fills
+            .iter()
+            .enumerate()
+            .filter(|(i, (rect, colour))| *i != at && *colour != DATAGRID_FAILED_MARK && rect.contains(centre))
+            .map(|(i, _)| i)
+            .collect();
+        assert!(!beneath.is_empty(), "the column's background is under the mark");
+        assert!(beneath.iter().all(|i| *i < at), "and was painted before it: {beneath:?} vs {at}");
+        println!("\n  DataGrid failed mark -- painted over the column background ({} fills under it), not under it\n", beneath.len());
     }
 
     /// The grid's background belongs to the whole grid area (operator,

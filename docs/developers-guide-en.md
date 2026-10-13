@@ -3531,6 +3531,26 @@ control that has a saved binding removes that binding, and **Undo** brings it
 back. Before 1.70.227 this Apply was refused with "A binding source must be
 selected.", so a saved binding could not be removed.
 
+**Making a binding writable.** A new binding is **read-only**: the grid shows
+the source and an edit stays in the grid. For an indexed file, a SQL table or a
+COBOL table the binding editor has a **Writable** switch under the field list;
+turning it on is what lets the grid's `Save()` (and `AutoCommit`) write the
+operator's edits to the source — see *Saving edits back to the source*, under
+*Advanced DataGrid*. A binding keeps the mode it was saved with, and Apply does
+not change it. While the switch is on, the editor lists **what the grid still
+needs**, in plain words:
+
+- a **key field** — tick **Key** on the field that identifies a row (indexed
+  file and SQL table);
+- the **table** an edit updates (SQL table);
+- **Allow cell editing** on the grid — without it the operator cannot edit a
+  cell, so nothing is ever written. The editor offers a **Turn on cell editing**
+  button for this one; it changes the grid's property as a step of its own, so
+  **Undo** turns it off again.
+
+A COBOL table needs no key: it is regenerated from the grid when it is saved. A
+REST or Agent AI binding has no Writable switch.
+
 Apart from the three scalar targets above, a standalone scalar control such as
 a single TextBox or Label does **not** expose data-binding information. If a scalar control belongs to an explicit control
 array, it can show only the array-owned mapping context; it cannot choose its own
@@ -3616,12 +3636,15 @@ not need a live network call. REST and Agent AI bindings are read-only unless
 you provide explicit update metadata: request schema, key/row identity fields,
 and an approved target list.
 
-Writable bindings must preserve source identity. A writable Indexed, SQL, COBOL
-table, REST, or Agent binding needs a key or row identity field so updates can
-target the correct record. Initial loads populate the target without marking it
+Writable bindings must preserve source identity. A writable Indexed, SQL, REST,
+or Agent binding needs a key or row identity field so updates can target the
+correct record. A writable **COBOL table** needs none: it is rewritten whole from
+the grid. Initial loads populate the target without marking it
 dirty. User edits are kept as pending binding state until an explicit update
-helper or your form's own event contract commits them; if an update fails, the
-pending edit and row identity remain recoverable.
+helper or your form's own event contract commits them. A bound DataGrid writes
+them with `Save()` (see *Saving edits back to the source*, under *Advanced
+DataGrid*) — every change in one transaction — and if a save fails nothing is
+written and the grid goes back to what it last loaded.
 
 Repair actions are metadata-only and preserve visual layout and event handlers:
 
@@ -3714,21 +3737,22 @@ background/foreground).
            END-IF.
 ```
 
-**Saving an edit back to the source — `AutoCommit`, `CommitEdit()`,
-`DiscardEdit()`.** A grid bound to a source that can be written — a
-**writable** binding over an indexed file, a COBOL table or a SQL table, or a
-grid whose **`DataSource`** names an indexed file that has a primary key — with
-**`AllowCellEditing`** on, writes the operator's edit back to that source. Any
-other grid behaves exactly as described above: it shows the edit and leaves the
-rest to your handler.
+**Saving edits back to the source — `Save()`, `AutoCommit`, `DiscardEdit()`.**
+A grid bound to a source that can be written — a **writable** binding over an
+indexed file, a COBOL table or a SQL table, or a grid whose **`DataSource`**
+names an indexed file that has a primary key — writes what the operator changes
+back to that source. Three things must all hold: the grid is **bound**, the
+binding is **writable**, and the grid has **`AllowCellEditing`** on. Any other
+grid behaves exactly as described above: it shows the edit and leaves the rest to
+your handler.
 
-What happens to the edit is the grid's **`AutoCommit`** property (on by default,
-beside *Allow cell editing* in **Edit DataGrid settings…**):
+What happens to a cell edit is the grid's **`AutoCommit`** property (on by
+default, beside *Allow cell editing* in **Edit DataGrid settings…**):
 
 | `AutoCommit` | What the runtime does |
 |---|---|
 | **On** | `onCellEdited` fires and your handler runs. **When it returns**, the cell's *current* value is written to the source and committed. So a handler that puts `PreviousValue` back with `SetCellValue` has **refused** the edit, and nothing is written. |
-| **Off** | `onCellEdited` fires and the edit stays **pending**: the cell wears a small amber mark and **nothing is written**. Your code decides — `DG::CommitEdit()` writes every pending edit, `DG::DiscardEdit()` puts each cell back as the source has it. |
+| **Off** | `onCellEdited` fires and the edit stays **pending**: the cell wears a small amber mark and **nothing is written**. Your code decides — `DG::Save()` writes the grid **in one transaction**, `DG::DiscardEdit()` puts it back as the source has it. |
 
 ```cobol
       *> AutoCommit on: validate, and refuse by putting the old value back.
@@ -3739,62 +3763,219 @@ beside *Allow cell editing* in **Edit DataGrid settings…**):
                    DG-ACTORS::PreviousValue)
            END-IF.
 
-      *> AutoCommit off: the operator edits several cells, then presses Save.
+      *> The operator edits cells, adds and removes rows, then presses Save.
        BTN-SAVE--ONCLICK.
-           SET WS-STATUS TO DG-ACTORS::CommitEdit()
+           SET WS-STATUS TO DG-ACTORS::Save()
            IF WS-STATUS NOT = "00"
                DISPLAY "Not saved: " DG-ACTORS::LastError
            END-IF.
+
+       DG-ACTORS--ONSAVED.
+           DISPLAY DG-ACTORS::SavedRows " record(s) saved".
 
        BTN-CANCEL--ONCLICK.
            SET WS-STATUS TO DG-ACTORS::DiscardEdit().
 ```
 
-How a row is found: **by its key**, never by its position. The key cells of the
-edited row — the indexed file's primary key, the binding's key field, the
-table's or SQL table's key fields — are read from the grid at the moment of the
-write, so sorting the grid, filtering it, or a `Sort`/`DeleteRow` in your code
-cannot send an edit to the wrong record. For the same reason **a key column
-cannot be edited**: a REWRITE cannot change the key.
+**What a save writes.** `Save()` writes everything that differs from what the
+grid last loaded or saved, all inside one transaction on the source, all or
+nothing, in this order:
+
+| In the grid | Written as |
+|---|---|
+| a row removed with `DeleteRow` | `DELETE` |
+| cells edited | one `UPDATE` (or REWRITE) per changed row, carrying all of that row's changed columns |
+| a row added with `AddRow` | `INSERT` (or WRITE) — the new row needs its **key**; a **blank line is never inserted** |
+
+Rows added and removed are written only by an explicit `Save()`; `AutoCommit`
+settles the cell edits alone. `ClearRows()` empties the display and makes the
+grid forget what it loaded, so it is **never** a request to delete the table;
+reload with `RefreshBinding()`. A save with nothing to write opens no
+transaction and answers `00`. When it wrote something, **`SavedRows`** says how
+many rows (an updated row counts once however many cells changed; so does an
+inserted or a deleted one) and **`onSaved`** fires once.
+
+**A row is found by what it was loaded as — its key — never by its position.**
+When the grid loads, it remembers each row and the key cells it came with. So
+sorting the grid, filtering it, or a `Sort`/`DeleteRow` in your code between the
+edit and the save cannot send an edit to the wrong record; a row that has gone
+from the file answers `23`. For the same reason **the key of a row that came
+from the source is read-only**: the operator cannot edit it, and a row of your
+own making (`AddRow`) takes its key. A row whose key your code changed with
+`SetCellValue` is **never written**: it is not updated, not deleted, and not
+inserted as a new row, and an edit still pending on it answers `21`.
+
+**It checks before it writes.** Each row the save is going to update or delete is
+first read back and compared with what the grid loaded: for an update the
+columns that were edited, for a delete every column. If someone else changed the
+row in the meantime, the whole save fails with **`96`** and nothing is written —
+their change stands. Another person's change to a *different* column of a row
+you updated is not a conflict, and survives.
 
 How each source is written:
 
-- **An indexed file** — the record is read by its key, the new text is encoded by
-  the field's PICTURE (text too long for it, or letters in a number, are
-  refused), and the record is REWRITTEN and committed.
-- **A COBOL table** — the item is stored as `MOVE` would store it, PICTURE
-  applied; a number must be a number. A table has no commit, so with
-  `AutoCommit` off the edit waits in the grid until `CommitEdit()`.
-- **A SQL table** — an `UPDATE <table> SET <field> = … WHERE <key> = …` on the
+- **An indexed file** — every record is found and compared first, each new text
+  is encoded by its field's PICTURE (text too long for it, or letters in a
+  number, are refused), and only then are the deletes, the REWRITEs and the
+  WRITEs made, and everything committed together — or rolled back. A new row
+  whose key is already in the file answers the file's `22`.
+- **A COBOL table** — the table is **regenerated from the grid**: every row of the
+  grid goes into the table's occurrences, in the grid's order, and the
+  occurrences after the last row are blanked. So an edit, a `Sort`, an `AddRow`
+  and a `DeleteRow` in the grid all become the table; the table needs no key. A
+  blank row is not written, and a grid with more rows than the table has room for
+  answers `92`. Every value is checked first, as `MOVE` would store it (a number
+  must be a number), so one bad value stores **none**. Items of the table that the
+  grid does not show stay where they are. A table has no commit; with
+  `AutoCommit` off the edits wait in the grid until `Save()`.
+- **A SQL table** — `BEGIN`, the `DELETE`s, one `UPDATE <table> SET <field> = …,
+  <field> = … WHERE <key> = …` per changed row, the `INSERT`s, `COMMIT`, on the
   connection of the `SqlDatabase` control the binding names, which must be open
   (the binding editor has a **Query** — the SELECT that fills the grid — and a
-  **Table** — what an edit updates). Every value is written as a literal escaped
-  for the engine; a number is checked first. The statement commits as the
-  connection commits any statement: at once, unless your program has begun a
-  transaction (`BEGIN`), in which case **your** `COMMIT` ends it.
+  **Table** — what an edit updates). A failure on any statement sends `ROLLBACK`,
+  so the statements before it are not kept either. Every value is a literal
+  escaped for the engine; a number is checked first. A new row's key must be
+  typed: a key the database generates is not read back. A connection in `Async`
+  mode answers `95`.
 
-When a write fails the cell shows its old value again, **`CommitStatus`** and
-**`LastError`** say why, and **`onCommitError`** fires (`EditedRow`,
-`EditedColumn`, `EditedValue` and `PreviousValue` name the cell):
+**Your own transaction on the connection.** The `SqlDatabase` control has
+`BeginTransaction()`, `Commit()`, `Rollback()` and `IsInTransaction()`. A save
+made while **your** transaction is open **joins it**: it takes a savepoint, writes
+inside it, and releases it — it does not `BEGIN` or `COMMIT` — so the
+`Commit()` or `Rollback()` stays yours, and a save that fails undoes **its own**
+writes and nothing you did before it. Two saves in one transaction are therefore
+one all-or-nothing change.
+
+```cobol
+      *> Two grids, one transaction: both saved, or neither.
+       BTN-SAVE-ALL--ONCLICK.
+           SET WS-OK TO DB-1::BeginTransaction()
+           SET WS-STATUS TO DG-ORDERS::Save()
+           IF WS-STATUS = "00"
+               SET WS-STATUS TO DG-LINES::Save()
+           END-IF
+           IF WS-STATUS = "00"
+               SET WS-OK TO DB-1::Commit()
+           ELSE
+               SET WS-OK TO DB-1::Rollback()
+               DISPLAY "Nothing saved: " DG-LINES::LastError
+           END-IF.
+```
+
+**When a save fails**, nothing was written, and **the old values are put back**:
+the grid shows what it last loaded or saved — the cells you edited, the rows you
+added and the rows you removed are all undone (with `AutoCommit` on, just the
+cells of the edit that failed). **`CommitStatus`** and **`LastError`** say why,
+**`onCommitError`** fires once (`EditedRow`, `EditedColumn`, `EditedValue` and
+`PreviousValue` name the first cell at fault), and that cell wears a **red** mark
+until the operator edits again. To show a conflict's newer data, call
+`RefreshBinding()`.
 
 | `CommitStatus` | Meaning |
 |---|---|
-| `00` | Written. |
-| `21` | The edit would change a key. |
-| `22`, `23`, `35` … | An indexed file's own FILE STATUS: duplicate key, no such record (it was deleted since the grid loaded), file missing. |
+| `00` | Written — or there was nothing to write. |
+| `21` | An edit would change a key, or a row's key was changed. |
+| `22`, `23`, `35` … | An indexed file's own FILE STATUS: duplicate key, no such record (it was deleted since the grid loaded), file missing. `23` is also a row that is no longer in the grid, or a SQL statement that found no row. |
 | `90` | The file, the driver or the connection failed (a SQL connection that is not open is this). |
-| `91` | The grid is not bound to something that can be written, or the binding names no key. |
-| `92` | The value does not fit the field: its PICTURE, or not a number. |
+| `91` | The grid is not bound to something that can be written, or the key is not shown in the grid. |
+| `92` | The value does not fit the field (its PICTURE, or not a number), a new row has no key, or a COBOL table has fewer occurrences than the grid has rows. |
+| `95` | The SQL connection is in `Async` mode; a save needs it `Sync`. Nothing was written, and `onCommitError` does not fire. |
+| `96` | A row was changed by someone else since the grid loaded it. |
 | `98` | Edits are still pending (see the caveat below). |
 
 > ⚠️ **Caveats.** **`RefreshBinding()` does not throw a pending edit away**: it
-> reloads the rows, puts the pending cells back over them and leaves
-> `CommitStatus` at `98`, so call `CommitEdit()` or `DiscardEdit()` first. A grid
-> bound to **SQL** is loaded when your program calls `RefreshBinding()` after
-> opening the connection — at start-up the connection is not open yet and the
-> grid stays as it is. An edit is written with the file's own locking: a file
-> another process holds open for writing answers `90` or `30` and the cell goes
-> back.
+> reloads the rows, puts the pending cells back over them — on the rows they were
+> made on, even if the reload reordered them — and leaves `CommitStatus` at `98`,
+> so call `Save()` or `DiscardEdit()` first; rows added or removed since the load
+> are not kept over a reload. A grid bound to **SQL** is loaded when your program
+> calls `RefreshBinding()` after opening the connection — at start-up the
+> connection is not open yet and the grid stays as it is. `Save()` runs on the
+> `SqlDatabase` control's own connection, so it replaces the control's current
+> result set. An edit is written with the file's own locking: a file another
+> process holds open for writing answers `90` or `30` and nothing is written. On
+> **MySQL** an `UPDATE` that stores the value the row already holds reports no row
+> changed, which a save reads as "no such row" (`23`).
+
+**A Checkbox cell takes a click.** A column whose **Edit control** is
+**Checkbox** (set per column in **Edit DataGrid settings…**) draws each cell as
+a box, checked or not. On a grid with **`AllowCellEditing`** on, clicking the box
+— or pressing **Space** on the selected cell — toggles it. The cell's text
+becomes the column's **Checked value** or **Unchecked value**; leave them empty
+and the pair is the one the cell's own data already uses (`Y`/`N`, `y`/`n`,
+`1`/`0`, `true`/`false`, `yes`/`no`, `X`/space), and `Y`/`N` for an empty cell.
+A column that sets them draws a cell checked exactly when its text is the
+Checked value, so the box on screen and the value you read always agree.
+
+A toggle is an ordinary edit: it writes the new text into `Rows` and fires
+**`onCellEdited`** with `EditedRow`, `EditedColumn`, `EditedValue` and
+`PreviousValue`, so your handler can refuse it (`SetCellValue` with
+`PreviousValue`) and a grid that writes back saves it exactly as it saves a
+typed value — with `Save()` or `AutoCommit`. A double-click is two toggles and
+opens no text box. With `AllowCellEditing` off, or the grid disabled, the box
+only selects the cell, and is painted just the same.
+
+```cobol
+      *> Done (column 2) is a Checkbox column whose pair is "T" / "F".
+       DG-TASKS--ONCELLEDITED.
+           IF DG-TASKS::EditedColumn = 2
+               IF DG-TASKS::EditedValue = "T"
+                   ADD 1 TO WS-DONE-COUNT
+               ELSE
+                   SUBTRACT 1 FROM WS-DONE-COUNT
+               END-IF
+           END-IF.
+```
+
+**A Dropdown cell picks from a list.** A column whose **Edit control** is
+**Dropdown** draws each cell as a small box with a ▼. The cell **holds** an
+item's *value* and **shows** its *text* — a column of film categories can hold
+`D`, `C`, `T` and show Drama, Crime, Thriller. On a grid with
+**`AllowCellEditing`** on, clicking the cell — or pressing **F2** or **Alt+Down**
+on the selected one — opens the list of its items under the cell. **Up** and
+**Down** move through it, **Enter** (or a click) picks, a typed letter jumps to
+the first item that begins with it, and **Escape** or a click anywhere else closes
+the list and changes nothing. The list opens on the item the cell already holds.
+
+A pick is an ordinary edit, like a toggle: the item's *value* (not its text) goes
+into `Rows` and **`onCellEdited`** fires with `EditedRow`, `EditedColumn`,
+`EditedValue` (the value) and `PreviousValue`, so your handler can refuse it
+and a grid that writes back saves it with `Save()` or `AutoCommit`. Picking the
+item the cell already holds is no edit.
+
+**Where the list comes from.**
+
+| Origin | What you give | Read |
+|--------|---------------|------|
+| **Static items** | One `CODE=Label` per line in the column's settings (a line without `=` is both the value and the text) | when the grid is drawn |
+| **COBOL table** | A table of the form, and its two items: the value and the display text | each time the grid's binding loads — your `RefreshBinding()` |
+| **Indexed file** | The `.cidx` and two of its fields | the same |
+| **SQL control**, **REST API** | kept by the Data Binding editor, **not read at run time** | — |
+
+A COBOL table or indexed-file list is set on a field in the **Data Binding**
+editor (choose *Dropdown* as the field's control), and is kept with the form; it
+caps at the list's **limit** (0 is no limit). An occurrence with neither item
+filled is left out, and a data file that is not there yet is an empty list.
+Because the list is read when the binding loads, call `RefreshBinding()` after
+your program has changed the table or the file.
+
+A value that is in none of the items is shown as it is, a number finds its item
+however it is written (`3` and `003` are one), and an item with no text shows its
+value. A Dropdown column with **no** items to pick from — nothing configured, or
+a source that gave none — is edited as text, as it was before lists existed. With
+`AllowCellEditing` off, or the grid disabled, the cell shows its text and the
+list does not open; it is painted just the same.
+
+```cobol
+      *> Category (column 2) is a Dropdown over D=Drama, C=Crime, T=Thriller.
+       DG-FILMS--ONCELLEDITED.
+           IF DG-FILMS::EditedColumn = 2
+               DISPLAY "Row " DG-FILMS::EditedRow " is now " DG-FILMS::EditedValue
+           END-IF.
+```
+
+> ⚠️ **Caveat.** The Designer does not read your table or file: on its canvas
+> such a cell shows the stored value (the code), not the text. A list typed as
+> static items shows its text there, and picks there change only the sample data.
 
 **In the Designer the grid shows fake data.** Whether or not a grid is bound,
 the canvas draws the grid's **own** columns and rows — sample data — and never
@@ -7092,7 +7273,8 @@ In words:
 >   TreeView `onNodeClick`/`onNodeSelect`/`onNodeDblClick`; Panel `onScroll`
 >   (AutoScroll); MenuBar `onMenuOpen`/`onMenuClose`; DataGrid
 >   `onCellClick`/`onCellDoubleClick`/`onRowDoubleClick`/`onColumnClick`/
->   `onScroll` plus its selection events.
+>   `onScroll` plus its selection events, and — on a grid that edits and writes
+>   back — `onCellEdited`, `onSaved` and `onCommitError`.
 > - **Media & charts** — PictureBox `onImageLoaded`/`onImageError`; Animator
 >   `onStarted`/`onFrameChanged`/`onLooped`/`onEnded`; charts `onDataChanged`
 >   when their data properties change.
@@ -7379,7 +7561,7 @@ control's methods after you type `::`, each with a one-line description.
 | REST Client                 | `get`, `post`, `put`, `delete`, `call`, `setHeader`, `clearHeaders`                                                                                             |
 | SQL Database                | `open`, `execute`, `query`, `fetch`, `fetchAll`, `close`                                                                                                        |
 | AI Agent                    | `Ask`, `SetPrompt`, `SetModel`, `Stop`                                                                                                                          |
-| DataGrid                    | `RefreshBinding`, `ExportCSV`, `SetFilter`, `ClearFilters`, `FreezeColumns`, `FreezeRows`, `SetRowHeight`, `SetColumnWidth`, `GetSelectedText`, `CopySelection` |
+| DataGrid                    | `RefreshBinding`, `Save`, `DiscardEdit`, `ExportCSV`, `SetFilter`, `ClearFilters`, `FreezeColumns`, `FreezeRows`, `SetRowHeight`, `SetColumnWidth`, `GetSelectedText`, `CopySelection` |
 
 Method names are **not case-sensitive**: `get`, `Get` and `GET` are one call. The
 REST Client and SQL Database rows are written in lowercase only because that is
@@ -12501,6 +12683,31 @@ synchronous call raises** — so a handler you already wrote keeps working:
 > ⚠️ **Caveat.** Do not read `ResultCount` or `Fetch()` on the statement after
 > an asynchronous `Query` — nothing has arrived yet. Their home is the
 > `onQueryComplete` handler.
+
+#### Transactions on a SqlDatabase
+
+`BeginTransaction()`, `Commit()` and `Rollback()` open, keep and throw away a
+transaction on the control's connection, so a group of `Execute` statements is
+all-or-nothing without sending `BEGIN` as text; `IsInTransaction()` answers
+`1` while one is open. Each verb answers `1` when it took effect and `0`
+(with `LastError` and `onQueryError`) when it could not: a second
+`BeginTransaction()`, a `Commit()` or `Rollback()` with none open, or a
+connection in `Async` mode, which needs its statements run in order. A bound
+DataGrid's `Save()` on this connection joins the transaction — see *Saving
+edits back to the source* — and leaves the `Commit()` to you.
+
+```cobol
+       TRANSFER-BUTTON--ONCLICK.
+           MOVE SPACES TO SqlDatabase-1::LastError
+           SET WS-OK TO SqlDatabase-1::BeginTransaction()
+           SqlDatabase-1::Execute("UPDATE accounts SET balance = balance - 50 WHERE id = 1").
+           SqlDatabase-1::Execute("UPDATE accounts SET balance = balance + 50 WHERE id = 2").
+           IF SqlDatabase-1::LastError = SPACES
+               SET WS-OK TO SqlDatabase-1::Commit()
+           ELSE
+               SET WS-OK TO SqlDatabase-1::Rollback()
+           END-IF.
+```
 
 ### Data items: where a result lands in WORKING-STORAGE
 

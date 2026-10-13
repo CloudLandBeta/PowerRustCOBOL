@@ -595,7 +595,11 @@ fn validate_writable_identity(binding: &DataBindingDef, findings: &mut Vec<Guard
     if binding.mode != BindingMode::Writable {
         return;
     }
-    if source_identity_fields(&binding.source).is_empty() {
+    if source_identity_fields(&binding.source).is_empty()
+        // A COBOL table with no key is told apart by its occurrence (spec 095):
+        // the runtime knows which table row each grid line came from.
+        && !matches!(binding.source, BindingSourceDescriptor::CobolTable { .. })
+    {
         blocker(
             findings,
             binding,
@@ -990,6 +994,30 @@ mod tests {
         let findings = validate_form_bindings(&form_with_grid(binding));
         assert!(has_blockers(&findings));
         assert!(findings.iter().any(|f| f.code == "missing-row-identity"));
+    }
+
+    /// Spec 095 R3: a writable COBOL-table binding with no key marked is allowed —
+    /// its rows are found by their place in the table — while every other source
+    /// still needs a key (the test above).
+    #[test]
+    fn a_writable_cobol_table_without_a_key_is_allowed() {
+        let mut binding = valid_grid_binding();
+        binding.mode = BindingMode::Writable;
+        let mut table_fields = fields();
+        table_fields.iter_mut().for_each(|field| field.key = false);
+        binding.source = BindingSourceDescriptor::CobolTable {
+            table_name: "WS-CUSTOMER-TABLE".into(),
+            occurs_item: "WS-CUSTOMER-ROW".into(),
+            fields: table_fields,
+            key_fields: Vec::new(),
+            writable: true,
+        };
+        let findings = validate_form_bindings(&form_with_grid(binding));
+        assert!(
+            !findings.iter().any(|f| f.code == "missing-row-identity"),
+            "a keyless COBOL table is identified by occurrence: {findings:?}"
+        );
+        assert!(!has_blockers(&findings), "{findings:?}");
     }
 
     #[test]

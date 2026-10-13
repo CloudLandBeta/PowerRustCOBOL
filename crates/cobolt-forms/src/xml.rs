@@ -2245,6 +2245,26 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// Spec 095: a binding saved Writable loads Writable, one saved read-only
+    /// loads read-only — the mode is what the Designer's switch writes.
+    #[test]
+    fn a_binding_keeps_its_writable_mode_through_a_save_and_a_load() {
+        for mode in [crate::model::BindingMode::Writable, crate::model::BindingMode::ReadOnly] {
+            let mut form = sample_form();
+            form.controls.push(Control::new("GridCustomers", ControlType::DataGrid, 20, 60));
+            let mut binding = sample_binding();
+            binding.mode = mode.clone();
+            form.data_bindings.push(binding);
+            let path = std::env::temp_dir().join(format!("cobolt_test_binding_mode_095_{:?}.cfrm", mode));
+            save_form(&form, &path).expect("save bound form");
+            let saved = std::fs::read_to_string(&path).expect("read bound form");
+            assert!(saved.contains(&format!("\"mode\": \"{mode:?}\"")), "the mode is in the file: {mode:?}");
+            let loaded = load_form(&path).expect("load bound form");
+            assert_eq!(loaded.data_bindings[0].mode, mode);
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
     #[test]
     fn data_binding_cfrm_roundtrip_preserves_metadata_and_unrelated_controls() {
         let mut form = sample_form();
