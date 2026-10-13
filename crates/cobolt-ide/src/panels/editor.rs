@@ -7253,6 +7253,10 @@ END-EVALUATE
             .collect();
         for expected in [
             "RefreshBinding",
+            // Spec 095: the write-back methods, as the System KB documents them.
+            "Save",
+            "CommitEdit",
+            "DiscardEdit",
             "SetFilter",
             "ClearFilters",
             "FreezeColumns",

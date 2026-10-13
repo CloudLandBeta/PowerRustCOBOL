@@ -534,6 +534,128 @@ impl DataGridLayout {
     }
 }
 
+// ── The Checkbox cell's pair of values (spec 095) ────────────────────────────
+
+/// The pairs of values a Checkbox column's data may already use, as
+/// `(checked, unchecked)`. The first the cell's own text belongs to is the pair.
+const CHECKBOX_PAIRS: [(&str, &str); 9] = [
+    ("Y", "N"),
+    ("y", "n"),
+    ("1", "0"),
+    ("true", "false"),
+    ("True", "False"),
+    ("TRUE", "FALSE"),
+    ("yes", "no"),
+    ("Yes", "No"),
+    ("X", " "),
+];
+
+/// What a Checkbox column writes for checked and for unchecked, and whether the
+/// column said so itself. A value the column sets is used as it is; one it leaves
+/// empty comes from the pair the column's other value — or, failing that, the
+/// cell's own text — belongs to, and from `Y`/`N` when it belongs to none.
+fn checkbox_pair(raw: &str, checked: &str, unchecked: &str) -> (String, String, bool) {
+    let (c, u, raw) = (checked.trim(), unchecked.trim(), raw.trim());
+    let explicit = !c.is_empty() || !u.is_empty();
+    let belongs = |exact: bool| {
+        CHECKBOX_PAIRS.iter().copied().find(|(pc, pu)| {
+            let same = |a: &str, b: &str| if exact { a == b } else { a.eq_ignore_ascii_case(b) };
+            if !c.is_empty() {
+                same(pc, c)
+            } else if !u.is_empty() {
+                same(pu.trim(), u)
+            } else {
+                !raw.is_empty() && (same(pc, raw) || same(pu.trim(), raw))
+            }
+        })
+    };
+    let (pc, pu) = belongs(true).or_else(|| belongs(false)).unwrap_or(("Y", "N"));
+    let checked = if c.is_empty() { pc.to_owned() } else { c.to_owned() };
+    let unchecked = if u.is_empty() { pu.to_owned() } else { u.to_owned() };
+    (checked, unchecked, explicit)
+}
+
+/// Whether a Checkbox cell holding `raw` is checked. With a pair of the column's
+/// own it is checked exactly when the text is the checked value (any case); with
+/// none it is checked when the text is one of the words a cell has always been
+/// painted as checked for (`y`, `yes`, `true`, `1`, `x`, `checked`) — so a form
+/// saved before the pair existed paints as it did.
+///
+/// The one function both the paint and the toggle use, so the painted box and
+/// the written value always agree.
+pub fn checkbox_checked(raw: &str, checked: &str, unchecked: &str) -> bool {
+    let (c, _, explicit) = checkbox_pair(raw, checked, unchecked);
+    if explicit {
+        raw.trim().eq_ignore_ascii_case(c.trim())
+    } else {
+        matches!(raw.trim().to_ascii_lowercase().as_str(), "y" | "yes" | "true" | "1" | "x" | "checked")
+    }
+}
+
+/// The text a click on a Checkbox cell holding `raw` writes: the unchecked value
+/// when it is checked, the checked value when it is not.
+pub fn checkbox_next(raw: &str, checked: &str, unchecked: &str) -> String {
+    let (c, u, _) = checkbox_pair(raw, checked, unchecked);
+    if checkbox_checked(raw, checked, unchecked) {
+        u
+    } else {
+        c
+    }
+}
+
+/// The items a Dropdown column offers, as `(value, display text)` in order.
+///
+/// `Static` reads the column's own `CODE=Label` lines; a COBOL table or an indexed
+/// file reads the lines the runtime published for this grid (`_ColumnItems`:
+/// `column id TAB value TAB text`) that carry this column's id. A SQL control or a
+/// REST list is kept by the editor but not resolved at run time, so it gives none.
+/// At most `limit` items (0: no limit). An empty list means the cell has nothing
+/// to pick from, and is edited as text, as a Dropdown cell always was. An item
+/// with no text shows its value.
+pub fn dropdown_items(column: &crate::model::DataGridColumn, published: &str) -> Vec<(String, String)> {
+    use crate::model::DataGridDropdownOrigin as Origin;
+    let Some(list) = column.dropdown.as_ref() else {
+        return Vec::new();
+    };
+    let items: Vec<(String, String)> = match list.origin {
+        Origin::Static => list.static_items(),
+        Origin::CobolTable | Origin::IndexedFile => published
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.splitn(3, '\t');
+                let (id, value, text) = (parts.next()?, parts.next()?, parts.next().unwrap_or(""));
+                (id == column.id).then(|| (value.to_owned(), text.to_owned()))
+            })
+            .collect(),
+        Origin::SqlControl | Origin::RestApi => Vec::new(),
+    };
+    let limit = if list.limit == 0 { usize::MAX } else { list.limit as usize };
+    // An item with no text shows its value.
+    items
+        .into_iter()
+        .take(limit)
+        .map(|(value, text)| if text.trim().is_empty() { (value.clone(), value) } else { (value, text) })
+        .collect()
+}
+
+/// Which item a cell holding `value` is showing: the first whose value is the text
+/// (ignoring surrounding blanks), else the first that is the same number — a `3`
+/// and a `003` are one item. `None`: the value is in no item, and the cell shows
+/// it as it is.
+pub fn dropdown_position(items: &[(String, String)], value: &str) -> Option<usize> {
+    let value = value.trim();
+    items.iter().position(|(code, _)| code.trim() == value).or_else(|| {
+        let number = value.parse::<f64>().ok()?;
+        items.iter().position(|(code, _)| code.trim().parse::<f64>().ok() == Some(number))
+    })
+}
+
+/// The text a Dropdown cell holding `value` shows: its item's display text, or the
+/// value itself when no item has it.
+pub fn dropdown_text<'a>(items: &'a [(String, String)], value: &'a str) -> &'a str {
+    dropdown_position(items, value).map_or(value, |at| items[at].1.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -907,5 +1029,108 @@ mod tests {
     fn a_grid_with_no_width_yet_keeps_its_numbers() {
         let w = resolve_column_widths(&[(120.0, Points), (50.0, Percent)], 0.0, true);
         assert_eq!(w, vec![120.0, 50.0]);
+    }
+
+    /// Spec 095 R14: every pair a cell's data can use toggles both ways, and the
+    /// text a click writes is exactly the text the box is painted for.
+    #[test]
+    fn a_checkbox_toggles_between_the_two_values_its_data_uses() {
+        for (checked, unchecked) in super::CHECKBOX_PAIRS {
+            // A blank cell is an empty cell, which starts from Y/N: the X/space pair is
+            // reached from a blank only when the column names X as its checked value.
+            let named = if unchecked.trim().is_empty() { checked } else { "" };
+            assert!(checkbox_checked(checked, named, ""), "{checked:?} is checked");
+            assert!(!checkbox_checked(unchecked, named, ""), "{unchecked:?} is not");
+            assert_eq!(checkbox_next(checked, named, ""), unchecked, "checked -> unchecked");
+            assert_eq!(checkbox_next(unchecked, named, ""), checked, "unchecked -> checked");
+            // What a click writes is painted as the opposite of what it replaced.
+            for raw in [checked, unchecked] {
+                let written = checkbox_next(raw, named, "");
+                assert_ne!(
+                    checkbox_checked(raw, named, ""),
+                    checkbox_checked(&written, named, ""),
+                    "{raw:?} -> {written:?}"
+                );
+            }
+        }
+        assert_eq!(checkbox_next("", "", ""), "Y", "a blank cell with no named value starts from Y/N");
+        println!("checkbox: {} pairs toggle both ways, painted and written alike", super::CHECKBOX_PAIRS.len());
+    }
+
+    /// An empty cell, or one the pairs do not know, starts from Y/N; a word the
+    /// old paint treated as checked still is, and unchecks to the default pair.
+    #[test]
+    fn a_checkbox_cell_with_no_known_pair_uses_y_and_n() {
+        assert_eq!(checkbox_next("", "", ""), "Y");
+        assert_eq!(checkbox_next("maybe", "", ""), "Y");
+        assert!(!checkbox_checked("maybe", "", ""));
+        assert!(checkbox_checked("checked", "", ""), "painted checked before columns had a pair");
+        assert_eq!(checkbox_next("checked", "", ""), "N");
+        assert_eq!(checkbox_next("  y ", "", ""), "n", "the cell's own case and spacing pick the pair");
+    }
+
+    /// A column's own pair is what is written and what is painted; the old
+    /// truthy words no longer count once the column has said what checked is.
+    #[test]
+    fn a_column_pair_decides_what_is_written_and_painted() {
+        assert!(checkbox_checked("T", "T", "F"));
+        assert!(checkbox_checked("t", "T", "F"), "any case");
+        assert!(!checkbox_checked("Y", "T", "F"), "Y is not this column's checked value");
+        assert_eq!(checkbox_next("F", "T", "F"), "T");
+        assert_eq!(checkbox_next("T", "T", "F"), "F");
+        assert_eq!(checkbox_next("anything", "T", "F"), "T", "an unknown value is unchecked");
+        // One side given: the other comes from the pair it belongs to.
+        assert_eq!(checkbox_next("0", "1", ""), "1");
+        assert_eq!(checkbox_next("1", "1", ""), "0");
+        assert_eq!(checkbox_next("1", "", "0"), "0");
+        assert_eq!(checkbox_next("Y", "", "0"), "1", "the unchecked side names the 1/0 pair");
+    }
+    fn dropdown_column(list: crate::model::DataGridDropdown) -> crate::model::DataGridColumn {
+        crate::model::DataGridColumn { id: "Category".into(), dropdown: Some(list), ..Default::default() }
+    }
+
+    /// Static items come off the column; a table's or a file's come from the runtime's
+    /// published lines, the ones carrying this column's id; SQL and REST give none.
+    #[test]
+    fn a_dropdown_columns_items_come_from_where_it_says() {
+        use crate::model::{DataGridDropdown as List, DataGridDropdownOrigin as Origin};
+        let statics = dropdown_column(List { items: "D=Drama\nC=Crime\nPlain".into(), ..Default::default() });
+        assert_eq!(
+            dropdown_items(&statics, "Category\tZ\tIgnored"),
+            [("D".to_owned(), "Drama".to_owned()), ("C".to_owned(), "Crime".to_owned()), ("Plain".to_owned(), "Plain".to_owned())]
+        );
+        let published = "Category\tD\tDrama\nOther\tX\tNot ours\nCategory\tC\tCrime\nCategory\tT\t";
+        for origin in [Origin::CobolTable, Origin::IndexedFile] {
+            let table = dropdown_column(List { origin, ..Default::default() });
+            assert_eq!(
+                dropdown_items(&table, published),
+                [("D".to_owned(), "Drama".to_owned()), ("C".to_owned(), "Crime".to_owned()), ("T".to_owned(), "T".to_owned())],
+                "{origin:?}: only the lines with this column's id, in order; an item with no text shows its value"
+            );
+        }
+        for origin in [Origin::SqlControl, Origin::RestApi] {
+            assert!(dropdown_items(&dropdown_column(List { origin, ..Default::default() }), published).is_empty(), "{origin:?}");
+        }
+        assert!(dropdown_items(&crate::model::DataGridColumn::default(), published).is_empty(), "no list, no items");
+        let capped = dropdown_column(List { origin: Origin::CobolTable, limit: 2, ..Default::default() });
+        assert_eq!(dropdown_items(&capped, published).len(), 2, "limit caps");
+        let capped_static = dropdown_column(List { items: "A\nB\nC".into(), limit: 1, ..Default::default() });
+        assert_eq!(dropdown_items(&capped_static, "").len(), 1, "…static items too");
+    }
+
+    /// A cell shows its item's text; a value in no item shows as it is; a number
+    /// finds its item however it is spelled.
+    #[test]
+    fn a_dropdown_cell_shows_the_text_of_the_item_its_value_names() {
+        let items = vec![("D".to_owned(), "Drama".to_owned()), ("3".to_owned(), "Three".to_owned()), ("010".to_owned(), "Ten".to_owned())];
+        assert_eq!(dropdown_text(&items, "D"), "Drama");
+        assert_eq!(dropdown_text(&items, "  D "), "Drama", "blanks around a value do not matter");
+        assert_eq!(dropdown_text(&items, "d"), "d", "a code is exact: 'd' is not 'D'");
+        assert_eq!(dropdown_text(&items, "003"), "Three", "003 is the number 3");
+        assert_eq!(dropdown_text(&items, "10"), "Ten", "…and 10 is 010");
+        assert_eq!(dropdown_text(&items, "Z"), "Z", "a value in no item is shown as it is");
+        assert_eq!(dropdown_text(&items, ""), "");
+        assert_eq!(dropdown_position(&items, "D"), Some(0));
+        assert_eq!(dropdown_position(&items, "nope"), None);
     }
 }

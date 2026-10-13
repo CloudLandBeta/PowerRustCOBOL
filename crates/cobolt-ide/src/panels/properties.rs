@@ -26,11 +26,11 @@ use cobolt_ast::data::{DataDecl, PicKind};
 use cobolt_ast::program::DataSection;
 use cobolt_forms::model::{
     AnimKind, AnimRepeat, AnimTrigger, BgImageMode, DataGridAdvanced, DataGridCellFrame,
-    DataGridGauge, DataGridGridLineStyle, DataGridTextAlignment, DataGridValueStyleRule,
+    DataGridDropdown, DataGridDropdownOrigin, DataGridGauge, DataGridGridLineStyle, DataGridTextAlignment, DataGridValueStyleRule,
     EasingKind, PropValue, DATAGRID_ADVANCED_PROP,
 };
 use cobolt_forms::{
-    BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor,
+    BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor,
     BindingTargetPath, Control, ControlType, DataBindingDef, FieldMapping, Form,
 };
 use cobolt_lexer::{tokenize, SourceFormat};
@@ -716,6 +716,9 @@ struct BindingEditorState {
     selected_source: Option<BindingEditorSourceKind>,
     binding_id: String,
     display_name: String,
+    /// Spec 095: whether the binding may be written back to its source. Off for a
+    /// new binding; a binding that already exists keeps the mode it was saved with.
+    mode: BindingMode,
     indexed_files: Vec<String>,
     cobol_tables: Vec<CobolTableBindingMeta>,
     selected_indexed_file: String,
@@ -795,6 +798,7 @@ impl BindingEditorState {
             selected_source,
             binding_id,
             display_name: format!("{} -> {}", source_kind.id_fragment(), target_id),
+            mode: BindingMode::ReadOnly,
             indexed_files: indexed_files.to_vec(),
             cobol_tables,
             selected_indexed_file: indexed_files
@@ -842,6 +846,7 @@ impl BindingEditorState {
         };
         let mut s = Self::new(form, control, source_kind, indexed_files)?;
         s.binding_id = binding.id.clone();
+        s.mode = binding.mode.clone();
         if !binding.display_name.trim().is_empty() {
             s.display_name = binding.display_name.clone();
         }
@@ -886,7 +891,7 @@ impl BindingEditorState {
                     f.data_type.clone(),
                     friendly,
                     BindingEditControl::from_label(&f.edit_control),
-                    DropdownConfig::empty(),
+                    f.dropdown.as_ref().map_or_else(DropdownConfig::empty, DropdownConfig::from_model),
                 );
                 row.required = !f.nullable;
                 row.key = f.key;
@@ -895,6 +900,18 @@ impl BindingEditorState {
                 row
             })
             .collect();
+        // A key the descriptor names but no field row flags (a hand-written
+        // binding) is still a key: applying the editor must not drop it.
+        let named_keys: Vec<&String> = match &binding.source {
+            Src::IndexedFile { key_field, .. } => key_field.iter().collect(),
+            Src::Sql { key_fields, .. } | Src::CobolTable { key_fields, .. } => key_fields.iter().collect(),
+            _ => Vec::new(),
+        };
+        for row in &mut s.rows {
+            if named_keys.iter().any(|key| key.eq_ignore_ascii_case(&row.source_field)) {
+                row.key = true;
+            }
+        }
         // Restore which source field maps onto which member control (arrays).
         for mapping in &binding.mappings {
             if let BindingTargetPath::ControlProperty { control_id, .. } = &mapping.target {
@@ -979,15 +996,18 @@ impl BindingEditorState {
             }
             _ => default_mappings_for_target(form, &target, &fields),
         };
-        Some(
-            DataBindingDef::new(
-                clean_or_default(&self.binding_id, "BINDING"),
-                clean_or_default(&self.display_name, "Data binding"),
-                source,
-                target,
-            )
-            .with_mappings(mappings),
+        let mut binding = DataBindingDef::new(
+            clean_or_default(&self.binding_id, "BINDING"),
+            clean_or_default(&self.display_name, "Data binding"),
+            source,
+            target,
         )
+        .with_mappings(mappings);
+        // Only a source the runtime can write back to may be writable.
+        if source_kind.can_be_written() {
+            binding.mode = self.mode.clone();
+        }
+        Some(binding)
     }
 
     fn to_source_descriptor(
@@ -1045,6 +1065,10 @@ impl BindingEditorState {
     }
 
     fn binding_fields(&self) -> Vec<BindingField> {
+        let choices = DropdownChoices {
+            cobol_tables: self.cobol_tables.clone(),
+            indexed_files: self.indexed_files.clone(),
+        };
         self.rows
             .iter()
             .map(|row| {
@@ -1054,6 +1078,11 @@ impl BindingEditorState {
                 field.edit_control = row.edit_control.label().to_owned();
                 field.nullable = !row.required;
                 field.key = row.key;
+                // A Dropdown's list is kept with the binding (spec 095) — but only a
+                // list the runtime can read.
+                if row.edit_control == BindingEditControl::Dropdown {
+                    field.dropdown = row.dropdown.to_model(&choices);
+                }
                 field
             })
             .collect()
@@ -2917,6 +2946,92 @@ fn show_jsonpath_help_panel(ui: &mut Ui) {
         });
 }
 
+/// What a binding set to Writable still lacks before its grid writes an edit
+/// back (spec 095 R2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WritableNeed {
+    /// No field is marked *Key*: the row to write cannot be found.
+    KeyField,
+    /// The SQL source names no table for an edit to update.
+    SqlTable,
+    /// The grid does not allow cell editing, so no edit is ever made.
+    CellEditing,
+}
+
+/// The needs of a Writable binding, from the editor's own state and the grid's
+/// `AllowCellEditing` — not from the Guardian, which is a whole-form gate on
+/// Save/Run/Check/Build and not an editor widget. A COBOL table needs no key: it
+/// is rewritten whole from the grid (the section says so instead).
+fn writable_needs(editor: &BindingEditorState, ctrl: &Control) -> Vec<WritableNeed> {
+    let mut needs = Vec::new();
+    let keyed = matches!(
+        editor.selected_source,
+        Some(BindingEditorSourceKind::IndexedFile) | Some(BindingEditorSourceKind::Sql)
+    );
+    if keyed && !editor.rows.iter().any(|row| row.key) {
+        needs.push(WritableNeed::KeyField);
+    }
+    if editor.selected_source == Some(BindingEditorSourceKind::Sql) && editor.sql_table.trim().is_empty() {
+        needs.push(WritableNeed::SqlTable);
+    }
+    let editing = ctrl.get_prop("AllowCellEditing").is_some_and(PropValue::as_bool);
+    if ctrl.control_type == ControlType::DataGrid && !editing {
+        needs.push(WritableNeed::CellEditing);
+    }
+    needs
+}
+
+/// The *Writable* switch, off by default, and — while it is on — what the grid
+/// still needs, in plain words. Missing cell editing has a one-click fix (it
+/// changes the grid's property, as an undoable step of its own); a missing key or
+/// table points at the field.
+fn show_writable_section(
+    ui: &mut Ui,
+    editor: &mut BindingEditorState,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    tr: &Tr,
+) {
+    if !editor.selected_source.is_some_and(BindingEditorSourceKind::can_be_written) {
+        return;
+    }
+    ui.add_space(14.0);
+    ui.separator();
+    ui.add_space(8.0);
+    let mut writable = editor.mode == BindingMode::Writable;
+    if ui.checkbox(&mut writable, tr.dg_writable_switch).changed() {
+        editor.mode = if writable { BindingMode::Writable } else { BindingMode::ReadOnly };
+    }
+    ui.label(RichText::new(tr.dg_writable_hint).small().weak());
+    if !writable {
+        return;
+    }
+    ui.add_space(6.0);
+    let needs = writable_needs(editor, ctrl);
+    if needs.is_empty() {
+        ui.label(RichText::new(tr.dg_writable_ready).color(Color32::from_rgb(110, 200, 140)));
+    } else {
+        ui.label(RichText::new(tr.dg_writable_needs).strong());
+        for need in needs {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(Color32::from_rgb(255, 176, 0), "•");
+                ui.label(match need {
+                    WritableNeed::KeyField => tr.dg_writable_need_key,
+                    WritableNeed::SqlTable => tr.dg_writable_need_table,
+                    WritableNeed::CellEditing => tr.dg_writable_need_editing,
+                });
+                if need == WritableNeed::CellEditing && ui.button(tr.dg_writable_fix_editing).clicked() {
+                    action.set_props.push((ctrl.id.clone(), "AllowCellEditing".to_owned(), PropValue::Bool(true)));
+                }
+            });
+        }
+    }
+    if editor.selected_source == Some(BindingEditorSourceKind::CobolTable) {
+        ui.add_space(4.0);
+        ui.label(RichText::new(tr.dg_writable_whole_table).small().weak());
+    }
+}
+
 fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
     ui.heading("Source fields");
     ui.add_space(8.0);
@@ -3158,6 +3273,10 @@ fn show_dropdown_config_modal(ctx: &egui::Context, editor: &mut BindingEditorSta
     }
 
     let show_cobol_table = editor.selected_source == Some(BindingEditorSourceKind::CobolTable);
+    let choices = DropdownChoices {
+        cobol_tables: editor.cobol_tables.clone(),
+        indexed_files: editor.indexed_files.clone(),
+    };
     let title = format!(
         "Dropdown configuration - {}",
         editor.rows[row_index].source_field
@@ -3176,9 +3295,9 @@ fn show_dropdown_config_modal(ctx: &egui::Context, editor: &mut BindingEditorSta
         .open(&mut open)
         .show(ctx, |ui| {
             if show_cobol_table {
-                show_cobol_table_dropdown_config_body(ui, &mut editor.rows[row_index]);
+                show_cobol_table_dropdown_config_body(ui, &mut editor.rows[row_index], &choices);
             } else {
-                show_dropdown_config_body(ui, &mut editor.rows[row_index]);
+                show_dropdown_config_body(ui, &mut editor.rows[row_index], &choices);
             }
         });
     if !open {
@@ -3186,7 +3305,7 @@ fn show_dropdown_config_modal(ctx: &egui::Context, editor: &mut BindingEditorSta
     }
 }
 
-fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
+fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &DropdownChoices) {
     egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
@@ -3232,14 +3351,14 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow)
                     ))
                     .selected_text(clean_or_default(
                         &row.dropdown.source_ref,
-                        dropdown_source_options(origin)[0],
+                        choices.sources(origin).first().map_or("", String::as_str),
                     ))
                     .width(235.0)
                     .show_ui(ui, |ui| {
-                        for &source in dropdown_source_options(origin) {
+                        for source in choices.sources(origin) {
                             ui.selectable_value(
                                 &mut row.dropdown.source_ref,
-                                source.to_owned(),
+                                source.clone(),
                                 source,
                             );
                         }
@@ -3257,12 +3376,10 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow)
                     .selected_text(&row.dropdown.display_field)
                     .width(235.0)
                     .show_ui(ui, |ui| {
-                        for &field in
-                            dropdown_field_options(row.dropdown.origin, &row.dropdown.source_ref)
-                        {
+                        for field in choices.fields(row.dropdown.origin, &row.dropdown.source_ref) {
                             ui.selectable_value(
                                 &mut row.dropdown.display_field,
-                                field.to_owned(),
+                                field.clone(),
                                 field,
                             );
                         }
@@ -3287,12 +3404,10 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow)
                     .selected_text(&row.dropdown.value_field)
                     .width(235.0)
                     .show_ui(ui, |ui| {
-                        for &field in
-                            dropdown_field_options(row.dropdown.origin, &row.dropdown.source_ref)
-                        {
+                        for field in choices.fields(row.dropdown.origin, &row.dropdown.source_ref) {
                             ui.selectable_value(
                                 &mut row.dropdown.value_field,
-                                field.to_owned(),
+                                field.clone(),
                                 field,
                             );
                         }
@@ -3324,7 +3439,7 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow)
         });
 }
 
-fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
+fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow, choices: &DropdownChoices) {
     egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
@@ -3375,14 +3490,14 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
                             ))
                             .selected_text(clean_or_default(
                                 &row.dropdown.source_ref,
-                                dropdown_source_options(origin)[0],
+                                choices.sources(origin).first().map_or("", String::as_str),
                             ))
                             .width(350.0)
                             .show_ui(ui, |ui| {
-                                for &source in dropdown_source_options(origin) {
+                                for source in choices.sources(origin) {
                                     ui.selectable_value(
                                         &mut row.dropdown.source_ref,
-                                        source.to_owned(),
+                                        source.clone(),
                                         source,
                                     );
                                 }
@@ -3417,13 +3532,10 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
                         .selected_text(&row.dropdown.display_field)
                         .width(320.0)
                         .show_ui(ui, |ui| {
-                            for &field in dropdown_field_options(
-                                row.dropdown.origin,
-                                &row.dropdown.source_ref,
-                            ) {
+                            for field in choices.fields(row.dropdown.origin, &row.dropdown.source_ref) {
                                 ui.selectable_value(
                                     &mut row.dropdown.display_field,
-                                    field.to_owned(),
+                                    field.clone(),
                                     field,
                                 );
                             }
@@ -3448,13 +3560,10 @@ fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
                         .selected_text(&row.dropdown.value_field)
                         .width(320.0)
                         .show_ui(ui, |ui| {
-                            for &field in dropdown_field_options(
-                                row.dropdown.origin,
-                                &row.dropdown.source_ref,
-                            ) {
+                            for field in choices.fields(row.dropdown.origin, &row.dropdown.source_ref) {
                                 ui.selectable_value(
                                     &mut row.dropdown.value_field,
-                                    field.to_owned(),
+                                    field.clone(),
                                     field,
                                 );
                             }
@@ -3511,7 +3620,112 @@ fn default_dropdown_for_field(source_field: &str) -> DropdownConfig {
     }
 }
 
-fn dropdown_source_options(origin: DropdownOrigin) -> &'static [&'static str] {
+/// The sources a Dropdown can really read, as the binding editor knows them
+/// (spec 095): the form's own COBOL tables and the project's indexed-file
+/// definitions. The fixed lists below them stand in only where the project has
+/// none, and for the SQL and REST origins, which the runtime does not read.
+struct DropdownChoices {
+    cobol_tables: Vec<CobolTableBindingMeta>,
+    indexed_files: Vec<String>,
+}
+
+impl DropdownChoices {
+    fn sources(&self, origin: DropdownOrigin) -> Vec<String> {
+        match origin {
+            DropdownOrigin::IndexedFile if !self.indexed_files.is_empty() => self.indexed_files.clone(),
+            DropdownOrigin::CobolTable if !self.cobol_tables.is_empty() => {
+                self.cobol_tables.iter().map(|table| table.name.clone()).collect()
+            }
+            other => mock_dropdown_sources(other).iter().map(|s| (*s).to_owned()).collect(),
+        }
+    }
+
+    /// `NAME (PICTURE)` of each field of `source`: the table's own items, or the
+    /// leaves of the indexed definition; the stand-in names where `source` is not
+    /// one the editor can read.
+    fn fields(&self, origin: Option<DropdownOrigin>, source: &str) -> Vec<String> {
+        let real: Option<Vec<String>> = match origin {
+            Some(DropdownOrigin::CobolTable) => self
+                .cobol_tables
+                .iter()
+                .find(|table| table.name.eq_ignore_ascii_case(source.trim()))
+                .map(|table| table.fields.iter().map(|f| format!("{} ({})", f.name, f.picture)).collect()),
+            Some(DropdownOrigin::IndexedFile) if self.indexed_files.iter().any(|f| f == source) => {
+                cobolt_indexed::load_indexed(&cobolt_forms::assets::resolve(source.trim()))
+                    .ok()
+                    .map(|def| {
+                        def.record_root()
+                            .map(|root| root.all_leaves())
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|leaf| format!("{} ({})", leaf.name, leaf.pic))
+                            .collect()
+                    })
+            }
+            _ => None,
+        };
+        real.filter(|fields| !fields.is_empty())
+            .unwrap_or_else(|| mock_dropdown_fields(origin, source).iter().map(|s| (*s).to_owned()).collect())
+    }
+
+    /// Whether `config` names a source the runtime can read — a Static list with
+    /// items, a COBOL table of this form, or an indexed definition of this project.
+    fn is_readable(&self, config: &DropdownConfig) -> bool {
+        match config.origin {
+            Some(DropdownOrigin::StaticValues) => !config.static_options.trim().is_empty(),
+            Some(DropdownOrigin::CobolTable) => {
+                self.cobol_tables.iter().any(|table| table.name.eq_ignore_ascii_case(config.source_ref.trim()))
+            }
+            Some(DropdownOrigin::IndexedFile) => self.indexed_files.iter().any(|f| *f == config.source_ref),
+            _ => false,
+        }
+    }
+}
+
+impl DropdownConfig {
+    /// What the form keeps of this configuration (spec 095): `None` unless the
+    /// runtime can read it — so a stand-in source the editor offered when the
+    /// project has no real one is never saved as if it were.
+    fn to_model(&self, choices: &DropdownChoices) -> Option<DataGridDropdown> {
+        if !choices.is_readable(self) {
+            return None;
+        }
+        let origin = match self.origin? {
+            DropdownOrigin::StaticValues => DataGridDropdownOrigin::Static,
+            DropdownOrigin::CobolTable => DataGridDropdownOrigin::CobolTable,
+            DropdownOrigin::IndexedFile => DataGridDropdownOrigin::IndexedFile,
+            DropdownOrigin::SqlControl => DataGridDropdownOrigin::SqlControl,
+            DropdownOrigin::RestApi => DataGridDropdownOrigin::RestApi,
+        };
+        Some(DataGridDropdown {
+            origin,
+            source: self.source_ref.trim().to_owned(),
+            value_field: field_name_only(&self.value_field).to_owned(),
+            display_field: field_name_only(&self.display_field).to_owned(),
+            limit: self.line_limit.clamp(0, i64::from(u32::MAX)) as u32,
+            items: self.static_options.clone(),
+        })
+    }
+
+    fn from_model(model: &DataGridDropdown) -> Self {
+        Self {
+            origin: Some(match model.origin {
+                DataGridDropdownOrigin::Static => DropdownOrigin::StaticValues,
+                DataGridDropdownOrigin::CobolTable => DropdownOrigin::CobolTable,
+                DataGridDropdownOrigin::IndexedFile => DropdownOrigin::IndexedFile,
+                DataGridDropdownOrigin::SqlControl => DropdownOrigin::SqlControl,
+                DataGridDropdownOrigin::RestApi => DropdownOrigin::RestApi,
+            }),
+            source_ref: model.source.clone(),
+            display_field: model.display_field.clone(),
+            value_field: model.value_field.clone(),
+            line_limit: if model.limit == 0 { 1000 } else { i64::from(model.limit) },
+            static_options: model.items.clone(),
+        }
+    }
+}
+
+fn mock_dropdown_sources(origin: DropdownOrigin) -> &'static [&'static str] {
     match origin {
         DropdownOrigin::IndexedFile => MOCK_INDEXED_LOOKUPS,
         DropdownOrigin::SqlControl => MOCK_SQL_CONTROLS,
@@ -3521,7 +3735,7 @@ fn dropdown_source_options(origin: DropdownOrigin) -> &'static [&'static str] {
     }
 }
 
-fn dropdown_field_options(
+fn mock_dropdown_fields(
     origin: Option<DropdownOrigin>,
     source_ref: &str,
 ) -> &'static [&'static str] {
@@ -5612,6 +5826,64 @@ impl PropertiesPanel {
                                             });
                                         changed_advanced |= before_edit != column.edit_control;
                                         ui.end_row();
+                                        // Spec 095: what a Checkbox cell holds when it is checked and
+                                        // when it is not. Empty: the pair the cell's data already uses.
+                                        let kind = if column.control_kind.trim().is_empty() {
+                                            column.edit_control.as_str()
+                                        } else {
+                                            column.control_kind.as_str()
+                                        };
+                                        if kind.eq_ignore_ascii_case("Checkbox") {
+                                            ui.label(tr.dg_col_checked_value);
+                                            changed_advanced |= ui
+                                                .add(egui::TextEdit::singleline(&mut column.checked_value).desired_width(80.0))
+                                                .changed();
+                                            ui.end_row();
+                                            ui.label(tr.dg_col_unchecked_value);
+                                            changed_advanced |= ui
+                                                .add(egui::TextEdit::singleline(&mut column.unchecked_value).desired_width(80.0))
+                                                .changed();
+                                            ui.end_row();
+                                            ui.label("");
+                                            ui.label(RichText::new(tr.dg_col_checkbox_hint).small().weak());
+                                            ui.end_row();
+                                        }
+                                        // Spec 095: a Dropdown cell's list. A grid with no binding gets
+                                        // its items here; a list read from a table or a file was set in
+                                        // the binding and is only named.
+                                        if kind.eq_ignore_ascii_case("Dropdown") {
+                                            ui.label(tr.dg_col_dropdown_items);
+                                            let from = column
+                                                .dropdown
+                                                .as_ref()
+                                                .filter(|d| d.origin != DataGridDropdownOrigin::Static)
+                                                .map(|d| format!("{:?} {}", d.origin, d.source));
+                                            if let Some(from) = from {
+                                                ui.label(RichText::new(tr.dg_col_dropdown_from.replace("{}", &from)).small().weak());
+                                            } else {
+                                                let mut items = column.dropdown.as_ref().map(|d| d.items.clone()).unwrap_or_default();
+                                                if ui
+                                                    .add(
+                                                        egui::TextEdit::multiline(&mut items)
+                                                            .desired_rows(3)
+                                                            .desired_width(220.0)
+                                                            .hint_text("CODE=Label"),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    changed_advanced = true;
+                                                    column.dropdown = if items.trim().is_empty() {
+                                                        None
+                                                    } else {
+                                                        Some(DataGridDropdown { items, ..DataGridDropdown::default() })
+                                                    };
+                                                }
+                                            }
+                                            ui.end_row();
+                                            ui.label("");
+                                            ui.label(RichText::new(tr.dg_col_dropdown_hint).small().weak());
+                                            ui.end_row();
+                                        }
                                         if column.edit_control.eq_ignore_ascii_case("Image") {
                                             ui.label("Image corner radius");
                                             changed_advanced |= ui
@@ -5941,11 +6213,13 @@ impl PropertiesPanel {
                             show_indexed_source_section(ui, editor);
                             ui.add_space(16.0);
                             show_source_fields_section(ui, editor);
+                            show_writable_section(ui, editor, ctrl, action, tr);
                         }
                         Some(BindingEditorSourceKind::Sql) => {
                             show_sql_source_section(ui, editor, tr);
                             ui.add_space(16.0);
                             show_source_fields_section(ui, editor);
+                            show_writable_section(ui, editor, ctrl, action, tr);
                         }
                         Some(BindingEditorSourceKind::CobolTable) => {
                             show_cobol_table_source_section(ui, editor);
@@ -5953,6 +6227,7 @@ impl PropertiesPanel {
                             show_source_fields_section(ui, editor);
                             ui.add_space(12.0);
                             show_cobol_table_field_actions(ui, editor);
+                            show_writable_section(ui, editor, ctrl, action, tr);
                         }
                         Some(BindingEditorSourceKind::RestApi) => {
                             show_rest_source_section(ui, editor);
@@ -15723,6 +15998,312 @@ mod tests {
         );
     }
 
+    // ── Spec 095: the Writable switch and what the grid still needs ─────────
+
+    fn editor_for(kind: BindingEditorSourceKind) -> (Form, Control, BindingEditorState) {
+        let (form, grid) = form_with_cobol_binding_table();
+        let mut editor = BindingEditorState::new(&form, &grid, kind, &["CUSTOMER-DATA (CUSTDAT)".to_owned()])
+            .expect("DataGrid is an approved binding target");
+        if kind == BindingEditorSourceKind::CobolTable {
+            select_customer_cobol_table(&mut editor);
+        }
+        (form, grid, editor)
+    }
+
+    /// R2: the needs come from the editor's own state and the grid's property.
+    #[test]
+    fn writable_needs_names_what_the_grid_still_lacks() {
+        use WritableNeed::*;
+        // An indexed file or a SQL table needs a key; the sample rows tick the first.
+        let (_, mut grid, mut editor) = editor_for(BindingEditorSourceKind::IndexedFile);
+        assert!(editor.rows.iter().any(|r| r.key), "the sample ticks a key");
+        assert_eq!(writable_needs(&editor, &grid), vec![CellEditing], "cell editing is off on a new grid");
+        editor.rows.iter_mut().for_each(|r| r.key = false);
+        assert_eq!(writable_needs(&editor, &grid), vec![KeyField, CellEditing]);
+        grid.set_prop("AllowCellEditing", PropValue::Bool(true));
+        assert_eq!(writable_needs(&editor, &grid), vec![KeyField], "cell editing on: only the key is missing");
+        editor.rows[0].key = true;
+        assert!(writable_needs(&editor, &grid).is_empty(), "nothing left to do");
+
+        // SQL also needs the table an edit updates.
+        let (_, mut grid, mut editor) = editor_for(BindingEditorSourceKind::Sql);
+        grid.set_prop("AllowCellEditing", PropValue::Bool(true));
+        assert_eq!(writable_needs(&editor, &grid), vec![SqlTable]);
+        editor.sql_table = "items".to_owned();
+        assert!(writable_needs(&editor, &grid).is_empty());
+
+        // A COBOL table needs no key — it is rewritten whole from the grid.
+        let (_, grid, mut editor) = editor_for(BindingEditorSourceKind::CobolTable);
+        editor.rows.iter_mut().for_each(|r| r.key = false);
+        assert_eq!(writable_needs(&editor, &grid), vec![CellEditing], "no KeyField for a COBOL table");
+
+        // Only a DataGrid is told about cell editing.
+        let other = Control::new("TXT", ControlType::TextBox, 0, 0);
+        assert!(writable_needs(&editor, &other).is_empty());
+    }
+
+    /// One frame of the Writable section: every text it painted, and where.
+    fn writable_frame(
+        ctx: &egui::Context,
+        editor: &mut BindingEditorState,
+        ctrl: &Control,
+        action: &mut InspectorAction,
+        events: Vec<egui::Event>,
+    ) -> Vec<(String, egui::Rect)> {
+        let tr = &crate::i18n::Language::English.tr();
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(760.0, 600.0))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                egui::CentralPanel::default().show_inside(ui, |ui| show_writable_section(ui, editor, ctrl, action, tr));
+            },
+        );
+        out.textures_delta.clear();
+        fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+            match shape {
+                egui::Shape::Text(t) => out.push((t.galley.text().to_owned(), egui::Rect::from_min_size(t.pos, t.galley.size()))),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for clipped in &out.shapes {
+            texts(&clipped.shape, &mut found);
+        }
+        found
+    }
+
+    /// R1, R2: the switch is there and off; once it is on the section lists what
+    /// is missing, the missing cell editing has a one-click fix, and the fix turns
+    /// the property on through the inspector's own `set_props` (an undoable step of
+    /// its own).
+    #[test]
+    fn the_writable_section_lists_the_needs_and_the_fix_turns_cell_editing_on() {
+        let (_, grid, mut editor) = editor_for(BindingEditorSourceKind::CobolTable);
+        editor.rows.iter_mut().for_each(|r| r.key = false);
+        let ctx = egui::Context::default();
+        let mut action = InspectorAction::default();
+        let has = |texts: &[(String, egui::Rect)], needle: &str| texts.iter().any(|(t, _)| t.contains(needle));
+
+        let off = writable_frame(&ctx, &mut editor, &grid, &mut action, vec![]);
+        assert!(has(&off, "Writable — write edits made in the grid back to this source"), "{off:?}");
+        assert!(!has(&off, "The grid still needs:"), "read-only: no list of needs");
+
+        editor.mode = BindingMode::Writable;
+        let on = writable_frame(&ctx, &mut editor, &grid, &mut action, vec![]);
+        assert!(has(&on, "The grid still needs:"), "{on:?}");
+        assert!(has(&on, "Allow cell editing — it is off"), "{on:?}");
+        assert!(has(&on, "No key is needed: a COBOL table is rewritten whole from the grid"), "{on:?}");
+        assert!(!has(&on, "tick Key"), "a COBOL table is not asked for a key");
+
+        // Click the fix: pointer over the button, press, release.
+        let fix = on.iter().find(|(t, _)| t == "Turn on cell editing").expect("the fix button is painted").1;
+        let at = fix.center();
+        writable_frame(&ctx, &mut editor, &grid, &mut action, vec![egui::Event::PointerMoved(at)]);
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        writable_frame(&ctx, &mut editor, &grid, &mut action, vec![button(true)]);
+        writable_frame(&ctx, &mut editor, &grid, &mut action, vec![button(false)]);
+        assert_eq!(action.set_props.len(), 1, "one click, one change: {:?}", action.set_props.len());
+        let (id, key, value) = &action.set_props[0];
+        assert_eq!((id.as_str(), key.as_str()), ("CustomerGrid", "AllowCellEditing"));
+        assert_eq!(*value, PropValue::Bool(true));
+
+        // With the grid editable, nothing is left to do.
+        let mut ready = grid.clone();
+        ready.set_prop("AllowCellEditing", PropValue::Bool(true));
+        let done = writable_frame(&ctx, &mut editor, &ready, &mut action, vec![]);
+        assert!(has(&done, "Everything the grid needs to write back is in place."), "{done:?}");
+        println!("Writable section: switch off -> on lists the 1 need and the whole-table note; the fix sets AllowCellEditing; then 'in place'");
+    }
+
+    /// A REST source cannot be written back: no switch is drawn for it.
+    #[test]
+    fn a_rest_source_gets_no_writable_switch() {
+        let (_, grid, mut editor) = editor_for(BindingEditorSourceKind::RestApi);
+        let ctx = egui::Context::default();
+        let mut action = InspectorAction::default();
+        let shown = writable_frame(&ctx, &mut editor, &grid, &mut action, vec![]);
+        assert!(shown.is_empty(), "{shown:?}");
+    }
+
+    // ── Spec 095: a Dropdown's list is kept with the binding ─────────────────
+
+    /// A form with a second COBOL table, so a Dropdown has a real list to read.
+    fn form_with_lookup_table() -> (Form, Control) {
+        let (mut form, grid) = form_with_cobol_binding_table();
+        form.user_ws_source.push_str(
+            "01 WS-CATEGORY-TABLE GLOBAL.\n   05 WS-CATEGORY-ROW OCCURS 10 TIMES.\n      10 CATEGORY-ID   PIC 9(04).\n      10 CATEGORY-NAME PIC X(30).\n",
+        );
+        (form, grid)
+    }
+
+    /// The modal offers the form's own tables and their items, and a project's
+    /// indexed definitions and their fields — not the fixed stand-ins, which are
+    /// only a fallback for a project that has none.
+    #[test]
+    fn the_dropdown_choices_are_the_projects_own_tables_files_and_fields() {
+        let (form, grid) = form_with_lookup_table();
+        let editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[]).expect("editor opens");
+        let cidx = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/PowerDemo3/indexed/actors.cidx").to_owned();
+        let choices = DropdownChoices { cobol_tables: editor.cobol_tables.clone(), indexed_files: vec![cidx.clone()] };
+
+        let tables = choices.sources(DropdownOrigin::CobolTable);
+        assert!(tables.iter().any(|t| t == "WS-CATEGORY-TABLE") && tables.iter().any(|t| t == "WS-CUSTOMER-TABLE"), "{tables:?}");
+        assert!(!tables.iter().any(|t| t == "CUSTOMER_TIERS"), "a stand-in is not offered when the form has tables: {tables:?}");
+        assert_eq!(choices.fields(Some(DropdownOrigin::CobolTable), "WS-CATEGORY-TABLE"), ["CATEGORY-ID (9(4))", "CATEGORY-NAME (X(30))"]);
+
+        assert_eq!(choices.sources(DropdownOrigin::IndexedFile), [cidx.clone()]);
+        let fields = choices.fields(Some(DropdownOrigin::IndexedFile), &cidx);
+        assert!(fields.iter().any(|f| f.starts_with("ACTOR-CAPTION (")), "the definition's own fields: {fields:?}");
+
+        // Nothing real to offer: the stand-ins, as before.
+        let bare = DropdownChoices { cobol_tables: Vec::new(), indexed_files: Vec::new() };
+        assert!(bare.sources(DropdownOrigin::CobolTable).iter().any(|t| t == "CUSTOMER_TIERS"));
+        println!("dropdown choices: tables {tables:?}; actors.cidx fields {}", fields.len());
+    }
+
+    /// A list the runtime can read is saved on the binding's field and restored when
+    /// the editor reopens; a stand-in source, a SQL list and a Textbox field save none.
+    #[test]
+    fn a_dropdown_list_the_runtime_can_read_is_kept_with_the_binding_and_restored() {
+        let (mut form, grid) = form_with_lookup_table();
+        let mut editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[]).expect("editor opens");
+        select_customer_cobol_table(&mut editor);
+        // CATEGORY-ID reads the form's own lookup table; REGION-ID a static list;
+        // ACTIVE a stand-in; BALANCE a SQL list.
+        editor.rows[4].edit_control = BindingEditControl::Dropdown;
+        editor.rows[4].dropdown = DropdownConfig {
+            origin: Some(DropdownOrigin::CobolTable),
+            source_ref: "WS-CATEGORY-TABLE".to_owned(),
+            display_field: "CATEGORY-NAME (X(30))".to_owned(),
+            value_field: "CATEGORY-ID (9(04))".to_owned(),
+            line_limit: 50,
+            static_options: String::new(),
+        };
+        editor.rows[5].edit_control = BindingEditControl::Dropdown;
+        editor.rows[5].dropdown = DropdownConfig {
+            origin: Some(DropdownOrigin::StaticValues),
+            static_options: "N=North\nS=South".to_owned(),
+            ..DropdownConfig::empty()
+        };
+        editor.rows[3].edit_control = BindingEditControl::Dropdown;
+        editor.rows[3].dropdown = DropdownConfig::tier_cobol_table();
+        editor.rows[2].edit_control = BindingEditControl::Dropdown;
+        editor.rows[2].dropdown = DropdownConfig::country_sql();
+
+        let binding = editor.to_binding(&form).expect("binding builds");
+        let fields = binding.source.fields().to_vec();
+        assert_eq!(
+            fields[4].dropdown,
+            Some(DataGridDropdown {
+                origin: DataGridDropdownOrigin::CobolTable,
+                source: "WS-CATEGORY-TABLE".to_owned(),
+                value_field: "CATEGORY-ID".to_owned(),
+                display_field: "CATEGORY-NAME".to_owned(),
+                limit: 50,
+                items: String::new(),
+            })
+        );
+        assert_eq!(
+            fields[5].dropdown.as_ref().map(DataGridDropdown::static_items),
+            Some(vec![("N".to_owned(), "North".to_owned()), ("S".to_owned(), "South".to_owned())])
+        );
+        assert_eq!(fields[3].dropdown, None, "CUSTOMER_TIERS is not a table of this form: not saved");
+        assert_eq!(fields[2].dropdown, None, "the runtime does not read a SQL list: not saved");
+        assert_eq!(fields[0].dropdown, None, "a Textbox field has no list");
+
+        form.data_bindings.push(binding);
+        let existing = form.binding_for_control("CustomerGrid").cloned().expect("the binding is on the grid");
+        let reopened = BindingEditorState::from_existing(&form, &grid, &existing, &[]).expect("editor reopens");
+        let category = &reopened.rows[4].dropdown;
+        assert_eq!(category.origin, Some(DropdownOrigin::CobolTable));
+        assert_eq!(
+            (category.source_ref.as_str(), category.value_field.as_str(), category.display_field.as_str(), category.line_limit),
+            ("WS-CATEGORY-TABLE", "CATEGORY-ID", "CATEGORY-NAME", 50),
+            "the list is restored (it used to come back empty)"
+        );
+        assert_eq!(reopened.rows[5].dropdown.static_options, "N=North\nS=South");
+        println!("dropdown config: COBOL-table and static lists saved and restored; stand-in and SQL lists not saved");
+    }
+
+    /// Spec 095 R1: a new binding is read-only, whatever the source.
+    #[test]
+    fn a_new_binding_is_read_only() {
+        let (form, grid) = form_with_cobol_binding_table();
+        for kind in [BindingEditorSourceKind::IndexedFile, BindingEditorSourceKind::Sql, BindingEditorSourceKind::CobolTable] {
+            let editor = BindingEditorState::new(&form, &grid, kind, &["CUSTOMER-DATA (CUSTDAT)".to_owned()])
+                .expect("DataGrid is an approved binding target");
+            assert_eq!(editor.mode, BindingMode::ReadOnly, "{kind:?}");
+            let binding = editor.to_binding(&form).expect("binding builds");
+            assert_eq!(binding.mode, BindingMode::ReadOnly, "{kind:?}");
+        }
+    }
+
+    /// Spec 095 R1: the Writable switch is saved as the binding's `mode`, a
+    /// reopened binding keeps the mode it was saved with, and applying it again
+    /// does not turn it back to read-only (it used to: the editor had no mode, so
+    /// every Apply built a read-only binding).
+    #[test]
+    fn reopening_a_writable_binding_and_applying_keeps_it_writable() {
+        let (mut form, grid) = form_with_cobol_binding_table();
+        let mut editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[]).expect("editor opens");
+        select_customer_cobol_table(&mut editor);
+        editor.rows[0].key = true;
+        editor.mode = BindingMode::Writable;
+        let saved = editor.to_binding(&form).expect("binding builds");
+        assert_eq!(saved.mode, BindingMode::Writable, "the switch is saved as the mode");
+        form.data_bindings.push(saved);
+
+        let existing = form.binding_for_control("CustomerGrid").cloned().expect("the binding is on the grid");
+        let reopened = BindingEditorState::from_existing(&form, &grid, &existing, &[]).expect("editor reopens");
+        assert_eq!(reopened.mode, BindingMode::Writable, "a saved binding keeps its mode");
+        let applied = reopened.to_binding(&form).expect("binding builds again");
+        assert_eq!(applied.mode, BindingMode::Writable, "and Apply does not make it read-only");
+
+        // A REST or Agent source cannot be written by the runtime: whatever the
+        // state says, it is saved read-only.
+        let mut rest = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::RestApi, &[]).expect("editor opens");
+        rest.mode = BindingMode::Writable;
+        assert_eq!(rest.to_binding(&form).expect("binding builds").mode, BindingMode::ReadOnly);
+    }
+
+    /// Spec 095 R1: a hand-written binding that names its key on the source but
+    /// flags no field keeps that key when the editor is applied over it — the
+    /// runtime reads the source's key list, so losing it would turn a working
+    /// writable binding into one that cannot find its rows.
+    #[test]
+    fn a_hand_written_binding_keeps_its_keys_on_apply() {
+        let (form, grid) = form_with_cobol_binding_table();
+        let mut editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[]).expect("editor opens");
+        select_customer_cobol_table(&mut editor);
+        editor.rows[0].key = true;
+        editor.mode = BindingMode::Writable;
+        let mut binding = editor.to_binding(&form).expect("binding builds");
+        // Hand-written: the source lists the key, no field carries the flag.
+        if let BindingSourceDescriptor::CobolTable { fields, key_fields, .. } = &mut binding.source {
+            fields.iter_mut().for_each(|field| field.key = false);
+            *key_fields = vec!["customer-id".to_owned()];
+        }
+        let reopened = BindingEditorState::from_existing(&form, &grid, &binding, &[]).expect("editor reopens");
+        assert!(reopened.rows[0].key, "the named key is a key row again");
+        match reopened.to_binding(&form).expect("binding builds").source {
+            BindingSourceDescriptor::CobolTable { key_fields, .. } => {
+                assert_eq!(key_fields, vec!["CUSTOMER-ID".to_owned()], "the key survives Apply")
+            }
+            other => panic!("expected COBOL table source, got {other:?}"),
+        }
+    }
+
     #[test]
     fn data_binding_editor_builds_cobol_table_descriptor_from_selected_table() {
         let (form, grid) = form_with_cobol_binding_table();
@@ -15893,7 +16474,7 @@ mod tests {
         assert_eq!(config.display_field, "COUNTRY_NAME (X(100))");
         assert_eq!(config.value_field, "COUNTRY_ID (9(5))");
         assert_eq!(
-            dropdown_source_options(DropdownOrigin::IndexedFile),
+            mock_dropdown_sources(DropdownOrigin::IndexedFile),
             &["COUNTRY-CODES (CNTRYIDX)", "REGION-CODES (REGIONST)"]
         );
     }

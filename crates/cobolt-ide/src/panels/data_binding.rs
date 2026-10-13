@@ -62,6 +62,13 @@ impl BindingEditorSourceKind {
         }
     }
 
+    /// Whether a binding over this source can be made writable (spec 095): the
+    /// three sources the runtime writes back to. A REST or Agent binding needs
+    /// update metadata the editor does not offer, so it stays read-only.
+    pub(crate) fn can_be_written(self) -> bool {
+        matches!(self, Self::IndexedFile | Self::Sql | Self::CobolTable)
+    }
+
     pub(crate) fn id_fragment(self) -> &'static str {
         match self {
             Self::IndexedFile => "IDX",

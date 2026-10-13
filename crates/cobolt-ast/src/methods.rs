@@ -156,8 +156,9 @@ pub fn is_known_method(name: &str) -> bool {
             | "COMMITFILES"
         // Databound controls (DataGrid + repeating GroupBox/ControlArray)
             | "REFRESHBINDING"
-        // DataGrid write-back (spec 094): confirm or discard the pending edits.
-            | "COMMITEDIT" | "DISCARDEDIT"
+        // DataGrid write-back (spec 094): confirm or discard the pending edits;
+        // (spec 095) `Save()` writes them as one transaction.
+            | "COMMITEDIT" | "DISCARDEDIT" | "SAVE"
         // Charts (AddPoint appends one label/value point; Clear/Refresh above)
             | "ADDPOINT" | "ADD-POINT"
         // Snackbar (055) — `Show()` mints a notification, `DismissAll()` clears
@@ -191,6 +192,10 @@ pub fn is_known_method(name: &str) -> bool {
             | "ASK" | "GET" | "POST" | "PUT" | "DELETE" | "CALL" | "SETHEADER"
             | "CLEARHEADERS" | "SETTIMEOUT" | "OPEN" | "EXECUTE" | "EXEC"
             | "QUERY" | "FETCH" | "FETCHALL"
+        // SqlDatabase transactions (spec 095): the control's own verbs, so a program need
+        // not send `BEGIN` as text. Listed for the usual reason — an unlisted name parses
+        // its parens as a collection subscript.
+            | "BEGINTRANSACTION" | "COMMIT" | "ROLLBACK" | "ISINTRANSACTION"
         // SqlDatabase result-set columns — every one MUST be listed here, or
         // `Db::ColumnName(2)` parses its parens as a collection subscript and
         // silently means "element 2 of ColumnName". Equally, a name added here

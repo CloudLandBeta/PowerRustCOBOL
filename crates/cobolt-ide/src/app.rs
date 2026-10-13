@@ -20376,6 +20376,11 @@ fn merge_datagrid_binding_column(
     if !(bound_control.eq_ignore_ascii_case("Textbox") && column_kind_is_deliberate) {
         column.edit_control = bound_control.to_owned();
     }
+    // A Dropdown's list kept with the binding (spec 095) is the column's list. A
+    // column the developer gave a list of its own keeps it when the field has none.
+    if field.dropdown.is_some() {
+        column.dropdown = field.dropdown.clone();
+    }
     if column.width <= 0.0 {
         column.width = DataGridColumn::default().width;
     }
@@ -22111,6 +22116,75 @@ mod manifest_name_tests {
             normalize_form_cobol_id("CustomerEntry"),
             normalize_form_cobol_id("customerentry")
         );
+    }
+
+    /// Spec 095: re-applying a binding over a grid must not wipe what the
+    /// developer set on a Checkbox column — its checked and unchecked values.
+    #[test]
+    fn re_applying_a_binding_keeps_a_checkbox_columns_own_pair() {
+        let field = cobolt_forms::BindingField::new("DONE", cobolt_forms::BindingDataType::Text);
+        let binding = cobolt_forms::DataBindingDef::new(
+            "B",
+            "B",
+            cobolt_forms::BindingSourceDescriptor::CobolTable {
+                table_name: "T".into(),
+                occurs_item: "R".into(),
+                fields: vec![field.clone()],
+                key_fields: Vec::new(),
+                writable: true,
+            },
+            cobolt_forms::BindingTargetDescriptor::DataGrid { control_id: "G".into() },
+        );
+        let column = cobolt_forms::model::DataGridColumn {
+            edit_control: "Checkbox".into(),
+            checked_value: "T".into(),
+            unchecked_value: "F".into(),
+            ..Default::default()
+        };
+        let merged = super::merge_datagrid_binding_column(column, &binding, &field);
+        assert_eq!((merged.checked_value.as_str(), merged.unchecked_value.as_str()), ("T", "F"));
+        assert_eq!(merged.source_name, "DONE", "the merge still binds the column to its field");
+    }
+
+    /// Spec 095: the list kept on a binding's field becomes its column's list when
+    /// the binding is applied; a column with a list of its own keeps it when the
+    /// field has none.
+    #[test]
+    fn a_dropdown_kept_with_the_binding_becomes_the_columns_list() {
+        use cobolt_forms::model::{DataGridDropdown, DataGridDropdownOrigin};
+        let list = DataGridDropdown {
+            origin: DataGridDropdownOrigin::CobolTable,
+            source: "WS-TIER-TABLE".into(),
+            value_field: "TIER-ID".into(),
+            display_field: "TIER-NAME".into(),
+            limit: 20,
+            items: String::new(),
+        };
+        let mut field = cobolt_forms::BindingField::new("TIER", cobolt_forms::BindingDataType::Text);
+        field.dropdown = Some(list.clone());
+        let binding = cobolt_forms::DataBindingDef::new(
+            "B",
+            "B",
+            cobolt_forms::BindingSourceDescriptor::CobolTable {
+                table_name: "T".into(),
+                occurs_item: "R".into(),
+                fields: vec![field.clone()],
+                key_fields: Vec::new(),
+                writable: true,
+            },
+            cobolt_forms::BindingTargetDescriptor::DataGrid { control_id: "G".into() },
+        );
+        let merged = super::merge_datagrid_binding_column(cobolt_forms::model::DataGridColumn::default(), &binding, &field);
+        assert_eq!(merged.dropdown, Some(list));
+
+        let own = DataGridDropdown { items: "A=Alpha".into(), ..DataGridDropdown::default() };
+        let plain = cobolt_forms::BindingField::new("TIER", cobolt_forms::BindingDataType::Text);
+        let kept = super::merge_datagrid_binding_column(
+            cobolt_forms::model::DataGridColumn { dropdown: Some(own.clone()), ..Default::default() },
+            &binding,
+            &plain,
+        );
+        assert_eq!(kept.dropdown, Some(own), "a field with no list leaves the column's own");
     }
 
     #[test]

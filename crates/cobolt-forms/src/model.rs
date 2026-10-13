@@ -319,6 +319,64 @@ impl Default for DataGridValueStyleRule {
     }
 }
 
+/// Where a Dropdown cell's list comes from (spec 095 R15).
+///
+/// Only `Static`, `CobolTable` and `IndexedFile` are read at run time; the other
+/// two are what the binding editor can name but the runtime does not resolve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DataGridDropdownOrigin {
+    /// `items` — one `CODE=Label` (or just a value) per line.
+    #[default]
+    Static,
+    /// The two OCCURS items `value_field` and `display_field` of the COBOL table `source`.
+    CobolTable,
+    /// The two fields of the records of the indexed file whose definition is `source`.
+    IndexedFile,
+    SqlControl,
+    RestApi,
+}
+
+/// The list a Dropdown cell opens, and where it comes from (spec 095 R15). The
+/// cell holds the item's **value**; the list shows its **display text**.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct DataGridDropdown {
+    #[serde(default)]
+    pub origin: DataGridDropdownOrigin,
+    /// The table's name, or the `.cidx` path (project-relative), or the control's id.
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub value_field: String,
+    #[serde(default)]
+    pub display_field: String,
+    /// At most this many items (0: no limit).
+    #[serde(default)]
+    pub limit: u32,
+    /// `Static`: one `CODE=Label` per line; a line without `=` is both.
+    #[serde(default)]
+    pub items: String,
+}
+
+impl DataGridDropdown {
+    /// The static items as `(value, display text)`, in order.
+    pub fn static_items(&self) -> Vec<(String, String)> {
+        parse_dropdown_items(&self.items)
+    }
+}
+
+/// `CODE=Label` per line → `(value, display text)`; a line with no `=` is both.
+/// Blank lines are skipped.
+pub fn parse_dropdown_items(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| match line.split_once('=') {
+            Some((code, label)) => (code.trim().to_owned(), label.trim().to_owned()),
+            None => (line.to_owned(), line.to_owned()),
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DataGridColumn {
     pub id: String,
@@ -331,6 +389,17 @@ pub struct DataGridColumn {
     pub edit_control: String,
     #[serde(default)]
     pub control_kind: String,
+    /// What a Checkbox cell holds when checked and when unchecked (spec 095,
+    /// `CheckedValue` / `UncheckedValue`). Empty: the pair the cell's own data
+    /// already uses (`Y`/`N`, `1`/`0`, `true`/`false` …), and `Y`/`N` for a cell
+    /// that is empty — see `datagrid::checkbox_checked`.
+    #[serde(default)]
+    pub checked_value: String,
+    #[serde(default)]
+    pub unchecked_value: String,
+    /// Where a Dropdown cell's list comes from (spec 095). `None`: no list.
+    #[serde(default)]
+    pub dropdown: Option<DataGridDropdown>,
     pub width: f32,
     /// What `width` is measured in. `#[serde(default)]` — every grid saved
     /// before this reads back as `Points` and lays out unchanged.
@@ -380,6 +449,9 @@ impl Default for DataGridColumn {
             cobol_mask: String::new(),
             edit_control: Self::default_edit_control(),
             control_kind: String::new(),
+            checked_value: String::new(),
+            unchecked_value: String::new(),
+            dropdown: None,
             width: 120.0,
             width_unit: DataGridWidthUnit::Points,
             visible: true,
@@ -1501,6 +1573,14 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // Spec 094 — what a write-back left: `CommitStatus` (the source's code, `00`
     // when it was written), `LastError` (its message) and, for the renderer's
     // marker, the cells still pending (`_PendingCells`, row,column pairs from 1).
+    // Spec 095 — `_RowOrigins`: what each line of `Rows` was loaded as (a table occurrence, or
+    // the key cells), empty for a row added since; `_KeyColumns`: the grid columns
+    // that are the source's key, which the renderer keeps read-only on a loaded row;
+    // `SavedRows`: how many source rows the last save wrote (raised with
+    // `onSaved`); `_FailedCells`: the cell a failed save could not write, for the
+    // renderer's red mark (same `row,column` pairs as `_PendingCells`);
+    // `_ColumnItems`: the items of each Dropdown column the runtime reads (a COBOL
+    // table or an indexed file), one `column id TAB value TAB text` per line.
     const DATA_GRID: &[&str] = &[
         "EditedRow",
         "EditedColumn",
@@ -1511,6 +1591,11 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "CommitStatus",
         "LastError",
         "_PendingCells",
+        "_RowOrigins",
+        "_KeyColumns",
+        "SavedRows",
+        "_FailedCells",
+        "_ColumnItems",
     ];
     // `AllowEdit` — a renamed node's old label, written before `onNodeRenamed`
     // (the new one is the node payload's `CONTROL-NODE`).
@@ -1963,6 +2048,10 @@ pub struct BindingField {
     pub nullable: bool,
     pub key: bool,
     pub multiple: bool,
+    /// The list of a field shown as a Dropdown (spec 095): kept with the binding,
+    /// copied onto the grid's column when the binding is applied.
+    #[serde(default)]
+    pub dropdown: Option<DataGridDropdown>,
 }
 
 impl BindingField {
@@ -1977,6 +2066,7 @@ impl BindingField {
             nullable: true,
             key: false,
             multiple: false,
+            dropdown: None,
         }
     }
 
@@ -3670,6 +3760,7 @@ impl ControlType {
                 "onCellDoubleClick",
                 "onCellEdited",
                 "onCommitError",
+                "onSaved",
                 "onRowSelect",
                 "onRowDoubleClick",
                 "onColumnClick",
@@ -11646,6 +11737,80 @@ mod tests {
         assert_eq!(advanced.row_height, 32);
         assert_eq!(advanced.frozen_columns, 1);
         assert_eq!(advanced.grid_line_style, DataGridGridLineStyle::Dots);
+    }
+
+    /// Spec 095: the static items of a Dropdown read `CODE=Label` per line.
+    #[test]
+    fn dropdown_items_read_code_equals_label() {
+        let items = parse_dropdown_items("A = Active\n\n  I=Inactive \nPlain\n=Empty code");
+        let items: Vec<(&str, &str)> = items.iter().map(|(c, l)| (c.as_str(), l.as_str())).collect();
+        assert_eq!(items, [("A", "Active"), ("I", "Inactive"), ("Plain", "Plain"), ("", "Empty code")]);
+        assert!(parse_dropdown_items("  \n\n").is_empty());
+    }
+
+    /// Spec 095: a column and a binding field keep their Dropdown through their
+    /// JSON, and what was saved before the Dropdown existed loads with none.
+    #[test]
+    fn a_dropdown_round_trips_and_an_older_column_or_field_has_none() {
+        let dropdown = DataGridDropdown {
+            origin: DataGridDropdownOrigin::CobolTable,
+            source: "WS-TIER-TABLE".into(),
+            value_field: "TIER-ID".into(),
+            display_field: "TIER-NAME".into(),
+            limit: 50,
+            items: String::new(),
+        };
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "TIER".into(),
+            control_kind: "Dropdown".into(),
+            dropdown: Some(dropdown.clone()),
+            ..DataGridColumn::default()
+        });
+        let parsed: DataGridAdvanced = serde_json::from_str(&advanced.to_json().unwrap()).unwrap();
+        assert_eq!(parsed.columns[0].dropdown, Some(dropdown.clone()));
+
+        let mut field = BindingField::new("TIER", BindingDataType::Text);
+        field.dropdown = Some(dropdown.clone());
+        let back: BindingField = serde_json::from_str(&serde_json::to_string(&field).unwrap()).unwrap();
+        assert_eq!(back.dropdown, Some(dropdown));
+
+        // What 1.91.23 stored: neither key.
+        let mut column: serde_json::Value = serde_json::from_str(&advanced.to_json().unwrap()).unwrap();
+        column["columns"][0].as_object_mut().unwrap().remove("dropdown");
+        let older: DataGridAdvanced = serde_json::from_value(column).unwrap();
+        assert_eq!(older.columns[0].dropdown, None);
+        let mut old_field: serde_json::Value = serde_json::to_value(BindingField::new("X", BindingDataType::Text)).unwrap();
+        old_field.as_object_mut().unwrap().remove("dropdown");
+        let older: BindingField = serde_json::from_value(old_field).unwrap();
+        assert_eq!(older.dropdown, None);
+    }
+
+    /// Spec 095: a column keeps its Checkbox pair through the JSON the `.cfrm`
+    /// stores it as, and a grid saved before the pair existed loads with none.
+    #[test]
+    fn a_checkbox_column_pair_round_trips_and_an_older_grid_has_none() {
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "ACTIVE".into(),
+            title: "Active".into(),
+            source_name: "ACTIVE".into(),
+            control_kind: "Checkbox".into(),
+            checked_value: "T".into(),
+            unchecked_value: "F".into(),
+            ..DataGridColumn::default()
+        });
+        let parsed: DataGridAdvanced = serde_json::from_str(&advanced.to_json().unwrap()).unwrap();
+        assert_eq!((parsed.columns[0].checked_value.as_str(), parsed.columns[0].unchecked_value.as_str()), ("T", "F"));
+
+        // The JSON a 1.91.20 grid stored: no such keys.
+        let mut older: serde_json::Value = serde_json::from_str(&advanced.to_json().unwrap()).unwrap();
+        for column in older["columns"].as_array_mut().unwrap() {
+            column.as_object_mut().unwrap().remove("checked_value");
+            column.as_object_mut().unwrap().remove("unchecked_value");
+        }
+        let loaded: DataGridAdvanced = serde_json::from_value(older).unwrap();
+        assert_eq!((loaded.columns[0].checked_value.as_str(), loaded.columns[0].unchecked_value.as_str()), ("", ""));
     }
 
     #[test]

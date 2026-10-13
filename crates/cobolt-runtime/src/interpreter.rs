@@ -30,7 +30,9 @@ use indexmap::IndexMap;
 mod agent_loop;
 mod aws;
 mod exec_sql;
+mod grid_dropdown;
 mod grid_edit;
+mod grid_unit;
 mod kb;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
@@ -12566,7 +12568,7 @@ impl Interpreter {
         state.last_status.clear();
         // Spec 094: a binding whose target is a grid writes what the grid kept.
         if let Some(grid) = self.grid_of_binding(binding_id) {
-            let code = self.commit_edit_method(&grid);
+            let code = self.save_method(&grid);
             if code != grid_edit::OK {
                 self.binding_state_mut(binding_id).last_status = code.clone();
                 return code;
@@ -12602,10 +12604,14 @@ impl Interpreter {
             .unwrap_or(0);
         if row_count == 0 {
             self.obj_set(control_id, "Rows", String::new());
+            self.obj_set(control_id, "_RowOrigins", String::new());
             return 0;
         }
 
         let mut rows = Vec::new();
+        // Which table occurrence each line of `Rows` came from: a blank table
+        // row is not shown, so line n is not always occurrence n (spec 095).
+        let mut occurrences = Vec::new();
         for row_index in 1..=row_count {
             let cells = fields
                 .iter()
@@ -12619,12 +12625,14 @@ impl Interpreter {
                 .collect::<Vec<_>>();
             if cells.iter().any(|cell| !cell.trim().is_empty()) {
                 rows.push(cells.join("\t"));
+                occurrences.push(row_index.to_string());
             }
         }
         let row_count = rows.len();
         let rows_joined = rows.join("\n");
         tracing::debug!(target: "databinding", "RUN-FORM DataGrid {} set Rows ({} rows)", control_id, row_count);
         self.obj_set(control_id, "Rows", rows_joined);
+        self.obj_set(control_id, "_RowOrigins", occurrences.join("\n"));
         row_count
     }
 
@@ -12718,6 +12726,19 @@ impl Interpreter {
     /// The tool set, mutably — `cobolt_mcp::serve` needs `&mut` on its handler.
     pub fn mcp_tools_mut(&mut self) -> &mut crate::mcp_tool::IndexedToolSet {
         &mut self.mcp_tools
+    }
+
+    /// Spec 095 — keep the text of every statement sent on a `SqlDatabase`
+    /// connection, so a test can assert `BEGIN`, the `UPDATE`s and `COMMIT`.
+    #[doc(hidden)]
+    pub fn record_sql_statements(&mut self) {
+        self.db.record_statements();
+    }
+
+    /// The statements kept since [`Interpreter::record_sql_statements`], in order.
+    #[doc(hidden)]
+    pub fn recorded_sql_statements(&self) -> Vec<String> {
+        self.db.recorded_statements()
     }
 
     /// Spec 075 — make `RegisterFile` see this much free memory instead of
@@ -13325,6 +13346,17 @@ impl Interpreter {
     }
 
     fn refresh_binding(&mut self, control_id: &str) -> usize {
+        let rows = self.refresh_binding_rows(control_id);
+        // Spec 095: the grid remembers what the source gave it, and a Dropdown
+        // column's list is read with the rows it sits beside.
+        if self.object_class(control_id).is_some_and(|class| class.eq_ignore_ascii_case("DataGrid")) {
+            self.capture_ledger(control_id);
+        }
+        self.refresh_dropdown_items(control_id);
+        rows
+    }
+
+    fn refresh_binding_rows(&mut self, control_id: &str) -> usize {
         let binding_kind = self.obj_get(control_id, "_BindingKind");
         // An `IndexedFile` source is never a WS table the running program fills
         // itself, so it gets its own read path (`refresh_indexed_file_binding`)
@@ -13505,6 +13537,8 @@ impl Interpreter {
             // `_BindingFields` left empty on purpose — `refresh_indexed_file_binding`
             // then reads every leaf the `.cidx` declares, in order, one per column.
             self.refresh_indexed_file_binding(&id);
+            self.capture_ledger(&id);
+            self.refresh_dropdown_items(&id);
         }
     }
 
@@ -14013,6 +14047,19 @@ impl Interpreter {
             .collect::<Vec<_>>()
             .join("\n");
         self.obj_set(control_id, "Rows", value);
+    }
+
+    /// Keep `_RowOrigins` — what each line of `Rows` was loaded as (spec 095) — in
+    /// step with a change the program makes to the rows. A grid that does not track
+    /// origins has none, and none is made.
+    fn edit_row_origins(&mut self, obj: &str, change: impl FnOnce(&mut Vec<String>)) {
+        let text = self.obj_get(obj, "_RowOrigins");
+        if text.is_empty() {
+            return;
+        }
+        let mut list: Vec<String> = text.split('\n').map(str::to_owned).collect();
+        change(&mut list);
+        self.obj_set(obj, "_RowOrigins", list.join("\n"));
     }
 
     /// Move each per-row height to where its row now is (`None` drops it).
@@ -16427,6 +16474,8 @@ impl Interpreter {
                 };
                 rows.push(row);
                 self.set_datagrid_rows(obj, &rows);
+                // A row the program adds is not a row of the table.
+                self.edit_row_origins(obj, |list| list.push(String::new()));
                 none
             }
             "DELETEROW" => {
@@ -16435,6 +16484,11 @@ impl Interpreter {
                     if row < rows.len() {
                         rows.remove(row);
                         self.set_datagrid_rows(obj, &rows);
+                        self.edit_row_origins(obj, |list| {
+                            if row < list.len() {
+                                list.remove(row);
+                            }
+                        });
                         // The rows below move up, and their heights with them.
                         self.remap_row_heights(obj, |r| match r.cmp(&row) {
                             std::cmp::Ordering::Less => Some(r),
@@ -16447,6 +16501,13 @@ impl Interpreter {
             }
             "CLEARROWS" => {
                 self.obj_set(obj, "Rows", String::new());
+                self.obj_set(obj, "_RowOrigins", String::new());
+                // Emptying the display is not a request to delete what it showed: the
+                // grid forgets what it loaded, so a later `Save()` finds nothing removed.
+                if let Some(state) = self.grid_edits.get_mut(&obj.to_ascii_uppercase()) {
+                    state.loaded.clear();
+                    state.pending.clear();
+                }
                 self.remap_row_heights(obj, |_| None);
                 none
             }
@@ -16463,6 +16524,11 @@ impl Interpreter {
                     });
                     let sorted: Vec<Vec<String>> = order.iter().map(|&i| rows[i].clone()).collect();
                     self.set_datagrid_rows(obj, &sorted);
+                    // Each row keeps the table occurrence it came from.
+                    self.edit_row_origins(obj, |list| {
+                        let before = list.clone();
+                        *list = order.iter().map(|&i| before.get(i).cloned().unwrap_or_default()).collect();
+                    });
                     // Each row's own height travels with it.
                     let mut new_pos = vec![0; order.len()];
                     for (pos, &old) in order.iter().enumerate() {
@@ -16573,7 +16639,12 @@ impl Interpreter {
                 val(n.to_string())
             }
             // Spec 094 — confirm or discard what a bound grid kept pending.
-            "COMMITEDIT" => val(self.commit_edit_method(obj)),
+            // Spec 095 — `Save()` is the name the Guide teaches; `CommitEdit()` keeps
+            // working for a form written against 1.91.15. One function, one unit.
+            "COMMITEDIT" => val(self.save_method(obj)),
+            "SAVE" if self.object_class(obj).is_some_and(|class| class.eq_ignore_ascii_case("DataGrid")) => {
+                val(self.save_method(obj))
+            }
             "DISCARDEDIT" => val(self.discard_edit_method(obj)),
             // ── Snackbar (spec 055) ──
             // `Show()` is a FACTORY (D2): each call raises a NEW notification
@@ -17425,6 +17496,45 @@ impl Interpreter {
                         val("0".to_string())
                     }
                 }
+            }
+            // ── Transactions (spec 095) ──
+            // The control's own verbs for what `Execute("BEGIN")` did by text. Each
+            // answers 1 when it took effect and 0 when it did not (the reason is in
+            // `LastError`, with `onQueryError`). A transaction needs the statements in
+            // order, so an `Async` connection refuses them. `Save()` on a bound grid
+            // joins a transaction opened here, leaving the commit to this program.
+            "BEGINTRANSACTION" | "COMMIT" | "ROLLBACK" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                let (statement, wants_open) = match m.as_str() {
+                    "BEGINTRANSACTION" => ("BEGIN", false),
+                    "COMMIT" => ("COMMIT", true),
+                    _ => ("ROLLBACK", true),
+                };
+                let refusal = if self.sql_is_async(obj) {
+                    Some("a transaction needs a Sync connection".to_owned())
+                } else if self.db.in_transaction(h) != wants_open {
+                    Some(
+                        if wants_open { "no transaction is open" } else { "a transaction is already open" }.to_owned(),
+                    )
+                } else {
+                    None
+                };
+                let outcome = match refusal {
+                    Some(message) => Err(message),
+                    None => self.db.exec(h, statement).map(|_| ()),
+                };
+                match outcome {
+                    Ok(()) => val("1".to_string()),
+                    Err(e) => {
+                        self.obj_set(obj, "LastError", e);
+                        self.queue_control_event(obj, "onQueryError");
+                        val("0".to_string())
+                    }
+                }
+            }
+            "ISINTRANSACTION" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                val(if self.db.in_transaction(h) { "1" } else { "0" }.to_string())
             }
             "QUERY" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
@@ -22034,6 +22144,58 @@ MAIN.
             rows,
             "1\tLeonardo DiCaprio\t30000000.00\n2\tJoe Pesci\t12000000.00"
         );
+    }
+
+    /// Spec 095: a COBOL table with a blank row in the middle shows fewer lines
+    /// than the table has occurrences, so line *n* is not occurrence *n*. The
+    /// grid publishes what each line was loaded as (`_RowOrigins`: here, its
+    /// occurrence) and keeps that in step with `Sort`, `DeleteRow`, `AddRow` and
+    /// `ClearRows`.
+    #[test]
+    fn a_table_grid_knows_which_occurrence_each_row_came_from() {
+        let source = "
+IDENTIFICATION DIVISION.
+PROGRAM-ID. OCC.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-ACTOR-TABLE.
+   05 WS-ACTOR-ROW OCCURS 4 TIMES.
+      10 ACTOR-ID      PIC X(09).
+      10 ACTOR-CAPTION PIC X(40).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("program should parse"));
+        interp.seed_objects([(
+            "ActorGrid".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                ("_BindingFields".to_owned(), "ACTOR-ID\nACTOR-CAPTION".to_owned()),
+            ],
+        )]);
+        for (n, caption) in [(1, "Leonardo DiCaprio"), (2, "Joe Pesci"), (4, "Al Pacino")] {
+            interp.env.set_str(&format!("ACTOR-ID({n})"), &format!("{n:09}"));
+            interp.env.set_str(&format!("ACTOR-CAPTION({n})"), caption);
+        }
+        // Occurrence 3 stays blank, so it is not a line of the grid.
+        assert_eq!(interp.refresh_datagrid_binding("ActorGrid"), 3);
+        let occurrences = |interp: &Interpreter| interp.obj_get("ActorGrid", "_RowOrigins");
+        assert_eq!(occurrences(&interp), "1\n2\n4", "line 3 is occurrence 4");
+        assert_eq!(interp.row_origins("ActorGrid"), ["1", "2", "4"]);
+
+        let two = [CobolValue::from_str("2", 1)];
+        interp.exec_method("ActorGrid", "Sort", &two);
+        assert_eq!(occurrences(&interp), "4\n2\n1", "sorted by caption, each row keeps its occurrence");
+        interp.exec_method("ActorGrid", "DeleteRow", &[CobolValue::from_str("1", 1)]);
+        assert_eq!(occurrences(&interp), "2\n1", "the deleted row's occurrence goes with it");
+        interp.exec_method("ActorGrid", "AddRow", &[]);
+        assert_eq!(interp.row_origins("ActorGrid"), ["2", "1", ""], "a row the program adds is no row of the table");
+        interp.exec_method("ActorGrid", "ClearRows", &[]);
+        assert_eq!(occurrences(&interp), "");
+        println!("\n  _RowOrigins: 1,2,4 after the load; 4,2,1 after Sort; 2,1 after DeleteRow; a blank after AddRow; empty after ClearRows\n");
     }
 
     /// A ComboBox bound to a COBOL table lists the table's values: here a

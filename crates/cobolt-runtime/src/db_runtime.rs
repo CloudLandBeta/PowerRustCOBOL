@@ -89,6 +89,90 @@ impl BackendKind {
     }
 }
 
+// ── Transactions the program began (spec 095) ───────────────────────────────
+
+/// The statements of `sql`, split at the `;` that sit outside quotes.
+fn split_statements(sql: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut start, mut quote) = (0, None::<char>);
+    for (at, ch) in sql.char_indices() {
+        match quote {
+            Some(q) if ch == q => quote = None,
+            Some(_) => {}
+            None if ch == '\'' || ch == '"' || ch == '`' => quote = Some(ch),
+            None if ch == ';' => {
+                parts.push(&sql[start..at]);
+                start = at + ch.len_utf8();
+            }
+            None => {}
+        }
+    }
+    parts.push(&sql[start..]);
+    parts
+}
+
+/// The words of one statement, upper-cased, with `=` as a word of its own and
+/// the leading comments dropped.
+fn statement_words(statement: &str) -> Vec<String> {
+    let mut rest = statement.trim_start();
+    loop {
+        if let Some(after) = rest.strip_prefix("--") {
+            rest = after.split_once('\n').map_or("", |(_, tail)| tail).trim_start();
+        } else if let Some(after) = rest.strip_prefix("/*") {
+            rest = after.split_once("*/").map_or("", |(_, tail)| tail).trim_start();
+        } else {
+            break;
+        }
+    }
+    rest.replace('=', " = ")
+        .split_whitespace()
+        .map(|word| word.to_ascii_uppercase())
+        .collect()
+}
+
+/// What running `sql` does to a connection's transaction: `Some(true)` opens
+/// one, `Some(false)` ends it, `None` leaves it as it is. Read from the leading
+/// keyword of each statement, the way the embedded-SQL backends keep their own
+/// `in_tx` for PostgreSQL and MySQL — neither driver says what the server
+/// thinks. `SET autocommit = 0` counts as opening one (the server starts it with
+/// the next statement); `ROLLBACK TO` a savepoint and `COMMIT PREPARED` end
+/// nothing of this connection's.
+fn transaction_effect(sql: &str) -> Option<bool> {
+    let mut effect = None;
+    for statement in split_statements(sql) {
+        let words = statement_words(statement);
+        let word = |n: usize| words.get(n).map(String::as_str);
+        let found = match word(0) {
+            Some("BEGIN") => Some(true),
+            Some("START") if word(1) == Some("TRANSACTION") => Some(true),
+            Some("COMMIT") | Some("END") if word(1) != Some("PREPARED") => Some(false),
+            Some("ROLLBACK") => {
+                let after = match word(1) {
+                    Some("WORK") | Some("TRANSACTION") => 2,
+                    _ => 1,
+                };
+                match word(after) {
+                    Some("TO") | Some("PREPARED") => None,
+                    _ => Some(false),
+                }
+            }
+            Some("SET") => {
+                let name = word(1).map(|w| w.trim_start_matches("@@").trim_start_matches("SESSION."));
+                match (name, word(2), word(3)) {
+                    (Some("AUTOCOMMIT"), Some("="), Some("0" | "OFF" | "FALSE")) => Some(true),
+                    (Some("AUTOCOMMIT"), Some("="), Some("1" | "ON" | "TRUE")) => Some(false),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if found.is_some() {
+            effect = found;
+        }
+    }
+    effect
+}
+
 /// The live driver connection for one of the supported engines.
 #[cfg(feature = "sql")]
 enum Backend {
@@ -147,9 +231,23 @@ pub struct DbConn {
     cursor: usize,
     /// `true` after the cursor passes the last row.
     exhausted: bool,
+    /// A transaction the statements run here have opened and not yet ended
+    /// (spec 095). SQLite is asked instead — see [`DbConn::in_transaction`].
+    in_tx: bool,
 }
 
 impl DbConn {
+    /// Whether a transaction is open on this connection now. SQLite says so
+    /// itself (it may end one on its own after some errors); PostgreSQL and
+    /// MySQL are read from the statements that went through [`DbConn::exec`].
+    pub fn in_transaction(&self) -> bool {
+        #[cfg(feature = "sql")]
+        if let Backend::Sqlite(conn) = &self.backend {
+            return !conn.is_autocommit();
+        }
+        self.in_tx
+    }
+
     /// Run one statement — what [`DbRegistry::exec`] does, for a connection a
     /// worker holds. The count is the affected rows, or the rows of a result.
     pub fn run(&mut self, sql: &str) -> Result<usize, String> {
@@ -175,6 +273,7 @@ impl DbConn {
             rows: Vec::new(),
             cursor: 0,
             exhausted: false,
+            in_tx: false,
         }
     }
 
@@ -253,6 +352,9 @@ impl DbConn {
 
         self.columns = result.columns;
         self.rows = result.rows;
+        if let Some(open) = transaction_effect(sql) {
+            self.in_tx = open;
+        }
         // SELECT → number of rows; DML/DDL → affected rows.
         if self.rows.is_empty() {
             Ok(result.affected)
@@ -503,6 +605,9 @@ pub struct DbRegistry {
     /// Handles whose connection is out on a background worker (spec 032,
     /// `Mode = Async`). Closing one drops the connection when it comes back.
     lent: std::collections::HashSet<u32>,
+    /// Every statement sent through [`DbRegistry::exec`], when a test asked for
+    /// it (`record_statements`). `None` — the default — records nothing.
+    statement_log: Option<Vec<String>>,
 }
 
 /// A connection travelling to or from a background worker. Shared and
@@ -534,7 +639,28 @@ impl DbRegistry {
             connections: HashMap::new(),
             next_handle: 1,
             lent: Default::default(),
+            statement_log: None,
         }
+    }
+
+    /// Start keeping the text of every statement `exec` is given (spec 095 AC3:
+    /// a test asserts `BEGIN`, the `UPDATE`s, `COMMIT`, or the absence of a
+    /// `BEGIN`). Not for production use.
+    #[doc(hidden)]
+    pub fn record_statements(&mut self) {
+        self.statement_log.get_or_insert_with(Vec::new);
+    }
+
+    /// The statements kept since [`DbRegistry::record_statements`], in order.
+    #[doc(hidden)]
+    pub fn recorded_statements(&self) -> Vec<String> {
+        self.statement_log.clone().unwrap_or_default()
+    }
+
+    /// Whether a transaction is open on `handle` (spec 095): the program began
+    /// one with `BEGIN`, so a unit of work must not begin — or end — its own.
+    pub fn in_transaction(&self, handle: u32) -> bool {
+        self.connections.get(&handle).is_some_and(DbConn::in_transaction)
     }
 
     /// Open a new connection and return its handle.
@@ -564,6 +690,9 @@ impl DbRegistry {
     ///
     /// Returns `Ok(row_count_or_affected_rows)` or `Err(message)`.
     pub fn exec(&mut self, handle: u32, sql: &str) -> Result<usize, String> {
+        if let Some(log) = &mut self.statement_log {
+            log.push(sql.trim().to_owned());
+        }
         if self.lent.contains(&handle) {
             return Err(self.busy_message(handle));
         }
@@ -771,6 +900,79 @@ mod tests {
         assert_eq!(reg.take_row(h), None);
 
         reg.close(h);
+    }
+
+    /// Spec 095: which statements open, end or leave alone a transaction — the
+    /// reading PostgreSQL and MySQL connections rely on, since neither driver
+    /// says what the server thinks.
+    #[test]
+    fn the_leading_keyword_of_a_statement_says_what_it_does_to_a_transaction() {
+        let cases: &[(&str, Option<bool>)] = &[
+            ("BEGIN", Some(true)),
+            ("  begin;", Some(true)),
+            ("BEGIN TRANSACTION", Some(true)),
+            ("START TRANSACTION", Some(true)),
+            ("start   transaction read only", Some(true)),
+            ("SET autocommit = 0", Some(true)),
+            ("set @@session.autocommit=OFF", Some(true)),
+            ("SET autocommit = 1", Some(false)),
+            ("COMMIT", Some(false)),
+            ("commit work", Some(false)),
+            ("END", Some(false)),
+            ("ROLLBACK", Some(false)),
+            ("ROLLBACK WORK", Some(false)),
+            ("ROLLBACK TO SAVEPOINT sp1", None),
+            ("rollback transaction to sp1", None),
+            ("COMMIT PREPARED 'tx1'", None),
+            ("-- a note\nBEGIN", Some(true)),
+            ("/* a note */ COMMIT", Some(false)),
+            ("BEGIN; UPDATE t SET a = 1; COMMIT", Some(false)),
+            ("COMMIT; BEGIN", Some(true)),
+            ("SELECT 'BEGIN'", None),
+            ("UPDATE t SET note = 'x; COMMIT; y'", None),
+            ("SET names utf8", None),
+            ("SELECT 1", None),
+            ("", None),
+        ];
+        for (sql, expected) in cases {
+            assert_eq!(transaction_effect(sql), *expected, "{sql:?}");
+        }
+        println!(
+            "\n  transaction scanner: {} statements read, each one's effect on a transaction as expected\n",
+            cases.len()
+        );
+    }
+
+    /// SQLite answers for itself; the statements the registry runs are kept in
+    /// order when a test asks for them.
+    #[cfg(feature = "sql")]
+    #[test]
+    fn a_transaction_is_seen_open_and_ended_and_the_statements_are_recorded() {
+        let mut reg = DbRegistry::new();
+        reg.record_statements();
+        let h = reg.open(":memory:").expect("in-memory sqlite opens");
+        assert!(!reg.in_transaction(h), "a fresh connection has none");
+        reg.exec(h, "CREATE TABLE t (a INTEGER)").expect("create");
+        reg.exec(h, "BEGIN").expect("begin");
+        assert!(reg.in_transaction(h), "BEGIN opens one");
+        reg.exec(h, "INSERT INTO t VALUES (1)").expect("insert");
+        assert!(reg.in_transaction(h), "still open");
+        reg.exec(h, "ROLLBACK").expect("rollback");
+        assert!(!reg.in_transaction(h), "ROLLBACK ends it");
+        reg.exec(h, "BEGIN").expect("begin again");
+        reg.exec(h, "COMMIT").expect("commit");
+        assert!(!reg.in_transaction(h), "COMMIT ends it");
+        assert!(!reg.in_transaction(999), "no such connection");
+        assert_eq!(
+            reg.recorded_statements(),
+            ["CREATE TABLE t (a INTEGER)", "BEGIN", "INSERT INTO t VALUES (1)", "ROLLBACK", "BEGIN", "COMMIT"]
+        );
+        // A registry that was not asked to record keeps nothing.
+        let mut quiet = DbRegistry::new();
+        let q = quiet.open(":memory:").expect("opens");
+        quiet.exec(q, "SELECT 1").expect("select");
+        assert!(quiet.recorded_statements().is_empty());
+        println!("\n  SQLite transaction state follows BEGIN / ROLLBACK / COMMIT; 6 statements recorded in order\n");
     }
 
     #[test]

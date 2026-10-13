@@ -182,3 +182,63 @@ fn the_method_surface_returns_rows_and_names_columns() {
         "exactly two rows, no repeats: {joined}"
     );
 }
+
+/// Spec 095: the control's own transaction verbs. A begun transaction's writes are
+/// kept by `Commit()` and thrown away by `Rollback()`; `IsInTransaction()` follows
+/// both; a verb that cannot apply answers 0 and says why in `LastError`.
+const SQL_TRANSACTION_VERBS: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. T.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N     PIC 9(4).
+       01 WS-ERR   PIC X(80).
+       PROCEDURE DIVISION.
+           MOVE DB-1::Open(":memory:") TO WS-N
+           MOVE DB-1::Execute("CREATE TABLE t (id INTEGER)") TO WS-N
+           MOVE DB-1::IsInTransaction() TO WS-N
+           DISPLAY "idle=" WS-N
+           MOVE DB-1::Commit() TO WS-N
+           MOVE DB-1::LastError TO WS-ERR
+           DISPLAY "commit-none=" WS-N " " FUNCTION TRIM(WS-ERR)
+           MOVE DB-1::BeginTransaction() TO WS-N
+           DISPLAY "begin=" WS-N
+           MOVE DB-1::IsInTransaction() TO WS-N
+           DISPLAY "open=" WS-N
+           MOVE DB-1::BeginTransaction() TO WS-N
+           MOVE DB-1::LastError TO WS-ERR
+           DISPLAY "begin-twice=" WS-N " " FUNCTION TRIM(WS-ERR)
+           MOVE DB-1::Execute("INSERT INTO t VALUES (1)") TO WS-N
+           MOVE DB-1::Rollback() TO WS-N
+           DISPLAY "rollback=" WS-N
+           MOVE DB-1::Execute("SELECT id FROM t") TO WS-N
+           DISPLAY "after-rollback=" WS-N
+           MOVE DB-1::BeginTransaction() TO WS-N
+           MOVE DB-1::Execute("INSERT INTO t VALUES (2)") TO WS-N
+           MOVE DB-1::Commit() TO WS-N
+           DISPLAY "commit=" WS-N
+           MOVE DB-1::IsInTransaction() TO WS-N
+           DISPLAY "closed=" WS-N
+           MOVE DB-1::Execute("SELECT id FROM t") TO WS-N
+           DISPLAY "after-commit=" WS-N
+           STOP RUN.
+"#;
+
+#[test]
+fn the_transaction_verbs_commit_roll_back_and_refuse_what_cannot_apply() {
+    let out = run_capture(SQL_TRANSACTION_VERBS);
+    let line = |prefix: &str| out.iter().find(|l| l.starts_with(prefix)).cloned().unwrap_or_else(|| panic!("no {prefix} in {out:?}"));
+    assert_eq!(line("idle="), "idle=0000", "no transaction before one is begun");
+    assert!(line("commit-none=").starts_with("commit-none=0000 "), "{}", line("commit-none="));
+    assert!(line("commit-none=").contains("no transaction is open"), "{}", line("commit-none="));
+    assert_eq!(line("begin="), "begin=0001");
+    assert_eq!(line("open="), "open=0001");
+    assert!(line("begin-twice=").starts_with("begin-twice=0000 "), "{}", line("begin-twice="));
+    assert!(line("begin-twice=").contains("already open"), "{}", line("begin-twice="));
+    assert_eq!(line("rollback="), "rollback=0001");
+    assert_eq!(line("after-rollback="), "after-rollback=0000", "the rolled-back insert is gone");
+    assert_eq!(line("commit="), "commit=0001");
+    assert_eq!(line("closed="), "closed=0000", "a commit ends the transaction");
+    assert_eq!(line("after-commit="), "after-commit=0001", "the committed insert is kept");
+    println!("\n  SqlDatabase transactions: Begin/Commit/Rollback/IsInTransaction -- rollback drops the insert, commit keeps it; Commit with none and a second Begin answer 0 with LastError\n");
+}
