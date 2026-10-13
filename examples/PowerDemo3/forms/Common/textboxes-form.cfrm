@@ -1009,6 +1009,15 @@
        WORKING-STORAGE SECTION.
 
        PROCEDURE DIVISION.
+
+           *> UPDATE-CONCATENATION: no paragraph, user procedure or src/ program named
+           *> UPDATE-CONCATENATION exists in this project, so what it does cannot be stated. This
+           *> handler is kept in <deleted-controls> as the record of a deleted control and is not
+           *> generated.
+           *> Uses:   Nothing is passed and nothing is set just above (the handler of the deleted
+           *>         control txt15 is only this CALL).
+           *> Result: Not known: there is no definition to read.
+
            CALL    "UPDATE-CONCATENATION"
            CONTINUE.
 ]]></Event>
@@ -1026,6 +1035,15 @@
 
            SET     WS-CLEAN-TEXT                 TO    txt14::Text
            *> Logic to strip non-numeric would go here
+
+           *> UPDATE-CONCATENATION: no paragraph, user procedure or src/ program named
+           *> UPDATE-CONCATENATION exists in this project, so what it does cannot be stated. This
+           *> handler is kept in <deleted-controls> as the record of a deleted control and is not
+           *> generated.
+           *> Uses:   Nothing is passed. Just above, the handler of the deleted control txt14 copied
+           *>         txt14::Text into its own WS-CLEAN-TEXT (a stub: the comment says the stripping
+           *>         of non-numeric characters would go there).
+           *> Result: Not known: there is no definition to read.
 
            CALL    "UPDATE-CONCATENATION"
            CONTINUE.
@@ -1073,6 +1091,15 @@
 
        PROCEDURE DIVISION.
            SET     txt11::Text                   TO    FUNCTION LOWER-CASE(txt11::Text)
+
+           *> UPDATE-CONCATENATION: no paragraph, user procedure or src/ program named
+           *> UPDATE-CONCATENATION exists in this project, so what it does cannot be stated. This
+           *> handler is kept in <deleted-controls> as the record of a deleted control and is not
+           *> generated.
+           *> Uses:   Nothing is passed. Just above, the handler of the deleted control txt11 set
+           *>         txt11::Text to its lower-case form.
+           *> Result: Not known: there is no definition to read.
+
            CALL    "UPDATE-CONCATENATION"
            CONTINUE.
 ]]></Event>
@@ -1119,6 +1146,16 @@
 
                MOVE    WS-TEMP-TEXT              TO    txt8::Text
            END-IF.
+
+           *> UPDATE-CONCATENATION: no paragraph, user procedure or src/ program named
+           *> UPDATE-CONCATENATION exists in this project, so what it does cannot be stated. This
+           *> handler is kept in <deleted-controls> as the record of a deleted control and is not
+           *> generated.
+           *> Uses:   Nothing is passed. Just above, the handler of the deleted control txt8 added
+           *>         the prefix "ID: " to txt8::Text when it did not match the pattern "ID: %*"
+           *>         (through WS-TEMP-TEXT).
+           *> Result: Not known: there is no definition to read.
+
            CALL    "UPDATE-CONCATENATION".
            CONTINUE.
 ]]></Event>
@@ -1170,6 +1207,16 @@
            ELSE
                SET     txt5::BackgroundColor     TO    "#444444"
            END-IF
+
+           *> UPDATE-CONCATENATION: no paragraph, user procedure or src/ program named
+           *> UPDATE-CONCATENATION exists in this project, so what it does cannot be stated. This
+           *> handler is kept in <deleted-controls> as the record of a deleted control and is not
+           *> generated.
+           *> Uses:   Nothing is passed. Just above, the handler of the deleted control txt5 set
+           *>         WS-LEN to the length of txt5::Text and txt5::BackgroundColor to "#0000FF" when
+           *>         it is over 10, otherwise "#444444".
+           *> Result: Not known: there is no definition to read.
+
            CALL    "UPDATE-CONCATENATION"
            CONTINUE.
 ]]></Event>
@@ -1225,6 +1272,15 @@
 
        PROCEDURE DIVISION.
            SET     txt1::Text                    TO    FUNCTION UPPER-CASE(txt1::Text)
+
+           *> UPDATE-CONCATENATION: no paragraph, user procedure or src/ program named
+           *> UPDATE-CONCATENATION exists in this project, so what it does cannot be stated. This
+           *> handler is kept in <deleted-controls> as the record of a deleted control and is not
+           *> generated.
+           *> Uses:   Nothing is passed. Just above, the handler of the deleted control txt1 set
+           *>         txt1::Text to its upper-case form.
+           *> Result: Not known: there is no definition to read.
+
            CALL    "UPDATE-CONCATENATION"
            CONTINUE.
 ]]></Event>

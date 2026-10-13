@@ -115,6 +115,14 @@
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PS-SETTING-GET: reads one setting from the settings file (indexed, data/settings.idx
+           *> or $POWERSPATIAL_DATA/settings.idx) by its name. It never writes a setting (the OPEN
+           *> only leaves an empty settings.idx.lck beside the file).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the file.
+           *> Result: WS-SET-VALUE = the saved language code ("pt", "es", ...), or SPACES when the
+           *>         setting was never kept or the file is missing or cannot be opened.
+
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
 
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
@@ -134,6 +142,13 @@
 
            IF    WS-NEW-IX NOT = WS-LANG-IX
                SET     WS-LANG-IX                TO    WS-NEW-IX
+
+               *> PS-APPLY-TEXT: writes the tooltips of the chosen language on the rail buttons.
+               *> Uses:   WS-LANG-IX (just set to WS-NEW-IX, 1-6) as the PS-TEXT column.
+               *> Result: Btn-Home, Btn-Rooms, Btn-Security, Btn-Cameras, Btn-Energy and
+               *>         Btn-Settings::Tooltip = PS-TEXT rows 1 to 6 of that column, trimmed. No
+               *>         data item changes.
+
                CALL    "PS-APPLY-TEXT"
            END-IF
 ]]></Event>
@@ -156,7 +171,23 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-LANG-CHECK: reads the saved language and, when it is not the one on screen, applies
+           *> its texts.
+           *> Uses:   The LANG setting in the settings file, WS-LANG-IX = 0 (its VALUE at load) and,
+           *>         for the tooltips, the PS-TEXT table.
+           *> Result: WS-SET-NAME = "LANG"; WS-SET-VALUE = the code read (SPACES if none); WS-NEW-IX
+           *>         = 1-6; WS-LANG-IX = WS-NEW-IX, so the first call always applies the six
+           *>         tooltips (PS-APPLY-TEXT).
+
            CALL    "PS-LANG-CHECK"
+
+           *> PS-RAIL-SHOW: lets the picked destination wear the light disc; the others none.
+           *> Uses:   WS-PICKED = 1 (its VALUE at load, Home).
+           *> Result: Btn-Home::Transparency = 0; Btn-Rooms, Btn-Security, Btn-Cameras and
+           *>         Btn-Energy::Transparency = 100. WS-PICKED is not changed; Btn-Settings is not
+           *>         touched.
+
            CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </form-events>
@@ -189,6 +220,13 @@
 
        PROCEDURE DIVISION.
            SET     WS-PICKED                     TO    1
+
+           *> PS-RAIL-SHOW: lets the picked destination wear the light disc; the others none.
+           *> Uses:   WS-PICKED (set just above to 1, Home).
+           *> Result: Btn-Home::Transparency = 0; Btn-Rooms, Btn-Security, Btn-Cameras and
+           *>         Btn-Energy::Transparency = 100. WS-PICKED is not changed; Btn-Settings is not
+           *>         touched.
+
            CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
@@ -211,6 +249,13 @@
 
        PROCEDURE DIVISION.
            SET     WS-PICKED                     TO    2
+
+           *> PS-RAIL-SHOW: lets the picked destination wear the light disc; the others none.
+           *> Uses:   WS-PICKED (set just above to 2, Rooms).
+           *> Result: Btn-Rooms::Transparency = 0; Btn-Home, Btn-Security, Btn-Cameras and
+           *>         Btn-Energy::Transparency = 100. WS-PICKED is not changed; Btn-Settings is not
+           *>         touched.
+
            CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
@@ -233,6 +278,13 @@
 
        PROCEDURE DIVISION.
            SET     WS-PICKED                     TO    3
+
+           *> PS-RAIL-SHOW: lets the picked destination wear the light disc; the others none.
+           *> Uses:   WS-PICKED (set just above to 3, Security).
+           *> Result: Btn-Security::Transparency = 0; Btn-Home, Btn-Rooms, Btn-Cameras and
+           *>         Btn-Energy::Transparency = 100. WS-PICKED is not changed; Btn-Settings is not
+           *>         touched.
+
            CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
@@ -255,6 +307,13 @@
 
        PROCEDURE DIVISION.
            SET     WS-PICKED                     TO    4
+
+           *> PS-RAIL-SHOW: lets the picked destination wear the light disc; the others none.
+           *> Uses:   WS-PICKED (set just above to 4, Cameras).
+           *> Result: Btn-Cameras::Transparency = 0; Btn-Home, Btn-Rooms, Btn-Security and
+           *>         Btn-Energy::Transparency = 100. WS-PICKED is not changed; Btn-Settings is not
+           *>         touched.
+
            CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
@@ -277,6 +336,13 @@
 
        PROCEDURE DIVISION.
            SET     WS-PICKED                     TO    5
+
+           *> PS-RAIL-SHOW: lets the picked destination wear the light disc; the others none.
+           *> Uses:   WS-PICKED (set just above to 5, Energy).
+           *> Result: Btn-Energy::Transparency = 0; Btn-Home, Btn-Rooms, Btn-Security and
+           *>         Btn-Cameras::Transparency = 100. WS-PICKED is not changed; Btn-Settings is not
+           *>         touched.
+
            CALL    "PS-RAIL-SHOW"
 ]]></Event>
   </Control>
@@ -308,6 +374,14 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-LANG-CHECK: Tmr-Lang fires every 1000 ms; each tick re-reads the saved language.
+           *> Uses:   The LANG setting in the settings file, WS-LANG-IX (the language on screen)
+           *>         and, for the tooltips, the PS-TEXT table.
+           *> Result: Every tick: WS-SET-NAME = "LANG", WS-SET-VALUE = the code read (SPACES if
+           *>         none), WS-NEW-IX = 1-6. Only when WS-NEW-IX differs from WS-LANG-IX are
+           *>         WS-LANG-IX and the tooltips (PS-APPLY-TEXT) changed.
+
            CALL    "PS-LANG-CHECK"
 ]]></Event>
   </Control>

@@ -126,6 +126,17 @@
            SET     ORD-QTY(3)                    TO    3
            SET     ORD-PRICE(3)                  TO    219.50
 
+           *> PP-SHOW-ORDER: puts the order on the screen: one label per order line, then the order
+           *> header with its total.
+           *> Uses:   WS-ORDER, the sample order filled in just above: ORD-NUMBER 104217, ORD-DATE
+           *>         "2026-09-28"; 2 x Office chair at 649.90, 1 x Standing desk at 1890.00, 3 x
+           *>         Monitor arm at 219.50.
+           *> Result: WS-TOTAL = 3848.30 (the sum of quantity x price). Lbl-Line-1::Caption,
+           *>         Lbl-Line-2::Caption and Lbl-Line-3::Caption = quantity x item = amount
+           *>         (1,299.80; 1,890.00; 658.50). Lbl-Order::Caption =
+           *>         "Order 104217 of 2026-09-28 - total " + WS-TOTAL-ED (3,848.30). WS-QTY-ED,
+           *>         WS-AMT-ED, WS-TOTAL-ED and WS-LINE hold the last values; WS-I ends at 4.
+
            CALL    "PP-SHOW-ORDER"
 ]]></Event>
     <Event name="onClose" paragraph="PROPS-PARENT-FORM--ONCLOSE">
@@ -703,6 +714,17 @@
            IF    WS-RESULT = "OK"
                INVOKE    ME::GetProperty("CustomerName") RETURNING Txt-Name::Text
                INVOKE    ME::GetProperty("OrderRecord") RETURNING WS-ORDER
+
+               *> PP-SHOW-ORDER: puts the order on the screen: one label per order line, then the
+               *> order header with its total.
+               *> Uses:   WS-ORDER, just replaced by the child form's OrderRecord property: the same
+               *>         order with the quantities (ORD-QTY) the operator left in the child.
+               *>         Reached only when WS-RESULT = "OK".
+               *> Result: WS-TOTAL = the sum of ORD-QTY x ORD-PRICE over the three lines. Lbl-Line-1
+               *>         to Lbl-Line-3::Caption = quantity x item = amount of each line;
+               *>         Lbl-Order::Caption = "Order " + ORD-NUMBER + " of " + ORD-DATE +
+               *>         " - total " + WS-TOTAL-ED. WS-QTY-ED, WS-AMT-ED, WS-TOTAL-ED and WS-LINE
+               *>         hold the last values; WS-I ends at 4.
 
                CALL    "PP-SHOW-ORDER"
                SET     Lbl-Status::Caption       TO    "The child form sent the customer and the order back."

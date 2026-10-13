@@ -341,8 +341,26 @@
        PROCEDURE DIVISION.
            IF    WS-FV < 1000
                SET     WS-FC                     TO    WS-FV
+
+               *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+               *> becomes 1.234).
+               *> Uses:   WS-FC = the whole part of WS-FV, set just above (WS-FC is 9(12), WS-FV is
+               *>         9(15)V99, so any decimals are dropped). Caller's test (not read by
+               *>         FMT-COUNT): WS-FV < 1000.
+               *> Result: WS-FT = the digits of WS-FC with a point between groups of three, no
+               *>         leading blanks.
+
                CALL    "FMT-COUNT"
            ELSE
+
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV, as the caller of FMT-SHORTN left it. Caller's test (not read by
+               *>         FMT-SHORT): WS-FV is 1000 or more.
+               *> Result: WS-FT = WS-FV scaled to mil (10^3), mi (10^6), bi (10^9) or tri (10^12),
+               *>         two decimals with a comma, a blank and the suffix.
+
                CALL    "FMT-SHORT"
            END-IF
 ]]></Event>
@@ -435,6 +453,13 @@
            SET     WS-N                          TO    DB-1::Query(WS-SQL)
            SET     WS-ROW                        TO    DB-1::Fetch()
            SET     WS-FC                         TO    WS-UNIV
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-UNIV, set just above: the number of rows of the fundos table
+           *>         (COUNT(*)).
+           *> Result: WS-FT = that count with points between thousands; the next lines place it in
+           *>         the text for LBL-STATUS::Caption.
 
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
@@ -605,8 +630,33 @@
                SET     WS-LAST-C                 TO    WS-TERM
            END-IF
            IF    WS-SM NOT = WS-SMX
+
+               *> SM-OPEN: opens the search dropdown (layer POPUP-SEARCH) for the filter box named
+               *> in WS-SMX.
+               *> Uses:   WS-SMX = "N" or "C" (set by the TXT-NOME or TXT-CAT handler: the box being
+               *>         typed in). Caller's test (not read by SM-OPEN): WS-SM differs from WS-SMX,
+               *>         so no dropdown, or the other box's, is open.
+               *> Result: WS-SM = WS-SMX; the Levels popup is closed if it was open (CLOSE-LEVELS);
+               *>         LBL-SM-T::Caption = the title of that dropdown; the layout is recomputed
+               *>         (SET-FILT-HEIGHT places the search card); SM-REFRESH fills LST-SM for the
+               *>         typed text (at most 150 names for "N"), sets WS-SMN (all the matches) and
+               *>         WS-SMK, sets LST-SM::CheckedItems (SM-TICKS) and LBL-SM-INFO::Caption
+               *>         (SM-INFO); POPUP-SEARCH::Visible = TRUE.
+
                CALL    "SM-OPEN"
            ELSE
+
+               *> SM-REFRESH: rebuilds the list LST-SM of the open dropdown from the text typed in
+               *> its filter box.
+               *> Uses:   WS-SM = WS-SMX: the dropdown of this box is already open. The new text is
+               *>         read again from TXT-NOME::Text ("N") or TXT-CAT::Text ("C").
+               *> Result: table vis (rows of WS-SM) = the matches of the text (at most 150 names for
+               *>         "N"; for "C" the categories that contain it); LST-SM = "Todos" + those
+               *>         names, its CheckedItems set by SM-TICKS; WS-SMN = all the matches found
+               *>         (for "N" it can exceed the 150 listed); WS-SMK = names listed;
+               *>         LBL-SM-INFO::Caption updated (SM-INFO); WS-TERM = the folded text and
+               *>         WS-PAT its LIKE pattern (NORM-TERM).
+
                CALL    "SM-REFRESH"
            END-IF
 ]]></Event>
@@ -615,6 +665,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> CLOSE-LEVELS: closes the Levels 2 and 3 popup when it is open.
+           *> Uses:   WS-LEVELS-OPEN (1 = the Levels popup is open); only one dropdown may show at a
+           *>         time.
+           *> Result: Only when WS-LEVELS-OPEN = 1: WS-LEVELS-OPEN = 0, POPUP-LEVELS::Visible =
+           *>         FALSE and BTN-LEVELS::Caption = "Níveis 2 e 3". Otherwise nothing changes.
+
            CALL    "CLOSE-LEVELS"
            SET     WS-SM                         TO    WS-SMX
            IF    WS-SM = "N"
@@ -623,7 +680,34 @@
                SET     LBL-SM-T::Caption         TO    "Categoria  ·  marque as categorias que quer ver"
            END-IF
 
+           *> SET-FILT-HEIGHT: lays the window out for its current size: filter bar height, popup
+           *> cards, KPI strip, Dados page and grid.
+           *> Uses:   me::Breakpoint, me::Width and me::Height; no data item is read (WS-LEVELS-OPEN
+           *>         in particular is not: the Levels card is always placed). Popup layers are not
+           *>         laid out by the form, so the search card has to be placed here before it is
+           *>         shown.
+           *> Result: everything is repositioned: FILT::Height (76 to 332 px by breakpoint and
+           *>         width); position and size of the Levels card (LV-DROP, GRP-N2, LBL-F-N2,
+           *>         LST-N2, GRP-N3, LBL-F-N3, LST-N3, SCRIM-LV) and of the search card (SM-DROP,
+           *>         LBL-SM-T, LST-SM, LBL-SM-INFO, BTN-SM-CLR, BTN-SM-OK, SCRIM-SM), each only in
+           *>         the properties it needs (SM-DROP and LST-SM keep their designed Height);
+           *>         PG-DASH::VScroll (0 in Expanded, else 1); STRIP hidden in Compact, else shown
+           *>         with the cards K1-C to K5-C, their labels and the dots DOT-K1 to DOT-K5;
+           *>         PG-DATA, C-GRID, LBL-GRID-T, LBL-GRID-S, CMB-ORDER, GRD-FUNDOS, BTN-PREV,
+           *>         LBL-PAGE and BTN-NEXT. Work items overwritten: WS-BP (holds me::Breakpoint).
+
            CALL    "SET-FILT-HEIGHT"
+
+           *> SM-REFRESH: rebuilds the list LST-SM of the open dropdown from the text typed in its
+           *> filter box.
+           *> Uses:   WS-SM = WS-SMX ("N" or "C"), set above, selects the box; its text is read from
+           *>         TXT-NOME::Text or TXT-CAT::Text (empty text matches every name or category).
+           *> Result: table vis (rows of WS-SM) = the matches (at most 150 names for "N"; for "C"
+           *>         the categories that contain it); LST-SM = "Todos" + those names, its
+           *>         CheckedItems set by SM-TICKS; WS-SMN = all the matches found (for "N" it can
+           *>         exceed the 150 listed); WS-SMK = names listed; LBL-SM-INFO::Caption updated
+           *>         (SM-INFO); WS-TERM = the folded text and WS-PAT its LIKE pattern (NORM-TERM).
+
            CALL    "SM-REFRESH"
 
            SET     POPUP-SEARCH::Visible         TO    TRUE
@@ -654,6 +738,14 @@
            ELSE
                SET     WS-TERM                   TO    TXT-CAT::Text
            END-IF
+
+           *> NORM-TERM: folds a search text like the nome_key column (no accents, upper case,
+           *> apostrophe turned into _) and builds the LIKE pattern.
+           *> Uses:   WS-TERM = the text of TXT-NOME (WS-SM = "N") or of TXT-CAT, set just above
+           *>         (WS-TERM is X(80): only the first 80 characters are kept).
+           *> Result: WS-TERM = the folded text (itaú becomes ITAU); WS-PAT = "%" when WS-TERM is
+           *>         blank, otherwise "%" + WS-TERM + "%" for a LIKE test.
+
            CALL    "NORM-TERM"
            SET     WS-SQL                        TO    SPACES
            STRING    "DELETE FROM vis WHERE fld = '" WS-SM "'" DELIMITED BY SIZE INTO WS-SQL
@@ -705,6 +797,15 @@
                    END-IF
                    IF    WS-HIT > 0
                        ADD    1 TO WS-SMN
+
+                       *> SQ-ESC: doubles every apostrophe of a text so it can sit inside an SQL
+                       *> string literal.
+                       *> Uses:   WS-ONE = the trimmed name of category WS-CAT-NAME(WS-SK2), set
+                       *>         above in this loop.
+                       *> Result: WS-ESC = WS-ONE with each ' written as ''; the INSERT INTO vis
+                       *>         built next stores WS-ESC. Work items overwritten: WS-BPTR (the
+                       *>         STRING pointer, left at the next free position of WS-ESC).
+
                        CALL    "SQ-ESC"
                        SET     WS-SQL            TO    SPACES
                        STRING    "INSERT INTO vis VALUES ('C','" WS-ESC::Trim() "')" INTO WS-SQL
@@ -731,7 +832,23 @@
                LST-SM::AddItem(WS-ROW::Trim())
            END-PERFORM
 
+           *> SM-TICKS: ticks the rows of LST-SM that belong to the filter (all of them in Todos
+           *> mode, otherwise the kept picks).
+           *> Uses:   WS-SM, the Todos flags WS-ALL-N / WS-ALL-C, table vis (the names just listed
+           *>         in LST-SM) and table pick (the names kept).
+           *> Result: LST-SM::CheckedItems = "Todos" + every listed name in Todos mode, otherwise
+           *>         only the listed names found in pick (joined by LF); SPACES when nothing is to
+           *>         be ticked. Work items overwritten: WS-BIG, WS-BPTR, WS-SQL, WS-N, WS-ROW.
+
            CALL    "SM-TICKS"
+
+           *> SM-INFO: writes the status line under the dropdown list: matches found, rows listed,
+           *> names ticked.
+           *> Uses:   WS-SMN (matches found) and WS-SMK (names listed) from the lines above, the
+           *>         count of pick rows of WS-SM and the Todos flags.
+           *> Result: LBL-SM-INFO::Caption = the message ("Todos: ...", "... marcado(s): só eles
+           *>         entram no filtro" or "... nenhum marcado: vale o texto digitado").
+
            CALL    "SM-INFO"
 ]]></Event>
     <Event name="SM-TICKS" paragraph="SM-TICKS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -791,6 +908,14 @@
 
            COMPUTE    WS-SMP = FUNCTION NUMVAL(WS-ROW)
            SET     WS-FC                         TO    WS-SMN
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-SMN, set just above: how many names (or categories) match the
+           *>         search text.
+           *> Result: WS-FT = that number with points between thousands; the message for LBL-SM-INFO
+           *>         is built from it next.
+
            CALL    "FMT-COUNT"
            SET     WS-MSG                        TO    SPACES
            *> Same rule as NAME-CLAUSE / CAT-CLAUSE: Todos = every search hit, any
@@ -890,6 +1015,16 @@
                        SET     WS-TODOS          TO    1
                    ELSE
                        IF    WS-ONE NOT = SPACES
+
+                           *> SQ-ESC: doubles every apostrophe of a text so it can sit inside an SQL
+                           *> string literal.
+                           *> Uses:   WS-ONE = the ticked name just taken from the list in WS-BIG.
+                           *>         Caller's test (not read by SQ-ESC): it is neither "Todos" nor
+                           *>         blank.
+                           *> Result: WS-ESC = WS-ONE with each ' doubled; the INSERT INTO chk built
+                           *>         next stores WS-ESC. Work items overwritten: WS-BPTR (the
+                           *>         STRING pointer, left at the next free position of WS-ESC).
+
                            CALL    "SQ-ESC"
                            SET     WS-SQL        TO    SPACES
                            STRING    "INSERT INTO chk VALUES ('" WS-ESC::Trim() "')" INTO WS-SQL
@@ -910,16 +1045,41 @@
 
            EVALUATE    TRUE
                WHEN WS-ALLC = 0 AND WS-TODOS = 1
+
+                   *> SM-SET-ALL: turns Todos mode on for the open dropdown (every search hit will
+                   *> enter the filter).
+                   *> Uses:   WS-SM = "N" or "C" (the open dropdown). Caller's test (not read by
+                   *>         SM-SET-ALL): Todos was off before (WS-ALLC = 0) and is ticked now
+                   *>         (WS-TODOS = 1).
+                   *> Result: WS-ALL-N = 1 when WS-SM = "N", otherwise WS-ALL-C = 1. The picks of
+                   *>         WS-SM are deleted right after.
+
                    CALL    "SM-SET-ALL"
                    SET     WS-SQL                TO    SPACES
                    STRING    "DELETE FROM pick WHERE fld = '" WS-SM "'" DELIMITED BY SIZE INTO WS-SQL
                    SET     WS-N                  TO    DB-1::Execute(WS-SQL)
                WHEN WS-ALLC = 1 AND WS-TODOS = 0
+
+                   *> SM-CLR-ALL: turns Todos mode off for the open dropdown.
+                   *> Uses:   WS-SM = "N" or "C". Caller's test (not read by SM-CLR-ALL): Todos was
+                   *>         on before (WS-ALLC = 1) and is unticked now (WS-TODOS = 0).
+                   *> Result: WS-ALL-N = 0 when WS-SM = "N", otherwise WS-ALL-C = 0. The picks of
+                   *>         WS-SM are deleted right after, so nothing stays picked.
+
                    CALL    "SM-CLR-ALL"
                    SET     WS-SQL                TO    SPACES
                    STRING    "DELETE FROM pick WHERE fld = '" WS-SM "'" DELIMITED BY SIZE INTO WS-SQL
                    SET     WS-N                  TO    DB-1::Execute(WS-SQL)
                WHEN OTHER
+
+                   *> SM-CLR-ALL: turns Todos mode off for the open dropdown.
+                   *> Uses:   WS-SM = "N" or "C". Caller's test (not read by SM-CLR-ALL): neither
+                   *>         case above, so Todos did not change and an ordinary name was ticked or
+                   *>         unticked.
+                   *> Result: WS-ALL-N = 0 when WS-SM = "N", otherwise WS-ALL-C = 0 (Todos mode off,
+                   *>         even if it was already). The picks are synced with the ticks right
+                   *>         after.
+
                    CALL    "SM-CLR-ALL"
                    SET     WS-SQL                TO    SPACES
                    STRING    "DELETE FROM pick WHERE fld = '" WS-SM "' AND name IN (SELECT name FROM vis WHERE fld = '"
@@ -932,8 +1092,34 @@
                    SET     WS-N                  TO    DB-1::Execute(WS-SQL)
            END-EVALUATE
 
+           *> SM-TICKS: ticks the rows of LST-SM that belong to the filter (all of them in Todos
+           *> mode, otherwise the kept picks).
+           *> Uses:   WS-SM, the Todos flags just updated and the pick table just synced with the
+           *>         ticks.
+           *> Result: LST-SM::CheckedItems is rewritten to the new state: "Todos" + every listed
+           *>         name in Todos mode, otherwise the listed names found in pick; SPACES when
+           *>         nothing is to be ticked. Work items overwritten: WS-BIG, WS-BPTR, WS-SQL,
+           *>         WS-N, WS-ROW.
+
            CALL    "SM-TICKS"
+
+           *> SM-INFO: writes the status line under the dropdown list: matches found, rows listed,
+           *> names ticked.
+           *> Uses:   WS-SMN and WS-SMK (unchanged by the click), the count of pick rows of WS-SM
+           *>         now and the Todos flags.
+           *> Result: LBL-SM-INFO::Caption = the message for the new state (Todos / N marcado(s) /
+           *>         nenhum marcado).
+
            CALL    "SM-INFO"
+
+           *> SM-CAPTIONS: sets the captions of the two filter labels from the picks kept for each
+           *> box.
+           *> Uses:   the count of pick rows with fld = 'N' and with fld = 'C' (two COUNT queries),
+           *>         WS-ALL-N and WS-ALL-C.
+           *> Result: LBL-F-NOME::Caption = "Nome comercial  ·  Todos" (WS-ALL-N = 1), "Nome
+           *>         comercial  ·  K marcado(s)" (K > 0) or "Nome comercial"; LBL-F-CAT::Caption
+           *>         the same way with "Categoria".
+
            CALL    "SM-CAPTIONS"
 ]]></Event>
     <Event name="SM-SET-ALL" paragraph="SM-SET-ALL"><![CDATA[       ENVIRONMENT DIVISION.
@@ -963,13 +1149,41 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLR-ALL: turns Todos mode off for the open dropdown.
+           *> Uses:   WS-SM = "N" or "C": the dropdown that is open.
+           *> Result: WS-ALL-N = 0 when WS-SM = "N", otherwise WS-ALL-C = 0. The picks of WS-SM are
+           *>         deleted right after.
+
            CALL    "SM-CLR-ALL"
            SET     WS-SQL                        TO    SPACES
            STRING    "DELETE FROM pick WHERE fld = '" WS-SM "'" DELIMITED BY SIZE INTO WS-SQL
            SET     WS-N                          TO    DB-1::Execute(WS-SQL)
 
+           *> SM-TICKS: ticks the rows of LST-SM that belong to the filter (all of them in Todos
+           *> mode, otherwise the kept picks).
+           *> Uses:   WS-SM; its pick rows were just deleted and its Todos flag is off.
+           *> Result: LST-SM::CheckedItems = SPACES: no row of the list stays ticked. Work items
+           *>         overwritten: WS-BIG, WS-BPTR, WS-SQL, WS-N, WS-ROW.
+
            CALL    "SM-TICKS"
+
+           *> SM-INFO: writes the status line under the dropdown list: matches found, rows listed,
+           *> names ticked.
+           *> Uses:   WS-SMN and WS-SMK (unchanged) and 0 pick rows for WS-SM now.
+           *> Result: LBL-SM-INFO::Caption = the "nenhum marcado: vale o texto digitado" message
+           *>         (typed text rules again).
+
            CALL    "SM-INFO"
+
+           *> SM-CAPTIONS: sets the captions of the two filter labels from the picks kept for each
+           *> box.
+           *> Uses:   the pick counts of 'N' and 'C' and the flags WS-ALL-N / WS-ALL-C, WS-SM's ones
+           *>         just cleared.
+           *> Result: the label of the open box (LBL-F-NOME for "N", LBL-F-CAT for "C") goes back to
+           *>         its plain "Nome comercial" / "Categoria"; the other label is recomputed from
+           *>         its own picks.
+
            CALL    "SM-CAPTIONS"
 ]]></Event>
     <Event name="SM-RESET" paragraph="SM-RESET"><![CDATA[       ENVIRONMENT DIVISION.
@@ -982,6 +1196,13 @@
            SET     WS-ALL-N                      TO    0
            SET     WS-ALL-C                      TO    0
 
+           *> SM-CAPTIONS: sets the captions of the two filter labels from the picks kept for each
+           *> box.
+           *> Uses:   tables pick and vis were just emptied and WS-ALL-N, WS-ALL-C set to 0, so
+           *>         every count is 0.
+           *> Result: LBL-F-NOME::Caption = "Nome comercial" and LBL-F-CAT::Caption = "Categoria"
+           *>         (no mark, no Todos).
+
            CALL    "SM-CAPTIONS"
 ]]></Event>
     <Event name="NAME-CLAUSE" paragraph="NAME-CLAUSE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -993,6 +1214,14 @@
 
        PROCEDURE DIVISION.
            SET     WS-TERM                       TO    TXT-NOME::Text
+
+           *> NORM-TERM: folds a search text like the nome_key column (no accents, upper case,
+           *> apostrophe turned into _) and builds the LIKE pattern.
+           *> Uses:   WS-TERM = TXT-NOME::Text, set just above (only the first 80 characters fit
+           *>         WS-TERM).
+           *> Result: WS-TERM = the folded text; WS-PAT = "%" when WS-TERM is blank, otherwise "%" +
+           *>         WS-TERM + "%". NAME-CLAUSE uses WS-PAT in its LIKE test.
+
            CALL    "NORM-TERM"
            SET     WS-K1                         TO    0
            *> Picked names, if any, replace the typed text as the filter. Todos mode
@@ -1023,6 +1252,14 @@
 
        PROCEDURE DIVISION.
            SET     WS-TERM                       TO    TXT-CAT::Text
+
+           *> NORM-TERM: folds a search text like the nome_key column (no accents, upper case,
+           *> apostrophe turned into _) and builds the LIKE pattern.
+           *> Uses:   WS-TERM = TXT-CAT::Text, set just above (only the first 80 characters fit
+           *>         WS-TERM).
+           *> Result: WS-TERM = the folded text; WS-PAT is rebuilt too. CAT-CLAUSE only tests
+           *>         WS-TERM for blank; the categories matched for it are the rows of vis.
+
            CALL    "NORM-TERM"
            SET     WS-K2                         TO    0
            *> Picked categories, if any, win. Otherwise the typed text filters through
@@ -1062,7 +1299,24 @@
 
            STRING    "WHERE 1=1" INTO WS-WHERE WITH POINTER WS-P
 
+           *> NAME-CLAUSE: appends the commercial-name condition to the WHERE text.
+           *> Uses:   TXT-NOME::Text, WS-ALL-N (Todos mode) and the rows of pick with fld = 'N'.
+           *>         WS-WHERE = "WHERE 1=1" so far and WS-P = 10, the next free position.
+           *> Result: WS-WHERE gets " AND nome IN (SELECT name FROM pick WHERE fld = 'N')" when
+           *>         names are picked, else " AND nome_key LIKE '%TEXT%'" when text was typed, else
+           *>         nothing; WS-P moves on. WS-TERM = the folded text of TXT-NOME and WS-PAT its
+           *>         LIKE pattern (NORM-TERM).
+
            CALL    "NAME-CLAUSE"
+
+           *> CAT-CLAUSE: appends the category condition to the WHERE text.
+           *> Uses:   TXT-CAT::Text, WS-ALL-C (Todos mode), the rows of pick with fld = 'C' and the
+           *>         rows of vis with fld = 'C' (the categories SM-REFRESH matched).
+           *> Result: WS-WHERE gets " AND nivel1 IN (SELECT name FROM pick WHERE fld = 'C')" when
+           *>         categories are picked, else " AND nivel1 IN (SELECT name FROM vis WHERE fld =
+           *>         'C')" when text was typed, else nothing; WS-P moves on. WS-TERM = the folded
+           *>         text of TXT-CAT and WS-PAT its pattern (NORM-TERM).
+
            CALL    "CAT-CLAUSE"
 
            SET     WS-DT1                        TO    DTP-INI::Value
@@ -1092,11 +1346,28 @@
                    INTO WS-WHERE WITH POINTER WS-P
            END-IF
            SET     WS-CHK                        TO    LST-N2::CheckedItems
+
+           *> MAKE-IN-LIST: turns the ticked names in WS-CHK (one per line, LF-separated) into an
+           *> SQL list of quoted names.
+           *> Uses:   WS-CHK = LST-N2::CheckedItems, set just above: the ticked level-2 names
+           *>         (WS-CHK is X(1200): a longer list is cut).
+           *> Result: WS-IN = 'name1','name2',... or SPACES when nothing is ticked; names are
+           *>         quoted, not escaped. BUILD-WHERE adds " AND nivel2 IN (...)" only when WS-IN
+           *>         is not blank.
+
            CALL    "MAKE-IN-LIST"
            IF    WS-IN NOT = SPACES
                STRING    " AND nivel2 IN (" WS-IN::Trim() ")" INTO WS-WHERE WITH POINTER WS-P
            END-IF
            SET     WS-CHK                        TO    LST-N3::CheckedItems
+
+           *> MAKE-IN-LIST: turns the ticked names in WS-CHK (one per line, LF-separated) into an
+           *> SQL list of quoted names.
+           *> Uses:   WS-CHK = LST-N3::CheckedItems, set just above: the ticked level-3 names
+           *>         (WS-CHK is X(1200): a longer list is cut).
+           *> Result: WS-IN = 'name1','name2',... or SPACES when nothing is ticked. BUILD-WHERE adds
+           *>         " AND nivel3 IN (...)" only when WS-IN is not blank.
+
            CALL    "MAKE-IN-LIST"
            IF    WS-IN NOT = SPACES
                STRING    " AND nivel3 IN (" WS-IN::Trim() ")" INTO WS-WHERE WITH POINTER WS-P
@@ -1634,12 +1905,27 @@
 
        PROCEDURE DIVISION.
            SET     WS-FV                         TO    WS-T-PL
+
+           *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and given
+           *> a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number (15.5
+           *> becomes 15,50).
+           *> Uses:   WS-FV = WS-T-PL, set just above: the total PL (R$) of the funds that pass the
+           *>         filters.
+           *> Result: WS-FT = that total in short form; "R$ " + WS-FT goes into LBL-KPI-V::Caption
+           *>         on the next lines.
+
            CALL    "FMT-SHORT"
            SET     WS-TXT                        TO    SPACES
            STRING    "R$ " WS-FT::Trim() INTO WS-TXT
 
            SET     LBL-KPI-V::Caption            TO    WS-TXT
            SET     WS-FC                         TO    WS-T-CNT
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-T-CNT, set just above: the number of funds that pass the filters.
+           *> Result: WS-FT = that count with points between thousands; WS-A keeps it on the next
+           *>         line because the next FMT call overwrites WS-FT.
 
            CALL    "FMT-COUNT"
 
@@ -1648,6 +1934,13 @@
 
            SET     WS-A                          TO    WS-FT
            SET     WS-FV                         TO    WS-T-COT
+
+           *> FMT-SHORTN: formats a count in short form: under 1000 it is a whole number, from 1000
+           *> on it is like FMT-SHORT.
+           *> Uses:   WS-FV = WS-T-COT, set just above: the total of cotistas of the filtered funds.
+           *> Result: WS-FT = the total as a whole number below 1000, otherwise in short form (12300
+           *>         becomes 12,30 mil); it goes with WS-A (the fund count) into
+           *>         LBL-KPI-C::Caption.
 
            CALL    "FMT-SHORTN"
            SET     WS-TXT                        TO    SPACES
@@ -1669,12 +1962,28 @@
                SET     WS-AVG                    TO    0
            END-IF
            SET     WS-FV                         TO    WS-AVG
+
+           *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and given
+           *> a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number (15.5
+           *> becomes 15,50).
+           *> Uses:   WS-FV = WS-AVG, set just above: WS-T-PL / WS-T-PLN, the average PL of the
+           *>         funds that report a PL (0 when none does).
+           *> Result: WS-FT = that average in short form; "R$ " + WS-FT goes into
+           *>         LBL-AVG-V::Caption.
+
            CALL    "FMT-SHORT"
            SET     WS-TXT                        TO    SPACES
            STRING    "R$ " WS-FT::Trim() INTO WS-TXT
 
            SET     LBL-AVG-V::Caption            TO    WS-TXT
            SET     WS-FV                         TO    WS-T-MAX
+
+           *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and given
+           *> a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number (15.5
+           *> becomes 15,50).
+           *> Uses:   WS-FV = WS-T-MAX, set just above: the largest PL among the filtered funds.
+           *> Result: WS-FT = that PL in short form; it ends the text "PL médio por fundo  |  maior:
+           *>         R$ ..." placed in LBL-KPI-F::Caption.
 
            CALL    "FMT-SHORT"
            SET     WS-TXT                        TO    SPACES
@@ -1929,6 +2238,18 @@
                ADD    WS-CAT-PL(WS-I) TO WS-SP
                ADD    WS-CAT-COT(WS-I) TO WS-SK
            END-PERFORM
+
+           *> PAINT-RADAR: redraws the radar chart CH-RADAR and its subtitle for the companies
+           *> picked in the Nome filter.
+           *> Uses:   the count of pick rows with fld = 'N' (0 in Todos mode); WS-CATCNT and
+           *>         WS-CAT-NAME(1..WS-CATCNT) from LOAD-DIMS; WS-CAT-CNT / WS-CAT-PL / WS-CAT-COT
+           *>         from Q-CATS; for 2 or 3 picked companies, also a new query with WS-WHERE.
+           *> Result: CH-RADAR cleared and given one point per category: one polygon per company for
+           *>         2-3 picks (100 = the largest count of any of them), three series (Fundos, PL,
+           *>         Cotistas, each 100 = its largest category) for 1 pick, otherwise one polygon
+           *>         of fund counts. Also CH-RADAR::SeriesLabels, SeriesColors, ShowLegend and
+           *>         LBL-RAD-S::Caption.
+
            CALL    "PAINT-RADAR"
            *>  donut 1: PL (R$ billions) per category
 
@@ -1938,6 +2259,15 @@
                CH-DONUT1::AddPoint(WS-CAT-NAME(WS-I)::Trim(), WS-VB)
            END-PERFORM
            SET     WS-FV                         TO    WS-SP
+
+           *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and given
+           *> a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number (15.5
+           *> becomes 15,50).
+           *> Uses:   WS-FV = WS-SP, set just above: the sum of WS-CAT-PL over the categories listed
+           *>         (the donut total; not WS-T-PL, as only those categories count).
+           *> Result: WS-FT = that total in short form; it becomes LBL-D1-C::Caption, the centre of
+           *>         donut 1.
+
            CALL    "FMT-SHORT"
            SET     LBL-D1-C::Caption             TO    WS-FT
            *> Legend rows run largest PL first (WS-RANK holds slot numbers). A swatch
@@ -1952,10 +2282,28 @@
                IF    WS-SP > 0
                    COMPUTE    WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP (0 when WS-SP = 0; no ROUNDED, so
+               *>         truncated to one decimal), set just above: the share of the 1st category
+               *>         by PL (WS-R = WS-RANK(1)) in WS-SP, the summed PL of the listed categories
+               *>         (not WS-T-PL).
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L1-1-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L1-1-P::Caption       TO    WS-FT
                SET     WS-FV                     TO    WS-CAT-PL(WS-R)
+
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-CAT-PL(WS-R), set just above: the PL of that same 1st category
+               *>         by PL.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-L1-1-V::Caption.
 
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
@@ -1977,10 +2325,28 @@
                IF    WS-SP > 0
                    COMPUTE    WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP (0 when WS-SP = 0; no ROUNDED, so
+               *>         truncated to one decimal), set just above: the share of the 2nd category
+               *>         by PL (WS-R = WS-RANK(2)) in WS-SP, the summed PL of the listed categories
+               *>         (not WS-T-PL).
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L1-2-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L1-2-P::Caption       TO    WS-FT
                SET     WS-FV                     TO    WS-CAT-PL(WS-R)
+
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-CAT-PL(WS-R), set just above: the PL of that same 2nd category
+               *>         by PL.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-L1-2-V::Caption.
 
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
@@ -2002,10 +2368,28 @@
                IF    WS-SP > 0
                    COMPUTE    WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP (0 when WS-SP = 0; no ROUNDED, so
+               *>         truncated to one decimal), set just above: the share of the 3rd category
+               *>         by PL (WS-R = WS-RANK(3)) in WS-SP, the summed PL of the listed categories
+               *>         (not WS-T-PL).
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L1-3-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L1-3-P::Caption       TO    WS-FT
                SET     WS-FV                     TO    WS-CAT-PL(WS-R)
+
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-CAT-PL(WS-R), set just above: the PL of that same 3rd category
+               *>         by PL.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-L1-3-V::Caption.
 
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
@@ -2027,10 +2411,28 @@
                IF    WS-SP > 0
                    COMPUTE    WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-CAT-PL(WS-R) * 100 / WS-SP (0 when WS-SP = 0; no ROUNDED, so
+               *>         truncated to one decimal), set just above: the share of the 4th category
+               *>         by PL (WS-R = WS-RANK(4)) in WS-SP, the summed PL of the listed categories
+               *>         (not WS-T-PL).
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L1-4-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L1-4-P::Caption       TO    WS-FT
                SET     WS-FV                     TO    WS-CAT-PL(WS-R)
+
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-CAT-PL(WS-R), set just above: the PL of that same 4th category
+               *>         by PL.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-L1-4-V::Caption.
 
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
@@ -2053,6 +2455,14 @@
                END-IF
            END-PERFORM
            SET     WS-FC                         TO    WS-N2-TOTAL
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-N2-TOTAL, set just above: the number of funds counted in the
+           *>         level-2 categories.
+           *> Result: WS-FT = that count with points between thousands; it becomes
+           *>         LBL-D2-C::Caption, the centre of donut 2.
+
            CALL    "FMT-COUNT"
            SET     LBL-D2-C::Caption             TO    WS-FT
            IF    WS-N2-NAME(1) NOT = SPACES
@@ -2062,10 +2472,26 @@
                IF    WS-N2-TOTAL > 0
                    COMPUTE    WS-FP = WS-N2-CNT(1) * 100 / WS-N2-TOTAL
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-N2-CNT(1) * 100 / WS-N2-TOTAL (0 when WS-N2-TOTAL = 0;
+               *>         truncated to one decimal), set just above: the share of the level-2
+               *>         category in WS-N2-NAME(1) among all funds counted in WS-N2-TOTAL.
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L2-1-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L2-1-P::Caption       TO    WS-FT
                SET     WS-FC                     TO    WS-N2-CNT(1)
+
+               *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+               *> becomes 1.234).
+               *> Uses:   WS-FC = WS-N2-CNT(1), set just above: the number of funds of that same
+               *>         category.
+               *> Result: WS-FT = that count with points between thousands; it goes into
+               *>         LBL-L2-1-V::Caption.
 
                CALL    "FMT-COUNT"
 
@@ -2084,10 +2510,26 @@
                IF    WS-N2-TOTAL > 0
                    COMPUTE    WS-FP = WS-N2-CNT(2) * 100 / WS-N2-TOTAL
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-N2-CNT(2) * 100 / WS-N2-TOTAL (0 when WS-N2-TOTAL = 0;
+               *>         truncated to one decimal), set just above: the share of the level-2
+               *>         category in WS-N2-NAME(2) among all funds counted in WS-N2-TOTAL.
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L2-2-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L2-2-P::Caption       TO    WS-FT
                SET     WS-FC                     TO    WS-N2-CNT(2)
+
+               *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+               *> becomes 1.234).
+               *> Uses:   WS-FC = WS-N2-CNT(2), set just above: the number of funds of that same
+               *>         category.
+               *> Result: WS-FT = that count with points between thousands; it goes into
+               *>         LBL-L2-2-V::Caption.
 
                CALL    "FMT-COUNT"
 
@@ -2106,10 +2548,26 @@
                IF    WS-N2-TOTAL > 0
                    COMPUTE    WS-FP = WS-N2-CNT(3) * 100 / WS-N2-TOTAL
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-N2-CNT(3) * 100 / WS-N2-TOTAL (0 when WS-N2-TOTAL = 0;
+               *>         truncated to one decimal), set just above: the share of the level-2
+               *>         category in WS-N2-NAME(3) among all funds counted in WS-N2-TOTAL.
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L2-3-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L2-3-P::Caption       TO    WS-FT
                SET     WS-FC                     TO    WS-N2-CNT(3)
+
+               *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+               *> becomes 1.234).
+               *> Uses:   WS-FC = WS-N2-CNT(3), set just above: the number of funds of that same
+               *>         category.
+               *> Result: WS-FT = that count with points between thousands; it goes into
+               *>         LBL-L2-3-V::Caption.
 
                CALL    "FMT-COUNT"
 
@@ -2128,10 +2586,26 @@
                IF    WS-N2-TOTAL > 0
                    COMPUTE    WS-FP = WS-N2-CNT(4) * 100 / WS-N2-TOTAL
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-N2-CNT(4) * 100 / WS-N2-TOTAL (0 when WS-N2-TOTAL = 0;
+               *>         truncated to one decimal), set just above: the share of the level-2
+               *>         category in WS-N2-NAME(4) among all funds counted in WS-N2-TOTAL.
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L2-4-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L2-4-P::Caption       TO    WS-FT
                SET     WS-FC                     TO    WS-N2-CNT(4)
+
+               *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+               *> becomes 1.234).
+               *> Uses:   WS-FC = WS-N2-CNT(4), set just above: the number of funds of that same
+               *>         category.
+               *> Result: WS-FT = that count with points between thousands; it goes into
+               *>         LBL-L2-4-V::Caption.
 
                CALL    "FMT-COUNT"
 
@@ -2150,10 +2624,26 @@
                IF    WS-N2-TOTAL > 0
                    COMPUTE    WS-FP = WS-N2-CNT(5) * 100 / WS-N2-TOTAL
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-N2-CNT(5) * 100 / WS-N2-TOTAL (0 when WS-N2-TOTAL = 0;
+               *>         truncated to one decimal), set just above: the share of the level-2
+               *>         category in WS-N2-NAME(5) among all funds counted in WS-N2-TOTAL.
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L2-5-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L2-5-P::Caption       TO    WS-FT
                SET     WS-FC                     TO    WS-N2-CNT(5)
+
+               *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+               *> becomes 1.234).
+               *> Uses:   WS-FC = WS-N2-CNT(5), set just above: the number of funds of that same
+               *>         category.
+               *> Result: WS-FT = that count with points between thousands; it goes into
+               *>         LBL-L2-5-V::Caption.
 
                CALL    "FMT-COUNT"
 
@@ -2172,10 +2662,26 @@
                IF    WS-N2-TOTAL > 0
                    COMPUTE    WS-FP = WS-N2-CNT(6) * 100 / WS-N2-TOTAL
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-N2-CNT(6) * 100 / WS-N2-TOTAL (0 when WS-N2-TOTAL = 0;
+               *>         truncated to one decimal), set just above: the share of the level-2
+               *>         category in WS-N2-NAME(6) among all funds counted in WS-N2-TOTAL.
+               *> Result: WS-FT = that percentage text; the next line puts it in
+               *>         LBL-L2-6-P::Caption.
+
                CALL    "FMT-PCT"
 
                SET     LBL-L2-6-P::Caption       TO    WS-FT
                SET     WS-FC                     TO    WS-N2-CNT(6)
+
+               *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+               *> becomes 1.234).
+               *> Uses:   WS-FC = WS-N2-CNT(6), set just above: the number of funds of that same
+               *>         category.
+               *> Result: WS-FT = that count with points between thousands; it goes into
+               *>         LBL-L2-6-V::Caption.
 
                CALL    "FMT-COUNT"
 
@@ -2187,6 +2693,14 @@
                SET     LBL-L2-6-V::Caption       TO    SPACES
                SET     SHP-L2-6::FillColor       TO    "#00000000"
            END-IF
+
+           *> PAINT-BINS: fills the five PL-band rows: a text and a progress bar for each band.
+           *> Uses:   WS-BIN-CNT(1..5) from Q-BINS: the number of funds in each PL band, from "Até
+           *>         R$ 1 mi" to "Acima de R$ 1 bi".
+           *> Result: LBL-BIN1-V to LBL-BIN5-V::Caption = "count  (share%)" of each band, the share
+           *>         being of the five bands together; PRG-BIN1 to PRG-BIN5 = the band's count as a
+           *>         whole-number percent of the largest band.
+
            CALL    "PAINT-BINS"
 ]]></Event>
     <Event name="PAINT-YEARS" paragraph="PAINT-YEARS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2314,12 +2828,27 @@
                    SET     LBL-LIN-U::Caption    TO    "quantidade de fundos"
                    SET     WS-FC                 TO    WS-T-CNT
 
+                   *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234
+                   *> becomes 1.234).
+                   *> Uses:   WS-FC = WS-T-CNT, set just above. Caller's branch (not read here):
+                   *>         WHEN 1, the metric is the number of funds.
+                   *> Result: WS-FT = the number of filtered funds with points between thousands; it
+                   *>         becomes LBL-BAR-TOT::Caption.
+
                    CALL    "FMT-COUNT"
                    SET     LBL-BAR-TOT::Caption  TO    WS-FT
                WHEN 2
                    SET     LBL-BAR-U::Caption    TO    "PL em R$ bilhões"
                    SET     LBL-LIN-U::Caption    TO    "PL em R$ bilhões"
                    SET     WS-FV                 TO    WS-T-PL
+
+                   *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled
+                   *> and given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain
+                   *> number (15.5 becomes 15,50).
+                   *> Uses:   WS-FV = WS-T-PL, set just above. Caller's branch (not read here): WHEN
+                   *>         2, the metric is PL.
+                   *> Result: WS-FT = the total PL in short form; "R$ " + WS-FT becomes
+                   *>         LBL-BAR-TOT::Caption.
 
                    CALL    "FMT-SHORT"
                    SET     WS-TXT                TO    SPACES
@@ -2329,6 +2858,14 @@
                    SET     LBL-BAR-U::Caption    TO    "milhares de cotistas"
                    SET     LBL-LIN-U::Caption    TO    "milhares de cotistas"
                    SET     WS-FV                 TO    WS-T-COT
+
+                   *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled
+                   *> and given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain
+                   *> number (15.5 becomes 15,50).
+                   *> Uses:   WS-FV = WS-T-COT, set just above. Caller's branch (not read here):
+                   *>         WHEN OTHER, the metric is cotistas.
+                   *> Result: WS-FT = the total of cotistas in short form; it becomes
+                   *>         LBL-BAR-TOT::Caption (no "R$ ").
 
                    CALL    "FMT-SHORT"
                    SET     LBL-BAR-TOT::Caption  TO    WS-FT
@@ -2385,6 +2922,14 @@
                SET     LBL-TOP1-N::Caption       TO    WS-TOP-NAME(1)
                SET     WS-FV                     TO    WS-TOP-PL(1)
 
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-TOP-PL(1), set just above: the PL of the 1st largest fund of
+               *>         the filter.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-TOP1-V::Caption.
+
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
                STRING    "R$ " WS-FT::Trim() INTO WS-TXT
@@ -2405,6 +2950,14 @@
            IF    WS-TOP-N >= 2
                SET     LBL-TOP2-N::Caption       TO    WS-TOP-NAME(2)
                SET     WS-FV                     TO    WS-TOP-PL(2)
+
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-TOP-PL(2), set just above: the PL of the 2nd largest fund of
+               *>         the filter.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-TOP2-V::Caption.
 
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
@@ -2427,6 +2980,14 @@
                SET     LBL-TOP3-N::Caption       TO    WS-TOP-NAME(3)
                SET     WS-FV                     TO    WS-TOP-PL(3)
 
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-TOP-PL(3), set just above: the PL of the 3rd largest fund of
+               *>         the filter.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-TOP3-V::Caption.
+
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
                STRING    "R$ " WS-FT::Trim() INTO WS-TXT
@@ -2447,6 +3008,14 @@
            IF    WS-TOP-N >= 4
                SET     LBL-TOP4-N::Caption       TO    WS-TOP-NAME(4)
                SET     WS-FV                     TO    WS-TOP-PL(4)
+
+               *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and
+               *> given a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number
+               *> (15.5 becomes 15,50).
+               *> Uses:   WS-FV = WS-TOP-PL(4), set just above: the PL of the 4th largest fund of
+               *>         the filter.
+               *> Result: WS-FT = that PL in short form; "R$ " + WS-FT goes into
+               *>         LBL-TOP4-V::Caption.
 
                CALL    "FMT-SHORT"
                SET     WS-TXT                    TO    SPACES
@@ -2477,6 +3046,15 @@
                COMPUTE    WS-PCTI = WS-T-CLS * 100 / WS-TOT2
            END-IF
            PRG-CLS::SetValue(WS-PCTI)
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-T-CLS * 100 / WS-TOT2 (0 when WS-TOT2 = 0; truncated to one
+           *>         decimal), set above: the share of the "Classe" funds' PL in WS-TOT2 = WS-T-CLS
+           *>         + WS-T-SUB (the PL of the Classe and Subclasse funds).
+           *> Result: WS-FT = that percentage text; the next line puts it in LBL-CLS-P::Caption
+           *>         (PRG-CLS was set above).
+
            CALL    "FMT-PCT"
 
            SET     LBL-CLS-P::Caption            TO    WS-FT
@@ -2488,6 +3066,15 @@
                COMPUTE    WS-PCTI = WS-T-SUB * 100 / WS-TOT2
            END-IF
            PRG-SUB::SetValue(WS-PCTI)
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-T-SUB * 100 / WS-TOT2 (0 when WS-TOT2 = 0; truncated to one
+           *>         decimal), set above: the share of the other funds' PL (sub-classes) in WS-TOT2
+           *>         = WS-T-CLS + WS-T-SUB.
+           *> Result: WS-FT = that percentage text; the next line puts it in LBL-SUB-P::Caption
+           *>         (PRG-SUB was set above).
+
            CALL    "FMT-PCT"
            SET     LBL-SUB-P::Caption            TO    WS-FT
 ]]></Event>
@@ -2504,6 +3091,13 @@
 
        PROCEDURE DIVISION.
            SET     WS-FC                         TO    WS-T-CNT
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-T-CNT, set just above: the number of funds that pass the filters.
+           *> Result: WS-FT = that count with points between thousands; it becomes LBL-K1-V::Caption
+           *>         (card FUNDOS).
+
            CALL    "FMT-COUNT"
 
            SET     LBL-K1-V::Caption             TO    WS-FT
@@ -2513,12 +3107,28 @@
                COMPUTE    WS-PCT = WS-T-CNT * 100 / WS-UNIV
            END-IF
            SET     WS-FP                         TO    WS-PCT
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-PCT = WS-T-CNT * 100 / WS-UNIV (left 0 when WS-UNIV = 0; truncated
+           *>         to one decimal): the filtered funds as a share of all the funds in the
+           *>         database.
+           *> Result: WS-FT = that percentage text; "... do universo" is built from it for
+           *>         LBL-K1-S::Caption.
+
            CALL    "FMT-PCT"
            SET     WS-TXT                        TO    SPACES
            STRING    WS-FT::Trim() " do universo" INTO WS-TXT
 
            SET     LBL-K1-S::Caption             TO    WS-TXT
            SET     WS-FV                         TO    WS-T-PL
+
+           *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and given
+           *> a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number (15.5
+           *> becomes 15,50).
+           *> Uses:   WS-FV = WS-T-PL, set just above: the total PL of the filtered funds.
+           *> Result: WS-FT = that total in short form; "R$ " + WS-FT becomes LBL-K2-V::Caption
+           *>         (card PL TOTAL).
 
            CALL    "FMT-SHORT"
            SET     WS-TXT                        TO    SPACES
@@ -2534,12 +3144,27 @@
                COMPUTE    WS-AVG = WS-T-PL / WS-T-PLN
            END-IF
            SET     WS-FV                         TO    WS-AVG
+
+           *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and given
+           *> a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number (15.5
+           *> becomes 15,50).
+           *> Uses:   WS-FV = WS-AVG, set just above: WS-T-PL / WS-T-PLN, the average PL of the
+           *>         funds that report a PL (0 when none does).
+           *> Result: WS-FT = that average in short form; "médio R$ ... por fundo" is built from it
+           *>         for LBL-K2-S::Caption.
+
            CALL    "FMT-SHORT"
            SET     WS-TXT                        TO    SPACES
            STRING    "médio R$ " WS-FT::Trim() " por fundo" INTO WS-TXT
 
            SET     LBL-K2-S::Caption             TO    WS-TXT
            SET     WS-FV                         TO    WS-T-COT
+
+           *> FMT-SHORTN: formats a count in short form: under 1000 it is a whole number, from 1000
+           *> on it is like FMT-SHORT.
+           *> Uses:   WS-FV = WS-T-COT, set just above: the total of cotistas of the filtered funds.
+           *> Result: WS-FT = the total as a whole number below 1000, otherwise in short form; it
+           *>         becomes LBL-K3-V::Caption (card COTISTAS).
 
            CALL    "FMT-SHORTN"
 
@@ -2550,12 +3175,28 @@
                COMPUTE    WS-AVG = WS-T-COT / WS-T-CNT
            END-IF
            SET     WS-FV                         TO    WS-AVG
+
+           *> FMT-SHORTN: formats a count in short form: under 1000 it is a whole number, from 1000
+           *> on it is like FMT-SHORT.
+           *> Uses:   WS-FV = WS-AVG, set just above: WS-T-COT / WS-T-CNT, the average cotistas per
+           *>         fund (0 when there is no fund).
+           *> Result: WS-FT = that average: below 1000 a whole number with the decimals dropped
+           *>         (418.37 shows as 418), otherwise short form; "média ... por fundo" is built
+           *>         from it for LBL-K3-S::Caption.
+
            CALL    "FMT-SHORTN"
            SET     WS-TXT                        TO    SPACES
            STRING    "média " WS-FT::Trim() " por fundo" INTO WS-TXT
 
            SET     LBL-K3-S::Caption             TO    WS-TXT
            SET     WS-FV                         TO    WS-T-MAX
+
+           *> FMT-SHORT: formats an amount in short pt-BR form: from 1000 up it is scaled and given
+           *> a suffix (2500000000 becomes 2,50 bi); below 1000 it stays a plain number (15.5
+           *> becomes 15,50).
+           *> Uses:   WS-FV = WS-T-MAX, set just above: the largest PL among the filtered funds.
+           *> Result: WS-FT = that PL in short form; "R$ " + WS-FT becomes LBL-K4-V::Caption (card
+           *>         MAIOR FUNDO).
 
            CALL    "FMT-SHORT"
            SET     WS-TXT                        TO    SPACES
@@ -2574,6 +3215,15 @@
                IF    WS-T-PL > 0
                    COMPUTE    WS-FP = WS-CAT-PL(WS-R) * 100 / WS-T-PL
                END-IF
+
+               *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+               *> 42,5%).
+               *> Uses:   WS-FP = WS-CAT-PL(WS-R) * 100 / WS-T-PL (0 when WS-T-PL = 0; truncated to
+               *>         one decimal), set just above: the PL share of the leading category (WS-R =
+               *>         WS-RANK(1)) in the filtered PL WS-T-PL.
+               *> Result: WS-FT = that percentage text; "... do PL filtrado" is built from it for
+               *>         LBL-K5-S::Caption.
+
                CALL    "FMT-PCT"
                SET     WS-TXT                    TO    SPACES
                STRING    WS-FT::Trim() " do PL filtrado" INTO WS-TXT
@@ -2610,15 +3260,36 @@
            *> formatted number waits in WS-A / WS-B until the sentence is built.
 
            SET     WS-FC                         TO    WS-FROM
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-FROM, set just above: the number of the first row of the current
+           *>         page ((WS-PAGE - 1) * WS-PSIZE + 1), or 0 when there are no funds.
+           *> Result: WS-FT = that number with points between thousands; WS-A keeps it because the
+           *>         next call overwrites WS-FT.
+
            CALL    "FMT-COUNT"
 
            SET     WS-A                          TO    WS-FT
            SET     WS-FC                         TO    WS-TO
 
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-TO, set just above: the number of the last row of the page (WS-PAGE
+           *>         * WS-PSIZE, capped at WS-T-CNT).
+           *> Result: WS-FT = that number with points between thousands; WS-B keeps it because the
+           *>         next call overwrites WS-FT.
+
            CALL    "FMT-COUNT"
 
            SET     WS-B                          TO    WS-FT
            SET     WS-FC                         TO    WS-T-CNT
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-T-CNT, set just above: the number of funds that pass the filters.
+           *> Result: WS-FT = that count with points between thousands; "Mostrando A a B de N
+           *>         fundo(s)" is built from WS-A, WS-B and WS-FT for LBL-GRID-S::Caption.
 
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
@@ -2627,10 +3298,22 @@
            SET     LBL-GRID-S::Caption           TO    WS-TXT
            SET     WS-FC                         TO    WS-PAGE
 
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-PAGE, set just above: the page of the grid being shown.
+           *> Result: WS-FT = that page number with points between thousands; WS-A keeps it because
+           *>         the next call overwrites WS-FT.
+
            CALL    "FMT-COUNT"
 
            SET     WS-A                          TO    WS-FT
            SET     WS-FC                         TO    WS-PAGES
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-PAGES, set just above: the number of pages.
+           *> Result: WS-FT = that number with points between thousands; "Página A de N" is built
+           *>         from WS-A and WS-FT for LBL-PAGE::Caption.
 
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
@@ -2652,7 +3335,24 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> Q-GRID: loads one page of the filtered funds into the grid GRD-FUNDOS, in the order
+           *> chosen in CMB-ORDER.
+           *> Uses:   WS-WHERE (from BUILD-WHERE), CMB-ORDER::Value, WS-T-CNT, WS-PSIZE (300 rows
+           *>         per page) and WS-PAGE.
+           *> Result: WS-PAGES = WS-T-CNT / WS-PSIZE rounded up (1 when empty); WS-PAGE clamped to
+           *>         1..WS-PAGES; GRD-FUNDOS cleared and given the rows of that page (16 columns
+           *>         each).
+
            CALL    "Q-GRID"
+
+           *> PAINT-GRID-INFO: updates the grid captions and the paging buttons.
+           *> Uses:   WS-PAGE and WS-PAGES, as Q-GRID left them just above (it clamps WS-PAGE and
+           *>         sets WS-PAGES), and WS-PSIZE and WS-T-CNT, which it only reads.
+           *> Result: LBL-GRID-S::Caption = "Mostrando A a B de N fundo(s)"; LBL-PAGE::Caption =
+           *>         "Página P de N"; BTN-PREV enabled only when WS-PAGE > 1, BTN-NEXT only when
+           *>         WS-PAGE < WS-PAGES.
+
            CALL    "PAINT-GRID-INFO"
 ]]></Event>
     <Event name="APPLY-FILTERS" paragraph="APPLY-FILTERS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2669,20 +3369,141 @@
            *> Q-TOTALS (newest year) and Q-CATS (counts), and the painters only read
            *> what the queries stored.
 
+           *> BUILD-WHERE: builds the WHERE text that every query below shares, from the filter
+           *> controls.
+           *> Uses:   TXT-NOME::Text, TXT-CAT::Text, the picks (table pick), DTP-INI::Value,
+           *>         DTP-FIM::Value, NUD-PL1::Value, NUD-PL2::Value (R$ million) and the ticks of
+           *>         LST-N2 and LST-N3.
+           *> Result: WS-WHERE = "WHERE 1=1" plus one " AND ..." per active filter (a date or PL
+           *>         range left at its limits adds nothing); WS-P = next free position. Work items
+           *>         overwritten: WS-TERM, WS-PAT, WS-CHK, WS-IN (and WS-SQL, WS-N, WS-ROW while
+           *>         the picks are counted).
+
            CALL    "BUILD-WHERE"
+
+           *> Q-TOTALS: reads the totals of the funds that pass the filters.
+           *> Uses:   WS-WHERE, built by BUILD-WHERE just before.
+           *> Result: WS-T-CNT = funds; WS-T-PL = sum of PL; WS-T-COT = sum of cotistas; WS-T-PLN =
+           *>         funds that report a PL; WS-T-MAX = largest PL; WS-T-YMAX = newest start year;
+           *>         WS-T-CLS / WS-T-SUB = PL of the "Classe" funds / of the others.
+
            CALL    "Q-TOTALS"
+
+           *> Q-CATS: counts the filtered funds, their PL and their cotistas per level-1 category.
+           *> Uses:   WS-WHERE and the ten names in WS-CAT-NAME(1..WS-CATCNT) that LOAD-DIMS stored.
+           *> Result: WS-CAT-CNT, WS-CAT-PL and WS-CAT-COT(1..10) = funds, summed PL and summed
+           *>         cotistas of each category slot; 0 for a category with no fund under the
+           *>         filter.
+
            CALL    "Q-CATS"
+
+           *> SORT-CATS: ranks the category slots by PL, largest first.
+           *> Uses:   WS-CAT-PL(1..WS-CATCNT), just filled by Q-CATS.
+           *> Result: WS-RANK(k) = slot number of the k-th largest PL, 0 where no category with a PL
+           *>         is left; WS-CAT-USED marks are cleared again.
+
            CALL    "SORT-CATS"
+
+           *> Q-N2: counts the filtered funds per level-2 category, keeping the nine largest and a
+           *> rest.
+           *> Uses:   WS-WHERE, built by BUILD-WHERE just before.
+           *> Result: WS-N2-NAME and WS-N2-CNT(1..9) = the nine level-2 categories with most funds,
+           *>         largest first; slot 10 = "Outros" with the funds of all the rest (only when
+           *>         there are more than nine); WS-N2-TOTAL = funds in all of them. Names are held
+           *>         in 24 characters.
+
            CALL    "Q-N2"
+
+           *> Q-BINS: counts the filtered funds that report a PL in five PL bands.
+           *> Uses:   WS-WHERE, built by BUILD-WHERE just before.
+           *> Result: WS-BIN-CNT(1..5) = funds with PL under R$ 1 mi, under 10 mi, under 100 mi,
+           *>         under 1 bi, and 1 bi or more.
+
            CALL    "Q-BINS"
+
+           *> Q-TOP: finds the four filtered funds with the largest PL.
+           *> Uses:   WS-WHERE, built by BUILD-WHERE just before.
+           *> Result: WS-TOP-NAME(1..4) and WS-TOP-PL(1..4) = name (or code, for a fund without a
+           *>         name; the first 40 characters) and PL, largest first; WS-TOP-N = how many were
+           *>         found (0 to 4).
+
            CALL    "Q-TOP"
+
+           *> Q-YEARS: builds the 12-year table behind the yearly charts, for all categories and for
+           *> the top three.
+           *> Uses:   WS-WHERE, WS-T-YMAX (newest start year, from Q-TOTALS), WS-CATCNT and
+           *>         WS-CAT-NAME (from LOAD-DIMS) and WS-CAT-CNT (from Q-CATS).
+           *> Result: WS-TOP3-IDX(1..3) = slots of the three categories with most funds; WS-YR-MIN =
+           *>         WS-T-YMAX - 11 (2015 with no year) and WS-YR-NUM(1..12); WS-YA-* (all) and
+           *>         WS-YS-*(year, 1..3) per year; WS-OA-* and WS-OS-*(1..3) = funds that began
+           *>         before the window.
+
            CALL    "Q-YEARS"
+
+           *> PAINT-KPIS: repaints the KPI card of the dashboard from the totals of the filter.
+           *> Uses:   WS-T-PL, WS-T-CNT, WS-T-COT, WS-T-PLN, WS-T-MAX and WS-UNIV.
+           *> Result: LBL-KPI-V::Caption (total PL), LBL-KPI-C::Caption (funds and cotistas),
+           *>         GAU-UNIV (whole-number percent of the universe), LBL-AVG-V::Caption (average
+           *>         PL) and LBL-KPI-F::Caption (average and largest PL).
+
            CALL    "PAINT-KPIS"
+
+           *> PAINT-CHARTS: repaints the radar and the two donuts with their legends, then the PL
+           *> bands.
+           *> Uses:   WS-CATCNT and WS-CAT-NAME (LOAD-DIMS), WS-CAT-CNT / WS-CAT-PL / WS-CAT-COT
+           *>         (Q-CATS), WS-RANK (SORT-CATS), WS-N2-* (Q-N2), WS-BIN-CNT (Q-BINS) and the
+           *>         picks.
+           *> Result: CH-RADAR with LBL-RAD-S::Caption; CH-DONUT1 with LBL-D1-C::Caption and 4
+           *>         legend rows (LBL-L1-n-N, -P, -V and SHP-L1-n::FillColor); CH-DONUT2 with
+           *>         LBL-D2-C::Caption and 6 legend rows (LBL-L2-n-N, -P, -V and
+           *>         SHP-L2-n::FillColor); then the PL-band rows LBL-BIN1-V to LBL-BIN5-V and
+           *>         PRG-BIN1 to PRG-BIN5 (PAINT-BINS).
+
            CALL    "PAINT-CHARTS"
+
+           *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
+           *> the PL sparkline SPK.
+           *> Uses:   WS-METRIC (1 funds, 2 PL, 3 cotistas), WS-ACUM, the yearly tables of Q-YEARS
+           *>         and WS-T-CNT/PL/COT.
+           *> Result: CH-BAR, CH-LINE and SPK cleared and refilled with 12 yearly points (CH-LINE as
+           *>         running totals while WS-ACUM = 1); XAxisLabel, SeriesLabels and SeriesColors
+           *>         of both charts (the top-three categories); LBL-BAR-U, LBL-LIN-U and
+           *>         LBL-BAR-TOT captions.
+
            CALL    "PAINT-YEARS"
+
+           *> PAINT-TABS: highlights the metric button (Fundos, PL, Cotistas) that WS-METRIC
+           *> selects.
+           *> Uses:   WS-METRIC.
+           *> Result: BTN-M1 to BTN-M3: the selected one gets BackgroundColor "#3E7BE8" and
+           *>         ForegroundColor "#FFFFFF", the other two white ("#FFFFFF") with text
+           *>         "#1B2A4E".
+
            CALL    "PAINT-TABS"
+
+           *> PAINT-LISTS: repaints the list of the four largest funds and the Classes / Subclasses
+           *> bars.
+           *> Uses:   WS-TOP-N, WS-TOP-NAME(1..4), WS-TOP-PL(1..4), WS-T-CLS and WS-T-SUB.
+           *> Result: LBL-TOP1-N to LBL-TOP4-N and LBL-TOP1-V to LBL-TOP4-V (blank for a missing
+           *>         fund) with PRG-TOP1 to PRG-TOP4 (whole-number percent of the largest PL);
+           *>         PRG-CLS, LBL-CLS-P, PRG-SUB and LBL-SUB-P.
+
            CALL    "PAINT-LISTS"
+
+           *> PAINT-DATA: repaints the five KPI cards of the Dados page.
+           *> Uses:   WS-T-CNT, WS-T-PL, WS-T-PLN, WS-T-COT, WS-T-MAX, WS-UNIV, WS-TOP-N,
+           *>         WS-TOP-NAME(1), WS-RANK(1) and WS-CAT-*.
+           *> Result: LBL-K1-V and LBL-K1-S to LBL-K5-V and LBL-K5-S::Caption (FUNDOS, PL TOTAL,
+           *>         COTISTAS, MAIOR FUNDO, CATEGORIA LÍDER).
+
            CALL    "PAINT-DATA"
+
+           *> REFRESH-GRID: reloads the grid page and its captions.
+           *> Uses:   WS-WHERE and WS-T-CNT, just produced by BUILD-WHERE and Q-TOTALS above;
+           *>         WS-PAGE (set to 1 at the top of APPLY-FILTERS), WS-PSIZE and CMB-ORDER::Value.
+           *> Result: GRD-FUNDOS holds page 1 of the filtered funds; LBL-GRID-S, LBL-PAGE, BTN-PREV
+           *>         and BTN-NEXT match that page.
+
            CALL    "REFRESH-GRID"
 ]]></Event>
     <Event name="PAINT-BINS" paragraph="PAINT-BINS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2711,6 +3532,13 @@
                END-IF
            END-PERFORM
            SET     WS-FC                         TO    WS-BIN-CNT(1)
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-BIN-CNT(1), set just above: the funds in PL band 1 (under R$ 1 mi).
+           *> Result: WS-FT = that count with points between thousands; WS-A keeps it a few lines
+           *>         below, because FMT-PCT overwrites WS-FT.
+
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
            IF    WS-BTOT > 0
@@ -2719,6 +3547,15 @@
                SET     WS-FP                     TO    0
            END-IF
            SET     WS-A                          TO    WS-FT
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-BIN-CNT(1) * 100 / WS-BTOT (0 when WS-BTOT = 0; truncated to one
+           *>         decimal), set above: the share of band 1 among the funds in the five bands;
+           *>         WS-A holds the count text.
+           *> Result: WS-FT = that percentage text; WS-TXT = WS-A + "  (" + WS-FT + ")" is then
+           *>         placed in LBL-BIN1-V::Caption.
+
            CALL    "FMT-PCT"
            STRING    FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
 
@@ -2730,6 +3567,14 @@
            END-IF
            PRG-BIN1::SetValue(WS-PCTI)
            SET     WS-FC                         TO    WS-BIN-CNT(2)
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-BIN-CNT(2), set just above: the funds in PL band 2 (R$ 1 mi to
+           *>         under 10 mi).
+           *> Result: WS-FT = that count with points between thousands; WS-A keeps it a few lines
+           *>         below, because FMT-PCT overwrites WS-FT.
+
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
            IF    WS-BTOT > 0
@@ -2738,6 +3583,15 @@
                SET     WS-FP                     TO    0
            END-IF
            SET     WS-A                          TO    WS-FT
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-BIN-CNT(2) * 100 / WS-BTOT (0 when WS-BTOT = 0; truncated to one
+           *>         decimal), set above: the share of band 2 among the funds in the five bands;
+           *>         WS-A holds the count text.
+           *> Result: WS-FT = that percentage text; WS-TXT = WS-A + "  (" + WS-FT + ")" is then
+           *>         placed in LBL-BIN2-V::Caption.
+
            CALL    "FMT-PCT"
            STRING    FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
 
@@ -2749,6 +3603,14 @@
            END-IF
            PRG-BIN2::SetValue(WS-PCTI)
            SET     WS-FC                         TO    WS-BIN-CNT(3)
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-BIN-CNT(3), set just above: the funds in PL band 3 (R$ 10 mi to
+           *>         under 100 mi).
+           *> Result: WS-FT = that count with points between thousands; WS-A keeps it a few lines
+           *>         below, because FMT-PCT overwrites WS-FT.
+
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
            IF    WS-BTOT > 0
@@ -2757,6 +3619,15 @@
                SET     WS-FP                     TO    0
            END-IF
            SET     WS-A                          TO    WS-FT
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-BIN-CNT(3) * 100 / WS-BTOT (0 when WS-BTOT = 0; truncated to one
+           *>         decimal), set above: the share of band 3 among the funds in the five bands;
+           *>         WS-A holds the count text.
+           *> Result: WS-FT = that percentage text; WS-TXT = WS-A + "  (" + WS-FT + ")" is then
+           *>         placed in LBL-BIN3-V::Caption.
+
            CALL    "FMT-PCT"
            STRING    FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
 
@@ -2768,6 +3639,14 @@
            END-IF
            PRG-BIN3::SetValue(WS-PCTI)
            SET     WS-FC                         TO    WS-BIN-CNT(4)
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-BIN-CNT(4), set just above: the funds in PL band 4 (R$ 100 mi to
+           *>         under 1 bi).
+           *> Result: WS-FT = that count with points between thousands; WS-A keeps it a few lines
+           *>         below, because FMT-PCT overwrites WS-FT.
+
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
            IF    WS-BTOT > 0
@@ -2776,6 +3655,15 @@
                SET     WS-FP                     TO    0
            END-IF
            SET     WS-A                          TO    WS-FT
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-BIN-CNT(4) * 100 / WS-BTOT (0 when WS-BTOT = 0; truncated to one
+           *>         decimal), set above: the share of band 4 among the funds in the five bands;
+           *>         WS-A holds the count text.
+           *> Result: WS-FT = that percentage text; WS-TXT = WS-A + "  (" + WS-FT + ")" is then
+           *>         placed in LBL-BIN4-V::Caption.
+
            CALL    "FMT-PCT"
            STRING    FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
 
@@ -2787,6 +3675,14 @@
            END-IF
            PRG-BIN4::SetValue(WS-PCTI)
            SET     WS-FC                         TO    WS-BIN-CNT(5)
+
+           *> FMT-COUNT: formats a whole number as text with pt-BR thousands points (1234 becomes
+           *> 1.234).
+           *> Uses:   WS-FC = WS-BIN-CNT(5), set just above: the funds in PL band 5 (R$ 1 bi or
+           *>         more).
+           *> Result: WS-FT = that count with points between thousands; WS-A keeps it a few lines
+           *>         below, because FMT-PCT overwrites WS-FT.
+
            CALL    "FMT-COUNT"
            SET     WS-TXT                        TO    SPACES
            IF    WS-BTOT > 0
@@ -2795,6 +3691,15 @@
                SET     WS-FP                     TO    0
            END-IF
            SET     WS-A                          TO    WS-FT
+
+           *> FMT-PCT: formats a percentage with one decimal, a comma and a % sign (42.5 becomes
+           *> 42,5%).
+           *> Uses:   WS-FP = WS-BIN-CNT(5) * 100 / WS-BTOT (0 when WS-BTOT = 0; truncated to one
+           *>         decimal), set above: the share of band 5 among the funds in the five bands;
+           *>         WS-A holds the count text.
+           *> Result: WS-FT = that percentage text; WS-TXT = WS-A + "  (" + WS-FT + ")" is then
+           *>         placed in LBL-BIN5-V::Caption.
+
            CALL    "FMT-PCT"
            STRING    FUNCTION TRIM(WS-A) "  (" WS-FT::Trim() ")" INTO WS-TXT
 
@@ -3087,6 +3992,14 @@
                SET     BTN-DASH::ForegroundColor TO    "#1B2A4E"
 
                IF    WS-GSTAGE = 0
+
+                   *> STAGE-START-G: starts the staged entrance of the Dados page.
+                   *> Uses:   the clock (ACCEPT ... FROM TIME). Caller's test (not read by
+                   *>         STAGE-START-G): WS-GSTAGE = 0, the first visit to Dados.
+                   *> Result: WS-T0G = now in ms since midnight; WS-GSTAGE = 1; TMR-STAGE::Enabled =
+                   *>         1, so STAGE-TICK starts showing K1-C to K5-C and C-GRID, one every 400
+                   *>         ms.
+
                    CALL    "STAGE-START-G"
                END-IF
            END-IF
@@ -3532,6 +4445,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE. Otherwise nothing changes.
+
            CALL    "SM-CLOSE"
 
            SET     TXT-NOME::Text                TO    SPACES
@@ -3553,7 +4472,26 @@
            SET     LST-N2::CheckedItems          TO    SPACES
            SET     LST-N3::CheckedItems          TO    SPACES
 
+           *> SM-RESET: forgets every pick of both dropdowns.
+           *> Uses:   tables pick and vis, WS-ALL-N and WS-ALL-C.
+           *> Result: pick and vis emptied; WS-ALL-N = 0; WS-ALL-C = 0; SM-CAPTIONS then puts
+           *>         LBL-F-NOME::Caption back to "Nome comercial" and LBL-F-CAT::Caption to
+           *>         "Categoria".
+
            CALL    "SM-RESET"
+
+           *> APPLY-FILTERS: re-runs every query and repaints the dashboard, the charts and the grid
+           *> for the current filters; it exits at once while WS-LOADED = 0.
+           *> Uses:   the controls cleared above (TXT-NOME and TXT-CAT empty, dates 1970-01-01 to
+           *>         2027-12-31, PL 0 to 300000, LST-N2 and LST-N3 unticked), the empty pick table
+           *>         and the Todos flags WS-ALL-N / WS-ALL-C (0, reset by SM-RESET).
+           *> Result: WS-PAGE = 1; WS-WHERE = "WHERE 1=1" only (nothing filtered); the Q-* steps
+           *>         recompute the totals (WS-T-*), WS-CAT-*, WS-RANK, WS-N2-*, WS-BIN-CNT,
+           *>         WS-TOP-* and the year tables; the PAINT-* steps repaint the KPI card, the
+           *>         charts, the top-4 list with the Classe / Subclasse bars, the Dados cards and
+           *>         the metric buttons; GRD-FUNDOS shows page 1, with its caption LBL-GRID-S, the
+           *>         page label LBL-PAGE and BTN-PREV / BTN-NEXT enabled to match.
+
            CALL    "APPLY-FILTERS"
 ]]></Event>
     <Event name="STAGE-TICK" paragraph="STAGE-TICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -3580,34 +4518,128 @@
            *> the next panel due; ADD 1 makes each step fire only once.
 
            IF    WS-DSTAGE = 1 AND WS-ELAPSED >= 0
+
+               *> SHOW-C-KPI: shows the card C-KPI ("PL total filtrado") and plays the "intro"
+               *> animation on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 1 and WS-ELAPSED >= 0 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-KPI becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-KPI-T, LBL-KPI-V, GAU-UNIV,
+               *>         LBL-KPI-GC, LBL-KPI-C, SPK and LBL-KPI-F. SPK stays hidden until
+               *>         STAGE-TICK shows all the charts. No data item changes; STAGE-TICK adds 1
+               *>         to WS-DSTAGE next.
+
                CALL    "SHOW-C-KPI"
                ADD    1 TO WS-DSTAGE
            END-IF
            IF    WS-DSTAGE = 2 AND WS-ELAPSED >= 400
+
+               *> SHOW-C-BAR: shows the card C-BAR ("Fundos criados por ano") and plays the "intro"
+               *> animation on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 2 and WS-ELAPSED >= 400 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-BAR becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-BAR-T, LBL-BAR-TOT, LBL-BAR-U,
+               *>         BTN-M1, BTN-M2, BTN-M3 and CH-BAR. CH-BAR stays hidden until STAGE-TICK
+               *>         shows all the charts. No data item changes; STAGE-TICK adds 1 to WS-DSTAGE
+               *>         next.
+
                CALL    "SHOW-C-BAR"
                ADD    1 TO WS-DSTAGE
            END-IF
            IF    WS-DSTAGE = 3 AND WS-ELAPSED >= 800
+
+               *> SHOW-C-RADAR: shows the card C-RADAR ("Estrutura") and plays the "intro" animation
+               *> on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 3 and WS-ELAPSED >= 800 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-RADAR becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-RAD-T, LBL-RAD-S and CH-RADAR.
+               *>         CH-RADAR stays hidden until STAGE-TICK shows all the charts. No data item
+               *>         changes; STAGE-TICK adds 1 to WS-DSTAGE next.
+
                CALL    "SHOW-C-RADAR"
                ADD    1 TO WS-DSTAGE
            END-IF
            IF    WS-DSTAGE = 4 AND WS-ELAPSED >= 1200
+
+               *> SHOW-C-GOALS: shows the card C-GOALS ("Maiores fundos (PL)") and plays the "intro"
+               *> animation on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 4 and WS-ELAPSED >= 1200 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-GOALS becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-GOAL-T and, for n = 1 to 4,
+               *>         LBL-TOPn-N, LBL-TOPn-V, TRK-PRG-TOPn and PRG-TOPn. No data item changes;
+               *>         STAGE-TICK adds 1 to WS-DSTAGE next.
+
                CALL    "SHOW-C-GOALS"
                ADD    1 TO WS-DSTAGE
            END-IF
            IF    WS-DSTAGE = 5 AND WS-ELAPSED >= 1600
+
+               *> SHOW-C-DONUT1: shows the card C-DONUT1 ("PL por categoria") and plays the "intro"
+               *> animation on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 5 and WS-ELAPSED >= 1600 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-DONUT1 becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-D1-T, CH-DONUT1, LBL-D1-C,
+               *>         LBL-D1-S, LBL-CLS-N, TRK-PRG-CLS, PRG-CLS, LBL-CLS-P, LBL-SUB-N,
+               *>         TRK-PRG-SUB, PRG-SUB, LBL-SUB-P, BOX-AVG, LBL-AVG-V, LBL-AVG-C and, for n
+               *>         = 1 to 4, SHP-L1-n, LBL-L1-n-N, LBL-L1-n-P and LBL-L1-n-V. CH-DONUT1 stays
+               *>         hidden until STAGE-TICK shows all the charts. No data item changes;
+               *>         STAGE-TICK adds 1 to WS-DSTAGE next.
+
                CALL    "SHOW-C-DONUT1"
                ADD    1 TO WS-DSTAGE
            END-IF
            IF    WS-DSTAGE = 6 AND WS-ELAPSED >= 2000
+
+               *> SHOW-C-DONUT2: shows the card C-DONUT2 ("Fundos por nível 2") and plays the
+               *> "intro" animation on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 6 and WS-ELAPSED >= 2000 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-DONUT2 becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-D2-T, CH-DONUT2, LBL-D2-C,
+               *>         LBL-D2-S and, for n = 1 to 6, SHP-L2-n, LBL-L2-n-N, LBL-L2-n-P and
+               *>         LBL-L2-n-V. CH-DONUT2 stays hidden until STAGE-TICK shows all the charts.
+               *>         No data item changes; STAGE-TICK adds 1 to WS-DSTAGE next.
+
                CALL    "SHOW-C-DONUT2"
                ADD    1 TO WS-DSTAGE
            END-IF
            IF    WS-DSTAGE = 7 AND WS-ELAPSED >= 2400
+
+               *> SHOW-C-LINE: shows the card C-LINE ("Evolução por ano de início") and plays the
+               *> "intro" animation on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 7 and WS-ELAPSED >= 2400 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-LINE becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-LIN-T, LBL-LIN-U, LBL-ACUM,
+               *>         SW-ACUM and CH-LINE. CH-LINE stays hidden until STAGE-TICK shows all the
+               *>         charts. No data item changes; STAGE-TICK adds 1 to WS-DSTAGE next.
+
                CALL    "SHOW-C-LINE"
                ADD    1 TO WS-DSTAGE
            END-IF
            IF    WS-DSTAGE = 8 AND WS-ELAPSED >= 2800
+
+               *> SHOW-C-BINS: shows the card C-BINS ("Faixas de PL") and plays the "intro"
+               *> animation on it and on the controls inside it.
+               *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+               *>         WS-DSTAGE = 8 and WS-ELAPSED >= 2800 ms (WS-ELAPSED = ms since WS-T0, the
+               *>         start of the dashboard entrance).
+               *> Result: C-BINS becomes visible; it and these controls run their programmatic
+               *>         "intro" animation (ZoomOut, 1800 ms): LBL-BIN-T and, for n = 1 to 5,
+               *>         LBL-BINn-N, LBL-BINn-V, TRK-PRG-BINn and PRG-BINn. No data item changes;
+               *>         STAGE-TICK adds 1 to WS-DSTAGE next.
+
                CALL    "SHOW-C-BINS"
                ADD    1 TO WS-DSTAGE
            END-IF
@@ -3635,26 +4667,87 @@
                    COMPUTE    WS-ELAPSED = WS-NOW + 86400000 - WS-T0G
                END-IF
                IF    WS-GSTAGE = 1 AND WS-ELAPSED >= 0
+
+                   *> SHOW-K1-C: shows the Dados KPI card K1-C ("FUNDOS") and plays the "intro"
+                   *> animation on it and on its controls.
+                   *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+                   *>         WS-GSTAGE = 1 and WS-ELAPSED >= 0 ms (WS-ELAPSED = ms since WS-T0G,
+                   *>         the start of the Dados entrance).
+                   *> Result: K1-C becomes visible; it and LBL-K1-T, DOT-K1, LBL-K1-V and LBL-K1-S
+                   *>         run their programmatic "intro" animation (ZoomOut, 1800 ms). No data
+                   *>         item changes; STAGE-TICK adds 1 to WS-GSTAGE next.
+
                    CALL    "SHOW-K1-C"
                    ADD    1 TO WS-GSTAGE
                END-IF
                IF    WS-GSTAGE = 2 AND WS-ELAPSED >= 400
+
+                   *> SHOW-K2-C: shows the Dados KPI card K2-C ("PL TOTAL") and plays the "intro"
+                   *> animation on it and on its controls.
+                   *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+                   *>         WS-GSTAGE = 2 and WS-ELAPSED >= 400 ms (WS-ELAPSED = ms since WS-T0G,
+                   *>         the start of the Dados entrance).
+                   *> Result: K2-C becomes visible; it and LBL-K2-T, DOT-K2, LBL-K2-V and LBL-K2-S
+                   *>         run their programmatic "intro" animation (ZoomOut, 1800 ms). No data
+                   *>         item changes; STAGE-TICK adds 1 to WS-GSTAGE next.
+
                    CALL    "SHOW-K2-C"
                    ADD    1 TO WS-GSTAGE
                END-IF
                IF    WS-GSTAGE = 3 AND WS-ELAPSED >= 800
+
+                   *> SHOW-K3-C: shows the Dados KPI card K3-C ("COTISTAS") and plays the "intro"
+                   *> animation on it and on its controls.
+                   *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+                   *>         WS-GSTAGE = 3 and WS-ELAPSED >= 800 ms (WS-ELAPSED = ms since WS-T0G,
+                   *>         the start of the Dados entrance).
+                   *> Result: K3-C becomes visible; it and LBL-K3-T, DOT-K3, LBL-K3-V and LBL-K3-S
+                   *>         run their programmatic "intro" animation (ZoomOut, 1800 ms). No data
+                   *>         item changes; STAGE-TICK adds 1 to WS-GSTAGE next.
+
                    CALL    "SHOW-K3-C"
                    ADD    1 TO WS-GSTAGE
                END-IF
                IF    WS-GSTAGE = 4 AND WS-ELAPSED >= 1200
+
+                   *> SHOW-K4-C: shows the Dados KPI card K4-C ("MAIOR FUNDO") and plays the "intro"
+                   *> animation on it and on its controls.
+                   *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+                   *>         WS-GSTAGE = 4 and WS-ELAPSED >= 1200 ms (WS-ELAPSED = ms since WS-T0G,
+                   *>         the start of the Dados entrance).
+                   *> Result: K4-C becomes visible; it and LBL-K4-T, DOT-K4, LBL-K4-V and LBL-K4-S
+                   *>         run their programmatic "intro" animation (ZoomOut, 1800 ms). No data
+                   *>         item changes; STAGE-TICK adds 1 to WS-GSTAGE next.
+
                    CALL    "SHOW-K4-C"
                    ADD    1 TO WS-GSTAGE
                END-IF
                IF    WS-GSTAGE = 5 AND WS-ELAPSED >= 1600
+
+                   *> SHOW-K5-C: shows the Dados KPI card K5-C ("CATEGORIA LÍDER") and plays the
+                   *> "intro" animation on it and on its controls.
+                   *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+                   *>         WS-GSTAGE = 5 and WS-ELAPSED >= 1600 ms (WS-ELAPSED = ms since WS-T0G,
+                   *>         the start of the Dados entrance).
+                   *> Result: K5-C becomes visible; it and LBL-K5-T, DOT-K5, LBL-K5-V and LBL-K5-S
+                   *>         run their programmatic "intro" animation (ZoomOut, 1800 ms). No data
+                   *>         item changes; STAGE-TICK adds 1 to WS-GSTAGE next.
+
                    CALL    "SHOW-K5-C"
                    ADD    1 TO WS-GSTAGE
                END-IF
                IF    WS-GSTAGE = 6 AND WS-ELAPSED >= 2000
+
+                   *> SHOW-C-GRID: shows the grid card C-GRID ("Fundos de investimento") and plays
+                   *> the "intro" animation on it and on its controls.
+                   *> Uses:   no data item; it only drives controls. Caller's test (not read here):
+                   *>         WS-GSTAGE = 6 and WS-ELAPSED >= 2000 ms (WS-ELAPSED = ms since WS-T0G,
+                   *>         the start of the Dados entrance).
+                   *> Result: C-GRID becomes visible; it and LBL-GRID-T, LBL-GRID-S, CMB-ORDER,
+                   *>         GRD-FUNDOS, BTN-PREV, LBL-PAGE and BTN-NEXT run their programmatic
+                   *>         "intro" animation (ZoomOut, 1800 ms). No data item changes; STAGE-TICK
+                   *>         adds 1 to WS-GSTAGE next.
+
                    CALL    "SHOW-C-GRID"
                    ADD    1 TO WS-GSTAGE
                END-IF
@@ -3707,7 +4800,26 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> INIT-DB: opens the in-memory SQLite database DB-1 and loads the funds into it from
+           *> data/fundos.sql.
+           *> Uses:   the file SQL-FILE (data/fundos.sql, one SQL statement per line) and its FILE
+           *>         STATUS WS-FS.
+           *> Result: table fundos (with its indexes) in DB-1 plus the empty helper tables pick, vis
+           *>         and chk; WS-H = the connection handle; WS-LOADED = 1. If the file cannot be
+           *>         opened (WS-FS not "00"): LBL-STATUS::Caption = "Base de dados não encontrada
+           *>         (data/fundos.sql)" and WS-LOADED stays 0.
+
            CALL    "INIT-DB"
+
+           *> LOAD-DIMS: reads the fixed dimensions of the data once the database exists.
+           *> Uses:   table fundos in DB-1, just loaded by INIT-DB.
+           *> Result: WS-UNIV = number of funds; LBL-STATUS::Caption = "Base ANBIMA  |  referência
+           *>         <newest data_ref as dd/mm/yyyy>  |  N fundo(s)"; LST-N2 and LST-N3 = every
+           *>         distinct nivel2 / nivel3 name, most funds first; WS-CAT-NAME(1..10) = the ten
+           *>         most populated nivel1 categories (held in 24 characters) and WS-CATCNT = how
+           *>         many.
+
            CALL    "LOAD-DIMS"
 
            GRD-FUNDOS::SetColumnWidth(1, 330)
@@ -3727,8 +4839,43 @@
            GRD-FUNDOS::SetColumnWidth(15, 90)
            GRD-FUNDOS::SetColumnWidth(16, 130)
 
+           *> SET-FILT-HEIGHT: lays the window out for its current size: filter bar height, popup
+           *> cards, KPI strip, Dados page and grid.
+           *> Uses:   me::Breakpoint, me::Width and me::Height; no data item is read (WS-LEVELS-OPEN
+           *>         in particular is not: the Levels card is always placed). This is the first
+           *>         layout, done before the first filter run.
+           *> Result: the layout is computed for the opening size: FILT::Height (76 to 332 px by
+           *>         breakpoint and width); position and size of the Levels card (LV-DROP, GRP-N2,
+           *>         LBL-F-N2, LST-N2, GRP-N3, LBL-F-N3, LST-N3, SCRIM-LV) and of the search card
+           *>         (SM-DROP, LBL-SM-T, LST-SM, LBL-SM-INFO, BTN-SM-CLR, BTN-SM-OK, SCRIM-SM),
+           *>         each only in the properties it needs (SM-DROP and LST-SM keep their designed
+           *>         Height); PG-DASH::VScroll (0 in Expanded, else 1); STRIP hidden in Compact,
+           *>         else shown with the cards K1-C to K5-C, their labels and the dots DOT-K1 to
+           *>         DOT-K5; PG-DATA, C-GRID, LBL-GRID-T, LBL-GRID-S, CMB-ORDER, GRD-FUNDOS,
+           *>         BTN-PREV, LBL-PAGE and BTN-NEXT. Work items overwritten: WS-BP (holds
+           *>         me::Breakpoint).
+
            CALL    "SET-FILT-HEIGHT"
+
+           *> APPLY-FILTERS: re-runs every query and repaints the dashboard, the charts and the grid
+           *> for the current filters; it exits at once while WS-LOADED = 0.
+           *> Uses:   WS-LOADED = 1 when INIT-DB succeeded (otherwise this call exits at once); the
+           *>         controls at their design values: no text, dates 1970-01-01 to 2027-12-31, PL 0
+           *>         to 300000, no ticks, no picks and the Todos flags WS-ALL-N / WS-ALL-C = 0.
+           *> Result: WS-PAGE = 1; WS-WHERE = "WHERE 1=1" only (nothing filtered); the Q-* steps
+           *>         recompute the totals (WS-T-*), WS-CAT-*, WS-RANK, WS-N2-*, WS-BIN-CNT,
+           *>         WS-TOP-* and the year tables; the PAINT-* steps repaint the KPI card, the
+           *>         charts, the top-4 list with the Classe / Subclasse bars, the Dados cards and
+           *>         the metric buttons; GRD-FUNDOS shows page 1, with its caption LBL-GRID-S, the
+           *>         page label LBL-PAGE and BTN-PREV / BTN-NEXT enabled to match.
+
            CALL    "APPLY-FILTERS"
+
+           *> STAGE-START: starts the staged entrance of the dashboard cards.
+           *> Uses:   the clock (ACCEPT ... FROM TIME).
+           *> Result: WS-T0 = now in ms since midnight; WS-DSTAGE = 1; TMR-STAGE::Enabled = 1, so
+           *>         STAGE-TICK shows C-KPI at once and then one card every 400 ms.
+
            CALL    "STAGE-START"
 ]]></Event>
     <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE">
@@ -3738,6 +4885,23 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SET-FILT-HEIGHT: lays the window out for its current size: filter bar height, popup
+           *> cards, KPI strip, Dados page and grid.
+           *> Uses:   me::Breakpoint, me::Width and me::Height; no data item is read (WS-LEVELS-OPEN
+           *>         in particular is not: the Levels card is always placed). me::Breakpoint has
+           *>         just changed (Compact, Medium or Expanded).
+           *> Result: the layout is computed for the new breakpoint: FILT::Height (76 to 332 px by
+           *>         breakpoint and width); position and size of the Levels card (LV-DROP, GRP-N2,
+           *>         LBL-F-N2, LST-N2, GRP-N3, LBL-F-N3, LST-N3, SCRIM-LV) and of the search card
+           *>         (SM-DROP, LBL-SM-T, LST-SM, LBL-SM-INFO, BTN-SM-CLR, BTN-SM-OK, SCRIM-SM),
+           *>         each only in the properties it needs (SM-DROP and LST-SM keep their designed
+           *>         Height); PG-DASH::VScroll (0 in Expanded, else 1); STRIP hidden in Compact,
+           *>         else shown with the cards K1-C to K5-C, their labels and the dots DOT-K1 to
+           *>         DOT-K5; PG-DATA, C-GRID, LBL-GRID-T, LBL-GRID-S, CMB-ORDER, GRD-FUNDOS,
+           *>         BTN-PREV, LBL-PAGE and BTN-NEXT. Work items overwritten: WS-BP (holds
+           *>         me::Breakpoint).
+
            CALL    "SET-FILT-HEIGHT"
 ]]></Event>
     <Event name="onResize" paragraph="MAIN-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -3745,6 +4909,23 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SET-FILT-HEIGHT: lays the window out for its current size: filter bar height, popup
+           *> cards, KPI strip, Dados page and grid.
+           *> Uses:   me::Breakpoint, me::Width and me::Height; no data item is read (WS-LEVELS-OPEN
+           *>         in particular is not: the Levels card is always placed). The window size has
+           *>         just changed.
+           *> Result: the layout is computed for the new size: FILT::Height (76 to 332 px by
+           *>         breakpoint and width); position and size of the Levels card (LV-DROP, GRP-N2,
+           *>         LBL-F-N2, LST-N2, GRP-N3, LBL-F-N3, LST-N3, SCRIM-LV) and of the search card
+           *>         (SM-DROP, LBL-SM-T, LST-SM, LBL-SM-INFO, BTN-SM-CLR, BTN-SM-OK, SCRIM-SM),
+           *>         each only in the properties it needs (SM-DROP and LST-SM keep their designed
+           *>         Height); PG-DASH::VScroll (0 in Expanded, else 1); STRIP hidden in Compact,
+           *>         else shown with the cards K1-C to K5-C, their labels and the dots DOT-K1 to
+           *>         DOT-K5; PG-DATA, C-GRID, LBL-GRID-T, LBL-GRID-S, CMB-ORDER, GRD-FUNDOS,
+           *>         BTN-PREV, LBL-PAGE and BTN-NEXT. Work items overwritten: WS-BP (holds
+           *>         me::Breakpoint).
+
            CALL    "SET-FILT-HEIGHT"
 ]]></Event>
   </form-events>
@@ -3915,6 +5096,13 @@
 
        PROCEDURE DIVISION.
            SET     WS-VIEW                       TO    "D"
+
+           *> SHOW-VIEW: switches the page shown under the header: the dashboard (PG-DASH) or the
+           *> Dados page.
+           *> Uses:   WS-VIEW = "D" (the dashboard), set just above.
+           *> Result: layer Dados hidden and PG-DASH shown; BTN-DASH gets BackgroundColor "#3E7BE8"
+           *>         and ForegroundColor "#FFFFFF", BTN-DATA white ("#FFFFFF") with text "#1B2A4E".
+
            CALL    "SHOW-VIEW"
 ]]></Event>
   </Control>
@@ -3947,6 +5135,14 @@
 
        PROCEDURE DIVISION.
            SET     WS-VIEW                       TO    "G"
+
+           *> SHOW-VIEW: switches the page shown under the header: the dashboard (PG-DASH) or the
+           *> Dados page.
+           *> Uses:   WS-VIEW = "G" (the Dados page), set just above.
+           *> Result: PG-DASH hidden and layer Dados shown; BTN-DATA gets BackgroundColor "#3E7BE8"
+           *>         and ForegroundColor "#FFFFFF", BTN-DASH white with text "#1B2A4E"; on the
+           *>         first visit (WS-GSTAGE = 0) STAGE-START-G also starts the Dados entrance.
+
            CALL    "SHOW-VIEW"
 ]]></Event>
   </Control>
@@ -4127,6 +5323,20 @@
 
        PROCEDURE DIVISION.
            SET     WS-SMX                        TO    "N"
+
+           *> SM-TYPED: reacts to typing in a filter box: opens or refreshes its search dropdown.
+           *> Uses:   WS-SMX = "N" (set just above), TXT-NOME::Text, WS-LAST-N (the last term
+           *>         handled for this box) and WS-SM, which decides between SM-OPEN (WS-SM differs
+           *>         from WS-SMX) and SM-REFRESH (it equals it).
+           *> Result: Text equal to WS-LAST-N: nothing else happens (WS-TERM = the text). Otherwise
+           *>         WS-LAST-N = the text and the names dropdown is opened (SM-OPEN) or, if already
+           *>         open, refreshed (SM-REFRESH). Either way WS-TERM ends as the folded text (no
+           *>         accents, upper case) and WS-PAT as its LIKE pattern (NORM-TERM), and LST-SM,
+           *>         its CheckedItems, WS-SMN (all the matches), WS-SMK (at most 150 names are
+           *>         listed) and LBL-SM-INFO::Caption are rebuilt. SM-OPEN also sets WS-SM = "N",
+           *>         closes the Levels popup if it was open, recomputes the layout and sets
+           *>         POPUP-SEARCH::Visible = TRUE.
+
            CALL    "SM-TYPED"
 ]]></Event>
     <Event name="onEnterPressed" paragraph="TXT-NOME--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -4134,7 +5344,26 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE. Otherwise nothing changes.
+
            CALL    "SM-CLOSE"
+
+           *> APPLY-FILTERS: re-runs every query and repaints the dashboard, the charts and the grid
+           *> for the current filters; it exits at once while WS-LOADED = 0.
+           *> Uses:   TXT-NOME::Text as typed, the other filter controls, the picks in table pick
+           *>         and the Todos flags WS-ALL-N / WS-ALL-C (in Todos mode the picks are ignored
+           *>         and the typed text is used).
+           *> Result: WS-PAGE = 1; WS-WHERE rebuilt from the controls; the Q-* steps recompute the
+           *>         totals (WS-T-*), WS-CAT-*, WS-RANK, WS-N2-*, WS-BIN-CNT, WS-TOP-* and the year
+           *>         tables; the PAINT-* steps repaint the KPI card, the charts, the top-4 list
+           *>         with the Classe / Subclasse bars, the Dados cards and the metric buttons;
+           *>         GRD-FUNDOS shows page 1, with its caption LBL-GRID-S, the page label LBL-PAGE
+           *>         and BTN-PREV / BTN-NEXT enabled to match.
+
            CALL    "APPLY-FILTERS"
 ]]></Event>
     <Event name="onEscapePressed" paragraph="TXT-NOME--ONESCAPEPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -4142,6 +5371,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE. The filter is not applied.
+
            CALL    "SM-CLOSE"
 ]]></Event>
   </Control>
@@ -4178,6 +5413,18 @@
            SET     WS-LAST-N                     TO    SPACES
            SET     WS-SMX                        TO    "N"
 
+           *> SM-OPEN: opens the search dropdown (layer POPUP-SEARCH) for the filter box named in
+           *> WS-SMX.
+           *> Uses:   WS-SMX = "N" (set above); TXT-NOME::Text, which SM-REFRESH reads, was just
+           *>         cleared (WS-LAST-N too), so the list is not narrowed.
+           *> Result: WS-SM = "N"; the Levels popup is closed if it was open (CLOSE-LEVELS);
+           *>         LBL-SM-T::Caption = "Nome comercial  ·  marque os fundos que quer ver"; the
+           *>         layout is recomputed (SET-FILT-HEIGHT places the search card); SM-REFRESH
+           *>         fills LST-SM with "Todos" + up to 150 distinct fund names, sets WS-SMN (the
+           *>         count of all the matches) and WS-SMK, sets LST-SM::CheckedItems (SM-TICKS) and
+           *>         LBL-SM-INFO::Caption (SM-INFO); POPUP-SEARCH::Visible = TRUE. The filter
+           *>         itself is not applied yet.
+
            CALL    "SM-OPEN"
 ]]></Event>
   </Control>
@@ -4211,9 +5458,28 @@
 
        PROCEDURE DIVISION.
            IF    WS-SM = "N"
+
+               *> SM-CLOSE: closes the search dropdown when one is open.
+               *> Uses:   WS-SM, which is "N" here: the names dropdown is open and the button
+               *>         toggles it.
+               *> Result: WS-SM = SPACE and POPUP-SEARCH::Visible = FALSE.
+
                CALL    "SM-CLOSE"
            ELSE
                SET     WS-SMX                    TO    "N"
+
+               *> SM-OPEN: opens the search dropdown (layer POPUP-SEARCH) for the filter box named
+               *> in WS-SMX.
+               *> Uses:   WS-SMX = "N" (set just above). Caller's test (not read by SM-OPEN): WS-SM
+               *>         is not "N", so no dropdown, or the category one, is open.
+               *> Result: WS-SM = "N"; the Levels popup is closed if it was open (CLOSE-LEVELS);
+               *>         LBL-SM-T::Caption = "Nome comercial  ·  marque os fundos que quer ver";
+               *>         the layout is recomputed (SET-FILT-HEIGHT places the search card);
+               *>         SM-REFRESH fills LST-SM for the current TXT-NOME::Text (at most 150
+               *>         names), sets WS-SMN (all matches) and WS-SMK, sets LST-SM::CheckedItems
+               *>         (SM-TICKS) and sets LBL-SM-INFO::Caption (SM-INFO); POPUP-SEARCH::Visible
+               *>         = TRUE.
+
                CALL    "SM-OPEN"
            END-IF
 ]]></Event>
@@ -4296,6 +5562,20 @@
 
        PROCEDURE DIVISION.
            SET     WS-SMX                        TO    "C"
+
+           *> SM-TYPED: reacts to typing in a filter box: opens or refreshes its search dropdown.
+           *> Uses:   WS-SMX = "C" (set just above), TXT-CAT::Text, WS-LAST-C (the last term handled
+           *>         for this box) and WS-SM, which decides between SM-OPEN (WS-SM differs from
+           *>         WS-SMX) and SM-REFRESH (it equals it).
+           *> Result: Text equal to WS-LAST-C: nothing else happens (WS-TERM = the text). Otherwise
+           *>         WS-LAST-C = the text and the categories dropdown is opened (SM-OPEN) or, if
+           *>         already open, refreshed (SM-REFRESH). Either way WS-TERM ends as the folded
+           *>         text (no accents, upper case) and WS-PAT as its LIKE pattern (NORM-TERM), and
+           *>         LST-SM, its CheckedItems, WS-SMN (the categories that contain the text),
+           *>         WS-SMK and LBL-SM-INFO::Caption are rebuilt. SM-OPEN also sets WS-SM = "C",
+           *>         closes the Levels popup if it was open, recomputes the layout and sets
+           *>         POPUP-SEARCH::Visible = TRUE.
+
            CALL    "SM-TYPED"
 ]]></Event>
     <Event name="onEnterPressed" paragraph="TXT-CAT--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -4303,7 +5583,26 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE. Otherwise nothing changes.
+
            CALL    "SM-CLOSE"
+
+           *> APPLY-FILTERS: re-runs every query and repaints the dashboard, the charts and the grid
+           *> for the current filters; it exits at once while WS-LOADED = 0.
+           *> Uses:   TXT-CAT::Text as typed, the other filter controls, the picks in table pick and
+           *>         the Todos flags WS-ALL-N / WS-ALL-C (in Todos mode the picks are ignored and
+           *>         the typed text is used).
+           *> Result: WS-PAGE = 1; WS-WHERE rebuilt from the controls; the Q-* steps recompute the
+           *>         totals (WS-T-*), WS-CAT-*, WS-RANK, WS-N2-*, WS-BIN-CNT, WS-TOP-* and the year
+           *>         tables; the PAINT-* steps repaint the KPI card, the charts, the top-4 list
+           *>         with the Classe / Subclasse bars, the Dados cards and the metric buttons;
+           *>         GRD-FUNDOS shows page 1, with its caption LBL-GRID-S, the page label LBL-PAGE
+           *>         and BTN-PREV / BTN-NEXT enabled to match.
+
            CALL    "APPLY-FILTERS"
 ]]></Event>
     <Event name="onEscapePressed" paragraph="TXT-CAT--ONESCAPEPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -4311,6 +5610,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE. The filter is not applied.
+
            CALL    "SM-CLOSE"
 ]]></Event>
   </Control>
@@ -4347,6 +5652,18 @@
            SET     WS-LAST-C                     TO    SPACES
            SET     WS-SMX                        TO    "C"
 
+           *> SM-OPEN: opens the search dropdown (layer POPUP-SEARCH) for the filter box named in
+           *> WS-SMX.
+           *> Uses:   WS-SMX = "C" (set above); TXT-CAT::Text, which SM-REFRESH reads, was just
+           *>         cleared (WS-LAST-C too), so the list is not narrowed.
+           *> Result: WS-SM = "C"; the Levels popup is closed if it was open (CLOSE-LEVELS);
+           *>         LBL-SM-T::Caption = "Categoria  ·  marque as categorias que quer ver"; the
+           *>         layout is recomputed (SET-FILT-HEIGHT places the search card); SM-REFRESH
+           *>         fills LST-SM with "Todos" + the categories of WS-CAT-NAME(1..WS-CATCNT), sets
+           *>         WS-SMN and WS-SMK, sets LST-SM::CheckedItems (SM-TICKS) and sets
+           *>         LBL-SM-INFO::Caption (SM-INFO); POPUP-SEARCH::Visible = TRUE. The filter
+           *>         itself is not applied yet.
+
            CALL    "SM-OPEN"
 ]]></Event>
   </Control>
@@ -4380,9 +5697,27 @@
 
        PROCEDURE DIVISION.
            IF    WS-SM = "C"
+
+               *> SM-CLOSE: closes the search dropdown when one is open.
+               *> Uses:   WS-SM, which is "C" here: the categories dropdown is open and the button
+               *>         toggles it.
+               *> Result: WS-SM = SPACE and POPUP-SEARCH::Visible = FALSE.
+
                CALL    "SM-CLOSE"
            ELSE
                SET     WS-SMX                    TO    "C"
+
+               *> SM-OPEN: opens the search dropdown (layer POPUP-SEARCH) for the filter box named
+               *> in WS-SMX.
+               *> Uses:   WS-SMX = "C" (set just above). Caller's test (not read by SM-OPEN): WS-SM
+               *>         is not "C", so no dropdown, or the names one, is open.
+               *> Result: WS-SM = "C"; the Levels popup is closed if it was open (CLOSE-LEVELS);
+               *>         LBL-SM-T::Caption = "Categoria  ·  marque as categorias que quer ver"; the
+               *>         layout is recomputed (SET-FILT-HEIGHT places the search card); SM-REFRESH
+               *>         fills LST-SM for the current TXT-CAT::Text (the categories containing it),
+               *>         sets WS-SMN and WS-SMK, sets LST-SM::CheckedItems (SM-TICKS) and sets
+               *>         LBL-SM-INFO::Caption (SM-INFO); POPUP-SEARCH::Visible = TRUE.
+
                CALL    "SM-OPEN"
            END-IF
 ]]></Event>
@@ -4648,13 +5983,46 @@
                *> are not laid out by the form, so SET-FILT-HEIGHT places the card
                *> before it is shown.
 
+               *> SM-CLOSE: closes the search dropdown when one is open.
+               *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise). Caller's
+               *>         test (not read by SM-CLOSE): WS-LEVELS-OPEN = 0, so the Levels card is
+               *>         closed.
+               *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+               *>         FALSE, so only one dropdown shows at a time.
+
                CALL    "SM-CLOSE"
                SET     WS-LEVELS-OPEN            TO    1
+
+               *> SET-FILT-HEIGHT: lays the window out for its current size: filter bar height,
+               *> popup cards, KPI strip, Dados page and grid.
+               *> Uses:   me::Breakpoint, me::Width and me::Height; no data item is read
+               *>         (WS-LEVELS-OPEN in particular is not: the Levels card is always placed).
+               *>         The Levels card is a popup layer, which the form does not lay out, so it
+               *>         is placed here before it is shown (the caller set WS-LEVELS-OPEN = 1 just
+               *>         above).
+               *> Result: everything is repositioned: FILT::Height (76 to 332 px by breakpoint and
+               *>         width); position and size of the Levels card (LV-DROP, GRP-N2, LBL-F-N2,
+               *>         LST-N2, GRP-N3, LBL-F-N3, LST-N3, SCRIM-LV) and of the search card
+               *>         (SM-DROP, LBL-SM-T, LST-SM, LBL-SM-INFO, BTN-SM-CLR, BTN-SM-OK, SCRIM-SM),
+               *>         each only in the properties it needs (SM-DROP and LST-SM keep their
+               *>         designed Height); PG-DASH::VScroll (0 in Expanded, else 1); STRIP hidden
+               *>         in Compact, else shown with the cards K1-C to K5-C, their labels and the
+               *>         dots DOT-K1 to DOT-K5; PG-DATA, C-GRID, LBL-GRID-T, LBL-GRID-S, CMB-ORDER,
+               *>         GRD-FUNDOS, BTN-PREV, LBL-PAGE and BTN-NEXT. Work items overwritten: WS-BP
+               *>         (holds me::Breakpoint).
+
                CALL    "SET-FILT-HEIGHT"
 
                SET     POPUP-LEVELS::Visible     TO    TRUE
                SET     BTN-LEVELS::Caption       TO    "Fechar níveis"
            ELSE
+
+               *> CLOSE-LEVELS: closes the Levels 2 and 3 popup when it is open.
+               *> Uses:   WS-LEVELS-OPEN, which is 1 here: the Levels card is open and the button
+               *>         closes it.
+               *> Result: WS-LEVELS-OPEN = 0; POPUP-LEVELS::Visible = FALSE; BTN-LEVELS::Caption =
+               *>         "Níveis 2 e 3".
+
                CALL    "CLOSE-LEVELS"
            END-IF
 ]]></Event>
@@ -4686,6 +6054,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> CLEAR-FILTERS: puts every filter back to "no filter" and refreshes the whole screen.
+           *> Uses:   nothing from this handler; it writes the controls and the work items itself.
+           *> Result: SM-CLOSE; TXT-NOME::Text, TXT-CAT::Text, WS-LAST-N, WS-LAST-C = SPACES;
+           *>         DTP-INI::Value = "1970-01-01"; DTP-FIM::Value = "2027-12-31"; NUD-PL1::Value =
+           *>         0; NUD-PL2::Value = 300000; LST-N2 / LST-N3 CheckedItems = SPACES; picks
+           *>         forgotten (pick and vis emptied, WS-ALL-N and WS-ALL-C = 0, filter labels back
+           *>         to "Nome comercial" / "Categoria"); then APPLY-FILTERS sets WS-PAGE = 1,
+           *>         re-runs all the queries and repaints the dashboard, the Dados cards and grid
+           *>         page 1 (with its caption, page label and Prev / Next buttons).
+
            CALL    "CLEAR-FILTERS"
 ]]></Event>
   </Control>
@@ -4717,8 +6096,35 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> CLOSE-LEVELS: closes the Levels 2 and 3 popup when it is open.
+           *> Uses:   WS-LEVELS-OPEN (1 = the Levels card is open).
+           *> Result: Only when WS-LEVELS-OPEN = 1: WS-LEVELS-OPEN = 0, POPUP-LEVELS::Visible =
+           *>         FALSE and BTN-LEVELS::Caption = "Níveis 2 e 3". The ticks of LST-N2 and LST-N3
+           *>         are kept.
+
            CALL    "CLOSE-LEVELS"
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE.
+
            CALL    "SM-CLOSE"
+
+           *> APPLY-FILTERS: re-runs every query and repaints the dashboard, the charts and the grid
+           *> for the current filters; it exits at once while WS-LOADED = 0.
+           *> Uses:   all the filters as the user left them: TXT-NOME, TXT-CAT, dates, PL range, the
+           *>         ticks of LST-N2 and LST-N3, the picks in table pick and the Todos flags
+           *>         WS-ALL-N / WS-ALL-C (in Todos mode the picks are ignored and the typed text is
+           *>         used).
+           *> Result: WS-PAGE = 1; WS-WHERE rebuilt from the controls; the Q-* steps recompute the
+           *>         totals (WS-T-*), WS-CAT-*, WS-RANK, WS-N2-*, WS-BIN-CNT, WS-TOP-* and the year
+           *>         tables; the PAINT-* steps repaint the KPI card, the charts, the top-4 list
+           *>         with the Classe / Subclasse bars, the Dados cards and the metric buttons;
+           *>         GRD-FUNDOS shows page 1, with its caption LBL-GRID-S, the page label LBL-PAGE
+           *>         and BTN-PREV / BTN-NEXT enabled to match.
+
            CALL    "APPLY-FILTERS"
 ]]></Event>
   </Control>
@@ -5148,7 +6554,26 @@
        PROCEDURE DIVISION.
            SET     WS-METRIC                     TO    1
 
+           *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
+           *> the PL sparkline SPK.
+           *> Uses:   WS-METRIC = 1 (the number of funds), set just above; WS-ACUM (1 = running
+           *>         totals in CH-LINE; its VALUE is 1 and SW-ACUM changes it) and the yearly
+           *>         tables of Q-YEARS.
+           *> Result: CH-BAR shows the number of funds per start year; CH-LINE the same as running
+           *>         totals while WS-ACUM = 1 (seeded with the funds that began before the 12-year
+           *>         window), otherwise per year; SPK is refilled (always the cumulative PL);
+           *>         XAxisLabel, SeriesLabels and SeriesColors of both charts are rewritten;
+           *>         LBL-BAR-U::Caption and LBL-LIN-U::Caption = "quantidade de fundos";
+           *>         LBL-BAR-TOT::Caption = WS-T-CNT as a count.
+
            CALL    "PAINT-YEARS"
+
+           *> PAINT-TABS: highlights the metric button (Fundos, PL, Cotistas) that WS-METRIC
+           *> selects.
+           *> Uses:   WS-METRIC = 1, set above.
+           *> Result: BTN-M1 gets BackgroundColor "#3E7BE8" and ForegroundColor "#FFFFFF"; BTN-M2
+           *>         and BTN-M3 go back to "#FFFFFF" with text "#1B2A4E".
+
            CALL    "PAINT-TABS"
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -5182,7 +6607,26 @@
        PROCEDURE DIVISION.
            SET     WS-METRIC                     TO    2
 
+           *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
+           *> the PL sparkline SPK.
+           *> Uses:   WS-METRIC = 2 (PL in R$ billions), set just above; WS-ACUM (1 = running totals
+           *>         in CH-LINE; its VALUE is 1 and SW-ACUM changes it) and the yearly tables of
+           *>         Q-YEARS.
+           *> Result: CH-BAR shows PL in R$ billions per start year; CH-LINE the same as running
+           *>         totals while WS-ACUM = 1 (seeded with the funds that began before the 12-year
+           *>         window), otherwise per year; SPK is refilled (always the cumulative PL);
+           *>         XAxisLabel, SeriesLabels and SeriesColors of both charts are rewritten;
+           *>         LBL-BAR-U::Caption and LBL-LIN-U::Caption = "PL em R$ bilhões";
+           *>         LBL-BAR-TOT::Caption = "R$ " + the short form of WS-T-PL.
+
            CALL    "PAINT-YEARS"
+
+           *> PAINT-TABS: highlights the metric button (Fundos, PL, Cotistas) that WS-METRIC
+           *> selects.
+           *> Uses:   WS-METRIC = 2, set above.
+           *> Result: BTN-M2 gets BackgroundColor "#3E7BE8" and ForegroundColor "#FFFFFF"; BTN-M1
+           *>         and BTN-M3 go back to "#FFFFFF" with text "#1B2A4E".
+
            CALL    "PAINT-TABS"
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -5216,7 +6660,26 @@
        PROCEDURE DIVISION.
            SET     WS-METRIC                     TO    3
 
+           *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
+           *> the PL sparkline SPK.
+           *> Uses:   WS-METRIC = 3 (cotistas in thousands), set just above; WS-ACUM (1 = running
+           *>         totals in CH-LINE; its VALUE is 1 and SW-ACUM changes it) and the yearly
+           *>         tables of Q-YEARS.
+           *> Result: CH-BAR shows cotistas in thousands per start year; CH-LINE the same as running
+           *>         totals while WS-ACUM = 1 (seeded with the funds that began before the 12-year
+           *>         window), otherwise per year; SPK is refilled (always the cumulative PL);
+           *>         XAxisLabel, SeriesLabels and SeriesColors of both charts are rewritten;
+           *>         LBL-BAR-U::Caption and LBL-LIN-U::Caption = "milhares de cotistas";
+           *>         LBL-BAR-TOT::Caption = the short form of WS-T-COT.
+
            CALL    "PAINT-YEARS"
+
+           *> PAINT-TABS: highlights the metric button (Fundos, PL, Cotistas) that WS-METRIC
+           *> selects.
+           *> Uses:   WS-METRIC = 3, set above.
+           *> Result: BTN-M3 gets BackgroundColor "#3E7BE8" and ForegroundColor "#FFFFFF"; BTN-M1
+           *>         and BTN-M2 go back to "#FFFFFF" with text "#1B2A4E".
+
            CALL    "PAINT-TABS"
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -7618,6 +9081,16 @@
            ELSE
                SET     WS-ACUM                   TO    0
            END-IF
+
+           *> PAINT-YEARS: repaints the yearly bar and line charts for the metric in WS-METRIC, and
+           *> the PL sparkline SPK.
+           *> Uses:   WS-ACUM = 1 when SW-ACUM::Checked = 1, otherwise 0 (set just above); WS-METRIC
+           *>         is unchanged.
+           *> Result: CH-LINE redrawn with running totals (seeded with the funds that began before
+           *>         the 12-year window) when WS-ACUM = 1, otherwise with each year alone; CH-BAR,
+           *>         SPK, the axis and series labels, the series colours and the captions are
+           *>         rewritten with the same values as before.
+
            CALL    "PAINT-YEARS"
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -9070,6 +10543,14 @@ Nome (A-Z)</Property>
 
        PROCEDURE DIVISION.
            SET     WS-PAGE                       TO    1
+
+           *> REFRESH-GRID: reloads the grid page and its captions.
+           *> Uses:   WS-PAGE = 1 (set just above), CMB-ORDER::Value (the new sort choice), and
+           *>         WS-WHERE and WS-T-CNT exactly as the last APPLY-FILTERS left them (the filters
+           *>         are not re-run here).
+           *> Result: GRD-FUNDOS holds page 1 in the new order; LBL-GRID-S, LBL-PAGE, BTN-PREV and
+           *>         BTN-NEXT match that page.
+
            CALL    "REFRESH-GRID"
 ]]></Event>
     <Animation name="intro" trigger="Programmatic" kind="ZoomOut" duration="1800" delay="0" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
@@ -9162,6 +10643,14 @@ Data de referência:string</Property>
        PROCEDURE DIVISION.
            IF    WS-PAGE > 1
                SUBTRACT    1 FROM WS-PAGE
+
+               *> REFRESH-GRID: reloads the grid page and its captions.
+               *> Uses:   WS-PAGE, just reduced by 1 (it was above 1), CMB-ORDER::Value, and
+               *>         WS-WHERE and WS-T-CNT as the last APPLY-FILTERS left them (the filters are
+               *>         not re-run here).
+               *> Result: GRD-FUNDOS holds the previous page; LBL-GRID-S, LBL-PAGE, BTN-PREV and
+               *>         BTN-NEXT match that page (BTN-PREV is disabled on page 1).
+
                CALL    "REFRESH-GRID"
            END-IF
 ]]></Event>
@@ -9221,6 +10710,14 @@ Data de referência:string</Property>
        PROCEDURE DIVISION.
            IF    WS-PAGE < WS-PAGES
                ADD    1 TO WS-PAGE
+
+               *> REFRESH-GRID: reloads the grid page and its captions.
+               *> Uses:   WS-PAGE, just increased by 1 (it was below WS-PAGES), CMB-ORDER::Value,
+               *>         and WS-WHERE and WS-T-CNT as the last APPLY-FILTERS left them (the filters
+               *>         are not re-run here).
+               *> Result: GRD-FUNDOS holds the next page; LBL-GRID-S, LBL-PAGE, BTN-PREV and
+               *>         BTN-NEXT match that page (BTN-NEXT is disabled on the last page).
+
                CALL    "REFRESH-GRID"
            END-IF
 ]]></Event>
@@ -9485,6 +10982,18 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CHECKED: applies a tick change of LST-SM: stores the ticked names, updates Todos
+           *> mode and the kept picks.
+           *> Uses:   LST-SM::CheckedItems (the ticked rows, LF-separated), WS-SM ("N" or "C"), the
+           *>         Todos flag WS-ALL-N / WS-ALL-C as it was before the click, and table vis.
+           *> Result: table chk = the ticked names other than "Todos" (that row only sets WS-TODOS);
+           *>         table pick of WS-SM and the Todos flag updated to the new ticks; then
+           *>         LST-SM::CheckedItems is rewritten from the new state (SM-TICKS: all rows in
+           *>         Todos mode, else the listed names found in pick), LBL-SM-INFO::Caption gets
+           *>         the new message (SM-INFO) and the captions of LBL-F-NOME and LBL-F-CAT are
+           *>         recomputed (SM-CAPTIONS). The filter is not applied yet.
+
            CALL    "SM-CHECKED"
 ]]></Event>
     <Event name="onEscapePressed" paragraph="LST-SM--ONESCAPEPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -9492,6 +11001,12 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE. The filter is not applied; the picks made stay in table pick.
+
            CALL    "SM-CLOSE"
 ]]></Event>
   </Control>
@@ -9546,6 +11061,15 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLEAR-PICKS: forgets the picks kept for the open dropdown.
+           *> Uses:   WS-SM ("N" or "C"): the dropdown that is open.
+           *> Result: WS-ALL-N or WS-ALL-C = 0; the rows of pick with fld = WS-SM deleted;
+           *>         LST-SM::CheckedItems = SPACES (no row ticked, "Todos" included);
+           *>         LBL-SM-INFO::Caption = the "nenhum marcado" message; the captions of
+           *>         LBL-F-NOME and LBL-F-CAT recomputed (the open box's goes back to its plain
+           *>         text). The filter is not applied.
+
            CALL    "SM-CLEAR-PICKS"
 ]]></Event>
   </Control>
@@ -9576,7 +11100,26 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise).
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE.
+
            CALL    "SM-CLOSE"
+
+           *> APPLY-FILTERS: re-runs every query and repaints the dashboard, the charts and the grid
+           *> for the current filters; it exits at once while WS-LOADED = 0.
+           *> Uses:   the picks and Todos flags made in the dropdown (table pick, WS-ALL-N,
+           *>         WS-ALL-C; in Todos mode the picks are ignored and the typed text is used), the
+           *>         text of TXT-NOME and TXT-CAT and the other filters.
+           *> Result: WS-PAGE = 1; WS-WHERE rebuilt from the controls; the Q-* steps recompute the
+           *>         totals (WS-T-*), WS-CAT-*, WS-RANK, WS-N2-*, WS-BIN-CNT, WS-TOP-* and the year
+           *>         tables; the PAINT-* steps repaint the KPI card, the charts, the top-4 list
+           *>         with the Classe / Subclasse bars, the Dados cards and the metric buttons;
+           *>         GRD-FUNDOS shows page 1, with its caption LBL-GRID-S, the page label LBL-PAGE
+           *>         and BTN-PREV / BTN-NEXT enabled to match.
+
            CALL    "APPLY-FILTERS"
 ]]></Event>
   </Control>
@@ -9604,6 +11147,13 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> SM-CLOSE: closes the search dropdown when one is open.
+           *> Uses:   WS-SM ("N" or "C" while a dropdown is open, SPACE otherwise); the click landed
+           *>         outside the dropdown.
+           *> Result: Only when WS-SM was not SPACE: WS-SM = SPACE and POPUP-SEARCH::Visible =
+           *>         FALSE. The filter is not applied; the picks made stay in table pick.
+
            CALL    "SM-CLOSE"
 ]]></Event>
   </Control>
@@ -9631,6 +11181,14 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> CLOSE-LEVELS: closes the Levels 2 and 3 popup when it is open.
+           *> Uses:   WS-LEVELS-OPEN (1 = the Levels card is open); the click landed outside the
+           *>         card.
+           *> Result: Only when WS-LEVELS-OPEN = 1: WS-LEVELS-OPEN = 0, POPUP-LEVELS::Visible =
+           *>         FALSE and BTN-LEVELS::Caption = "Níveis 2 e 3". The ticks of LST-N2 and LST-N3
+           *>         stay and count in the next filter run.
+
            CALL    "CLOSE-LEVELS"
 ]]></Event>
   </Control>
@@ -9673,6 +11231,17 @@ Data de referência:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> STAGE-TICK: runs the entrance steps that are due: dashboard cards, then the charts,
+           *> then the Dados cards.
+           *> Uses:   the TMR-STAGE tick (Interval 50 ms while Enabled), the clock, WS-T0 / WS-T0G
+           *>         and the stage counters WS-DSTAGE, WS-GSTAGE and WS-CHARTS.
+           *> Result: WS-ELAPSED = ms since WS-T0, then recomputed as ms since WS-T0G while the
+           *>         Dados steps (WS-GSTAGE 1 to 6) are pending; each step that is due runs its
+           *>         SHOW-* procedure and adds 1 to WS-DSTAGE or WS-GSTAGE; at 4750 ms the six
+           *>         charts are shown once (WS-CHARTS = 1); TMR-STAGE::Enabled = 0 when nothing is
+           *>         pending.
+
            CALL    "STAGE-TICK"
 ]]></Event>
   </Control>

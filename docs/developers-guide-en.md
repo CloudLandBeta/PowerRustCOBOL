@@ -8750,10 +8750,10 @@ with a blank line before it and a blank line after it, at most 100 columns wide.
 ```cobol
            SET     WS-SET-NAME                   TO    "LANG"
 
-           *> PS-SETTING-GET: reads one setting from the settings file by its name. It never writes.
+           *> PS-SETTING-GET: reads one setting from the settings file by its name; it changes none.
            *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the file.
            *> Result: WS-SET-VALUE = the saved language code ("pt", "es", ...), or SPACES when
-           *>         the setting was never kept or the file does not exist yet.
+           *>         the setting was never kept or the file cannot be opened.
 
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE.
 ```

@@ -397,6 +397,14 @@
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PS-SETTING-GET: reads one setting from the settings file (indexed, data/settings.idx
+           *> or $POWERSPATIAL_DATA/settings.idx) by its name. It never writes a setting (the OPEN
+           *> only leaves an empty settings.idx.lck beside the file).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the file.
+           *> Result: WS-SET-VALUE = the saved language code ("pt", "es", ...), or SPACES when the
+           *>         setting was never kept or the file is missing or cannot be opened.
+
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
 
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
@@ -416,6 +424,21 @@
 
            IF    WS-NEW-IX NOT = WS-LANG-IX
                SET     WS-LANG-IX                TO    WS-NEW-IX
+
+               *> PS-APPLY-TEXT: writes the texts of the chosen language on the dashboard.
+               *> Uses:   WS-LANG-IX (just set to WS-NEW-IX, 1-6) as the PS-TEXT column; through the
+               *>         redraws also WS-AC-ON, Knb-AC::Value, WS-DEV-ON(1) to (3) and the system
+               *>         date.
+               *> Result: Lbl-Light, Lbl-AirCon, Lbl-Wifi and Lbl-Outdoor::Caption = PS-TEXT rows 1
+               *>         to 4; Txt-Search::HintText = row 5; Lbl-Hi = 6, Lbl-Album = 7, Lbl-AC = 8,
+               *>         Lbl-Under = 11, Lbl-Consumption = 12, Lbl-Humidity = 13, Lbl-Pressure =
+               *>         14, Lbl-Thermostat = 15, Lbl-Lighting = 16, Lbl-Speaker = 17 (all
+               *>         ::Caption, trimmed). Then PS-AC-SHOW, PS-DEVICES-SHOW and PS-CLOCK redraw
+               *>         what depends on a state or the date (texts, dial and switch state, device
+               *>         button colours, Lbl-Date, Lbl-Time) and leave WS-N, WS-N-TXT, WS-LINE,
+               *>         WS-NOW, WS-MONTH and WS-DAY changed. A changed Sw-AC::Checked raises
+               *>         SW-AC--ONCHECKEDCHANGED (PS-AC-TOGGLE).
+
                CALL    "PS-APPLY-TEXT"
            END-IF
 ]]></Event>
@@ -443,8 +466,44 @@
            *> Texts that depend on a state or on the date are set by these, not
            *> by the list above: cooling or off, device on or off, the date.
 
+           *> PS-AC-SHOW: redraws the air conditioner card from the dial and the on/off flag: target
+           *> temperature, cooling/off caption, and the state of the dial and the switch.
+           *> Uses:   Knb-AC::Value (the dial, 16 to 30; 28 as designed), WS-AC-ON ("Y" at load) and
+           *>         PS-TEXT rows 9 and 10 of the WS-LANG-IX column.
+           *> Result: WS-N = Knb-AC::Value; WS-N-TXT = WS-N; WS-LINE = that value + "°C" (28 gives
+           *>         "28°C"); Lbl-Target::Caption = WS-LINE. With WS-AC-ON = "Y":
+           *>         Lbl-Cooling::Caption = PS-TEXT row 9, and Lbl-Under::Visible, Knb-AC::Enabled
+           *>         and Sw-AC::Checked = 1. With "N": row 10, and the three = 0. When
+           *>         Sw-AC::Checked changes the stored value it raises SW-AC--ONCHECKEDCHANGED
+           *>         (PS-AC-TOGGLE), which repeats this redraw with the same values. The host
+           *>         compares the text of the held and the written value, so the first write may
+           *>         count as a change if its spelling differs (1 versus true): this redraw may
+           *>         then run once more at load.
+
            CALL    "PS-AC-SHOW"
+
+           *> PS-DEVICES-SHOW: redraws the three device cards (Thermostat, Lighting, Speaker) from
+           *> their on/off flags.
+           *> Uses:   WS-DEV-ON(1) to (3) ("Y" or "N"; "Y", "N", "Y" at load), PS-TEXT rows 18 and
+           *>         19 of the WS-LANG-IX column.
+           *> Result: for each card n that is on (WS-DEV-ON(n) = "Y"): Lbl-<card>-Status::Caption =
+           *>         PS-TEXT row 18, Btn-<card>-Cast::BackgroundColor = "#0A84FFFF" (blue),
+           *>         Btn-<card>-Plug::BackgroundColor = "#2DC653FF" (green). When it is off: row
+           *>         19, and both buttons "#FFFFFF26" (faint white). No data item changes.
+
            CALL    "PS-DEVICES-SHOW"
+
+           *> PS-CLOCK: shows the current date and time in the language on screen; called here so
+           *> the date follows a language change at once, without waiting for the next Tmr-Clock
+           *> tick.
+           *> Uses:   FUNCTION CURRENT-DATE, WS-LANG-IX (picks the date layout) and PS-TEXT rows 21
+           *>         to 32 (the month names).
+           *> Result: WS-NOW = FUNCTION CURRENT-DATE; WS-MONTH, WS-DAY, WS-N-TXT and WS-LINE hold
+           *>         the parts last cut from it. Lbl-Date::Caption = the date by language (shown
+           *>         for 4 October 2026): en "04 October, 2026", pt "4 de outubro de 2026", es
+           *>         "4 de octubre de 2026", fr "4 octobre 2026", jp/cn "2026年10月4日";
+           *>         Lbl-Time::Caption = "hh:mm".
+
            CALL    "PS-CLOCK"
 ]]></Event>
     <Event name="PS-CLOCK" paragraph="PS-CLOCK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -534,6 +593,18 @@
            ELSE
                SET     WS-AC-ON                  TO    "N"
            END-IF
+
+           *> PS-AC-SHOW: redraws the air conditioner card from the dial and the on/off flag: target
+           *> temperature, cooling/off caption, and the state of the dial and the switch.
+           *> Uses:   WS-AC-ON (just set from Sw-AC::Checked: "Y" when it is 1, otherwise "N"),
+           *>         Knb-AC::Value and WS-LANG-IX.
+           *> Result: WS-N = Knb-AC::Value, WS-N-TXT = WS-N and WS-LINE = the value + "°C" (28 gives
+           *>         "28°C"); Lbl-Target::Caption = WS-LINE. With WS-AC-ON = "Y":
+           *>         Lbl-Cooling::Caption = PS-TEXT row 9, Lbl-Under visible, Knb-AC enabled; with
+           *>         "N": row 10, Lbl-Under hidden, Knb-AC disabled. Sw-AC::Checked is written back
+           *>         with the value it already has (1 for "Y", 0 for "N"); the host raises the
+           *>         switch's event only when the stored text changes.
+
            CALL    "PS-AC-SHOW"
 ]]></Event>
     <Event name="PS-AC-TOGGLE-BUTTON" paragraph="PS-AC-TOGGLE-BUTTON"><![CDATA[       ENVIRONMENT DIVISION.
@@ -546,6 +617,19 @@
            ELSE
                SET     WS-AC-ON                  TO    "Y"
            END-IF
+
+           *> PS-AC-SHOW: redraws the air conditioner card from the dial and the on/off flag: target
+           *> temperature, cooling/off caption, and the state of the dial and the switch.
+           *> Uses:   WS-AC-ON (just flipped above: "Y" became "N", or "N" became "Y"),
+           *>         Knb-AC::Value and WS-LANG-IX.
+           *> Result: WS-N = Knb-AC::Value, WS-N-TXT = WS-N and WS-LINE = the value + "°C" (28 gives
+           *>         "28°C"); Lbl-Target::Caption = WS-LINE. Sw-AC::Checked = 1 for "Y" or 0 for
+           *>         "N" (this is what moves the switch when the power button is used); when that
+           *>         changes the stored value it raises SW-AC--ONCHECKEDCHANGED, which runs
+           *>         PS-AC-TOGGLE and repeats this redraw with the same values. Knb-AC::Enabled and
+           *>         Lbl-Under::Visible = 1 or 0 the same way; Lbl-Cooling::Caption = PS-TEXT row 9
+           *>         or 10.
+
            CALL    "PS-AC-SHOW"
 ]]></Event>
     <Event name="PS-PLAY-TOGGLE" paragraph="PS-PLAY-TOGGLE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -581,6 +665,13 @@
            ELSE
                ADD    1 TO WS-SONG
            END-IF
+
+           *> PS-SONG-SHOW: shows the title and the album of the current song.
+           *> Uses:   WS-SONG (just advanced: 1 becomes 2, 2 becomes 3, 3 wraps to 1) and the
+           *>         WS-SONG-TABLE rows.
+           *> Result: Lbl-Song::Caption = WS-SONG-TITLE(WS-SONG) and Lbl-Album-Name::Caption =
+           *>         WS-SONG-ALBUM(WS-SONG). No data item changes.
+
            CALL    "PS-SONG-SHOW"
 ]]></Event>
     <Event name="PS-SONG-PREV" paragraph="PS-SONG-PREV"><![CDATA[       ENVIRONMENT DIVISION.
@@ -593,6 +684,13 @@
            ELSE
                SUBTRACT    1 FROM WS-SONG
            END-IF
+
+           *> PS-SONG-SHOW: shows the title and the album of the current song.
+           *> Uses:   WS-SONG (just moved back: 3 becomes 2, 2 becomes 1, 1 wraps to 3) and the
+           *>         WS-SONG-TABLE rows.
+           *> Result: Lbl-Song::Caption = WS-SONG-TITLE(WS-SONG) and Lbl-Album-Name::Caption =
+           *>         WS-SONG-ALBUM(WS-SONG). No data item changes.
+
            CALL    "PS-SONG-SHOW"
 ]]></Event>
     <Event name="PS-WAVE-INIT" paragraph="PS-WAVE-INIT"><![CDATA[       ENVIRONMENT DIVISION.
@@ -718,6 +816,16 @@
            ELSE
                SET     WS-DEV-ON(WS-I)           TO    "Y"
            END-IF
+
+           *> PS-DEVICES-SHOW: redraws the three device cards (Thermostat, Lighting, Speaker) from
+           *> their on/off flags.
+           *> Uses:   WS-DEV-ON(1) to (3), with WS-DEV-ON(WS-I) just flipped above, and PS-TEXT rows
+           *>         18 and 19 of the WS-LANG-IX column.
+           *> Result: for each card n that is on (WS-DEV-ON(n) = "Y"): Lbl-<card>-Status::Caption =
+           *>         PS-TEXT row 18, Btn-<card>-Cast::BackgroundColor = "#0A84FFFF" (blue),
+           *>         Btn-<card>-Plug::BackgroundColor = "#2DC653FF" (green). When it is off: row
+           *>         19, and both buttons "#FFFFFF26" (faint white). No data item changes.
+
            CALL    "PS-DEVICES-SHOW"
 ]]></Event>
     <Event name="PS-NOTIFY" paragraph="PS-NOTIFY"><![CDATA[       ENVIRONMENT DIVISION.
@@ -745,8 +853,36 @@
            *> WS-DEV-ON is set first: the first PS-LANG-CHECK always applies the
            *> texts (WS-LANG-IX starts at 0), and that redraws the device cards.
 
+           *> PS-LANG-CHECK: reads the saved language and, when it is not the one on screen, applies
+           *> its texts.
+           *> Uses:   The LANG setting in the settings file and WS-LANG-IX = 0 (its VALUE at load).
+           *>         WS-DEV-ON(1) to (3) were just set from WS-DEV-INIT ("YNY"); the redraws it
+           *>         triggers also read them, WS-AC-ON, Knb-AC::Value and the system date.
+           *> Result: WS-SET-NAME = "LANG"; WS-SET-VALUE = the code read (SPACES if none); WS-NEW-IX
+           *>         = 1-6; WS-LANG-IX = WS-NEW-IX, so this first call always applies every caption
+           *>         and the search hint (PS-APPLY-TEXT; this form sets no tooltip) and, through
+           *>         it, redraws the air conditioner, the device cards and the date, which leaves
+           *>         WS-N, WS-N-TXT, WS-LINE, WS-NOW, WS-MONTH and WS-DAY changed.
+
            CALL    "PS-LANG-CHECK"
+
+           *> PS-WAVE-INIT: builds the waveform of 48 samples, once, and hands it to the chart.
+           *> Uses:   WS-SEED = 7 (its VALUE, so every start draws the same wave) and WS-WAVE-N =
+           *>         48.
+           *> Result: WS-WAVE-VALUE(1) to (48) = 15 to 99, pseudo-random from WS-SEED;
+           *>         WS-WAVE-LABEL(i) = i edited as ZZ9 (leading blanks). WS-SEED, WS-N-TXT and
+           *>         WS-I (ends at 49) are left changed. COBOL::"CHART-SET-TABLE" hands WS-WAVE and
+           *>         48 to Cht-Wave; the chart names no LabelField or ValueFields, so the built-in
+           *>         reads the table as rows of X(64) + 9(18)V9(6) (88 bytes), not as these 7-byte
+           *>         rows (X(4) + 9(3)): the 336 bytes make at most 3 points, misread.
+
            CALL    "PS-WAVE-INIT"
+
+           *> PS-SONG-SHOW: shows the title and the album of the current song.
+           *> Uses:   WS-SONG = 1 (its VALUE at load) and the WS-SONG-TABLE rows.
+           *> Result: Lbl-Song::Caption = "Ed Sheeran - Shape of You" and Lbl-Album-Name::Caption =
+           *>         "Divide" (row 1 of WS-SONG-TABLE). No data item changes.
+
            CALL    "PS-SONG-SHOW"
 
            INVOKE    me::OpenFormAsync("TOOLBAR-FORM")
@@ -1580,6 +1716,18 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-AC-TOGGLE: follows the air conditioner switch.
+           *> Uses:   Sw-AC::Checked (1 = on, 0 = off): flipped by the operator, just moved by
+           *>         PS-AC-SHOW when the power button was used, or possibly once at load (the host
+           *>         compares text, so a first write spelled differently may count as a change).
+           *>         PS-AC-SHOW also reads Knb-AC::Value and WS-LANG-IX.
+           *> Result: WS-AC-ON = "Y" when Sw-AC::Checked = 1, otherwise "N"; then PS-AC-SHOW redraws
+           *>         the card: WS-N = Knb-AC::Value, WS-N-TXT = WS-N and WS-LINE = the value + "°C"
+           *>         (28 gives "28°C"); Lbl-Target::Caption = WS-LINE. Lbl-Cooling::Caption =
+           *>         PS-TEXT row 9 (on) or 10 (off); Lbl-Under::Visible and Knb-AC::Enabled = 1 or
+           *>         0; Sw-AC::Checked is written back with its own value.
+
            CALL    "PS-AC-TOGGLE"
 ]]></Event>
   </Control>
@@ -1649,6 +1797,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-AC-SHOW: redraws the air conditioner card from the dial and the on/off flag: target
+           *> temperature, cooling/off caption, and the state of the dial and the switch.
+           *> Uses:   Knb-AC::Value, the position the operator just turned the dial to (16 to 30,
+           *>         step 1); WS-AC-ON and WS-LANG-IX are only read, as they stand.
+           *> Result: WS-N = Knb-AC::Value, WS-N-TXT = WS-N, WS-LINE = the value + "°C" and
+           *>         Lbl-Target::Caption = WS-LINE (24 gives "24°C"). The state is applied again
+           *>         from WS-AC-ON: Lbl-Cooling::Caption = PS-TEXT row 9 ("Y") or 10 ("N");
+           *>         Lbl-Under::Visible, Knb-AC::Enabled and Sw-AC::Checked = 1 or 0 (a write of
+           *>         the text already held raises no event).
+
            CALL    "PS-AC-SHOW"
 ]]></Event>
   </Control>
@@ -1806,6 +1965,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-AC-TOGGLE-BUTTON: turns the air conditioner on or off from the power button.
+           *> Uses:   WS-AC-ON ("Y" at load); PS-AC-SHOW also reads Knb-AC::Value and WS-LANG-IX.
+           *> Result: WS-AC-ON is flipped: "Y" becomes "N" and "N" becomes "Y". PS-AC-SHOW then
+           *>         redraws the card: WS-N = Knb-AC::Value, WS-N-TXT = WS-N and WS-LINE = the
+           *>         value + "°C" (28 gives "28°C"); Lbl-Target::Caption = WS-LINE. Sw-AC::Checked,
+           *>         Knb-AC::Enabled and Lbl-Under::Visible become 1 ("Y") or 0 ("N"), and
+           *>         Lbl-Cooling::Caption = PS-TEXT row 9 or 10. When the Sw-AC change alters the
+           *>         stored value it raises SW-AC--ONCHECKEDCHANGED, which runs PS-AC-TOGGLE and
+           *>         repeats the redraw with the same values.
+
            CALL    "PS-AC-TOGGLE-BUTTON"
 ]]></Event>
   </Control>
@@ -2133,6 +2303,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-NOTIFY: tells the operator there is nothing new, with a snackbar.
+           *> Uses:   WS-LANG-IX and PS-TEXT row 20 ("No new notifications" in English) of that
+           *>         column.
+           *> Result: Snb-Note::Text = PS-TEXT(20, WS-LANG-IX), trimmed; Snb-Note::Show() raises the
+           *>         notification. No data item changes.
+
            CALL    "PS-NOTIFY"
 ]]></Event>
   </Control>
@@ -2554,6 +2731,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-SONG-PREV: goes back to the previous song and shows it.
+           *> Uses:   WS-SONG (1 to 3; 1 at load); PS-SONG-SHOW also reads the WS-SONG-TABLE rows.
+           *> Result: WS-SONG = WS-SONG - 1, or 3 when it was 1. PS-SONG-SHOW then sets
+           *>         Lbl-Song::Caption to the title and Lbl-Album-Name::Caption to the album of
+           *>         that song.
+
            CALL    "PS-SONG-PREV"
 ]]></Event>
   </Control>
@@ -2587,6 +2771,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-PLAY-TOGGLE: switches between playing and paused.
+           *> Uses:   WS-PLAYING ("N" at load).
+           *> Result: WS-PLAYING is flipped. To "Y": Btn-Play::IconPath = "Assets/icons/pause.svg"
+           *>         and Tmr-Wave::Enabled = 1 (its 140 ms ticks call PS-WAVE-SHIFT). To "N":
+           *>         "Assets/icons/play.svg" and Tmr-Wave::Enabled = 0.
+
            CALL    "PS-PLAY-TOGGLE"
 ]]></Event>
   </Control>
@@ -2620,6 +2811,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-SONG-NEXT: goes to the next song and shows it.
+           *> Uses:   WS-SONG (1 to 3; 1 at load); PS-SONG-SHOW also reads the WS-SONG-TABLE rows.
+           *> Result: WS-SONG = WS-SONG + 1, or 1 when it was 3. PS-SONG-SHOW then sets
+           *>         Lbl-Song::Caption to the title and Lbl-Album-Name::Caption to the album of
+           *>         that song.
+
            CALL    "PS-SONG-NEXT"
 ]]></Event>
   </Control>
@@ -2730,6 +2928,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-WAVE-SHIFT: moves the waveform one sample to the left, so the bars rotate while a
+           *> song plays.
+           *> Uses:   WS-WAVE-VALUE(1) to (48) (the 48 samples) and WS-WAVE-N = 48.
+           *> Result: WS-FIRST = the old WS-WAVE-VALUE(1); each WS-WAVE-VALUE(i) takes the value of
+           *>         i + 1 (i = 1 to 47); WS-WAVE-VALUE(48) = WS-FIRST. WS-I ends at 48. The labels
+           *>         do not move. COBOL::"CHART-SET-TABLE" hands WS-WAVE and 48 to Cht-Wave; the
+           *>         chart names no LabelField or ValueFields, so the built-in reads the table as
+           *>         rows of X(64) + 9(18)V9(6) (88 bytes), not as these 7-byte rows (X(4) + 9(3)).
+
            CALL    "PS-WAVE-SHIFT"
 ]]></Event>
   </Control>
@@ -3173,6 +3381,17 @@
 
        PROCEDURE DIVISION.
            SET     WS-I                          TO    1
+
+           *> PS-DEVICE-TOGGLE: turns one device card on or off (Btn-Thermostat-Cast was pressed).
+           *> Uses:   WS-I = 1 (set just above: the Thermostat card) and WS-DEV-ON(1);
+           *>         PS-DEVICES-SHOW also reads the other two flags, WS-LANG-IX and PS-TEXT rows 18
+           *>         and 19.
+           *> Result: WS-DEV-ON(1) is flipped: "Y" becomes "N" and "N" becomes "Y". PS-DEVICES-SHOW
+           *>         then redraws the cards: Lbl-Thermostat-Status::Caption = PS-TEXT row 18 (on)
+           *>         or 19 (off); Btn-Thermostat-Cast::BackgroundColor = "#0A84FFFF" and
+           *>         Btn-Thermostat-Plug::BackgroundColor = "#2DC653FF" when on, both "#FFFFFF26"
+           *>         when off. The other two cards are redrawn from their own flags.
+
            CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
@@ -3205,6 +3424,17 @@
 
        PROCEDURE DIVISION.
            SET     WS-I                          TO    1
+
+           *> PS-DEVICE-TOGGLE: turns one device card on or off (Btn-Thermostat-Plug was pressed).
+           *> Uses:   WS-I = 1 (set just above: the Thermostat card) and WS-DEV-ON(1);
+           *>         PS-DEVICES-SHOW also reads the other two flags, WS-LANG-IX and PS-TEXT rows 18
+           *>         and 19.
+           *> Result: WS-DEV-ON(1) is flipped: "Y" becomes "N" and "N" becomes "Y". PS-DEVICES-SHOW
+           *>         then redraws the cards: Lbl-Thermostat-Status::Caption = PS-TEXT row 18 (on)
+           *>         or 19 (off); Btn-Thermostat-Cast::BackgroundColor = "#0A84FFFF" and
+           *>         Btn-Thermostat-Plug::BackgroundColor = "#2DC653FF" when on, both "#FFFFFF26"
+           *>         when off. The other two cards are redrawn from their own flags.
+
            CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
@@ -3376,6 +3606,16 @@
 
        PROCEDURE DIVISION.
            SET     WS-I                          TO    2
+
+           *> PS-DEVICE-TOGGLE: turns one device card on or off (Btn-Lighting-Cast was pressed).
+           *> Uses:   WS-I = 2 (set just above: the Lighting card) and WS-DEV-ON(2); PS-DEVICES-SHOW
+           *>         also reads the other two flags, WS-LANG-IX and PS-TEXT rows 18 and 19.
+           *> Result: WS-DEV-ON(2) is flipped: "Y" becomes "N" and "N" becomes "Y". PS-DEVICES-SHOW
+           *>         then redraws the cards: Lbl-Lighting-Status::Caption = PS-TEXT row 18 (on) or
+           *>         19 (off); Btn-Lighting-Cast::BackgroundColor = "#0A84FFFF" and
+           *>         Btn-Lighting-Plug::BackgroundColor = "#2DC653FF" when on, both "#FFFFFF26"
+           *>         when off. The other two cards are redrawn from their own flags.
+
            CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
@@ -3408,6 +3648,16 @@
 
        PROCEDURE DIVISION.
            SET     WS-I                          TO    2
+
+           *> PS-DEVICE-TOGGLE: turns one device card on or off (Btn-Lighting-Plug was pressed).
+           *> Uses:   WS-I = 2 (set just above: the Lighting card) and WS-DEV-ON(2); PS-DEVICES-SHOW
+           *>         also reads the other two flags, WS-LANG-IX and PS-TEXT rows 18 and 19.
+           *> Result: WS-DEV-ON(2) is flipped: "Y" becomes "N" and "N" becomes "Y". PS-DEVICES-SHOW
+           *>         then redraws the cards: Lbl-Lighting-Status::Caption = PS-TEXT row 18 (on) or
+           *>         19 (off); Btn-Lighting-Cast::BackgroundColor = "#0A84FFFF" and
+           *>         Btn-Lighting-Plug::BackgroundColor = "#2DC653FF" when on, both "#FFFFFF26"
+           *>         when off. The other two cards are redrawn from their own flags.
+
            CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
@@ -3569,6 +3819,16 @@
 
        PROCEDURE DIVISION.
            SET     WS-I                          TO    3
+
+           *> PS-DEVICE-TOGGLE: turns one device card on or off (Btn-Speaker-Cast was pressed).
+           *> Uses:   WS-I = 3 (set just above: the Speaker card) and WS-DEV-ON(3); PS-DEVICES-SHOW
+           *>         also reads the other two flags, WS-LANG-IX and PS-TEXT rows 18 and 19.
+           *> Result: WS-DEV-ON(3) is flipped: "Y" becomes "N" and "N" becomes "Y". PS-DEVICES-SHOW
+           *>         then redraws the cards: Lbl-Speaker-Status::Caption = PS-TEXT row 18 (on) or
+           *>         19 (off); Btn-Speaker-Cast::BackgroundColor = "#0A84FFFF" and
+           *>         Btn-Speaker-Plug::BackgroundColor = "#2DC653FF" when on, both "#FFFFFF26" when
+           *>         off. The other two cards are redrawn from their own flags.
+
            CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
@@ -3601,6 +3861,16 @@
 
        PROCEDURE DIVISION.
            SET     WS-I                          TO    3
+
+           *> PS-DEVICE-TOGGLE: turns one device card on or off (Btn-Speaker-Plug was pressed).
+           *> Uses:   WS-I = 3 (set just above: the Speaker card) and WS-DEV-ON(3); PS-DEVICES-SHOW
+           *>         also reads the other two flags, WS-LANG-IX and PS-TEXT rows 18 and 19.
+           *> Result: WS-DEV-ON(3) is flipped: "Y" becomes "N" and "N" becomes "Y". PS-DEVICES-SHOW
+           *>         then redraws the cards: Lbl-Speaker-Status::Caption = PS-TEXT row 18 (on) or
+           *>         19 (off); Btn-Speaker-Cast::BackgroundColor = "#0A84FFFF" and
+           *>         Btn-Speaker-Plug::BackgroundColor = "#2DC653FF" when on, both "#FFFFFF26" when
+           *>         off. The other two cards are redrawn from their own flags.
+
            CALL    "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
@@ -3650,6 +3920,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-CLOCK: shows the current date and time in the language on screen; Tmr-Clock fires
+           *> every 1000 ms and each tick calls it.
+           *> Uses:   FUNCTION CURRENT-DATE, WS-LANG-IX (picks the date layout) and PS-TEXT rows 21
+           *>         to 32 (the month names).
+           *> Result: WS-NOW = FUNCTION CURRENT-DATE; WS-MONTH, WS-DAY, WS-N-TXT and WS-LINE hold
+           *>         the parts last cut from it. Lbl-Date::Caption = the date by language (shown
+           *>         for 4 October 2026): en "04 October, 2026", pt "4 de outubro de 2026", es
+           *>         "4 de octubre de 2026", fr "4 octobre 2026", jp/cn "2026年10月4日";
+           *>         Lbl-Time::Caption = "hh:mm".
+
            CALL    "PS-CLOCK"
 ]]></Event>
   </Control>
@@ -3692,6 +3973,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-LANG-CHECK: Tmr-Lang fires every 1000 ms; each tick re-reads the saved language.
+           *> Uses:   The LANG setting in the settings file and WS-LANG-IX, the language on screen;
+           *>         when it applies the texts, also WS-AC-ON, Knb-AC::Value, WS-DEV-ON(1) to (3)
+           *>         and the system date.
+           *> Result: Every tick: WS-SET-NAME = "LANG", WS-SET-VALUE = the code read (SPACES if
+           *>         none), WS-NEW-IX = 1-6. Only when WS-NEW-IX differs from WS-LANG-IX are
+           *>         WS-LANG-IX and the texts changed (PS-APPLY-TEXT, with PS-AC-SHOW,
+           *>         PS-DEVICES-SHOW and PS-CLOCK, which also leave WS-N, WS-N-TXT, WS-LINE,
+           *>         WS-NOW, WS-MONTH and WS-DAY changed).
+
            CALL    "PS-LANG-CHECK"
 ]]></Event>
   </Control>

@@ -584,6 +584,19 @@
                                SET     WS-DATA   TO    TF-DATA
                                SET     WS-CIDX   TO    TF-CIDX
 
+                               *> PC-TRY: tries to register a data file and its .cidx on the scratch
+                               *> agent AGENT-F, to learn whether the file can be used, then
+                               *> withdraws it again.
+                               *> Uses:   WS-DATA = TF-DATA and WS-CIDX = TF-CIDX (set just above):
+                               *>         the two paths of the registered file now being listed.
+                               *> Result: WS-OK = "1" when the pair was accepted; WS-RESULT =
+                               *>         AGENT-F::RegisterResult ("MEMORY" or "DISK" when accepted,
+                               *>         otherwise a refusal code such as "NOT-FOUND"), WS-MESSAGE
+                               *>         = AGENT-F::RegisterMessage, WS-NAME =
+                               *>         AGENT-F::RegisteredName. An accepted file is unregistered
+                               *>         at once (WS-DISCARD takes that answer); nothing stays
+                               *>         registered.
+
                                CALL    "PC-TRY"
                                SET     WS-ROW    TO    SPACES
                                STRING    FUNCTION TRIM(TF-NAME)
@@ -614,6 +627,15 @@
            *>   whenever the language changes (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the saved language code (PC-TEXTS reads its first two
+           *>         characters), or SPACES when it was never saved. WS-SET-NAME is unchanged;
+           *>         WS-FS and the record area SETTINGS-REC are overwritten.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            EVALUATE    WS-LANG
@@ -706,13 +728,48 @@
        PROCEDURE DIVISION.
            *>   What the form shows: run on load, and again when it comes back.
 
+           *> PC-PATHS: sets the paths of the three indexed files PowerChat reads here.
+           *> Uses:   The environment variable POWERCHAT_DATA.
+           *> Result: WS-DATA-DIR = $POWERCHAT_DATA, or "data" when that is empty; WS-SETTINGS-PATH
+           *>         = <WS-DATA-DIR>/settings.idx, WS-TOPICS-PATH = <WS-DATA-DIR>/topics.idx,
+           *>         WS-TFILES-PATH = <WS-DATA-DIR>/topic-files.idx. No file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the form's texts in the language the user picked and sets every
+           *> designed caption, heading, hint and tab name that shows one.
+           *> Uses:   The LANG setting in the settings file whose path PC-PATHS just set
+           *>         (WS-SETTINGS-PATH), and PC-TEXT (32 texts x 6 languages en pt es fr jp cn).
+           *> Result: WS-LANG = the saved code ("en" when unset or unknown), WS-LANG-IX = its column
+           *>         1-6, PC-TEXT-NOW(1..32) (the T-... names) = that column; titles, help, tab
+           *>         names, grid headings, captions and hints are set in that language,
+           *>         Lbl-Status::Caption = T-STATUS. WS-SET-NAME = "LANG" and WS-SET-VALUE hold the
+           *>         lookup. WS-TX-I and WS-FS are overwritten.
+
            CALL    "PC-TEXTS"
 
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the id of the current topic (set by Open in TOPICS-FORM or by
+           *>         New conversation in the chat form), or SPACES when none; the next lines
+           *>         compare its first 16 characters with WS-CUR-TOPIC, the topic this form last
+           *>         showed. WS-SET-NAME is unchanged; WS-FS and the record area SETTINGS-REC are
+           *>         overwritten.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE(1:16) NOT = WS-CUR-TOPIC
                *>       Another topic: a half-edited file of the old one is dropped.
+
+               *> PC-CANCEL: abandons the Create/Update page and goes back to the Browse tab;
+               *> nothing is saved (here: the CUR-TOPIC setting differs from WS-CUR-TOPIC, so a
+               *> half-edited file of the old topic is dropped).
+               *> Uses:   No data item is read.
+               *> Result: WS-EDIT-MODE = "N", Txt-Data::Text and Txt-Cidx::Text = SPACES and
+               *>         Tab-Crud::SelectedTab = 1 (Browse). The grid is not reloaded.
 
                CALL    "PC-CANCEL"
            END-IF
@@ -739,8 +796,29 @@
            SET     WS-FMT                        TO    T-FILES-OF
            SET     WS-ARG1                       TO    TOP-NAME
 
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-FILES-OF ("Data files - &1" in English) and WS-ARG1 = TOP-NAME, the
+           *>         name of the current topic read from TOPICS-FILE ("?" when its record is
+           *>         missing).
+           *> Result: WS-FMT-OUT = "Data files - <topic name>" in the user's language; the next line
+           *>         shows it in Lbl-Title::Caption.
+
            CALL    "PC-FMT"
            SET     Lbl-Title::Caption            TO    WS-FMT-OUT::Trim()
+
+           *> PC-LOAD-FILES: lists the topic's registered files in the grid Dg-List, trying each one
+           *> as it is listed (here: WS-CUR-TOPIC was just set and is not SPACES).
+           *> Uses:   WS-CUR-TOPIC and TFILES-FILE (<WS-DATA-DIR>/topic-files.idx, key = topic +
+           *>         sequence).
+           *> Result: Dg-List is cleared and refilled with one row per registered file (100 at
+           *>         most): "name [result]", data path, .cidx path, pencil and trash icons.
+           *>         WS-FILE-COUNT = the number of rows, WS-FILE-SEQ(n) = the key sequence of grid
+           *>         row n, WS-NEXT-SEQ = the sequence of the last listed file + 1 (1 when none),
+           *>         the key a new file gets. WS-DISCARD, WS-EOF and WS-FS are always overwritten;
+           *>         WS-DATA, WS-CIDX, WS-OK, WS-RESULT, WS-MESSAGE, WS-NAME and WS-ROW once per
+           *>         listed file. TFILES-FILE is created empty when it is missing.
+
            CALL    "PC-LOAD-FILES"
 ]]></Event>
     <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
@@ -809,6 +887,20 @@
            CLOSE    TFILES-FILE
            IF    WS-SAVE-OK NOT = "Y"
                SET     Lbl-Status::Caption       TO    T-PICK-FILE-FIRST::Trim()
+
+               *> PC-LOAD-FILES: lists the topic's registered files in the grid Dg-List, trying each
+               *> one as it is listed (here: the record of the clicked row was not found, so the
+               *> list on screen is stale).
+               *> Uses:   WS-CUR-TOPIC and TFILES-FILE (<WS-DATA-DIR>/topic-files.idx, key = topic +
+               *>         sequence).
+               *> Result: Dg-List is cleared and refilled with one row per registered file (100 at
+               *>         most): "name [result]", data path, .cidx path, pencil and trash icons.
+               *>         WS-FILE-COUNT = the number of rows, WS-FILE-SEQ(n) = the key sequence of
+               *>         grid row n, WS-NEXT-SEQ = the sequence of the last listed file + 1 (1 when
+               *>         none), the key a new file gets. WS-DISCARD, WS-EOF and WS-FS are always
+               *>         overwritten; WS-DATA, WS-CIDX, WS-OK, WS-RESULT, WS-MESSAGE, WS-NAME and
+               *>         WS-ROW once per listed file.
+
                CALL    "PC-LOAD-FILES"
                EXIT PROGRAM
            END-IF
@@ -842,11 +934,31 @@
                SET     Lbl-Status::Caption       TO    T-GIVE-BOTH::Trim()
                EXIT PROGRAM
            END-IF
+
+           *> PC-TRY: tries to register a data file and its .cidx on the scratch agent AGENT-F, to
+           *> learn whether the file can be used, then withdraws it again.
+           *> Uses:   WS-DATA = Txt-Data::Text and WS-CIDX = Txt-Cidx::Text (set just above; neither
+           *>         is SPACES here).
+           *> Result: WS-OK = "1" when the pair was accepted; WS-RESULT = AGENT-F::RegisterResult
+           *>         ("MEMORY" or "DISK" when accepted, otherwise a refusal code such as
+           *>         "NOT-FOUND"), WS-MESSAGE = AGENT-F::RegisterMessage, WS-NAME =
+           *>         AGENT-F::RegisteredName. An accepted file is unregistered at once (WS-DISCARD
+           *>         takes that answer); nothing stays registered. The next lines refuse the save
+           *>         when WS-OK is not "1".
+
            CALL    "PC-TRY"
            IF    WS-OK NOT = "1"
                SET     WS-FMT                    TO    T-NOT-ADDED
                SET     WS-ARG1                   TO    WS-RESULT
                SET     WS-ARG2                   TO    WS-MESSAGE
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-NOT-ADDED ("Not added - &1: &2" in English); WS-ARG1 =
+               *>         WS-RESULT (the refusal code from PC-TRY) and WS-ARG2 = WS-MESSAGE (its
+               *>         explanation in English).
+               *> Result: WS-FMT-OUT = e.g. "Not added - NOT-FOUND: ..."; the next line shows it in
+               *>         Lbl-Status::Caption.
 
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
@@ -882,6 +994,15 @@
                SET     WS-FMT                    TO    T-NOT-SAVED
                SET     WS-ARG1                   TO    WS-FS
 
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-NOT-SAVED ("Not saved - file status &1." in English) and
+               *>         WS-ARG1 = WS-FS, the file status item as it stands after the WRITE /
+               *>         REWRITE, COMMIT and CLOSE of TFILES-FILE above.
+               *> Result: WS-FMT-OUT = "Not saved - file status <WS-FS>." (after the CLOSE WS-FS is
+               *>         normally "00", not the failing status); the next line shows it in
+               *>         Lbl-Status::Caption.
+
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
@@ -895,12 +1016,32 @@
            SET     WS-ARG1                       TO    WS-NAME
            SET     WS-ARG2                       TO    WS-MESSAGE
 
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-FILE-UPDATED ("Updated &1 - &2") when WS-EDIT-MODE = "E", else
+           *>         T-FILE-ADDED ("Added &1 - &2"); WS-ARG1 = WS-NAME (the name the file got, from
+           *>         PC-TRY) and WS-ARG2 = WS-MESSAGE (the registration message).
+           *> Result: WS-FMT-OUT = "Added <name> - <message>" or "Updated <name> - <message>" in the
+           *>         user's language; the next line shows it in Lbl-Status::Caption.
+
            CALL    "PC-FMT"
 
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
            SET     WS-EDIT-MODE                  TO    "N"
            SET     Txt-Data::Text                TO    SPACES
            SET     Txt-Cidx::Text                TO    SPACES
+
+           *> PC-LOAD-FILES: lists the topic's registered files in the grid Dg-List, trying each one
+           *> as it is listed (here: the record was just written and committed).
+           *> Uses:   WS-CUR-TOPIC and TFILES-FILE (<WS-DATA-DIR>/topic-files.idx, key = topic +
+           *>         sequence).
+           *> Result: Dg-List is cleared and refilled with one row per registered file (100 at
+           *>         most): "name [result]", data path, .cidx path, pencil and trash icons.
+           *>         WS-FILE-COUNT = the number of rows, WS-FILE-SEQ(n) = the key sequence of grid
+           *>         row n, WS-NEXT-SEQ = the sequence of the last listed file + 1 (1 when none),
+           *>         the key a new file gets. WS-DISCARD, WS-EOF and WS-FS are always overwritten;
+           *>         WS-DATA, WS-CIDX, WS-OK, WS-RESULT, WS-MESSAGE, WS-NAME and WS-ROW once per
+           *>         listed file. The saved file is in the list.
 
            CALL    "PC-LOAD-FILES"
            SET     Tab-Crud::SelectedTab         TO    1
@@ -944,6 +1085,20 @@
            CLOSE    TFILES-FILE
            IF    WS-SAVE-OK NOT = "Y"
                SET     Lbl-Status::Caption       TO    T-PICK-FILE-FIRST::Trim()
+
+               *> PC-LOAD-FILES: lists the topic's registered files in the grid Dg-List, trying each
+               *> one as it is listed (here: the record of the chosen row was not found, so the list
+               *> on screen is stale).
+               *> Uses:   WS-CUR-TOPIC and TFILES-FILE (<WS-DATA-DIR>/topic-files.idx, key = topic +
+               *>         sequence).
+               *> Result: Dg-List is cleared and refilled with one row per registered file (100 at
+               *>         most): "name [result]", data path, .cidx path, pencil and trash icons.
+               *>         WS-FILE-COUNT = the number of rows, WS-FILE-SEQ(n) = the key sequence of
+               *>         grid row n, WS-NEXT-SEQ = the sequence of the last listed file + 1 (1 when
+               *>         none), the key a new file gets. WS-DISCARD, WS-EOF and WS-FS are always
+               *>         overwritten; WS-DATA, WS-CIDX, WS-OK, WS-RESULT, WS-MESSAGE, WS-NAME and
+               *>         WS-ROW once per listed file.
+
                CALL    "PC-LOAD-FILES"
                EXIT PROGRAM
            END-IF
@@ -953,6 +1108,15 @@
            ELSE
                SET     WS-ARG1                   TO    TF-NAME
            END-IF
+
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-ASK-REMOVE ("Remove &1 from this topic? The file itself is not
+           *>         touched." in English); WS-ARG1 = TF-NAME, or TF-DATA when the name is SPACES
+           *>         (the record just read).
+           *> Result: WS-FMT-OUT = that question with the name in it; the next line copies it to
+           *>         WS-QUESTION for CONFIRM-FORM.
+
            CALL    "PC-FMT"
            SET     WS-QUESTION                   TO    WS-FMT-OUT
 
@@ -977,6 +1141,20 @@
            COMMIT
            CLOSE    TFILES-FILE
            SET     Lbl-Status::Caption           TO    T-FILE-REMOVED::Trim()
+
+           *> PC-LOAD-FILES: lists the topic's registered files in the grid Dg-List, trying each one
+           *> as it is listed (here: the record of the chosen row was just deleted from TFILES-FILE
+           *> and committed).
+           *> Uses:   WS-CUR-TOPIC and TFILES-FILE (<WS-DATA-DIR>/topic-files.idx, key = topic +
+           *>         sequence).
+           *> Result: Dg-List is cleared and refilled with one row per registered file (100 at
+           *>         most): "name [result]", data path, .cidx path, pencil and trash icons.
+           *>         WS-FILE-COUNT = the number of rows, WS-FILE-SEQ(n) = the key sequence of grid
+           *>         row n, WS-NEXT-SEQ = the sequence of the last listed file + 1 (1 when none),
+           *>         the key a new file gets. WS-DISCARD, WS-EOF and WS-FS are always overwritten;
+           *>         WS-DATA, WS-CIDX, WS-OK, WS-RESULT, WS-MESSAGE, WS-NAME and WS-ROW once per
+           *>         listed file. The removed file is no longer listed.
+
            CALL    "PC-LOAD-FILES"
 ]]></Event>
   </user-procedures>
@@ -986,6 +1164,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-OPEN: loads what the form shows: paths, texts, the current topic, its name in the
+           *> title and its registered files in the grid (here: the form has just been loaded).
+           *> Uses:   the environment variable POWERCHAT_DATA; the settings LANG and CUR-TOPIC;
+           *>         TOPICS-FILE (the topic's name); and TFILES-FILE.
+           *> Result: the paths and texts are set; WS-CUR-TOPIC = the current topic (a half-edited
+           *>         file of the previous topic is dropped); Lbl-Title::Caption = "Data files -
+           *>         <topic name>"; the grid lists the topic's files (PC-LOAD-FILES). With no
+           *>         current topic the grid is emptied (WS-FILE-COUNT = 0) and Lbl-Status::Caption
+           *>         = T-OPEN-TOPIC-FIRST.
+
            CALL    "PC-OPEN"
 ]]></Event>
     <Event name="onActivate" paragraph="FILES-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -994,6 +1183,17 @@
 
        PROCEDURE DIVISION.
            *>   Back on the pane: the topic or the language may have changed.
+
+           *> PC-OPEN: loads what the form shows: paths, texts, the current topic, its name in the
+           *> title and its registered files in the grid (here: the form is back on the pane, so the
+           *> topic or the language may have changed).
+           *> Uses:   the environment variable POWERCHAT_DATA; the settings LANG and CUR-TOPIC;
+           *>         TOPICS-FILE (the topic's name); and TFILES-FILE.
+           *> Result: the paths and texts are set; WS-CUR-TOPIC = the current topic (a half-edited
+           *>         file of the previous topic is dropped); Lbl-Title::Caption = "Data files -
+           *>         <topic name>"; the grid lists the topic's files (PC-LOAD-FILES). With no
+           *>         current topic the grid is emptied (WS-FILE-COUNT = 0) and Lbl-Status::Caption
+           *>         = T-OPEN-TOPIC-FIRST.
 
            CALL    "PC-OPEN"
 ]]></Event>
@@ -1413,8 +1613,25 @@ Create/Update</Property>
            *>   A flag in the chat's menu changes the language while this form is
            *>   on the pane; nothing tells a pane occupant, so it looks (R46).
 
+           *> PC-LANG-NOW: reads the saved language (LANG) without creating anything.
+           *> Uses:   The LANG record of SETTINGS-FILE (key "LANG"); the file is opened INPUT only.
+           *> Result: WS-LANG-NOW = "pt", "es", "fr", "jp" or "cn" when LANG holds that code,
+           *>         otherwise "en" (also when the file does not exist). WS-LANG, the language of
+           *>         the texts on screen, is not changed. WS-FS and the record area SETTINGS-REC
+           *>         are overwritten.
+
            CALL    "PC-LANG-NOW"
            IF    WS-LANG-NOW NOT = WS-LANG
+
+               *> FILES-FORM--ONACTIVATE: the form's own onActivate event paragraph; it runs PC-OPEN
+               *> (here: WS-LANG-NOW, the language saved now, differs from WS-LANG, the language of
+               *> the texts on screen).
+               *> Uses:   the environment variable POWERCHAT_DATA; the settings LANG and CUR-TOPIC;
+               *>         TOPICS-FILE (the topic's name); and TFILES-FILE.
+               *> Result: PC-OPEN reloads everything as at load time: WS-LANG becomes WS-LANG-NOW,
+               *>         the texts, captions and hints change language, and the topic and its file
+               *>         list are read again.
+
                CALL    "FILES-FORM--ONACTIVATE"
            END-IF
 ]]></Event>
@@ -1462,6 +1679,13 @@ Create/Update</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-NEW: opens an empty Create/Update page for a new file of the current topic.
+           *> Uses:   WS-CUR-TOPIC (SPACES = no current topic).
+           *> Result: With a topic: WS-EDIT-MODE = "N", WS-EDIT-SEQ = 0, Txt-Data::Text and
+           *>         Txt-Cidx::Text = SPACES and Tab-Crud::SelectedTab = 2 (Create/Update). With no
+           *>         topic only Lbl-Status::Caption = T-OPEN-TOPIC-FIRST.
+
            CALL    "PC-NEW"
 ]]></Event>
   </Control>
@@ -1549,7 +1773,31 @@ Col-Del:string</Property>
            *>   Column 4 is the pencil, column 5 the trash can.
 
            EVALUATE    WS-COL-NO
+
+               *> PC-EDIT: loads the file of a grid row into the Create/Update page for editing
+               *> (here: the clicked column WS-COL-NO is 4, the pencil).
+               *> Uses:   WS-ROW-NO = Dg-List::ClickedRow (checked to be 1..WS-FILE-COUNT above),
+               *>         WS-FILE-SEQ(WS-ROW-NO) = the key sequence of that row's record in
+               *>         TFILES-FILE, and WS-CUR-TOPIC.
+               *> Result: Record found: WS-SAVE-OK = "Y", WS-EDIT-MODE = "E", WS-EDIT-SEQ = TF-SEQ,
+               *>         Txt-Data::Text = TF-DATA, Txt-Cidx::Text = TF-CIDX, Tab-Crud::SelectedTab
+               *>         = 2. Record gone: Lbl-Status::Caption = T-PICK-FILE-FIRST and the grid is
+               *>         reloaded.
+
                WHEN 4 CALL "PC-EDIT"
+
+               *> PC-DELETE: asks for a yes, then removes the file of a grid row from the topic's
+               *> list (here: the clicked column WS-COL-NO is 5, the trash can); only the record
+               *> goes, the file itself is not touched.
+               *> Uses:   WS-ROW-NO = Dg-List::ClickedRow and WS-FILE-SEQ(WS-ROW-NO), the key
+               *>         sequence of that row's record in TFILES-FILE; WS-CUR-TOPIC.
+               *> Result: Record gone: Lbl-Status::Caption = T-PICK-FILE-FIRST and the grid is
+               *>         reloaded, with no question. Otherwise CONFIRM-FORM opens modal with
+               *>         "Remove <name> from this topic? ..." (WS-QUESTION) and its answer comes
+               *>         back in WS-ANSWER: on "Y" the record is deleted from TFILES-FILE and
+               *>         committed, Lbl-Status::Caption = T-FILE-REMOVED and the grid is reloaded;
+               *>         on any other answer nothing changes.
+
                WHEN 5 CALL "PC-DELETE"
            END-EVALUATE
 ]]></Event>
@@ -1597,6 +1845,20 @@ Col-Del:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE: keeps the file typed in Txt-Data / Txt-Cidx for the current topic, but only
+           *> when it can be registered; otherwise the reason is shown and the page stays open.
+           *> Uses:   Txt-Data::Text (the data file path), Txt-Cidx::Text (its .cidx path),
+           *>         WS-CUR-TOPIC, WS-EDIT-MODE ("N" new, "E" editing the record WS-EDIT-SEQ) and
+           *>         WS-NEXT-SEQ.
+           *> Result: Refused (the page stays open): Lbl-Status::Caption = T-OPEN-TOPIC-FIRST (no
+           *>         topic), T-GIVE-BOTH (a path is blank) or "Not added - <code>: <reason>"
+           *>         (registration refused). Kept: the record is written to TFILES-FILE (key
+           *>         sequence WS-NEXT-SEQ for a new file, WS-EDIT-SEQ when editing) and committed;
+           *>         Lbl-Status::Caption = "Added / Updated <name> - ..."; WS-EDIT-MODE = "N"; both
+           *>         fields cleared; grid reloaded; Browse tab shown. A failed write shows "Not
+           *>         saved - file status ...".
+
            CALL    "PC-SAVE"
 ]]></Event>
   </Control>
@@ -1752,6 +2014,13 @@ Col-Del:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-CANCEL: abandons the Create/Update page and goes back to the Browse tab; nothing is
+           *> saved (here: the Cancel button of the Create/Update page was pressed).
+           *> Uses:   No data item is read.
+           *> Result: WS-EDIT-MODE = "N", Txt-Data::Text and Txt-Cidx::Text = SPACES and
+           *>         Tab-Crud::SelectedTab = 1 (Browse). The grid is not reloaded.
+
            CALL    "PC-CANCEL"
 ]]></Event>
   </Control>
@@ -1798,6 +2067,20 @@ Col-Del:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE: keeps the file typed in Txt-Data / Txt-Cidx for the current topic, but only
+           *> when it can be registered; otherwise the reason is shown and the page stays open.
+           *> Uses:   Txt-Data::Text (the data file path), Txt-Cidx::Text (its .cidx path),
+           *>         WS-CUR-TOPIC, WS-EDIT-MODE ("N" new, "E" editing the record WS-EDIT-SEQ) and
+           *>         WS-NEXT-SEQ.
+           *> Result: Refused (the page stays open): Lbl-Status::Caption = T-OPEN-TOPIC-FIRST (no
+           *>         topic), T-GIVE-BOTH (a path is blank) or "Not added - <code>: <reason>"
+           *>         (registration refused). Kept: the record is written to TFILES-FILE (key
+           *>         sequence WS-NEXT-SEQ for a new file, WS-EDIT-SEQ when editing) and committed;
+           *>         Lbl-Status::Caption = "Added / Updated <name> - ..."; WS-EDIT-MODE = "N"; both
+           *>         fields cleared; grid reloaded; Browse tab shown. A failed write shows "Not
+           *>         saved - file status ...".
+
            CALL    "PC-SAVE"
 ]]></Event>
   </Control>
@@ -1844,6 +2127,13 @@ Col-Del:string</Property>
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-CANCEL: abandons the Create/Update page and goes back to the Browse tab; nothing is
+           *> saved (here: the second Cancel button of the Create/Update page was pressed).
+           *> Uses:   No data item is read.
+           *> Result: WS-EDIT-MODE = "N", Txt-Data::Text and Txt-Cidx::Text = SPACES and
+           *>         Tab-Crud::SelectedTab = 1 (Browse). The grid is not reloaded.
+
            CALL    "PC-CANCEL"
 ]]></Event>
   </Control>

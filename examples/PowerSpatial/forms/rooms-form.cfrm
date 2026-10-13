@@ -113,6 +113,14 @@
            *>   The language kept in the settings; the texts follow it.
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PS-SETTING-GET: reads one setting from the settings file (indexed, data/settings.idx
+           *> or $POWERSPATIAL_DATA/settings.idx) by its name. It never writes a setting: the OPEN
+           *> only leaves an empty settings.idx.lck beside the file.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the file.
+           *> Result: WS-SET-VALUE = the saved language code ("pt", "es", ...), or SPACES when the
+           *>         setting was never kept or the file is missing or cannot be opened.
+
            CALL    "PS-SETTING-GET" USING WS-SET-NAME WS-SET-VALUE
 
            *> WS-NEW-IX is the PS-TEXT column: 1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn.
@@ -132,6 +140,13 @@
 
            IF    WS-NEW-IX NOT = WS-LANG-IX
                SET     WS-LANG-IX                TO    WS-NEW-IX
+
+               *> PS-APPLY-TEXT: writes the texts of the chosen language on the form.
+               *> Uses:   WS-LANG-IX (just set to WS-NEW-IX, 1-6) as the PS-TEXT column.
+               *> Result: Btn-Living, Btn-Bed, Btn-Kitchen, Btn-Dining and Btn-Play::Caption =
+               *>         PS-TEXT rows 2 to 6 of that column; Btn-Add-Room::Tooltip = row 1.
+               *>         No data item changes.
+
                CALL    "PS-APPLY-TEXT"
            END-IF
 ]]></Event>
@@ -154,7 +169,21 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-LANG-CHECK: reads the saved language and, when it is not the one on screen,
+           *> applies its texts.
+           *> Uses:   WS-LANG-IX = 0 (its VALUE at load) and the settings file.
+           *> Result: WS-SET-NAME = "LANG" and WS-SET-VALUE = the code read (or SPACES); WS-NEW-IX =
+           *>         1-6 for the saved language; WS-LANG-IX = WS-NEW-IX, so the first call always
+           *>         applies the captions and tooltip.
+
            CALL    "PS-LANG-CHECK"
+
+           *> PS-ROOMS-SHOW: lets the picked room wear the accent; the others none.
+           *> Uses:   WS-ROOM = 1 (its VALUE at load, Living).
+           *> Result: Btn-Living::Transparency = 0; Btn-Bed, Btn-Kitchen, Btn-Dining and
+           *>         Btn-Play::Transparency = 100. WS-ROOM is not changed.
+
            CALL    "PS-ROOMS-SHOW"
 ]]></Event>
   </form-events>
@@ -183,6 +212,12 @@
 
        PROCEDURE DIVISION.
            SET     WS-ROOM                       TO    1
+
+           *> PS-ROOMS-SHOW: lets the picked room wear the accent; the others none.
+           *> Uses:   WS-ROOM (set just above to 1, Living).
+           *> Result: Btn-Living::Transparency = 0; Btn-Bed, Btn-Kitchen, Btn-Dining and
+           *>         Btn-Play::Transparency = 100. WS-ROOM is not changed.
+
            CALL    "PS-ROOMS-SHOW"
 ]]></Event>
   </Control>
@@ -201,6 +236,12 @@
 
        PROCEDURE DIVISION.
            SET     WS-ROOM                       TO    2
+
+           *> PS-ROOMS-SHOW: lets the picked room wear the accent; the others none.
+           *> Uses:   WS-ROOM (set just above to 2, Bedroom).
+           *> Result: Btn-Bed::Transparency = 0; Btn-Living, Btn-Kitchen, Btn-Dining and
+           *>         Btn-Play::Transparency = 100. WS-ROOM is not changed.
+
            CALL    "PS-ROOMS-SHOW"
 ]]></Event>
   </Control>
@@ -219,6 +260,12 @@
 
        PROCEDURE DIVISION.
            SET     WS-ROOM                       TO    3
+
+           *> PS-ROOMS-SHOW: lets the picked room wear the accent; the others none.
+           *> Uses:   WS-ROOM (set just above to 3, Kitchen).
+           *> Result: Btn-Kitchen::Transparency = 0; Btn-Living, Btn-Bed, Btn-Dining and
+           *>         Btn-Play::Transparency = 100. WS-ROOM is not changed.
+
            CALL    "PS-ROOMS-SHOW"
 ]]></Event>
   </Control>
@@ -237,6 +284,12 @@
 
        PROCEDURE DIVISION.
            SET     WS-ROOM                       TO    4
+
+           *> PS-ROOMS-SHOW: lets the picked room wear the accent; the others none.
+           *> Uses:   WS-ROOM (set just above to 4, Dining).
+           *> Result: Btn-Dining::Transparency = 0; Btn-Living, Btn-Bed, Btn-Kitchen and
+           *>         Btn-Play::Transparency = 100. WS-ROOM is not changed.
+
            CALL    "PS-ROOMS-SHOW"
 ]]></Event>
   </Control>
@@ -255,6 +308,12 @@
 
        PROCEDURE DIVISION.
            SET     WS-ROOM                       TO    5
+
+           *> PS-ROOMS-SHOW: lets the picked room wear the accent; the others none.
+           *> Uses:   WS-ROOM (set just above to 5, Play).
+           *> Result: Btn-Play::Transparency = 0; Btn-Living, Btn-Bed, Btn-Kitchen and
+           *>         Btn-Dining::Transparency = 100. WS-ROOM is not changed.
+
            CALL    "PS-ROOMS-SHOW"
 ]]></Event>
   </Control>
@@ -292,6 +351,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PS-LANG-CHECK: Tmr-Lang fires every 1000 ms; each tick re-reads the saved language.
+           *> Uses:   the settings file and WS-LANG-IX, the language already on screen.
+           *> Result: on every tick WS-SET-NAME = "LANG", WS-SET-VALUE = the code read (or SPACES)
+           *>         and WS-NEW-IX = 1-6. Only when WS-NEW-IX differs from WS-LANG-IX is WS-LANG-IX
+           *>         set to it and the texts applied.
+
            CALL    "PS-LANG-CHECK"
 ]]></Event>
   </Control>

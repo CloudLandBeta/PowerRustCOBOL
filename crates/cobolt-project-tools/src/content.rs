@@ -418,10 +418,10 @@ pub const APPLICATION_RULES: [(&str, &str); 12] = [
          \x20      PROCEDURE DIVISION.\n\
          \x20          SET     WS-SET-NAME                   TO    \"LANG\"\n\
          \n\
-         \x20          *> PS-SETTING-GET: reads one setting from the settings file by its name. It never writes.\n\
+         \x20          *> PS-SETTING-GET: reads one setting from the settings file by its name; it changes none.\n\
          \x20          *> Uses:   WS-SET-NAME = \"LANG\" (set just above; it is the record key) and the file.\n\
          \x20          *> Result: WS-SET-VALUE = the saved language code (\"pt\", \"es\", ...), or SPACES when\n\
-         \x20          *>         the setting was never kept or the file does not exist yet.\n\
+         \x20          *>         the setting was never kept or the file cannot be opened.\n\
          \n\
          \x20          CALL    \"PS-SETTING-GET\" USING WS-SET-NAME WS-SET-VALUE.\n",
     ),

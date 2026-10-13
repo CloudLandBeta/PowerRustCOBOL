@@ -350,6 +350,16 @@
                OPEN    I-O MODELS-FILE
            END-IF
            SET     WS-SET-NAME                   TO    "MODELS-ADOPTED"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" (set just above; it is the record key) and the
+           *>         settings file.
+           *> Result: WS-SET-VALUE = "Y" when the models PowerChat kept before were already handed
+           *>         to the application, otherwise SPACES (setting never saved). The IF below acts
+           *>         on it.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE NOT = "Y"
                SET     MDL-NAME                  TO    LOW-VALUES
@@ -368,6 +378,15 @@
 
                SET     WS-SET-NAME               TO    "MODELS-ADOPTED"
                SET     WS-SET-VALUE              TO    "Y"
+
+               *> PC-SETTING-PUT: stores one setting in the settings file (indexed, settings.idx in
+               *> the data folder): inserts the record or replaces it, and commits at once. A
+               *> missing file is created empty first.
+               *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" and WS-SET-VALUE = "Y" (both set just
+               *>         above).
+               *> Result: The settings file holds MODELS-ADOPTED = "Y", committed, so later runs
+               *>         skip this one-time handover. The record area (SET-NAME, SET-VALUE) and
+               *>         WS-FS are overwritten; WS-SET-NAME and WS-SET-VALUE are not changed.
 
                CALL    "PC-SETTING-PUT"
            END-IF
@@ -506,6 +525,19 @@
            *>   Every saved connection's name, in key order, into WS-CONN-NAME -
            *>   the application's models, mirrored first (spec 085).
 
+           *> PC-SYNC-MODELS: makes the models file (models.idx) mirror the application's own model
+           *> list, which the runtime keeps for every form of the application.
+           *> Uses:   the application's model list (MODEL-COUNT, MODEL-GET), MODELS-FILE
+           *>         (WS-MODELS-PATH, built by PC-PATHS) and the setting MODELS-ADOPTED in the
+           *>         settings file.
+           *> Result: MODELS-FILE holds one record per model of the application: a new one gets
+           *>         MDL-TOOLS = "N" and MDL-RANK = 5, a known one only has API, URL and model name
+           *>         refreshed (its tools and rank stay), and records the application no longer
+           *>         lists are deleted. Once only, the models PowerChat kept before are first
+           *>         handed to the application and MODELS-ADOPTED is set to "Y". Committed.
+           *>         WS-SET-NAME and WS-SET-VALUE end as "MODELS-ADOPTED" and "Y". A missing
+           *>         MODELS-FILE is created empty first.
+
            CALL    "PC-SYNC-MODELS"
            SET     WS-CONN-COUNT                 TO    0
            OPEN    I-O MODELS-FILE
@@ -610,10 +642,29 @@
            ELSE
                SET     Chk-Tools::Checked        TO    "false"
            END-IF
+
+           *> PC-PROVIDER-LABEL: finds a provider in the IDE's provider list by its id (any case)
+           *> and loads its label, default endpoint and whether it needs an API key.
+           *> Uses:   WS-PROV-ID = MDL-API, the provider id kept on the connection just read (set
+           *>         above), and WS-PROV-COUNT, the number of providers (set in onLoad).
+           *> Result: Provider found: WS-PROV-IX = its place in the list (1-based), WS-PROV-ID = the
+           *>         provider's own spelling of the id, WS-PROV-LABEL = its display name,
+           *>         WS-PROV-EP = its default endpoint, WS-PROV-NEEDS = "Y" or "N" (needs an API
+           *>         key). Unknown id: WS-PROV-IX = 0, WS-PROV-LABEL = the stored id, WS-PROV-EP =
+           *>         SPACES, WS-PROV-NEEDS = "N". It also uses WS-XVAL, WS-XNAME and WS-P as
+           *>         scratch.
+
            CALL    "PC-PROVIDER-LABEL"
 
            SET     WS-FMT                        TO    T-LISTING
            SET     WS-ARG1                       TO    WS-PROV-LABEL
+
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-LISTING ("Asking &1 for its models..." in English); WS-ARG1 =
+           *>         WS-PROV-LABEL (set just above).
+           *> Result: WS-FMT-OUT = that text with &1 replaced by the provider label; the next line
+           *>         shows it in Lbl-Status::Caption. WS-FMT and WS-ARG1 are not changed.
 
            CALL    "PC-FMT"
 
@@ -665,6 +716,14 @@
            SET     WS-NE                         TO    WS-N
            SET     WS-ARG1                       TO    WS-NE
 
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-MODELS-AVAILABLE ("&1 models available." in English); WS-ARG1 =
+           *>         WS-NE, the number of models the provider listed (WS-N) edited without leading
+           *>         zeros.
+           *> Result: WS-FMT-OUT = that text with &1 replaced by the number; the next line shows it
+           *>         in Lbl-Status::Caption.
+
            CALL    "PC-FMT"
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
 ]]></Event>
@@ -677,6 +736,15 @@
            *>   designed caption and hint that shows one (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the settings
+           *>         file.
+           *> Result: WS-SET-VALUE = the saved interface language code (PC-TEXTS below accepts "en",
+           *>         "pt", "es", "fr", "jp" and "cn"), or SPACES when none was ever saved.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            EVALUATE    WS-LANG
@@ -827,11 +895,41 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PATHS: builds the paths of PowerChat's two indexed files from its data folder.
+           *> Uses:   the environment variable POWERCHAT_DATA, the data folder; when it is not set
+           *>         the folder is "data".
+           *> Result: WS-DATA-DIR = POWERCHAT_DATA or "data"; WS-SETTINGS-PATH = WS-DATA-DIR
+           *>         followed by "/settings.idx"; WS-MODELS-PATH = WS-DATA-DIR followed by
+           *>         "/models.idx". No file is opened; the OPEN of SETTINGS-FILE and of MODELS-FILE
+           *>         needs these two paths.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the interface texts in the language the user picked and puts them on
+           *> the form's captions and tooltips.
+           *> Uses:   the setting "LANG" in the settings file (WS-SETTINGS-PATH, built by PC-PATHS
+           *>         just above) and PC-TEXT-TABLE, 18 texts in 6 languages (en, pt, es, fr, jp,
+           *>         cn).
+           *> Result: WS-LANG = the saved code, "en" when unset or unknown; WS-LANG-IX = 1 to 6, its
+           *>         column; PC-TEXT-NOW (the T-... names) = the 18 texts in that language;
+           *>         WS-SET-NAME = "LANG" and WS-SET-VALUE = the saved value. Captions: Lbl-Title,
+           *>         Lbl-Conn, Lbl-Model, Lbl-Rank, Chk-Tools, Btn-Save, Btn-Cancel, Btn-SaveTop,
+           *>         Btn-CancelTop, Lbl-Status. Tooltips: Cmb-Conn, Cmb-Model, Txt-Rank, Chk-Tools.
+
            CALL    "PC-TEXTS"
 
            COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
            SET     WS-CUR-NAME                   TO    SPACES
+
+           *> PC-LOAD-CONNS: lists the names of the saved connections, after refreshing models.idx
+           *> from the application's model list.
+           *> Uses:   MODELS-FILE (WS-MODELS-PATH) and, through PC-SYNC-MODELS, the application's
+           *>         model list.
+           *> Result: WS-CONN-COUNT = the number of records (at most 200); WS-CONN-NAME(1) to
+           *>         WS-CONN-NAME(WS-CONN-COUNT) = their MDL-NAME, in ascending key order.
+           *>         MODELS-FILE is mirrored first and is created empty if it is missing.
+
            CALL    "PC-LOAD-CONNS"
            SET     WS-OK                         TO    Cmb-Conn::Clear()
            IF    WS-CONN-COUNT = 0
@@ -844,6 +942,23 @@
            *>   Opening connects: the first connection and its models, at once.
 
            SET     WS-OK                         TO    Cmb-Conn::SetSelectedIndex(1)
+
+           *> PC-OPEN-CONN: shows the picked connection (its rank and tools flag), connects to its
+           *> provider and lists the models the provider offers, selecting the saved model when it
+           *> is offered (else the first).
+           *> Uses:   Cmb-Conn::GetSelectedIndex() = 1 (set just above), so WS-CONN-NAME(1); that
+           *>         connection's record in MODELS-FILE (created empty if missing); WS-PROV-COUNT
+           *>         and the provider list.
+           *> Result: WS-CUR-NAME, WS-CUR-URL and WS-PROV-ID = the connection's name, endpoint and
+           *>         provider id. Txt-Rank::Text = its rank (5 when blank or 0); Chk-Tools::Checked
+           *>         = "true" when MDL-TOOLS = "Y", else "false". Cmb-Model is cleared and refilled
+           *>         with the models the provider returned (WS-N of them) and Lbl-Status::Caption =
+           *>         "<n> models available."; WS-MODEL-ID ends as the model shown in Cmb-Model (the
+           *>         saved one, else the first one listed) and Cmb-Model::Value = WS-MODEL-ID. If
+           *>         the listing fails, Lbl-Status::Caption = the provider's error text (WS-LONG)
+           *>         and Cmb-Model holds only the saved model (nothing when none was saved). The
+           *>         stored API key is used, never read.
+
            CALL    "PC-OPEN-CONN"
 ]]></Event>
     <Event name="onClose" paragraph="MODEL-FORM--ONCLOSE">
@@ -970,6 +1085,21 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-OPEN-CONN: shows the picked connection (its rank and tools flag), connects to its
+           *> provider and lists the models the provider offers, selecting the saved model when it
+           *> is offered (else the first).
+           *> Uses:   Cmb-Conn::GetSelectedIndex() = the connection the user just picked (the items
+           *>         are WS-CONN-NAME(1..WS-CONN-COUNT) in order); that connection's record in
+           *>         MODELS-FILE (created empty if missing).
+           *> Result: Nothing changes when the index is outside 1..WS-CONN-COUNT. Otherwise, for the
+           *>         picked connection: WS-CUR-NAME, WS-CUR-URL and WS-PROV-ID are loaded,
+           *>         Txt-Rank::Text and Chk-Tools::Checked show its rank and tools flag, Cmb-Model
+           *>         is refilled with the models its provider returns and WS-MODEL-ID ends as the
+           *>         model shown (the saved one, else the first listed). Lbl-Status::Caption shows
+           *>         the count or the provider's error text (then Cmb-Model holds only the saved
+           *>         model).
+
            CALL    "PC-OPEN-CONN"
 ]]></Event>
   </Control>
@@ -1267,6 +1397,11 @@
        PROCEDURE DIVISION.
            *>   The same code as the Cancel button at the top.
 
+           *> PC-CANCEL: closes the dialog without saving (both Cancel buttons use it).
+           *> Uses:   no data item.
+           *> Result: Nothing is written; the form closes (ME::Close()) with MODELS-FILE as it was.
+           *>         No data item changes.
+
            CALL    "PC-CANCEL"
 ]]></Event>
   </Control>
@@ -1317,6 +1452,18 @@
        PROCEDURE DIVISION.
            *>   The same code as the Save button at the top.
 
+           *> PC-SAVE: saves the model, rank and tools flag chosen for the connection on screen,
+           *> then closes the dialog (both Save buttons use it).
+           *> Uses:   WS-CUR-NAME (the connection, set by PC-OPEN-CONN), Cmb-Model::Value,
+           *>         Txt-Rank::Text (only its first character counts), Chk-Tools::IsChecked() and
+           *>         the connection's record in MODELS-FILE (created empty if missing).
+           *> Result: With no connection, no model or no record, Lbl-Status::Caption = T-PICK-CONN
+           *>         or T-PICK-MODEL and nothing is saved. Otherwise MODEL-REC is rewritten and
+           *>         committed: MDL-MODEL = the model chosen (WS-MODEL-ID, 80 characters),
+           *>         MDL-TOOLS = "Y" if ticked else "N", MDL-RANK = the digit typed (1-9) or 5 when
+           *>         blank, 0 or not a digit. The entry is also handed to the application with
+           *>         MODEL-SET; Lbl-Status::Caption = T-MODEL-SAVED and the form closes.
+
            CALL    "PC-SAVE"
 ]]></Event>
   </Control>
@@ -1363,6 +1510,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-CANCEL: closes the dialog without saving (both Cancel buttons use it).
+           *> Uses:   no data item (called from the Cancel button at the top).
+           *> Result: Nothing is written; the form closes (ME::Close()) with MODELS-FILE as it was.
+           *>         No data item changes.
+
            CALL    "PC-CANCEL"
 ]]></Event>
   </Control>
@@ -1409,6 +1562,19 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE: saves the model, rank and tools flag chosen for the connection on screen,
+           *> then closes the dialog (both Save buttons use it).
+           *> Uses:   the same items as the Save button at the bottom: WS-CUR-NAME (the connection
+           *>         picked), Cmb-Model::Value, Txt-Rank::Text (first character only),
+           *>         Chk-Tools::IsChecked() and the connection's record in MODELS-FILE (created
+           *>         empty if missing).
+           *> Result: With no connection, no model or no record, Lbl-Status::Caption = T-PICK-CONN
+           *>         or T-PICK-MODEL and nothing is saved. Otherwise MODEL-REC is rewritten and
+           *>         committed with the chosen model, tools flag ("Y"/"N") and rank (the digit
+           *>         typed, else 5), the entry is handed to the application with MODEL-SET,
+           *>         Lbl-Status::Caption = T-MODEL-SAVED and the form closes.
+
            CALL    "PC-SAVE"
 ]]></Event>
   </Control>

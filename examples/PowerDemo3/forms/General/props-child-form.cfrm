@@ -135,6 +135,18 @@
 
            STRING    "Order " ORD-NUMBER " of " ORD-DATE DELIMITED BY SIZE INTO WS-LINE
            SET     Lbl-Order::Caption            TO    WS-LINE
+
+           *> PC-TOTAL: reads the quantities typed in the three boxes back into the order and shows
+           *> the order total.
+           *> Uses:   Txt-Qty-1 to Txt-Qty-3::Text, written just above from the order the parent
+           *>         sent (2, 1 and 3 for the parent's sample order), and ORD-PRICE(1) to (3) in
+           *>         WS-ORDER.
+           *> Result: ORD-QTY(1) to (3) = FUNCTION NUMVAL of Txt-Qty-1, Txt-Qty-2 and
+           *>         Txt-Qty-3::Text; WS-TOTAL = the sum of ORD-QTY x ORD-PRICE over the three
+           *>         lines; Lbl-Total::Caption = "Total " + WS-TOTAL-ED. WS-TOTAL-ED and WS-LINE
+           *>         hold that total; WS-I ends at 4. With the sample order ORD-QTY keeps 2, 1 and
+           *>         3 (the boxes are only read) and the total is 3,848.30.
+
            CALL    "PC-TOTAL"
 ]]></Event>
     <Event name="onClose" paragraph="PROPS-CHILD-FORM--ONCLOSE">
@@ -772,6 +784,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-TOTAL: reads the quantities typed in the three boxes back into the order and shows
+           *> the order total.
+           *> Uses:   Txt-Qty-1 to Txt-Qty-3::Text as the operator has left them, and ORD-PRICE(1)
+           *>         to (3) in WS-ORDER.
+           *> Result: ORD-QTY(1) to (3) = FUNCTION NUMVAL of Txt-Qty-1, Txt-Qty-2 and
+           *>         Txt-Qty-3::Text; WS-TOTAL = the sum of ORD-QTY x ORD-PRICE over the three
+           *>         lines; Lbl-Total::Caption = "Total " + WS-TOTAL-ED. WS-TOTAL-ED and WS-LINE
+           *>         hold that total; WS-I ends at 4. Nothing is sent to the parent form yet.
+
            CALL    "PC-TOTAL"
 ]]></Event>
   </Control>
@@ -821,6 +843,17 @@
        PROCEDURE DIVISION.
            *>   Send the edited data back to the parent - it reads it after
            *>   OpenFormSync returns - and close.
+
+           *> PC-TOTAL: reads the quantities typed in the three boxes back into the order and shows
+           *> the order total.
+           *> Uses:   Txt-Qty-1 to Txt-Qty-3::Text as the operator has left them, and ORD-PRICE(1)
+           *>         to (3) in WS-ORDER. Called first so the typed quantities are in WS-ORDER
+           *>         before it is sent.
+           *> Result: ORD-QTY(1) to (3) = FUNCTION NUMVAL of Txt-Qty-1, Txt-Qty-2 and
+           *>         Txt-Qty-3::Text; WS-TOTAL = the sum of ORD-QTY x ORD-PRICE over the three
+           *>         lines; Lbl-Total::Caption = "Total " + WS-TOTAL-ED. WS-TOTAL-ED and WS-LINE
+           *>         hold that total; WS-I ends at 4. WS-ORDER now carries the typed quantities,
+           *>         which the SetProperty calls below send to the parent.
 
            CALL    "PC-TOTAL"
 
