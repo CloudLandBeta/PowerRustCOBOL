@@ -17,6 +17,15 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.140] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.39. The number is the operator's: the fix number jumps from 39 to 140.)*
+
+### Changed
+- **The version is 1.91.140, so the update check stops offering a release that does not exist.** GitHub's latest release is tagged `1.91.138` and titled "PowerRustCOBOL AI 1.91.138", but every file in it is `PowerRustCOBOL-1.91.38-…` — a 1.91.38 build, made from the commit `81842b06` whose `version.rs` says 1.91.38. The update check (`update_check.rs`) compares the release's **tag** with the running version, so every build below 1.91.138 was told "1.91.138 is available" and offered a download that is older than the copy it replaces (seen on 1.91.39). 1.91.140 is above that tag; nothing else changed.
+  - *What this does not do:* the release tagged `1.91.138` still holds the 1.91.38 files, and a build older than 1.91.138 is still offered it. Fixing that is publishing a release whose tag is the version inside it (the workflow's default tag is `v` plus the version in `version.rs`; the tag is typed by hand when the workflow is run).
+  - *Checked:* `VERSION` is read from `crates/cobolt-ide/src/version.rs` and nowhere else (the other occurrences of 1.91.39 in the tree are history in the CHANGELOG and the spec 096 documents). `cargo test -p cobolt-ide --bin cobolt-ide update_check` is run before the push.
+
 ## [PowerRustCOBOL 1.91.39] — 2026-10-13
 
 *(Written on `features-perspective-3d`, after 1.91.38 — spec 096. 1.91.36 to 1.91.38 went to `fixes` and were merged into `main` first.)*
