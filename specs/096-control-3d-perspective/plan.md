@@ -1,6 +1,6 @@
 # Plan — 3D perspective for display controls
 
-- **Status:** draft → approved
+- **Status:** implemented in 1.91.39
 - **Spec:** ./spec.md   **Date:** 2026-10-13
 
 ## 1. Approach
@@ -121,8 +121,8 @@ and proves that before the arm is changed**.
 - `examples/PowerDemo3/forms/General/perspective-form.cfrm` (+ its project entry and the two
   render goldens, the corpus counts 75 → 76 in the tests that hold them) — **optional**, the
   demo the Layers feature also had (T16); drop it for a smaller change.
-- `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md` — **1.91.37**: 1.91.36 is already taken by
-  the unmerged `fixes` branch, so the merge resolves those two files by hand.
+- `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md` — **1.91.39**: 1.91.36–38 went to `fixes`
+  and were merged into `main` first.
 - Tests: `crates/cobolt-forms/tests/` (new files named for what they hold), the parity guard
   in `render.rs`, the Properties-pane drawing test in `cobolt-ide`, the form-host run test.
 
@@ -226,7 +226,7 @@ Each test prints the numbers it checked, as the other files of `cobolt-forms/tes
 - [x] Generated-code banner + regenerate-on-action contract: untouched (codegen reads no property).
 - [x] English Developer's Guide updated; translations the edit invalidates are deleted (GOLDEN RULE #8).
 - [x] System KB: property arms in `cobolt-compiler` + `chunked.data` regenerated, same change.
-- [x] Fix vs feature: **feature** → branch `features-perspective-3d`, version `z` bump (1.91.37), CHANGELOG
+- [x] Fix vs feature: **feature** → branch `features-perspective-3d`, version `z` bump (1.91.39), CHANGELOG
   entry, own commit(s); no merge into `main` and no push until the operator asks.
 - [x] No "cobolt" in user-facing text; property names and COBOL identifiers are English.
 - [x] Corner rules (`rounded-corners`): no mask, no repair; the arc is projected.

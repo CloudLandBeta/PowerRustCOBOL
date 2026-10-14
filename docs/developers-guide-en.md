@@ -39,6 +39,7 @@ See the LICENSE file in the project root for full license information.
 7. [The Form Designer (RAD)](#7-the-form-designer-rad)
 8. [The control catalogue](#8-the-control-catalogue)
 9. [Properties](#9-properties)
+    - [Tilting a display control: 3D perspective](#tilting-a-display-control-3d-perspective)
 10. [Event-driven programming](#10-event-driven-programming)
 11. [Talking to the UI from COBOL](#11-talking-to-the-ui-from-cobol)
 12. [Generated code](#12-generated-code)
@@ -6989,6 +6990,112 @@ A few properties whose effect depends on the control:
 > (`BUTTON-1--ONCLICK`). You can rename a control's ID to something meaningful
 > (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
 > digits, hyphens; no leading/trailing hyphen).
+
+### Tilting a display control: 3D perspective
+
+A chart, a picture, a label, a line or a shape can be turned in space, the way a
+card on a table is when you lift one edge: the edge that goes away looks shorter,
+the edge that stays near looks longer, and the whole thing converges. Three
+properties do it; nothing else about the control changes.
+
+| Property | What it does | Values | Default |
+|---|---|---|---|
+| `RotateX` | Tilts the control about its **horizontal** axis, so its top or bottom edge goes away. | whole degrees, -60 to 60 | 0 |
+| `RotateY` | Tilts the control about its **vertical** axis, so its left or right edge goes away. | whole degrees, -60 to 60 | 0 |
+| `PerspectiveDistance` | How far from the observer the control is. | whole number, 0 (farthest) to 100 (nearest) | 50 |
+
+Which edge goes away depends on the sign:
+
+| Value | Edge that goes away |
+|---|---|
+| `RotateX` greater than 0 | the **top** edge |
+| `RotateX` less than 0 | the **bottom** edge |
+| `RotateY` greater than 0 | the **right** edge |
+| `RotateY` less than 0 | the **left** edge |
+
+The three properties appear in the properties pane, in their own **3D
+perspective** section, on these twelve controls: `BarChart`, `LineChart`,
+`PieChart`, `AreaChart`, `ScatterChart`, `DonutChart`, `RadarChart`, `PictureBox`,
+`Animator`, `Label`, `Line` and `Shape`. They only *draw*, which is why they can
+be turned. A control that takes input — a TextBox, a Button, a ComboBox, a Slider,
+a DataGrid and the like — or one that holds other controls — a Panel, a GroupBox, a
+TabControl — never has them.
+
+![A "Revenue by quarter" bar chart tilted with RotateY -30, RotateX 8 and PerspectiveDistance 60, over a dark form](../assets/images/perspective-revenue.png)
+
+*The chart above is a BarChart with `RotateY` = -30 (its left edge goes away),
+`RotateX` = 8 and `PerspectiveDistance` = 60.*
+
+**Moving it from a program.** The three properties are read and written like any
+other, so a handler can swing a chart or bring it forward:
+
+```cobol
+           *> Turn the revenue chart so its left side goes away, a little downhill,
+           *> and bring it forward.
+           MOVE -30 TO CHART-REVENUE::RotateY
+           MOVE   8 TO CHART-REVENUE::RotateX
+           MOVE  60 TO CHART-REVENUE::PerspectiveDistance
+```
+
+A Timer can step an angle one degree at a time for a slow swing:
+
+```cobol
+       TIMER-SWING--ONTICK.
+           IF CHART-REVENUE::RotateY < 60
+              ADD 1 TO CHART-REVENUE::RotateY
+           END-IF.
+```
+
+A value outside the range is never an error: it is brought into it, and what you
+read back is what the control now has (`MOVE 200 TO CHART-REVENUE::RotateX`, then
+`DISPLAY CHART-REVENUE::RotateX`, shows 60).
+
+**What the distance does.** `PerspectiveDistance` is how far the control is from
+whoever is looking at the form. At 50, the reference, a control that is not tilted
+is drawn at the size you designed. Bring it nearer and it is drawn larger — twice
+as large at 100 — and a tilt converges more strongly; send it farther and it is
+drawn smaller — half the size at 0 — and flatter, shrinking toward its own centre.
+Equal steps feel equal: 25 is as much smaller than 50 as 75 is larger.
+
+> **Notes.**
+> - The tilt turns about the **centre** of the control's rectangle. The control keeps
+>   its place in the form's layout, its tab order and its event bindings; only how it
+>   is *drawn* changes, so a tilt never moves its neighbours.
+> - The control is drawn in the same place in the stacking order as ever, and cut by
+>   the same rectangle: inside a Panel it cannot spill out of the Panel's content
+>   area, on a layer it cannot spill out of the form, even when bringing it nearer
+>   would have made it larger than both.
+> - A click, a hover, a double-click and the other pointer events of a tilted
+>   control arise **where you see it**: inside its outline, even where that is past the
+>   rectangle you designed, and not on the empty ground it no longer covers. Its
+>   `Cursor` and `Tooltip` follow the same outline.
+> - A tilted Label paints its caption with the tilt, so the text is no longer something
+>   a reader can select and copy. It still raises `onClick` and `onGotFocus`, and Tab
+>   still reaches it.
+> - An Animator or a PictureBox with animated frames keeps playing while it is tilted.
+> - Writing the properties from a program works the same in Run Form, in a form loaded
+>   into an application's content pane and in a built program.
+> - A form saved before these properties existed opens with the control flat and at
+>   the reference distance, exactly as it looked.
+
+> ⚠️ **Caveats.**
+> - **In the Form Designer the selection stays on the rectangle you designed.** The
+>   handles, moving and resizing act on that flat rectangle, so a control can always be
+>   grabbed; the tilted shape is drawn live inside and around it. With a strong tilt
+>   the handles therefore sit away from the edges you see.
+> - **The extremes are strong.** At -60 or 60 with `PerspectiveDistance` 100 the near
+>   edge is drawn more than three times as long as the far one. That is "very close",
+>   and it is cut at the container, but it is rarely what a dashboard wants; 10 to 35
+>   degrees at 50 to 70 reads as a card on a table.
+> - **Two tilted controls do not sort by depth.** They are drawn in their stacking
+>   order, one over the other, even where they would cross in space.
+> - **There is no thickness.** The control is a flat card, with no side face, light or
+>   shadow beyond its own `ShadowEnabled`.
+> - A control that an animation effect is moving or scaling is tilted after the effect
+>   has moved it, about its new centre.
+> - Tilting a control costs more to draw than leaving it flat — a chart is
+>   re-projected every frame — so keep a form with many large tilted charts in
+>   proportion. A control left at the defaults costs nothing at all.
 
 ### Form themes and styles
 

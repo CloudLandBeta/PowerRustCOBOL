@@ -1419,6 +1419,14 @@ pub fn property_runtime_text(type_name: &str, key: &str, stored: &str) -> String
             return bool_text(b).to_owned();
         }
     }
+    // Spec 096 R12 — the three perspective properties stay inside their range
+    // whoever writes them. Every COBOL write goes through here, in all three
+    // hosts, so a `MOVE 200 TO CHART-1::RotateX` is stored — and read back — as 60.
+    if ControlType::from_str(type_name).has_perspective() {
+        if let Some(n) = clamp_perspective_value(key, stored) {
+            return n.to_string();
+        }
+    }
     stored.to_owned()
 }
 
@@ -4086,6 +4094,73 @@ impl ControlType {
     pub fn is_aws(&self) -> bool {
         matches!(self, crate::aws_pattern!())
     }
+
+    /// Spec 096 — a control that may be tilted in space (`RotateX`, `RotateY`,
+    /// `PerspectiveDistance`).
+    ///
+    /// Exactly the controls that only *draw*: the seven charts, a picture, an
+    /// animator, a label, a line and a shape. Nothing that takes input is here —
+    /// egui cannot project a widget that reads the pointer in screen space — and
+    /// nothing that holds children. `Control::new` seeds the three properties for
+    /// these types and for no other, the Properties pane shows them for these
+    /// types only, and the renderer reads them through [`crate::perspective`],
+    /// which answers "not tilted" for every other type.
+    pub fn has_perspective(&self) -> bool {
+        matches!(
+            self,
+            ControlType::BarChart
+                | ControlType::LineChart
+                | ControlType::PieChart
+                | ControlType::AreaChart
+                | ControlType::ScatterChart
+                | ControlType::DonutChart
+                | ControlType::RadarChart
+                | ControlType::PictureBox
+                | ControlType::Animator
+                | ControlType::Label
+                | ControlType::Line
+                | ControlType::Shape
+        )
+    }
+}
+
+/// Spec 096 — tilt about the horizontal axis, whole degrees. Positive recedes
+/// the TOP edge, negative the bottom.
+pub const ROTATE_X_PROP: &str = "RotateX";
+/// Spec 096 — tilt about the vertical axis, whole degrees. Positive recedes the
+/// RIGHT edge, negative the left.
+pub const ROTATE_Y_PROP: &str = "RotateY";
+/// Spec 096 — how far or close the control is from the observer, 0 (farthest)
+/// to 100 (nearest). [`PERSPECTIVE_DISTANCE_REFERENCE`] draws an untilted control
+/// at its designed size.
+pub const PERSPECTIVE_DISTANCE_PROP: &str = "PerspectiveDistance";
+/// Spec 096 — the range of `RotateX` and `RotateY`, in degrees.
+pub const PERSPECTIVE_ANGLE_LIMIT: i64 = 60;
+/// Spec 096 — the range of `PerspectiveDistance`.
+pub const PERSPECTIVE_DISTANCE_MAX: i64 = 100;
+/// Spec 096 — the `PerspectiveDistance` at which a control is neither enlarged
+/// nor shrunk, and the default.
+pub const PERSPECTIVE_DISTANCE_REFERENCE: i64 = 50;
+
+/// Spec 096 — the inclusive range of one of the three perspective properties, or
+/// `None` when `key` is not one of them.
+pub fn perspective_property_range(key: &str) -> Option<(i64, i64)> {
+    if key.eq_ignore_ascii_case(ROTATE_X_PROP) || key.eq_ignore_ascii_case(ROTATE_Y_PROP) {
+        Some((-PERSPECTIVE_ANGLE_LIMIT, PERSPECTIVE_ANGLE_LIMIT))
+    } else if key.eq_ignore_ascii_case(PERSPECTIVE_DISTANCE_PROP) {
+        Some((0, PERSPECTIVE_DISTANCE_MAX))
+    } else {
+        None
+    }
+}
+
+/// Spec 096 — a perspective property's value brought into its range: the nearest
+/// whole number inside it. A value outside the range is clamped, never an error.
+/// Text that is not a finite number answers `None` (the caller leaves it alone).
+pub fn clamp_perspective_value(key: &str, text: &str) -> Option<i64> {
+    let (lo, hi) = perspective_property_range(key)?;
+    let n: f64 = text.trim().parse().ok().filter(|n: &f64| n.is_finite())?;
+    Some((n.round() as i64).clamp(lo, hi))
 }
 
 // ── Form events ─────────────────────────────────────────────────────────────────
@@ -6526,6 +6601,19 @@ impl Control {
 
         seed_theme_owned_appearance(&control_type, &mut props);
         seed_layout_props(&control_type, &mut props);
+
+        // Spec 096 — the 3D-perspective trio, neutral: untilted, and at the
+        // reference distance. Seeded for the display controls only; a form saved
+        // before this existed keeps them absent (the loader is authoritative) and
+        // every reader treats an absent one as this default.
+        if control_type.has_perspective() {
+            props.insert(ROTATE_X_PROP.into(), PropValue::Int(0));
+            props.insert(ROTATE_Y_PROP.into(), PropValue::Int(0));
+            props.insert(
+                PERSPECTIVE_DISTANCE_PROP.into(),
+                PropValue::Int(PERSPECTIVE_DISTANCE_REFERENCE),
+            );
+        }
 
         if control_type.is_data_input_control() {
             props.insert(

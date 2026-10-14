@@ -78,3 +78,8 @@ mod tests {
         assert_eq!(prompt + item_spacing + CHAT_SEND_BUTTON_WIDTH, available);
     }
 }
+
+// Spec 096 — the Properties pane's 3D perspective section, drawn for every control type in
+// every language.
+#[cfg(test)]
+mod properties_perspective_096_tests;
