@@ -1582,16 +1582,22 @@ impl SettingsForm {
                                     .find(|(id, _)| *id == self.draft.theme_id)
                                     .map(|(_, n)| *n)
                                     .unwrap_or(themes.first().map(|(_, n)| *n).unwrap_or(""));
+                                let pick_id = ui.make_persistent_id("theme_pick");
                                 egui::ComboBox::from_id_salt("theme_pick")
                                     .selected_text(cur)
                                     .width(w)
                                     .show_ui(ui, |ui| {
+                                        let moved = step_theme_with_arrows(ui, pick_id, themes, &mut self.draft.theme_id);
                                         for (id, name) in themes {
-                                            ui.selectable_value(
+                                            let row = ui.selectable_value(
                                                 &mut self.draft.theme_id,
                                                 (*id).to_owned(),
                                                 *name,
                                             );
+                                            // The row the arrows landed on stays in view.
+                                            if moved && self.draft.theme_id == *id {
+                                                row.scroll_to_me(None);
+                                            }
                                         }
                                     });
                             });
@@ -2879,6 +2885,50 @@ fn section(ui: &mut Ui, title: &str, theme: &crate::theme::Theme) {
     ui.add_space(2.0);
 }
 
+/// Moves through the OPEN theme list with ↑/↓, applying each theme as it is reached.
+///
+/// The Settings form previews its draft theme live, so a theme that is chosen is a theme that is
+/// shown — but the list used to take ↑/↓ for egui's own focus search, which jumps to the nearest
+/// widget anywhere on the page (the first ↓ landed on the button under the list), and a list
+/// opened with the mouse, where nothing has focus, ignored them. So while the list is open it
+/// holds focus and keeps the vertical arrows for itself (the way a text field keeps them), and
+/// steps the draft one theme per press, stopping at the first and the last. Returns whether it
+/// moved, so the row it landed on can be scrolled into view.
+fn step_theme_with_arrows(
+    ui: &mut Ui,
+    list_id: egui::Id,
+    themes: &[(&'static str, &'static str)],
+    current: &mut String,
+) -> bool {
+    ui.memory_mut(|m| {
+        m.request_focus(list_id);
+        m.set_focus_lock_filter(list_id, egui::EventFilter { vertical_arrows: true, ..Default::default() });
+    });
+    let (down, up) = ui.input_mut(|i| {
+        (
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+        )
+    });
+    let at = themes.iter().position(|(id, _)| *id == current.as_str());
+    let to = match (at, down, up) {
+        (Some(i), true, false) => Some((i + 1).min(themes.len() - 1)),
+        (Some(i), false, true) => Some(i.saturating_sub(1)),
+        // A draft that names no theme (a project that never chose one) is showing the first.
+        (None, true, false) => Some(1.min(themes.len().saturating_sub(1))),
+        (None, false, true) => Some(0),
+        _ => None,
+    };
+    match to {
+        Some(i) if themes.get(i).is_some_and(|(id, _)| *id != current.as_str()) => {
+            *current = themes[i].0.to_owned();
+            ui.ctx().request_repaint();
+            true
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod connection_tests {
     use super::*;
@@ -3200,5 +3250,206 @@ mod background_image_tests {
             assert_eq!(form.draft.bg_image, IMAGE, "the draft is left for the app to settle");
             assert!(!form.is_dirty());
         }
+    }
+}
+
+#[cfg(test)]
+mod theme_keyboard_tests {
+    use super::*;
+
+    /// Drives the real Settings form: finds the theme list through the accessibility tree,
+    /// opens it with the pointer, then moves through it with the keyboard.
+    struct Session {
+        ctx: egui::Context,
+        form: SettingsForm,
+        themes: Vec<(&'static str, &'static str)>,
+        tr: crate::i18n::Tr,
+        last: Option<egui::accesskit::TreeUpdate>,
+    }
+
+    impl Session {
+        fn new(start: &str) -> Self {
+            crate::theme::set_active(crate::theme::default_theme());
+            let mut form = SettingsForm::new(&CoboltProject::new("Demo", "src/main.cbl"), &LlmConfig::defaults());
+            form.draft.theme_id = start.to_owned();
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let themes = crate::theme::THEMES.iter().map(|t| (t.id, t.name)).collect();
+            Self { ctx, form, themes, tr: crate::i18n::Language::English.tr(), last: None }
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) {
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 6000.0));
+            let input = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let (form, tr, themes) = (&mut self.form, &self.tr, &self.themes);
+            let mut out = self.ctx.run_ui(input, |ui| {
+                let _ = form.show(ui, tr, themes, false, None, false, &[], true);
+            });
+            out.textures_delta.clear();
+            if let Some(update) = out.platform_output.accesskit_update.take() {
+                self.last = Some(update);
+            }
+        }
+
+        /// The centre of the first node in the last frame that `want` accepts.
+        fn find(&self, want: impl Fn(&egui::accesskit::Node) -> bool) -> Option<egui::Pos2> {
+            self.last.as_ref()?.nodes.iter().filter(|(_, n)| want(n)).find_map(|(_, n)| n.bounds()).map(|b| {
+                egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+            })
+        }
+
+        fn click(&mut self, at: egui::Pos2) {
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            self.frame(vec![egui::Event::PointerMoved(at)]);
+            self.frame(vec![button(true)]);
+            self.frame(vec![button(false)]);
+            self.frame(vec![]);
+        }
+
+        fn press(&mut self, key: egui::Key) {
+            let ev = |pressed| egui::Event::Key {
+                key,
+                physical_key: Some(key),
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            };
+            self.frame(vec![ev(true)]);
+            self.frame(vec![ev(false)]);
+            self.frame(vec![]);
+        }
+
+        /// The label of the node that holds keyboard focus, if any.
+        fn focused(&self) -> Option<String> {
+            let u = self.last.as_ref()?;
+            u.nodes.iter().find(|(id, _)| *id == u.focus).map(|(_, n)| {
+                format!("{:?} label={:?} value={:?}", n.role(), n.label(), n.value())
+            })
+        }
+
+        fn labels(&self) -> Vec<String> {
+            self.last
+                .as_ref()
+                .map(|u| u.nodes.iter().filter_map(|(_, n)| n.label().map(str::to_owned)).collect())
+                .unwrap_or_default()
+        }
+    }
+
+    fn name_of(id: &str) -> &'static str {
+        crate::theme::theme_by_id(id).name
+    }
+
+    /// Whether the theme list is open: its rows are in the tree (the closed list shows only the
+    /// chosen name).
+    fn list_is_open(s: &Session) -> bool {
+        crate::theme::THEMES.iter().filter(|t| s.labels().iter().any(|l| l == t.name)).count() > 3
+    }
+
+    /// Tab to the theme list and open it with Enter, as a keyboard user does.
+    fn open_with_the_keyboard(s: &mut Session, shown: &str) {
+        s.frame(vec![]);
+        s.frame(vec![]);
+        let mut tabs = 0;
+        while !s.focused().is_some_and(|f| f.contains(&format!("value=Some({shown:?})"))) {
+            s.press(egui::Key::Tab);
+            tabs += 1;
+            assert!(tabs < 120, "the theme list never took focus");
+        }
+        s.press(egui::Key::Enter);
+        assert!(list_is_open(s), "Enter opens the theme list");
+    }
+
+    /// With the list open, ↓ and ↑ apply the theme they land on, at once — no Enter — whether the
+    /// list was opened with the keyboard or the mouse; and ↑/↓ never wander off to the page
+    /// under the list (egui's own arrow keys move focus to the nearest widget, wherever it is).
+    #[test]
+    fn arrows_in_the_open_theme_list_apply_each_theme_as_it_is_reached() {
+        let themes = crate::theme::THEMES;
+        let start = themes[3];
+
+        // Opened with the keyboard.
+        let mut s = Session::new(start.id);
+        open_with_the_keyboard(&mut s, start.name);
+        assert_eq!(s.form.draft.theme_id, start.id, "opening the list changes nothing");
+        s.press(egui::Key::ArrowDown);
+        assert_eq!(name_of(&s.form.draft.theme_id), themes[4].name, "↓ applies the next theme");
+        s.press(egui::Key::ArrowDown);
+        assert_eq!(name_of(&s.form.draft.theme_id), themes[5].name);
+        s.press(egui::Key::ArrowUp);
+        assert_eq!(name_of(&s.form.draft.theme_id), themes[4].name, "↑ goes back");
+        assert!(list_is_open(&s), "moving through the list leaves it open");
+        s.press(egui::Key::Enter);
+        assert_eq!(name_of(&s.form.draft.theme_id), themes[4].name, "Enter keeps the theme it is on");
+
+        // Opened with the mouse: no widget has focus, and the arrows must still work.
+        let mut s = Session::new(start.id);
+        s.frame(vec![]);
+        s.frame(vec![]);
+        let combo = s
+            .find(|n| n.role() == egui::accesskit::Role::ComboBox && n.value() == Some(start.name))
+            .expect("the theme list is on the first tab");
+        s.click(combo);
+        assert!(list_is_open(&s));
+        s.press(egui::Key::ArrowDown);
+        assert_eq!(name_of(&s.form.draft.theme_id), themes[4].name, "a list opened by the mouse takes ↓ too");
+        s.press(egui::Key::ArrowUp);
+        s.press(egui::Key::ArrowUp);
+        assert_eq!(name_of(&s.form.draft.theme_id), themes[2].name);
+
+        println!("↓/↑ apply the theme at once, from a keyboard-opened and a mouse-opened list");
+    }
+
+    /// The first and the last theme stop the arrows; nothing wraps or runs past the list.
+    #[test]
+    fn the_arrows_stop_at_the_ends_of_the_theme_list() {
+        let themes = crate::theme::THEMES;
+        for (start, key, expect) in [
+            (themes[0], egui::Key::ArrowUp, themes[0]),
+            (themes[themes.len() - 1], egui::Key::ArrowDown, themes[themes.len() - 1]),
+        ] {
+            let mut s = Session::new(start.id);
+            open_with_the_keyboard(&mut s, start.name);
+            s.press(key);
+            assert_eq!(s.form.draft.theme_id, expect.id, "{key:?} on {} stays", start.name);
+        }
+    }
+
+    /// A project that never chose a theme has an empty draft and the list shows the first: ↓ goes
+    /// to the second, ↑ stays on the first.
+    #[test]
+    fn a_project_with_no_theme_chosen_starts_from_the_first() {
+        let themes = crate::theme::THEMES;
+        let mut s = Session::new("");
+        open_with_the_keyboard(&mut s, themes[0].name);
+        s.press(egui::Key::ArrowDown);
+        assert_eq!(s.form.draft.theme_id, themes[1].id);
+        let mut s = Session::new("");
+        open_with_the_keyboard(&mut s, themes[0].name);
+        s.press(egui::Key::ArrowUp);
+        assert_eq!(s.form.draft.theme_id, themes[0].id, "↑ on the first theme names it, and goes no further");
+    }
+
+    /// A closed list is left alone: the arrows are egui's, and change no theme.
+    #[test]
+    fn the_arrows_do_nothing_to_a_closed_theme_list() {
+        let start = crate::theme::THEMES[3];
+        let mut s = Session::new(start.id);
+        s.frame(vec![]);
+        s.frame(vec![]);
+        let mut tabs = 0;
+        while !s.focused().is_some_and(|f| f.contains(&format!("value=Some({:?})", start.name))) {
+            s.press(egui::Key::Tab);
+            tabs += 1;
+            assert!(tabs < 120);
+        }
+        assert!(!list_is_open(&s));
+        s.press(egui::Key::ArrowDown);
+        s.press(egui::Key::ArrowUp);
+        assert_eq!(s.form.draft.theme_id, start.id);
     }
 }
