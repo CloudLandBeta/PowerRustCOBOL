@@ -116,6 +116,9 @@ fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf
             progress: None,
             target: None,
             full,
+            // The folder is resolved by the compiler: the IDE's setting when this runs inside the
+            // IDE, else the POWERRUSTCOBOL_BUILD_DIR variable, else the default (spec 100).
+            build_dir: None,
             // Built from disk, like `rcrun build`: the files are what the
             // agent saved (a host with unsaved edits refuses before this), so
             // the forms' COBOL is regenerated from them first.

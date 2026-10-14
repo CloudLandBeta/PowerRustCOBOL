@@ -63,6 +63,14 @@ pub struct UiPrefs {
     /// of *this machine's* installation, so a colleague opening the same
     /// project must not inherit a path that exists only on someone else's disk.
     pub workspace_root: String,
+    /// The folder a build is staged in (`<folder>/cobolt-build-<name>`: the generated
+    /// `Cargo.toml`, `Cargo.lock` and cargo's `target/`). Empty (the default) means "the system's
+    /// own place" — the per-user cache folder every build used before spec 100.
+    ///
+    /// Machine-wide, beside `workspace_root` and for the same reason: where a machine keeps its
+    /// builds is a property of that machine (its disks, its policies), so a colleague opening the
+    /// same project must not inherit a path that exists only on someone else's drive.
+    pub build_dir: String,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -194,6 +202,22 @@ pub fn save_workspace_root(root: Option<&std::path::Path>) {
     prefs.save();
 }
 
+/// The configured build folder, or `None` for the system default. A blank entry is `None`, never
+/// an empty path (which would be the process's working directory) — as for [`load_workspace_root`].
+pub fn load_build_dir() -> Option<std::path::PathBuf> {
+    let prefs = UiPrefs::load();
+    let trimmed = prefs.build_dir.trim();
+    (!trimmed.is_empty()).then(|| std::path::PathBuf::from(trimmed))
+}
+
+/// Remember where builds are kept. `None` clears the setting and restores the system default
+/// (load-then-save, like [`save_workspace_root`]).
+pub fn save_build_dir(root: Option<&std::path::Path>) {
+    let mut prefs = UiPrefs::load();
+    prefs.build_dir = root.map(|p| p.display().to_string()).unwrap_or_default();
+    prefs.save();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +255,7 @@ mod tests {
             ollama_check_done: true,
             walkthrough_shown: true,
             workspace_root: "/opt/powerrustcobol-sdk".into(),
+            build_dir: "/data/builds".into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);
@@ -247,6 +272,19 @@ mod tests {
         // An older ui.toml has no such key at all, and must read the same way.
         let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
         assert!(older.workspace_root.is_empty());
+    }
+
+    /// An older `ui.toml` has no `build_dir` and must read as "the system default" — upgrading the
+    /// IDE must not move anybody's builds — and a blank entry is the same thing, never an empty
+    /// path that would mean the working directory (spec 100 R5).
+    #[test]
+    fn no_build_dir_or_a_blank_one_is_the_system_default() {
+        let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
+        assert!(older.build_dir.is_empty());
+        let blank: UiPrefs = toml::from_str("build_dir = \"  \"\n").unwrap();
+        assert!(blank.build_dir.trim().is_empty());
+        let set: UiPrefs = toml::from_str("build_dir = \"/data/builds\"\n").unwrap();
+        assert_eq!(set.build_dir, "/data/builds");
     }
 
     /// A `ui.toml` written before the Rust check existed must read as

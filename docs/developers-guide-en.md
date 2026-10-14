@@ -63,6 +63,7 @@ See the LICENSE file in the project root for full license information.
     - [Working with a coding agent (Claude Code)](#working-with-a-coding-agent-claude-code)
 17. [The command line (rcrun)](#17-the-command-line-rcrun)
 18. [Building a distributable binary](#18-building-a-distributable-binary)
+    - [Where your builds are kept (Settings ▸ Build Folder)](#where-your-builds-are-kept-settings--build-folder)
 19. [Debugging](#19-debugging)
     - [Diagnostic switches (Settings ▸ Debug Settings)](#diagnostic-switches-settings--debug-settings)
 20. [Appearance and internationalisation](#20-appearance-and-internationalisation)
@@ -386,7 +387,7 @@ flowchart TB
 ### The Settings menu
 
 Everything that configures something sits under one menu, **Settings**, so there is
-one place to look. It holds five items, grouped the way you reach for them:
+one place to look. It holds six items, grouped the way you reach for them:
 
 | Item | What it does |
 |------|--------------|
@@ -394,6 +395,7 @@ one place to look. It holds five items, grouped the way you reach for them:
 | **Coding Agent Settings** | Shows, for the whole IDE, the state of that connection and lets you update or change it. |
 | **🐞 Debug Settings…** | The diagnostic switches of the IDE (see [Diagnostic switches](#diagnostic-switches-settings--debug-settings)). |
 | **🧰 Platform SDK Location…** | Tells the IDE where the platform's Rust sources live when they are not beside the executable — building an application compiles against them. |
+| **📁 Build Folder…** | Chooses the folder a build is staged in — the working files a compile keeps between builds. Empty, the default, is the per-user cache folder (see [Where your builds are kept](#where-your-builds-are-kept-settings--build-folder)). |
 | **Reindex Knowledge Bases** | Brings the knowledge bases the AI agents search up to date, without sending a message. The same incremental sync runs by itself when a workflow starts. |
 
 > **Note.** The **Project Settings** screen — name, version, licence, destination
@@ -15529,6 +15531,65 @@ project has nothing to build, so its Debug still runs on the IDE's runtime.
 > in the project, switched on for new projects, so the Build button quietly
 > produced the slow binary. The setting is gone. A `debug_compilation` line in an
 > older project file is ignored, and the next Build is optimised.
+
+### Where your builds are kept (Settings ▸ Build Folder)
+
+A build is a real compile, and a compile needs somewhere to work. Besides the
+executable that lands in `bin/` (and the hand-over folder), each program gets a
+**working folder** named `cobolt-build-<name>` — the generated files and
+everything already compiled for it. It is kept between builds, which is why the
+second Build of an unchanged program is quick. It is not part of your project and
+you never hand it over.
+
+Until you say otherwise it lives in the per-user cache folder of the system:
+
+| System | Default folder for all builds |
+|--------|-------------------------------|
+| Windows | `%LOCALAPPDATA%\PowerRustCOBOL\builds` (typically `C:\Users\<you>\AppData\Local\PowerRustCOBOL\builds`) |
+| macOS | `~/Library/Caches/PowerRustCOBOL/builds` |
+| Linux | `$XDG_CACHE_HOME/PowerRustCOBOL/builds`, else `~/.cache/PowerRustCOBOL/builds` |
+
+It is a cache folder and not the system's temporary folder on purpose: the
+system prunes its temporary folder, including files a compile still counts on,
+and the next Build then fails for a reason that has nothing to do with your
+program.
+
+To keep builds somewhere else — a larger drive, a folder your backup tool skips —
+open **Settings ▸ Build Folder…**. The window shows the folder in force and where
+it came from (chosen here, set by the environment, or the default of the system),
+and offers **Choose folder…** and **Use the default**. The choice belongs to
+**this machine**: it is stored with the IDE's own preferences, not in the project,
+so a colleague who opens the same project is never pointed at a path that exists
+only on your disk.
+
+On a machine where nobody opens the IDE — a build server running `rcrun build` —
+set the environment variable `POWERRUSTCOBOL_BUILD_DIR` to an absolute path
+instead. Where both exist, the folder chosen in the IDE wins; a value that is
+empty or not an absolute path is ignored, and the default applies.
+
+```text
+POWERRUSTCOBOL_BUILD_DIR=/data/builds rcrun build myapp.project.toml
+```
+
+> **Note.** The chosen folder holds the working folders of *every* program you
+> build, one `cobolt-build-<name>` each, directly inside it. A program that was
+> never built there starts from nothing, so the first Build after a change of
+> folder compiles everything again, as a full build does (see the next section).
+
+> ⚠️ **Caveats.**
+> - The folder you leave is **not** moved or deleted. Its contents are only
+>   cache, so delete it yourself when you no longer need it; a single program's
+>   working folder can take a gigabyte or more.
+> - The IDE refuses a folder it cannot create or write to, says why, and keeps the
+>   previous setting. A folder on a local drive is the safe choice: a compile
+>   writes a great many small files, and a slow network share makes every Build
+>   slow too.
+> - A Build already under way keeps the folder it started with; the next one uses
+>   the new folder.
+
+<!-- 📷 build-folder.png — Settings ▸ Build Folder… open: the "In use" line, the
+     source line, the two buttons. Capture it once with the default, and once after
+     choosing a folder (the source line then says "This folder was chosen here."). -->
 
 ### Full builds and the recorded version
 

@@ -10,7 +10,7 @@
 //! only while a project or a source file is active. Every item that configures something sits
 //! under **Settings**, wherever it used to live: *Configure Claude Code* and *Reindex Knowledge
 //! Bases* came from File; *Coding Agent Settings*, *Debug Settings…* and *Platform SDK Location…*
-//! from Help.
+//! from Help. *Build Folder…* (spec 100) was born here.
 //!
 //! Why data and not just code in `app.rs`: a `CoboltApp` cannot be built without an eframe window,
 //! so a menu written only as widgets cannot be tested. Declared here, its order and its membership
@@ -44,6 +44,7 @@ pub enum Item {
     CodingAgentSettings,
     DebugSettings,
     PlatformSdkLocation,
+    BuildFolder,
     ReindexKnowledgeBases,
     // Help
     Documentation,
@@ -54,7 +55,7 @@ pub enum Item {
 
 impl Item {
     /// Every item, so a test can say "each one is in exactly one menu".
-    pub const ALL: [Item; 16] = [
+    pub const ALL: [Item; 17] = [
         Item::NewProject,
         Item::OpenProject,
         Item::SaveProject,
@@ -66,6 +67,7 @@ impl Item {
         Item::CodingAgentSettings,
         Item::DebugSettings,
         Item::PlatformSdkLocation,
+        Item::BuildFolder,
         Item::ReindexKnowledgeBases,
         Item::Documentation,
         Item::Examples,
@@ -84,6 +86,7 @@ impl Item {
             | Item::CodingAgentSettings
             | Item::DebugSettings
             | Item::PlatformSdkLocation
+            | Item::BuildFolder
             | Item::ReindexKnowledgeBases => true,
             Item::NewProject
             | Item::OpenProject
@@ -122,13 +125,14 @@ pub const FILE: &[Entry] = &[
     I(Item::Quit),
 ];
 
-/// Settings: the coding agent, then the machine, then the knowledge base.
+/// Settings: the coding agent, then the machine (debug, SDK, build folder), then the knowledge base.
 pub const SETTINGS: &[Entry] = &[
     I(Item::ConfigureClaudeCode),
     I(Item::CodingAgentSettings),
     S,
     I(Item::DebugSettings),
     I(Item::PlatformSdkLocation),
+    I(Item::BuildFolder),
     S,
     I(Item::ReindexKnowledgeBases),
 ];
@@ -186,7 +190,7 @@ mod tests {
         assert_eq!(active, [Menu::File, Menu::Settings, Menu::Run, Menu::View, Menu::Help]);
     }
 
-    /// AC2 (R3, R4, R8) — Settings holds the five items in the order the spec gives, and nothing
+    /// AC2 (R3, R4, R8; spec 100 R1) — Settings holds the six items in the order the spec gives, and nothing
     /// that configures is left in File or Help.
     #[test]
     fn settings_holds_every_configuration_item_in_order_and_file_and_help_hold_none() {
@@ -197,6 +201,7 @@ mod tests {
                 Item::CodingAgentSettings,
                 Item::DebugSettings,
                 Item::PlatformSdkLocation,
+                Item::BuildFolder,
                 Item::ReindexKnowledgeBases
             ]
         );

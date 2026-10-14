@@ -558,6 +558,8 @@ fn cmd_build(args: &[String]) {
         // Host only — there is no cross-compilation (spec 041 R17).
         target: None,
         full,
+        // The compiler resolves the folder: POWERRUSTCOBOL_BUILD_DIR, else the default (spec 100).
+        build_dir: None,
         // Every form's generated COBOL is rebuilt from its `.cfrm` first.
         regenerate_forms: true,
         debug,

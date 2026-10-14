@@ -18,7 +18,8 @@
 //!  forms/*.cfrm ──┘
 //!        │
 //!        ▼
-//!  <user-cache>/PowerRustCOBOL/builds/cobolt-build-<name>/   (not /tmp — see build_cache_root)
+//!  <build root>/cobolt-build-<name>/   (by default <user-cache>/PowerRustCOBOL/builds; not /tmp —
+//!  see default_build_root, and resolve_build_root for how a developer changes it)
 //!    Cargo.toml   (generated — depends on cobolt-runtime, cobolt-forms, eframe)
 //!    src/
 //!      main.rs    (generated — embeds assets via include_bytes!, lazy loader)
@@ -136,7 +137,7 @@ fn create_dir(path: &Path) -> Result<(), CompilerError> {
 ///
 /// Falls back to the OS temp directory only when no home/cache location can be
 /// resolved — a reapable build is still better than no build.
-fn build_cache_root() -> PathBuf {
+pub fn default_build_root() -> PathBuf {
     #[cfg(target_os = "macos")]
     let cache_home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Caches"));
     #[cfg(target_os = "windows")]
@@ -150,6 +151,108 @@ fn build_cache_root() -> PathBuf {
     cache_home
         .map(|c| c.join("PowerRustCOBOL").join("builds"))
         .unwrap_or_else(std::env::temp_dir)
+}
+
+/// The environment variable that names the folder builds are kept in (spec 100). It is how a
+/// scripted setup — `rcrun build` in a pipeline, an agent's tools — chooses the folder without the
+/// IDE; a folder chosen in the IDE's **Settings ▸ Build Folder…** wins over it.
+pub const BUILD_DIR_ENV: &str = "POWERRUSTCOBOL_BUILD_DIR";
+
+/// Where the folder a build is staged in came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuildRootSource {
+    /// Chosen by the developer: [`BuildOptions::build_dir`], or the IDE's setting
+    /// ([`set_build_root_override`]).
+    Setting,
+    /// The environment variable [`BUILD_DIR_ENV`].
+    Environment,
+    /// Nothing was set: [`default_build_root`], exactly what every build used before spec 100.
+    Default,
+}
+
+/// The IDE's setting, held for the whole process so the build the IDE starts and the project tools
+/// it hosts — all in this process — agree without an environment variable being written under
+/// running threads. `None` (the default) means "not set".
+static BUILD_ROOT_OVERRIDE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Set (or, with `None`, clear) the folder builds are kept in for this process. The IDE calls it at
+/// start-up and whenever the developer changes **Settings ▸ Build Folder…**.
+pub fn set_build_root_override(root: Option<PathBuf>) {
+    *BUILD_ROOT_OVERRIDE.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = root;
+}
+
+/// A configured value is used only when it is a non-blank absolute path; anything else — empty,
+/// blank, relative — is treated as "not set", so a stray value never sends a build to a folder that
+/// depends on where the process happened to start.
+fn usable_build_root(raw: &Path) -> Option<PathBuf> {
+    let text = raw.to_string_lossy();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(trimmed);
+    path.is_absolute().then_some(path)
+}
+
+/// The folder builds are staged in, and where that answer came from. In order: the explicit
+/// `configured` value, the process-wide setting ([`set_build_root_override`]), the environment
+/// variable [`BUILD_DIR_ENV`], and [`default_build_root`]. A value that is empty, blank or not an
+/// absolute path is skipped and the next one is tried.
+pub fn resolve_build_root(configured: Option<&Path>) -> (PathBuf, BuildRootSource) {
+    if let Some(root) = configured.and_then(usable_build_root) {
+        return (root, BuildRootSource::Setting);
+    }
+    let held = BUILD_ROOT_OVERRIDE.lock().ok().and_then(|g| g.clone());
+    if let Some(root) = held.as_deref().and_then(usable_build_root) {
+        return (root, BuildRootSource::Setting);
+    }
+    let from_env = std::env::var_os(BUILD_DIR_ENV).map(PathBuf::from);
+    if let Some(root) = from_env.as_deref().and_then(usable_build_root) {
+        return (root, BuildRootSource::Environment);
+    }
+    (default_build_root(), BuildRootSource::Default)
+}
+
+/// The staging folder of the build of `bin_name`: `cobolt-build-<bin_name>` directly inside the
+/// folder [`resolve_build_root`] answers.
+pub fn build_staging_dir(configured: Option<&Path>, bin_name: &str) -> PathBuf {
+    resolve_build_root(configured).0.join(format!("cobolt-build-{bin_name}"))
+}
+
+/// Why a folder cannot hold builds ([`check_build_root_usable`]). The operating system's own
+/// words ride along in `CannotCreate` and `CannotWrite`, so a caller can say what happened in the
+/// developer's language and still show the detail.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BuildRootProblem {
+    /// The path is relative, so what it names depends on where the process started.
+    NotAbsolute,
+    /// The folder does not exist and could not be created (the OS error).
+    CannotCreate(String),
+    /// The folder exists but a file could not be written in it (the OS error).
+    CannotWrite(String),
+}
+
+impl std::fmt::Display for BuildRootProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildRootProblem::NotAbsolute => write!(f, "not an absolute path"),
+            BuildRootProblem::CannotCreate(e) => write!(f, "cannot be created: {e}"),
+            BuildRootProblem::CannotWrite(e) => write!(f, "cannot be written to: {e}"),
+        }
+    }
+}
+
+/// Whether `root` can hold builds: an absolute path that can be created and written. It leaves the
+/// folder created, which is what the first build would have done anyway.
+pub fn check_build_root_usable(root: &Path) -> Result<(), BuildRootProblem> {
+    if !root.is_absolute() {
+        return Err(BuildRootProblem::NotAbsolute);
+    }
+    std::fs::create_dir_all(root).map_err(|e| BuildRootProblem::CannotCreate(e.to_string()))?;
+    let probe = root.join(format!(".powerrustcobol-write-test-{}", std::process::id()));
+    std::fs::write(&probe, b"ok").map_err(|e| BuildRootProblem::CannotWrite(e.to_string()))?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(())
 }
 
 /// Copy `src` over `dst`, and leave `dst` writable.
@@ -1545,6 +1648,11 @@ pub struct BuildOptions {
     /// behaves oddly since I updated", and it is what stamps
     /// `built_with_version` into the project (spec: version-stamped projects).
     pub full: bool,
+    /// The folder builds are staged in (`<build_dir>/cobolt-build-<name>`), overriding the
+    /// process-wide setting, the environment variable [`BUILD_DIR_ENV`] and the default. `None` —
+    /// the default — means "resolve it": see [`resolve_build_root`]. A blank or relative path is
+    /// ignored, as there. Spec 100.
+    pub build_dir: Option<PathBuf>,
     /// Regenerate every form's and indexed file's generated COBOL from its
     /// `.cfrm` / `.cidx` on disk before compiling (on by default), so a
     /// definition edited outside the IDE never builds its old generated code.
@@ -1577,6 +1685,7 @@ impl Default for BuildOptions {
             progress: None,
             target: None,
             full: false,
+            build_dir: None,
             regenerate_forms: true,
             debug: false,
         }
@@ -1602,7 +1711,7 @@ pub struct BuildResult {
     pub crates_compiled: usize,
     /// The staging workspace this build used — the generated `Cargo.toml`,
     /// `Cargo.lock` and cargo's `target/`. It lives under a per-user cache
-    /// folder, not the OS temp directory (see `build_cache_root`), and is
+    /// folder, not the OS temp directory (see `resolve_build_root`), and is
     /// reported here so nothing outside the compiler has to know that rule.
     pub build_dir: PathBuf,
 }
@@ -2336,8 +2445,18 @@ fn build_core(
     // ── 7. Create build staging directory ────────────────────────────────────
     report(0.50, "Packaging solution…");
     // NOT the OS temp dir: its reaper prunes cached build artefacts (notably
-    // `libsqlite3-sys`'s `bindgen.rs`) out from under cargo. See `build_cache_root`.
-    let build_dir = build_cache_root().join(format!("cobolt-build-{}", &bin_name));
+    // `libsqlite3-sys`'s `bindgen.rs`) out from under cargo. See `default_build_root`.
+    let (build_root, build_root_source) = resolve_build_root(opts.build_dir.as_deref());
+    let build_dir = build_root.join(format!("cobolt-build-{}", &bin_name));
+    log(&format!(
+        "📁 Build folder: {} ({})",
+        build_root.display(),
+        match build_root_source {
+            BuildRootSource::Setting => "set by the developer",
+            BuildRootSource::Environment => "from the environment",
+            BuildRootSource::Default => "the default for this system",
+        }
+    ));
     // A full build throws away everything cargo cached for this project, so
     // nothing compiled by an older PowerRustCOBOL can survive into the new
     // binary. Slower by design — this is the "make it clean" path.
@@ -9609,7 +9728,7 @@ mod resolve_main_tests {
     /// the OS temp dir, until 1.70.309 this still looked there and removed
     /// nothing: about 40 GB of these were found in the cache.
     fn remove_build_staging(bin_name: &str) {
-        let dir = build_cache_root().join(format!("cobolt-build-{bin_name}"));
+        let dir = build_staging_dir(None, bin_name);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -11003,6 +11122,214 @@ function_prefix = "sales-"
 
         let _ = fs::remove_dir_all(&dir);
         remove_build_staging("rebuildme");
+    }
+
+    // ── Build folder: where builds are kept is the machine's setting (spec 100) ────
+
+    /// Leaves the process-wide build-folder state as it found it — the IDE's setting and the
+    /// environment variable — when dropped, even when the test panics. Both are global to the
+    /// process, so a test that sets either one also holds [`heavy_build_guard`] for as long as it
+    /// does: nothing that stages a real build runs while the answer is being changed.
+    struct BuildRootState {
+        env: Option<std::ffi::OsString>,
+    }
+
+    impl BuildRootState {
+        /// Remember the state and start from a clean one: nothing set.
+        fn clean() -> Self {
+            let env = std::env::var_os(BUILD_DIR_ENV);
+            std::env::remove_var(BUILD_DIR_ENV);
+            set_build_root_override(None);
+            BuildRootState { env }
+        }
+    }
+
+    impl Drop for BuildRootState {
+        fn drop(&mut self) {
+            set_build_root_override(None);
+            match self.env.take() {
+                Some(v) => std::env::set_var(BUILD_DIR_ENV, v),
+                None => std::env::remove_var(BUILD_DIR_ENV),
+            }
+        }
+    }
+
+    /// **AC1, R2** — nothing set: the folder is the system default, and a build's staging folder is
+    /// `cobolt-build-<name>` inside it, exactly the rule every build followed before spec 100.
+    #[test]
+    fn with_nothing_set_the_build_folder_is_the_system_default() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+
+        let (root, source) = resolve_build_root(None);
+        assert_eq!(root, default_build_root());
+        assert_eq!(source, BuildRootSource::Default);
+        assert_eq!(
+            build_staging_dir(None, "prog"),
+            default_build_root().join("cobolt-build-prog")
+        );
+        assert!(
+            default_build_root().ends_with("PowerRustCOBOL/builds")
+                || default_build_root().ends_with("PowerRustCOBOL\\builds")
+                || default_build_root().starts_with(std::env::temp_dir()),
+            "the default is the per-user cache folder (or the OS temp dir when none resolves), \
+             got {}",
+            default_build_root().display()
+        );
+    }
+
+    /// **AC1, R4** — the explicit option beats the IDE's setting, which beats the environment
+    /// variable, which beats the default; each one yields when the one above it is cleared.
+    #[test]
+    fn the_build_folder_is_chosen_option_then_setting_then_environment_then_default() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let option = temp_dir("bf-option");
+        let setting = temp_dir("bf-setting");
+        let environment = temp_dir("bf-env");
+
+        std::env::set_var(BUILD_DIR_ENV, &environment);
+        assert_eq!(
+            resolve_build_root(None),
+            (environment.clone(), BuildRootSource::Environment)
+        );
+
+        set_build_root_override(Some(setting.clone()));
+        assert_eq!(
+            resolve_build_root(None),
+            (setting.clone(), BuildRootSource::Setting),
+            "the IDE's setting wins over the environment"
+        );
+
+        assert_eq!(
+            resolve_build_root(Some(&option)),
+            (option.clone(), BuildRootSource::Setting),
+            "the explicit option wins over the IDE's setting"
+        );
+
+        set_build_root_override(None);
+        assert_eq!(
+            resolve_build_root(None),
+            (environment.clone(), BuildRootSource::Environment),
+            "clearing the setting hands the answer back to the environment"
+        );
+
+        std::env::remove_var(BUILD_DIR_ENV);
+        assert_eq!(
+            resolve_build_root(None),
+            (default_build_root(), BuildRootSource::Default),
+            "with nothing left it is the default again"
+        );
+
+        assert_eq!(build_staging_dir(Some(&option), "prog"), option.join("cobolt-build-prog"));
+        for d in [option, setting, environment] {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+
+    /// **AC1, R4** — a value that is empty, blank or not absolute is not a folder: it is skipped and
+    /// the next source answers, so a stray value never stages a build where the process happened to
+    /// start.
+    #[test]
+    fn an_empty_blank_or_relative_build_folder_falls_through() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let default = (default_build_root(), BuildRootSource::Default);
+
+        for bad in ["", "   ", "relative/dir", "./here"] {
+            assert_eq!(resolve_build_root(Some(Path::new(bad))), default, "option {bad:?}");
+            set_build_root_override(Some(PathBuf::from(bad)));
+            assert_eq!(resolve_build_root(None), default, "setting {bad:?}");
+            set_build_root_override(None);
+            std::env::set_var(BUILD_DIR_ENV, bad);
+            assert_eq!(resolve_build_root(None), default, "environment {bad:?}");
+            std::env::remove_var(BUILD_DIR_ENV);
+        }
+
+        // A bad value above a good one yields to it, not to the default.
+        let good = temp_dir("bf-good");
+        std::env::set_var(BUILD_DIR_ENV, &good);
+        set_build_root_override(Some(PathBuf::from("relative/dir")));
+        assert_eq!(
+            resolve_build_root(Some(Path::new("  "))),
+            (good.clone(), BuildRootSource::Environment)
+        );
+        let _ = fs::remove_dir_all(good);
+    }
+
+    /// **AC4, R6** — a folder is usable when it can be created and written; a relative path, and a
+    /// path below a plain file, are refused with the reason, and the probe leaves nothing behind.
+    #[test]
+    fn a_build_folder_must_be_creatable_and_writable() {
+        let base = temp_dir("bf-usable");
+        let fresh = base.join("a").join("b");
+        assert_eq!(check_build_root_usable(&fresh), Ok(()));
+        assert!(fresh.is_dir(), "the check creates the folder, as the first build would");
+        assert_eq!(
+            fs::read_dir(&fresh).unwrap().count(),
+            0,
+            "the write probe is removed"
+        );
+
+        assert_eq!(
+            check_build_root_usable(Path::new("relative/dir")),
+            Err(BuildRootProblem::NotAbsolute)
+        );
+
+        let file = base.join("plain.txt");
+        fs::write(&file, "x").unwrap();
+        let below_a_file = check_build_root_usable(&file.join("child")).unwrap_err();
+        assert!(matches!(below_a_file, BuildRootProblem::CannotCreate(_)), "got: {below_a_file}");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    /// **AC2, AC7, R3** — one real build into a chosen folder: the staging crate lands at
+    /// `<chosen>/cobolt-build-<name>`, and the system default folder gets nothing from it.
+    #[test]
+    fn a_build_lands_in_the_chosen_folder_and_leaves_the_default_alone() {
+        let cobol = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CHOSENFOLDER.
+       PROCEDURE DIVISION.
+           DISPLAY \"ok\".
+           STOP RUN.
+";
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let dir = temp_dir("bf-build");
+        let chosen = dir.join("my-builds");
+        let src = dir.join("chosenfolder.cbl");
+        fs::write(&src, cobol).unwrap();
+
+        // Nothing of an earlier run in the default folder, so its absence afterwards means something.
+        remove_build_staging("chosenfolder");
+        let default_staging = build_staging_dir(None, "chosenfolder");
+
+        let opts = BuildOptions {
+            verbose: false,
+            workspace_root: Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf),
+            build_dir: Some(chosen.clone()),
+            debug: true,
+            ..Default::default()
+        };
+        let t = std::time::Instant::now();
+        let built = build_single_file(&src, &opts).expect("the build into the chosen folder should succeed");
+        println!(
+            "AC7: built into {} in {:.1}s; staging {}",
+            chosen.display(),
+            t.elapsed().as_secs_f64(),
+            built.build_dir.display()
+        );
+
+        assert_eq!(built.build_dir, chosen.join("cobolt-build-chosenfolder"));
+        assert!(built.build_dir.join("Cargo.toml").is_file(), "the staged crate is in the chosen folder");
+        assert!(
+            !default_staging.exists(),
+            "the build wrote under the default folder too: {}",
+            default_staging.display()
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     // ── Build profile: the button chooses, not the project ────────────────────

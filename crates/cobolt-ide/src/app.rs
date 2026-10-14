@@ -999,6 +999,11 @@ pub struct CoboltApp {
     /// it beside the executable needs no setting, so this exists for the case
     /// where it lives somewhere else on this machine.
     sdk_modal_open: bool,
+    /// Whether the Settings → Build Folder… window is open (spec 100).
+    build_folder_modal_open: bool,
+    /// Why the folder the developer last picked was refused, ready to show; cleared when a folder
+    /// is accepted, when the default is restored, or when the window closes.
+    build_folder_problem: Option<String>,
     /// Shown once after opening a project that has no usable AI model or no
     /// configured agent, inviting the user to set them up.
     ai_setup_modal: bool,
@@ -2047,6 +2052,9 @@ fn seed_user_example_into(root: &Path, installed_project_dir: &Path, ex: &Exampl
 
 impl CoboltApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // The machine's build folder (spec 100), handed to the compiler for the whole process so the
+        // build the IDE starts and the project tools it hosts agree on where builds are kept.
+        cobolt_compiler::set_build_root_override(crate::ui_prefs::load_build_dir());
         let mut style = (*cc.egui_ctx.global_style()).clone();
         style.visuals = egui::Visuals::dark();
         cc.egui_ctx.set_global_style(style);
@@ -2228,6 +2236,8 @@ impl CoboltApp {
             shell_pane_cache: None,
             about_open: false,
             sdk_modal_open: false,
+            build_folder_modal_open: false,
+            build_folder_problem: None,
             ai_setup_modal: false,
             ai_setup_ready: None,
             walkthrough: Default::default(),
@@ -5421,6 +5431,9 @@ impl CoboltApp {
                 // Host only — there is no cross-compilation (spec 041 R17).
                 target: None,
                 full,
+                // The folder builds are kept in, when the developer has chosen one in
+                // Settings ▸ Build Folder…; `None` keeps the system default (spec 100).
+                build_dir: crate::ui_prefs::load_build_dir(),
                 // `regenerate_all_forms` / `regenerate_all_indexed_files` above
                 // already wrote every generated program — with the same
                 // generator and file rule the compiler uses, but from the open
@@ -12616,6 +12629,13 @@ impl CoboltApp {
                     ui.close();
                 }
             }
+            Item::BuildFolder => {
+                if ui.button(crate::ui_text::ide("📁 Build Folder…")).clicked() {
+                    self.build_folder_modal_open = true;
+                    self.build_folder_problem = None;
+                    ui.close();
+                }
+            }
             Item::ReindexKnowledgeBases => {
                 // Manual KB reindex — the same incremental sync a Grace
                 // workflow runs at start, without sending a message.
@@ -12799,6 +12819,128 @@ impl CoboltApp {
             });
         if !open {
             self.sdk_modal_open = false;
+        }
+    }
+
+    /// **Settings ▸ Build Folder…** (spec 100): where a build is staged — the generated files and
+    /// everything cargo has already compiled for the program. Empty, the default, is the per-user
+    /// cache folder every build used before this setting existed.
+    ///
+    /// The choice is the machine's (`ui.toml`), never the project's, and it reaches the compiler
+    /// through [`cobolt_compiler::set_build_root_override`] so the build the IDE starts and the
+    /// project tools it hosts agree. A folder is picked, not typed (the environment variable
+    /// `POWERRUSTCOBOL_BUILD_DIR` covers a scripted setup), and a pick that cannot be created or
+    /// written to is refused with the reason and leaves the setting as it was.
+    ///
+    /// Fixed size, per the never-self-resizing-window rule, like [`Self::show_sdk_location`].
+    fn show_build_folder(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
+        if !self.build_folder_modal_open {
+            return;
+        }
+        const W: f32 = 560.0;
+        use crate::ui_text::{ide, idef};
+
+        // Collect the picker result before painting, so the label shows the new folder on the very
+        // frame the picker closes.
+        if let Some(Some(dir)) = crate::file_dialog::take("build_folder") {
+            match cobolt_compiler::check_build_root_usable(&dir) {
+                Ok(()) => {
+                    crate::ui_prefs::save_build_dir(Some(&dir));
+                    cobolt_compiler::set_build_root_override(Some(dir));
+                    self.build_folder_problem = None;
+                }
+                Err(problem) => {
+                    let shown = dir.display();
+                    self.build_folder_problem = Some(match problem {
+                        cobolt_compiler::BuildRootProblem::NotAbsolute => idef(
+                            "The folder {} is not an absolute path. The setting is unchanged.",
+                            &[&shown],
+                        ),
+                        cobolt_compiler::BuildRootProblem::CannotCreate(why) => idef(
+                            "The folder {} cannot be created: {}. The setting is unchanged.",
+                            &[&shown, &why],
+                        ),
+                        cobolt_compiler::BuildRootProblem::CannotWrite(why) => idef(
+                            "The folder {} cannot be written to: {}. The setting is unchanged.",
+                            &[&shown, &why],
+                        ),
+                    });
+                }
+            }
+        }
+
+        let configured = crate::ui_prefs::load_build_dir();
+        let (in_force, source) = cobolt_compiler::resolve_build_root(configured.as_deref());
+
+        let mut open = self.build_folder_modal_open;
+        egui::Window::new(ide("📁 Build Folder…"))
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size([W, 0.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.set_width(W);
+                ui.add_space(4.0);
+                ui.label(ide(
+                    "Building an application stages it in a working folder, where the generated files and everything already compiled are kept between builds. Leave it on the default to use the system's own place — the per-user cache folder — or choose another folder, for example on a larger drive.",
+                ));
+                ui.add_space(8.0);
+
+                // What is in force right now, and where it came from.
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong(format!("{}:", tr.sdk_in_use));
+                    ui.monospace(in_force.display().to_string());
+                });
+                ui.add_space(2.0);
+                ui.label(match source {
+                    cobolt_compiler::BuildRootSource::Setting => tr.sdk_source_setting,
+                    cobolt_compiler::BuildRootSource::Environment => {
+                        ide("Set by the environment variable POWERRUSTCOBOL_BUILD_DIR.")
+                    }
+                    cobolt_compiler::BuildRootSource::Default => {
+                        ide("The system's own place; no setting needed.")
+                    }
+                });
+                if let Some(problem) = &self.build_folder_problem {
+                    ui.add_space(4.0);
+                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), problem);
+                }
+
+                ui.add_space(8.0);
+                ui.label(ide(
+                    "A new folder starts empty, so the next build compiles everything again. The old folder is left as it is — delete it yourself when you no longer need it.",
+                ));
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    if ui.button(tr.sdk_browse).clicked() {
+                        let mut spec = crate::file_dialog::DialogSpec::folder();
+                        if let Some(dir) = configured.as_ref() {
+                            spec = spec.directory(dir.clone());
+                        }
+                        crate::file_dialog::begin(ctx, "build_folder", spec);
+                    }
+                    if ui
+                        .add_enabled(configured.is_some(), egui::Button::new(ide("Use the default")))
+                        .clicked()
+                    {
+                        crate::ui_prefs::save_build_dir(None);
+                        cobolt_compiler::set_build_root_override(None);
+                        self.build_folder_problem = None;
+                    }
+                    ui.add_space(ui.spacing().item_spacing.x);
+                    if ui.button(tr.sdk_close).clicked() {
+                        self.build_folder_modal_open = false;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        if !open {
+            self.build_folder_modal_open = false;
         }
     }
 
@@ -15775,6 +15917,7 @@ impl eframe::App for CoboltApp {
         self.show_new_indexed_dialog(ctx);
         self.show_about(ctx);
         self.show_sdk_location(ctx, &tr);
+        self.show_build_folder(ctx, &tr);
         self.show_project_upgrade_modal(ctx, &tr);
         self.show_toolchain_prompt(ctx, &tr);
         self.show_ollama_prompt(ctx, &tr);
