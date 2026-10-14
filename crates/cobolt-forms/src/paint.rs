@@ -14115,7 +14115,15 @@ pub(crate) fn draw_chart_border(
             se: shrink(rounding.se),
         };
         let outer = rounded_rect_outline_points_per_corner(rect, rounding);
-        let inner = rounded_rect_outline_points_per_corner(rect.shrink(width), inner_rounding);
+        // Pulled in by the border's width, but never past the middle: a frame smaller than twice its
+        // border (a chart a fraction of a point across, in the first frames of a zoom-in) would turn
+        // inside out, and its inner outline would cross the outer one.
+        let inset = |len: f32| width.min(0.5 * len.max(0.0));
+        let inner_rect = Rect::from_min_max(
+            rect.min + Vec2::new(inset(rect.width()), inset(rect.height())),
+            rect.max - Vec2::new(inset(rect.width()), inset(rect.height())),
+        );
+        let inner = rounded_rect_outline_points_per_corner(inner_rect, inner_rounding);
         if outer.len() == inner.len() && outer.len() >= 3 {
             let centre = rect.center();
             // Extent of the rect along the direction — the gradient runs
@@ -16348,7 +16356,10 @@ pub(crate) fn drop_shadow_spec(ctrl: &Control, is_neumorphic: bool) -> Option<Dr
 /// contributes its single vertex, so a dash pattern never meets a zero-length
 /// segment). Clockwise from the NE arc, closed.
 fn rounded_rect_outline_points_per_corner(rect: Rect, r: egui::CornerRadius) -> Vec<Pos2> {
-    let cap = 0.5 * rect.width().min(rect.height());
+    // Never below zero: a rect pulled in past its own middle (`rect.shrink(width)` on a frame smaller
+    // than its border — an entrance animation that starts at a fraction of a point) has a negative size,
+    // and `f32::clamp(0.0, cap)` PANICS when `cap < 0.0`.
+    let cap = (0.5 * rect.width().min(rect.height())).max(0.0);
     let rr = |v: u8| f32::from(v).clamp(0.0, cap);
     let seg = 6;
     let mut pts = Vec::with_capacity(4 * (seg + 1) + 1);
@@ -16374,7 +16385,8 @@ fn rounded_rect_outline_points_per_corner(rect: Rect, r: egui::CornerRadius) -> 
 }
 
 fn rounded_rect_outline_points(rect: Rect, r: f32) -> Vec<Pos2> {
-    let r = r.clamp(0.0, 0.5 * rect.width().min(rect.height()));
+    // Never below zero, as in `rounded_rect_outline_points_per_corner`: `clamp` panics when max < min.
+    let r = r.clamp(0.0, (0.5 * rect.width().min(rect.height())).max(0.0));
     let seg = 6; // arc segments per corner
     let mut pts = Vec::with_capacity(4 * (seg + 1) + 1);
     // Clockwise from the top-right arc: NE, SE, SW, NW.
