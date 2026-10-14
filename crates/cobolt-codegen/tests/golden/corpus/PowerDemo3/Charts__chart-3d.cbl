@@ -85,7 +85,7 @@
        01 WS-ANIM-ELAPSED-MS    PIC 9(8)    VALUE 0.
 
       *>── Timer: Timer-1 ──────────────────────────────────────────
-       01 WS-Timer-1-INTERVAL   PIC 9(8) VALUE 3000.
+       01 WS-Timer-1-INTERVAL   PIC 9(8) VALUE 2100.
        01 WS-Timer-1-ENABLED    PIC 9    VALUE 1.
        01 WS-Timer-1-ELAPSED-MS PIC 9(8) VALUE 0.
 
@@ -226,7 +226,7 @@
       *> <TIMER-STUBS>
        COBOL-START-TIMERS.
       *>    Called once from COBOL-MAIN to register timer intervals.
-           INVOKE Timer-1 'SetInterval' USING BY VALUE 3000
+           INVOKE Timer-1 'SetInterval' USING BY VALUE 2100
            CONTINUE.
 
       *> </TIMER-STUBS>
@@ -408,8 +408,8 @@
 
        PROCEDURE DIVISION.
 
-           *> One tick every 3 seconds is one cycle. Every cycle gives each chart a new series, and
-           *> every 25th cycle gives all four charts new colours.
+           *> One tick every 2.1 seconds is one cycle. Every cycle gives each chart a new series,
+           *> and every 3rd cycle gives all four charts new colours.
            *>
            *> The values live in WS-VAL (form-level, so they last from tick to tick) and drift: each
            *> one starts from where it was and moves a little, which reads as data changing rather
@@ -461,15 +461,15 @@
            END-IF
 
            *> How each chart arrives this cycle, chosen chart by chart. Most travel to their new
-           *> values over 1 to 2.6 seconds, a different length each time and always shorter than the
-           *> 3 second tick, so a move has ended before the next one starts. About one in three is
-           *> cut instead: it shows its new values at once (250 ms is the shortest move a chart
-           *> makes, the nearest AnimateValues gets to a cut) and WS-OWED(chart) = 1 makes sure that
-           *> chart travels on the next cycle.
+           *> values over 0.8 to 1.9 seconds, a different length each time and always shorter than
+           *> the 2.1 second tick, so a move has ended before the next one starts. About one in
+           *> three is cut instead: it shows its new values at once (250 ms is the shortest move a
+           *> chart makes, the nearest AnimateValues gets to a cut) and WS-OWED(chart) = 1 makes
+           *> sure that chart travels on the next cycle.
 
            PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 4
                IF    WS-OWED(WS-C) = 1 OR FUNCTION RANDOM >= 0.35
-                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1600 + 1000
+                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1100 + 800
 
                    SET     WS-OWED(WS-C)         TO    0
                ELSE
@@ -478,12 +478,12 @@
                END-IF
            END-PERFORM
 
-           *> Every 25th cycle: new colours. The step is 1 to 5, so the palette is never the one it
+           *> Every 3rd cycle: new colours. The step is 1 to 5, so the palette is never the one it
            *> was. The bar chart colours its series from SeriesColors; the pie, the radar and the
            *> line are Monochrome, so they take one colour each - the 1st, 2nd and 3rd of the
            *> palette.
 
-           IF    FUNCTION MOD(WS-CYCLE, 25) = 0
+           IF    FUNCTION MOD(WS-CYCLE, 3) = 0
                COMPUTE    WS-STEP = FUNCTION RANDOM * 5 + 1
                COMPUTE    WS-PAL = FUNCTION MOD(WS-PAL - 1 + WS-STEP, 6) + 1
 

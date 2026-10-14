@@ -17,6 +17,43 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.150] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.149.)*
+
+### Fix: the chart animation rows of the Properties pane save, and "Add sub-item" works on a second-level menu item
+
+Two defects of the Form Designer, both reported by the operator on 2026-10-14 ("I cannot enable Animate value changes" and "I cannot edit the SideMenu's menu: I tried to add a sub-item at level 2").
+
+**1. A chart's `AnimateValues`, `AnimateOnLoad` and `AnimationDuration` were never stored.** `DesignerPanel::set_property` reserves the keys that start with `Anim` for the animation list — `Anim<N>_<Field>`, the field of animation number N — but its early `return` sat after the check for the `_`, outside it, so **every** key that merely started with `Anim` was taken for one of those and dropped before it was stored. The pane's rows "Animate on load", "Animate value changes" and "Animation duration (ms)" write exactly such keys: the checkbox could be clicked and nothing changed. The `return` is inside the check now. The line dates from the first import (2026-06-02); the three chart properties were added later and fell under it.
+
+**2. "Add sub-item" did nothing, silently, on a second-level item.** The menu editor's gate was `depth_of(path) < 2`, and `depth_of` was `path.len()`: an item of the first level (path length 1) took a sub-item, one of the second level (length 2) did not. A menu is saved with at most `MAX_DEPTH` = 3 levels (`validate_depth`), the Guide says "up to 3 levels deep", and the Indent button beside it already counted three — only this button stopped at two. The gate is now `can_have_sub_item(path)`: not empty and shorter than `MAX_DEPTH`.
+
+- *Measured, not recalled — 1:* before the fix, 21 of 21 writes were lost (3 properties on each of the 7 chart types; `AnimateValues` stayed `false` after being written `true`). After: 21 of 21 stored, and three undos put every value back. The animation list's own key still works (`Anim0_Duration` 400 ms to 777 ms) and an out-of-range `Anim9_Duration` is consumed rather than stored as a stray property.
+- *Measured — 2:* for every item of a three-level menu, the button is compared with whether the menu would still pass the save validation after a sub-item is added there. Before: level 1 true/true, **level 2 false/true**, level 3 false/false. After: level 1 true/true, level 2 true/true, level 3 false/false.
+- *Checked:* the whole `cobolt-ide` binary suite — 1669 passed, 1 failed (`docs_embed::every_document_ships_in_every_language`, red before this change), 4 ignored; the 24 menu tests and the 26 animation tests among them pass. The Developer's Guide needs no change: it already states three levels.
+- *Not checked:* the real Designer window — the click on the checkbox and on the button themselves; the Designer cannot be driven from the tools.
+- *Not done:* at the limit, a fourth level, the button still does nothing and says nothing; and a menu that fails to save is reported only on standard error (`write_menu_yaml`, `set_menu_definition`). Both should tell the developer; that is a separate change.
+
+## [PowerRustCOBOL 1.91.149] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.148.)*
+
+### Examples: PowerDemo3 as the IDE last saved it, and the 3D Charts form ticks every 2.1 seconds
+
+The operator asked for the pending PowerDemo3 changes to go in together. Four files under `examples/PowerDemo3`:
+
+- **`forms/Charts/chart-3d.cfrm` — the one change made on purpose.** `Timer-1`'s `Interval` is 2100 (it was 3000), and the colours change on every **3rd** cycle (`FUNCTION MOD(WS-CYCLE, 3)`; it was every 25th), so every 6.3 seconds. A move used to last 1 to 2.6 seconds, which a 2.1-second tick could outrun, so it is now 0.8 to 1.9 seconds (`FUNCTION RANDOM * 1100 + 800`) and always ends before the next tick; a cut is still 250 ms. The comments say the same. The figures in 1.91.146, 1.91.147 and 1.91.148 describe the earlier states.
+- **`forms/Data/datagrid-form.cfrm` — the IDE's own save, not edited by hand.** The form no longer carries the default `Dock` property (it was on 2 controls) or `Anchor` (8 controls). Its generated code does not change: regenerating the example snapshots moves no `Data__datagrid-form` snapshot.
+- **`PowerDemo3.project.toml` — the IDE's stamp:** `built_with_version` 1.91.145 to 1.91.148. One line.
+- **`data/idxfiles/actors.idx` — data the demo wrote** when it ran; the file is the same size, and its bytes differ.
+
+The example corpus snapshot `Charts__chart-3d.cbl` is regenerated (the interval, the cycle and the comments); every other snapshot was restored to its committed state.
+
+- *Measured, running the chart-3d form off screen (not recalled):* `Timer-1::Interval` reads 2100. Over 29 ticks at a fast interval the colours changed on ticks 3, 6, 9, 12, 15, 18, 21, 24 and 27 and on no other, and no change repeated the palette it came from (6, 2, 4, 3, 5, 2, 6, 5, 4). Every `AnimationDuration` was 250 or between 833 and 1703, and 250 was never followed by 250 on the next tick. `check` on the whole project: 0 errors in 62 forms.
+- *Not checked:* the `datagrid-form` and `actors.idx` changes beyond the snapshot test above and `check` — they were not made in this session and I did not run that form. The operator's own Run Form window with the new interval.
+- *Known, not from this change:* `every_example_form_generates_its_snapshot` is still red on `main` for the reasons recorded in 1.91.146 (28 stale snapshots and a missing `General__layers-form.cbl`); this change leaves them as they are.
+
 ## [PowerRustCOBOL 1.91.148] — 2026-10-14
 
 *(Written on `fixes`, after 1.91.147.)*
