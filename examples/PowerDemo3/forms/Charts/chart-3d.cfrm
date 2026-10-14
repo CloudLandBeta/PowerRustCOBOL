@@ -97,11 +97,63 @@
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
            CLASS RUST-RANGE IS "Rust.Range"]]></repository>
   <form-events>
-    <Event name="onLoad" paragraph="CHART-3D--ONLOAD">
-    </Event>
+    <Event name="onLoad" paragraph="CHART-3D--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           *> Every layer starts hidden in a running form, so the picture and the four charts,
+           *> which live in the layers Woman and charts, are shown here.
+
+           SET     Woman::Visible                TO    TRUE
+           SET     charts::Visible               TO    TRUE.
+]]></Event>
     <Event name="onClose" paragraph="CHART-3D--ONCLOSE">
     </Event>
   </form-events>
+  <Control id="PictureBox-Desk" type="PictureBox" x="0" y="0" w="1216" h="672" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="ImagePath">assets/Empty glass desk at sunset-2.png</Property>
+    <Property name="SizeMode">Stretch</Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+  </Control>
   <Control id="BarChart-1" type="BarChart" x="208" y="248" w="320" h="220" tab-order="1" z-order="1" visible="true" enabled="true" layer="charts">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -465,7 +517,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Interval">5000</Property>
+    <Property name="Interval">3000</Property>
     <Property name="Enabled">true</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -487,7 +539,7 @@
 
        PROCEDURE DIVISION.
 
-           *> One tick every 5 seconds is one cycle. Every cycle gives each chart a new series, and
+           *> One tick every 3 seconds is one cycle. Every cycle gives each chart a new series, and
            *> every 25th cycle gives all four charts new colours.
            *>
            *> The values live in WS-VAL (form-level, so they last from tick to tick) and drift: each
@@ -540,14 +592,15 @@
            END-IF
 
            *> How each chart arrives this cycle, chosen chart by chart. Most travel to their new
-           *> values over 1.4 to 3.2 seconds, a different length each time. About one in three is
+           *> values over 1 to 2.6 seconds, a different length each time and always shorter than the
+           *> 3 second tick, so a move has ended before the next one starts. About one in three is
            *> cut instead: it shows its new values at once (250 ms is the shortest move a chart
            *> makes, the nearest AnimateValues gets to a cut) and WS-OWED(chart) = 1 makes sure that
            *> chart travels on the next cycle.
 
            PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 4
                IF    WS-OWED(WS-C) = 1 OR FUNCTION RANDOM >= 0.35
-                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1800 + 1400
+                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1600 + 1000
 
                    SET     WS-OWED(WS-C)         TO    0
                ELSE

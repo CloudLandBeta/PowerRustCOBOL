@@ -17,6 +17,39 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.148] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.147.)*
+
+### Fix: PowerDemo3's 3D Charts form shows its desk picture when it runs, and ticks every 3 seconds
+
+Two changes to `examples/PowerDemo3/forms/Charts/chart-3d.cfrm`, both the operator's.
+
+**The background picture.** In Run Form the form showed the woman and the four charts over the blurred desktop, with no sunset desk behind them. That is by design, not a defect: under a see-through theme (Spatial, spec 083) the host drops the form's own colour, gradient **and picture** so the blurred desktop the theme exists to show is not hidden (`FormHost::backdrop`, `cobolt-form-host/src/host.rs`). The form uses the Spatial theme and sets `background-image`, so the theme won. The picture is now also a `PictureBox-Desk` — stretched over the whole form, on the base (no layer), at the back — which a see-through theme does not drop. The form keeps the Spatial theme and its chart colours; its own `background-image` setting stays and is simply not used at run time. The alternative, switching the form to a theme that is not see-through, also shows the picture but recolours the bars (orange and blue in the test) and gives up the glass window, so it was not done.
+
+**The tick: 5 s to 3 s.** `Timer-1`'s `Interval` is 3000. A move used to last 1.4 to 3.2 seconds, which a 3-second tick could outrun, so it is now 1 to 2.6 seconds (`FUNCTION RANDOM * 1600 + 1000`) and always ends before the next tick; the comments say so. A cut is still 250 ms. The 5-second and 1.4-to-3.2-second figures in 1.91.146 and 1.91.147 describe the earlier state. The colours now change every 75 seconds (25 ticks) rather than every 125.
+
+The example corpus snapshot `Charts__chart-3d.cbl` is regenerated (the new control, the interval, the move range and the comments; +11 / −5 lines); every other snapshot was restored to its committed state.
+
+- *Measured, running the form off screen:* `Timer-1::Interval` reads 3000; the first tick had landed 2.4 seconds into the run (the form opens a little before the script starts) and no second tick had landed 1.3 seconds after that; over 32 sampled ticks every `AnimationDuration` is 250 or between 1075 and 2553, never 2600 or more, and 250 is never followed by 250 on the next tick. With the desk box, the picture shows the sunset desk, the woman and the four charts on the glass panels, and the charts hold new data after the first tick (the pie read Retail 66, Online 50, Wholesale 53, Export 49, Other 46). `check` on the whole project: 0 errors in 62 forms.
+- *Not checked:* the operator's own Run Form window, and the Designer — a full-size picture box on the base form is selectable and may get in the way of clicking the form itself there.
+- *Not done:* nothing warns that a form's own background picture is ignored under a see-through theme, so the same surprise is easy to meet again; that would be a Designer hint or a `check` diagnostic, a feature rather than this fix.
+- *Known, not from this change:* `every_example_form_generates_its_snapshot` is still red on `main` for the reasons recorded in 1.91.146 (28 stale snapshots and a missing `General__layers-form.cbl`); this change leaves them as they are.
+
+## [PowerRustCOBOL 1.91.147] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.146.)*
+
+### Fix: PowerDemo3's 3D Charts form shows its layers when it runs
+
+`examples/PowerDemo3/forms/Charts/chart-3d.cfrm` drew everything in the Designer and in the static preview, but in Run Form it showed for a moment and then nothing at all — no picture, no charts. **Every layer starts hidden in a running form, in every host** (spec 091 R35), and a program shows one with `SET <LAYER>::Visible TO TRUE`. All of the form's controls live in its two layers, `Woman` (the picture) and `charts` (the four charts), and its `onLoad` was empty, so at run time all of them were hidden; the first frame is painted before the hidden state is applied, which is why they were seen for an instant. The `onLoad` now shows both layers. Nothing else in the form changed; the example corpus snapshot `Charts__chart-3d.cbl` is regenerated, and its only difference is that handler.
+
+- *Found by bisecting, not by assuming:* in a throwaway project, the untouched original reproduced the blank frame; the same form without its layers drew the picture and all four charts; without the tilt and pins, or without the backdrop image, it was still blank.
+- *Measured after the fix, running the form off screen:* at 1.5 s the picture and the four charts are drawn; after the first 5-second tick (read at 9.5 s) the charts hold new data (the pie read Retail 72, Online 61, Wholesale 55, Export 24, Other 34 where it started as the 25/30/25/20 sample) and the picture shows them changed. `check` on the whole project: 0 errors in 62 forms.
+- *Not checked:* the operator's own Run Form window with the fix — the picture above is the verification tool's.
+- *Not done:* nothing in the product warns when every control of a form sits in layers that start hidden, so the same blank form is easy to make again. That would be a feature (a `check` diagnostic or a Designer hint), not part of this fix.
+- *Known, not from this change:* `every_example_form_generates_its_snapshot` is still red on `main` for the reasons recorded in 1.91.146 (28 stale snapshots and a missing `General__layers-form.cbl`); this change leaves them as they are.
+
 ## [PowerRustCOBOL 1.91.146] — 2026-10-14
 
 *(Written on `features`, after 1.91.145 — the corner pin.)*
@@ -28,7 +61,7 @@
 The form's two pictures (`Empty glass desk at sunset-2.png`, `Seated woman and chrome chair-1.png`) and the project manifest's registration of the form (the IDE's own write, stamped 1.91.145) come with it. The example corpus snapshot `tests/golden/corpus/PowerDemo3/Charts__chart-3d.cbl` is new, because `every_example_form_generates_its_snapshot` requires one for every example form.
 
 - *Measured, running the form off screen (not recalled):* 37 ticks at an 80 ms interval — the colours change on exactly the 25th tick and not before; every `AnimationDuration` is 250 or between 1428 and 3099; 250 is never followed by 250 on the next tick; 11 of the 37 were cuts; each chart ends with all its rows and its own labels; the pie, radar and line take entries 1, 2 and 3 of the same palette as the bar chart. `check` on the whole project: 0 errors in 62 forms.
-- *Not checked:* how it looks on screen. The tool's picture of this form is a flat grey, for the untouched original too, so nothing here has been seen animating; whether a chart flashes at the instant of a tick (`Clear()` then `AddPoint` are separate updates) needs a look at the live window.
+- *Not checked:* how it looks on screen. **Corrected in 1.91.147:** this entry said the verification tool's picture of the form was a flat grey "for the untouched original too" and treated that as the tool's quirk. It was the form: every layer starts hidden when a form runs, and this form never showed its two, so Run Form drew nothing (see 1.91.147). Whether a chart flashes at the instant of a tick (`Clear()` then `AddPoint` are separate updates) still needs a look at the live window.
 - *Known, not from this change:* `every_example_form_generates_its_snapshot` is red on `main` before and after this commit — 28 committed snapshots are stale (the comment-before-`CALL` blocks added to the example forms on 2026-10-12, 6,048 lines) and `General__layers-form.cbl` is missing. The operator's regenerated copies are uncommitted in the primary checkout and are byte-identical to what the generator writes today; they were deliberately left out of this commit.
 
 ## [PowerRustCOBOL 1.91.145] — 2026-10-14

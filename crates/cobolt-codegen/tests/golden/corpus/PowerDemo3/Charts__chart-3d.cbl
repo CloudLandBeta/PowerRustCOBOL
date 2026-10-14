@@ -85,7 +85,7 @@
        01 WS-ANIM-ELAPSED-MS    PIC 9(8)    VALUE 0.
 
       *>── Timer: Timer-1 ──────────────────────────────────────────
-       01 WS-Timer-1-INTERVAL   PIC 9(8) VALUE 5000.
+       01 WS-Timer-1-INTERVAL   PIC 9(8) VALUE 3000.
        01 WS-Timer-1-ENABLED    PIC 9    VALUE 1.
        01 WS-Timer-1-ELAPSED-MS PIC 9(8) VALUE 0.
 
@@ -165,6 +165,11 @@
            05 WS-PALETTE                         PIC    X(47)    OCCURS 6.
 
       *>── Form controls ───────────────────────────────────────────────
+       01 WS-PictureBox-Desk.
+          05 WS-PictureBox-Desk-TEXT       PIC X(256) VALUE 'PictureBox-Desk'.
+          05 WS-PictureBox-Desk-VISIBLE    PIC 9      VALUE 1.
+          05 WS-PictureBox-Desk-ENABLED    PIC 9      VALUE 1.
+
        01 WS-BarChart-1.
           05 WS-BarChart-1-TEXT       PIC X(256) VALUE 'BarChart-1'.
           05 WS-BarChart-1-VISIBLE    PIC 9      VALUE 1.
@@ -221,7 +226,7 @@
       *> <TIMER-STUBS>
        COBOL-START-TIMERS.
       *>    Called once from COBOL-MAIN to register timer intervals.
-           INVOKE Timer-1 'SetInterval' USING BY VALUE 5000
+           INVOKE Timer-1 'SetInterval' USING BY VALUE 3000
            CONTINUE.
 
       *> </TIMER-STUBS>
@@ -346,14 +351,21 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. CHART-3D--ONLOAD IS COMMON PROGRAM.
 
-      *>    TODO: Form onLoad handler
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           CONTINUE.
+
+           *> Every layer starts hidden in a running form, so the picture and the four charts,
+           *> which live in the layers Woman and charts, are shown here.
+
+           SET     Woman::Visible                TO    TRUE
+           SET     charts::Visible               TO    TRUE.
 
            GOBACK.
 
@@ -396,7 +408,7 @@
 
        PROCEDURE DIVISION.
 
-           *> One tick every 5 seconds is one cycle. Every cycle gives each chart a new series, and
+           *> One tick every 3 seconds is one cycle. Every cycle gives each chart a new series, and
            *> every 25th cycle gives all four charts new colours.
            *>
            *> The values live in WS-VAL (form-level, so they last from tick to tick) and drift: each
@@ -449,14 +461,15 @@
            END-IF
 
            *> How each chart arrives this cycle, chosen chart by chart. Most travel to their new
-           *> values over 1.4 to 3.2 seconds, a different length each time. About one in three is
+           *> values over 1 to 2.6 seconds, a different length each time and always shorter than the
+           *> 3 second tick, so a move has ended before the next one starts. About one in three is
            *> cut instead: it shows its new values at once (250 ms is the shortest move a chart
            *> makes, the nearest AnimateValues gets to a cut) and WS-OWED(chart) = 1 makes sure that
            *> chart travels on the next cycle.
 
            PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 4
                IF    WS-OWED(WS-C) = 1 OR FUNCTION RANDOM >= 0.35
-                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1800 + 1400
+                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1600 + 1000
 
                    SET     WS-OWED(WS-C)         TO    0
                ELSE
