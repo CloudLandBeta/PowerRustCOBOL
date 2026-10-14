@@ -188,3 +188,66 @@ fn the_three_strengths_are_pictured_side_by_side_and_the_far_side_grows_with_the
     assert!(seen[0] < seen[1] && seen[1] < seen[2], "…and so must what is seen: {seen:?}");
     assert!((model[2] - 1.0).abs() < 1e-3, "at strength 0 the two sides are equal");
 }
+
+// ── Spec 098: a chart pinned into a panel that no tilt could match ───────────
+
+/// The panel of the operator's picture, as a pin: rolled a little clockwise, converging to the
+/// left, its right side taller — and a glass "panel" Shape pinned the same way behind the chart.
+const PANEL_PIN: [[i64; 2]; 4] = [[0, -8], [0, 20], [18, 18], [-10, 0]];
+
+fn pinned_scene() -> Form {
+    let mut form = Form::new("PERSPECTIVE-PIN", "Pin", 760, 460);
+    form.background_color = BACKDROP.into();
+    let set_pins = |c: &mut Control| {
+        for (i, [kx, ky]) in cobolt_forms::model::PIN_PROPS.iter().enumerate() {
+            c.set_prop(*kx, PropValue::Int(PANEL_PIN[i][0]));
+            c.set_prop(*ky, PropValue::Int(PANEL_PIN[i][1]));
+        }
+    };
+    // The panel: a Shape 14 px larger than the chart on every side, pinned the same way.
+    let mut panel = Control::new("PANEL", ControlType::Shape, 116, 36);
+    panel.rect = cobolt_forms::Rect::new(116, 36, 528, 368);
+    panel.set_prop("FillColor", PropValue::String("#2A3B5C".into()));
+    panel.set_prop("BorderColor", PropValue::String("#8FB4FF".into()));
+    panel.set_prop("BorderWidth", PropValue::Int(2));
+    panel.set_prop("CornerRadius", PropValue::Int(10));
+    panel.set_prop("RotateY", PropValue::Int(-12));
+    set_pins(&mut panel);
+    form.controls.push(panel);
+    let mut chart = Control::new("CHART-REVENUE", ControlType::BarChart, 130, 50);
+    chart.rect = cobolt_forms::Rect::new(130, 50, 500, 340);
+    chart.set_prop("Title", PropValue::String("Revenue by quarter".into()));
+    chart.set_prop("__ChartData", PropValue::String("Q1\t120\t96\nQ2\t150\t128\nQ3\t135\t172\nQ4\t190\t204".into()));
+    chart.set_prop("SeriesLabels", PropValue::String("2025,2026".into()));
+    chart.set_prop("AnimateOnLoad", PropValue::Bool(false));
+    chart.set_prop("RotateY", PropValue::Int(-12));
+    set_pins(&mut chart);
+    form.controls.push(chart);
+    form
+}
+
+#[test]
+fn a_chart_pinned_into_a_rolled_panel_is_pictured_and_its_sides_measure_as_the_model_says() {
+    let form = pinned_scene();
+    let img = render_form_image(&form, &SnapshotOptions::default());
+    save(&img, "perspective-pin.png");
+    let rect = egui::Rect::from_min_size(pos2(130.0, 50.0), egui::vec2(500.0, 340.0));
+    let per = Perspective::of(&form.controls[1]).expect("the chart is pinned");
+    let quad = per.quad(rect);
+    assert!(per.camera(rect).is_pinned(), "the pin is drawable");
+    let [top, right, bottom, left] = edge_lengths(&quad);
+    // The roll: the top edge slopes down to the right, as the drawn panel's does.
+    let roll = ((quad[1].y - quad[0].y) / (quad[1].x - quad[0].x)).atan().to_degrees();
+    // What the picture shows near each side.
+    let (lx, rx) = (quad[0].x.max(quad[3].x) as usize + 6, quad[1].x.min(quad[2].x) as usize - 6);
+    let (lt, lb) = face_extent(&img, lx).expect("chart on the left");
+    let (rt, rb) = face_extent(&img, rx).expect("chart on the right");
+    let (sl, sr) = ((lb - lt) as f32, (rb - rt) as f32);
+    println!(
+        "\n  ── spec 098: the chart pinned with {PANEL_PIN:?} over RotateY −12 ──\n  outline edges: top {top:.1}, right {right:.1}, bottom {bottom:.1}, left {left:.1}; the top edge slopes {roll:+.2}° (down to the right)\n  model left/right = {:.3}; seen in the picture, column x={lx} spans {sl:.0} px and x={rx} spans {sr:.0} px = {:.3}",
+        left / right, sl / sr
+    );
+    assert!(roll > 0.5, "the pinned chart is rolled clockwise, which no tilt can do");
+    assert!(left < right, "the right side is the taller, as in the drawn panel");
+    assert!(((sl / sr) - (left / right)).abs() < 0.08, "the picture agrees with the model");
+}

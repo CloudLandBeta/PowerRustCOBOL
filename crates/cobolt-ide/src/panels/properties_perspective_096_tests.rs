@@ -22,7 +22,20 @@ use crate::ui_text::probe::texts;
 
 /// The English wording of the section and of its three rows.
 const SECTION: &str = "3D perspective";
-const ROWS: [&str; 4] = ["Tilt top / bottom", "Tilt left / right", "Distance from observer", "Perspective strength"];
+const ROWS: [&str; 12] = [
+    "Tilt top / bottom",
+    "Tilt left / right",
+    "Distance from observer",
+    "Perspective strength",
+    "Pin top-left X",
+    "Pin top-left Y",
+    "Pin top-right X",
+    "Pin top-right Y",
+    "Pin bottom-right X",
+    "Pin bottom-right Y",
+    "Pin bottom-left X",
+    "Pin bottom-left Y",
+];
 
 /// The twelve of spec 096 R1.
 const THE_TWELVE: [ControlType; 12] = [
@@ -75,8 +88,8 @@ fn the_section_is_drawn_for_each_of_the_twelve_in_each_language_and_none_is_left
             for row in ROWS {
                 found += usize::from(has(&said(lang, row)));
             }
-            println!("  {:<13} {:<11} {found}/5    {title}", format!("{ct:?}"), format!("{lang:?}"));
-            assert_eq!(found, 5, "{ct:?} in {lang:?}: the section or one of its rows is missing: {drawn:?}");
+            println!("  {:<13} {:<11} {found}/13   {title}", format!("{ct:?}"), format!("{lang:?}"));
+            assert_eq!(found, 13, "{ct:?} in {lang:?}: the section or one of its rows is missing: {drawn:?}");
             if lang != Language::English {
                 for english in std::iter::once(SECTION).chain(ROWS) {
                     assert!(
@@ -134,7 +147,7 @@ fn intellisense_lists_the_three_properties_for_the_twelve_and_only_them() {
     for k in &known {
         let lists = |p: &str| k.properties.iter().any(|x| x.eq_ignore_ascii_case(p));
         let twelve = THE_TWELVE.iter().any(|t| format!("{t:?}") == k.ctrl_type);
-        for p in ["RotateX", "RotateY", "PerspectiveDistance", "PerspectiveStrength"] {
+        for p in ["RotateX", "RotateY", "PerspectiveDistance", "PerspectiveStrength", "PinTopLeftX", "PinBottomRightY"] {
             assert_eq!(lists(p), twelve, "{} ({}): {p}", k.id, k.ctrl_type);
         }
         with += usize::from(twelve);

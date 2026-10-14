@@ -142,3 +142,72 @@ fn dragging_a_knob_of_a_tilted_control_resizes_the_designed_rectangle() {
     rig.d.undo();
     assert_eq!(rig.rect(), before, "one undo restores the rectangle");
 }
+
+// ── Spec 098: the corner pin's handles ───────────────────────────────────────
+
+fn pin(rig: &Rig, key: &str) -> i64 {
+    rig.d.form.find_control("CH").unwrap().get_prop(key).map_or(0, |v| v.as_i64())
+}
+
+fn designed_rect() -> Rect {
+    Rect::from_min_size(pos2(100.0, 100.0), vec2(240.0, 160.0))
+}
+
+#[test]
+fn the_corner_handles_sit_on_the_projected_outline_once_the_control_is_tilted() {
+    let rig = Rig::new(8, -50, 60);
+    let (sid, quad) = rig.d.sel_pin_quad.clone().expect("a tilted control shows its corner handles");
+    assert_eq!(sid, "CH");
+    let want = Perspective::new(8, -50, 60).quad(designed_rect());
+    let worst = quad.iter().zip(want).map(|(a, b)| (*a - b).length()).fold(0.0f32, f32::max);
+    println!("\n  corner handles at {quad:.1?}; the model's outline differs by {worst:.4} px");
+    assert!(worst < 1e-3);
+    // …and the resize knobs are still on the designed rectangle.
+    assert_eq!(rig.d.handle_rect_of("CH"), Some(cobolt_forms::model::Rect::new(100, 100, 240, 160)));
+
+    let flat = Rig::new(0, 0, 50);
+    assert!(flat.d.sel_pin_quad.is_none(), "a flat, unpinned control shows no corner handles (spec 098 Q1)");
+}
+
+#[test]
+fn dragging_a_corner_handle_pins_that_corner_and_is_one_undo_step() {
+    let mut rig = Rig::new(8, -30, 60);
+    let (_, quad) = rig.d.sel_pin_quad.clone().unwrap();
+    let br = quad[2];
+    let steps = rig.d.undo_stack.len();
+    let (from, to) = (rig.at(br.x, br.y), rig.at(br.x + 30.0, br.y - 20.0));
+    rig.drag(from, to);
+    let (x, y) = (pin(&rig, "PinBottomRightX"), pin(&rig, "PinBottomRightY"));
+    println!("\n  bottom-right handle at ({:.1}, {:.1}) dragged by (+30, −20): PinBottomRightX = {x}, PinBottomRightY = {y}", br.x, br.y);
+    assert_eq!((x, y), (30, -20), "the corner's two pins are exactly the drag");
+    for key in ["PinTopLeftX", "PinTopLeftY", "PinTopRightX", "PinTopRightY", "PinBottomLeftX", "PinBottomLeftY"] {
+        assert_eq!(pin(&rig, key), 0, "{key} is untouched");
+    }
+    // The handle now sits where it was dragged to.
+    let (_, after) = rig.d.sel_pin_quad.clone().unwrap();
+    assert!((after[2] - (br + vec2(30.0, -20.0))).length() < 1e-3);
+    // The tilt is untouched, and the whole gesture is ONE undo step.
+    assert_eq!(rig.d.form.find_control("CH").unwrap().get_prop("RotateY").map(|v| v.as_i64()), Some(-30));
+    assert_eq!(rig.d.undo_stack.len(), steps + 1, "one undo step for the two pins");
+    rig.d.undo();
+    assert_eq!((pin(&rig, "PinBottomRightX"), pin(&rig, "PinBottomRightY")), (0, 0), "one undo puts both back");
+}
+
+#[test]
+fn a_drag_that_would_fold_the_outline_is_refused() {
+    let mut rig = Rig::new(8, -30, 60);
+    let (_, quad) = rig.d.sel_pin_quad.clone().unwrap();
+    let (br, tl) = (quad[2], quad[0]);
+    // The bottom-right corner dragged past the top-left one: a bow tie, were it allowed.
+    let (from, to) = (rig.at(br.x, br.y), rig.at(tl.x - 60.0, tl.y - 60.0));
+    rig.drag(from, to);
+    let ctrl = rig.d.form.find_control("CH").unwrap().clone();
+    let per = Perspective::of(&ctrl).unwrap();
+    let rect = designed_rect();
+    let drawable = cobolt_forms::perspective::pin_is_drawable(&per.unpinned().quad(rect), &per.pinned_quad(rect));
+    let (x, y) = (pin(&rig, "PinBottomRightX"), pin(&rig, "PinBottomRightY"));
+    println!("\n  bottom-right dragged towards ({:.0}, {:.0}), past the top-left: pins ended at ({x}, {y}); outline drawable: {drawable}", tl.x - 60.0, tl.y - 60.0);
+    assert!(drawable || (x, y) == (0, 0), "the outline is never left folded");
+    let full = (((tl.x - 60.0) - br.x).round() as i64, ((tl.y - 60.0) - br.y).round() as i64);
+    assert_ne!((x, y), full, "the corner did not follow the pointer into the fold");
+}

@@ -10,7 +10,8 @@
 //! ContentPane, and a built binary (`--ignored`: it compiles one).
 //!
 //! Spec 097 adds `PerspectiveStrength`: written with 40 (which must arrive), then
-//! with 150 (which must come back as 100, the top of its range).
+//! with 150 (which must come back as 100, the top of its range). Spec 098 adds the
+//! corner pin: `PinTopLeftY` written with 24, `PinBottomRightX` with 20000 (→ 9999).
 //!
 //! One form with a BarChart and buttons. One handler writes
 //! `CHART-1::RotateY` = 30 and `CHART-1::RotateX` = 200 — a value outside the
@@ -72,9 +73,19 @@ fn chart_form() -> Form {
         &mut f,
         "BTN-TILT",
         20,
-        &["MOVE 30 TO CHART-1::RotateY", "MOVE 200 TO CHART-1::RotateX", "MOVE 40 TO CHART-1::PerspectiveStrength"],
+        &[
+            "MOVE 30 TO CHART-1::RotateY",
+            "MOVE 200 TO CHART-1::RotateX",
+            "MOVE 40 TO CHART-1::PerspectiveStrength",
+            "MOVE 24 TO CHART-1::PinTopLeftY",
+        ],
     );
-    button(&mut f, "BTN-CLAMP", 92, &["MOVE 150 TO CHART-1::PerspectiveStrength"]);
+    button(
+        &mut f,
+        "BTN-CLAMP",
+        92,
+        &["MOVE 150 TO CHART-1::PerspectiveStrength", "MOVE 20000 TO CHART-1::PinBottomRightX"],
+    );
     button(&mut f, "BTN-READ", 56, &["MOVE CHART-1::RotateX TO LBL-RESULT::Caption"]);
     let mut result = Control::new("LBL-RESULT", ControlType::Label, 360, 130);
     result.rect = cobolt_forms::model::Rect::new(360, 130, 200, 24);
@@ -129,6 +140,7 @@ fn steps(open: Option<&str>, tilt: bool) -> Value {
         read("CHART-1", "RotateY"),
         read("CHART-1", "PerspectiveDistance"),
         read("CHART-1", "PerspectiveStrength"),
+        read("CHART-1", "PinTopLeftY"),
     ]);
     if tilt {
         s.extend([
@@ -139,30 +151,36 @@ fn steps(open: Option<&str>, tilt: bool) -> Value {
             read("CHART-1", "RotateX"),
             // Spec 097 — a strength of 40 arrives…
             read("CHART-1", "PerspectiveStrength"),
+            // Spec 098 — and a pin of 24.
+            read("CHART-1", "PinTopLeftY"),
             click("BTN-READ"),
             wait(),
             // …and COBOL reads the property as it reads any other.
             read("LBL-RESULT", "Caption"),
-            // …and one of 150 is brought back into the range.
+            // …and one of 150 is brought back into the range, as is a pin of 20000.
             click("BTN-CLAMP"),
             wait(),
             read("CHART-1", "PerspectiveStrength"),
+            read("CHART-1", "PinBottomRightX"),
         ]);
     }
     Value::Array(s)
 }
 
-const WANT: [&str; 9] = ["0", "0", "50", "100", "30", "60", "40", "60", "100"];
-const READS: [&str; 9] = [
+const WANT: [&str; 12] = ["0", "0", "50", "100", "0", "30", "60", "40", "24", "60", "100", "9999"];
+const READS: [&str; 12] = [
     "CHART-1::RotateX at start",
     "CHART-1::RotateY at start",
     "CHART-1::PerspectiveDistance at start",
     "CHART-1::PerspectiveStrength at start",
+    "CHART-1::PinTopLeftY at start",
     "RotateY after MOVE 30",
     "RotateX after MOVE 200 (clamped)",
     "PerspectiveStrength after MOVE 40",
+    "PinTopLeftY after MOVE 24",
     "COBOL reads CHART-1::RotateX into a label",
     "PerspectiveStrength after MOVE 150 (clamped)",
+    "PinBottomRightX after MOVE 20000 (clamped)",
 ];
 
 fn readings(stdout: &str) -> Vec<String> {

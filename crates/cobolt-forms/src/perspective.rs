@@ -44,6 +44,19 @@
 //! between, it is a pin-hole camera at distance `D / m` with focal length `F / m`
 //! (`F/(D + m z₂) = (F/m)/(D/m + z₂)`), so lines stay straight and the outline convex.
 //!
+//! **The corner pin** (spec 098) moves each corner of that outline by its
+//! `Pin<Corner>X` / `Pin<Corner>Y`, in the control's designed pixels. The pin-hole
+//! image of a plane is a *homography*, and a homography is fixed by where four points
+//! go, so the pinned outline fixes the map of every point: the control is projected
+//! by the one homography that sends the designed rectangle's corners onto the
+//! pinned corners ([`Homography`], Heckbert's square-to-quad form). Lines stay
+//! straight, a picture's corners land on the outline's corners, and any convex
+//! quadrilateral is reachable — which is what a panel drawn in a picture is. With no
+//! pin the pin-hole formula is used as it is, not a homography fitted to it, so a
+//! control without pins is drawn exactly as before. A pin that would fold the outline
+//! (not strictly convex, or its winding reversed) is refused: the control is drawn
+//! with its tilt alone.
+//!
 //! `D + z₂ > 0` for every input. The smallest `D` is `K·M/2 = M` (at `d` = 100)
 //! and `|z₂|` never exceeds the half-diagonal of the rectangle, at most `0.71·M`,
 //! so the divisor is at least `0.29·M`: nothing is ever behind the camera, and the
@@ -55,7 +68,7 @@ use egui::{pos2, Pos2, Rect};
 use crate::model::{
     Control, PropValue, PERSPECTIVE_ANGLE_LIMIT, PERSPECTIVE_DISTANCE_MAX,
     PERSPECTIVE_DISTANCE_PROP, PERSPECTIVE_DISTANCE_REFERENCE, PERSPECTIVE_STRENGTH_MAX,
-    PERSPECTIVE_STRENGTH_PROP, ROTATE_X_PROP, ROTATE_Y_PROP,
+    PERSPECTIVE_STRENGTH_PROP, PIN_LIMIT, PIN_PROPS, ROTATE_X_PROP, ROTATE_Y_PROP,
 };
 
 /// How many times the larger side of a control the camera stands from it at the
@@ -65,8 +78,8 @@ use crate::model::{
 /// edge about 0.78 of the near one.
 pub const CAMERA_K: f32 = 2.0;
 
-/// A control's three properties, read and brought into range.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// A control's perspective properties, read and brought into range.
+#[derive(Clone, Copy, Debug)]
 pub struct Perspective {
     /// `RotateX`, whole degrees, −60 … 60. Positive recedes the top edge.
     pub rotate_x: i32,
@@ -76,6 +89,23 @@ pub struct Perspective {
     pub distance: i32,
     /// `PerspectiveStrength`, 0 … 100. 100 is the convergence the distance gives; 0 is none.
     pub strength: i32,
+    /// Spec 098 — the corner pin: `[dx, dy]` for the top-left, top-right, bottom-right and
+    /// bottom-left corners of the outline, in the control's designed pixels.
+    pub pin: [[i32; 2]; 4],
+    /// The control's designed size, so the pins scale with the control when an animation or
+    /// a surface scales it. `[0, 0]` = unknown = scale 1. Not part of equality: two controls
+    /// with the same properties are the same perspective whatever their size.
+    pub designed: [f32; 2],
+}
+
+impl PartialEq for Perspective {
+    fn eq(&self, o: &Self) -> bool {
+        self.rotate_x == o.rotate_x
+            && self.rotate_y == o.rotate_y
+            && self.distance == o.distance
+            && self.strength == o.strength
+            && self.pin == o.pin
+    }
 }
 
 impl Perspective {
@@ -85,6 +115,8 @@ impl Perspective {
         rotate_y: 0,
         distance: PERSPECTIVE_DISTANCE_REFERENCE as i32,
         strength: PERSPECTIVE_STRENGTH_MAX as i32,
+        pin: [[0; 2]; 4],
+        designed: [0.0; 2],
     };
 
     /// Build one, clamping each value into its range (a write is clamped when it
@@ -96,6 +128,8 @@ impl Perspective {
             rotate_y: rotate_y.clamp(-a, a) as i32,
             distance: distance.clamp(0, PERSPECTIVE_DISTANCE_MAX) as i32,
             strength: PERSPECTIVE_STRENGTH_MAX as i32,
+            pin: [[0; 2]; 4],
+            designed: [0.0; 2],
         }
     }
 
@@ -104,13 +138,37 @@ impl Perspective {
         Perspective { strength: strength.clamp(0, PERSPECTIVE_STRENGTH_MAX) as i32, ..self }
     }
 
+    /// The same tilt with its corners pinned: `[dx, dy]` per corner (top-left, top-right,
+    /// bottom-right, bottom-left), each clamped into ±[`PIN_LIMIT`] (spec 098).
+    pub fn with_pins(self, pin: [[i64; 2]; 4]) -> Self {
+        let c = |v: i64| v.clamp(-PIN_LIMIT, PIN_LIMIT) as i32;
+        Perspective { pin: pin.map(|[x, y]| [c(x), c(y)]), ..self }
+    }
+
+    /// The same perspective on a control of this designed size, which is what the pins
+    /// are measured in: they scale with the control when it is drawn at another size.
+    pub fn designed(self, w: f32, h: f32) -> Self {
+        Perspective { designed: [w, h], ..self }
+    }
+
+    /// Whether any corner is pinned.
+    pub fn has_pin(&self) -> bool {
+        self.pin != [[0; 2]; 4]
+    }
+
+    /// The tilt alone: the same perspective with no corner pinned.
+    pub fn unpinned(self) -> Self {
+        Perspective { pin: [[0; 2]; 4], ..self }
+    }
+
     /// What `ctrl` asks for, or `None` when it is drawn as it always was:
     ///
     /// * its type is not one of the twelve that may be tilted — a property
     ///   hand-written into a Button's file is ignored, the loader having kept it
     ///   (spec 096 R16);
-    /// * the tilt and the distance are at their neutral values, or absent (the strength
-    ///   only scales a convergence, so it matters only to a tilted control);
+    /// * the tilt and the distance are at their neutral values and no corner is pinned, or
+    ///   they are absent (the strength only scales a convergence, so it matters only to a
+    ///   tilted control);
     /// * a value is not a finite number, which reads as that property's default.
     pub fn of(ctrl: &Control) -> Option<Perspective> {
         if !ctrl.control_type.has_perspective() {
@@ -133,7 +191,9 @@ impl Perspective {
             read(ROTATE_Y_PROP, 0),
             read(PERSPECTIVE_DISTANCE_PROP, PERSPECTIVE_DISTANCE_REFERENCE),
         )
-        .with_strength(read(PERSPECTIVE_STRENGTH_PROP, PERSPECTIVE_STRENGTH_MAX));
+        .with_strength(read(PERSPECTIVE_STRENGTH_PROP, PERSPECTIVE_STRENGTH_MAX))
+        .with_pins(PIN_PROPS.map(|[kx, ky]| [read(kx, 0), read(ky, 0)]))
+        .designed(ctrl.rect.w as f32, ctrl.rect.h as f32);
         (!p.is_neutral()).then_some(p)
     }
 
@@ -143,6 +203,7 @@ impl Perspective {
         self.rotate_x == 0
             && self.rotate_y == 0
             && self.distance == Perspective::NEUTRAL.distance
+            && !self.has_pin()
     }
 
     /// The camera for a control whose designed rectangle is `rect`.
@@ -151,15 +212,140 @@ impl Perspective {
     }
 
     /// The projected outline of `rect`: top-left, top-right, bottom-right,
-    /// bottom-left, in that order.
+    /// bottom-left, in that order — the tilt's outline with each corner moved by its pin,
+    /// or the tilt's outline alone when the pins would fold it (spec 098 R5).
     pub fn quad(&self, rect: Rect) -> [Pos2; 4] {
         let cam = self.camera(rect);
+        cam.outline(rect)
+    }
+
+    /// The outline the tilt alone gives, before any pin.
+    fn tilt_quad(&self, rect: Rect) -> [Pos2; 4] {
+        let cam = Camera::tilt_only(*self, rect);
         [
             cam.project(rect.left_top()),
             cam.project(rect.right_top()),
             cam.project(rect.right_bottom()),
             cam.project(rect.left_bottom()),
         ]
+    }
+
+    /// The tilt's outline with the pins added, scaled from the designed size to `rect`'s —
+    /// whether or not it is a shape that can be drawn (see [`Perspective::quad`]).
+    pub fn pinned_quad(&self, rect: Rect) -> [Pos2; 4] {
+        let q = self.tilt_quad(rect);
+        let sx = if self.designed[0] > 0.0 { rect.width() / self.designed[0] } else { 1.0 };
+        let sy = if self.designed[1] > 0.0 { rect.height() / self.designed[1] } else { 1.0 };
+        let mut out = q;
+        for i in 0..4 {
+            out[i] = pos2(q[i].x + self.pin[i][0] as f32 * sx, q[i].y + self.pin[i][1] as f32 * sy);
+        }
+        out
+    }
+}
+
+/// The most the far side of a pinned outline may shrink against the near side: a twentieth.
+/// The tilt alone never passes a sixth (its divisor stays within 0.29 … 1.71 of the larger
+/// side); past a twentieth the far side is a sliver and the near side a smear.
+pub const PIN_MIN_FORESHORTENING: f32 = 0.05;
+
+/// Whether `pinned` is an outline that can be drawn in place of `tilt`: strictly convex,
+/// turning the same way (no corner dragged across the shape), no edge shorter than two
+/// points, and its far side no thinner than [`PIN_MIN_FORESHORTENING`] of its near side.
+/// A quad that fails this would fold the picture over itself, or squeeze it to nothing.
+pub fn pin_is_drawable(tilt: &[Pos2; 4], pinned: &[Pos2; 4]) -> bool {
+    if !quad_is_convex(pinned) || !quad_is_convex(tilt) {
+        return false;
+    }
+    if edge_lengths(pinned).iter().any(|e| *e < 2.0) {
+        return false;
+    }
+    let turn = |q: &[Pos2; 4]| {
+        let (a, b, c) = (q[0], q[1], q[2]);
+        ((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)).signum()
+    };
+    if turn(pinned) != turn(tilt) {
+        return false;
+    }
+    // The homography's denominator is affine over the rectangle, so its extremes are at the
+    // corners: the ratio of the least to the greatest is how much the far side is foreshortened
+    // against the near side.
+    Homography::square_to(pinned).is_some_and(|h| {
+        let d = h.corner_denominators();
+        let (lo, hi) = (d.iter().cloned().fold(f32::MAX, f32::min), d.iter().cloned().fold(f32::MIN, f32::max));
+        lo > 0.0 && lo / hi >= PIN_MIN_FORESHORTENING
+    })
+}
+
+/// The projective map of the unit square onto a quadrilateral (Heckbert, *Fundamentals of
+/// Texture Mapping and Image Warping*, 1989, §2.2): `(u, v)` → `((a·u + b·v + c), (d·u + e·v + f)) / (g·u + h·v + 1)`.
+#[derive(Clone, Copy, Debug)]
+pub struct Homography {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+    g: f32,
+    h: f32,
+}
+
+impl Homography {
+    /// The map sending `(0,0)`, `(1,0)`, `(1,1)`, `(0,1)` onto `q[0]` … `q[3]` — top-left,
+    /// top-right, bottom-right, bottom-left. `None` for a degenerate quad (three corners in
+    /// a line at the bottom-right).
+    pub fn square_to(q: &[Pos2; 4]) -> Option<Self> {
+        let [p0, p1, p2, p3] = *q;
+        let (dx1, dx2, dx3) = (p1.x - p2.x, p3.x - p2.x, p0.x - p1.x + p2.x - p3.x);
+        let (dy1, dy2, dy3) = (p1.y - p2.y, p3.y - p2.y, p0.y - p1.y + p2.y - p3.y);
+        if dx3.abs() < 1e-6 && dy3.abs() < 1e-6 {
+            // A parallelogram: an affine map.
+            return Some(Homography {
+                a: p1.x - p0.x,
+                b: p3.x - p0.x,
+                c: p0.x,
+                d: p1.y - p0.y,
+                e: p3.y - p0.y,
+                f: p0.y,
+                g: 0.0,
+                h: 0.0,
+            });
+        }
+        let det = dx1 * dy2 - dx2 * dy1;
+        if det.abs() < 1e-9 {
+            return None;
+        }
+        let g = (dx3 * dy2 - dx2 * dy3) / det;
+        let h = (dx1 * dy3 - dx3 * dy1) / det;
+        Some(Homography {
+            a: p1.x - p0.x + g * p1.x,
+            b: p3.x - p0.x + h * p3.x,
+            c: p0.x,
+            d: p1.y - p0.y + g * p1.y,
+            e: p3.y - p0.y + h * p3.y,
+            f: p0.y,
+            g,
+            h,
+        })
+    }
+
+    /// Where `(u, v)` of the unit square lands.
+    #[inline]
+    pub fn map(&self, u: f32, v: f32) -> Pos2 {
+        let w = self.g * u + self.h * v + 1.0;
+        pos2((self.a * u + self.b * v + self.c) / w, (self.d * u + self.e * v + self.f) / w)
+    }
+
+    /// The denominator at `(u, v)`: positive where the point is in front of the camera.
+    #[inline]
+    pub fn denominator(&self, u: f32, v: f32) -> f32 {
+        self.g * u + self.h * v + 1.0
+    }
+
+    /// The denominator at the four corners of the square, in outline order.
+    pub fn corner_denominators(&self) -> [f32; 4] {
+        [self.denominator(0.0, 0.0), self.denominator(1.0, 0.0), self.denominator(1.0, 1.0), self.denominator(0.0, 1.0)]
     }
 }
 
@@ -178,10 +364,30 @@ pub struct Camera {
     convergence: f32,
     /// `F`, the focal length.
     focal: f32,
+    /// Spec 098 — the map of the designed rectangle onto the pinned outline, when the
+    /// control is pinned and the outline can be drawn; `None` draws by the pin-hole formula.
+    pinned: Option<Homography>,
+    /// The rectangle `pinned` maps from: its top-left and size.
+    plane_min: Pos2,
+    plane_size: [f32; 2],
 }
 
 impl Camera {
+    /// The camera for `p` on `rect`: the tilt, and the pin when there is one that can be drawn.
     pub fn new(p: Perspective, rect: Rect) -> Self {
+        let mut cam = Camera::tilt_only(p, rect);
+        if p.has_pin() {
+            let tilt = p.tilt_quad(rect);
+            let pinned = p.pinned_quad(rect);
+            if pin_is_drawable(&tilt, &pinned) {
+                cam.pinned = Homography::square_to(&pinned);
+            }
+        }
+        cam
+    }
+
+    /// The tilt alone, whatever the pins say.
+    fn tilt_only(p: Perspective, rect: Rect) -> Self {
         let m = rect.width().max(rect.height()).max(1.0);
         let reference = CAMERA_K * m;
         let (sin_x, cos_x) = (p.rotate_x as f32).to_radians().sin_cos();
@@ -195,12 +401,35 @@ impl Camera {
             depth: reference * 2f32.powf((PERSPECTIVE_DISTANCE_REFERENCE as f32 - p.distance as f32) / 50.0),
             convergence: p.strength as f32 / PERSPECTIVE_STRENGTH_MAX as f32,
             focal: reference,
+            pinned: None,
+            plane_min: rect.min,
+            plane_size: [rect.width().max(1e-6), rect.height().max(1e-6)],
         }
+    }
+
+    /// Whether the control is drawn pinned (a homography) rather than by the pin-hole formula.
+    pub fn is_pinned(&self) -> bool {
+        self.pinned.is_some()
+    }
+
+    /// The projected outline of `rect` through this camera, in outline order.
+    pub fn outline(&self, rect: Rect) -> [Pos2; 4] {
+        [
+            self.project(rect.left_top()),
+            self.project(rect.right_top()),
+            self.project(rect.right_bottom()),
+            self.project(rect.left_bottom()),
+        ]
     }
 
     /// Where a point of the control's plane lands on the screen.
     #[inline]
     pub fn project(&self, p: Pos2) -> Pos2 {
+        if let Some(h) = &self.pinned {
+            let u = (p.x - self.plane_min.x) / self.plane_size[0];
+            let v = (p.y - self.plane_min.y) / self.plane_size[1];
+            return h.map(u, v);
+        }
         let (x, y) = (p.x - self.centre.x, p.y - self.centre.y);
         let y1 = y * self.cos_x;
         let z1 = -y * self.sin_x;
@@ -210,9 +439,16 @@ impl Camera {
         pos2(self.centre.x + x2 * k, self.centre.y + y1 * k)
     }
 
-    /// `D + m·z₂` for a point — the divisor. Strictly positive for every point of
-    /// the control's rectangle (see the module notes); exposed so a test can say so.
+    /// `D + m·z₂` for a point — the divisor of the pin-hole formula, or the homography's
+    /// denominator (scaled by `D`, so the two are comparable) when the control is pinned.
+    /// Strictly positive for every point of the control's rectangle (see the module notes);
+    /// exposed so a test can say so.
     pub fn divisor(&self, p: Pos2) -> f32 {
+        if let Some(h) = &self.pinned {
+            let u = (p.x - self.plane_min.x) / self.plane_size[0];
+            let v = (p.y - self.plane_min.y) / self.plane_size[1];
+            return h.denominator(u, v) * self.depth;
+        }
         let (x, y) = (p.x - self.centre.x, p.y - self.centre.y);
         let z1 = -y * self.sin_x;
         let z2 = z1 * self.cos_y + x * self.sin_y;

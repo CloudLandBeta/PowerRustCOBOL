@@ -4149,8 +4149,25 @@ pub const PERSPECTIVE_DISTANCE_REFERENCE: i64 = 50;
 /// Spec 097 — the range of `PerspectiveStrength`, and its default: the strongest, which is
 /// exactly the perspective of spec 096.
 pub const PERSPECTIVE_STRENGTH_MAX: i64 = 100;
+/// Spec 098 — the corner pin: how far each corner of a display control's projected outline is
+/// moved, in the control's designed pixels, as `[x, y]` pairs for the top-left, top-right,
+/// bottom-right and bottom-left corners. Added to the corners the tilt gives, so a pin works
+/// with a tilt and without one; all zero (the default) is "as the tilt says".
+pub const PIN_PROPS: [[&str; 2]; 4] = [
+    ["PinTopLeftX", "PinTopLeftY"],
+    ["PinTopRightX", "PinTopRightY"],
+    ["PinBottomRightX", "PinBottomRightY"],
+    ["PinBottomLeftX", "PinBottomLeftY"],
+];
+/// Spec 098 — the range of a pin, ±pixels: wider than any form.
+pub const PIN_LIMIT: i64 = 9999;
 
-/// Spec 096/097 — the inclusive range of one of the four perspective properties, or
+/// Spec 098 — whether `key` is one of the eight corner-pin properties.
+pub fn is_pin_property(key: &str) -> bool {
+    PIN_PROPS.iter().flatten().any(|p| key.eq_ignore_ascii_case(p))
+}
+
+/// Spec 096/097/098 — the inclusive range of one of the twelve perspective properties, or
 /// `None` when `key` is not one of them.
 pub fn perspective_property_range(key: &str) -> Option<(i64, i64)> {
     if key.eq_ignore_ascii_case(ROTATE_X_PROP) || key.eq_ignore_ascii_case(ROTATE_Y_PROP) {
@@ -4159,6 +4176,8 @@ pub fn perspective_property_range(key: &str) -> Option<(i64, i64)> {
         Some((0, PERSPECTIVE_DISTANCE_MAX))
     } else if key.eq_ignore_ascii_case(PERSPECTIVE_STRENGTH_PROP) {
         Some((0, PERSPECTIVE_STRENGTH_MAX))
+    } else if is_pin_property(key) {
+        Some((-PIN_LIMIT, PIN_LIMIT))
     } else {
         None
     }
@@ -6627,6 +6646,10 @@ impl Control {
                 PERSPECTIVE_STRENGTH_PROP.into(),
                 PropValue::Int(PERSPECTIVE_STRENGTH_MAX),
             );
+            // Spec 098 — the corner pin, every corner where the tilt puts it.
+            for key in PIN_PROPS.iter().flatten() {
+                props.insert((*key).into(), PropValue::Int(0));
+            }
         }
 
         if control_type.is_data_input_control() {
