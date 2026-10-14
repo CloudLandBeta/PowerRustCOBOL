@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.150] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.149.)*
+
+### Fix: the chart animation rows of the Properties pane save, and "Add sub-item" works on a second-level menu item
+
+Two defects of the Form Designer, both reported by the operator on 2026-10-14 ("I cannot enable Animate value changes" and "I cannot edit the SideMenu's menu: I tried to add a sub-item at level 2").
+
+**1. A chart's `AnimateValues`, `AnimateOnLoad` and `AnimationDuration` were never stored.** `DesignerPanel::set_property` reserves the keys that start with `Anim` for the animation list — `Anim<N>_<Field>`, the field of animation number N — but its early `return` sat after the check for the `_`, outside it, so **every** key that merely started with `Anim` was taken for one of those and dropped before it was stored. The pane's rows "Animate on load", "Animate value changes" and "Animation duration (ms)" write exactly such keys: the checkbox could be clicked and nothing changed. The `return` is inside the check now. The line dates from the first import (2026-06-02); the three chart properties were added later and fell under it.
+
+**2. "Add sub-item" did nothing, silently, on a second-level item.** The menu editor's gate was `depth_of(path) < 2`, and `depth_of` was `path.len()`: an item of the first level (path length 1) took a sub-item, one of the second level (length 2) did not. A menu is saved with at most `MAX_DEPTH` = 3 levels (`validate_depth`), the Guide says "up to 3 levels deep", and the Indent button beside it already counted three — only this button stopped at two. The gate is now `can_have_sub_item(path)`: not empty and shorter than `MAX_DEPTH`.
+
+- *Measured, not recalled — 1:* before the fix, 21 of 21 writes were lost (3 properties on each of the 7 chart types; `AnimateValues` stayed `false` after being written `true`). After: 21 of 21 stored, and three undos put every value back. The animation list's own key still works (`Anim0_Duration` 400 ms to 777 ms) and an out-of-range `Anim9_Duration` is consumed rather than stored as a stray property.
+- *Measured — 2:* for every item of a three-level menu, the button is compared with whether the menu would still pass the save validation after a sub-item is added there. Before: level 1 true/true, **level 2 false/true**, level 3 false/false. After: level 1 true/true, level 2 true/true, level 3 false/false.
+- *Checked:* the whole `cobolt-ide` binary suite — 1669 passed, 1 failed (`docs_embed::every_document_ships_in_every_language`, red before this change), 4 ignored; the 24 menu tests and the 26 animation tests among them pass. The Developer's Guide needs no change: it already states three levels.
+- *Not checked:* the real Designer window — the click on the checkbox and on the button themselves; the Designer cannot be driven from the tools.
+- *Not done:* at the limit, a fourth level, the button still does nothing and says nothing; and a menu that fails to save is reported only on standard error (`write_menu_yaml`, `set_menu_definition`). Both should tell the developer; that is a separate change.
+
 ## [PowerRustCOBOL 1.91.149] — 2026-10-14
 
 *(Written on `fixes`, after 1.91.148.)*

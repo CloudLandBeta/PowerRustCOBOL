@@ -2150,8 +2150,12 @@ impl MenuEditorModal {
         items
     }
 
-    fn depth_of(path: &[usize]) -> usize {
-        path.len()
+    /// Whether the item at `path` may take a sub-item. The new item would sit one level below
+    /// it, and a menu is saved with at most `MAX_DEPTH` levels (`validate_depth`) — so an item
+    /// of the second level can, and one of the third cannot. The gate used to stop at two
+    /// levels, which left "Add sub-item" doing nothing, silently, on any second-level item.
+    fn can_have_sub_item(path: &[usize]) -> bool {
+        !path.is_empty() && path.len() < cobolt_forms::menu::MAX_DEPTH
     }
 
     /// A new item id: four lowercase letters `a`–`z` (4 bytes) from `tiny_id`,
@@ -6864,8 +6868,12 @@ impl DesignerPanel {
                         }
                     }
                 }
+                // Only a key of the form `Anim<N>_<Field>` belongs to the animation list. The
+                // `return` used to sit after this block, which took EVERY key starting with
+                // `Anim` for one of those — `AnimateOnLoad`, `AnimateValues` and
+                // `AnimationDuration` among them — and dropped it unstored.
+                return;
             }
-            return;
         }
 
         // Remember the last font the user chose, so newly-added controls inherit
@@ -11379,7 +11387,7 @@ impl DesignerPanel {
                         modal.sync_bufs_from_selection();
                     }
                     if ui.small_button(tr.menu_add_submenu).clicked() {
-                        if MenuEditorModal::depth_of(&modal.selected) < 2 {
+                        if MenuEditorModal::can_have_sub_item(&modal.selected) {
                             let id = modal.next_id();
                             if let Some(parent) =
                                 MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected)
@@ -25381,6 +25389,51 @@ mod menu_badge_tests {
 }
 
 #[cfg(test)]
+mod menu_depth_tests {
+    use super::MenuEditorModal;
+    use cobolt_forms::menu::{validate_depth, MenuDefinition, MenuItem, MAX_DEPTH};
+
+    /// "Add sub-item" on an item of the second level did nothing, and said nothing: the editor's
+    /// gate allowed two levels while the menu is saved with three (`MAX_DEPTH`), and the Indent
+    /// button beside it already counted three. The gate has to be the depth the menu can be saved
+    /// at — so, for every item of a three-level menu, adding a sub-item is offered exactly when
+    /// the menu would still pass the save validation.
+    #[test]
+    fn the_add_sub_item_gate_is_the_depth_a_menu_can_be_saved_at() {
+        let mut top = MenuItem::new_action("tope", "Top");
+        let mut mid = MenuItem::new_action("midd", "Middle");
+        mid.items = vec![MenuItem::new_action("leaf", "Leaf")];
+        top.items = vec![mid];
+        let base = MenuDefinition { menu: vec![top], hash: String::new() };
+        validate_depth(&base).expect("a menu of MAX_DEPTH levels is valid");
+
+        println!("\n  MAX_DEPTH = {MAX_DEPTH}; item at path   gate says   menu with a sub-item added saves");
+        let paths: [&[usize]; 3] = [&[0], &[0, 0], &[0, 0, 0]];
+        let mut failures = Vec::new();
+        for path in paths {
+            let mut with_child = base.clone();
+            MenuEditorModal::item_at_mut(&mut with_child.menu, path)
+                .expect("the item exists")
+                .items
+                .push(MenuItem::new_action("xxxx", "New"));
+            let saves = validate_depth(&with_child).is_ok();
+            let gate = MenuEditorModal::can_have_sub_item(path);
+            println!("  level {} {:<22} {:<11} {}", path.len(), format!("{path:?}"), gate, saves);
+            if gate != saves {
+                failures.push(format!("level {} ({path:?}): the button says {gate}, the menu {} save", path.len(), if saves { "would" } else { "would not" }));
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// Nothing selected is nothing to add to.
+    #[test]
+    fn nothing_selected_takes_no_sub_item() {
+        assert!(!MenuEditorModal::can_have_sub_item(&[]));
+    }
+}
+
+#[cfg(test)]
 mod handler_breakpoint_tests {
     use super::*;
     use cobolt_forms::code_site::CodeSite;
@@ -26239,3 +26292,9 @@ mod grid_edit_094;
 #[cfg(test)]
 #[path = "designer_perspective_096_tests.rs"]
 mod perspective_096;
+
+// A chart's AnimateValues / AnimateOnLoad / AnimationDuration, written by the Properties pane,
+// are stored — `set_property` reserves only `Anim<N>_<Field>` for the animation list.
+#[cfg(test)]
+#[path = "designer_chart_animation_props_tests.rs"]
+mod chart_animation_props;
