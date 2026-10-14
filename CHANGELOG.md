@@ -17,6 +17,15 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.38] — 2026-10-13
+
+*(Written on `fixes`, after 1.91.37.)*
+
+### Fixed
+- **`./build` ended with `tools/check_bugs.sh: line 67: BUG_CRATES: unbound variable` on a clean build (Linux Mint, reported at 1.91.25).** The script runs under `set -euo pipefail` and declared its three arrays with `declare -a BUG_CRATES BUG_CODES BUG_SUMMARIES` — declared, never assigned. They are filled only when `cargo check` finds an error, so on a build with **no** errors line 67, `NUM_BUGS=${#BUG_CRATES[@]}`, expanded an array that was still unset, which bash 4.4+ and 5.x refuse under `set -u`: the script died on its success path, one line before it could print "✅ No compiler errors found." macOS's bash 3.2 does not refuse it, which is why it was never seen. The arrays are initialised (`=()`) now.
+  - *Checked:* `bash -n` on the script; the two paths the fixed lines take — a clean build (`NUM_BUGS=0`, reaches the success message) and one error (`NUM_BUGS=1`) — under bash 3.2.57. **Not run on bash 5**, which this machine does not have; the report's line number is the `${#BUG_CRATES[@]}` expansion, and initialising an array is valid in every bash since 3.0. Please run `./build` once on the Mint machine.
+  - No other script in `tools/` uses the pattern.
+
 ## [PowerRustCOBOL 1.91.37] — 2026-10-13
 
 *(Written on `fixes`, after 1.91.36.)*

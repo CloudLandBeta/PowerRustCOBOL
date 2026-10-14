@@ -41,7 +41,12 @@ RAW_OUTPUT="$(cargo check --workspace --message-format short 2>&1 || true)"
 #   crates/cobolt-runtime/src/interpreter.rs:1212:64: error[E0599]: no method `integer`
 #   error[E0308]: mismatched types
 
-declare -a BUG_CRATES BUG_CODES BUG_SUMMARIES
+# Initialised (`=()`), not just declared: under `set -u` a declared-but-never-
+# assigned array is "unbound" to bash 4.4+ and 5.x, so `${#BUG_CRATES[@]}` below
+# aborted the script — exactly when the build was CLEAN and nothing had been
+# appended (Linux Mint, 1.91.25: "line 67: BUG_CRATES: unbound variable").
+# macOS's bash 3.2 never complained, which is how it went unseen.
+declare -a BUG_CRATES=() BUG_CODES=() BUG_SUMMARIES=()
 TODAY="$(date +%Y-%m-%d)"
 
 while IFS= read -r line; do
