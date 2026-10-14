@@ -17,6 +17,15 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.143] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.142.)*
+
+### Fixed
+- **A DataGrid image cell's corner radius is clamped with a guard that cannot panic.** The image box of a cell, the cell pulled in by 3 points a side, set the corner radius by `radius.clamp(0.0, dest.width().min(dest.height()) * 0.5)`, and `f32::clamp` panics when its maximum is below its minimum (the failure of 1.91.142, `min = 0.0, max = -1.0`). It is now `image_cell_corner(radius, dest)` in `render.rs`, whose maximum is held at zero. The old expression panics on a box with a negative size (a width of −4, a height of −2, or both) and the new one answers 0 for each (`an_image_cells_corner_is_held_inside_its_box_and_a_negative_box_does_not_panic`).
+  - ***This is a guard, not the cure for a crash anyone could reach, and 1.91.142 was wrong to say otherwise.*** That entry said the clamp would panic for an image column whose rows are under about 6 points tall. Driving a real DataGrid with an Image column and a real PNG through `render_form`, with `RowHeight` written as 1, 2, 5, 6, 13, 14, 22, 120, 500, −3 and `abc`, drew the thumbnails every time and never panicked **on the unguarded code**: the interactive grid clamps `RowHeight` to 14 to 120 (a per-row override to 14 to 400) and never draws a column narrower than 32 (`MIN_COLUMN_WIDTH`), so the image box is always at least 26 × 8 points. It stays a one-line guard because the cost is nothing and the floors are a property of other code that could move (`datagrid_image_cell_corner`: 11 row heights and 4 radii).
+  - *Checked:* the unit test and the end-to-end test above; the whole `cobolt-forms` suite and `cobolt-form-host` before the commit.
+
 ## [PowerRustCOBOL 1.91.142] — 2026-10-14
 
 *(Written on `fixes`, after 1.91.141.)*
@@ -25,7 +34,7 @@
 - **A chart with a gradient border crashed the IDE while an entrance animation played.** Adding a *zoom-in* entrance to a chart on `PowerDemo3/forms/Charts/charts-form.cfrm` and previewing it ended the IDE with `panic: min > max, or either was NaN. min = 0.0, max = -1.0` (the crash log, `…/cobolt/crash/crash-1791967287.log`, names `paint::rounded_rect_outline_points_per_corner`, called from `draw_chart_preview` on the Designer canvas). A zoom-in starts at scale 0.001, so for its first frames the chart is a fraction of a point across; the gradient border pulls its inner outline in by the border's width (`rect.shrink(width)`), which turns a frame smaller than twice that width inside out, the corner-radius cap `0.5 × min(width, height)` went negative, and `f32::clamp(0.0, cap)` panics when its maximum is below its minimum. Three changes in `paint.rs`: the cap of `rounded_rect_outline_points_per_corner` and of `rounded_rect_outline_points` can no longer go below zero (the two other caps in that file already had the guard), and the gradient border's inner outline is pulled in by at most half the frame, so it cannot invert.
   - *Not a 3D-perspective defect, although it was met while trying both:* the crash log has no perspective frame in it and the panic reproduces on charts with no tilt. It reproduces at every chart type, not only the demo.
   - *Checked:* the real `charts-form.cfrm` with every control zoomed in from nothing, on the Designer canvas and on the Preview's interactive path, flat and tilted, at 10 scales: 40 renders. On the unfixed `paint.rs` 4 of them panicked with the report's own message (`min = 0.0, max = -1.0`, at scale 0.01); with the fix none. 112 zoom-in frames over the seven chart types (tilted and not, 8 scales): 28 panicked before, 0 after. 5,488 chart borders drawn at every size from 0 to 20 points (every chart, border widths 1 to 40, gradient on and off, blur on and off): none panics (`a_chart_border_survives_a_frame_smaller_than_itself`).
-  - *Found, not changed:* `render.rs` clamps a DataGrid image cell's corner radius with `clamp(0.0, dest.width().min(dest.height()) * 0.5)` on a rectangle pulled in by 3 points on every side; it would panic the same way for an image column whose rows are under about 6 points tall. Seen by reading, not reproduced.
+  - *Found while reading, and wrong as first written:* `render.rs` clamps a DataGrid image cell's corner radius with `clamp(0.0, dest.width().min(dest.height()) * 0.5)` on the cell pulled in by 3 points a side. This entry first said it would panic for an image column whose rows are under about 6 points tall; **it cannot** — see 1.91.143, which checked it through the real renderer (rows are never shorter than 14 points, columns never narrower than 32).
 
 ## [PowerRustCOBOL 1.91.141] — 2026-10-14
 
