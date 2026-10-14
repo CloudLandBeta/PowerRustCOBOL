@@ -4738,6 +4738,17 @@ pub fn render_faces_with(
     out
 }
 
+/// The corner radius a DataGrid image cell draws its picture with: the column's radius, never more than
+/// half the shorter side of the box the picture is drawn in, and never below zero.
+///
+/// `f32::clamp` PANICS when its maximum is below its minimum, so the maximum is held at zero: a box
+/// with a negative size (a cell pulled in past its own middle) must not take the IDE down, as a chart
+/// border did in 1.91.142. The grid keeps its cells larger than that (a row of at least 14 points, a
+/// column of at least 32), so today the box is always positive; this is for the day a floor moves.
+fn image_cell_corner(radius: f32, dest: Rect) -> f32 {
+    radius.clamp(0.0, (0.5 * dest.width().min(dest.height())).max(0.0))
+}
+
 /// Scale `tsize` into `area` per `mode`, as ONE destination quad.
 ///
 /// Fill / Fit are centred, Center is native size, Stretch is the whole area.
@@ -12486,10 +12497,10 @@ fn render_interactive(
                             let img_rect = cell_rect.shrink2(vec2(3.0, 3.0));
                             if let Some(tex) = tex {
                                 let dest = image_dest(img_rect, tex.size_vec2(), BgImageMode::Fit);
-                                let corner = column_meta
-                                    .map(|column| column.image_corner_radius)
-                                    .unwrap_or(0.0)
-                                    .clamp(0.0, dest.width().min(dest.height()) * 0.5);
+                                let corner = image_cell_corner(
+                                    column_meta.map(|column| column.image_corner_radius).unwrap_or(0.0),
+                                    dest,
+                                );
                                 let shadow = column_meta
                                     .map(|column| column.image_shadow)
                                     .unwrap_or(false);
@@ -15290,6 +15301,37 @@ fn render_interactive(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A DataGrid image cell's corner radius stays inside its box and never panics: `f32::clamp` panics when
+    /// its maximum is below its minimum, which is what the inline `clamp(0.0, w.min(h) * 0.5)` did for a box with
+    /// a negative size. The box is the cell pulled in by 3 points a side; the grid keeps a cell larger than that
+    /// (14-point rows, 32-point columns), so no real grid reaches it today — this is the guard itself.
+    #[test]
+    fn an_image_cells_corner_is_held_inside_its_box_and_a_negative_box_does_not_panic() {
+        let rect = |w: f32, h: f32| Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(w, h));
+        // The old expression, on a box with a negative size, is a panic: this is a real panic input.
+        let old = |radius: f32, dest: Rect| radius.clamp(0.0, dest.width().min(dest.height()) * 0.5);
+        assert!(std::panic::catch_unwind(|| old(6.0, rect(-4.0, 20.0))).is_err(), "the old clamp panics on a negative box");
+        // (The "panicked at … min > max" lines this test prints are the OLD clamp, caught on purpose.)
+        println!("\n  radius   box            old clamp   image_cell_corner");
+        for (radius, w, h, want) in [
+            (6.0f32, 40.0f32, 30.0f32, 6.0f32), // fits
+            (40.0, 40.0, 30.0, 15.0),           // held to half the shorter side
+            (1000.0, 8.0, 100.0, 4.0),
+            (6.0, 0.0, 30.0, 0.0),              // an empty box
+            (6.0, -4.0, 20.0, 0.0),             // inside out: width negative
+            (6.0, 20.0, -2.0, 0.0),             // inside out: height negative
+            (6.0, -4.0, -4.0, 0.0),
+            (0.0, 40.0, 30.0, 0.0),
+            (-5.0, 40.0, 30.0, 0.0),            // a negative radius is none
+        ] {
+            let got = image_cell_corner(radius, rect(w, h));
+            let before = std::panic::catch_unwind(|| old(radius, rect(w, h)))
+                .map_or_else(|_| "PANIC".to_owned(), |v| format!("{v}"));
+            println!("  {radius:>6}   {w:>5} × {h:<6}   {before:>9}   {got}");
+            assert!((got - want).abs() < 1e-5, "radius {radius} in {w}×{h}: {got}, wanted {want}");
+        }
+    }
     use crate::model::Rect as MRect;
 
     fn ctrl(id: &str, t: ControlType, x: i32, y: i32, w: i32, h: i32) -> Control {
