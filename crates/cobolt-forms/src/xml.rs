@@ -3032,7 +3032,7 @@ Actor Caption:string</Property>
                 }
             }
         }
-        assert_eq!(checked, 75);
+        assert_eq!(checked, 76);
         println!("056 T2.3: {checked} example forms load → save → load byte-identical");
     }
 
@@ -3068,7 +3068,7 @@ Actor Caption:string</Property>
                 }
             }
         }
-        assert_eq!(checked, 59);
+        assert_eq!(checked, 60);
         assert_eq!(
             designed_responsive, 16,
             "PowerDemo3's twelve responsive demos, its modern-form, buttons-form and layers-form, and PowerChat's chat-form"

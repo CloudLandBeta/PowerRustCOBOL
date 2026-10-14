@@ -1,0 +1,82 @@
+# PowerDemo3/Charts/chart-3d.cfrm
+## Canvas 0.75x 912x504
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=258 digest=c0246152d9c2c9d0
+## Run 0.75x 912x504
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=255 digest=1f7148be746e9e89
+## Preview 0.75x 912x504
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=255 digest=1f7148be746e9e89
+## Canvas 1x 1216x672
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=284 digest=4eca9327de22be82
+## Run 1x 1216x672
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=281 digest=f044a887163559fb
+## Preview 1x 1216x672
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=281 digest=f044a887163559fb
+## Canvas 1.5x 1824x1008
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=284 digest=781e8eef8e15c5af
+## Run 1.5x 1824x1008
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=281 digest=d738628e30316c79
+## Preview 1.5x 1824x1008
+BarChart-1 rect=[208 248 528 468] font=13
+LineChart-1 rect=[792 336 952 496] font=9
+PictureBox-2 rect=[0 200 864 796] font=13
+PictureBox-Desk rect=[0 0 1216 672] font=13
+PieChart-1 rect=[624 336 751 464] font=9
+RadarChart-1 rect=[424 336 592 536] font=11
+Timer-1 rect=[1136 16 1184 64] font=14
+shapes=281 digest=008a00aa9fca6a75

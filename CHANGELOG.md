@@ -17,6 +17,21 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.152] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.151.)*
+
+### Fix: the example-corpus tests know the 3D Charts form
+
+Four tests went red on `main` the moment `examples/PowerDemo3/forms/Charts/chart-3d.cfrm` was added to the examples in 1.91.146, and stayed red for four versions, because the `cobolt-forms` and `cobolt-form-host` suites were not run when it was added — only the code generator's snapshot test was, and that one was updated. The mistake was the author's, not the form's:
+
+- `xml::tests::every_example_form_round_trips_056` counts the example forms that load, save and load again byte-identically and expected 75; there are 76 (`chart-3d` round-trips). `xml::tests::no_example_form_gains_responsive_markup_on_save_056` expected 59 and finds 60. Both expectations are now 76 and 60.
+- `every_example_form_renders_as_its_golden` (`cobolt-forms`) and `host::parity::corpus_golden` (`cobolt-form-host`) each need one golden file per example form and found none for `chart-3d`. They were captured with the tests' own `COBOLT_WRITE_GOLDEN=1` and are the only new files: `tests/goldens/056_corpus/PowerDemo3/Charts__chart-3d.cfrm.txt` in each crate. The capture rewrote every other golden in those crates byte for byte as it was — `git status` showed no other change.
+
+- *Measured, not recalled:* before, in the 1.91.151 sweep, `cobolt-forms` 1,600 passed / 3 failed and `cobolt-form-host` 175 passed / 1 failed; the four tests above were those four. After: `xml::tests` 46 passed, `example_corpus_golden` 1 passed (188.8 s), `corpus_golden` 1 passed (240.4 s).
+- *Not checked:* the two goldens' contents were captured, not reviewed line by line against what `chart-3d` ought to draw — they pin what it draws today, which is what a golden is. The tests above were rerun; the whole `cobolt-forms` and `cobolt-form-host` suites were not rerun after the capture, only the failing ones.
+- *Lesson recorded:* adding a form to `examples/` has three consumers beside the Designer — the codegen snapshot, the two corpus goldens, and the two form counts — and a sweep of `cobolt-forms` and `cobolt-form-host` belongs to it.
+
 ## [PowerRustCOBOL 1.91.151] — 2026-10-14
 
 *(Written on `fixes`, after 1.91.150. The change was made in a separate session on the branch `fixes-chart-tween`, from `main` at 1.91.145, and was left staged and uncommitted; it is integrated here as it was, and its numbers were reproduced before this entry was written.)*
