@@ -17,6 +17,25 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.148] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.147.)*
+
+### Fix: PowerDemo3's 3D Charts form shows its desk picture when it runs, and ticks every 3 seconds
+
+Two changes to `examples/PowerDemo3/forms/Charts/chart-3d.cfrm`, both the operator's.
+
+**The background picture.** In Run Form the form showed the woman and the four charts over the blurred desktop, with no sunset desk behind them. That is by design, not a defect: under a see-through theme (Spatial, spec 083) the host drops the form's own colour, gradient **and picture** so the blurred desktop the theme exists to show is not hidden (`FormHost::backdrop`, `cobolt-form-host/src/host.rs`). The form uses the Spatial theme and sets `background-image`, so the theme won. The picture is now also a `PictureBox-Desk` — stretched over the whole form, on the base (no layer), at the back — which a see-through theme does not drop. The form keeps the Spatial theme and its chart colours; its own `background-image` setting stays and is simply not used at run time. The alternative, switching the form to a theme that is not see-through, also shows the picture but recolours the bars (orange and blue in the test) and gives up the glass window, so it was not done.
+
+**The tick: 5 s to 3 s.** `Timer-1`'s `Interval` is 3000. A move used to last 1.4 to 3.2 seconds, which a 3-second tick could outrun, so it is now 1 to 2.6 seconds (`FUNCTION RANDOM * 1600 + 1000`) and always ends before the next tick; the comments say so. A cut is still 250 ms. The 5-second and 1.4-to-3.2-second figures in 1.91.146 and 1.91.147 describe the earlier state. The colours now change every 75 seconds (25 ticks) rather than every 125.
+
+The example corpus snapshot `Charts__chart-3d.cbl` is regenerated (the new control, the interval, the move range and the comments; +11 / −5 lines); every other snapshot was restored to its committed state.
+
+- *Measured, running the form off screen:* `Timer-1::Interval` reads 3000; the first tick had landed 2.4 seconds into the run (the form opens a little before the script starts) and no second tick had landed 1.3 seconds after that; over 32 sampled ticks every `AnimationDuration` is 250 or between 1075 and 2553, never 2600 or more, and 250 is never followed by 250 on the next tick. With the desk box, the picture shows the sunset desk, the woman and the four charts on the glass panels, and the charts hold new data after the first tick (the pie read Retail 66, Online 50, Wholesale 53, Export 49, Other 46). `check` on the whole project: 0 errors in 62 forms.
+- *Not checked:* the operator's own Run Form window, and the Designer — a full-size picture box on the base form is selectable and may get in the way of clicking the form itself there.
+- *Not done:* nothing warns that a form's own background picture is ignored under a see-through theme, so the same surprise is easy to meet again; that would be a Designer hint or a `check` diagnostic, a feature rather than this fix.
+- *Known, not from this change:* `every_example_form_generates_its_snapshot` is still red on `main` for the reasons recorded in 1.91.146 (28 stale snapshots and a missing `General__layers-form.cbl`); this change leaves them as they are.
+
 ## [PowerRustCOBOL 1.91.147] — 2026-10-14
 
 *(Written on `fixes`, after 1.91.146.)*
