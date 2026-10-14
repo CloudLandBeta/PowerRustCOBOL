@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.155] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.154.)*
+
+### Housekeeping: 24 spec folders removed
+
+At the operator's request, after a report of which specs were never implemented or still had open work, these 24 spec folders (75 files, `spec.md`, `plan.md` and `tasks.md` of each) left the tree: `002-indexed-file-editor, 004-control-test-examples, 005-cobol-structure-shared-data, 006-web-wasm-projects, 007-form-themes, 009-form-module-model, 013-chart-monochrome-mode, 019-egui-elegance, 021-control-events, 025-ai-dev-agent, 026-rig-agent-mesh, 027-egui-035-upgrade, 037-main-form-lifecycle, 038-window-effects, 050-pluggable-form-themes, 052-chart-multi-series-and-interaction, 061-multi-form-debugging, 072-agentobject-tool-calling, 075-registered-indexed-files, 078-aws-mcp-controls, 080-coding-agent-companion-kit, 087-exec-sql, 094-datagrid-write-back, 096-control-3d-perspective`. No code, test, form or document of the product changed.
+
+- *Measured, not recalled:* before, `specs/` held 94 numbered folders; after, 70. Nothing outside `specs/` links to a removed folder by path — the only path reference is a comment in `crates/cobolt-cli/examples/mv_spike.rs` that points at `specs/037-main-form-lifecycle/plan.md` §5 for the spike's findings, left as it is. References by *number* in prose and code comments ("spec 038", "spec 096" …) now point at history rather than at a folder; the folders stay readable in git (`git show cd0fa946:specs/<folder>/spec.md`).
+- *Not done:* the cross-references by number were not rewritten, the spec index in `CLAUDE.md` ("001 … 059, 58 folders") was not updated — it is outside the repository — and no feature those specs describe was removed: several of them (052 chart multi-series, 087 EXEC SQL, 094 DataGrid write-back, 096 3D perspective …) are shipped and documented in this changelog.
+
 ## [PowerRustCOBOL 1.91.154] — 2026-10-14
 
 *(Written on `features`, after 1.91.153 — spec 100.)*
