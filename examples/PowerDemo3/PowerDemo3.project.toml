@@ -28,7 +28,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTI
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
-built_with_version = "1.80.228"
+built_with_version = "1.91.145"
 
 [files]
 sources = ["src/main.cbl"]
@@ -92,7 +92,9 @@ forms = [
     "forms/Responsive Layout/responsive-collide-form.cfrm",
     "forms/Responsive Layout/responsive-obsolete-form.cfrm",
     "forms/Responsive Layout/responsive-dashboard-form.cfrm",
-    "forms/General/modern-form.cfrm", "forms/General/layers-form.cfrm",
+    "forms/General/modern-form.cfrm",
+    "forms/General/layers-form.cfrm",
+    "forms/Charts/chart-3d.cfrm",
 ]
 assets = []
 documentation = [
@@ -179,7 +181,9 @@ generated = [
     "generated/responsive-runtime-form.cbl",
     "generated/responsive-collide-form.cbl",
     "generated/responsive-obsolete-form.cbl",
-    "generated/responsive-dashboard-form.cbl", "generated/layers-form.cbl",
+    "generated/responsive-dashboard-form.cbl",
+    "generated/layers-form.cbl",
+    "generated/chart-3d.cbl",
 ]
 indexed = ["indexed/actors.cidx"]
 
@@ -214,7 +218,7 @@ focus-ring-pulse = true
 responsive = false
 breakpoints = ""
 main-form = "SIDEBAR-FORM"
-main-form-seal = "2d9bef039daf78f56b44978656da49c2f02673ec3555719a6db369c4b406c08e"
+main-form-seal = "092d2b27f8c51605944081b996769632682c25027f04f680db43b154c6e91c2f"
 
 [ai]
 schema_version = 1

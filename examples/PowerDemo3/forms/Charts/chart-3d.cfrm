@@ -1,0 +1,623 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="CHART-3D" title="3D Charts" width="1216" height="672" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="spatial" background-image="assets/Empty glass desk at sunset-2.png" bg-image-mode="Stretch" title-visible="false" corner-radius="20" index-base="1" control-style="modern">
+  <Layer name="charts" color="#00000000"/>
+  <Layer name="Woman" color="#00000000"/>
+  <working-storage><![CDATA[       01 WS-CYCLE                               GLOBAL    PIC 9(9)    VALUE 0.
+       01 WS-PAL                                 GLOBAL    PIC 9    VALUE 1.
+       01 WS-OWED-TAB                            GLOBAL.
+           05 WS-OWED                            PIC    9    OCCURS 4.
+       01 WS-VAL-TAB                             GLOBAL.
+           05 WS-VAL                             PIC    9(3)    OCCURS 37.
+       01 WS-LABEL-DATA                          GLOBAL.
+           05 FILLER                             PIC    X(9)    VALUE "Q1".
+           05 FILLER                             PIC    X(9)    VALUE "Q2".
+           05 FILLER                             PIC    X(9)    VALUE "Q3".
+           05 FILLER                             PIC    X(9)    VALUE "Q4".
+           05 FILLER                             PIC    X(9)    VALUE "Retail".
+           05 FILLER                             PIC    X(9)    VALUE "Online".
+           05 FILLER                             PIC    X(9)    VALUE "Wholesale".
+           05 FILLER                             PIC    X(9)    VALUE "Export".
+           05 FILLER                             PIC    X(9)    VALUE "Other".
+           05 FILLER                             PIC    X(9)    VALUE "Quality".
+           05 FILLER                             PIC    X(9)    VALUE "Speed".
+           05 FILLER                             PIC    X(9)    VALUE "Cost".
+           05 FILLER                             PIC    X(9)    VALUE "Support".
+           05 FILLER                             PIC    X(9)    VALUE "Design".
+           05 FILLER                             PIC    X(9)    VALUE "Safety".
+           05 FILLER                             PIC    X(9)    VALUE "Jan".
+           05 FILLER                             PIC    X(9)    VALUE "Feb".
+           05 FILLER                             PIC    X(9)    VALUE "Mar".
+           05 FILLER                             PIC    X(9)    VALUE "Apr".
+           05 FILLER                             PIC    X(9)    VALUE "May".
+           05 FILLER                             PIC    X(9)    VALUE "Jun".
+           05 FILLER                             PIC    X(9)    VALUE "Jul".
+           05 FILLER                             PIC    X(9)    VALUE "Aug".
+           05 FILLER                             PIC    X(9)    VALUE "Sep".
+           05 FILLER                             PIC    X(9)    VALUE "Oct".
+           05 FILLER                             PIC    X(9)    VALUE "Nov".
+           05 FILLER                             PIC    X(9)    VALUE "Dec".
+       01 WS-LABEL-TAB                           REDEFINES    WS-LABEL-DATA    GLOBAL.
+           05 WS-LABEL                           PIC    X(9)    OCCURS 27.
+       01 WS-PALETTE-DATA                        GLOBAL.
+           05 FILLER                             PIC    X(47)    VALUE "#4C9BE8,#E8C84C,#4CE87A,#E84C9B,#9B4CE8,#E87A4C".
+           05 FILLER                             PIC    X(47)    VALUE "#22C3D6,#F0527A,#B5D334,#8B5CF6,#F5A524,#2FBF71".
+           05 FILLER                             PIC    X(47)    VALUE "#FF7A45,#F5C242,#E8436F,#A64CE8,#4CC9E8,#7AE84C".
+           05 FILLER                             PIC    X(47)    VALUE "#2FBF71,#E8C84C,#4C9BE8,#E87A4C,#B5D334,#E84C9B".
+           05 FILLER                             PIC    X(47)    VALUE "#F0527A,#4CE8D0,#F5A524,#8B5CF6,#3E7BE8,#B5D334".
+           05 FILLER                             PIC    X(47)    VALUE "#5072D6,#F2A65A,#51FB7C,#D65A9E,#62D0E8,#E8D44C".
+       01 WS-PALETTE-TAB                         REDEFINES    WS-PALETTE-DATA    GLOBAL.
+           05 WS-PALETTE                         PIC    X(47)    OCCURS 6.
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="CHART-3D--ONLOAD">
+    </Event>
+    <Event name="onClose" paragraph="CHART-3D--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="BarChart-1" type="BarChart" x="208" y="248" w="320" h="220" tab-order="1" z-order="1" visible="true" enabled="true" layer="charts">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Title"></Property>
+    <Property name="TitleFontSize">0</Property>
+    <Property name="TitleColor"></Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#FC9C9C</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="XAxisLabel"></Property>
+    <Property name="YAxisLabel"></Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="DataSource"></Property>
+    <Property name="DataCount"></Property>
+    <Property name="LabelField"></Property>
+    <Property name="ValueFields"></Property>
+    <Property name="SeriesLabels"></Property>
+    <Property name="Horizontal">false</Property>
+    <Property name="Stacked">false</Property>
+    <Property name="BarCornerRadius">3</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">0</Property>
+    <Property name="BorderColor">#00000000</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="RotateX">10</Property>
+    <Property name="RotateY">-45</Property>
+    <Property name="PerspectiveDistance">32</Property>
+    <Property name="PinTopRightX">11</Property>
+    <Property name="PinTopRightY">34</Property>
+    <Property name="PinTopLeftX">-1</Property>
+    <Property name="PinTopLeftY">9</Property>
+    <Property name="PinBottomRightX">0</Property>
+    <Property name="PinBottomRightY">6</Property>
+  </Control>
+  <Control id="PictureBox-2" type="PictureBox" x="0" y="200" w="864" h="596" tab-order="1" z-order="2" visible="true" enabled="true" layer="Woman">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="ImagePath">assets/Seated woman and chrome chair-1.png</Property>
+    <Property name="SizeMode">Normal</Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Animation name="anim1" trigger="OnFormLoad" kind="FadeIn" duration="2180" delay="0" easing="Linear" repeat="Once" slide-dx="0" slide-dy="0"/>
+  </Control>
+  <Control id="PieChart-1" type="PieChart" x="624" y="336" w="127" h="128" tab-order="1" z-order="3" visible="true" enabled="true" layer="charts">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">9</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Title"></Property>
+    <Property name="TitleFontSize">0</Property>
+    <Property name="TitleColor"></Property>
+    <Property name="ShowLegend">false</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="Monochrome">true</Property>
+    <Property name="MonochromeColor">#224459</Property>
+    <Property name="MonochromeGradient">true</Property>
+    <Property name="XAxisLabel"></Property>
+    <Property name="YAxisLabel"></Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="DataSource"></Property>
+    <Property name="DataCount"></Property>
+    <Property name="LabelField"></Property>
+    <Property name="ValueFields"></Property>
+    <Property name="SeriesLabels"></Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">0</Property>
+    <Property name="BorderColor">#00000000</Property>
+    <Property name="BorderGradientEnabled">true</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="ShowLabels">true</Property>
+    <Property name="LabelFormat">percent</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="RotateX">9</Property>
+    <Property name="RotateY">-32</Property>
+    <Property name="PerspectiveDistance">45</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">-11</Property>
+    <Property name="PinTopLeftY">-26</Property>
+    <Property name="PinTopRightX">31</Property>
+    <Property name="PinTopRightY">-6</Property>
+    <Property name="PinBottomRightX">21</Property>
+    <Property name="PinBottomRightY">0</Property>
+    <Property name="PinBottomLeftX">-30</Property>
+    <Property name="PinBottomLeftY">1</Property>
+  </Control>
+  <Control id="RadarChart-1" type="RadarChart" x="424" y="336" w="168" h="200" tab-order="1" z-order="5" visible="true" enabled="true" layer="charts">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Title"></Property>
+    <Property name="TitleFontSize">0</Property>
+    <Property name="TitleColor"></Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="Monochrome">true</Property>
+    <Property name="MonochromeColor">#5072D6</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="DataSource"></Property>
+    <Property name="DataCount"></Property>
+    <Property name="LabelField"></Property>
+    <Property name="ValueFields"></Property>
+    <Property name="SeriesLabels"></Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#3C50A0</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="GridLevels">5</Property>
+    <Property name="FillOpacity">35</Property>
+    <Property name="ShowPoints">true</Property>
+    <Property name="PointRadius">3</Property>
+    <Property name="MinValue">0</Property>
+    <Property name="MaxValue">0</Property>
+    <Property name="ShowAxisValues">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">67</Property>
+    <Property name="PinTopLeftY">-18</Property>
+    <Property name="PinTopRightX">49</Property>
+    <Property name="PinTopRightY">-10</Property>
+    <Property name="PinBottomRightX">28</Property>
+    <Property name="PinBottomRightY">-86</Property>
+    <Property name="PinBottomLeftX">45</Property>
+    <Property name="PinBottomLeftY">-112</Property>
+  </Control>
+  <Control id="LineChart-1" type="LineChart" x="792" y="336" w="160" h="160" tab-order="1" z-order="6" visible="true" enabled="true" layer="charts">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">9</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Title"></Property>
+    <Property name="TitleFontSize">0</Property>
+    <Property name="TitleColor"></Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="Monochrome">true</Property>
+    <Property name="MonochromeColor">#51FB7C</Property>
+    <Property name="MonochromeGradient">true</Property>
+    <Property name="XAxisLabel"></Property>
+    <Property name="YAxisLabel"></Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="DataSource"></Property>
+    <Property name="DataCount"></Property>
+    <Property name="LabelField"></Property>
+    <Property name="ValueFields"></Property>
+    <Property name="SeriesLabels"></Property>
+    <Property name="Smooth">true</Property>
+    <Property name="ShowPoints">true</Property>
+    <Property name="PointRadius">4</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#3C50A0</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">1</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">3</Property>
+    <Property name="PinTopLeftY">-9</Property>
+    <Property name="PinTopRightX">18</Property>
+    <Property name="PinTopRightY">0</Property>
+    <Property name="PinBottomRightX">0</Property>
+    <Property name="PinBottomRightY">0</Property>
+    <Property name="PinBottomLeftX">-49</Property>
+    <Property name="PinBottomLeftY">-26</Property>
+  </Control>
+  <Control id="Timer-1" type="Timer" x="1136" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Interval">5000</Property>
+    <Property name="Enabled">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+       01 WS-I                                   PIC    9(3).
+       01 WS-C                                   PIC    9(3).
+       01 WS-K                                   PIC    9(3).
+       01 WS-STEP                                PIC    S9(4).
+       01 WS-NEW                                 PIC    S9(4).
+       01 WS-SEED                                PIC    9(8).
+       01 WS-MS-TAB.
+           05 WS-MS                              PIC    9(5)    OCCURS 4.
+
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           *> One tick every 5 seconds is one cycle. Every cycle gives each chart a new series, and
+           *> every 25th cycle gives all four charts new colours.
+           *>
+           *> The values live in WS-VAL (form-level, so they last from tick to tick) and drift: each
+           *> one starts from where it was and moves a little, which reads as data changing rather
+           *> than as dice. Where each chart's values sit in WS-VAL:
+           *>    1 ..  8  BarChart-1    4 quarters x 2 series (quarter q: 2q - 1 and 2q)
+           *>    9 .. 13  PieChart-1    5 slices
+           *>   14 .. 25  RadarChart-1  6 axes x 2 series (axis a: 2a + 12 and 2a + 13)
+           *>   26 .. 37  LineChart-1   12 months
+           *> WS-LABEL holds their names in the same order: 1 .. 4, 5 .. 9, 10 .. 15 and 16 .. 27.
+
+           ADD    1 TO WS-CYCLE
+
+           IF    WS-CYCLE = 1
+
+               *> First tick. An unseeded RANDOM gives the same numbers on every run, so seed it
+               *> from the clock (the first number it returns is thrown away), then start every
+               *> value somewhere between 30 and 79.
+
+               ACCEPT    WS-SEED FROM TIME
+               COMPUTE    WS-STEP = FUNCTION RANDOM(WS-SEED)
+
+               PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 37
+                   COMPUTE    WS-VAL(WS-I) = FUNCTION RANDOM * 50 + 30
+               END-PERFORM
+
+               PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 4
+                   SET     WS-OWED(WS-C)         TO    0
+               END-PERFORM
+           ELSE
+
+               *> Every other tick: each value moves by -18 to +18, with a pull of one sixth of the
+               *> way back towards the middle (52) - without it the values wander into 8 or 96 and
+               *> stay there - and stays between 8 and 96.
+
+               PERFORM    VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 37
+                   COMPUTE    WS-STEP = FUNCTION RANDOM * 37
+                   COMPUTE    WS-NEW = WS-VAL(WS-I) + WS-STEP - 18 + (52 - WS-VAL(WS-I)) / 6
+
+                   IF    WS-NEW < 8
+                       SET     WS-NEW            TO    8
+                   END-IF
+
+                   IF    WS-NEW > 96
+                       SET     WS-NEW            TO    96
+                   END-IF
+
+                   SET     WS-VAL(WS-I)          TO    WS-NEW
+               END-PERFORM
+           END-IF
+
+           *> How each chart arrives this cycle, chosen chart by chart. Most travel to their new
+           *> values over 1.4 to 3.2 seconds, a different length each time. About one in three is
+           *> cut instead: it shows its new values at once (250 ms is the shortest move a chart
+           *> makes, the nearest AnimateValues gets to a cut) and WS-OWED(chart) = 1 makes sure that
+           *> chart travels on the next cycle.
+
+           PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 4
+               IF    WS-OWED(WS-C) = 1 OR FUNCTION RANDOM >= 0.35
+                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1800 + 1400
+
+                   SET     WS-OWED(WS-C)         TO    0
+               ELSE
+                   SET     WS-MS(WS-C)           TO    250
+                   SET     WS-OWED(WS-C)         TO    1
+               END-IF
+           END-PERFORM
+
+           *> Every 25th cycle: new colours. The step is 1 to 5, so the palette is never the one it
+           *> was. The bar chart colours its series from SeriesColors; the pie, the radar and the
+           *> line are Monochrome, so they take one colour each - the 1st, 2nd and 3rd of the
+           *> palette.
+
+           IF    FUNCTION MOD(WS-CYCLE, 25) = 0
+               COMPUTE    WS-STEP = FUNCTION RANDOM * 5 + 1
+               COMPUTE    WS-PAL = FUNCTION MOD(WS-PAL - 1 + WS-STEP, 6) + 1
+
+               SET     BarChart-1::SeriesColors  TO    WS-PALETTE(WS-PAL)
+
+               SET     PieChart-1::MonochromeColor
+                                                 TO    WS-PALETTE(WS-PAL)(1:7)
+
+               SET     RadarChart-1::MonochromeColor
+                                                 TO    WS-PALETTE(WS-PAL)(9:7)
+
+               SET     LineChart-1::MonochromeColor
+                                                 TO    WS-PALETTE(WS-PAL)(17:7)
+           END-IF
+
+           *> BarChart-1: four quarters, two series.
+
+           SET     BarChart-1::AnimationDuration TO    WS-MS(1)
+           BarChart-1::Clear()
+
+           PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 4
+               COMPUTE    WS-K = WS-C * 2 - 1
+               BarChart-1::AddPoint(WS-LABEL(WS-C)::Trim(), WS-VAL(WS-K), WS-VAL(WS-K + 1))
+           END-PERFORM
+
+           *> PieChart-1: five slices.
+
+           SET     PieChart-1::AnimationDuration TO    WS-MS(2)
+           PieChart-1::Clear()
+
+           PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 5
+               PieChart-1::AddPoint(WS-LABEL(WS-C + 4)::Trim(), WS-VAL(WS-C + 8))
+           END-PERFORM
+
+           *> RadarChart-1: six axes, two series.
+
+           SET     RadarChart-1::AnimationDuration
+                                                 TO    WS-MS(3)
+
+           RadarChart-1::Clear()
+
+           PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 6
+               COMPUTE    WS-K = WS-C * 2 + 12
+               RadarChart-1::AddPoint(WS-LABEL(WS-C + 9)::Trim(), WS-VAL(WS-K), WS-VAL(WS-K + 1))
+           END-PERFORM
+
+           *> LineChart-1: twelve months.
+
+           SET     LineChart-1::AnimationDuration
+                                                 TO    WS-MS(4)
+
+           LineChart-1::Clear()
+
+           PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 12
+               LineChart-1::AddPoint(WS-LABEL(WS-C + 15)::Trim(), WS-VAL(WS-C + 25))
+           END-PERFORM.
+]]></Event>
+  </Control>
+</Form>

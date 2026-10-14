@@ -17,6 +17,20 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.146] — 2026-10-14
+
+*(Written on `features`, after 1.91.145 — the corner pin.)*
+
+### Examples: PowerDemo3's 3D Charts form animates by itself
+
+`examples/PowerDemo3/forms/Charts/chart-3d.cfrm` — the operator's four tilted, pinned charts over the glass-desk picture (a BarChart, a PieChart, a RadarChart and a LineChart) — now runs a `Timer-1` every 5 seconds, and its `onTick` handler is the whole demo. Each cycle gives every chart a new series: the values live in form-level `GLOBAL` storage and drift from where they were (up to ±18, with a pull towards the middle so none wedges at the limits), and the first tick seeds `FUNCTION RANDOM` from the clock, because an unseeded one repeats the same numbers on every run. Each chart arrives either as a move of 1.4 to 3.2 seconds or as a cut (`AnimationDuration` 250 ms, the shortest the engine allows), about one in three at random; a chart that was cut is guaranteed to move on the next cycle. Every 25th cycle all four take a new palette, never the one they had: the bar chart through `SeriesColors`, the three `Monochrome` charts through `MonochromeColor`. `AnimateValues` is switched on for the four charts. The handler is written in the layout rule (Beautify's), and every palette differs from the seeded default `SeriesColors`, which a chart reads as "not chosen" and paints with the theme.
+
+The form's two pictures (`Empty glass desk at sunset-2.png`, `Seated woman and chrome chair-1.png`) and the project manifest's registration of the form (the IDE's own write, stamped 1.91.145) come with it. The example corpus snapshot `tests/golden/corpus/PowerDemo3/Charts__chart-3d.cbl` is new, because `every_example_form_generates_its_snapshot` requires one for every example form.
+
+- *Measured, running the form off screen (not recalled):* 37 ticks at an 80 ms interval — the colours change on exactly the 25th tick and not before; every `AnimationDuration` is 250 or between 1428 and 3099; 250 is never followed by 250 on the next tick; 11 of the 37 were cuts; each chart ends with all its rows and its own labels; the pie, radar and line take entries 1, 2 and 3 of the same palette as the bar chart. `check` on the whole project: 0 errors in 62 forms.
+- *Not checked:* how it looks on screen. The tool's picture of this form is a flat grey, for the untouched original too, so nothing here has been seen animating; whether a chart flashes at the instant of a tick (`Clear()` then `AddPoint` are separate updates) needs a look at the live window.
+- *Known, not from this change:* `every_example_form_generates_its_snapshot` is red on `main` before and after this commit — 28 committed snapshots are stale (the comment-before-`CALL` blocks added to the example forms on 2026-10-12, 6,048 lines) and `General__layers-form.cbl` is missing. The operator's regenerated copies are uncommitted in the primary checkout and are byte-identical to what the generator writes today; they were deliberately left out of this commit.
+
 ## [PowerRustCOBOL 1.91.145] — 2026-10-14
 
 *(Written on `features-perspective-3d`, after 1.91.144 — spec 098, the third of the perspective specs.)*
