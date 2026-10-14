@@ -34,6 +34,7 @@ See the LICENSE file in the project root for full license information.
 3. [Installing and launching](#3-installing-and-launching)
 4. [Your first application: Hello, Form](#4-your-first-application-hello-form)
 5. [The IDE at a glance](#5-the-ide-at-a-glance)
+   - [The Settings menu](#the-settings-menu)
    - [Window effects](#window-effects)
 6. [Projects and the project model](#6-projects-and-the-project-model)
 7. [The Form Designer (RAD)](#7-the-form-designer-rad)
@@ -63,7 +64,7 @@ See the LICENSE file in the project root for full license information.
 17. [The command line (rcrun)](#17-the-command-line-rcrun)
 18. [Building a distributable binary](#18-building-a-distributable-binary)
 19. [Debugging](#19-debugging)
-    - [Diagnostic switches (Help ▸ Debug Settings)](#diagnostic-switches-help--debug-settings)
+    - [Diagnostic switches (Settings ▸ Debug Settings)](#diagnostic-switches-settings--debug-settings)
 20. [Appearance and internationalisation](#20-appearance-and-internationalisation)
 21. [COBOL Structure and shared data](#21-cobol-structure-and-shared-data)
 22. [The application shell and the `super` receiver](#22-the-application-shell-and-the-super-receiver)
@@ -354,7 +355,7 @@ This walkthrough produces a one-button window that shows a message.
 
 ```mermaid
 flowchart TB
-    MB["Menu bar — File · Run · View · Help"]
+    MB["Menu bar — File · Settings · (Run) · View · Help"]
     TB["Toolbar — Open · Save · Check · Build · Run · Debug · Stop · ⚙"]
     subgraph Body[" "]
         direction LR
@@ -365,6 +366,11 @@ flowchart TB
     MB --> TB --> Body --> OUT
 ```
 
+- **Menu bar (top).** **File · Settings · View · Help** — and **Run**, between
+  Settings and View, once a project or a source file is open. **File** is about
+  the project (new, open, save, package, build, quit); **Settings** is about the
+  IDE and the machine you run it on; **Help** is the documentation, the examples,
+  the tour and *About*.
 - **Project Explorer (left).** A tree rooted at your project. Eight fixed
   categories — **Forms**, **Indexed Files**, **SQL Connections**, **Common Code**, **Generated Code**,
   **Project's Crates (Beta)**, **Assets**, **Knowledge Base** — each with a **➕**
@@ -376,6 +382,25 @@ flowchart TB
   **Events**. Indexed Files expand to show record fields (like form controls).
   **Click the root node at the very top** (📁 YourProjectName) at any time to
   bring up the full project settings form in the main work area.
+
+### The Settings menu
+
+Everything that configures something sits under one menu, **Settings**, so there is
+one place to look. It holds five items, grouped the way you reach for them:
+
+| Item | What it does |
+|------|--------------|
+| **Configure Claude Code** | Connects Claude Code to the IDE: installs the PowerRustCOBOL plugin once, for every project (see [Driving the IDE with an AI agent](#driving-the-ide-with-an-ai-agent-mcp)). |
+| **Coding Agent Settings** | Shows, for the whole IDE, the state of that connection and lets you update or change it. |
+| **🐞 Debug Settings…** | The diagnostic switches of the IDE (see [Diagnostic switches](#diagnostic-switches-settings--debug-settings)). |
+| **🧰 Platform SDK Location…** | Tells the IDE where the platform's Rust sources live when they are not beside the executable — building an application compiles against them. |
+| **Reindex Knowledge Bases** | Brings the knowledge bases the AI agents search up to date, without sending a message. The same incremental sync runs by itself when a workflow starts. |
+
+> **Note.** The **Project Settings** screen — name, version, licence, destination
+> folder, the AI models — is not in this menu: it is a page of the main work area,
+> and clicking the root node of the project tree opens it. The menu holds what
+> belongs to **you and this machine**, the page holds what belongs to **the
+> project**, which a colleague opening the same project shares.
 
 ### Organising the project tree with folders
 
@@ -1042,7 +1067,7 @@ ends (through the exit effect, when one is set), and fires
 Two practical notes. Effects paint inside the window: with the native title
 bar visible, the animation covers the content area; a chromeless form
 (`TitleVisible` off) with transparency gives an effect the whole window
-rectangle. And a machine-wide kill-switch lives in **Help ▸ Debug Settings ▸
+rectangle. And a machine-wide kill-switch lives in **Settings ▸ Debug Settings ▸
 "Disable window effects"** — instant windows everywhere without touching any
 project, for motion sensitivity, weak GPUs, or automation
 (`PRC_NO_WINDOW_FX=1` does the same for a bare `rcrun run-form` **or a built
@@ -13703,7 +13728,7 @@ Claude Code for now) and choose:
 | --- | --- |
 | **Connect** | Runs **Configure Claude Code** (below) and shows its progress in Coding Agent Settings. Disabled while the agent is not installed — the window says so and where to connect later. |
 | **Skip for now** | Closes the window; it asks again the next time the IDE starts. |
-| **Don't show again** | Never asks again for that agent. You can still connect from **File ▸ Configure Claude Code** or **Help ▸ Coding Agent Settings**. |
+| **Don't show again** | Never asks again for that agent. You can still connect from **Settings ▸ Configure Claude Code** or **Settings ▸ Coding Agent Settings**. |
 
 > 📷 **Screenshot needed — `connect-coding-agent.png`.** The Connect a coding
 > agent window at start: the mascot and the coding agent at their laptops with
@@ -13712,7 +13737,7 @@ Claude Code for now) and choose:
 
 #### Configure Claude Code
 
-**File ▸ Configure Claude Code** installs the **PowerRustCOBOL plugin** in the
+**Settings ▸ Configure Claude Code** installs the **PowerRustCOBOL plugin** in the
 Claude Code already on your machine, for your user. It does not need a project
 open. The plugin carries:
 
@@ -13882,7 +13907,7 @@ gives a plugin no way to approve its own tools for you.
 
 #### Coding Agent Settings
 
-**Help ▸ Coding Agent Settings** shows, for the whole IDE:
+**Settings ▸ Coding Agent Settings** shows, for the whole IDE:
 
 | Row | What it says |
 | --- | --- |
@@ -13892,7 +13917,7 @@ gives a plugin no way to approve its own tools for you.
 | **Port** | The tools' port. **Apply port** moves the server at once; configure Claude Code again so it uses the new port too. |
 | **Access token** | Whether one is set. It is never shown. **Renew token** replaces it — requests with the old one are refused from then on — so configure Claude Code again. |
 
-**Configure** / **Update** does what **File ▸ Configure Claude Code** does.
+**Configure** / **Update** does what **Settings ▸ Configure Claude Code** does.
 
 > ⚠️ **Caveat — the token is the lock.** The tool server listens on
 > `127.0.0.1` only, so nothing on the network reaches it, and it admits only
@@ -15423,7 +15448,7 @@ flowchart LR
 > platform's own sources. Building is a real compile, not an export. A
 > PowerRustCOBOL installation that ships the platform SDK beside its executable
 > satisfies this on its own; if yours does not, Build stops and names every
-> folder it searched. Point it at a copy under **Help ▸ Platform SDK Location**,
+> folder it searched. Point it at a copy under **Settings ▸ Platform SDK Location**,
 > or see *Installing the IDE elsewhere* in `BUILDING-en.md`.
 
 > **Note — what a build links, and what that costs.** The SQL bridge
@@ -15664,10 +15689,10 @@ worth knowing:
 > 📷 **Screenshot needed — `debugger.png`.** A debug session paused on a
 > breakpoint, with the variable-watch panel populated.
 
-### Diagnostic switches (Help ▸ Debug Settings)
+### Diagnostic switches (Settings ▸ Debug Settings)
 
 Some faults are far easier to find with the IDE narrating what it is doing.
-**Help ▸ Debug Settings** gathers every such switch into one modal, arranged in
+**Settings ▸ Debug Settings** gathers every such switch into one modal, arranged in
 five tabs: **User Interface**, **Data Binding**, **Events**, **Indexed Files**
 and **Logging**.
 

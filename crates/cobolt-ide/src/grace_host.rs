@@ -858,7 +858,7 @@ const PREBUILT_CHUNKED_KB: &[u8] = include_bytes!(concat!(
     "/../../assets/knowledge/chunked.data"
 ));
 
-/// Manual "Reindex Knowledge Bases" (File menu): the SAME incremental sync
+/// Manual "Reindex Knowledge Bases" (Settings menu): the SAME incremental sync
 /// every Grace workflow performs at start — System KB always, Project KB when
 /// a project is open — without needing to send Grace a message. Returns a
 /// one-line summary for the Output panel. Runs on the caller's thread (the

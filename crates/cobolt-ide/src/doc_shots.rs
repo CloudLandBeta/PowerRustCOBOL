@@ -61,7 +61,7 @@
 //! # Scope
 //!
 //! English documents only (GOLDEN RULE #3) — the translated guides reference the
-//! same language-neutral images. Hidden behind Help → Debug Settings; it is not
+//! same language-neutral images. Hidden behind Settings → Debug Settings; it is not
 //! part of the shipped product.
 
 use std::path::{Path, PathBuf};

@@ -53,6 +53,7 @@ pub mod inspector;
 pub mod leaderboard;
 pub mod llm;
 pub mod main_form;
+pub mod menu_layout;
 mod panels;
 pub mod pdf_export;
 pub mod prompt_complete;

@@ -994,7 +994,7 @@ pub struct CoboltApp {
 
     /// Whether the Help → About window is open.
     about_open: bool,
-    /// Whether the Help → Platform SDK Location window is open. The SDK is the
+    /// Whether the Settings → Platform SDK Location window is open. The SDK is the
     /// Rust source a built application compiles against; an install that ships
     /// it beside the executable needs no setting, so this exists for the case
     /// where it lives somewhere else on this machine.
@@ -1009,7 +1009,7 @@ pub struct CoboltApp {
     /// Spec 059 — the IDE Walkthrough.
     walkthrough: crate::panels::walkthrough::Walkthrough,
     /// The machine flag, read once at startup like `rust_check_done`. Reading
-    /// `ui.toml` on every frame the Help menu is open would be a per-frame file
+    /// `ui.toml` on every frame the Settings menu is open would be a per-frame file
     /// read for a value that changes at most twice in a session.
     walkthrough_shown: bool,
     /// Was a project open on the previous frame? The tour starts on the **edge**
@@ -1030,7 +1030,7 @@ pub struct CoboltApp {
     /// once per open (after the structure upgrades).
     /// Documentation viewer window (Help → Documentation).
     doc_viewer: crate::panels::doc_viewer::DocViewer,
-    /// IDE-wide debug switches (Help → Debug Settings) and their modal. Machine-
+    /// IDE-wide debug switches (Settings → Debug Settings) and their modal. Machine-
     /// local, not project data, so they are loaded once at startup.
     debug: crate::debug_settings::DebugSettings,
     debug_modal: crate::debug_settings::DebugSettingsModal,
@@ -1098,7 +1098,7 @@ pub struct CoboltApp {
     /// One field, two intents. A parallel `pending_build_then_debug` would be a
     /// second thing to keep in step with this one, and the two would drift.
     pending_build_then_run: Option<(PathBuf, BuildThenLaunch)>,
-    /// Manual KB reindex (File menu): progress/done messages from the worker
+    /// Manual KB reindex (Settings menu): progress/done messages from the worker
     /// thread, drained each frame. `Some` = running, which disables the menu
     /// item and shows the progress modal.
     kb_reindex_rx: Option<std::sync::mpsc::Receiver<KbReindexMsg>>,
@@ -1144,7 +1144,7 @@ pub struct CoboltApp {
     /// frame (spec 084 R25).
     mcp_bind_failed: Option<u16>,
     /// A Configure Claude Code run in progress (spec 084 R1): its answer.
-    /// Help → Claude Code Settings (spec 084 R22–R27).
+    /// Settings → Coding Agent Settings (spec 084 R22–R27).
     cc_settings: crate::panels::claude_code_settings::ClaudeCodeSettingsWindow,
     /// What the IDE last learned about Claude Code and the plugin.
     cc_status: crate::panels::claude_code_settings::PluginStatus,
@@ -1518,7 +1518,7 @@ struct PendingProcDelete {
     lines: usize,
 }
 
-/// Messages from the manual KB-reindex worker (File menu) to the UI thread.
+/// Messages from the manual KB-reindex worker (Settings menu) to the UI thread.
 enum KbReindexMsg {
     /// Embedding progress for the modal's determinate bar: fraction 0..1 and
     /// a "n/m — subject" label. Sent per record; the drain keeps the latest.
@@ -5445,7 +5445,7 @@ impl CoboltApp {
         self.build_details_open = false;
     }
 
-    /// File → Reindex Knowledge Bases: run the same incremental sync a Grace
+    /// Settings → Reindex Knowledge Bases: run the same incremental sync a Grace
     /// workflow performs at start (System KB always, Project KB when a project
     /// is open) on a worker thread, streaming coarse progress to the Output
     /// panel. The menu item stays disabled while the worker runs.
@@ -12514,7 +12514,207 @@ impl CoboltApp {
         }
     }
 
-    /// Help → Platform SDK Location.
+    /// Spec 099 — draw the entries of File, Settings or Help, as `menu_layout` declares them.
+    /// What each item does is the code that drew it before the menus were reorganised, moved into
+    /// [`Self::show_menu_item`] and not rewritten.
+    fn show_menu_entries(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &Context,
+        tr: &crate::i18n::Tr,
+        entries: &[crate::menu_layout::Entry],
+        has_project: bool,
+    ) {
+        use crate::menu_layout::Entry;
+        for entry in entries {
+            match entry {
+                Entry::Separator => {
+                    ui.separator();
+                }
+                Entry::Item(item) => self.show_menu_item(ui, ctx, tr, *item, has_project),
+            }
+        }
+    }
+
+    /// One item of File, Settings or Help (spec 099).
+    fn show_menu_item(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &Context,
+        tr: &crate::i18n::Tr,
+        item: crate::menu_layout::Item,
+        has_project: bool,
+    ) {
+        use crate::menu_layout::Item;
+        match item {
+            // ── File ──────────────────────────────────────────────────────
+            Item::NewProject => {
+                if ui.button(tr.menu_new_project).clicked()     { self.do_new_project();  ui.close(); }
+            }
+            Item::OpenProject => {
+                if ui.button(tr.menu_open_project).clicked()    { self.do_open_project(); ui.close(); }
+            }
+            Item::SaveProject => {
+                if ui.add_enabled(has_project, egui::Button::new(tr.menu_save_project)).clicked() {
+                    self.do_save_project(); ui.close();
+                }
+            }
+            Item::PackageProject => {
+                if ui.add_enabled(has_project, egui::Button::new(tr.menu_package_project)).clicked() {
+                    self.do_package_project(); ui.close();
+                }
+            }
+            Item::BuildBinary => {
+                let building = self.pending_build_rx.is_some();
+                let build_label = if building { "⏳ Building…" } else { "🔨 Build Binary  (bin/)" };
+                if ui.add_enabled(has_project && !building, egui::Button::new(build_label))
+                    .on_hover_text(crate::ui_text::ide("Compile project → single native executable in bin/"))
+                    .clicked()
+                {
+                    self.do_build_binary_button(); ui.close();
+                }
+            }
+            Item::Save => {
+                if ui.add_enabled(self.has_unsaved_changes(), egui::Button::new(tr.menu_save)).clicked() { self.do_save(); ui.close(); }
+            }
+            Item::Quit => {
+                if ui.button(tr.menu_quit).clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            // ── Settings ──────────────────────────────────────────────────
+            Item::ConfigureClaudeCode => {
+                // Spec 084 R1 — once, for every project (it replaced the
+                // per-project coding-agent kit export of spec 080).
+                if ui
+                    .button(tr.menu_configure_claude_code)
+                    .on_hover_text(tr.menu_configure_claude_code_hint)
+                    .clicked()
+                {
+                    self.do_configure_claude_code();
+                    ui.close();
+                }
+            }
+            Item::CodingAgentSettings => {
+                if ui.button(tr.cc_settings_title).clicked() {
+                    self.cc_settings.toggle();
+                    if self.cc_settings.open {
+                        self.probe_claude_code();
+                    }
+                    ui.close();
+                }
+            }
+            Item::DebugSettings => {
+                if ui.button(tr.debug_menu_label).clicked() {
+                    self.debug_modal.toggle();
+                    ui.close();
+                }
+            }
+            Item::PlatformSdkLocation => {
+                if ui.button(tr.sdk_menu_label).clicked() {
+                    self.sdk_modal_open = true;
+                    ui.close();
+                }
+            }
+            Item::ReindexKnowledgeBases => {
+                // Manual KB reindex — the same incremental sync a Grace
+                // workflow runs at start, without sending a message.
+                let reindexing = self.kb_reindex_rx.is_some();
+                let reindex_label = if reindexing {
+                    tr.menu_reindex_kb_busy
+                } else {
+                    tr.menu_reindex_kb
+                };
+                if ui
+                    .add_enabled(!reindexing, egui::Button::new(reindex_label))
+                    .on_hover_text(tr.menu_reindex_kb_hint)
+                    .clicked()
+                {
+                    self.do_reindex_kb();
+                    ui.close();
+                }
+            }
+            // ── Help ──────────────────────────────────────────────────────
+            Item::Documentation => {
+                if ui.button(tr.doc_menu_label).clicked() {
+                    self.doc_viewer.open(self.lang);
+                    ui.close();
+                }
+            }
+            Item::Examples => {
+                // The bundled example project, one click from inside the
+                // IDE. Disabled — with the reason on hover — when this
+                // build ships no copy, so the entry never offers to open
+                // something that is not there.
+                // One entry per example (operator, 2026-09-25).
+                let mut open: Option<Example> = None;
+                ui.menu_button(tr.examples_menu_label, |ui| {
+                    for ex in &EXAMPLES {
+                        let found = example_project_manifest(ex);
+                        let entry = ui.add_enabled(found.is_some(), egui::Button::new(ex.project));
+                        let about = match ex.project {
+                            "PowerChat" => Some(tr.examples_powerchat_about),
+                            "PowerSpatial" => Some(tr.examples_powerspatial_about),
+                            "PowerAnalytics" => Some(tr.examples_poweranalytics_about),
+                            _ => None,
+                        };
+                        let entry = match (&found, about) {
+                            (Some(path), Some(about)) => {
+                                entry.on_hover_text(format!("{about}\n\n{}", path.display()))
+                            }
+                            (Some(path), None) => entry.on_hover_text(path.display().to_string()),
+                            (None, _) => entry.on_disabled_hover_text(tr.examples_not_installed),
+                        };
+                        if entry.clicked() {
+                            open = Some(*ex);
+                            ui.close();
+                        }
+                    }
+                });
+                if let Some(ex) = open {
+                    self.do_open_examples(&ex);
+                    ui.close();
+                }
+            }
+            Item::IdeWalkthrough => {
+                // Spec 059 R10/R11 — the flag itself, as a checkable item.
+                // It shows "already seen", so UNchecking it reads as "I have
+                // not seen it", which is what replays the tour. House style
+                // for a menu checkbox: bind `&mut` straight to state and do
+                // not `ui.close()` (the View menu's line numbers do the same).
+                let has_project = self.cobolt_project.is_some();
+                let mut seen = self.walkthrough_shown;
+                let item = ui.checkbox(&mut seen, tr.walkthrough_menu_label);
+                let item = if has_project {
+                    item
+                } else {
+                    item.on_hover_text(tr.walkthrough_needs_project)
+                };
+                if item.changed() {
+                    self.walkthrough_shown = seen;
+                    crate::ui_prefs::set_walkthrough_shown(seen);
+                    use crate::panels::walkthrough::MenuAction;
+                    match crate::panels::walkthrough::on_menu_toggle(seen, has_project) {
+                        MenuAction::Start => self.walkthrough.start(ctx),
+                        // The hover already said so; clearing the flag arms
+                        // the edge detector, so it starts when one opens.
+                        MenuAction::NeedsProject | MenuAction::Remember => {}
+                    }
+                }
+            }
+            Item::About => {
+                if ui
+                    .button(crate::ui_text::idef("ℹ About {}", &[&crate::theme::brand_name()]))
+                    .clicked()
+                {
+                    self.about_open = true;
+                    ui.close();
+                }
+            }
+        }
+    }
+
+    /// Settings → Platform SDK Location.
     ///
     /// Building an executable runs a real `cargo build` against the platform's
     /// Rust crates, so those sources must exist on this machine. An install
@@ -13484,7 +13684,7 @@ impl CoboltApp {
         }
     }
 
-    /// Progress modal for File → Reindex Knowledge Bases: same shape as the
+    /// Progress modal for Settings → Reindex Knowledge Bases: same shape as the
     /// Building modal — dimmed background, determinate bar, spinner + the
     /// current "n/m — subject" label. Shown while the worker runs.
     fn show_kb_reindex_modal(&mut self, ctx: &Context) {
@@ -15227,7 +15427,7 @@ impl eframe::App for CoboltApp {
         self.semantic_model_gate(ctx);
 
         // Keep the in-process diagnostics (design canvas / IDE) in sync with the
-        // debug settings, so toggling one in Help → Debug Settings applies
+        // debug settings, so toggling one in Settings → Debug Settings applies
         // immediately without a rebuild or an env var. Run Form is a separate
         // process and picks its flags up via env on its next launch.
         self.debug.apply_in_process();
@@ -15510,7 +15710,7 @@ impl eframe::App for CoboltApp {
             }
         }
 
-        // ── Drain manual KB-reindex progress (File menu) ─────────────────────
+        // ── Drain manual KB-reindex progress (Settings menu) ─────────────────────
         if let Some(rx) = &self.kb_reindex_rx {
             let mut finished = false;
             loop {
@@ -15639,7 +15839,7 @@ impl eframe::App for CoboltApp {
         // Model benchmark offer/progress/report is global: the worker can finish
         // after the user leaves Project Settings.
         self.render_llm_benchmark_modals(ctx);
-        // Help → Debug Settings. A change re-applies the in-process flags at
+        // Settings → Debug Settings. A change re-applies the in-process flags at
         // once, so the canvas reacts on this very frame.
         self.show_claude_code_settings(ctx);
         if self.debug_modal.show(ctx, &mut self.debug, &tr) {
@@ -15694,190 +15894,78 @@ impl eframe::App for CoboltApp {
         };
         egui::Panel::top("menu_bar").show(root_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button(tr.menu_file, |ui| {
-                    if ui.button(tr.menu_new_project).clicked()     { self.do_new_project();  ui.close(); }
-                    if ui.button(tr.menu_open_project).clicked()    { self.do_open_project(); ui.close(); }
-                    if ui.add_enabled(has_project, egui::Button::new(tr.menu_save_project)).clicked() {
-                        self.do_save_project(); ui.close();
-                    }
-                    if ui.add_enabled(has_project, egui::Button::new(tr.menu_package_project)).clicked() {
-                        self.do_package_project(); ui.close();
-                    }
-                    // Spec 084 R1 — once, for every project (it replaced the
-                    // per-project coding-agent kit export of spec 080).
-                    if ui
-                        .button(tr.menu_configure_claude_code)
-                        .on_hover_text(tr.menu_configure_claude_code_hint)
-                        .clicked()
-                    {
-                        self.do_configure_claude_code();
-                        ui.close();
-                    }
-                    let building = self.pending_build_rx.is_some();
-                    let build_label = if building { "⏳ Building…" } else { "🔨 Build Binary  (bin/)" };
-                    if ui.add_enabled(has_project && !building, egui::Button::new(build_label))
-                        .on_hover_text(crate::ui_text::ide("Compile project → single native executable in bin/"))
-                        .clicked()
-                    {
-                        self.do_build_binary_button(); ui.close();
-                    }
-                    ui.separator();
-                    // Manual KB reindex — the same incremental sync a Grace
-                    // workflow runs at start, without sending a message.
-                    let reindexing = self.kb_reindex_rx.is_some();
-                    let reindex_label = if reindexing {
-                        tr.menu_reindex_kb_busy
-                    } else {
-                        tr.menu_reindex_kb
-                    };
-                    if ui
-                        .add_enabled(!reindexing, egui::Button::new(reindex_label))
-                        .on_hover_text(tr.menu_reindex_kb_hint)
-                        .clicked()
-                    {
-                        self.do_reindex_kb();
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.add_enabled(self.has_unsaved_changes(), egui::Button::new(tr.menu_save)).clicked() { self.do_save(); ui.close(); }
-                    ui.separator();
-                    if ui.button(tr.menu_quit).clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
-
-                ui.add_enabled_ui(menu_has_active, |ui| {
-                    ui.menu_button(tr.menu_run, |ui| {
-                        let busy = self.runner.is_running();
-                        let run = ui.add_enabled(
-                            !busy && menu_compilable,
-                            egui::Button::new(tr.menu_run_btn),
-                        );
-                        if !menu_compilable {
-                            run.clone().on_hover_text(tr.tb_need_program);
-                        }
-                        if run.clicked() {
-                            self.do_run();
-                            ui.close();
-                        }
-                        // Debug was absent from this menu entirely — reachable
-                        // only from the toolbar, where it was also mis-gated.
-                        let dbg = ui.add_enabled(
-                            !busy && menu_debuggable,
-                            egui::Button::new(tr.tb_debug),
-                        );
-                        if !menu_debuggable {
-                            dbg.clone().on_hover_text(menu_debug_hint);
-                        }
-                        if dbg.clicked() {
-                            self.do_debug();
-                            ui.close();
-                        }
-                        if ui.add_enabled(busy, egui::Button::new(tr.menu_stop)).clicked() {
-                            self.do_stop(); ui.close();
-                        }
-                        ui.separator();
-                        if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close(); }
-                    });
-
-                    ui.menu_button(tr.menu_view, |ui| {
-                        ui.checkbox(&mut self.editor.show_line_numbers, tr.menu_line_numbers);
-                        ui.separator();
-                        if ui.button(tr.search_menu).clicked() {
-                            self.show_code_search = true;
-                            ui.close();
-                        }
-                    });
-                });
-
-                // ── Help / Bug report ────────────────────────────────────────
-                ui.menu_button(crate::ui_text::ide("Help"), |ui| {
-                    if ui.button(tr.doc_menu_label).clicked() {
-                        self.doc_viewer.open(self.lang);
-                        ui.close();
-                    }
-                    // The bundled example project, one click from inside the
-                    // IDE. Disabled — with the reason on hover — when this
-                    // build ships no copy, so the entry never offers to open
-                    // something that is not there.
-                    // One entry per example (operator, 2026-09-25).
-                    let mut open: Option<Example> = None;
-                    ui.menu_button(tr.examples_menu_label, |ui| {
-                        for ex in &EXAMPLES {
-                            let found = example_project_manifest(ex);
-                            let entry = ui.add_enabled(found.is_some(), egui::Button::new(ex.project));
-                            let about = match ex.project {
-                                "PowerChat" => Some(tr.examples_powerchat_about),
-                                "PowerSpatial" => Some(tr.examples_powerspatial_about),
-                                "PowerAnalytics" => Some(tr.examples_poweranalytics_about),
-                                _ => None,
+                // Spec 099 — the bar is declared in `menu_layout`: File, Settings, View, Help,
+                // with Run between Settings and View while a project or a file is active. File,
+                // Settings and Help are drawn from their entry lists; Run and View keep their
+                // own code, below.
+                for menu in crate::menu_layout::top_level(menu_has_active) {
+                    match menu {
+                        crate::menu_layout::Menu::File
+                        | crate::menu_layout::Menu::Settings
+                        | crate::menu_layout::Menu::Help => {
+                            let title = match menu {
+                                crate::menu_layout::Menu::File => tr.menu_file,
+                                crate::menu_layout::Menu::Settings => tr.menu_settings,
+                                _ => crate::ui_text::ide("Help"),
                             };
-                            let entry = match (&found, about) {
-                                (Some(path), Some(about)) => {
-                                    entry.on_hover_text(format!("{about}\n\n{}", path.display()))
+                            ui.menu_button(title, |ui| {
+                                self.show_menu_entries(
+                                    ui,
+                                    ctx,
+                                    &tr,
+                                    crate::menu_layout::entries(menu),
+                                    has_project,
+                                );
+                            });
+                        }
+                        crate::menu_layout::Menu::Run => {
+                            ui.menu_button(tr.menu_run, |ui| {
+                                let busy = self.runner.is_running();
+                                let run = ui.add_enabled(
+                                    !busy && menu_compilable,
+                                    egui::Button::new(tr.menu_run_btn),
+                                );
+                                if !menu_compilable {
+                                    run.clone().on_hover_text(tr.tb_need_program);
                                 }
-                                (Some(path), None) => entry.on_hover_text(path.display().to_string()),
-                                (None, _) => entry.on_disabled_hover_text(tr.examples_not_installed),
-                            };
-                            if entry.clicked() {
-                                open = Some(*ex);
-                                ui.close();
-                            }
+                                if run.clicked() {
+                                    self.do_run();
+                                    ui.close();
+                                }
+                                // Debug was absent from this menu entirely — reachable
+                                // only from the toolbar, where it was also mis-gated.
+                                let dbg = ui.add_enabled(
+                                    !busy && menu_debuggable,
+                                    egui::Button::new(tr.tb_debug),
+                                );
+                                if !menu_debuggable {
+                                    dbg.clone().on_hover_text(menu_debug_hint);
+                                }
+                                if dbg.clicked() {
+                                    self.do_debug();
+                                    ui.close();
+                                }
+                                if ui.add_enabled(busy, egui::Button::new(tr.menu_stop)).clicked() {
+                                    self.do_stop(); ui.close();
+                                }
+                                ui.separator();
+                                if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close(); }
+                            });
                         }
-                    });
-                    if let Some(ex) = open {
-                        self.do_open_examples(&ex);
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button(tr.debug_menu_label).clicked() {
-                        self.debug_modal.toggle();
-                        ui.close();
-                    }
-                    if ui.button(tr.cc_settings_title).clicked() {
-                        self.cc_settings.toggle();
-                        if self.cc_settings.open {
-                            self.probe_claude_code();
-                        }
-                        ui.close();
-                    }
-                    if ui.button(tr.sdk_menu_label).clicked() {
-                        self.sdk_modal_open = true;
-                        ui.close();
-                    }
-                    // Spec 059 R10/R11 — the flag itself, as a checkable item.
-                    // It shows "already seen", so UNchecking it reads as "I have
-                    // not seen it", which is what replays the tour. House style
-                    // for a menu checkbox: bind `&mut` straight to state and do
-                    // not `ui.close()` (the View menu's line numbers do the same).
-                    let has_project = self.cobolt_project.is_some();
-                    let mut seen = self.walkthrough_shown;
-                    let item = ui.checkbox(&mut seen, tr.walkthrough_menu_label);
-                    let item = if has_project {
-                        item
-                    } else {
-                        item.on_hover_text(tr.walkthrough_needs_project)
-                    };
-                    if item.changed() {
-                        self.walkthrough_shown = seen;
-                        crate::ui_prefs::set_walkthrough_shown(seen);
-                        use crate::panels::walkthrough::MenuAction;
-                        match crate::panels::walkthrough::on_menu_toggle(seen, has_project) {
-                            MenuAction::Start => self.walkthrough.start(ctx),
-                            // The hover already said so; clearing the flag arms
-                            // the edge detector, so it starts when one opens.
-                            MenuAction::NeedsProject | MenuAction::Remember => {}
+                        crate::menu_layout::Menu::View => {
+                            ui.add_enabled_ui(menu_has_active, |ui| {
+                                ui.menu_button(tr.menu_view, |ui| {
+                                ui.checkbox(&mut self.editor.show_line_numbers, tr.menu_line_numbers);
+                                ui.separator();
+                                if ui.button(tr.search_menu).clicked() {
+                                    self.show_code_search = true;
+                                    ui.close();
+                                }
+                                });
+                            });
                         }
                     }
-                    ui.separator();
-                    if ui
-                        .button(crate::ui_text::idef("ℹ About {}", &[&crate::theme::brand_name()]))
-                        .clicked()
-                    {
-                        self.about_open = true;
-                        ui.close();
-                    }
-                });
+                }
             });
         });
 

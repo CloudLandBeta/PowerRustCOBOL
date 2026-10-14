@@ -240,7 +240,7 @@ first build downloads the dependency crates from the registry, so it needs
 network access once.
 
 > **Note.** For a checkout that lives somewhere else entirely, set the folder by
-> hand under **Help → Platform SDK Location**. It is remembered per machine
+> hand under **Settings → Platform SDK Location**. It is remembered per machine
 > rather than per project, so it never travels to a colleague in `cobolt.toml`.
 > Leave it blank to go back to the automatic search.
 

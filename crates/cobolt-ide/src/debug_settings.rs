@@ -11,7 +11,7 @@
 //!
 //! These are developer-machine settings, not project data: they live in
 //! `<data_dir>/cobolt/debug_settings.toml` (next to `doc_viewer.toml`), so they
-//! survive across projects, never reach `cobolt.toml`, and the Help → Debug
+//! survive across projects, never reach `cobolt.toml`, and the Settings → Debug
 //! Settings modal works even with no project open.
 //!
 //! # How a switch reaches the thing it controls
@@ -319,7 +319,7 @@ const SWITCH_AREA_HEIGHT: f32 = 260.0;
 /// to spare, so nothing truncates.
 const SWITCH_LABEL_WIDTH: f32 = 340.0;
 
-/// Help → Debug Settings. Edits [`DebugSettings`] live; every change is saved
+/// Settings → Debug Settings. Edits [`DebugSettings`] live; every change is saved
 /// immediately, so there is no Apply/Cancel to get wrong.
 #[derive(Default)]
 pub struct DebugSettingsModal {

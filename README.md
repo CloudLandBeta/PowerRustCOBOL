@@ -30,7 +30,7 @@ See the LICENSE file in the project root for full license information.
 > want, or hand it a written specification — Claude Code designs the forms, writes the
 > COBOL, defines the indexed files, compiles, **looks at every screen and clicks through
 > it** before it calls the work done. One menu item connects the two:
-> **File ▸ Configure Claude Code**. [How it works ↓](#build-applications-with-claude-code)
+> **Settings ▸ Configure Claude Code**. [How it works ↓](#build-applications-with-claude-code)
 
 ## Build applications with Claude Code
 
@@ -50,7 +50,7 @@ flowchart LR
     R --> PRJ2["the project in<br/>Claude Code's folder"]
 ```
 
-**File ▸ Configure Claude Code** installs the **PowerRustCOBOL plugin** into the Claude Code
+**Settings ▸ Configure Claude Code** installs the **PowerRustCOBOL plugin** into the Claude Code
 already on your machine, once, for every project. It uses Claude Code's own
 `claude plugin` commands, writes nothing into your project folders, and refuses to install
 if the bundle would carry an API key or a personal path. The plugin brings:
@@ -99,7 +99,7 @@ shown in the project tree under **Compiler requests**.
 1. Install Claude Code (see Anthropic's
    [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)) and sign in.
 2. Start PowerRustCOBOL AI. The first time, it offers to **Connect a coding agent**;
-   otherwise use **File ▸ Configure Claude Code**. **Help ▸ Coding Agent Settings** shows
+   otherwise use **Settings ▸ Configure Claude Code**. **Settings ▸ Coding Agent Settings** shows
    the plugin version, the tool server's address, the port and the access token, and
    updates the plugin after an IDE upgrade.
 3. Start a new Claude Code session in your project's folder (or in an empty folder for

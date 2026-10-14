@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! **Help → Claude Code Settings** (spec 084 R22–R27, R37): IDE-wide, like
+//! **Settings → Coding Agent Settings** (spec 084 R22–R27, R37): IDE-wide, like
 //! Debug Settings — whether Claude Code is installed, which plugin version it
 //! carries against this IDE's, where the tool server listens, its port, the
 //! access token (set or not — never shown) and the Configure / Update and
