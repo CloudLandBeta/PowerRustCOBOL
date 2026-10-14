@@ -2641,11 +2641,34 @@ fn panel_content_size(
 ///
 /// Lives in egui's per-frame memory rather than in the form model — it is view
 /// state, it must not be saved into a `.cfrm`, and it dies with the window.
+///
+/// While `AnimateValues` is off it is kept [`settled`](ChartTween::settled) on
+/// the data being drawn instead of being left alone, so that switching the
+/// property on starts the move from what is on the screen.
 #[derive(Clone, PartialEq)]
 struct ChartTween {
     from: Vec<crate::chart::Row>,
     to: Vec<crate::chart::Row>,
     started: f64,
+    /// The `__ChartData` text `to` was read from, so a chart that is not
+    /// animating can tell cheaply, without parsing, that its data moved on.
+    raw: String,
+}
+
+impl ChartTween {
+    /// A tween that is not travelling: `raw` is on the screen and `started` is
+    /// the far past, so by every clock it has long since finished. This is what
+    /// a chart keeps while `AnimateValues` is off, so that switching it on finds
+    /// the data being drawn rather than whatever the last animation ended on.
+    fn settled(raw: &str) -> Self {
+        let rows = crate::chart::parse_chart_rows(raw);
+        ChartTween {
+            from: rows.clone(),
+            to: rows,
+            started: f64::NEG_INFINITY,
+            raw: raw.to_owned(),
+        }
+    }
 }
 
 pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
@@ -14753,14 +14776,13 @@ fn render_interactive(
             let tweened_owner;
             let grown_owner;
             let mut chart_ctrl = ctrl;
+            let key = ctrl_id.with("chart_tween");
             if let Some(anim_ms) = crate::chart::value_anim_ms(ctrl) {
-                let target = crate::chart::parse_chart_rows(
-                    &ctrl
-                        .get_prop("__ChartData")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default(),
-                );
-                let key = ctrl_id.with("chart_tween");
+                let raw = ctrl
+                    .get_prop("__ChartData")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default();
+                let target = crate::chart::parse_chart_rows(&raw);
                 let now = ui.input(|i| i.time);
                 let secs = anim_ms as f64 / 1000.0;
                 let prior: Option<ChartTween> =
@@ -14788,7 +14810,7 @@ fn render_interactive(
                         // only thing that travels.
                         None => target.clone(),
                     };
-                    let next = ChartTween { from, to: target.clone(), started: now };
+                    let next = ChartTween { from, to: target.clone(), started: now, raw };
                     ui.ctx().memory_mut(|m| m.data.insert_temp(key, next.clone()));
                     next
                 } else {
@@ -14809,6 +14831,25 @@ fn render_interactive(
                     ui.ctx()
                         .request_repaint_after(std::time::Duration::from_millis(16));
                 }
+            } else {
+                // Off: nothing travels, but the tween is kept PARKED on the data
+                // being drawn. The state used to be touched only while the
+                // property was on, so a chart cut to new data with it off still
+                // held the set from before the cut, and switching the property
+                // back on took that for the frame being SHOWN: the chart jumped
+                // back to data from two pushes ago and glided from there.
+                // Parked, the next push starts from what is on the screen.
+                // Costs a lookup and a string compare a frame; the rows are
+                // parsed only when the data actually changed.
+                let raw = ctrl.get_prop("__ChartData").map(|v| v.as_str()).unwrap_or("");
+                ui.ctx().memory_mut(|m| {
+                    let parked = m
+                        .data
+                        .get_temp_mut_or_insert_with(key, || ChartTween::settled(raw));
+                    if parked.started != f64::NEG_INFINITY || parked.raw != raw {
+                        *parked = ChartTween::settled(raw);
+                    }
+                });
             }
             // `AnimateOnLoad`: the first time the chart has data, every mark
             // grows into place over `AnimationDuration` (250 ms at least). The
@@ -28168,6 +28209,181 @@ mod tests {
             "with the property off the new set is drawn at once: {unanimated} vs {settled}"
         );
         eprintln!("  -> A travels {before:.1} to {mid:.1} to {settled:.1} pt; off it jumps straight to {unanimated:.1}\n");
+    }
+
+    /// Switching `AnimateValues` back ON starts the move from the data that is
+    /// ON THE SCREEN, not from the data the last animation ended on.
+    ///
+    /// The tween's state (`ChartTween`) is kept in egui memory and was only read
+    /// and written while the property was on. A program that turned it off and
+    /// pushed new data showed that data as a cut and left the state alone, still
+    /// holding the set from BEFORE the cut; switching it on again took that old
+    /// set for "the frame being shown", so the chart jumped back two pushes and
+    /// then glided to the new data.
+    ///
+    /// Four runs of the same bar chart, `AnimationDuration` 250 (the floor), on
+    /// the harness clock of 0.05 s a frame. Y is where an animation has landed,
+    /// C is what is pushed with the property off, D what is pushed when it goes
+    /// back on. A's height is the signal: the plot auto-scales to its tallest
+    /// bar, so A is 100 % of the plot in Y, 70 % in C and 20 % in D.
+    #[test]
+    fn animate_values_switched_back_on_starts_from_the_data_on_screen() {
+        const X: &str = "A\t40\nB\t100";
+        const Y: &str = "A\t100\nB\t40";
+        const C: &str = "A\t70\nB\t100";
+        const D: &str = "A\t20\nB\t100";
+        let chart = |data: &str, animate: bool| -> Vec<Control> {
+            vec![ctrlp(
+                "Ch",
+                ControlType::BarChart,
+                20,
+                20,
+                320,
+                240,
+                &[
+                    ("__ChartData", data),
+                    ("ShowLegend", "false"),
+                    ("ShowGridLines", "false"),
+                    ("Title", ""),
+                    ("AnimationDuration", "250"),
+                    ("AnimateValues", if animate { "true" } else { "false" }),
+                    ("AnimateOnLoad", "false"),
+                ],
+            )]
+        };
+        // The leftmost bar's height, which is A's.
+        let a_height = |p: &Painted| -> f32 {
+            let frame = *p.placed.get("Ch").expect("placed");
+            let mut bars: Vec<(Rect, Color32)> = p
+                .fills
+                .iter()
+                .filter(|(r, _)| frame.contains_rect(*r) && r.width() < frame.width() * 0.5)
+                .cloned()
+                .collect();
+            bars.sort_by(|a, b| a.0.min.x.partial_cmp(&b.0.min.x).unwrap());
+            bars.first().map(|(r, _)| r.height()).unwrap_or(0.0)
+        };
+        // Every filled rectangle the frame emitted, hashed bit for bit.
+        let fingerprint = |p: &Painted| -> u64 {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            let mut eat = |bits: u32| {
+                for b in bits.to_le_bytes() {
+                    h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            };
+            for (r, c) in &p.fills {
+                eat(r.min.x.to_bits());
+                eat(r.min.y.to_bits());
+                eat(r.max.x.to_bits());
+                eat(r.max.y.to_bits());
+                eat(u32::from_le_bytes(c.to_array()));
+            }
+            h
+        };
+        // What the LAST of `frames` painted: the controls change per frame.
+        let paint = |frames: &[Vec<Control>]| -> Painted {
+            let lists: Vec<&[Control]> = frames.iter().map(|f| f.as_slice()).collect();
+            drive_painted_series(&lists)
+        };
+
+        // The shared prologue: X, then a move to Y, left to land.
+        let mut landed: Vec<Vec<Control>> = vec![chart(X, true)];
+        landed.extend((0..8).map(|_| chart(Y, true)));
+        let y_height = a_height(&paint(&landed));
+        assert!(y_height > 0.0, "A must be drawn once the move to Y has landed");
+
+        // Cut: the property goes off and C is pushed.
+        let mut cut = landed.clone();
+        cut.push(chart(C, false));
+        let c_height = a_height(&paint(&cut));
+
+        // Back on with NEW data (D), then with the same data (C), and the
+        // control run: on all along, with C pushed.
+        let with = |data: &str, animate_at_cut: bool, frames_after: usize| -> Painted {
+            let mut f = landed.clone();
+            f.push(chart(C, animate_at_cut));
+            f.extend((0..frames_after).map(|_| chart(data, true)));
+            paint(&f)
+        };
+        let after_new = |n: usize| a_height(&with(D, false, n));
+        let after_same = |n: usize| a_height(&with(C, false, n));
+        let always_on = |n: usize| a_height(&with(C, true, n));
+
+        eprintln!("\n  A height as a share of the Y plot (Y = {y_height:.1} pt)");
+        eprintln!("  frames after the cut   back on with D   back on with C   on all along (C)");
+        eprintln!("  --------------------   --------------   --------------   ----------------");
+        let mut rows = Vec::new();
+        for n in [0usize, 1, 2, 3, 8] {
+            let (d, c, o) = if n == 0 {
+                (c_height, c_height, a_height(&with(C, true, 0)))
+            } else {
+                (after_new(n), after_same(n), always_on(n))
+            };
+            eprintln!(
+                "  {n:>20}   {:>13.1} %   {:>13.1} %   {:>15.1} %",
+                100.0 * d / y_height,
+                100.0 * c / y_height,
+                100.0 * o / y_height
+            );
+            rows.push((n, d, c, o));
+        }
+        eprintln!();
+        // Byte for byte: every frame of the always-on run, hashed, so a change
+        // to the code path that run takes shows as a changed number.
+        let prints: Vec<String> = (0..=9)
+            .map(|n| format!("{:016x}", fingerprint(&with(C, true, n))))
+            .collect();
+        eprintln!("  always-on fingerprints: {}", prints.join(" "));
+
+        // The cut itself shows C at once: 70 % of Y.
+        assert!(
+            (c_height / y_height - 0.70).abs() < 0.02,
+            "with the property off, C is drawn at once: {c_height} vs {y_height}"
+        );
+        // The frame that switches it on is t = 0 by definition, and t = 0 is
+        // what was showing: C, not Y.
+        let (_, d1, c1, _) = rows[1];
+        assert!(
+            (d1 - c_height).abs() < 1.0,
+            "back on with D, the move must START from the data shown (C = {c_height:.1} pt), \
+             not from the old animation's end (Y = {y_height:.1} pt): first frame {d1:.1} pt"
+        );
+        assert!(
+            (c1 - c_height).abs() < 1.0,
+            "back on with the SAME data nothing may move (C = {c_height:.1} pt): first frame {c1:.1} pt"
+        );
+        // And D is then reached from there, monotonically: C 70 % down to D 20 %.
+        let (_, d2, _, _) = rows[2];
+        let (_, d3, _, _) = rows[3];
+        let (_, d_end, _, _) = rows[4];
+        assert!(
+            d1 > d2 && d2 > d3 && d3 > d_end,
+            "the glide from C to D must be monotonic: {d1:.1} {d2:.1} {d3:.1} {d_end:.1}"
+        );
+        assert!(
+            (d_end / y_height - 0.20).abs() < 0.02,
+            "and it must land on D (20 % of Y): {d_end} vs {y_height}"
+        );
+        // The run that never switched the property off is the existing
+        // behaviour and must be untouched: pushing C retargets from where the
+        // eye is (Y, landed) and glides down to C.
+        // (A stays the tallest bar, so 100 % of the plot, until B overtakes it
+        // two thirds of the way; the second frame still reads Y's height.)
+        let (_, _, _, o0) = rows[0];
+        let (_, _, _, o2) = rows[2];
+        let (_, _, _, o_end) = rows[4];
+        assert!(
+            (o0 - y_height).abs() < 1.0,
+            "on all along, the push of C starts the glide from Y: {o0:.1} vs {y_height:.1} pt"
+        );
+        assert!(
+            o2 < o0 - 1.0 && o2 > c_height,
+            "and two frames later it is part way to C: {o0:.1} -> {o2:.1} -> {c_height:.1}"
+        );
+        assert!(
+            (o_end - c_height).abs() < 1.0,
+            "and it lands on C: {o_end:.1} vs {c_height:.1}"
+        );
     }
 
     /// **A chart's `Title` is painted whole, in every chart type.**
