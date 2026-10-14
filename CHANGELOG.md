@@ -17,6 +17,16 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.142] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.141.)*
+
+### Fixed
+- **A chart with a gradient border crashed the IDE while an entrance animation played.** Adding a *zoom-in* entrance to a chart on `PowerDemo3/forms/Charts/charts-form.cfrm` and previewing it ended the IDE with `panic: min > max, or either was NaN. min = 0.0, max = -1.0` (the crash log, `…/cobolt/crash/crash-1791967287.log`, names `paint::rounded_rect_outline_points_per_corner`, called from `draw_chart_preview` on the Designer canvas). A zoom-in starts at scale 0.001, so for its first frames the chart is a fraction of a point across; the gradient border pulls its inner outline in by the border's width (`rect.shrink(width)`), which turns a frame smaller than twice that width inside out, the corner-radius cap `0.5 × min(width, height)` went negative, and `f32::clamp(0.0, cap)` panics when its maximum is below its minimum. Three changes in `paint.rs`: the cap of `rounded_rect_outline_points_per_corner` and of `rounded_rect_outline_points` can no longer go below zero (the two other caps in that file already had the guard), and the gradient border's inner outline is pulled in by at most half the frame, so it cannot invert.
+  - *Not a 3D-perspective defect, although it was met while trying both:* the crash log has no perspective frame in it and the panic reproduces on charts with no tilt. It reproduces at every chart type, not only the demo.
+  - *Checked:* the real `charts-form.cfrm` with every control zoomed in from nothing, on the Designer canvas and on the Preview's interactive path, flat and tilted, at 10 scales: 40 renders. On the unfixed `paint.rs` 4 of them panicked with the report's own message (`min = 0.0, max = -1.0`, at scale 0.01); with the fix none. 112 zoom-in frames over the seven chart types (tilted and not, 8 scales): 28 panicked before, 0 after. 5,488 chart borders drawn at every size from 0 to 20 points (every chart, border widths 1 to 40, gradient on and off, blur on and off): none panics (`a_chart_border_survives_a_frame_smaller_than_itself`).
+  - *Found, not changed:* `render.rs` clamps a DataGrid image cell's corner radius with `clamp(0.0, dest.width().min(dest.height()) * 0.5)` on a rectangle pulled in by 3 points on every side; it would panic the same way for an image column whose rows are under about 6 points tall. Seen by reading, not reproduced.
+
 ## [PowerRustCOBOL 1.91.141] — 2026-10-14
 
 *(Written on `fixes`, after 1.91.140.)*
