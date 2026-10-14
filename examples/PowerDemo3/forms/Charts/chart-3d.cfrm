@@ -97,8 +97,22 @@
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
            CLASS RUST-RANGE IS "Rust.Range"]]></repository>
   <form-events>
-    <Event name="onLoad" paragraph="CHART-3D--ONLOAD">
-    </Event>
+    <Event name="onLoad" paragraph="CHART-3D--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           *> Every layer starts hidden in a running form, so the picture and the four charts,
+           *> which live in the layers Woman and charts, are shown here.
+
+           SET     Woman::Visible                TO    TRUE
+           SET     charts::Visible               TO    TRUE.
+]]></Event>
     <Event name="onClose" paragraph="CHART-3D--ONCLOSE">
     </Event>
   </form-events>

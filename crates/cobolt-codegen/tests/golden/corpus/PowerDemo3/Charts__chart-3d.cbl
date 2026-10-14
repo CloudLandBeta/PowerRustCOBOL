@@ -346,14 +346,21 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. CHART-3D--ONLOAD IS COMMON PROGRAM.
 
-      *>    TODO: Form onLoad handler
        ENVIRONMENT DIVISION.
+
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
-           CONTINUE.
+
+           *> Every layer starts hidden in a running form, so the picture and the four charts,
+           *> which live in the layers Woman and charts, are shown here.
+
+           SET     Woman::Visible                TO    TRUE
+           SET     charts::Visible               TO    TRUE.
 
            GOBACK.
 
