@@ -490,9 +490,7 @@ fn pointer_claim(
             ranks.get(i).copied() == Some(rank)
                 && !c.control_type.is_non_visual()
                 && out
-                    .control_rects
-                    .get(&c.id)
-                    .filter(|r| r.contains(p))
+                    .rect_hit_at(&c.id, p)
                     .is_some_and(|r| owns_pointer_at(ctx, c, *r, out.caption_rects.get(&c.id).copied(), p))
         });
         if holds_by_control || (layer_is_opaque(layer) && backdrop_rect.contains(p)) {
@@ -514,8 +512,10 @@ fn owns_pointer_at(
     caption: Option<Rect>,
     p: egui::Pos2,
 ) -> bool {
+    // Both callers have already put `p` on the control (`RenderOutput::rect_hit_at`:
+    // inside its rectangle, or inside its projected outline when it is tilted).
     if binds_a_press(ctrl) {
-        return rect.contains(p);
+        return true;
     }
     match ctrl.control_type {
         ControlType::Label
@@ -672,7 +672,17 @@ pub struct RenderOutput {
     pub prop_updates: Vec<(String, String, String)>,
     /// Each control's on-screen rect, so the designer can position its overlay
     /// (selection handles, badges, drop hints) without re-deriving geometry.
+    ///
+    /// For a tilted control (spec 096) this is still the DESIGNED rectangle: the
+    /// selection rectangle, its handles, moving and resizing stay on it, so a
+    /// control can always be grabbed. Where it is *drawn* is [`Self::hit_quads`].
     pub control_rects: HashMap<String, Rect>,
+    /// Spec 096 — the projected outline of each control that is tilted
+    /// (`RotateX` / `RotateY` / `PerspectiveDistance`), by control id: top-left,
+    /// top-right, bottom-right, bottom-left. A pointer event of a tilted control
+    /// arises inside this quad and nowhere else (R10). Empty for a form with no
+    /// tilted control.
+    pub hit_quads: HashMap<String, [egui::Pos2; 4]>,
     /// Control ids whose `FileDropZone` was clicked (not dragged) this frame
     /// (spec 039 T4). `cobolt-forms` has no native-dialog dependency by
     /// design â the host (`cobolt-ide`) is expected to open a picker for
@@ -714,6 +724,21 @@ pub struct RenderOutput {
     /// form is in scope — the same reason `clear_radio_group_siblings` runs
     /// there.
     pub radio_focus_move: Option<(String, bool)>,
+}
+
+impl RenderOutput {
+    /// Spec 096 R10 — the rectangle control `id` was laid out in, when the pointer at
+    /// `p` is ON the control: inside its projected outline when it is tilted (which can
+    /// be past its designed rectangle), inside its rectangle otherwise. `None` when the
+    /// control was not drawn or `p` is not on it.
+    fn rect_hit_at(&self, id: &str, p: egui::Pos2) -> Option<&Rect> {
+        let rect = self.control_rects.get(id)?;
+        let on_it = match self.hit_quads.get(id) {
+            Some(quad) => crate::perspective::quad_contains(quad, p),
+            None => rect.contains(p),
+        };
+        on_it.then_some(rect)
+    }
 }
 
 /// The size the backdrop covers: the form's own size, stretched to the host
@@ -3256,21 +3281,32 @@ fn render_form_inner(
             ui.data_mut(|d| d.insert_temp(drawn_in_a_layer_id(scope), in_a_layer));
             // Live, editable widget: faces via `draw_control`, plus the interaction
             // (text edit, slider drag, combo popup, â¦) ported from the run path.
-            render_interactive(
-                ui,
-                scope,
-                &face,
-                screen,
-                clip,
-                input.glass,
-                alpha,
-                enabled,
-                ink_ground,
-                input.state.decimal_comma(),
-                input.state.currency(),
-                &mut out,
-                &mut open_combos,
-            );
+            // Spec 096: a tilted display control is drawn by its arm as it always
+            // was, and what it painted is projected when the scope ends. An
+            // untilted control never enters it.
+            let tilt = crate::perspective::Perspective::of(&live);
+            if let Some(t) = tilt {
+                out.hit_quads.insert(live.id.clone(), t.quad(screen));
+            }
+            {
+                let _tilt =
+                    crate::perspective::PerspectiveScope::enter(&ui.painter_at(clip), screen, tilt);
+                render_interactive(
+                    ui,
+                    scope,
+                    &face,
+                    screen,
+                    clip,
+                    input.glass,
+                    alpha,
+                    enabled,
+                    ink_ground,
+                    input.state.decimal_comma(),
+                    input.state.currency(),
+                    &mut out,
+                    &mut open_combos,
+                );
+            }
             // Spec 091 R19 — a control of a layer that has no mouse behaviour of
             // its own and paints something (a Label's text, a Panel, a picture)
             // still owns the pointer where it paints: what is below must not
@@ -3281,7 +3317,8 @@ fn render_form_inner(
                 && !live.control_type.is_non_visual()
                 && passive_to_the_mouse(&live)
             {
-                let region = pointer_region(&live, screen, out.caption_rects.get(&live.id).copied());
+                let hit_screen = out.hit_quads.get(&live.id).map_or(screen, |q| crate::perspective::quad_bounds(q));
+                let region = pointer_region(&live, hit_screen, out.caption_rects.get(&live.id).copied());
                 if let Some(region) = region.map(|r| r.intersect(clip)).filter(|r| r.is_positive()) {
                     let block = ui.interact(
                         region,
@@ -3305,6 +3342,11 @@ fn render_form_inner(
                 None
             };
             let dp = painter.with_clip_rect(painter.clip_rect().intersect(clip));
+            let tilt = crate::perspective::Perspective::of(&live);
+            if let Some(t) = tilt {
+                out.hit_quads.insert(live.id.clone(), t.quad(screen));
+            }
+            let _tilt = crate::perspective::PerspectiveScope::enter(&dp, screen, tilt);
             crate::paint::draw_control(
                 &dp,
                 screen.min,
@@ -3616,7 +3658,7 @@ fn controls_under_the_owner<'a>(
     open_lists: &[(String, Rect)],
     p: egui::Pos2,
 ) -> std::collections::HashSet<&'a str> {
-    let contains_p = |c: &Control| out.control_rects.get(&c.id).is_some_and(|r| r.contains(p));
+    let contains_p = |c: &Control| out.rect_hit_at(&c.id, p).is_some();
     let mut under = std::collections::HashSet::new();
     if let Some((combo, _)) = open_lists.iter().find(|(_, list)| list.contains(p)) {
         under.extend(
@@ -3635,9 +3677,7 @@ fn controls_under_the_owner<'a>(
         !c.control_type.is_non_visual()
             && !faceless
             && out
-                .control_rects
-                .get(&c.id)
-                .filter(|r| r.contains(p))
+                .rect_hit_at(&c.id, p)
                 .is_some_and(|r| owns_pointer_at(ctx, c, *r, out.caption_rects.get(&c.id).copied(), p))
     });
     let Some(at) = owner else {
@@ -3751,7 +3791,7 @@ fn window_drag_blocked(ctx: &egui::Context, controls: &[Control], out: &RenderOu
         if ctrl.control_type.is_non_visual() {
             return false;
         }
-        let Some(rect) = out.control_rects.get(&ctrl.id).filter(|r| r.contains(p)) else {
+        let Some(rect) = out.rect_hit_at(&ctrl.id, p) else {
             return false;
         };
         // A control with no mouse behaviour of its own and no press handler:
@@ -3799,6 +3839,9 @@ fn paints_at(
             );
             !open.contains(p)
         }
+        // A tilted picture is answered over its whole projected outline: the pixel lookup
+        // below is in the picture's own plane and `p` is not.
+        ControlType::PictureBox if crate::perspective::Perspective::of(ctrl).is_some() => true,
         ControlType::PictureBox => crate::paint::picturebox_paints_at(ctx, ctrl, rect, p),
         _ => true,
     }
@@ -4663,6 +4706,13 @@ pub fn render_faces_with(
             None
         };
         let dp = painter.with_clip_rect(clip);
+        // Spec 096: a tilted display control is drawn as it always was and then
+        // projected; an untilted one never enters the scope.
+        let tilt = crate::perspective::Perspective::of(&live);
+        if let Some(t) = tilt {
+            out.hit_quads.insert(live.id.clone(), t.quad(screen));
+        }
+        let _tilt = crate::perspective::PerspectiveScope::enter(&dp, screen, tilt);
         crate::paint::draw_control(
             &dp,
             screen.min,
@@ -5225,6 +5275,10 @@ fn control_pointer_events(
     out: &mut RenderOutput,
     bound_events: &[&str],
     hover_delay_s: f64,
+    // Spec 096 R10: where a tilted control is, for the pointer — its projected outline.
+    // `screen` is then the outline's bounding box, so egui's "is the pointer over this
+    // rectangle and not hidden under another layer" still decides the cheap half.
+    quad: Option<[egui::Pos2; 4]>,
 ) {
     if !enabled {
         return;
@@ -5235,7 +5289,11 @@ fn control_pointer_events(
     // like onMouseMove (60/sec) and onLoad, starving real handlers.
     let want = |e: &str| bound_events.contains(&e);
 
-    let over = ui.rect_contains_pointer(screen);
+    let over = ui.rect_contains_pointer(screen)
+        && quad.is_none_or(|q| {
+            ui.input(|i| i.pointer.hover_pos())
+                .is_some_and(|p| crate::perspective::quad_contains(&q, p))
+        });
     let (
         pressed,
         released,
@@ -7768,6 +7826,19 @@ fn render_interactive(
 
     let painter = ui.painter_at(clip);
 
+    // Spec 096 R10: a tilted control answers the pointer where it is DRAWN — inside its
+    // projected outline — not where it was designed. `hit_rect` is the outline's bounding
+    // box (what egui can register); `quad` finishes the job.
+    let quad = out.hit_quads.get(id).copied();
+    let hit_rect = quad.map_or(screen, |q| crate::perspective::quad_bounds(&q));
+    let pointer_on_control = |ui: &egui::Ui| {
+        ui.rect_contains_pointer(hit_rect)
+            && quad.is_none_or(|q| {
+                ui.input(|i| i.pointer.hover_pos())
+                    .is_some_and(|p| crate::perspective::quad_contains(&q, p))
+            })
+    };
+
     // Universal pointer/gesture/geometry events for every visual control.
     //
     // `ControlType::is_non_visual()` — the catalogue's own answer — rather than
@@ -7789,7 +7860,7 @@ fn render_interactive(
             .clamp(0.0, 10.0);
         control_pointer_events(
             ui,
-            screen,
+            hit_rect,
             ctrl_id,
             id,
             &ct,
@@ -7797,6 +7868,7 @@ fn render_interactive(
             out,
             &bound,
             hover_delay_s,
+            quad,
         );
         control_geometry_events(ui, screen, ctrl_id, id, out, &bound);
         // The control's `Cursor`, while the pointer is over it — on EVERY
@@ -7806,7 +7878,7 @@ fn render_interactive(
         // TextBox keeps its own text cursor.
         if enabled {
             if let Some(icon) = ctrl.get_prop("Cursor").and_then(|v| cursor_icon_for(v.as_str())) {
-                if ui.rect_contains_pointer(screen) {
+                if pointer_on_control(ui) {
                     ui.ctx().set_cursor_icon(icon);
                 }
             }
@@ -7819,7 +7891,7 @@ fn render_interactive(
         if !matches!(ct, CT::Button | CT::CheckBox | CT::TextBox | CT::ComboBox) {
             let tip = sv(ctrl, "Tooltip");
             let tip = tip.trim();
-            if !tip.is_empty() && ui.rect_contains_pointer(screen) {
+            if !tip.is_empty() && pointer_on_control(ui) {
                 let rested = ui.ctx().input(|i| i.pointer.time_since_last_movement()) as f64;
                 if rested >= hover_delay_s {
                     egui::containers::Tooltip::always_open(
@@ -14988,6 +15060,23 @@ fn render_interactive(
             );
             if let Some(cap) = caption {
                 let text_rect = Rect::from_min_size(cap.pos, cap.galley.size());
+                // Spec 096 R14: a tilted caption is PAINTED, inside the perspective scope, and so
+                // projected with the rest of the control. It is not hosted as selectable text: the
+                // selection machinery works in the caption's own plane and the pointer is not.
+                // Where the text lies on the screen is then the bounds of the projected text box.
+                let tilted = quad.is_some();
+                let text_rect = match crate::perspective::Perspective::of(ctrl) {
+                    Some(tilt) => {
+                        let cam = tilt.camera(screen);
+                        Rect::from_points(&[
+                            cam.project(text_rect.left_top()),
+                            cam.project(text_rect.right_top()),
+                            cam.project(text_rect.right_bottom()),
+                            cam.project(text_rect.left_bottom()),
+                        ])
+                    }
+                    None => text_rect,
+                };
                 out.caption_rects.insert(id.to_owned(), text_rect);
                 // Bold is a second stamp at a half-pixel offset (egui has no
                 // guaranteed bold face for an arbitrary system font). It goes
@@ -14996,7 +15085,10 @@ fn render_interactive(
                 if ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false) {
                     painter.galley(cap.pos + vec2(0.5, 0.0), cap.galley.clone(), cap.color);
                 }
-                ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
+                if tilted {
+                    painter.galley(cap.pos, cap.galley.clone(), cap.color);
+                }
+                ui.scope_builder(egui::UiBuilder::new().max_rect(hit_rect), |ui| {
                     // NARROWED, never widened. `Ui::set_clip_rect` REPLACES the
                     // clip, so passing the container's rect threw away whatever
                     // the surface had already imposed — and the caption is the
@@ -15025,9 +15117,9 @@ fn render_interactive(
                     // background has no behaviour of its own, its text does
                     // (it selects).
                     let claim = if draggable && (face_see_through(ctrl) || !binds_a_press(ctrl)) {
-                        Rect::from_min_size(cap.pos, cap.galley.size())
+                        text_rect
                     } else {
-                        screen
+                        hit_rect
                     };
                     let resp = ui.interact(
                         claim,
@@ -15039,20 +15131,28 @@ fn render_interactive(
                     // focus goes on to the control after it — the Label itself
                     // never keeps it. `onClick` comes from the universal
                     // pointer events above.
-                    if resp.clicked() && enabled {
+                    // …and only where a TILTED label is seen: the box egui registered is the
+                    // outline's bounds, the click must be inside the outline itself.
+                    let on_it = quad.is_none_or(|q| {
+                        resp.interact_pointer_pos()
+                            .is_none_or(|p| crate::perspective::quad_contains(&q, p))
+                    });
+                    if resp.clicked() && enabled && on_it {
                         if ctrl.events.iter().any(|e| e.event == "onGotFocus") {
                             out.events.push(UiEvent::ev(id, "onGotFocus"));
                         }
                         request_tab_advance(ui, label_tab_id(scope, id));
                     }
-                    egui::text_selection::LabelSelectionState::label_text_selection(
-                        ui,
-                        &resp,
-                        cap.pos,
-                        cap.galley,
-                        cap.color,
-                        Stroke::NONE,
-                    );
+                    if !tilted {
+                        egui::text_selection::LabelSelectionState::label_text_selection(
+                            ui,
+                            &resp,
+                            cap.pos,
+                            cap.galley,
+                            cap.color,
+                            Stroke::NONE,
+                        );
+                    }
                 });
             }
         }

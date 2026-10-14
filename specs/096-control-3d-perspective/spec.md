@@ -1,6 +1,6 @@
 # Spec — 3D perspective for display controls: `RotateX`, `RotateY` and `PerspectiveDistance`
 
-- **Status:** draft — scope, property shape and distance meaning decided by the operator on 2026-10-13 (§8); open items in §7
+- **Status:** implemented in 1.91.39 — scope, property shape and distance meaning decided by the operator on 2026-10-13 (§8); the open items of §7 were taken at their assumed answers
 - **Folder:** specs/096-control-3d-perspective/
 - **Author:** operator request, written by Claude   **Date:** 2026-10-13
 - **Branch:** `features-perspective-3d` (a per-change branch off `main`: `features` is held by another worktree, `specs/steering/structure.md`)

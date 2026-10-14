@@ -4403,6 +4403,9 @@ impl PropertiesPanel {
                     TypeSection::Rest,
                 );
 
+                // ── 3D perspective (spec 096) ────────────────────────────────────────
+                self.show_perspective_grid(ui, ctrl, &id, action);
+
                 // ── Deployed User Control child properties ───────────────────────────
                 self.show_user_control_children(ui, form, ctrl, action, tr);
 
@@ -5499,6 +5502,22 @@ impl PropertiesPanel {
             None,
             8,
         );
+    }
+
+    /// Spec 096 — `RotateX`, `RotateY` and `PerspectiveDistance`, for the twelve
+    /// controls that only draw (`ControlType::has_perspective`). Any other control
+    /// has no section: nothing it draws could follow a tilt.
+    ///
+    /// A form saved before the properties existed carries none of them; the rows
+    /// then show the neutral values, which is what the renderer reads.
+    fn show_perspective_grid(&mut self, ui: &mut Ui, ctrl: &Control, id: &str, action: &mut InspectorAction) {
+        if !ctrl.control_type.has_perspective() {
+            return;
+        }
+        section_header(ui, "3D perspective");
+        int_prop_row(ui, id, "RotateX", "Tilt top / bottom", ctrl, action, -60..=60, Some("°"), 0);
+        int_prop_row(ui, id, "RotateY", "Tilt left / right", ctrl, action, -60..=60, Some("°"), 0);
+        int_prop_row(ui, id, "PerspectiveDistance", "Distance from observer", ctrl, action, 0..=100, None, 50);
     }
 
     fn show_advanced_grid(

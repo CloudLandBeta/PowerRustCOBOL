@@ -1,6 +1,6 @@
 # Tasks — 3D perspective for display controls
 
-- **Status:** draft
+- **Status:** implemented in 1.91.39 (T16 dropped; T18's sweep recorded in the CHANGELOG)
 - **Plan:** ./plan.md   **Date:** 2026-10-13
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches, the
@@ -8,7 +8,7 @@ requirement(s) it satisfies, and how to verify it. The project stays green after
 until T7 and T8 hook the renderers, nothing a user can see changes. **T1 is a go/no-go gate:
 if it fails, stop and take plan §4 alternative (b) before anything else is written.**
 
-- [ ] **T1 — Spike: can the captured shapes be tessellated and projected?** (R7, plan §5 risk 1)
+- [x] **T1 — Spike: can the captured shapes be tessellated and projected?** (R7, plan §5 risk 1)
   - Files: `crates/cobolt-forms/tests/perspective_spike.rs` (kept as a regression test).
   - Do: draw a BarChart, a Label and a PictureBox through the real painter into a headless
     `egui::Context`; read the shapes added to the layer (`graphics_mut` → `PaintList::next_idx`
@@ -20,7 +20,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     prints, per control, shapes captured / meshes made / glyph quads compared / worst position
     difference. **Go** = every difference ≤ 0.01 pt and text present. **No-go** = stop; report.
 
-- [ ] **T2 — The properties exist, and mean the same everywhere** (R1, R2, R12 write side, R13, R16, R18; AC1, AC13)
+- [x] **T2 — The properties exist, and mean the same everywhere** (R1, R2, R12 write side, R13, R16, R18; AC1, AC13)
   - Files: `crates/cobolt-forms/src/model.rs`.
   - Do: `ControlType::has_perspective()` (the 12 of spec R1, as one `matches!`); consts for the
     three names, their ranges and defaults; seed `RotateX`/`RotateY` (`Int(0)`) and
@@ -35,7 +35,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     to `"-60"`, and a theme switch (`THEME_OWNED_PROPS` appliers) leaves the three as they were;
     the layout rectangle, tab order and event bindings are equal before and after a write.
 
-- [ ] **T3 — The projection, as pure geometry** (R3, R4, R5; AC3, AC4)
+- [x] **T3 — The projection, as pure geometry** (R3, R4, R5; AC3, AC4)
   - Files: `crates/cobolt-forms/src/perspective.rs` (new), `crates/cobolt-forms/src/lib.rs`.
   - Do: `Perspective { rx, ry, distance }` with `of(&Control) -> Option<Perspective>` (`None`
     for the other types, the neutral triple and non-finite text; clamps), `project(centre, size,
@@ -46,7 +46,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     edge ratio at distance 0/25/50/75/100; the centre exactly fixed; the smallest `D + z₂` and the
     convexity over a 61 × 61 × 101 grid of the three properties and several aspect ratios.
 
-- [ ] **T4 — Projecting a mesh** (R7; AC5 in part)
+- [x] **T4 — Projecting a mesh** (R7; AC5 in part)
   - Files: `crates/cobolt-forms/src/perspective.rs`.
   - Do: `warp_mesh(&Perspective, centre, Mesh) -> Mesh`: positions projected; a mesh whose
     vertices share one colour and one UV is moved as it is, any other has its triangles cut so
@@ -56,7 +56,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     lands at the perspective midpoint of the projected edge (not at the screen midpoint), the
     triangle count before/after, no NaN, no zero-area triangle.
 
-- [ ] **T5 — Clipping, in control space and in screen space** (R9; AC7 in part)
+- [x] **T5 — Clipping, in control space and in screen space** (R9; AC7 in part)
   - Files: `crates/cobolt-forms/src/perspective.rs`.
   - Do: `clip_triangles_to_rect` (Sutherland–Hodgman against a rectangle); `clip_case(shape_clip,
     outer) -> {PreClip(rect), Keep(rect)}` as plan §1: tighter than `outer` → pre-clip and carry
@@ -65,7 +65,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     the chosen rule; a triangle clipped to a rectangle gives the right polygon area (checked
     against a brute-force sample of 10 000 points).
 
-- [ ] **T6 — `PerspectiveScope`: capture, tessellate, project, put back** (R6, R7, R9; AC2, AC5, AC7)
+- [x] **T6 — `PerspectiveScope`: capture, tessellate, project, put back** (R6, R7, R9; AC2, AC5, AC7)
   - Files: `crates/cobolt-forms/src/perspective.rs`.
   - Do: `PerspectiveScope::enter(painter, rect, Option<Perspective>)` — a no-op value when the
     perspective is `None` (R6: nothing is read, nothing is allocated); with one, it records the
@@ -80,7 +80,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     straight edge within 0.5 px of the quad's edge, no degenerate glyph, the image's four corners on
     the outline's four corners; none of the twelve types paints a `Shape::Callback`.
 
-- [ ] **T7 — Hook the designer/static painter** (R8, R11; AC2, AC6, AC9)
+- [x] **T7 — Hook the designer/static painter** (R8, R11; AC2, AC6, AC9)
   - Files: `crates/cobolt-forms/src/render.rs` (`render_faces_with`; `RenderOutput.hit_quads`).
   - Do: wrap the `draw_control` call in a scope built from `Perspective::of(&face)` and `screen`;
     leave `control_rects` the designed rectangle.
@@ -90,7 +90,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     a tilted control's selection rectangle and handles on the designed rectangle and a handle drag
     resizing it.
 
-- [ ] **T8 — Hook the run painter** (R8, R9, R15; AC6, AC7, AC11 in part)
+- [x] **T8 — Hook the run painter** (R8, R9, R15; AC6, AC7, AC11 in part)
   - Files: `crates/cobolt-forms/src/render.rs` (`render_form`).
   - Do: the same scope around each control's painting in `render_form`'s loop, built after the
     `screen`/`clip` and the animation transform are known, so it also covers the shadow ring and the
@@ -101,7 +101,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     animated Animator advances between two frames of the test clock while tilted; a control with an
     animation transform (shift + scale) and a tilt draws the tilt about the moved centre.
 
-- [ ] **T9 — A tilted Label** (R14; AC11)
+- [x] **T9 — A tilted Label** (R14; AC11)
   - Files: `crates/cobolt-forms/src/render.rs` (the Label arm).
   - Do: first **read** `collect_tab_targets` and the arm and write down what keeps `onGotFocus` and the
     tab stop alive when the caption is not hosted; then, while a Label is tilted, call `draw_control`
@@ -109,7 +109,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
   - Verify: a test prints, for a tilted and an untilted Label: caption shapes present / selectable
     text hosted / tab target present / `onGotFocus` announced — equal except "selectable".
 
-- [ ] **T10 — Pointer events where the control is** (R10; AC8)
+- [x] **T10 — Pointer events where the control is** (R10; AC8)
   - Files: `crates/cobolt-forms/src/render.rs`.
   - Do: `hit(out, id, rect, p)`; use it in `control_pointer_events` (`over`), `owns_pointer_at`,
     `controls_under_the_owner`, `paints_at`; the `ui.interact` rectangle of the arms of the twelve types
@@ -119,7 +119,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     spec 091 layer/owner tests still pass; a tilted chart over a Button hands a click inside the quad
     to the chart and a click on the Button outside the quad to the Button.
 
-- [ ] **T11 — Writing the properties from COBOL, in all three hosts** (R12; AC10)
+- [x] **T11 — Writing the properties from COBOL, in all three hosts** (R12; AC10)
   - Files: `crates/cobolt-form-host/tests/…` (new test), no production change expected.
   - Do: **read** the skill `interpreter-binary-parity` first; run a form whose handler does `MOVE 30 TO
     CHART-1::RotateY`, `MOVE 200 TO CHART-1::RotateX` and reads both back, through the form host's
@@ -127,7 +127,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
   - Verify: the next frame's outline differs as T3 predicts; the read-back is 30 and 60; both hosts
     print the same numbers.
 
-- [ ] **T12 — The Properties pane** (R17; AC12 in part)
+- [x] **T12 — The Properties pane** (R17; AC12 in part)
   - Files: `crates/cobolt-ide/src/panels/properties.rs`, `crates/cobolt-ide/src/prop_help_data.rs`,
     `crates/cobolt-ide/src/ui_text_data.rs`.
   - Do: a "3D perspective" section after the type-specific one for the twelve types, with
@@ -138,21 +138,21 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     for each of the twelve types and for none of the others, in six languages, with no word of it left
     in English; `ui_text_tests` green.
 
-- [ ] **T13 — System KB** (R17; AC12 in part)
+- [x] **T13 — System KB** (R17; AC12 in part)
   - Files: `crates/cobolt-compiler/src/lib.rs`, `assets/knowledge/chunked.data`.
   - Do: property arms for `RotateX` | `RotateY` and `PerspectiveDistance` (domain, one-sentence meaning,
     the sign table); then `cargo run -p cobolt-ide --example build_chunked_kb`.
   - Verify: `cargo test -p cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation` green;
     `cargo test -p cobolt-compiler` green; the record count before/after printed.
 
-- [ ] **T14 — What it costs** (R19; AC14)
+- [x] **T14 — What it costs** (R19; AC14)
   - Files: `crates/cobolt-forms/tests/bench_render_frame.rs` (extend).
   - Do: a scene of 1 and of 8 BarCharts, untilted and tilted (RotateY −30, RotateX 8, distance 60).
   - Verify: `cargo test -p cobolt-forms --features render --release --test bench_render_frame --
     --nocapture` prints the frame time of the four scenes; the numbers go into the CHANGELOG as
     measured; a scene with **no** tilted control is within noise of the previous baseline.
 
-- [ ] **T15 — The reference scene, looked at** (R7, R17; AC12)
+- [x] **T15 — The reference scene, looked at** (R7, R17; AC12)
   - Files: `assets/images/screenshots/` (the picture, where the Guide keeps its images), a scratch `.cfrm` outside the repo.
   - Do: build the *Revenue by quarter* scene (a BarChart, two series, a dark backdrop), render it
     with `render_form` at `RotateY` −30, `RotateX` 8, distance 60; **look at it** beside the operator's
@@ -160,7 +160,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
   - Verify: the picture is in the repo; the author states in the CHANGELOG what was seen (edge ratio
     read off the picture, text legible, border following the tilt, the arc of the rounded corners smooth).
 
-- [ ] **T16 — (optional) The demo form** (R17)
+- [~] **T16 — (optional) The demo form** (R17) — **dropped, as the task allows** (a smaller change: no PowerDemo3 project entry and no two new goldens; the Guide's COBOL example and the reference picture carry the explanation)
   - Files: `examples/PowerDemo3/forms/General/perspective-form.cfrm`, `examples/PowerDemo3/PowerDemo3.project.toml`,
     the two goldens `General__perspective-form.cfrm.txt` (`cobolt-forms`, `cobolt-form-host`), the corpus
     count in `every_example_form_round_trips_056` (75 → 76).
@@ -169,7 +169,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
   - Verify: the corpus tests green with 76 forms; the demo's four sliders move the chart in `run_form`.
     **Drop this task for a smaller change.**
 
-- [ ] **T17 — Docs** (R17)
+- [x] **T17 — Docs** (R17)
   - Files: `docs/developers-guide-en.md`.
   - Do: a subsection (*Painting and layout ▸ 3D perspective*): what the three properties do, the sign
     table, the 12 types and why not the others, the reference picture, a COBOL example with the
@@ -180,7 +180,7 @@ if it fails, stop and take plan §4 alternative (b) before anything else is writ
     every claim in it has a test above.
 
 - [ ] **T18 — Finalize** (all)
-  - Files: `crates/cobolt-ide/src/version.rs` (**1.91.37**), `CHANGELOG.md`.
+  - Files: `crates/cobolt-ide/src/version.rs` (**1.91.39** — 1.91.36–38 went to `fixes` first), `CHANGELOG.md`.
   - Do: bump; the entry states what shipped, the measured numbers (T14, T3, T6, T8, T10), what the author
     saw (T15), and what was **not** checked on screen by the operator.
   - Verify: `cargo test -p cobolt-forms --features render`, `-p cobolt-form-host`, `-p cobolt-compiler`,

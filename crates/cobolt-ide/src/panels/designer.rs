@@ -26061,3 +26061,9 @@ mod layers_091;
 #[cfg(test)]
 #[path = "designer_grid_edit_094_tests.rs"]
 mod grid_edit_094;
+
+// Spec 096 — a tilted control in the Designer: drawn tilted, selected and resized by the
+// rectangle it was designed in.
+#[cfg(test)]
+#[path = "designer_perspective_096_tests.rs"]
+mod perspective_096;

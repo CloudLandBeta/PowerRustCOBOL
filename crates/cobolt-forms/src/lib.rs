@@ -96,6 +96,11 @@ pub mod anim;
 #[cfg(feature = "render")]
 pub mod paint;
 
+/// Spec 096 — `RotateX` / `RotateY` / `PerspectiveDistance`: the projection of a
+/// display control, applied to what it has just painted.
+#[cfg(feature = "render")]
+pub mod perspective;
+
 // What a form theme IS (spec 050): an implementation the painters ask, not an
 // identity they test against. Registering a theme touches no painter, and a
 // theme that owns the whole look says so instead of every painter guessing.
