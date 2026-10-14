@@ -5891,7 +5891,9 @@ fn draw_control_body(
             let mut hosted = Vec::new();
             let mut sources = Vec::new();
             for i in 0..mode.view_count() {
-                let st = ViewerPaintState::from_control(ctrl, i, None, face_alpha);
+                let mut st = ViewerPaintState::from_control(ctrl, i, None, face_alpha);
+                // What the reader has selected, so the paint can mark it.
+                st.selection = viewer_selection(painter.ctx(), &ctrl.id, i);
                 let from_host = published_viewer_document(painter.ctx(), &st.source);
                 contents.push(match &from_host {
                     Some(_) => None,
@@ -10258,7 +10260,12 @@ fn paint_conversation_bubbles(
         let x = if right { origin.x + full - size.x } else { origin.x };
         let bubble = egui::Rect::from_min_size(egui::pos2(x, y), size);
         painter.rect_filled(bubble, egui::CornerRadius::same(BUBBLE_RADIUS), fill.gamma_multiply(alpha_mul));
+        // A selection inside a bubble stands out from the BUBBLE, not from the
+        // page behind it: a blue band on a blue user bubble is no selection.
+        let page_selection = (find.selection_fill, find.selection_ink);
+        find.set_selection_for(fill);
         paint_blocks(painter, &inner, &m.blocks, bubble.min + BUBBLE_PAD, find);
+        (find.selection_fill, find.selection_ink) = page_selection;
         y += size.y + BUBBLE_GAP;
     }
     (y - origin.y).max(0.0)
@@ -10419,11 +10426,104 @@ pub(crate) struct TextRun {
     /// galley laid out with `halign` extends to the LEFT of its origin.
     pub origin: egui::Pos2,
     pub galley: std::sync::Arc<egui::Galley>,
+    /// `Some` when this run is a PICTURE — a document that is an image, or a
+    /// Mermaid diagram — rather than text.
+    ///
+    /// A picture takes its place in the run sequence as ONE character (the
+    /// galley is a stand-in holding the object-replacement character
+    /// `U+FFFC`, never painted), so the selection arithmetic that already
+    /// decides which runs a drag covers decides which pictures it covers, with
+    /// no second model: a picture is selected whole or not at all.
+    pub picture: Option<crate::viewer::PictureSource>,
+}
+
+/// The run of a picture laid at `rect`.
+pub(crate) fn picture_run(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    source: crate::viewer::PictureSource,
+) -> TextRun {
+    TextRun {
+        rect,
+        origin: rect.min,
+        galley: painter.layout_no_wrap(
+            "\u{FFFC}".to_owned(),
+            egui::FontId::proportional(1.0),
+            Color32::TRANSPARENT,
+        ),
+        picture: Some(source),
+    }
+}
+
+/// How a SELECTED picture is marked: the band's colour over it (so it reads as
+/// part of the selection and is still seen through), a solid band-coloured
+/// frame, and inside it a line in the selection's ink — two lines of
+/// different tone, so the frame shows against a dark photograph and a white
+/// one alike.
+pub(crate) fn paint_picture_selection(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    fill: Color32,
+    ink: Color32,
+) {
+    painter.rect_filled(rect, 0.0, fill.gamma_multiply(0.3));
+    painter.rect_stroke(rect, 0.0, Stroke::new(4.0, fill), egui::StrokeKind::Inside);
+    painter.rect_stroke(rect.shrink(4.0), 0.0, Stroke::new(1.5, ink), egui::StrokeKind::Inside);
+}
+
+/// Paint the reader's selection into the galley of run `index`, if it covers
+/// any of it — egui's own `paint_text_selection`, so a wrapped selection fills
+/// every row edge to edge. Clones the galley only when something is selected.
+fn paint_galley_selection(
+    mut galley: std::sync::Arc<egui::Galley>,
+    selection: Option<crate::viewer::TextSelection>,
+    index: usize,
+    fill: Color32,
+    ink: Color32,
+) -> std::sync::Arc<egui::Galley> {
+    if let Some(sel) = selection {
+        let len = galley.job.text.chars().count();
+        if let Some((from, to)) = sel.span_in(index, len) {
+            let range = egui::text::CCursorRange::two(
+                egui::text::CCursor::new(from),
+                egui::text::CCursor::new(to),
+            );
+            // The selection's colours are the VIEWER's, derived from the page
+            // the text is on — not egui's style, which belongs to the IDE's
+            // chrome and knows nothing about a document painted in a form's
+            // own theme. `paint_text_selection` reads exactly two fields, so
+            // exactly two are supplied.
+            let mut visuals = egui::Visuals::light();
+            visuals.selection.bg_fill = fill;
+            visuals.selection.stroke.color = ink;
+            egui::text_selection::visuals::paint_text_selection(&mut galley, &visuals, &range, None);
+        }
+    }
+    galley
 }
 
 impl TextMarks<'_> {
     fn searching(&self) -> bool {
         !self.query.is_empty()
+    }
+
+    /// Choose the selection's band and ink for text sitting on `page` — the
+    /// high-contrast pair of [`crate::viewer::selection_colors`], faded with
+    /// the control like everything else on it.
+    fn set_selection_for(&mut self, page: Color32) {
+        let (band, ink) = crate::viewer::selection_colors([page.r(), page.g(), page.b()]);
+        self.selection_fill = Color32::from_rgba_unmultiplied(band[0], band[1], band[2], self.alpha);
+        self.selection_ink = Color32::from_rgba_unmultiplied(ink[0], ink[1], ink[2], self.alpha);
+    }
+
+    /// A picture the paint just drew at `rect`: number it in the run sequence,
+    /// and mark it if the reader has selected it.
+    fn picture(&mut self, painter: &egui::Painter, rect: egui::Rect, source: crate::viewer::PictureSource) {
+        let index = self.runs.len();
+        if self.selection.is_some_and(|s| s.span_in(index, 1).is_some()) {
+            paint_picture_selection(painter, rect, self.selection_fill, self.selection_ink);
+        }
+        self.runs.push(picture_run(painter, rect, source));
     }
 
     /// Number this run, paint the reader's selection into it, and mark every
@@ -10442,35 +10542,13 @@ impl TextMarks<'_> {
         origin: egui::Pos2,
     ) -> std::sync::Arc<egui::Galley> {
         let index = self.runs.len();
-        let mut galley = galley;
-        if let Some(sel) = self.selection {
-            let len = galley.job.text.chars().count();
-            if let Some((from, to)) = sel.span_in(index, len) {
-                let range = egui::text::CCursorRange::two(
-                    egui::text::CCursor::new(from),
-                    egui::text::CCursor::new(to),
-                );
-                // The selection's colours are the VIEWER's, derived from the
-                // page the text is on — not egui's style, which belongs to the
-                // IDE's chrome and knows nothing about a document painted in a
-                // form's own theme. `paint_text_selection` reads exactly two
-                // fields, so exactly two are supplied.
-                let mut visuals = egui::Visuals::light();
-                visuals.selection.bg_fill = self.selection_fill;
-                visuals.selection.stroke.color = self.selection_ink;
-                egui::text_selection::visuals::paint_text_selection(
-                    &mut galley,
-                    &visuals,
-                    &range,
-                    None,
-                );
-            }
-        }
+        let galley = paint_galley_selection(galley, self.selection, index, self.selection_fill, self.selection_ink);
         self.mark(painter, &galley, origin);
         self.runs.push(TextRun {
             rect: galley.rect.translate(origin.to_vec2()),
             origin,
             galley: galley.clone(),
+            picture: None,
         });
         galley
     }
@@ -10877,12 +10955,14 @@ fn paint_block(
                     // size: an upscaled vector drawing is a blurry one.
                     let scale = (ctx.width / w).min(1.0);
                     let size = egui::vec2(w * scale, h * scale);
+                    let dest = egui::Rect::from_min_size(pos, size);
                     painter.image(
                         tex,
-                        egui::Rect::from_min_size(pos, size),
+                        dest,
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                         Color32::WHITE,
                     );
+                    find.picture(painter, dest, crate::viewer::PictureSource::Mermaid(source.clone()));
                     size.y
                 }
                 Err(reason) => {
@@ -11795,9 +11875,9 @@ fn draw_viewer_image(
     img: &crate::viewer::DecodedImage,
     zoom_pct: i64,
     scroll: f32,
-) -> f32 {
+) -> (f32, egui::Rect) {
     let Some(frame) = img.frames.first() else {
-        return 0.0;
+        return (0.0, egui::Rect::NOTHING);
     };
     let id = egui::Id::new(("viewer-standalone-image", &ctrl.id, source));
     let ctx = painter.ctx();
@@ -11841,7 +11921,7 @@ fn draw_viewer_image(
     };
     let dest = egui::Rect::from_min_size(egui::pos2(x, y), size);
     draw_media_image_at(painter, rect, dest, handle.id(), 255, ctrl, 0.0);
-    size.y
+    (size.y, dest)
 }
 
 // ── T12: the state one Viewer paint needs, and what it hands back ───────
@@ -12114,6 +12194,40 @@ pub(crate) fn viewer_stash_measurements(
     ctx.memory_mut(|m| m.data.insert_temp(id, result.clone()));
 }
 
+/// The selection the interactive pass last left on this view, for the paint to
+/// mark.
+///
+/// Keyed by the CONTROL, as the measurements are, because the face is painted
+/// by `draw_control` — the one paint the designer canvas shares — BEFORE the
+/// interactive pass runs, and that paint knows nothing but the control. The
+/// selection used to reach only a local of the interactive pass, which painted
+/// nothing from it: a reader could drag across a document and see no mark at
+/// all, and Copy worked on a selection that was never shown.
+pub(crate) fn viewer_stash_selection(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+    view_index: usize,
+    selection: Option<crate::viewer::TextSelection>,
+) {
+    let id = egui::Id::new(("viewer-selected", ctrl_id, view_index));
+    ctx.memory_mut(|m| match selection {
+        Some(sel) => {
+            m.data.insert_temp(id, sel);
+        }
+        None => m.data.remove::<crate::viewer::TextSelection>(id),
+    });
+}
+
+/// The selection last stashed for this view, if any.
+pub(crate) fn viewer_selection(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+    view_index: usize,
+) -> Option<crate::viewer::TextSelection> {
+    let id = egui::Id::new(("viewer-selected", ctrl_id, view_index));
+    ctx.memory(|m| m.data.get_temp::<crate::viewer::TextSelection>(id))
+}
+
 /// What the last paint of this control's view measured, if it has painted.
 pub(crate) fn viewer_measurements(
     ctx: &egui::Context,
@@ -12319,8 +12433,21 @@ pub(crate) fn draw_viewer(
     };
 
     if let ViewerPageContent::Image(img) = content {
-        result.content_height =
+        let (height, dest) =
             draw_viewer_image(painter, content_rect, ctrl, &st.source, img, st.zoom_pct, st.scroll);
+        result.content_height = height;
+        // The page is one picture, and it is one selectable run — the only one
+        // — so Select All, a click and a drag all reach it the way they reach
+        // text, and Copy has something to copy.
+        if dest.is_positive() {
+            let (band, band_ink) = crate::viewer::selection_colors([surface.r(), surface.g(), surface.b()]);
+            let fill = Color32::from_rgba_unmultiplied(band[0], band[1], band[2], a);
+            let mark = Color32::from_rgba_unmultiplied(band_ink[0], band_ink[1], band_ink[2], a);
+            if st.selection.is_some_and(|sel| sel.span_in(0, 1).is_some()) {
+                paint_picture_selection(&painter.with_clip_rect(content_rect), dest, fill, mark);
+            }
+            result.text_runs = vec![picture_run(painter, dest, crate::viewer::PictureSource::Document)];
+        }
         draw_viewer_slider(painter, result.slider_track, st, ink, a);
         viewer_stash_measurements(ctx, &ctrl.id, st.view_index, &result);
         return result;
@@ -12415,6 +12542,24 @@ pub(crate) fn draw_viewer(
         if st.find_highlight && !spans.is_empty() {
             draw_viewer_find_highlights(&clip, &galley, origin, &spans, st.find_current, a);
         }
+        // The text of a plain-text document, a PDF and the Raw layout is ONE
+        // galley, and it used to be painted without a run: nothing in it could
+        // be selected, so nothing in it could be copied. It is run 0, painted
+        // with the same selection the blocks of a formatted document get.
+        let (band, band_ink) = crate::viewer::selection_colors([surface.r(), surface.g(), surface.b()]);
+        let galley = paint_galley_selection(
+            galley,
+            st.selection,
+            0,
+            Color32::from_rgba_unmultiplied(band[0], band[1], band[2], a),
+            Color32::from_rgba_unmultiplied(band_ink[0], band_ink[1], band_ink[2], a),
+        );
+        result.text_runs = vec![TextRun {
+            rect: galley.rect.translate(origin.to_vec2()),
+            origin,
+            galley: galley.clone(),
+            picture: None,
+        }];
         clip.galley(origin, galley, ink);
     } else {
         let blocks = blocks.unwrap();
@@ -12443,13 +12588,13 @@ pub(crate) fn draw_viewer(
             seen: 0,
             alpha: a,
             selection: st.selection,
-            // A selection is READ on the page it is on: a blue band on paper,
-            // and its own ink chosen for contrast against that band rather
-            // than inherited from the page.
-            selection_fill: Color32::from_rgba_premultiplied(60, 110, 200, (a as u32 * 3 / 5) as u8),
-            selection_ink: Color32::WHITE,
+            // Chosen for the page below, a moment later (`set_selection_for`):
+            // the band and its ink are a high-contrast pair for that surface.
+            selection_fill: Color32::TRANSPARENT,
+            selection_ink: Color32::TRANSPARENT,
             runs: Vec::new(),
         };
+        find.set_selection_for(surface);
         let stream = st
             .is_streamed()
             .then(|| viewer_conversation_messages(ctx, &st.conversation_html))
@@ -12907,7 +13052,7 @@ fn draw_viewer_page_face(
             Some(ViewerPageContent::Image(img)) => {
                 // A card is the page at CARD size, so it fits — the view's
                 // own zoom belongs to the view, not to its contact sheet.
-                draw_viewer_image(&clip, body, ctrl, &st.source, img, 100, 0.0);
+                let _ = draw_viewer_image(&clip, body, ctrl, &st.source, img, 100, 0.0);
                 true
             }
             Some(ViewerPageContent::Markdown { doc, .. }) if !doc.blocks.is_empty() => {
@@ -22726,10 +22871,10 @@ method. Nothing in the control is reachable only by mouse.";
         );
     }
 
-    /// Spec 058 — the paint REPORTS the text it put on screen, because a
-    /// selection is expressed in those runs and nothing else knows where they
-    /// landed. An image reports none, which is what makes it unselectable
-    /// without a case of its own.
+    /// Spec 058 — the paint REPORTS what it put on screen, because a selection
+    /// is expressed in those runs and nothing else knows where they landed. A
+    /// picture is reported too, as a run of one character that is not text, so
+    /// it is selectable by the same arithmetic as the words around it.
     #[test]
     fn a_paint_reports_the_text_runs_it_laid_down() {
         let doc = crate::viewer::parse_markdown(
@@ -22737,7 +22882,7 @@ method. Nothing in the control is reachable only by mouse.";
         );
         let content = ViewerPageContent::Markdown { raw: String::new(), doc };
         let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(420.0, 340.0));
-        let runs_for = |content: &ViewerPageContent| -> Vec<String> {
+        let measure = |content: &ViewerPageContent| -> Vec<TextRun> {
             let ctx = egui::Context::default();
             let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
             let mut input = egui::RawInput::default();
@@ -22751,15 +22896,14 @@ method. Nothing in the control is reachable only by mouse.";
                 });
             });
             full.textures_delta.clear();
-            viewer_measurements(&ctx, "V1", 0)
-                .unwrap_or_default()
-                .text_runs
-                .iter()
-                .map(|r| r.galley.job.text.clone())
-                .collect()
+            viewer_measurements(&ctx, "V1", 0).unwrap_or_default().text_runs
+        };
+        let runs_for = |content: &ViewerPageContent| -> Vec<String> {
+            measure(content).iter().map(|r| r.galley.job.text.clone()).collect()
         };
 
         let runs = runs_for(&content);
+        assert!(measure(&content).iter().all(|r| r.picture.is_none()), "words are not pictures");
         println!("  {} run(s) reported:", runs.len());
         for r in &runs {
             println!("    {:?}", r);
@@ -22774,16 +22918,20 @@ method. Nothing in the control is reachable only by mouse.";
             "and so is the paragraph: {runs:?}"
         );
 
-        // An image has no text, so it reports no runs — and a reader cannot
-        // select one without this needing a rule of its own.
+        // An image has no text, and it IS selectable: it reports ONE run, a
+        // picture, whose stand-in galley is the single object-replacement
+        // character — so Select All, a click and a drag reach it the way they
+        // reach words.
         let img = ViewerPageContent::Image(crate::viewer::DecodedImage {
             width: 4,
             height: 4,
             frames: vec![crate::viewer::ImageFrame { rgba: vec![255u8; 4 * 16], delay_ms: 0 }],
         });
-        let image_runs = runs_for(&img);
-        println!("  an image reports {} run(s)", image_runs.len());
-        assert!(image_runs.is_empty(), "nothing in an image is selectable: {image_runs:?}");
+        let image_runs = measure(&img);
+        println!("  an image reports {} run(s), picture = {:?}", image_runs.len(), image_runs.first().map(|r| r.picture.clone()));
+        assert_eq!(image_runs.len(), 1, "an image is one run");
+        assert_eq!(image_runs[0].picture, Some(crate::viewer::PictureSource::Document));
+        assert_eq!(image_runs[0].galley.job.text, "\u{FFFC}", "one character, never painted");
     }
 
     fn count_stroked_rects(shapes: &[egui::Shape]) -> usize {

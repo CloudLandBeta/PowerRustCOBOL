@@ -4438,6 +4438,64 @@ impl TextSelection {
     }
 }
 
+/// A picture the paint laid down as a selectable run (see
+/// [`TextRun::picture`](crate::paint)): which picture, so that a copy can
+/// produce its pixels without the paint keeping them.
+///
+/// A picture is ONE character of the run sequence: selected whole or not at
+/// all. Only the pictures a Viewer really draws are here — a document that is
+/// an image, and a Mermaid diagram; a Markdown or HTML image still paints as
+/// its `alt` line, which is text and selects as text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PictureSource {
+    /// The page IS a picture: a PNG, JPEG, GIF, WebP or SVG document.
+    Document,
+    /// A Mermaid diagram, by its source — re-drawn (deterministically) at copy.
+    Mermaid(String),
+}
+
+/// WCAG relative luminance of an sRGB colour, 0 (black) … 1 (white).
+pub fn relative_luminance([r, g, b]: [u8; 3]) -> f32 {
+    let lin = |c: u8| {
+        let c = f32::from(c) / 255.0;
+        if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+/// WCAG contrast ratio of two colours, 1 (identical) … 21 (black on white).
+pub fn contrast_ratio(a: [u8; 3], b: [u8; 3]) -> f32 {
+    let (la, lb) = (relative_luminance(a), relative_luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// The selection's band and its ink, `(band, ink)`, chosen for the PAGE they
+/// sit on — a high-contrast selection, not a tint.
+///
+/// The band is opaque (the old one was a 60 % blue that all but vanished on a
+/// dark page or a mid-tone one) and the ink is the colour with the most
+/// contrast against it. The candidates are tried in order of taste — a deep
+/// blue with white, a yellow with black — and the first whose band stands out
+/// from the page by at least 4.5:1 wins; if neither does (a mid-grey page),
+/// black or white is taken, whichever stands out more, which is at least 4.58:1
+/// on ANY page. Every candidate's ink has at least 7:1 against its own band.
+pub fn selection_colors(page: [u8; 3]) -> ([u8; 3], [u8; 3]) {
+    const CANDIDATES: [([u8; 3], [u8; 3]); 4] = [
+        ([11, 61, 145], [255, 255, 255]),
+        ([255, 212, 59], [0, 0, 0]),
+        ([0, 0, 0], [255, 255, 255]),
+        ([255, 255, 255], [0, 0, 0]),
+    ];
+    let stands_out = |c: &([u8; 3], [u8; 3])| contrast_ratio(c.0, page);
+    if let Some(c) = CANDIDATES.iter().take(2).find(|c| stands_out(c) >= 4.5) {
+        return *c;
+    }
+    *CANDIDATES[2..]
+        .iter()
+        .max_by(|a, b| stands_out(a).total_cmp(&stands_out(b)))
+        .expect("two candidates")
+}
+
 /// One match, as byte offsets into the text that was searched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextSpan {
@@ -4881,22 +4939,37 @@ thread_local! {
 
 /// What the selection menu offers, right-clicking inside a document.
 ///
-/// Two items and no more. A reader's whole business with text they cannot edit
-/// is taking it somewhere else, and a menu of two is read at a glance.
+/// Three items and no more. A reader's whole business with content they cannot
+/// edit is taking it somewhere else — a selection to the clipboard, the whole
+/// document to paper — and a menu of three is read at a glance. Each has the
+/// keyboard shortcut it is shown with ([`SelectionMenuItem::shortcut_key`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMenuItem {
     SelectAll,
     Copy,
+    Print,
 }
 
 impl SelectionMenuItem {
-    pub const ALL: [Self; 2] = [Self::SelectAll, Self::Copy];
+    pub const ALL: [Self; 3] = [Self::SelectAll, Self::Copy, Self::Print];
 
     /// This crate's English, used until a host installs its own.
     pub fn default_label(self) -> &'static str {
         match self {
             Self::SelectAll => "Select All",
             Self::Copy => "Copy",
+            Self::Print => "Print",
+        }
+    }
+
+    /// The letter of the item's shortcut, pressed with Ctrl (Cmd on a Mac):
+    /// Ctrl+A, Ctrl+C, Ctrl+P. The menu shows it beside the label and the
+    /// keyboard handler answers it, so the two cannot disagree.
+    pub fn shortcut_key(self) -> char {
+        match self {
+            Self::SelectAll => 'A',
+            Self::Copy => 'C',
+            Self::Print => 'P',
         }
     }
 }
@@ -8400,5 +8473,97 @@ mod conversation_tests {
         assert_eq!(after_prune, ids[2..], "and the newest keep their own ids");
         assert_eq!(conv.prune_to(0), 0, "a ceiling of 0 never prunes");
         assert_eq!(conv.prune_to(100), 0, "nor does one above the size");
+    }
+}
+
+#[cfg(test)]
+mod selection_colour_tests {
+    use super::*;
+
+    /// `#RRGGBB[AA]` as three bytes.
+    fn hex(s: &str) -> [u8; 3] {
+        let v = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).expect("hex");
+        [v(1), v(3), v(5)]
+    }
+
+    /// What the selection WAS: a 60 % blue (premultiplied 60,110,200 at alpha
+    /// 153) with white ink, composited over the page.
+    fn old_band_over(page: [u8; 3]) -> [u8; 3] {
+        let (pre, a) = ([60.0_f32, 110.0, 200.0], 153.0_f32 / 255.0);
+        let mut out = [0u8; 3];
+        for i in 0..3 {
+            out[i] = (pre[i] + (1.0 - a) * f32::from(page[i])).min(255.0).round() as u8;
+        }
+        out
+    }
+
+    /// The selection stands out from every page, and its ink from the band —
+    /// the pairs it picks, for the pages a Viewer is actually drawn on, and
+    /// then for every grey and a grid of 4 096 colours. Printed beside what the
+    /// old selection measured on the same pages.
+    #[test]
+    fn the_selection_is_high_contrast_on_every_page() {
+        let pages: [(&str, [u8; 3]); 8] = [
+            ("white paper", [255, 255, 255]),
+            ("Page layout paper", [250, 250, 250]),
+            ("light grey pane", [220, 220, 220]),
+            ("mid grey", [128, 128, 128]),
+            ("dark grey pane", [48, 48, 48]),
+            ("black", [0, 0, 0]),
+            ("user bubble", hex(USER_BUBBLE_COLOR)),
+            ("agent bubble", hex(AGENT_BUBBLE_COLOR)),
+        ];
+        println!("  {:<18} {:>14} {:>9} {:>9}   {:>9} {:>9}", "page", "band", "band/page", "ink/band", "old b/p", "old ink/b");
+        for (name, page) in pages {
+            let (band, ink) = selection_colors(page);
+            let (bp, ib) = (contrast_ratio(band, page), contrast_ratio(ink, band));
+            let old = old_band_over(page);
+            let (obp, oib) = (contrast_ratio(old, page), contrast_ratio([255, 255, 255], old));
+            println!("  {name:<18} {:>14} {bp:>8.1}: {ib:>8.1}:   {obp:>8.1}: {oib:>8.1}:", format!("{band:?}"));
+            assert!(bp >= 4.5, "{name}: the band must stand out from the page (got {bp:.2})");
+            assert!(ib >= 7.0, "{name}: the ink must read on the band (got {ib:.2})");
+        }
+
+        // Every grey, and a grid of colours: never below 4.5:1 and 7:1.
+        let (mut worst_bp, mut worst_ib, mut n) = (f32::MAX, f32::MAX, 0usize);
+        let mut check = |page: [u8; 3]| {
+            let (band, ink) = selection_colors(page);
+            worst_bp = worst_bp.min(contrast_ratio(band, page));
+            worst_ib = worst_ib.min(contrast_ratio(ink, band));
+            n += 1;
+        };
+        for g in 0..=255u8 {
+            check([g, g, g]);
+        }
+        for r in (0..=255).step_by(16) {
+            for g in (0..=255).step_by(16) {
+                for b in (0..=255).step_by(16) {
+                    check([r as u8, g as u8, b as u8]);
+                }
+            }
+        }
+        println!("  {n} pages swept: worst band/page {worst_bp:.2}:1, worst ink/band {worst_ib:.2}:1");
+        assert!(worst_bp >= 4.5, "worst band/page {worst_bp}");
+        assert!(worst_ib >= 7.0, "worst ink/band {worst_ib}");
+    }
+
+    /// The old selection really was low-contrast, which is what is being fixed:
+    /// white ink on a pale blue band, on the paper of the Page layout.
+    #[test]
+    fn the_old_selection_was_below_the_readable_minimum() {
+        let page = [250, 250, 250];
+        let old = old_band_over(page);
+        let ink_on_band = contrast_ratio([255, 255, 255], old);
+        let band_on_page = contrast_ratio(old, page);
+        println!("old selection on Page paper: ink/band {ink_on_band:.2}:1, band/page {band_on_page:.2}:1 (the minimum for text is 4.5:1)");
+        assert!(ink_on_band < 3.0 && band_on_page < 3.0);
+    }
+
+    /// The contrast arithmetic itself: black on white is 21:1, a colour with itself 1:1.
+    #[test]
+    fn the_contrast_ratio_is_the_wcag_one() {
+        assert!((contrast_ratio([0, 0, 0], [255, 255, 255]) - 21.0).abs() < 0.01);
+        assert!((contrast_ratio([90, 90, 90], [90, 90, 90]) - 1.0).abs() < 1e-6);
+        assert!(relative_luminance([255, 255, 255]) > 0.999 && relative_luminance([0, 0, 0]) < 1e-6);
     }
 }

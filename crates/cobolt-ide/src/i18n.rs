@@ -45,19 +45,20 @@ impl Language {
     /// `cobolt-forms` ships the English text itself and falls back to it,
     /// because a compiled COBOL binary has no `Tr` table at all; this is
     /// what the IDE installs on top.
-    /// The Viewer's selection menu, translated — `Select All` and `Copy`,
-    /// installed the same way the toolbar tooltips are and for the same
-    /// reason: `cobolt-forms` ships the English and a compiled COBOL binary
-    /// has no `Tr` table at all.
+    /// The Viewer's selection menu, translated — `Select All`, `Copy` and
+    /// `Print`, installed the same way the toolbar tooltips are and for the
+    /// same reason: `cobolt-forms` ships the English and a compiled COBOL
+    /// binary has no `Tr` table at all. `Print` says what the toolbar's Print
+    /// button says in each language.
     pub fn selection_menu(self) -> Vec<(cobolt_forms::viewer::SelectionMenuItem, String)> {
         use cobolt_forms::viewer::SelectionMenuItem as MI;
-        let t: [&str; 2] = match self {
-            Language::English => ["Select All", "Copy"],
-            Language::Portuguese => ["Selecionar tudo", "Copiar"],
-            Language::Spanish => ["Seleccionar todo", "Copiar"],
-            Language::French => ["Tout sélectionner", "Copier"],
-            Language::Japanese => ["すべて選択", "コピー"],
-            Language::Chinese => ["全选", "复制"],
+        let t: [&str; 3] = match self {
+            Language::English => ["Select All", "Copy", "Print"],
+            Language::Portuguese => ["Selecionar tudo", "Copiar", "Imprimir"],
+            Language::Spanish => ["Seleccionar todo", "Copiar", "Imprimir"],
+            Language::French => ["Tout sélectionner", "Copier", "Imprimer"],
+            Language::Japanese => ["すべて選択", "コピー", "印刷"],
+            Language::Chinese => ["全选", "复制", "打印"],
         };
         MI::ALL.into_iter().zip(t).map(|(i, s)| (i, s.to_string())).collect()
     }
@@ -12850,14 +12851,14 @@ mod i18n_tests {
 mod viewer_tooltip_tests {
     use super::*;
 
-    /// The Viewer's selection menu is two items, and every language has both
+    /// The Viewer's selection menu is three items, and every language has all
     /// — the same rule the tooltips follow, and for the same reason: a menu
     /// that falls back to English in one language falls back silently.
     #[test]
     fn the_selection_menu_is_translated_in_every_language() {
         use cobolt_forms::viewer::SelectionMenuItem as MI;
-        println!("  language      Select All / Copy");
-        println!("  -----------   -----------------");
+        println!("  language      Select All / Copy / Print");
+        println!("  -----------   -------------------------");
         for lang in Language::ALL {
             let table = lang.selection_menu();
             assert_eq!(table.len(), MI::ALL.len(), "{lang:?}: every item");

@@ -6485,6 +6485,54 @@ statement, at no extra cost.
 > with `MOVE path TO VWR-1::View1Source` is the one `SaveAs()` proposes by
 > name and saves.
 
+#### Marking, copying and the right-click menu
+
+Whatever a Viewer shows, the operator can mark it and take it away — no COBOL
+needed:
+
+- **Text.** Drag across it. A plain-text file, a PDF's text, a Markdown or HTML
+  page and a conversation all mark the same way, in every layout. (`Cards` is a
+  contact sheet, not a page: nothing in it is marked.)
+- **A picture.** Click it. A document that *is* an image, and a Mermaid diagram,
+  are marked whole — a solid frame round them and a tint over them. A drag that
+  starts or ends on a picture takes it in.
+- **Everything.** **Ctrl+A** (⌘A on a Mac) marks all the text and all the pictures
+  of the page.
+
+**Ctrl+C** (⌘C) copies what is marked. The mark is built to be seen on any page:
+an opaque band, not a tint, in a colour chosen against the page it sits on — a
+deep blue with white letters on a light page, a yellow with black letters on a
+dark one, and black or white when the page is neither — so the letters on it
+always read, and the band always stands out from the page.
+
+The **right mouse button** opens a small menu over the content, with the
+keyboard shortcut beside each entry:
+
+| Entry | Shortcut | What it does |
+|---|---|---|
+| **Select All** | Ctrl+A | marks all the text and pictures of the page |
+| **Copy** | Ctrl+C | copies what is marked; greyed until something is |
+| **Print** | Ctrl+P | hands the document to the operating system's print dialog — the same request as the toolbar's Print, with the same `onPrintComplete` / `onPrintCancelled` |
+
+The keys answer while the pointer is over the Viewer or the Viewer has the
+keyboard — never while another control, such as the Find box or a chat's
+question box, holds the caret. The menu entries are in the language of the IDE.
+
+<!-- 📷 Screenshot needed — viewer-context-menu.png: a Viewer showing a
+Markdown page with a Mermaid diagram, part of a paragraph marked (white letters
+on the deep-blue band), the diagram marked (solid blue frame) and the right-click
+menu open beside it with Select All, Copy and Print and their shortcuts. Capture
+with the IDE in light theme. -->
+
+> **⚠️ Caveats**
+> - **Copy puts one thing on the clipboard.** If any text is marked, that is the
+>   text; the picture goes only when pictures alone are marked (the first, if
+>   more than one). To copy a picture out of a page, click the picture by itself.
+> - A Markdown or HTML image is shown as its description line, not as a
+>   picture, and is marked as that text.
+> - **Print prints the document, never the marked part** — the operating system
+>   is handed the file.
+
 #### Saving and printing
 
 ```cobol

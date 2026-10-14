@@ -6034,29 +6034,78 @@ pub(crate) fn viewer_run_at(runs: &[crate::paint::TextRun], p: egui::Pos2) -> Op
     best.map(|(i, _, _)| i)
 }
 
-/// The text a selection covers, assembled from the runs the paint laid down.
-///
-/// Runs are joined with a newline rather than a space: they are separate
-/// galleys because they are separate BLOCKS — a heading, a paragraph, a table
-/// cell — so running them together would paste a document with its structure
-/// flattened out of it.
-fn viewer_selected_text(
+/// What a selection covers, assembled from the runs the paint laid down.
+struct SelectionContent {
+    /// The text, run by run. Runs are joined with a newline rather than a
+    /// space: they are separate galleys because they are separate BLOCKS — a
+    /// heading, a paragraph, a table cell — so running them together would
+    /// paste a document with its structure flattened out of it.
+    text: String,
+    /// The pictures, in document order.
+    pictures: Vec<crate::viewer::PictureSource>,
+}
+
+fn viewer_selection_content(
     runs: &[crate::paint::TextRun],
     selection: &crate::viewer::TextSelection,
-) -> String {
-    let mut out = String::new();
+) -> SelectionContent {
+    let mut out = SelectionContent { text: String::new(), pictures: Vec::new() };
     for (i, run) in runs.iter().enumerate() {
         let text = &run.galley.job.text;
         let len = text.chars().count();
         let Some((from, to)) = selection.span_in(i, len) else {
             continue;
         };
-        if !out.is_empty() {
-            out.push('\n');
+        if let Some(picture) = &run.picture {
+            out.pictures.push(picture.clone());
+            continue;
         }
-        out.extend(text.chars().skip(from).take(to.saturating_sub(from)));
+        if !out.text.is_empty() {
+            out.text.push('\n');
+        }
+        out.text.extend(text.chars().skip(from).take(to.saturating_sub(from)));
     }
     out
+}
+
+/// A picture is selected whole or not at all, and a picture under either end
+/// of a drag is part of it: the ends of `selection` are drawn outwards over any
+/// picture they sit on. Without it a drag that starts on the right half of a
+/// picture and goes down would select everything BUT the picture.
+fn viewer_whole_pictures(
+    selection: crate::viewer::TextSelection,
+    runs: &[crate::paint::TextRun],
+) -> crate::viewer::TextSelection {
+    use crate::viewer::{TextAnchor, TextSelection};
+    let on_picture = |a: TextAnchor| runs.get(a.run).is_some_and(|r| r.picture.is_some());
+    let (from, to) = selection.ordered();
+    let from = if on_picture(from) { TextAnchor::new(from.run, 0) } else { from };
+    let to = if on_picture(to) { TextAnchor::new(to.run, 1) } else { to };
+    if selection.anchor <= selection.head {
+        TextSelection { anchor: from, head: to }
+    } else {
+        TextSelection { anchor: to, head: from }
+    }
+}
+
+/// The pixels of a selected picture, for Copy. A document that is an image is
+/// read from the page the view holds; a Mermaid diagram is drawn again from
+/// its source (deterministic, and a few milliseconds — once, on a copy).
+fn viewer_picture_pixels(
+    picture: &crate::viewer::PictureSource,
+    content: Option<&crate::paint::ViewerPageContent>,
+) -> Option<egui::ColorImage> {
+    let frame_of = |img: &crate::viewer::DecodedImage| {
+        let frame = img.frames.first()?;
+        Some(egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &frame.rgba))
+    };
+    match picture {
+        crate::viewer::PictureSource::Document => match content {
+            Some(crate::paint::ViewerPageContent::Image(img)) => frame_of(img),
+            _ => None,
+        },
+        crate::viewer::PictureSource::Mermaid(source) => frame_of(&crate::viewer::render_mermaid(source).ok()?),
+    }
 }
 
 /// Spec 058 T12 — the Viewer's interactive surface: wheel and double-click
@@ -6204,7 +6253,7 @@ fn viewer_view_interactive(
         0.0
     };
 
-    let (dt, now, pointer, primary_down, command, esc, keys_select_all, keys_copy, keys) =
+    let (dt, now, pointer, primary_down, command, esc, keys_select_all, keys_copy, keys_print, keys) =
         ui.input(|i| {
         (
             i.stable_dt.min(0.1),
@@ -6220,6 +6269,8 @@ fn viewer_view_interactive(
             // "I must be able to select and copy the text in the chat").
             (i.modifiers.command && i.key_pressed(egui::Key::C))
                 || i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
+            // Print has no event of its own: it is the key, with Ctrl (Cmd).
+            i.modifiers.command && i.key_pressed(egui::Key::P),
             vw::KeyScrollInput {
                 down_held: i.key_down(egui::Key::ArrowDown),
                 up_held: i.key_down(egui::Key::ArrowUp),
@@ -6736,27 +6787,54 @@ fn viewer_view_interactive(
     let painted = crate::paint::viewer_measurements(ui.ctx(), &ctrl.id, view_index)
         .unwrap_or_default();
 
-    // ── Selecting text (R31, the other way round) ───────────────────────
+    // ── Selecting the content (R31, the other way round) ────────────────
     //
     // Against the runs the PAINT laid down, which is why it sits here rather
     // than beside the other gestures: a run is a galley at a place, and only
-    // the paint knows where it put one. Nothing is selectable in `Cards` (a
-    // contact sheet is not a page) and nothing in an image, which needs no
-    // case of its own — an image paints no runs.
-    let selectable = enabled && view_mode == vw::ViewMode::Full && !painted.text_runs.is_empty();
-    if selectable {
-        let lengths: Vec<usize> = painted
-            .text_runs
-            .iter()
-            .map(|r| r.galley.job.text.chars().count())
-            .collect();
+    // the paint knows where it put one. A picture — a document that is an
+    // image, a Mermaid diagram — is a run of one character, so everything
+    // below that decides which runs a drag covers decides which pictures it
+    // covers, and a picture is selected whole or not at all. Nothing is
+    // selectable in `Cards` (a contact sheet is not a page).
+    let in_full = enabled && view_mode == vw::ViewMode::Full;
+    let selectable = in_full && !painted.text_runs.is_empty();
+    let lengths: Vec<usize> = painted
+        .text_runs
+        .iter()
+        .map(|r| r.galley.job.text.chars().count())
+        .collect();
 
+    // Copy puts the TEXT of the selection on the clipboard; a selection that is
+    // only pictures puts the first picture there, as pixels. The platform's
+    // clipboard is offered one format at a time, so a selection with both is
+    // text — the picture is what you get by selecting the picture alone.
+    let copy_now = |ui: &egui::Ui, sel: Option<vw::TextSelection>| {
+        let Some(sel) = sel.filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let picked = viewer_selection_content(&painted.text_runs, &sel);
+        if !picked.text.trim().is_empty() {
+            ui.ctx().copy_text(picked.text);
+        } else if let Some(image) = picked
+            .pictures
+            .first()
+            .and_then(|p| viewer_picture_pixels(p, content.as_deref()))
+        {
+            ui.ctx().copy_image(image);
+        }
+    };
+
+    if selectable {
         // Where in the document a point is: the run under it, or the nearest
         // one above — dragging into the gap between two paragraphs must
-        // extend the selection, not abandon it.
+        // extend the selection, not abandon it. On a picture, the edge nearer
+        // the point (it is one character wide).
         let anchor_at = |p: egui::Pos2| -> Option<vw::TextAnchor> {
             let i = viewer_run_at(&painted.text_runs, p)?;
             let run = &painted.text_runs[i];
+            if run.picture.is_some() {
+                return Some(vw::TextAnchor::new(i, usize::from(p.x >= run.rect.center().x)));
+            }
             let cursor = run.galley.cursor_from_pos(p - run.origin);
             Some(vw::TextAnchor::new(i, cursor.index.0))
         };
@@ -6765,7 +6843,11 @@ fn viewer_view_interactive(
         // Find bar and sliding into the page must not select anything.
         let dragging = resp.dragged() && !slider_busy && !grip_busy && !bar_busy;
         if resp.drag_started() && over_content && !bar_busy {
-            if let Some(a) = pointer.and_then(anchor_at) {
+            // From where the button went DOWN, not from where the pointer has
+            // got to by the time egui calls it a drag: a quick drag has already
+            // travelled several characters, and the selection began after them.
+            let pressed_at = ui.input(|i| i.pointer.press_origin()).or(pointer);
+            if let Some(a) = pressed_at.and_then(anchor_at) {
                 selection = Some(vw::TextSelection::at(a));
             }
             // Selecting takes the keyboard: a TextBox that had it (a chat's
@@ -6774,52 +6856,66 @@ fn viewer_view_interactive(
         } else if dragging {
             if let (Some(mut sel), Some(head)) = (selection, pointer.and_then(anchor_at)) {
                 sel.head = head;
-                selection = Some(sel);
+                selection = Some(viewer_whole_pictures(sel, &painted.text_runs));
             }
         } else if resp.clicked() && over_content {
             // A plain click puts the selection down, as every text surface
-            // does — otherwise the last selection stays lit for ever.
-            selection = None;
+            // does — otherwise the last selection stays lit for ever. On a
+            // picture it SELECTS the picture, which is how one is marked
+            // without dragging across it.
+            selection = pointer
+                .and_then(|p| {
+                    viewer_run_at(&painted.text_runs, p)
+                        .filter(|&i| painted.text_runs[i].picture.is_some() && painted.text_runs[i].rect.contains(p))
+                })
+                .map(|i| vw::TextSelection { anchor: vw::TextAnchor::new(i, 0), head: vw::TextAnchor::new(i, 1) });
         }
+    } else if selection.is_some() {
+        // Nothing here is selectable any more — the view changed mode, or the
+        // document did. A selection over runs that no longer exist would be
+        // painted at whatever those indices now mean.
+        selection = None;
+    }
 
-        let copy_now = |ui: &egui::Ui, sel: Option<vw::TextSelection>| {
-            if let Some(text) = sel
-                .filter(|s| !s.is_empty())
-                .map(|s| viewer_selected_text(&painted.text_runs, &s))
-                .filter(|t| !t.is_empty())
-            {
-                ui.ctx().copy_text(text);
-            }
-        };
-
-        // Select All, and Copy. Only while this view has the keyboard, so two
-        // views of one control never both answer one keystroke.
-        // The keyboard is the Viewer's while it has the focus — the pointer
-        // may have moved on to the menu or the input after selecting.
-        if keyboard_free && (resp.hovered() || focus == Some(vid)) {
-            if command && keys_select_all {
-                selection = Some(vw::TextSelection::all(&lengths));
-            }
-            if keys_copy {
-                copy_now(ui, selection);
-            }
+    // ── The keyboard: Ctrl+A, Ctrl+C, Ctrl+P (Cmd on a Mac) ───────────────
+    //
+    // Only while this view has the keyboard, so two views of one control never
+    // both answer one keystroke. The keyboard is the Viewer's while it has the
+    // focus — the pointer may have moved on to the menu or the input after
+    // selecting.
+    if in_full && keyboard_free && (resp.hovered() || focus == Some(vid)) {
+        if selectable && command && keys_select_all {
+            selection = Some(vw::TextSelection::all(&lengths));
         }
+        if selectable && keys_copy {
+            copy_now(ui, selection);
+        }
+        if keys_print {
+            // The same request the toolbar's Print button makes: the runtime
+            // holds the document, and hands it to the operating system's own
+            // print path (R20).
+            out.prop_updates.push((id.to_string(), "_PrintAsk".to_string(), "1".to_string()));
+        }
+    }
 
-        // ── The menu, where the pointer is ──────────────────────────────
-        //
-        // A secondary click is where every text surface keeps this, and it is
-        // the only gesture that cannot be confused with selecting: a primary
-        // click already means "put the selection down".
-        //
-        // Painted here rather than through `egui::Response::context_menu` for
-        // the reason the Find bar is painted rather than hosted: the whole
-        // Viewer is drawn by the shared engine, and a menu that exists on one
-        // surface and not the other is the drift AC11 is about. This one is an
-        // `Area`, which both surfaces can carry.
-        let menu_id = vid.with("viewer-selection-menu");
-        let mut menu_at = ui
-            .ctx()
-            .memory(|m| m.data.get_temp::<egui::Pos2>(menu_id));
+    // ── The menu, where the pointer is ──────────────────────────────────
+    //
+    // A secondary click is where every document surface keeps this, and it is
+    // the only gesture that cannot be confused with selecting: a primary click
+    // already means "put the selection down". It opens over ANY content —
+    // text, a picture, a page with nothing selectable — because Print is
+    // always there.
+    //
+    // Painted here rather than through `egui::Response::context_menu` for the
+    // reason the Find bar is painted rather than hosted: the whole Viewer is
+    // drawn by the shared engine, and a menu that exists on one surface and
+    // not the other is the drift AC11 is about. This one is an `Area`, which
+    // both surfaces can carry.
+    let menu_id = vid.with("viewer-selection-menu");
+    let mut menu_at = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<egui::Pos2>(menu_id));
+    if in_full {
         if resp.secondary_clicked() && over_content {
             menu_at = pointer;
         }
@@ -6830,19 +6926,30 @@ fn viewer_view_interactive(
                 .fixed_pos(at)
                 .show(ui.ctx(), |mui| {
                     egui::Frame::popup(mui.style()).show(mui, |mui| {
-                        mui.set_min_width(140.0);
+                        mui.set_min_width(190.0);
                         for item in vw::SelectionMenuItem::ALL {
                             let label = vw::selection_menu_label(item);
-                            // Copy with nothing selected is a dead entry, and a
-                            // dead entry that looks alive is worse than none.
+                            // A dead entry that looks alive is worse than none:
+                            // Select All needs something to select, Copy
+                            // something selected, Print a document.
                             let live = match item {
-                                vw::SelectionMenuItem::SelectAll => true,
-                                vw::SelectionMenuItem::Copy => {
-                                    selection.is_some_and(|s| !s.is_empty())
-                                }
+                                vw::SelectionMenuItem::SelectAll => selectable,
+                                vw::SelectionMenuItem::Copy => selection.is_some_and(|s| !s.is_empty()),
+                                vw::SelectionMenuItem::Print => content.is_some(),
                             };
+                            let key = match item {
+                                vw::SelectionMenuItem::SelectAll => egui::Key::A,
+                                vw::SelectionMenuItem::Copy => egui::Key::C,
+                                vw::SelectionMenuItem::Print => egui::Key::P,
+                            };
+                            let shortcut = mui
+                                .ctx()
+                                .format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key));
                             if mui
-                                .add_enabled(live, egui::Button::new(label).frame(false))
+                                .add_enabled(
+                                    live,
+                                    egui::Button::new(label).shortcut_text(shortcut).frame(false),
+                                )
                                 .clicked()
                             {
                                 match item {
@@ -6850,6 +6957,11 @@ fn viewer_view_interactive(
                                         selection = Some(vw::TextSelection::all(&lengths));
                                     }
                                     vw::SelectionMenuItem::Copy => copy_now(mui, selection),
+                                    vw::SelectionMenuItem::Print => out.prop_updates.push((
+                                        id.to_string(),
+                                        "_PrintAsk".to_string(),
+                                        "1".to_string(),
+                                    )),
                                 }
                                 close = true;
                             }
@@ -6862,24 +6974,23 @@ fn viewer_view_interactive(
             }
             menu_at = (!close).then_some(at);
         }
-        ui.ctx().memory_mut(|m| match menu_at {
-            Some(at) => {
-                m.data.insert_temp(menu_id, at);
-            }
-            None => m.data.remove::<egui::Pos2>(menu_id),
-        });
-    } else if selection.is_some() {
-        // Nothing here is selectable any more — the view changed mode, or the
-        // document did. A selection over runs that no longer exist would be
-        // painted at whatever those indices now mean.
-        selection = None;
+    } else {
+        menu_at = None;
     }
+    ui.ctx().memory_mut(|m| match menu_at {
+        Some(at) => {
+            m.data.insert_temp(menu_id, at);
+        }
+        None => m.data.remove::<egui::Pos2>(menu_id),
+    });
     ui.ctx().memory_mut(|m| match selection {
         Some(sel) => {
             m.data.insert_temp(sel_id, sel);
         }
         None => m.data.remove::<crate::viewer::TextSelection>(sel_id),
     });
+    // And where the NEXT paint finds it — the face is painted before this pass.
+    crate::paint::viewer_stash_selection(ui.ctx(), &ctrl.id, view_index, selection);
 
     // A thumbnail click needs the rects the paint just produced — the strip
     // has no scroll model of its own, so its rows are wherever it drew them.
@@ -18050,9 +18161,361 @@ mod tests {
         frame(vec![egui::Event::PointerMoved(release)]);
         frame(vec![egui::Event::PointerMoved(release), button(release, false)]);
 
+        // The selection is painted for the BUBBLE it is in: the agent's blue
+        // bubble gets a white band (a blue band on it would be no selection).
+        let (band, _) = crate::viewer::selection_colors([0x2C, 0x6F, 0xD2]);
+        let band = egui::Color32::from_rgba_unmultiplied(band[0], band[1], band[2], 255);
+        assert_eq!(band, egui::Color32::WHITE, "the pair chosen for the agent bubble");
+        assert!(ViewerRig::paints_text_band(&frame(Vec::new()), band), "the reply's selection is painted in the bubble's own band");
+
         let by_event = copied(&frame(vec![egui::Event::Copy]));
         println!("streamed viewer — dragged across the reply, Cmd/Ctrl+C (Event::Copy) copied {by_event:?}");
         assert!(by_event.contains("twenty working days"), "Cmd/Ctrl+C must copy the selection: {by_event:?}");
+    }
+
+    /// A real Viewer, driven through `render_form` the way a person drives it:
+    /// pointer, keys, and what reached the clipboard and the runtime.
+    struct ViewerRig {
+        ctx: egui::Context,
+        controls: Vec<Control>,
+        active: ActiveTabs,
+        prints: usize,
+        dir: tempfile::TempDir,
+    }
+
+    impl ViewerRig {
+        /// A Viewer of `file` (written into a temporary folder) in `layout`.
+        fn new(file: &str, bytes: &[u8], layout: &str) -> Self {
+            let dir = tempfile::tempdir().expect("a temporary folder");
+            let path = dir.path().join(file);
+            std::fs::write(&path, bytes).expect("the document is written");
+            let mut viewer = ctrl("VWR", ControlType::Viewer, 10, 10, 560, 360);
+            viewer.set_prop("Source", crate::PropValue::String(path.to_string_lossy().into_owned()));
+            viewer.set_prop("Layout", crate::PropValue::String(layout.into()));
+            let mut rig = Self { ctx: egui::Context::default(), controls: vec![viewer], active: ActiveTabs::new(), prints: 0, dir };
+            rig.frame(Vec::new());
+            rig.frame(Vec::new());
+            rig
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
+            self.frame_with(events, egui::Modifiers::NONE)
+        }
+
+        fn frame_with(&mut self, mut events: Vec<egui::Event>, modifiers: egui::Modifiers) -> egui::FullOutput {
+            let screen = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0));
+            // Modifier state reaches egui as an event, ahead of the keys it modifies.
+            if modifiers != egui::Modifiers::NONE {
+                events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            }
+            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let (controls, active) = (&self.controls, &self.active);
+            let mut prints = 0;
+            let mut out = self.ctx.run_ui(raw, |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(600.0, 400.0));
+                    let input = RenderInput {
+                        controls,
+                        state: &DesignedVisibility,
+                        form_size: Vec2::new(600.0, 400.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: active,
+                        backdrop: Default::default(),
+                    };
+                    let drawn = render_form(ui, &input);
+                    prints += drawn.prop_updates.iter().filter(|(c, p, v)| c == "VWR" && p == "_PrintAsk" && v == "1").count();
+                });
+            });
+            self.prints += prints;
+            out.textures_delta.clear();
+            out
+        }
+
+        fn runs(&self) -> Vec<crate::paint::TextRun> {
+            crate::paint::viewer_measurements(&self.ctx, "VWR", 0).expect("the viewer painted").text_runs
+        }
+
+        fn button(pos: egui::Pos2, which: egui::PointerButton, pressed: bool) -> egui::Event {
+            egui::Event::PointerButton { pos, button: which, pressed, modifiers: Default::default() }
+        }
+
+        /// Press at `from`, drag to `to`, release.
+        fn drag(&mut self, from: egui::Pos2, to: egui::Pos2) {
+            self.frame(vec![egui::Event::PointerMoved(from), Self::button(from, egui::PointerButton::Primary, true)]);
+            self.frame(vec![egui::Event::PointerMoved(from + (to - from) * 0.5)]);
+            self.frame(vec![egui::Event::PointerMoved(to)]);
+            self.frame(vec![egui::Event::PointerMoved(to), Self::button(to, egui::PointerButton::Primary, false)]);
+            self.frame(Vec::new());
+        }
+
+        fn click(&mut self, at: egui::Pos2, which: egui::PointerButton) {
+            self.frame(vec![egui::Event::PointerMoved(at), Self::button(at, which, true)]);
+            self.frame(vec![Self::button(at, which, false)]);
+            self.frame(Vec::new());
+        }
+
+        fn key(&mut self, key: egui::Key) -> egui::FullOutput {
+            let ev = |pressed| egui::Event::Key {
+                key,
+                physical_key: Some(key),
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            };
+            let out = self.frame_with(vec![ev(true)], egui::Modifiers::COMMAND);
+            self.frame(vec![ev(false), egui::Event::ModifiersChanged(egui::Modifiers::NONE)]);
+            out
+        }
+
+        /// What the last frames asked the platform to put on the clipboard.
+        fn clipboard(out: &egui::FullOutput) -> (String, Option<[usize; 2]>) {
+            let text = out
+                .platform_output
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect();
+            let image = out.platform_output.commands.iter().find_map(|c| match c {
+                egui::OutputCommand::CopyImage(i) => Some(i.size),
+                _ => None,
+            });
+            (text, image)
+        }
+
+        /// The centre of the painted text `label` in `out` (a menu entry).
+        fn centre_of(out: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
+            fn walk(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
+                match shape {
+                    egui::Shape::Text(t) if t.galley.job.text == label => {
+                        Some(t.galley.rect.translate(t.pos.to_vec2()).center())
+                    }
+                    egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, label)),
+                    _ => None,
+                }
+            }
+            out.shapes.iter().find_map(|cs| walk(&cs.shape, label))
+        }
+
+        /// Whether any painted text carries `colour` in the band behind its glyphs —
+        /// egui writes a text selection into the galley's own mesh.
+        fn paints_text_band(out: &egui::FullOutput, colour: egui::Color32) -> bool {
+            fn walk(shape: &egui::Shape, colour: egui::Color32) -> bool {
+                match shape {
+                    egui::Shape::Text(t) => t
+                        .galley
+                        .rows
+                        .iter()
+                        .any(|row| row.visuals.mesh.vertices.iter().any(|v| v.color == colour)),
+                    egui::Shape::Vec(v) => v.iter().any(|s| walk(s, colour)),
+                    _ => false,
+                }
+            }
+            out.shapes.iter().any(|cs| walk(&cs.shape, colour))
+        }
+
+        /// Whether the frame painted a rectangle outline of `width` in `colour`.
+        fn has_outline(out: &egui::FullOutput, width: f32, colour: egui::Color32) -> bool {
+            fn walk(shape: &egui::Shape, width: f32, colour: egui::Color32) -> bool {
+                match shape {
+                    egui::Shape::Rect(r) => r.stroke.width == width && r.stroke.color == colour,
+                    egui::Shape::Vec(v) => v.iter().any(|s| walk(s, width, colour)),
+                    _ => false,
+                }
+            }
+            out.shapes.iter().any(|cs| walk(&cs.shape, width, colour))
+        }
+    }
+
+    /// **Plain text could not be selected at all** — a text document, a PDF's
+    /// text and the Raw layout are ONE galley, which the paint drew without a
+    /// run, so a drag had nothing to land on and Copy had nothing to copy.
+    #[test]
+    fn a_plain_text_document_selects_and_copies() {
+        let mut rig = ViewerRig::new("notes.txt", b"Alpha line one\nBeta line two\nGamma line three", "Page");
+        let runs = rig.runs();
+        assert_eq!(runs.len(), 1, "the document is one run now; it was none");
+        let run = &runs[0];
+        let (from, to) = (run.rect.left_top() + Vec2::new(1.0, 2.0), run.rect.right_bottom() - Vec2::new(1.0, 2.0));
+        rig.drag(from, to);
+        // The selection is SEEN: the band behind the glyphs is the high-contrast
+        // one for this page. It used to be copied without ever being painted.
+        let (band, _) = crate::viewer::selection_colors([250, 250, 250]);
+        let band = egui::Color32::from_rgba_unmultiplied(band[0], band[1], band[2], 255);
+        let seen = rig.frame(Vec::new());
+        assert!(ViewerRig::paints_text_band(&seen, band), "a selected text must be painted with its band");
+        let copied = ViewerRig::clipboard(&rig.frame(vec![egui::Event::Copy]));
+        println!("plain text — dragged across the page, band {band:?} painted, Ctrl+C copied {:?}", copied.0);
+        assert!(copied.0.contains("Alpha line one") && copied.0.contains("Gamma line three"), "the whole drag must copy, from where it was pressed: {:?}", copied.0);
+
+        // The Raw layout takes the same path.
+        let mut raw = ViewerRig::new("notes.txt", b"Alpha line one\nBeta line two", "Raw");
+        let run = raw.runs().remove(0);
+        raw.drag(run.rect.left_top() + Vec2::new(1.0, 2.0), run.rect.right_bottom() - Vec2::new(1.0, 2.0));
+        let copied = ViewerRig::clipboard(&raw.frame(vec![egui::Event::Copy]));
+        println!("raw layout — copied {:?}", copied.0);
+        assert!(copied.0.contains("Alpha line one"));
+    }
+
+    /// **A picture is marked and copied.** A document that is an image is one
+    /// selectable run: a click selects it (frame and band, high contrast),
+    /// Select All reaches it, and Copy puts its pixels on the clipboard.
+    #[test]
+    fn an_image_document_is_selected_and_copied_as_pixels() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(64, 48, image::Rgba([200, 30, 40, 255]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .expect("a PNG is written");
+        let mut rig = ViewerRig::new("photo.png", png.get_ref(), "Page");
+        let runs = rig.runs();
+        assert_eq!(runs.len(), 1, "an image document is one run");
+        assert!(runs[0].picture.is_some(), "and it is a picture");
+        let centre = runs[0].rect.center();
+
+        // Nothing selected: Copy copies nothing.
+        let nothing = ViewerRig::clipboard(&rig.frame(vec![egui::Event::Copy]));
+        assert_eq!(nothing, (String::new(), None), "no selection, nothing copied");
+
+        // A click marks it.
+        rig.click(centre, egui::PointerButton::Primary);
+        let out = rig.frame(Vec::new());
+        let (band, _) = crate::viewer::selection_colors([250, 250, 250]);
+        let band = egui::Color32::from_rgba_unmultiplied(band[0], band[1], band[2], 255);
+        assert!(ViewerRig::has_outline(&out, 4.0, band), "a selected picture wears a solid 4 px frame in the selection colour");
+
+        let by_event = ViewerRig::clipboard(&rig.frame(vec![egui::Event::Copy]));
+        println!("image document — clicked it, Ctrl+C put {:?} text and image {:?} on the clipboard", by_event.0, by_event.1);
+        assert_eq!(by_event, (String::new(), Some([64, 48])), "the picture, at its own size, and no text");
+
+        // Select All reaches it as well, from the keyboard.
+        let mut all = ViewerRig::new("photo.png", png.get_ref(), "Page");
+        all.frame(vec![egui::Event::PointerMoved(all.runs()[0].rect.center())]);
+        all.key(egui::Key::A);
+        let copied = ViewerRig::clipboard(&all.frame(vec![egui::Event::Copy]));
+        assert_eq!(copied.1, Some([64, 48]), "Ctrl+A then Ctrl+C copies the picture");
+    }
+
+    /// **A diagram is a picture inside a document.** Select All takes the text
+    /// and the diagram and Copy gives the text (one format at a time); the
+    /// diagram clicked alone gives its pixels.
+    #[test]
+    fn a_mermaid_diagram_is_a_picture_among_the_text() {
+        let md = "Before the diagram.\n\n```mermaid\nflowchart TD\n  A[Start] --> B[Finish]\n```\n\nAfter the diagram.\n";
+        let mut rig = ViewerRig::new("flow.md", md.as_bytes(), "Page");
+        let runs = rig.runs();
+        let kinds: Vec<&str> = runs.iter().map(|r| if r.picture.is_some() { "picture" } else { "text" }).collect();
+        println!("document order of the runs: {kinds:?}");
+        assert_eq!(kinds, ["text", "picture", "text"], "a diagram sits between its two paragraphs");
+
+        rig.frame(vec![egui::Event::PointerMoved(runs[0].rect.center())]);
+        rig.key(egui::Key::A);
+        let both = ViewerRig::clipboard(&rig.frame(vec![egui::Event::Copy]));
+        println!("Select All, Copy → text {:?}, image {:?}", both.0, both.1);
+        assert!(both.0.contains("Before the diagram.") && both.0.contains("After the diagram."));
+        assert_eq!(both.1, None, "with text selected, Copy gives the text and not the picture");
+
+        rig.click(runs[1].rect.center(), egui::PointerButton::Primary);
+        let alone = ViewerRig::clipboard(&rig.frame(vec![egui::Event::Copy]));
+        assert!(alone.0.is_empty() && alone.1.is_some(), "the diagram alone copies as a picture: {alone:?}");
+        println!("the diagram clicked alone → image {:?}", alone.1);
+
+        // A drag that STARTS on the picture's right half and goes down still
+        // takes the picture with it.
+        let mut drag = ViewerRig::new("flow.md", md.as_bytes(), "Page");
+        let r = drag.runs();
+        drag.drag(r[1].rect.center() + Vec2::new(r[1].rect.width() * 0.3, 0.0), r[2].rect.center());
+        let sel = viewer_selection_content(&drag.runs(), &crate::viewer::TextSelection {
+            anchor: crate::viewer::TextAnchor::new(1, 1),
+            head: crate::viewer::TextAnchor::new(2, 5),
+        });
+        assert_eq!(sel.pictures.len(), 0, "the raw arithmetic: a selection that starts after the picture excludes it");
+        let kept = viewer_whole_pictures(
+            crate::viewer::TextSelection { anchor: crate::viewer::TextAnchor::new(1, 1), head: crate::viewer::TextAnchor::new(2, 5) },
+            &drag.runs(),
+        );
+        assert_eq!(viewer_selection_content(&drag.runs(), &kept).pictures.len(), 1, "…and `viewer_whole_pictures` takes it in");
+    }
+
+    /// **Right-click opens the menu: Select All, Copy, Print — with their
+    /// shortcuts — over text, over a picture, and over nothing selectable.**
+    #[test]
+    fn the_right_click_menu_offers_select_all_copy_and_print_with_their_shortcuts() {
+        let mut rig = ViewerRig::new("notes.txt", b"Alpha line one\nBeta line two", "Page");
+        let run = rig.runs().remove(0);
+        let at = run.rect.center();
+        rig.frame(vec![egui::Event::PointerMoved(at), ViewerRig::button(at, egui::PointerButton::Secondary, true)]);
+        rig.frame(vec![ViewerRig::button(at, egui::PointerButton::Secondary, false)]);
+        let open = rig.frame(Vec::new());
+
+        let shortcut = |key| rig.ctx.format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key));
+        let shown: Vec<(&str, Option<egui::Pos2>, String)> = [
+            ("Select All", egui::Key::A),
+            ("Copy", egui::Key::C),
+            ("Print", egui::Key::P),
+        ]
+        .into_iter()
+        .map(|(label, key)| (label, ViewerRig::centre_of(&open, label), shortcut(key)))
+        .collect();
+        for (label, at, sc) in &shown {
+            println!("menu entry {label:<11} at {at:?}  shortcut {sc}");
+            assert!(at.is_some(), "{label} is in the menu");
+            assert!(ViewerRig::centre_of(&open, sc).is_some(), "{label}'s shortcut {sc} is shown beside it");
+        }
+
+        // Print raises the same request the toolbar's Print button does.
+        assert_eq!(rig.prints, 0);
+        let print_at = shown[2].1.expect("Print is shown");
+        rig.click(print_at, egui::PointerButton::Primary);
+        println!("menu Print → _PrintAsk written {} time(s)", rig.prints);
+        assert_eq!(rig.prints, 1, "Print in the menu asks the runtime to print");
+
+        // And Ctrl+P does too, with the pointer over the document.
+        rig.frame(vec![egui::Event::PointerMoved(at)]);
+        rig.key(egui::Key::P);
+        assert_eq!(rig.prints, 2, "Ctrl+P prints");
+    }
+
+    /// The menu opens over a picture too — an image document has no text, and
+    /// the old menu never appeared there — and Copy copies the picture only
+    /// once it is selected.
+    #[test]
+    fn the_menu_opens_over_a_picture_and_copy_waits_for_a_selection() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(32, 32, image::Rgba([10, 120, 200, 255]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .expect("a PNG is written");
+        let mut rig = ViewerRig::new("pic.png", png.get_ref(), "Page");
+        let centre = rig.runs()[0].rect.center();
+        rig.frame(vec![egui::Event::PointerMoved(centre), ViewerRig::button(centre, egui::PointerButton::Secondary, true)]);
+        rig.frame(vec![ViewerRig::button(centre, egui::PointerButton::Secondary, false)]);
+        let open = rig.frame(Vec::new());
+        let select_all = ViewerRig::centre_of(&open, "Select All").expect("the menu opened over a picture");
+        assert!(ViewerRig::centre_of(&open, "Copy").is_some() && ViewerRig::centre_of(&open, "Print").is_some());
+
+        // Copy is dead until something is selected: clicking it copies nothing.
+        let copy_at = ViewerRig::centre_of(&open, "Copy").unwrap();
+        let before = rig.frame(vec![egui::Event::PointerMoved(copy_at), ViewerRig::button(copy_at, egui::PointerButton::Primary, true)]);
+        rig.frame(vec![ViewerRig::button(copy_at, egui::PointerButton::Primary, false)]);
+        assert_eq!(ViewerRig::clipboard(&before).1, None, "a dead Copy copies nothing");
+
+        // Select All, then the menu again, then Copy.
+        rig.frame(vec![egui::Event::PointerMoved(centre), ViewerRig::button(centre, egui::PointerButton::Secondary, true)]);
+        rig.frame(vec![ViewerRig::button(centre, egui::PointerButton::Secondary, false)]);
+        let open = rig.frame(Vec::new());
+        let all_at = ViewerRig::centre_of(&open, "Select All").unwrap_or(select_all);
+        rig.click(all_at, egui::PointerButton::Primary);
+        rig.frame(vec![egui::Event::PointerMoved(centre), ViewerRig::button(centre, egui::PointerButton::Secondary, true)]);
+        rig.frame(vec![ViewerRig::button(centre, egui::PointerButton::Secondary, false)]);
+        let open = rig.frame(Vec::new());
+        let copy_at = ViewerRig::centre_of(&open, "Copy").expect("the menu is open again");
+        let out = rig.frame(vec![egui::Event::PointerMoved(copy_at), ViewerRig::button(copy_at, egui::PointerButton::Primary, true)]);
+        let out2 = rig.frame(vec![ViewerRig::button(copy_at, egui::PointerButton::Primary, false)]);
+        let copied = (ViewerRig::clipboard(&out).1).or(ViewerRig::clipboard(&out2).1);
+        println!("menu Select All → menu Copy on a picture: image {copied:?}");
+        assert_eq!(copied, Some([32, 32]));
     }
 
     /// **A Label's text selects and copies** — operator, 2026-08-22: a caption
@@ -32042,6 +32505,7 @@ mod viewer_run_at_tests {
             rect: egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(100.0, 20.0)),
             origin: egui::pos2(x, y),
             galley: galley.clone(),
+            picture: None,
         };
         // Row one: three cells side by side; row two: one paragraph.
         let runs = [run(0.0, 0.0), run(150.0, 0.0), run(300.0, 0.0), run(0.0, 60.0)];
