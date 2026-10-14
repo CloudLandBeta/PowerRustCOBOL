@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="DATAGRID-FORM" title="Datagrid DEMO" width="1288" height="776" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/images/bgrust.png" bg-image-mode="Stretch" form-format="Embedded" index-base="1">
+<Form name="DATAGRID-FORM" title="Datagrid DEMO" width="1288" height="776" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/images/bgrust.png" bg-image-mode="Stretch" index-base="1" form-format="Embedded">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -65,8 +65,6 @@
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
-    <Property name="Dock">None</Property>
-    <Property name="Anchor">Top,Left</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">40</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -99,8 +97,6 @@
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
-    <Property name="Dock">None</Property>
-    <Property name="Anchor">Top,Left</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">40</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -177,7 +173,6 @@ Actor Awards:string</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -211,7 +206,6 @@ Actor Awards:string</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">63</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -253,7 +247,6 @@ programmatic interface for creating content directly in code.</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -338,6 +331,8 @@ later|Later||None|false</Property>
     <Property name="ShadowDistance">4</Property>
     <Property name="ShadowBlur">12</Property>
     <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundColor"></Property>
+    <Property name="ForegroundColor"></Property>
     <Event name="onShown" paragraph="SNACKBAR-1--ONSHOWN"><![CDATA[       ENVIRONMENT DIVISION.
 
        DATA DIVISION.
@@ -405,7 +400,6 @@ later|Later||None|false</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -429,6 +423,7 @@ later|Later||None|false</Property>
     <Property name="CheckBoxBorderColor">#8C8CA0</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">15</Property>
+    <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-4--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
 
        DATA DIVISION.
@@ -471,7 +466,6 @@ código.
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -495,6 +489,7 @@ código.
     <Property name="CheckBoxBorderColor">#8C8CA0</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">15</Property>
+    <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-5--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
 
        DATA DIVISION.
@@ -536,7 +531,6 @@ interfaz programática para crear contenido directamente mediante código.
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -560,6 +554,7 @@ interfaz programática para crear contenido directamente mediante código.
     <Property name="CheckBoxBorderColor">#8C8CA0</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">15</Property>
+    <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-6--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
 
        DATA DIVISION.

@@ -17,6 +17,25 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.149] — 2026-10-14
+
+*(Written on `fixes`, after 1.91.148.)*
+
+### Examples: PowerDemo3 as the IDE last saved it, and the 3D Charts form ticks every 2.1 seconds
+
+The operator asked for the pending PowerDemo3 changes to go in together. Four files under `examples/PowerDemo3`:
+
+- **`forms/Charts/chart-3d.cfrm` — the one change made on purpose.** `Timer-1`'s `Interval` is 2100 (it was 3000), and the colours change on every **3rd** cycle (`FUNCTION MOD(WS-CYCLE, 3)`; it was every 25th), so every 6.3 seconds. A move used to last 1 to 2.6 seconds, which a 2.1-second tick could outrun, so it is now 0.8 to 1.9 seconds (`FUNCTION RANDOM * 1100 + 800`) and always ends before the next tick; a cut is still 250 ms. The comments say the same. The figures in 1.91.146, 1.91.147 and 1.91.148 describe the earlier states.
+- **`forms/Data/datagrid-form.cfrm` — the IDE's own save, not edited by hand.** The form no longer carries the default `Dock` property (it was on 2 controls) or `Anchor` (8 controls). Its generated code does not change: regenerating the example snapshots moves no `Data__datagrid-form` snapshot.
+- **`PowerDemo3.project.toml` — the IDE's stamp:** `built_with_version` 1.91.145 to 1.91.148. One line.
+- **`data/idxfiles/actors.idx` — data the demo wrote** when it ran; the file is the same size, and its bytes differ.
+
+The example corpus snapshot `Charts__chart-3d.cbl` is regenerated (the interval, the cycle and the comments); every other snapshot was restored to its committed state.
+
+- *Measured, running the chart-3d form off screen (not recalled):* `Timer-1::Interval` reads 2100. Over 29 ticks at a fast interval the colours changed on ticks 3, 6, 9, 12, 15, 18, 21, 24 and 27 and on no other, and no change repeated the palette it came from (6, 2, 4, 3, 5, 2, 6, 5, 4). Every `AnimationDuration` was 250 or between 833 and 1703, and 250 was never followed by 250 on the next tick. `check` on the whole project: 0 errors in 62 forms.
+- *Not checked:* the `datagrid-form` and `actors.idx` changes beyond the snapshot test above and `check` — they were not made in this session and I did not run that form. The operator's own Run Form window with the new interval.
+- *Known, not from this change:* `every_example_form_generates_its_snapshot` is still red on `main` for the reasons recorded in 1.91.146 (28 stale snapshots and a missing `General__layers-form.cbl`); this change leaves them as they are.
+
 ## [PowerRustCOBOL 1.91.148] — 2026-10-14
 
 *(Written on `fixes`, after 1.91.147.)*

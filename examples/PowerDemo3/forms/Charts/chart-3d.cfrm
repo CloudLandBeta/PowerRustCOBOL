@@ -163,7 +163,7 @@
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">13</Property>
-    <Property name="Bold">false</Property>
+    <Property name="Bold">true</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
@@ -181,7 +181,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Title"></Property>
+    <Property name="Title">Sales By Region</Property>
     <Property name="TitleFontSize">0</Property>
     <Property name="TitleColor"></Property>
     <Property name="ShowLegend">true</Property>
@@ -220,12 +220,14 @@
     <Property name="RotateX">10</Property>
     <Property name="RotateY">-45</Property>
     <Property name="PerspectiveDistance">32</Property>
-    <Property name="PinTopRightX">11</Property>
-    <Property name="PinTopRightY">34</Property>
-    <Property name="PinTopLeftX">-1</Property>
-    <Property name="PinTopLeftY">9</Property>
-    <Property name="PinBottomRightX">0</Property>
-    <Property name="PinBottomRightY">6</Property>
+    <Property name="PinTopRightX">2</Property>
+    <Property name="PinTopRightY">50</Property>
+    <Property name="PinTopLeftX">10</Property>
+    <Property name="PinTopLeftY">20</Property>
+    <Property name="PinBottomRightX">2</Property>
+    <Property name="PinBottomRightY">-28</Property>
+    <Property name="PinBottomLeftX">12</Property>
+    <Property name="PinBottomLeftY">-20</Property>
   </Control>
   <Control id="PictureBox-2" type="PictureBox" x="0" y="200" w="864" h="596" tab-order="1" z-order="2" visible="true" enabled="true" layer="Woman">
     <Property name="BackgroundColor">#36383EFF</Property>
@@ -314,7 +316,7 @@
     <Property name="LabelField"></Property>
     <Property name="ValueFields"></Property>
     <Property name="SeriesLabels"></Property>
-    <Property name="BorderStyle">None</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
     <Property name="BorderWidth">0</Property>
     <Property name="BorderColor">#00000000</Property>
     <Property name="BorderGradientEnabled">true</Property>
@@ -334,10 +336,10 @@
     <Property name="PinTopLeftY">-26</Property>
     <Property name="PinTopRightX">31</Property>
     <Property name="PinTopRightY">-6</Property>
-    <Property name="PinBottomRightX">21</Property>
-    <Property name="PinBottomRightY">0</Property>
-    <Property name="PinBottomLeftX">-30</Property>
-    <Property name="PinBottomLeftY">1</Property>
+    <Property name="PinBottomRightX">22</Property>
+    <Property name="PinBottomRightY">-12</Property>
+    <Property name="PinBottomLeftX">-28</Property>
+    <Property name="PinBottomLeftY">-7</Property>
   </Control>
   <Control id="RadarChart-1" type="RadarChart" x="424" y="336" w="168" h="200" tab-order="1" z-order="5" visible="true" enabled="true" layer="charts">
     <Property name="BackgroundColor">#36383EFF</Property>
@@ -454,9 +456,9 @@
     <Property name="AnimateValues">true</Property>
     <Property name="AnimationDuration">2000</Property>
     <Property name="HideBackground">true</Property>
-    <Property name="Monochrome">true</Property>
-    <Property name="MonochromeColor">#51FB7C</Property>
-    <Property name="MonochromeGradient">true</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#BCD31A</Property>
+    <Property name="MonochromeGradient">false</Property>
     <Property name="XAxisLabel"></Property>
     <Property name="YAxisLabel"></Property>
     <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
@@ -479,17 +481,17 @@
     <Property name="BorderTransparency">0</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="RotateX">0</Property>
-    <Property name="RotateY">1</Property>
+    <Property name="RotateY">-5</Property>
     <Property name="PerspectiveDistance">50</Property>
     <Property name="PerspectiveStrength">100</Property>
     <Property name="PinTopLeftX">3</Property>
     <Property name="PinTopLeftY">-9</Property>
-    <Property name="PinTopRightX">18</Property>
-    <Property name="PinTopRightY">0</Property>
+    <Property name="PinTopRightX">19</Property>
+    <Property name="PinTopRightY">-2</Property>
     <Property name="PinBottomRightX">0</Property>
     <Property name="PinBottomRightY">0</Property>
-    <Property name="PinBottomLeftX">-49</Property>
-    <Property name="PinBottomLeftY">-26</Property>
+    <Property name="PinBottomLeftX">-13</Property>
+    <Property name="PinBottomLeftY">-27</Property>
   </Control>
   <Control id="Timer-1" type="Timer" x="1136" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -517,7 +519,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Interval">3000</Property>
+    <Property name="Interval">2100</Property>
     <Property name="Enabled">true</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -539,8 +541,8 @@
 
        PROCEDURE DIVISION.
 
-           *> One tick every 3 seconds is one cycle. Every cycle gives each chart a new series, and
-           *> every 25th cycle gives all four charts new colours.
+           *> One tick every 2.1 seconds is one cycle. Every cycle gives each chart a new series,
+           *> and every 3rd cycle gives all four charts new colours.
            *>
            *> The values live in WS-VAL (form-level, so they last from tick to tick) and drift: each
            *> one starts from where it was and moves a little, which reads as data changing rather
@@ -592,15 +594,15 @@
            END-IF
 
            *> How each chart arrives this cycle, chosen chart by chart. Most travel to their new
-           *> values over 1 to 2.6 seconds, a different length each time and always shorter than the
-           *> 3 second tick, so a move has ended before the next one starts. About one in three is
-           *> cut instead: it shows its new values at once (250 ms is the shortest move a chart
-           *> makes, the nearest AnimateValues gets to a cut) and WS-OWED(chart) = 1 makes sure that
-           *> chart travels on the next cycle.
+           *> values over 0.8 to 1.9 seconds, a different length each time and always shorter than
+           *> the 2.1 second tick, so a move has ended before the next one starts. About one in
+           *> three is cut instead: it shows its new values at once (250 ms is the shortest move a
+           *> chart makes, the nearest AnimateValues gets to a cut) and WS-OWED(chart) = 1 makes
+           *> sure that chart travels on the next cycle.
 
            PERFORM    VARYING WS-C FROM 1 BY 1 UNTIL WS-C > 4
                IF    WS-OWED(WS-C) = 1 OR FUNCTION RANDOM >= 0.35
-                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1600 + 1000
+                   COMPUTE    WS-MS(WS-C) = FUNCTION RANDOM * 1100 + 800
 
                    SET     WS-OWED(WS-C)         TO    0
                ELSE
@@ -609,12 +611,12 @@
                END-IF
            END-PERFORM
 
-           *> Every 25th cycle: new colours. The step is 1 to 5, so the palette is never the one it
+           *> Every 3rd cycle: new colours. The step is 1 to 5, so the palette is never the one it
            *> was. The bar chart colours its series from SeriesColors; the pie, the radar and the
            *> line are Monochrome, so they take one colour each - the 1st, 2nd and 3rd of the
            *> palette.
 
-           IF    FUNCTION MOD(WS-CYCLE, 25) = 0
+           IF    FUNCTION MOD(WS-CYCLE, 3) = 0
                COMPUTE    WS-STEP = FUNCTION RANDOM * 5 + 1
                COMPUTE    WS-PAL = FUNCTION MOD(WS-PAL - 1 + WS-STEP, 6) + 1
 
