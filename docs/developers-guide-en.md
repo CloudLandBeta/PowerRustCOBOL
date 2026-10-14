@@ -6995,14 +6995,15 @@ A few properties whose effect depends on the control:
 
 A chart, a picture, a label, a line or a shape can be turned in space, the way a
 card on a table is when you lift one edge: the edge that goes away looks shorter,
-the edge that stays near looks longer, and the whole thing converges. Three
+the edge that stays near looks longer, and the whole thing converges. Four
 properties do it; nothing else about the control changes.
 
 | Property | What it does | Values | Default |
 |---|---|---|---|
 | `RotateX` | Tilts the control about its **horizontal** axis, so its top or bottom edge goes away. | whole degrees, -60 to 60 | 0 |
 | `RotateY` | Tilts the control about its **vertical** axis, so its left or right edge goes away. | whole degrees, -60 to 60 | 0 |
-| `PerspectiveDistance` | How far from the observer the control is. | whole number, 0 (farthest) to 100 (nearest) | 50 |
+| `PerspectiveDistance` | How far from the observer the control is: how large it is drawn, and how strongly a tilt converges. | whole number, 0 (farthest) to 100 (nearest) | 50 |
+| `PerspectiveStrength` | How strongly a tilt converges, **apart from the size**. 100 is the convergence the distance gives; lower flattens it; 0 is none. | whole number, 0 to 100 | 100 |
 
 Which edge goes away depends on the sign:
 
@@ -7013,7 +7014,7 @@ Which edge goes away depends on the sign:
 | `RotateY` greater than 0 | the **right** edge |
 | `RotateY` less than 0 | the **left** edge |
 
-The three properties appear in the properties pane, in their own **3D
+The four properties appear in the properties pane, in their own **3D
 perspective** section, on these twelve controls: `BarChart`, `LineChart`,
 `PieChart`, `AreaChart`, `ScatterChart`, `DonutChart`, `RadarChart`, `PictureBox`,
 `Animator`, `Label`, `Line` and `Shape`. They only *draw*, which is why they can
@@ -7048,7 +7049,8 @@ A Timer can step an angle one degree at a time for a slow swing:
 
 A value outside the range is never an error: it is brought into it, and what you
 read back is what the control now has (`MOVE 200 TO CHART-REVENUE::RotateX`, then
-`DISPLAY CHART-REVENUE::RotateX`, shows 60).
+`DISPLAY CHART-REVENUE::RotateX`, shows 60; `MOVE 150 TO CHART-REVENUE::PerspectiveStrength`
+shows 100).
 
 **What the distance does.** `PerspectiveDistance` is how far the control is from
 whoever is looking at the form. At 50, the reference, a control that is not tilted
@@ -7056,6 +7058,24 @@ is drawn at the size you designed. Bring it nearer and it is drawn larger — tw
 as large at 100 — and a tilt converges more strongly; send it farther and it is
 drawn smaller — half the size at 0 — and flatter, shrinking toward its own centre.
 Equal steps feel equal: 25 is as much smaller than 50 as 75 is larger.
+
+**What the strength does.** The distance changes the size *and* the convergence
+together, so on its own it cannot keep a chart the size it is and soften its
+perspective. `PerspectiveStrength` does only that. At 100, the default, a tilt
+converges as much as the distance makes it: the near edge is drawn much longer than
+the far one. Lower it and the convergence flattens while the control keeps its
+size; at 0 the opposite edges stay equal, so a tilt only turns the control, with
+no convergence at all. It does nothing to a control that is not tilted.
+
+![Three charts with the same tilt (RotateY -38, RotateX 8, PerspectiveDistance 65) and a PerspectiveStrength of 100, 50 and 0](../assets/images/perspective-strength.png)
+
+*The same chart with the same tilt and distance, at strengths 100, 50 and 0. The
+far side grows from 0.68 of the near side to 0.83 and then to equal.*
+
+```cobol
+           *> Keep the chart the size it is, but soften the perspective so it fits the panel.
+           MOVE 40 TO CHART-REVENUE::PerspectiveStrength
+```
 
 > **Notes.**
 > - The tilt turns about the **centre** of the control's rectangle. The control keeps

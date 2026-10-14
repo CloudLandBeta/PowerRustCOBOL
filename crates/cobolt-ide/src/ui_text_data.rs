@@ -328,6 +328,7 @@ pub static UI_TEXT: &[UiText] = &[
     UiText { text: ["Pastes the clipboard into the focused control.", "Pega el portapapeles en el control con foco.", "Cola a área de transferência no controle com foco.", "クリップボードの内容をフォーカスのあるコントロールに貼り付けます。", "将剪贴板内容粘贴到焦点控件。", "Colle le presse-papiers dans le contrôle actif."] },
     UiText { text: ["Pattern", "Patrón", "Padrão", "パターン", "图案", "Motif"] },
     UiText { text: ["Pause timeout on hover", "Pausar el tiempo de espera al pasar el puntero", "Pausar o tempo limite ao passar o mouse", "ホバー中はタイムアウトを一時停止", "悬停时暂停超时", "Suspendre le délai au survol"] },
+    UiText { text: ["Perspective strength", "Intensidad de la perspectiva", "Intensidade da perspectiva", "遠近の強さ", "透视强度", "Force de la perspective"] },
     UiText { text: ["Picture", "Picture (formato)", "Picture (formato)", "PICTURE 句", "PICTURE 子句", "Picture (format)"] },
     UiText { text: ["Point radius", "Radio del punto", "Raio do ponto", "点の半径", "数据点半径", "Rayon des points"] },
     UiText { text: ["Press keys...", "Pulse las teclas...", "Pressione as teclas...", "キーを押してください...", "请按键...", "Appuyez sur les touches..."] },

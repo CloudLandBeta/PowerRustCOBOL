@@ -37,6 +37,13 @@
 //! 50 is the identity (`F/D = 1`), 100 brings the control twice as near (×2), 0
 //! sends it twice as far (×0.5), and equal steps of `d` feel equal.
 //!
+//! **`PerspectiveStrength`** (spec 097) scales the convergence alone: the depth
+//! `z₂` is multiplied by `m = strength / 100` in the divisor, `F / (D + m·z₂)`.
+//! The size of a flat control (`z₂ = 0`) and the centre do not depend on it; at 100
+//! it is the formula above; at 0 it is `F / D` for every point — no convergence;
+//! between, it is a pin-hole camera at distance `D / m` with focal length `F / m`
+//! (`F/(D + m z₂) = (F/m)/(D/m + z₂)`), so lines stay straight and the outline convex.
+//!
 //! `D + z₂ > 0` for every input. The smallest `D` is `K·M/2 = M` (at `d` = 100)
 //! and `|z₂|` never exceeds the half-diagonal of the rectangle, at most `0.71·M`,
 //! so the divisor is at least `0.29·M`: nothing is ever behind the camera, and the
@@ -47,7 +54,8 @@ use egui::{pos2, Pos2, Rect};
 
 use crate::model::{
     Control, PropValue, PERSPECTIVE_ANGLE_LIMIT, PERSPECTIVE_DISTANCE_MAX,
-    PERSPECTIVE_DISTANCE_PROP, PERSPECTIVE_DISTANCE_REFERENCE, ROTATE_X_PROP, ROTATE_Y_PROP,
+    PERSPECTIVE_DISTANCE_PROP, PERSPECTIVE_DISTANCE_REFERENCE, PERSPECTIVE_STRENGTH_MAX,
+    PERSPECTIVE_STRENGTH_PROP, ROTATE_X_PROP, ROTATE_Y_PROP,
 };
 
 /// How many times the larger side of a control the camera stands from it at the
@@ -66,14 +74,17 @@ pub struct Perspective {
     pub rotate_y: i32,
     /// `PerspectiveDistance`, 0 … 100. 50 is the reference; 100 is nearest.
     pub distance: i32,
+    /// `PerspectiveStrength`, 0 … 100. 100 is the convergence the distance gives; 0 is none.
+    pub strength: i32,
 }
 
 impl Perspective {
-    /// The neutral values: untilted, at the reference distance.
+    /// The neutral values: untilted, at the reference distance, at full strength.
     pub const NEUTRAL: Perspective = Perspective {
         rotate_x: 0,
         rotate_y: 0,
         distance: PERSPECTIVE_DISTANCE_REFERENCE as i32,
+        strength: PERSPECTIVE_STRENGTH_MAX as i32,
     };
 
     /// Build one, clamping each value into its range (a write is clamped when it
@@ -84,7 +95,13 @@ impl Perspective {
             rotate_x: rotate_x.clamp(-a, a) as i32,
             rotate_y: rotate_y.clamp(-a, a) as i32,
             distance: distance.clamp(0, PERSPECTIVE_DISTANCE_MAX) as i32,
+            strength: PERSPECTIVE_STRENGTH_MAX as i32,
         }
+    }
+
+    /// The same tilt at another `PerspectiveStrength`, clamped into 0 … 100.
+    pub fn with_strength(self, strength: i64) -> Self {
+        Perspective { strength: strength.clamp(0, PERSPECTIVE_STRENGTH_MAX) as i32, ..self }
     }
 
     /// What `ctrl` asks for, or `None` when it is drawn as it always was:
@@ -92,7 +109,8 @@ impl Perspective {
     /// * its type is not one of the twelve that may be tilted — a property
     ///   hand-written into a Button's file is ignored, the loader having kept it
     ///   (spec 096 R16);
-    /// * the three properties are all at their neutral values, or absent;
+    /// * the tilt and the distance are at their neutral values, or absent (the strength
+    ///   only scales a convergence, so it matters only to a tilted control);
     /// * a value is not a finite number, which reads as that property's default.
     pub fn of(ctrl: &Control) -> Option<Perspective> {
         if !ctrl.control_type.has_perspective() {
@@ -114,13 +132,17 @@ impl Perspective {
             read(ROTATE_X_PROP, 0),
             read(ROTATE_Y_PROP, 0),
             read(PERSPECTIVE_DISTANCE_PROP, PERSPECTIVE_DISTANCE_REFERENCE),
-        );
+        )
+        .with_strength(read(PERSPECTIVE_STRENGTH_PROP, PERSPECTIVE_STRENGTH_MAX));
         (!p.is_neutral()).then_some(p)
     }
 
-    /// Untilted and at the reference distance — drawn exactly as before.
+    /// Untilted and at the reference distance — drawn exactly as before, whatever the
+    /// strength: it scales a convergence and an untilted control has none.
     pub fn is_neutral(&self) -> bool {
-        *self == Perspective::NEUTRAL
+        self.rotate_x == 0
+            && self.rotate_y == 0
+            && self.distance == Perspective::NEUTRAL.distance
     }
 
     /// The camera for a control whose designed rectangle is `rect`.
@@ -152,6 +174,8 @@ pub struct Camera {
     sin_y: f32,
     /// `D`, the distance from the observer to the control's plane.
     depth: f32,
+    /// `m = strength / 100`: the share of the depth `z₂` that reaches the divisor.
+    convergence: f32,
     /// `F`, the focal length.
     focal: f32,
 }
@@ -169,6 +193,7 @@ impl Camera {
             cos_y,
             sin_y,
             depth: reference * 2f32.powf((PERSPECTIVE_DISTANCE_REFERENCE as f32 - p.distance as f32) / 50.0),
+            convergence: p.strength as f32 / PERSPECTIVE_STRENGTH_MAX as f32,
             focal: reference,
         }
     }
@@ -181,17 +206,17 @@ impl Camera {
         let z1 = -y * self.sin_x;
         let x2 = x * self.cos_y - z1 * self.sin_y;
         let z2 = z1 * self.cos_y + x * self.sin_y;
-        let k = self.focal / (self.depth + z2);
+        let k = self.focal / (self.depth + self.convergence * z2);
         pos2(self.centre.x + x2 * k, self.centre.y + y1 * k)
     }
 
-    /// `D + z₂` for a point — the divisor. Strictly positive for every point of
+    /// `D + m·z₂` for a point — the divisor. Strictly positive for every point of
     /// the control's rectangle (see the module notes); exposed so a test can say so.
     pub fn divisor(&self, p: Pos2) -> f32 {
         let (x, y) = (p.x - self.centre.x, p.y - self.centre.y);
         let z1 = -y * self.sin_x;
         let z2 = z1 * self.cos_y + x * self.sin_y;
-        self.depth + z2
+        self.depth + self.convergence * z2
     }
 
     /// The scale a flat control gets at this distance: `F / D`.
