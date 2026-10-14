@@ -5519,6 +5519,20 @@ impl PropertiesPanel {
         int_prop_row(ui, id, "RotateY", "Tilt left / right", ctrl, action, -60..=60, Some("°"), 0);
         int_prop_row(ui, id, "PerspectiveDistance", "Distance from observer", ctrl, action, 0..=100, None, 50);
         int_prop_row(ui, id, "PerspectiveStrength", "Perspective strength", ctrl, action, 0..=100, Some("%"), 100);
+        // Spec 098 — the corner pin: eight rows, one per corner coordinate. On the canvas the
+        // same values are set by dragging the outline's corner handles.
+        for (key, label) in [
+            ("PinTopLeftX", "Pin top-left X"),
+            ("PinTopLeftY", "Pin top-left Y"),
+            ("PinTopRightX", "Pin top-right X"),
+            ("PinTopRightY", "Pin top-right Y"),
+            ("PinBottomRightX", "Pin bottom-right X"),
+            ("PinBottomRightY", "Pin bottom-right Y"),
+            ("PinBottomLeftX", "Pin bottom-left X"),
+            ("PinBottomLeftY", "Pin bottom-left Y"),
+        ] {
+            int_prop_row(ui, id, key, label, ctrl, action, -9999..=9999, Some("px"), 0);
+        }
     }
 
     fn show_advanced_grid(

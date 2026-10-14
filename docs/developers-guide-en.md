@@ -6996,7 +6996,8 @@ A few properties whose effect depends on the control:
 A chart, a picture, a label, a line or a shape can be turned in space, the way a
 card on a table is when you lift one edge: the edge that goes away looks shorter,
 the edge that stays near looks longer, and the whole thing converges. Four
-properties do it; nothing else about the control changes.
+properties tilt it, and eight more **pin its corners** anywhere you like; nothing
+else about the control changes.
 
 | Property | What it does | Values | Default |
 |---|---|---|---|
@@ -7004,6 +7005,7 @@ properties do it; nothing else about the control changes.
 | `RotateY` | Tilts the control about its **vertical** axis, so its left or right edge goes away. | whole degrees, -60 to 60 | 0 |
 | `PerspectiveDistance` | How far from the observer the control is: how large it is drawn, and how strongly a tilt converges. | whole number, 0 (farthest) to 100 (nearest) | 50 |
 | `PerspectiveStrength` | How strongly a tilt converges, **apart from the size**. 100 is the convergence the distance gives; lower flattens it; 0 is none. | whole number, 0 to 100 | 100 |
+| `PinTopLeftX`, `PinTopLeftY`, `PinTopRightX`, `PinTopRightY`, `PinBottomRightX`, `PinBottomRightY`, `PinBottomLeftX`, `PinBottomLeftY` | How far each corner of the outline is moved from where the tilt put it — the **corner pin**. | whole pixels, -9999 to 9999 | 0 |
 
 Which edge goes away depends on the sign:
 
@@ -7014,7 +7016,7 @@ Which edge goes away depends on the sign:
 | `RotateY` greater than 0 | the **right** edge |
 | `RotateY` less than 0 | the **left** edge |
 
-The four properties appear in the properties pane, in their own **3D
+The twelve properties appear in the properties pane, in their own **3D
 perspective** section, on these twelve controls: `BarChart`, `LineChart`,
 `PieChart`, `AreaChart`, `ScatterChart`, `DonutChart`, `RadarChart`, `PictureBox`,
 `Animator`, `Label`, `Line` and `Shape`. They only *draw*, which is why they can
@@ -7077,6 +7079,38 @@ far side grows from 0.68 of the near side to 0.83 and then to equal.*
            MOVE 40 TO CHART-REVENUE::PerspectiveStrength
 ```
 
+**Pinning the corners.** A tilt is always a rectangle seen head-on: its outline
+is symmetric about a level line through its centre. The panel in a background
+picture rarely is — it is rolled a few degrees, or converges off to one side —
+and no tilt, distance or strength will land on it. The **corner pin** does: each
+of the four corners of the outline can be moved by its own `Pin…X` / `Pin…Y`,
+in pixels, from where the tilt put it, and the control is drawn in the one
+perspective that sends its rectangle onto exactly those four corners. Straight
+lines stay straight, a picture's corners land on the outline's corners, and the
+outline can be **any convex quadrilateral**. The pins work with a tilt and
+without one.
+
+On the design canvas you do not type them. Once a control is tilted, zoomed or
+pinned, an **amber handle** appears at each corner of its outline, beside the
+white resize knobs that stay on the flat rectangle: drag a corner handle onto
+the corner of the panel in your picture and that corner's two pins are written
+for you (one undo step per drag).
+
+![A bar chart pinned into a panel that is rolled clockwise and converges to the left; the glass panel behind it is a Shape pinned the same way](../assets/images/perspective-pin.png)
+
+*A chart and the Shape behind it, both tilted `RotateY` -12 and pinned with the
+same offsets — top-left (0, -8), top-right (0, 20), bottom-right (18, 18),
+bottom-left (-10, 0) — into a panel whose top and bottom edges both slope down to
+the right, as a panel drawn in a picture does. No tilt alone can roll a control
+like this.*
+
+```cobol
+           *> Drop the chart's bottom-right corner 18 px down and 18 px to the right,
+           *> onto the corner of the panel in the picture.
+           MOVE 18 TO CHART-REVENUE::PinBottomRightX
+           MOVE 18 TO CHART-REVENUE::PinBottomRightY
+```
+
 > **Notes.**
 > - The tilt turns about the **centre** of the control's rectangle. The control keeps
 >   its place in the form's layout, its tab order and its event bindings; only how it
@@ -7089,6 +7123,10 @@ far side grows from 0.68 of the near side to 0.83 and then to equal.*
 >   control arise **where you see it**: inside its outline, even where that is past the
 >   rectangle you designed, and not on the empty ground it no longer covers. Its
 >   `Cursor` and `Tooltip` follow the same outline.
+> - A pin that would **fold** the outline — a corner dragged across the shape, the
+>   winding reversed, an edge shorter than 2 px, or the far side thinner than a
+>   twentieth of the near side — is refused: the control is drawn with its tilt
+>   alone, and on the canvas the handle simply stops following the pointer there.
 > - A tilted Label paints its caption with the tilt, so the text is no longer something
 >   a reader can select and copy. It still raises `onClick` and `onGotFocus`, and Tab
 >   still reaches it.
@@ -7100,9 +7138,11 @@ far side grows from 0.68 of the near side to 0.83 and then to equal.*
 
 > ⚠️ **Caveats.**
 > - **In the Form Designer the selection stays on the rectangle you designed.** The
->   handles, moving and resizing act on that flat rectangle, so a control can always be
->   grabbed; the tilted shape is drawn live inside and around it. With a strong tilt
->   the handles therefore sit away from the edges you see.
+>   white knobs, moving and resizing act on that flat rectangle, so a control can
+>   always be grabbed; the tilted shape is drawn live inside and around it, and the
+>   amber corner handles sit on the shape you see. A flat, unpinned control shows no
+>   amber handles (they would sit under the knobs): tilt it, or type one pin in the
+>   pane, and they appear.
 > - **The extremes are strong.** At -60 or 60 with `PerspectiveDistance` 100 the near
 >   edge is drawn more than three times as long as the far one. That is "very close",
 >   and it is cut at the container, but it is rarely what a dashboard wants; 10 to 35

@@ -17,7 +17,7 @@
 use cobolt_forms::model::{
     clamp_perspective_value, property_names_for, property_runtime_text, Control, ControlType,
     Form, GlassStyle, PropValue, PERSPECTIVE_DISTANCE_PROP, PERSPECTIVE_DISTANCE_REFERENCE,
-    PERSPECTIVE_STRENGTH_MAX, PERSPECTIVE_STRENGTH_PROP, ROTATE_X_PROP, ROTATE_Y_PROP,
+    PERSPECTIVE_STRENGTH_MAX, PERSPECTIVE_STRENGTH_PROP, PIN_LIMIT, PIN_PROPS, ROTATE_X_PROP, ROTATE_Y_PROP,
 };
 use cobolt_forms::{form_to_string, load_form_from_str};
 
@@ -38,8 +38,21 @@ const THE_TWELVE: [ControlType; 12] = [
     ControlType::Shape,
 ];
 
-/// The three of spec 096 and `PerspectiveStrength` of spec 097.
-const THE_THREE: [&str; 4] = [ROTATE_X_PROP, ROTATE_Y_PROP, PERSPECTIVE_DISTANCE_PROP, PERSPECTIVE_STRENGTH_PROP];
+/// The three of spec 096, `PerspectiveStrength` of spec 097 and the eight pins of spec 098.
+const THE_THREE: [&str; 12] = [
+    ROTATE_X_PROP,
+    ROTATE_Y_PROP,
+    PERSPECTIVE_DISTANCE_PROP,
+    PERSPECTIVE_STRENGTH_PROP,
+    PIN_PROPS[0][0],
+    PIN_PROPS[0][1],
+    PIN_PROPS[1][0],
+    PIN_PROPS[1][1],
+    PIN_PROPS[2][0],
+    PIN_PROPS[2][1],
+    PIN_PROPS[3][0],
+    PIN_PROPS[3][1],
+];
 
 fn int(c: &Control, key: &str) -> Option<i64> {
     c.get_prop(key).map(|v| v.as_i64())
@@ -91,6 +104,9 @@ fn each_of_the_twelve_seeds_the_three_properties_neutral() {
             Some(&PropValue::Int(PERSPECTIVE_STRENGTH_MAX)),
             "{ct:?} PerspectiveStrength is seeded at full strength (spec 097)"
         );
+        for key in PIN_PROPS.iter().flatten() {
+            assert_eq!(c.get_prop(key), Some(&PropValue::Int(0)), "{ct:?} {key} is seeded at 0 (spec 098)");
+        }
         // IntelliSense lists them: the names come from the seed.
         let names = property_names_for(&format!("{ct:?}"));
         for key in THE_THREE {
@@ -118,7 +134,7 @@ fn no_other_type_seeds_or_lists_them() {
 #[test]
 fn a_write_is_brought_into_range_for_every_one_of_the_twelve() {
     // The table printed is the contract of R12: nearest whole number inside the range.
-    let cases: [(&str, &str, &str); 19] = [
+    let cases: [(&str, &str, &str); 23] = [
         (ROTATE_X_PROP, "200", "60"),
         (ROTATE_X_PROP, "-99", "-60"),
         (ROTATE_X_PROP, "30", "30"),
@@ -138,6 +154,11 @@ fn a_write_is_brought_into_range_for_every_one_of_the_twelve() {
         (PERSPECTIVE_STRENGTH_PROP, "40", "40"),
         (PERSPECTIVE_STRENGTH_PROP, "100", "100"),
         (PERSPECTIVE_STRENGTH_PROP, "0", "0"),
+        // Spec 098 — a pin, ±9999 pixels.
+        ("PinTopLeftX", "20000", "9999"),
+        ("PinBottomRightY", "-20000", "-9999"),
+        ("PinTopRightY", "-37", "-37"),
+        ("PinBottomLeftX", "0", "0"),
         // Not a number: passed through untouched, as a boolean's unreadable text is.
         (ROTATE_X_PROP, "wobbly", "wobbly"),
     ];
@@ -151,6 +172,7 @@ fn a_write_is_brought_into_range_for_every_one_of_the_twelve() {
     }
     // The property name is not case-sensitive, like every COBOL name.
     assert_eq!(property_runtime_text("BarChart", "rotatex", "999"), "60");
+    assert_eq!(property_runtime_text("Label", "pintopleftx", "99999"), PIN_LIMIT.to_string());
     // Another type is left alone — a write to it is not a perspective write.
     assert_eq!(property_runtime_text("Button", "RotateX", "999"), "999");
     // A property that is not one of the three is not touched.
@@ -188,6 +210,7 @@ fn the_three_properties_survive_a_save_and_a_load() {
     chart.set_prop(ROTATE_Y_PROP, PropValue::Int(-30));
     chart.set_prop(PERSPECTIVE_DISTANCE_PROP, PropValue::Int(60));
     chart.set_prop(PERSPECTIVE_STRENGTH_PROP, PropValue::Int(35));
+    chart.set_prop("PinTopRightX", PropValue::Int(-21));
     form.controls.push(chart);
     let loaded = load_form_from_str(&form_to_string(&form).unwrap()).unwrap();
     let c = &loaded.controls[0];
@@ -195,6 +218,7 @@ fn the_three_properties_survive_a_save_and_a_load() {
     assert_eq!(int(c, ROTATE_Y_PROP), Some(-30));
     assert_eq!(int(c, PERSPECTIVE_DISTANCE_PROP), Some(60));
     assert_eq!(int(c, PERSPECTIVE_STRENGTH_PROP), Some(35));
+    assert_eq!(int(c, "PinTopRightX"), Some(-21));
     println!("\n  RotateX 8 / RotateY -30 / PerspectiveDistance 60 / PerspectiveStrength 35 survive a save and a load");
 }
 
@@ -243,6 +267,7 @@ fn a_theme_switch_leaves_the_three_properties_as_they_were() {
         c.set_prop(ROTATE_Y_PROP, PropValue::Int(-22));
         c.set_prop(PERSPECTIVE_DISTANCE_PROP, PropValue::Int(33));
         c.set_prop(PERSPECTIVE_STRENGTH_PROP, PropValue::Int(44));
+        c.set_prop("PinBottomLeftY", PropValue::Int(-55));
         c.apply_glass_style_defaults(GlassStyle::Neumorphic);
         c.apply_glass_style_defaults(GlassStyle::Classic);
         c.reset_theme_owned_props();
@@ -250,6 +275,7 @@ fn a_theme_switch_leaves_the_three_properties_as_they_were() {
         assert_eq!(int(&c, ROTATE_Y_PROP), Some(-22), "{ct:?} RotateY after a theme switch");
         assert_eq!(int(&c, PERSPECTIVE_DISTANCE_PROP), Some(33), "{ct:?} PerspectiveDistance after a theme switch");
         assert_eq!(int(&c, PERSPECTIVE_STRENGTH_PROP), Some(44), "{ct:?} PerspectiveStrength after a theme switch");
+        assert_eq!(int(&c, "PinBottomLeftY"), Some(-55), "{ct:?} a pin after a theme switch");
     }
-    println!("\n  12 types: the four properties are not theme-owned — a theme switch and a reset left them");
+    println!("\n  12 types: the twelve properties are not theme-owned — a theme switch and a reset left them");
 }

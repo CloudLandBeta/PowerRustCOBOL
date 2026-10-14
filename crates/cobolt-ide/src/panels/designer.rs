@@ -1504,6 +1504,17 @@ pub(crate) fn control_contains_point(ctrl: &Control, cx: i32, cy: i32) -> bool {
     )
 }
 
+/// Spec 098 — a control's eight pins as `[dx, dy]` per corner (top-left, top-right,
+/// bottom-right, bottom-left); an absent one is 0.
+fn pin_values_of(ctrl: &Control) -> [[i32; 2]; 4] {
+    cobolt_forms::model::PIN_PROPS.map(|[kx, ky]| {
+        [
+            ctrl.get_prop(kx).map_or(0, |v| v.as_i64() as i32),
+            ctrl.get_prop(ky).map_or(0, |v| v.as_i64() as i32),
+        ]
+    })
+}
+
 fn handle_cursor(h: Handle) -> CursorIcon {
     match h {
         Handle::TopLeft | Handle::BotRight => CursorIcon::ResizeNwSe,
@@ -1640,6 +1651,16 @@ enum DragState {
         anchor: (f32, f32),
         orig_rect: cobolt_forms::model::Rect,
         orig_angle: Option<i64>,
+    },
+    /// Spec 098 — a corner of the primary selection's projected outline is being dragged:
+    /// that corner's two pins follow the pointer, written live; one undo step at the end.
+    DraggingPinCorner {
+        id: String,
+        /// 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left.
+        corner: usize,
+        /// Every corner's pins at press-time, so a refused move leaves the rest untouched.
+        orig_pins: [[i32; 2]; 4],
+        start: (f32, f32),
     },
     PlacingNew {
         ctrl_type: ControlType,
@@ -2903,6 +2924,12 @@ pub struct DesignerPanel {
     /// for the same reason `press_handle` captures early: by `drag_started()`
     /// the pointer has already moved off the small target.
     press_line_anchor: Option<(f32, f32)>,
+    /// Spec 098 — the corner handles of the primary selection's projected outline, in
+    /// form coordinates, while it is tilted, zoomed or pinned (`sel_handle_rect`'s twin:
+    /// the hit-test reads the same points the handles were drawn on).
+    sel_pin_quad: Option<(String, [Pos2; 4])>,
+    /// Spec 098 — the outline corner under the pointer at the moment the button went down.
+    press_pin_corner: Option<usize>,
 
     // ── Menu editor modal (spec 018) ────────────────────────────────────────
     pub menu_modal: Option<MenuEditorModal>,
@@ -3133,6 +3160,8 @@ impl DesignerPanel {
             pin_consumed: false,
             press_form_edge: None,
             press_line_anchor: None,
+            sel_pin_quad: None,
+            press_pin_corner: None,
             menu_modal: None,
             toolbar_modal: None,
             tab_order_visual: None,
@@ -9937,7 +9966,7 @@ impl DesignerPanel {
                 // What the notch mask needs of `ui`, taken before the grid hook holds it.
                 let notch_ctx = ui.ctx().clone();
                 let panel_fill = ui.visuals().panel_fill;
-                let mut control_rects = {
+                let (mut control_rects, pin_quads) = {
                     let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     let without = super::grid_edit::Without { inner: st, hide: &hidden_grids };
                     let st: &dyn cobolt_forms::render::FormState = &without;
@@ -9956,7 +9985,7 @@ impl DesignerPanel {
                             ..Default::default()
                         },
                     };
-                    cobolt_forms::render::render_faces_with(&painter, origin, &input, &mut |base| {
+                    let faces_out = cobolt_forms::render::render_faces_with(&painter, origin, &input, &mut |base| {
                         if let Some(f) = grid_frames.iter().find(|f| f.grid.id == base.id) {
                             grid_reports.extend(super::grid_edit::draw_grid(
                                 ui,
@@ -10035,8 +10064,8 @@ impl DesignerPanel {
                                 notch_fill,
                             );
                         }
-                    })
-                    .control_rects
+                    });
+                    (faces_out.control_rects, faces_out.hit_quads)
                 };
                 for f in &grid_frames {
                     control_rects.insert(f.grid.id.clone(), f.screen);
@@ -10432,14 +10461,25 @@ impl DesignerPanel {
                                 knobs.iter().map(|&h| handle_pos(&rect, h)).collect();
                             draw_handles(&painter, origin, &pts, glass);
                         }
+                        // Spec 098 — a tilted, zoomed or pinned control also shows a handle
+                        // at each corner of its projected outline: dragging one pins that
+                        // corner. The resize knobs stay on the designed rectangle (spec 096
+                        // R11), so a strongly tilted control can still be grabbed.
+                        self.sel_pin_quad = pin_quads.get(&sid).map(|q| {
+                            let in_form = q.map(|p| Pos2::new(p.x - origin.x, p.y - origin.y));
+                            draw_pin_handles(&painter, origin, &in_form, glass);
+                            (sid.clone(), in_form)
+                        });
                         // The hit-test reads the same rect, so a knob is
                         // grabbable exactly where it is drawn.
                         self.sel_handle_rect = Some((sid, rect));
                     } else {
                         self.sel_handle_rect = None;
+                        self.sel_pin_quad = None;
                     }
                 } else {
                     self.sel_handle_rect = None;
+                    self.sel_pin_quad = None;
                 }
                 // 056 R31 — the anchor gizmo on the primary selection.
                 self.paint_anchor_gizmo(&painter, origin);
@@ -15126,6 +15166,78 @@ impl DesignerPanel {
         self.dirty = true;
     }
 
+    /// One pointer move of a corner-pin drag (spec 098): that corner's two pins follow the
+    /// pointer, written live so the outline tracks the drag. A position that would fold the
+    /// outline — judged exactly as the engine judges it — is refused: the corner stays where
+    /// it was last drawable, which is what the developer sees.
+    fn apply_pin_corner_drag(&mut self, px: i32, py: i32) {
+        let DragState::DraggingPinCorner { ref id, corner, orig_pins, start } = self.drag.clone() else {
+            return;
+        };
+        let Some(ctrl) = self.form.find_control(id) else {
+            return;
+        };
+        let mut pins = pin_values_of(ctrl);
+        pins[corner] = [
+            orig_pins[corner][0] + (px as f32 - start.0).round() as i32,
+            orig_pins[corner][1] + (py as f32 - start.1).round() as i32,
+        ];
+        let base = cobolt_forms::perspective::Perspective::of(ctrl)
+            .unwrap_or(cobolt_forms::perspective::Perspective::NEUTRAL)
+            .designed(ctrl.rect.w as f32, ctrl.rect.h as f32);
+        let per = base.with_pins(pins.map(|[x, y]| [i64::from(x), i64::from(y)]));
+        let rect = egui::Rect::from_min_size(
+            Pos2::new(ctrl.rect.x as f32, ctrl.rect.y as f32),
+            Vec2::new(ctrl.rect.w as f32, ctrl.rect.h as f32),
+        );
+        let tilt = per.unpinned().quad(rect);
+        if !cobolt_forms::perspective::pin_is_drawable(&tilt, &per.pinned_quad(rect)) {
+            return;
+        }
+        let [kx, ky] = cobolt_forms::model::PIN_PROPS[corner];
+        if let Some(c) = self.form.find_control_mut(id) {
+            c.set_prop(kx, PropValue::Int(i64::from(pins[corner][0])));
+            c.set_prop(ky, PropValue::Int(i64::from(pins[corner][1])));
+        }
+    }
+
+    /// End a corner-pin drag: the pins were written live, so this records ONE undo entry
+    /// for the whole gesture — both coordinates of the corner in a batch (mirrors
+    /// `finish_line_endpoint_drag`).
+    fn finish_pin_corner_drag(&mut self) {
+        let DragState::DraggingPinCorner { ref id, corner, orig_pins, .. } = self.drag.clone() else {
+            return;
+        };
+        let Some(ctrl) = self.form.find_control(id) else {
+            self.dirty = true;
+            return;
+        };
+        let now = pin_values_of(ctrl)[corner];
+        let was = orig_pins[corner];
+        if now == was {
+            self.dirty = true;
+            return;
+        }
+        let keys = cobolt_forms::model::PIN_PROPS[corner];
+        let mut cmds = Vec::new();
+        for axis in 0..2 {
+            if now[axis] != was[axis] {
+                cmds.push(Cmd::SetProperty {
+                    id: id.clone(),
+                    key: keys[axis].to_owned(),
+                    old: Some(PropValue::Int(i64::from(was[axis]))),
+                    new: PropValue::Int(i64::from(now[axis])),
+                });
+            }
+        }
+        if cmds.len() == 1 {
+            self.apply(cmds.pop().expect("one command"));
+        } else {
+            self.apply(Cmd::Batch { cmds });
+        }
+        self.dirty = true;
+    }
+
     /// Put a Splitter's division back in the middle — what a double-click on
     /// the line does, on the canvas and in the running form alike.
     fn centre_splitter_division(&mut self, id: &str) {
@@ -15640,6 +15752,26 @@ impl DesignerPanel {
             resp.ctx.set_cursor_icon(CursorIcon::Grab);
         }
 
+        // Spec 098 — the outline's corner handles, when the pointer is on none of the
+        // resize knobs and no Line endpoint (those win where the two coincide).
+        let pin_corner_hover: Option<usize> = if handle_hover.is_some()
+            || line_end_hover.is_some()
+            || !self.controls_movable()
+            || self.grid_edit.is_some()
+        {
+            None
+        } else {
+            self.sel_pin_quad.as_ref().and_then(|(sid, quad)| {
+                if self.selected_ids.first() != Some(sid) {
+                    return None;
+                }
+                quad.iter().position(|c| ((px as f32 - c.x).powi(2) + (py as f32 - c.y).powi(2)).sqrt() < 8.0)
+            })
+        };
+        if pin_corner_hover.is_some() {
+            resp.ctx.set_cursor_icon(CursorIcon::Grab);
+        }
+
         // Detect hovering the form's own resize border (only when not over a
         // control's resize handle — control handles take priority).
         let form_edge_hover = if handle_hover.is_none() && self.form_resizable() {
@@ -15665,6 +15797,7 @@ impl DesignerPanel {
                 self.press_handle = handle_hover;
                 self.press_form_edge = form_edge_hover;
                 self.press_line_anchor = line_end_hover;
+                self.press_pin_corner = pin_corner_hover;
             }
         }
         // Clear if the button is no longer held (cancelled press with no drag).
@@ -15673,6 +15806,7 @@ impl DesignerPanel {
             self.press_handle = None;
             self.press_form_edge = None;
             self.press_line_anchor = None;
+            self.press_pin_corner = None;
             self.pin_consumed = false;
         }
 
@@ -15759,6 +15893,20 @@ impl DesignerPanel {
                             start_x: px,
                             start_y: py,
                         };
+                    } else
+                    // Spec 098 — a corner handle of the projected outline, captured at
+                    // press-time like a Line's endpoint: it outranks the hit-test-for-move.
+                    if let Some(corner) = self.press_pin_corner.take() {
+                        if let Some(sid) = self.selected_ids.first().cloned() {
+                            if let Some(ctrl) = self.form.find_control(&sid) {
+                                self.drag = DragState::DraggingPinCorner {
+                                    id: sid,
+                                    corner,
+                                    orig_pins: pin_values_of(ctrl),
+                                    start: (px as f32, py as f32),
+                                };
+                            }
+                        }
                     } else
                     // A Line's endpoint, captured at press-time for the same
                     // reason the rect handle below is: outranks the plain
@@ -15963,6 +16111,9 @@ impl DesignerPanel {
                 DragState::ResizingLineEndpoint { .. } => {
                     self.apply_line_endpoint_drag(px, py);
                 }
+                DragState::DraggingPinCorner { .. } => {
+                    self.apply_pin_corner_drag(px, py);
+                }
                 DragState::PlacingNew {
                     ref ctrl_type,
                     start_x,
@@ -16148,6 +16299,9 @@ impl DesignerPanel {
                 }
                 DragState::ResizingLineEndpoint { .. } => {
                     self.finish_line_endpoint_drag();
+                }
+                DragState::DraggingPinCorner { .. } => {
+                    self.finish_pin_corner_drag();
                 }
                 DragState::PlacingNew {
                     ctrl_type,
@@ -16620,6 +16774,24 @@ fn rename_control_refs_in_cobol(code: &mut String, old: &str, new: &str) {
     }
     out.push_str(&code[last..]);
     *code = out;
+}
+
+/// Spec 098 — the corner-pin handles: one at each corner of a control's projected outline,
+/// told apart from the resize knobs (`draw_handles`) by their amber fill. Drawn with the
+/// same radius, so a corner is grabbed where it is seen.
+fn draw_pin_handles(painter: &egui::Painter, origin: Pos2, points: &[Pos2], glass: bool) {
+    for &hp in points {
+        let screen = origin + Vec2::new(hp.x, hp.y);
+        let amber = Color32::from_rgb(255, 170, 40);
+        if glass {
+            painter.circle_filled(screen, 5.5, Color32::from_rgba_premultiplied(120, 70, 0, 200));
+            painter.circle_filled(screen, 4.0, amber);
+            painter.circle_stroke(screen, 5.5, Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 220, 150, 220)));
+        } else {
+            painter.circle_filled(screen, 4.5, amber);
+            painter.circle_stroke(screen, 4.5, Stroke::new(1.5, Color32::from_rgb(150, 80, 0)));
+        }
+    }
 }
 
 /// Draw a knob at every point in `points` — the generic 8 rect-handle
