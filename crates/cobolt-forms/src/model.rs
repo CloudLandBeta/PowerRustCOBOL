@@ -4134,6 +4134,11 @@ pub const ROTATE_Y_PROP: &str = "RotateY";
 /// to 100 (nearest). [`PERSPECTIVE_DISTANCE_REFERENCE`] draws an untilted control
 /// at its designed size.
 pub const PERSPECTIVE_DISTANCE_PROP: &str = "PerspectiveDistance";
+/// Spec 097 — how strongly a tilt converges, 0 to 100. 100 is the perspective
+/// [`PERSPECTIVE_DISTANCE_PROP`] gives (and the default, so a form that never had the
+/// property is drawn as it was); lower values flatten the convergence **without changing
+/// the size**; 0 is none — the opposite edges stay equal.
+pub const PERSPECTIVE_STRENGTH_PROP: &str = "PerspectiveStrength";
 /// Spec 096 — the range of `RotateX` and `RotateY`, in degrees.
 pub const PERSPECTIVE_ANGLE_LIMIT: i64 = 60;
 /// Spec 096 — the range of `PerspectiveDistance`.
@@ -4141,14 +4146,19 @@ pub const PERSPECTIVE_DISTANCE_MAX: i64 = 100;
 /// Spec 096 — the `PerspectiveDistance` at which a control is neither enlarged
 /// nor shrunk, and the default.
 pub const PERSPECTIVE_DISTANCE_REFERENCE: i64 = 50;
+/// Spec 097 — the range of `PerspectiveStrength`, and its default: the strongest, which is
+/// exactly the perspective of spec 096.
+pub const PERSPECTIVE_STRENGTH_MAX: i64 = 100;
 
-/// Spec 096 — the inclusive range of one of the three perspective properties, or
+/// Spec 096/097 — the inclusive range of one of the four perspective properties, or
 /// `None` when `key` is not one of them.
 pub fn perspective_property_range(key: &str) -> Option<(i64, i64)> {
     if key.eq_ignore_ascii_case(ROTATE_X_PROP) || key.eq_ignore_ascii_case(ROTATE_Y_PROP) {
         Some((-PERSPECTIVE_ANGLE_LIMIT, PERSPECTIVE_ANGLE_LIMIT))
     } else if key.eq_ignore_ascii_case(PERSPECTIVE_DISTANCE_PROP) {
         Some((0, PERSPECTIVE_DISTANCE_MAX))
+    } else if key.eq_ignore_ascii_case(PERSPECTIVE_STRENGTH_PROP) {
+        Some((0, PERSPECTIVE_STRENGTH_MAX))
     } else {
         None
     }
@@ -6602,16 +6612,20 @@ impl Control {
         seed_theme_owned_appearance(&control_type, &mut props);
         seed_layout_props(&control_type, &mut props);
 
-        // Spec 096 — the 3D-perspective trio, neutral: untilted, and at the
-        // reference distance. Seeded for the display controls only; a form saved
-        // before this existed keeps them absent (the loader is authoritative) and
-        // every reader treats an absent one as this default.
+        // Spec 096/097 — the 3D-perspective properties, neutral: untilted, at the
+        // reference distance, at full strength. Seeded for the display controls only; a
+        // form saved before they existed keeps them absent (the loader is authoritative)
+        // and every reader treats an absent one as this default.
         if control_type.has_perspective() {
             props.insert(ROTATE_X_PROP.into(), PropValue::Int(0));
             props.insert(ROTATE_Y_PROP.into(), PropValue::Int(0));
             props.insert(
                 PERSPECTIVE_DISTANCE_PROP.into(),
                 PropValue::Int(PERSPECTIVE_DISTANCE_REFERENCE),
+            );
+            props.insert(
+                PERSPECTIVE_STRENGTH_PROP.into(),
+                PropValue::Int(PERSPECTIVE_STRENGTH_MAX),
             );
         }
 

@@ -9,7 +9,10 @@
 //! `rcrun run-form`, a child form loaded into an application shell's
 //! ContentPane, and a built binary (`--ignored`: it compiles one).
 //!
-//! One form with a BarChart and two buttons. One handler writes
+//! Spec 097 adds `PerspectiveStrength`: written with 40 (which must arrive), then
+//! with 150 (which must come back as 100, the top of its range).
+//!
+//! One form with a BarChart and buttons. One handler writes
 //! `CHART-1::RotateY` = 30 and `CHART-1::RotateX` = 200 — a value outside the
 //! range, which must be brought into it (60) wherever it is written; the other
 //! reads `RotateX` back into a label. The test prints each host's readings as a
@@ -65,10 +68,16 @@ fn chart_form() -> Form {
     let mut chart = Control::new("CHART-1", ControlType::BarChart, 20, 20);
     chart.rect = cobolt_forms::model::Rect::new(20, 20, 320, 220);
     f.controls.push(chart);
-    button(&mut f, "BTN-TILT", 20, &["MOVE 30 TO CHART-1::RotateY", "MOVE 200 TO CHART-1::RotateX"]);
+    button(
+        &mut f,
+        "BTN-TILT",
+        20,
+        &["MOVE 30 TO CHART-1::RotateY", "MOVE 200 TO CHART-1::RotateX", "MOVE 40 TO CHART-1::PerspectiveStrength"],
+    );
+    button(&mut f, "BTN-CLAMP", 92, &["MOVE 150 TO CHART-1::PerspectiveStrength"]);
     button(&mut f, "BTN-READ", 56, &["MOVE CHART-1::RotateX TO LBL-RESULT::Caption"]);
-    let mut result = Control::new("LBL-RESULT", ControlType::Label, 360, 100);
-    result.rect = cobolt_forms::model::Rect::new(360, 100, 200, 24);
+    let mut result = Control::new("LBL-RESULT", ControlType::Label, 360, 130);
+    result.rect = cobolt_forms::model::Rect::new(360, 130, 200, 24);
     result.set_prop("Caption", PropValue::String("-".into()));
     f.controls.push(result);
     f
@@ -115,7 +124,12 @@ fn steps(open: Option<&str>, tilt: bool) -> Value {
         s.push(json!({"open_form": form}));
     }
     // R2 — the neutral values.
-    s.extend([read("CHART-1", "RotateX"), read("CHART-1", "RotateY"), read("CHART-1", "PerspectiveDistance")]);
+    s.extend([
+        read("CHART-1", "RotateX"),
+        read("CHART-1", "RotateY"),
+        read("CHART-1", "PerspectiveDistance"),
+        read("CHART-1", "PerspectiveStrength"),
+    ]);
     if tilt {
         s.extend([
             click("BTN-TILT"),
@@ -123,23 +137,32 @@ fn steps(open: Option<&str>, tilt: bool) -> Value {
             // R12 — a write is read back; the one outside the range is clamped.
             read("CHART-1", "RotateY"),
             read("CHART-1", "RotateX"),
+            // Spec 097 — a strength of 40 arrives…
+            read("CHART-1", "PerspectiveStrength"),
             click("BTN-READ"),
             wait(),
             // …and COBOL reads the property as it reads any other.
             read("LBL-RESULT", "Caption"),
+            // …and one of 150 is brought back into the range.
+            click("BTN-CLAMP"),
+            wait(),
+            read("CHART-1", "PerspectiveStrength"),
         ]);
     }
     Value::Array(s)
 }
 
-const WANT: [&str; 6] = ["0", "0", "50", "30", "60", "60"];
-const READS: [&str; 6] = [
+const WANT: [&str; 9] = ["0", "0", "50", "100", "30", "60", "40", "60", "100"];
+const READS: [&str; 9] = [
     "CHART-1::RotateX at start",
     "CHART-1::RotateY at start",
     "CHART-1::PerspectiveDistance at start",
+    "CHART-1::PerspectiveStrength at start",
     "RotateY after MOVE 30",
     "RotateX after MOVE 200 (clamped)",
+    "PerspectiveStrength after MOVE 40",
     "COBOL reads CHART-1::RotateX into a label",
+    "PerspectiveStrength after MOVE 150 (clamped)",
 ];
 
 fn readings(stdout: &str) -> Vec<String> {

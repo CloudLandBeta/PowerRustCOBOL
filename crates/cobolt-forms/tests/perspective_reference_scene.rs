@@ -137,3 +137,54 @@ fn the_scene_picture_is_deterministic() {
     assert_eq!(a.pixels, b.pixels, "the same scene pictures the same bytes");
     println!("\n  the tilted scene pictures identically twice ({} px)", a.pixels.len());
 }
+
+// ── Spec 097: the three strengths side by side ───────────────────────────────
+
+/// Three charts, one tilt, three strengths: 100 (the perspective the distance gives), 50 and 0 (none).
+fn strengths_scene() -> Form {
+    let mut form = Form::new("PERSPECTIVE-STRENGTH", "Strength", 1020, 470);
+    form.background_color = BACKDROP.into();
+    for (i, strength) in [100i64, 50, 0].into_iter().enumerate() {
+        let mut chart = Control::new(format!("CHART-{i}"), ControlType::BarChart, 20 + i as i32 * 335, 110);
+        chart.rect = cobolt_forms::Rect::new(20 + i as i32 * 335, 110, 300, 240);
+        chart.set_prop("Title", PropValue::String(format!("Strength {strength}")));
+        chart.set_prop("__ChartData", PropValue::String("Q1\t120\t96\nQ2\t150\t128\nQ3\t135\t172\nQ4\t190\t204".into()));
+        chart.set_prop("SeriesLabels", PropValue::String("2025,2026".into()));
+        chart.set_prop("AnimateOnLoad", PropValue::Bool(false));
+        chart.set_prop("RotateX", PropValue::Int(8));
+        chart.set_prop("RotateY", PropValue::Int(-38));
+        chart.set_prop("PerspectiveDistance", PropValue::Int(65));
+        chart.set_prop("PerspectiveStrength", PropValue::Int(strength));
+        form.controls.push(chart);
+    }
+    form
+}
+
+#[test]
+fn the_three_strengths_are_pictured_side_by_side_and_the_far_side_grows_with_the_strength() {
+    let form = strengths_scene();
+    let img = render_form_image(&form, &SnapshotOptions::default());
+    save(&img, "perspective-strength.png");
+
+    println!("\n  ── spec 097: RotateY −38, RotateX 8, distance 65, three strengths ──");
+    println!("  strength   left edge   right edge   far/near   seen in the picture (column spans)");
+    let mut model = Vec::new();
+    let mut seen = Vec::new();
+    for (i, strength) in [100i64, 50, 0].into_iter().enumerate() {
+        let rect = egui::Rect::from_min_size(pos2(20.0 + i as f32 * 335.0, 110.0), egui::vec2(300.0, 240.0));
+        let quad = Perspective::new(8, -38, 65).with_strength(strength).quad(rect);
+        let [_, right, _, left] = edge_lengths(&quad);
+        // What the picture shows: the vertical extent of the chart's face near each side of its outline.
+        let (lx, rx) = (quad[0].x.max(quad[3].x) as usize + 6, quad[1].x.min(quad[2].x) as usize - 6);
+        let (lt, lb) = face_extent(&img, lx).expect("chart on the left");
+        let (rt, rb) = face_extent(&img, rx).expect("chart on the right");
+        let (sl, sr) = ((lb - lt) as f32, (rb - rt) as f32);
+        println!("  {strength:>8}   {left:>9.1}   {right:>10.1}   {:>8.3}   {sl:.0} / {sr:.0} = {:.3}", left / right, sl / sr);
+        model.push(left / right);
+        seen.push(sl / sr);
+    }
+    // The nearer the strength is to 0, the closer the two sides are to equal — in the model and in the picture.
+    assert!(model[0] < model[1] && model[1] < model[2], "far/near must approach 1 as the strength falls: {model:?}");
+    assert!(seen[0] < seen[1] && seen[1] < seen[2], "…and so must what is seen: {seen:?}");
+    assert!((model[2] - 1.0).abs() < 1e-3, "at strength 0 the two sides are equal");
+}
