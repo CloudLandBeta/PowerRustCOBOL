@@ -1019,6 +1019,132 @@ fn mysql_a_lost_connection_is_an_error() {
     });
 }
 
+/// A cursor PostgreSQL keeps is closed there when the program closes it, when a COMMIT ends a
+/// plain one, and when a ROLLBACK ends a `WITH HOLD` one that earlier units had carried on —
+/// `pg_cursors` lists the cursors of the connection the program itself uses, so it can say.
+#[test]
+#[ignore = "needs a PostgreSQL server: PRC_TEST_PG_URL"]
+fn pg_cursors_are_closed_on_the_server() {
+    let Some(url) = std::env::var("PRC_TEST_PG_URL").ok().filter(|u| !u.trim().is_empty()) else {
+        println!("SKIPPED: PRC_TEST_PG_URL is not set");
+        return;
+    };
+    let program = format!(
+        "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PGCUR.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-ID               PIC 9(4).
+       01  WS-N                PIC 9(4).
+       01  SQLSTATE            PIC X(5).
+           EXEC SQL DECLARE C-PLAIN CURSOR FOR SELECT ID FROM PRC_CUR ORDER BY ID END-EXEC.
+           EXEC SQL DECLARE C-HOLD CURSOR WITH HOLD FOR SELECT ID FROM PRC_CUR ORDER BY ID END-EXEC.
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           EXEC SQL CONNECT TO '{url}' END-EXEC
+           EXEC SQL DROP TABLE IF EXISTS PRC_CUR END-EXEC
+           EXEC SQL CREATE TABLE PRC_CUR (ID INTEGER) END-EXEC
+           EXEC SQL INSERT INTO PRC_CUR VALUES (1), (2), (3) END-EXEC
+           EXEC SQL COMMIT END-EXEC
+           PERFORM COUNT-CURSORS
+           DISPLAY \"start \" WS-N
+           EXEC SQL OPEN C-PLAIN END-EXEC
+           EXEC SQL FETCH C-PLAIN INTO :WS-ID END-EXEC
+           PERFORM COUNT-CURSORS
+           DISPLAY \"plain open \" WS-N
+           EXEC SQL CLOSE C-PLAIN END-EXEC
+           PERFORM COUNT-CURSORS
+           DISPLAY \"plain closed \" WS-N
+           EXEC SQL OPEN C-PLAIN END-EXEC
+           EXEC SQL COMMIT END-EXEC
+           PERFORM COUNT-CURSORS
+           DISPLAY \"plain after commit \" WS-N
+           EXEC SQL OPEN C-HOLD END-EXEC
+           EXEC SQL COMMIT END-EXEC
+           PERFORM COUNT-CURSORS
+           DISPLAY \"hold after commit \" WS-N
+           EXEC SQL FETCH C-HOLD INTO :WS-ID END-EXEC
+           DISPLAY \"hold fetch \" SQLSTATE \" \" WS-ID
+           EXEC SQL ROLLBACK END-EXEC
+           PERFORM COUNT-CURSORS
+           DISPLAY \"hold after rollback \" WS-N
+           EXEC SQL OPEN C-HOLD END-EXEC
+           EXEC SQL COMMIT END-EXEC
+           EXEC SQL CLOSE C-HOLD END-EXEC
+           PERFORM COUNT-CURSORS
+           DISPLAY \"hold closed \" WS-N
+           EXEC SQL DROP TABLE PRC_CUR END-EXEC
+           EXEC SQL COMMIT END-EXEC
+           STOP RUN.
+       COUNT-CURSORS.
+           EXEC SQL SELECT COUNT(*) INTO :WS-N FROM PG_CURSORS
+                     WHERE NAME LIKE 'prc_c%' END-EXEC.
+"
+    );
+    let out = run(&program, None);
+    println!("{}", out.join("\n"));
+    assert_eq!(
+        out,
+        [
+            "start 0000",
+            "plain open 0001",
+            "plain closed 0000",
+            "plain after commit 0000",
+            "hold after commit 0001",
+            "hold fetch 00000 0001",
+            "hold after rollback 0000",
+            "hold closed 0000"
+        ]
+    );
+    println!("PostgreSQL cursors: closed on the server by CLOSE, by the COMMIT that ends a plain one, by the ROLLBACK that ends a held one; a held one survives COMMIT and fetches after it");
+}
+
+/// What `DESCRIBE` says of a prepared statement, as the server tells it (R41, R44).
+#[test]
+#[ignore = "needs a PostgreSQL server: PRC_TEST_PG_URL"]
+fn pg_describe_reports_sizes_and_nullability() {
+    let Some(mut b) = server("PRC_TEST_PG_URL") else { return };
+    b.execute("DROP TABLE IF EXISTS prc_desc", &[]).unwrap();
+    b.execute("CREATE TABLE prc_desc (a VARCHAR(10) NOT NULL, b NUMERIC(9,2), c INTEGER NOT NULL, d TEXT)", &[]).unwrap();
+    let (params, cols) = b.describe("SELECT a, b, c, d, c + 1 AS e FROM prc_desc WHERE c > $1").unwrap();
+    let shown: Vec<(String, Option<String>, Option<bool>)> = cols.iter().map(|c| (c.name.clone(), c.decl_type.clone(), c.nullable)).collect();
+    println!("PostgreSQL DESCRIBE: {shown:?}; parameters {:?}", params.iter().map(|p| p.decl_type.clone()).collect::<Vec<_>>());
+    assert_eq!(
+        shown,
+        [
+            ("a".to_string(), Some("VARCHAR(10)".to_string()), Some(false)),
+            ("b".to_string(), Some("NUMERIC(9,2)".to_string()), Some(true)),
+            ("c".to_string(), Some("INTEGER".to_string()), Some(false)),
+            ("d".to_string(), Some("TEXT".to_string()), Some(true)),
+            ("e".to_string(), Some("INTEGER".to_string()), None), // an expression declares nothing about NULL
+        ]
+    );
+    assert_eq!(params.iter().map(|p| p.decl_type.clone()).collect::<Vec<_>>(), [Some("INTEGER".to_string())], "PostgreSQL infers the parameter's type");
+    b.execute("DROP TABLE prc_desc", &[]).unwrap();
+}
+
+#[test]
+#[ignore = "needs a MySQL server: PRC_TEST_MYSQL_URL"]
+fn mysql_describe_reports_sizes_and_nullability() {
+    let Some(mut b) = server("PRC_TEST_MYSQL_URL") else { return };
+    b.execute("DROP TABLE IF EXISTS prc_desc", &[]).unwrap();
+    b.execute("CREATE TABLE prc_desc (a VARCHAR(10) NOT NULL, b DECIMAL(9,2), c INT NOT NULL, d TEXT) CHARACTER SET utf8mb4", &[]).unwrap();
+    let (params, cols) = b.describe("SELECT a, b, c, d FROM prc_desc WHERE c > ?").unwrap();
+    let shown: Vec<(String, Option<String>, Option<bool>)> = cols.iter().map(|c| (c.name.clone(), c.decl_type.clone(), c.nullable)).collect();
+    println!("MySQL DESCRIBE: {shown:?}; parameters {:?}", params.iter().map(|p| p.decl_type.clone()).collect::<Vec<_>>());
+    assert_eq!(
+        shown,
+        [
+            ("a".to_string(), Some("VARCHAR(10)".to_string()), Some(false)),
+            ("b".to_string(), Some("DECIMAL(9,2)".to_string()), Some(true)),
+            ("c".to_string(), Some("INTEGER".to_string()), Some(false)),
+            ("d".to_string(), Some("TEXT".to_string()), Some(true)),
+        ]
+    );
+    assert_eq!(params.iter().map(|p| p.decl_type.clone()).collect::<Vec<_>>(), [None], "MySQL reports no parameter types: unknown, not guessed");
+    b.execute("DROP TABLE prc_desc", &[]).unwrap();
+}
+
 /// The harness's own pieces, which need no server.
 #[test]
 fn the_live_harness_finds_what_each_program_creates() {

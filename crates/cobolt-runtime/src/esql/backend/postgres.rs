@@ -443,7 +443,8 @@ impl PostgresBackend {
                 let (Some(rel), Some(num), Some(notnull)) = (r.get(0), r.get(1), r.get(2)) else { continue };
                 for (i, c) in cols.iter().enumerate() {
                     if c.table_oid().is_some_and(|o| o.to_string() == rel) && c.column_id().is_some_and(|n| n.to_string() == num) {
-                        known[i] = Some(notnull != "t");
+                        // `attnotnull::text` is `true` or `false`.
+                        known[i] = Some(notnull != "true");
                     }
                 }
             }

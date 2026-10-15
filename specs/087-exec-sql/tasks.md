@@ -424,7 +424,9 @@ pushed unless the operator asks.
     as the server sends them), `pg_parameters_round_trip` (a 30-digit
     decimal, hostile text, bytea, NULL in every type),
     `pg_a_failed_statement_keeps_the_unit_of_work`, `pg_a_stale_plan_is_replaced`,
-    `pg_a_lost_connection_is_an_error` (`57P01`). Re-run: `PRC_TEST_PG_URL=…
+    `pg_a_lost_connection_is_an_error` (`57P01`), `pg_cursors_are_closed_on_the_server`
+    (`pg_cursors` after each step: `CLOSE`, `COMMIT`, a held cursor, `ROLLBACK`),
+    `pg_describe_reports_sizes_and_nullability`. Re-run: `PRC_TEST_PG_URL=…
     cargo test -p cobolt-runtime --test test_esql_live -- --ignored pg`.
 
 - [x] **T28 — MySQL backend** (R13, R15, R18, R25–R30, R44)
@@ -459,7 +461,7 @@ pushed unless the operator asks.
     `mysql_decodes_every_type_it_reads` (18 columns), `mysql_parameters_round_trip`
     (and `CLIENT_FOUND_ROWS`), `mysql_a_failed_statement_keeps_the_unit_of_work`,
     `mysql_ddl_commits_and_the_next_statement_opens_a_new_unit`,
-    `mysql_a_lost_connection_is_an_error`. A MySQL unit that only reads sees a
+    `mysql_a_lost_connection_is_an_error`, `mysql_describe_reports_sizes_and_nullability`. A MySQL unit that only reads sees a
     snapshot of its first statement (REPEATABLE READ) until it ends — the
     Guide says so. Re-run: `PRC_TEST_MYSQL_URL=… cargo test -p cobolt-runtime
     --test test_esql_live -- --ignored mysql`.

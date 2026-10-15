@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.157] — 2026-10-14
+
+*(Written on `features`, after 1.91.156 — spec 087, M7: three more live checks, and the bug the first of them found.)*
+
+### Fixed
+- **A PostgreSQL descriptor said every column accepts NULL.** The catalog read behind `DESCRIBE` compared `attnotnull` with `t`, and the text it asked for is `true`, so a `NOT NULL` column was reported as nullable (`SQLDA-NULLABLE` 1 instead of 0). Found by `pg_describe_reports_sizes_and_nullability` the moment it ran on a live server; the read also now runs under the statement guard, so a catalog that cannot be read cannot end the unit of work.
+
+### Added
+- **Three more gated live tests** (`test_esql_live.rs`): `pg_cursors_are_closed_on_the_server` asks `pg_cursors` — which lists the connection's own cursors — after each step of one program: a cursor open, `CLOSE`, the `COMMIT` that ends a plain one, a `WITH HOLD` one surviving `COMMIT` and fetching after it, and the `ROLLBACK` that closes it (0 left over every time); `pg_describe_reports_sizes_and_nullability` and `mysql_describe_reports_sizes_and_nullability` (`VARCHAR(10)`, `NUMERIC(9,2)`/`DECIMAL(9,2)`, nullability of table columns and of an expression, PostgreSQL's inferred parameter type, MySQL's unknown one).
+  - *Measured, not recalled:* with the servers up, `test_esql_live -- --ignored` runs **18**, all passing (two of them, the operator's listings on MySQL, report `SKIPPED` for want of `PRC_LEGACY_CBL_DIR`); the SQLite suites of spec 087 and the 21 `esql` unit tests pass.
+
 ## [PowerRustCOBOL 1.91.156] — 2026-10-14
 
 *(Written on `features`, after 1.91.155 — spec 087, M7: T27 and T28.)*
