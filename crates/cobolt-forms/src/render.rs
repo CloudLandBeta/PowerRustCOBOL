@@ -10632,10 +10632,15 @@ fn render_interactive(
             // as shown, wide enough for the largest number. It takes its width
             // from the columns rather than covering the first one, so every
             // column position below is measured from `cx` across `cw`.
+            //
+            // Wide enough for the rows the grid HAS, not the rows it shows: a filter
+            // that takes 120 rows to 11 used to make the gutter a digit narrower, and
+            // every column slid left under the person typing (operator, 2026-10-15).
+            // The numbers painted are still 1 … shown; the room for them does not move.
             let show_row_numbers = prop_bool(ctrl, "ShowRowNumbers", false);
             let number_font_size = crate::layout::fonts::resolve_font_size(ctrl, 12.0, 6.0, 72.0);
             let gutter = if show_row_numbers {
-                let digits = displayed_row_indices.len().max(1).to_string().len().max(2) as f32;
+                let digits = rows.len().max(displayed_row_indices.len()).max(1).to_string().len().max(2) as f32;
                 (digits * number_font_size * 0.62 + 12.0).min(screen.width() * 0.5)
             } else {
                 0.0
@@ -26118,6 +26123,29 @@ mod tests {
         assert!(bob.min.x > bob_plain.min.x + 10.0, "the gutter pushes the columns right");
         assert!(!plain.texts.iter().any(|p| p.text == "3"), "off: no numbers");
         println!("\n  DataGrid ShowRowNumbers -- 1, 2, 3 painted left of the cells; the first column moves right to make room\n");
+    }
+
+    /// **A filter must not move the columns** (operator, 2026-10-15: "when filtering the
+    /// columns change width, it shouldn't"). The row-number gutter was as wide as the digits of
+    /// the number of rows SHOWN, so a filter that took a grid from 120 rows to 11 made it a digit
+    /// narrower — 10.5 px at the default font — and every column slid left under the person
+    /// typing. The gutter now follows the rows the grid HAS, which a filter does not change.
+    #[test]
+    fn a_datagrid_filter_leaves_its_columns_where_they_are() {
+        let rows: String = (1..=120).map(|i| format!("n{i}\t{i}")).collect::<Vec<_>>().join("\n");
+        let measure = |filter: &str| -> (f32, f32) {
+            let mut extra = vec![("Rows", rows.as_str()), ("ShowRowNumbers", "true"), ("ShowColumnFilters", "true")];
+            if !filter.is_empty() {
+                extra.push(("ColumnFilters", filter));
+            }
+            let painted = drive_painted(&[audit_grid(&extra)], vec![(0.0, vec![]), (0.05, vec![])]);
+            let at = |t: &str| painted.texts.iter().find(|p| p.text == t).map(|p| p.ink.min.x).unwrap_or_else(|| panic!("{t} is painted"));
+            (at("Name"), at("Age"))
+        };
+        let all = measure("");
+        let some = measure("Name=n11"); // n11, n110 … n119: eleven rows, two digits
+        println!("\n  DataGrid filter -- column titles at x = {all:?} with 120 rows, {some:?} with 11 of them shown\n");
+        assert_eq!(all, some, "the columns must stay put when a filter hides rows");
     }
 
     /// Several series, and `Stacked`: side by side each bar stands on the

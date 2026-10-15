@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.158] — 2026-10-15
+
+*(Written on `fixes`, after 1.91.157.)*
+
+### Fix: filtering a DataGrid no longer moves its columns
+
+Operator, 2026-10-15, with two screenshots of PowerDemo3's Datagrid example: typing `k` in the Actor Caption filter slid every column about 19 px to the left. The columns kept their widths — Actor Thumb is 642 px wide in both pictures — but the row-number gutter in front of them did not: it was as wide as the digits of the number of rows SHOWN, so a filter that took the grid from a three-digit row count to a two-digit one made the gutter a digit narrower (`digits × font size × 0.62`, 10.5 px per digit at the default 17 pt font) and everything after it moved.
+
+- *Root cause, measured:* the headless run of that example had already shown the filter widget moving 21.1 px after the first character and 10.5 px after each later one, with the same widget id and no change in any column width; the arithmetic is `displayed_row_indices.len()` in the gutter of the DataGrid arm of `render.rs`.
+- *Fix:* the gutter is wide enough for the rows the grid HAS (`rows.len()`), which a filter does not change. The numbers painted are still `1 … shown`; only the room reserved for them stays where it was. The Designer's own copy of the arithmetic (`grid_edit.rs`, `header_cells`, which hit-tests the header the renderer drew) follows the same rule, and the Developer's Guide says so under `ShowRowNumbers`.
+- *Test:* `a_datagrid_filter_leaves_its_columns_where_they_are` — 120 rows, `ColumnFilters = "Name=n11"` leaves 11: the column titles were at x = 103.26 / 227.46 with every row and 94.58 / 218.78 with the filter (8.68 px = one digit at the 14 pt of the fixture); now the same positions in both. `cobolt-forms --features render` whole suite (88 result lines, its golden files included) **1,604 passed, 0 failed, 2 ignored**; `cobolt-form-host` **197 passed, 0 failed**; `cobolt-ide --bin` grid tests **63 passed**.
+- *Not checked:* the window itself (the operator's eye); a grid whose row count crosses a power of ten because COBOL adds or removes rows still changes its gutter by a digit then — that is the data changing, not the filter. The intermittent loss of focus in the same filter row is a different report and stays open (the instrumented `rcrun` is waiting for its next occurrence).
+
 ## [PowerRustCOBOL 1.91.157] — 2026-10-14
 
 *(Written on `features`, after 1.91.156 — spec 087, M7: three more live checks, and the bug the first of them found.)*

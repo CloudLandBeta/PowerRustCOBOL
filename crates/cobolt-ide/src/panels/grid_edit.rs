@@ -621,12 +621,13 @@ pub(crate) fn header_cells(grid: &Control, screen: Rect, scroll_x: f32) -> Vec<H
         0.0
     };
 
-    // The row-number gutter takes its width from how many rows are shown.
+    // The row-number gutter takes its width from how many rows the grid HAS — not from how many a
+    // filter leaves showing, or the columns would slide when someone types (the renderer's rule).
     let gutter = if flag(grid, "ShowRowNumbers", false) {
         let rows = rows_of(grid);
         let source_names: Vec<String> = cols.iter().map(|(n, _)| n.clone()).collect();
         let shown_rows = advanced.filtered_row_indices_for_sources(&rows, &source_names).len();
-        let digits = shown_rows.max(1).to_string().len().max(2) as f32;
+        let digits = rows.len().max(shown_rows).max(1).to_string().len().max(2) as f32;
         (digits * font_size * 0.62 + 12.0).min(screen.width() * 0.5)
     } else {
         0.0

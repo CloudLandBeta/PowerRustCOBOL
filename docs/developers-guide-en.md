@@ -3721,8 +3721,10 @@ background/foreground).
   `onColumnClick` fires either way. (The `Sort` method, by contrast, reorders
   `Rows` itself.)
 - **ShowRowNumbers**: a gutter left of the columns numbers the rows as shown,
-  from 1, in the header's colours. It takes its width from the columns and stays
-  put when the grid scrolls sideways.
+  from 1, in the header's colours. It takes its width from the columns, is wide
+  enough for the number of rows the grid *has* — so typing in a column filter,
+  which shows fewer rows, never moves the columns — and stays put when the grid
+  scrolls sideways.
 - **SelectionMode**: what a click highlights — the whole row (`Row`, the
   default), the cell alone (`Cell`) or the whole column (`Column`). Ctrl+C copies
   what is highlighted: the cell, the row (cells joined by `CSVDelimiter`), or the
