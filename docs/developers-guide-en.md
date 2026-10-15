@@ -15358,7 +15358,9 @@ today does not have, so they stop with "manifest not found": name the file.
 > **Note.** Reach for `rcrun build --full` when a build behaves oddly after a
 > PowerRustCOBOL upgrade. The generated sources are rewritten on every build,
 > but cargo's own artefacts survive, so an incremental build can link objects
-> produced by an older version.
+> produced by an older version. A full build compiles PowerRustCOBOL's own parts
+> and your program again; the libraries from other vendors stay in the shared
+> cache (see [Where your builds are kept](#where-your-builds-are-kept-settings--build-folder)).
 
 **Environment variables** — the same settings, handy in CI:
 
@@ -15553,10 +15555,11 @@ project has nothing to build, so its Debug still runs on the IDE's runtime.
 
 A build is a real compile, and a compile needs somewhere to work. Besides the
 executable that lands in `bin/` (and the hand-over folder), each program gets a
-**working folder** named `cobolt-build-<name>` — the generated files and
-everything already compiled for it. It is kept between builds, which is why the
-second Build of an unchanged program is quick. It is not part of your project and
-you never hand it over.
+**working folder** named `cobolt-build-<name>` — the files generated for it. It is
+kept between builds. What has been *compiled* is kept apart, in one **shared
+cache** for all your programs (described below), which is why the second Build of
+an unchanged program is quick and why a new program does not start from nothing.
+Neither is part of your project and you never hand them over.
 
 Until you say otherwise it lives in the per-user cache folder of the system:
 
@@ -15570,6 +15573,23 @@ It is a cache folder and not the system's temporary folder on purpose: the
 system prunes its temporary folder, including files a compile still counts on,
 and the next Build then fails for a reason that has nothing to do with your
 program.
+
+**One cache for all your programs.** Inside the build folder, beside the working
+folders, there is a folder named `shared-target`. It holds everything that has
+been compiled: PowerRustCOBOL's own parts, and the libraries from other vendors
+that every application needs. A part is compiled once and used by every program
+that needs it. So the first Build on a machine is the long one; the first Build
+of your second program compiles little more than the program itself; and a new
+PowerRustCOBOL recompiles only the parts it changed. If you delete
+`shared-target` nothing is lost — the next Build compiles everything once more.
+
+Two Builds started at the same moment, from two windows or two terminals, take
+turns on the shared cache. The one that waits says so in the Output panel
+(*Another build is using the compiled-crate cache — waiting for it to finish…*)
+and goes on when the other is done. If the shared cache cannot be used at all —
+the folder cannot be created, say — the Build says why and compiles in the
+program's own working folder, as older versions always did; it is slower, never
+wrong.
 
 To keep builds somewhere else — a larger drive, a folder your backup tool skips —
 open **Settings ▸ Build Folder…**. The window shows the folder in force and where
@@ -15589,14 +15609,17 @@ POWERRUSTCOBOL_BUILD_DIR=/data/builds rcrun build myapp.project.toml
 ```
 
 > **Note.** The chosen folder holds the working folders of *every* program you
-> build, one `cobolt-build-<name>` each, directly inside it. A program that was
-> never built there starts from nothing, so the first Build after a change of
-> folder compiles everything again, as a full build does (see the next section).
+> build, one `cobolt-build-<name>` each, and the shared cache beside them. A new
+> folder has neither, so the first Build after a change of folder compiles
+> everything again, as your very first Build did.
 
 > ⚠️ **Caveats.**
 > - The folder you leave is **not** moved or deleted. Its contents are only
->   cache, so delete it yourself when you no longer need it; a single program's
->   working folder can take a gigabyte or more.
+>   cache, so delete it yourself when you no longer need it; the shared cache can
+>   take a few gigabytes.
+> - A program built by an older PowerRustCOBOL still has its own compiled files
+>   inside its working folder. The first Build that uses the shared cache removes
+>   them, and the Output panel says how much space that freed.
 > - The IDE refuses a folder it cannot create or write to, says why, and keeps the
 >   previous setting. A folder on a local drive is the safe choice: a compile
 >   writes a great many small files, and a slow network share makes every Build
@@ -15613,19 +15636,30 @@ POWERRUSTCOBOL_BUILD_DIR=/data/builds rcrun build myapp.project.toml
 A project records the PowerRustCOBOL version that last **fully** built it. When
 you open a project that was last fully built by an **older** PowerRustCOBOL — or
 that has never been fully built at all — the **Build** button performs a **full**
-build: every cached compilation artefact is discarded first, so nothing produced
-by the older version can survive into the new executable. It takes noticeably
-longer than an ordinary build, and the Output panel says why it is doing so.
+build: the program's working folder is discarded first, and PowerRustCOBOL's own
+parts and your program are compiled again from source, so nothing produced by the
+older version can survive into the new executable. The libraries from other
+vendors are not compiled again — they stay in the shared cache, because nothing
+about PowerRustCOBOL can have changed them. It takes longer than an ordinary
+build, and the Output panel says why it is doing so.
 
 Once that build succeeds the version is recorded, and later Build clicks are
 ordinary incremental builds again — the long build happens **once per upgrade**,
 not once per click. Pressing **Run** on a project that still needs one offers you
 the same full build before it starts anything.
 
+A Build can also turn itself into a full one. Before every Build, PowerRustCOBOL
+compares each of its own parts, as installed, with the copy last compiled in the
+shared cache. If one differs while its files do not look newer than the cache's
+record, the Build becomes a full one and the Output panel names the part. That
+happens when PowerRustCOBOL was put back from an older copy: its files carry older
+dates, which would fool the compiler into reusing code compiled from a different
+source. You do nothing; it happens once per such change.
+
 From the command line:
 
 ```text
-rcrun build --full  [<name>.project.toml]   # discard cached artefacts, then build
+rcrun build --full  [<name>.project.toml]   # recompile our parts and the program from source, then build
 rcrun build --clean [<name>.project.toml]   # same thing, spelled the other way
 ```
 

@@ -543,7 +543,7 @@ fn cmd_build(args: &[String]) {
             a if !a.starts_with('-') => target = Some(std::path::PathBuf::from(a)),
             other => {
                 eprintln!("rcrun build: unknown flag '{other}'");
-                eprintln!("  --full (or --clean)  discard cached artefacts and rebuild everything");
+                eprintln!("  --full (or --clean)  recompile the platform parts and the program from source (third-party crates stay cached)");
                 eprintln!("  --debug              build the unoptimised binary the debugger attaches to");
                 eprintln!("  --quiet (or -q)      only report the outcome");
                 process::exit(2);

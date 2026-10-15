@@ -54,6 +54,7 @@ use flate2::Compression;
 use serde::Deserialize;
 use thiserror::Error;
 
+mod build_cache;
 pub mod exec_rust;
 pub mod runtime_features;
 pub mod external_crates;
@@ -1636,8 +1637,8 @@ pub struct BuildOptions {
     /// on that operating system. The option exists so that request can be
     /// *refused clearly* rather than silently producing a host binary.
     pub target: Option<String>,
-    /// Discard the incremental build directory first, so everything is
-    /// recompiled from the generated sources.
+    /// Discard the program's staging directory first, and compile the platform
+    /// crates and the program again from their sources.
     ///
     /// The scaffold in the temp build directory (`Cargo.toml`, `main.rs`,
     /// `exec_rust_blocks.rs`) is regenerated every build, but `cargo`'s own
@@ -1647,6 +1648,12 @@ pub struct BuildOptions {
     /// objects with new generated code. A full build is the answer to "it
     /// behaves oddly since I updated", and it is what stamps
     /// `built_with_version` into the project (spec: version-stamped projects).
+    ///
+    /// Third-party crates are not recompiled: they live in the cache every
+    /// program shares (spec 101), nothing about PowerRustCOBOL can have changed
+    /// them, and recompiling ~500 of them is what made this slow. A build also
+    /// becomes a full one by itself when a platform crate in that cache is stale
+    /// (see `BuildResult::forced_full`).
     pub full: bool,
     /// The folder builds are staged in (`<build_dir>/cobolt-build-<name>`), overriding the
     /// process-wide setting, the environment variable [`BUILD_DIR_ENV`] and the default. `None` —
@@ -1714,6 +1721,13 @@ pub struct BuildResult {
     /// folder, not the OS temp directory (see `resolve_build_root`), and is
     /// reported here so nothing outside the compiler has to know that rule.
     pub build_dir: PathBuf,
+    /// Where cargo kept the compiled crates of this build: the cache every
+    /// program shares (`<build folder>/shared-target`), or — when that could not
+    /// be used — `<build_dir>/target`, as before (spec 101).
+    pub target_dir: PathBuf,
+    /// The platform crates that were stale in the cache and so made this build a
+    /// full one (spec 101 R15). Empty in the ordinary case.
+    pub forced_full: Vec<String>,
 }
 
 /// Compile a Cobolt project into a single native binary.
@@ -2457,6 +2471,38 @@ fn build_core(
             BuildRootSource::Default => "the default for this system",
         }
     ));
+    // ── 7a. The compiled-crate cache every build shares (spec 101) ───────────
+    // One `shared-target` folder holds what cargo compiled for every program,
+    // so a crate compiled for one is reused by the next. What cargo cannot be
+    // trusted with is a PLATFORM crate whose source changed while its files
+    // look old (an SDK put back from an older copy): `check_platform` finds
+    // those, and one of them makes this a full build (9a). A cache that cannot
+    // be used never fails the build — it builds in its own folder, as before.
+    let mut shared: Option<PathBuf> = None;
+    let mut platform_check = build_cache::PlatformCheck::default();
+    match build_cache::open(&build_root).and_then(|dir| {
+        build_cache::check_platform(&workspace_root, &dir)
+            .map(|check| (dir, check))
+            .map_err(|e| format!("cannot judge the platform crates: {e}"))
+    }) {
+        Ok((dir, check)) => {
+            log(&format!("♻️  Compiled-crate cache: {}", dir.display()));
+            shared = Some(dir);
+            platform_check = check;
+        }
+        Err(why) => log(&format!(
+            "⚠️  The compiled-crate cache is not used — building in this program's own folder: {why}"
+        )),
+    }
+    if let Some(cache) = &shared {
+        // A crate with nothing to clean is recorded now; cargo does the rest.
+        for (name, hash) in &platform_check.record {
+            if let Err(e) = build_cache::write_marker(cache, name, hash) {
+                log(&format!("⚠️  Could not record {name} in the compiled-crate cache: {e}"));
+            }
+        }
+    }
+
     // A full build throws away everything cargo cached for this project, so
     // nothing compiled by an older PowerRustCOBOL can survive into the new
     // binary. Slower by design — this is the "make it clean" path.
@@ -2679,6 +2725,76 @@ fn build_core(
     );
     write_if_changed(&build_dir.join("Cargo.toml"), cargo_toml.as_bytes())?;
 
+    // ── 9a. Same versions in every program, and the stale-platform rule ──────
+    // A program with no lock of its own starts from the SDK's, so two programs
+    // resolve the same version of every third-party crate they share and the
+    // shared cache applies between them (spec 101 R4). It is a preference, not
+    // a requirement: if this machine cannot supply a pinned version, the seed is
+    // dropped and the program resolves as it always has.
+    let mut seeded = false;
+    if shared.is_some() && build_cache::seed_lock(&workspace_root, &build_dir) {
+        seeded = true;
+        log("🔒 Starting this program's Cargo.lock from the SDK's, so every program uses the same crate versions");
+    }
+    // Spec 101 R15 — a platform crate that is stale in the cache, or an
+    // explicit full build, cleans the platform crates THIS program uses out of
+    // the cache. Third-party crates stay: nothing about PowerRustCOBOL can
+    // have changed them.
+    let mut forced_full: Vec<String> = Vec::new();
+    if let Some(cache) = shared.clone() {
+        if opts.full || !platform_check.stale.is_empty() {
+            let mut graph = build_cache::sdk_crates_in_graph(&build_dir, &cache);
+            if graph.is_err() && seeded {
+                log("🔓 The SDK's Cargo.lock cannot be used on this machine — resolving this program's crate versions as before");
+                let _ = std::fs::remove_file(build_dir.join("Cargo.lock"));
+                seeded = false;
+                graph = build_cache::sdk_crates_in_graph(&build_dir, &cache);
+            }
+            let outcome = graph.and_then(|graph| {
+                let stale_here: Vec<&str> = platform_check
+                    .stale
+                    .iter()
+                    .copied()
+                    .filter(|c| graph.contains(c))
+                    .collect();
+                if !opts.full && stale_here.is_empty() {
+                    // Stale elsewhere (a crate this program does not use): not
+                    // this build's business; a program that uses it will find it.
+                    return Ok(());
+                }
+                if !stale_here.is_empty() {
+                    log(&format!(
+                        "🧹 Stale platform crate(s) in the compiled-crate cache: {}. Their sources differ \
+                         from what was compiled, but their files do not look newer, so cargo would \
+                         not notice — making this a full build",
+                        stale_here.join(", ")
+                    ));
+                    forced_full = stale_here.iter().map(|c| c.to_string()).collect();
+                }
+                build_cache::clean_platform(&build_dir, &cache, &graph)?;
+                for (name, hash) in &platform_check.hashes {
+                    if graph.contains(name) {
+                        build_cache::write_marker(&cache, name, hash)
+                            .map_err(|e| format!("cannot record {name}: {e}"))?;
+                    }
+                }
+                log(&format!(
+                    "   {} platform crate(s) will be compiled again; third-party crates stay cached",
+                    graph.len()
+                ));
+                Ok(())
+            });
+            if let Err(why) = outcome {
+                log(&format!(
+                    "⚠️  The compiled-crate cache is not used — building in this program's own folder: {why}"
+                ));
+                shared = None;
+                forced_full.clear();
+            }
+        }
+    }
+    let target_dir = shared.clone().unwrap_or_else(|| build_dir.join("target"));
+
     // ── 9b. Generate src/main.rs ──────────────────────────────────────────────
     let form_ids: Vec<&str> = forms.iter().map(|(id, _)| id.as_str()).collect();
     // 038/042 — the project's window effects, baked into the generated source
@@ -2769,7 +2885,7 @@ fn build_core(
                 // The binary is installed from `build_dir/target` (step 11);
                 // a `CARGO_TARGET_DIR` inherited from the developer's shell
                 // would send cargo's output elsewhere and fail the install.
-                .env("CARGO_TARGET_DIR", build_dir.join("target"))
+                .env("CARGO_TARGET_DIR", &target_dir)
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()
@@ -2788,9 +2904,17 @@ fn build_core(
 
             let mut captured = String::new();
             let mut compiled = 0usize;
+            let mut said_waiting = false;
             if let Some(err) = child.stderr.take() {
                 for line in BufReader::new(err).lines() {
                     let line = line.unwrap_or_default();
+                    // Two builds on one cache take turns (cargo locks it); say
+                    // so, or the second looks hung for as long as the first runs.
+                    if !said_waiting && build_cache::is_lock_wait_line(&line) {
+                        said_waiting = true;
+                        log("⏳ Another build is using the compiled-crate cache — waiting for it to finish…");
+                        report(0.60, "Waiting for another build…");
+                    }
                     if let Some(rest) = line.trim_start().strip_prefix("Compiling ") {
                         compiled += 1;
                         let name = rest.split_whitespace().next().unwrap_or("");
@@ -2808,7 +2932,18 @@ fn build_core(
                 .and_then(|h| h.join().ok())
                 .unwrap_or_default();
 
-            // A cold cache fails RESOLUTION (before anything compiles) and
+            // The SDK's lock is a preference. When this machine cannot supply a
+            // version it pins, resolution fails with nothing compiled — and
+            // without the word `--offline`, so the retry below would not see it.
+            // Drop the seed and resolve as this program always has.
+            if seeded && !status.success() && compiled == 0 {
+                log("🔓 The SDK's Cargo.lock cannot be used on this machine — resolving this program's crate versions as before");
+                let _ = std::fs::remove_file(build_dir.join("Cargo.lock"));
+                seeded = false;
+                continue;
+            }
+
+            // A cold cache fails RESOLUTION (before anything compiled) and
             // cargo's error names the flag. Fetch online and rebuild; a
             // failure with compiled crates is the developer's, not the
             // cache's, and must surface as-is rather than build twice.
@@ -2875,7 +3010,7 @@ fn build_core(
     };
 
     let profile_dir = if opts.debug { "debug" } else { "release" };
-    let src_bin = build_dir.join("target").join(profile_dir).join(&exe_name);
+    let src_bin = target_dir.join(profile_dir).join(&exe_name);
     let dst_bin = bin_dir.join(installed_binary_name(&bin_name, opts.debug));
     // Rename-into-place, never copy-over: overwriting the previous binary in
     // place got the very next launch SIGKILLed by macOS (see
@@ -2889,6 +3024,23 @@ fn build_core(
     })?;
 
     log(&format!("✅ Binary → {}", dst_bin.display()));
+
+    // Spec 101 R11 — what this program's own `target/` held is in the shared
+    // cache now (and was a gigabyte or more). It is a cache this build created
+    // and nothing is using it, so it goes, aside first as `discard_dir` does.
+    if shared.is_some() {
+        let old_target = build_dir.join("target");
+        if old_target.is_dir() {
+            let bytes = dir_size(&old_target);
+            match discard_dir(&old_target) {
+                Ok(()) => log(&format!(
+                    "🧹 Removed this program's own earlier compiled crates ({}) — the shared cache holds them now",
+                    build_cache::human_size(bytes)
+                )),
+                Err(e) => log(&format!("⚠️  Could not remove {}: {e}", old_target.display())),
+            }
+        }
+    }
 
     // ── 11b. Copy bundled assets next to the binary ───────────────────────────
     // Images, audio, fonts and other data files tracked under the project's
@@ -3065,6 +3217,8 @@ fn build_core(
         ast_bytes: ast_compressed_len,
         crates_compiled: compiled,
         build_dir,
+        target_dir,
+        forced_full,
     })
 }
 
@@ -11392,7 +11546,7 @@ function_prefix = "sales-"
         let optimised = dir.join("bin").join(installed_binary_name("profileprobe", false));
         let delivered = dir.join("dist").join(installed_binary_name("profileprobe", false));
         assert_eq!(release.binary_path, optimised);
-        assert!(release.build_dir.join("target/release").join(installed_binary_name("profileprobe", false)).is_file(),
+        assert!(release.target_dir.join("release").join(installed_binary_name("profileprobe", false)).is_file(),
             "the optimised build must come from cargo's release profile");
         assert!(delivered.is_file(), "the optimised build is delivered to the destination folder");
         assert!(run(&optimised).contains("probe"), "the optimised binary must run");
@@ -11402,7 +11556,7 @@ function_prefix = "sales-"
         let debug = build(true);
         let debug_bin = dir.join("bin").join(installed_binary_name("profileprobe", true));
         assert_eq!(debug.binary_path, debug_bin);
-        assert!(debug.build_dir.join("target/debug").join(installed_binary_name("profileprobe", false)).is_file(),
+        assert!(debug.target_dir.join("debug").join(installed_binary_name("profileprobe", false)).is_file(),
             "the debug build must come from cargo's debug profile");
         assert!(run(&debug_bin).contains("probe"), "the debug binary must run");
         assert_eq!(stamp(&optimised), optimised_before, "a debug build must not touch bin/<name>");
@@ -12739,6 +12893,393 @@ generated = ["generated/inner-form1.cbl"]
             }
         }
     }
+    // ── Spec 101 — the compiled-crate cache every build shares ──────────────
+    //
+    // Real builds, each in a build folder and an SDK copy of its own, so a warm
+    // default cache or an edit to the checkout cannot change a count. Every
+    // phase prints how many crates cargo compiled (GOLDEN RULE #7).
+
+    fn repo_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).map(Path::to_path_buf).unwrap()
+    }
+
+    fn plain_program(name: &str, word: &str) -> String {
+        format!(
+            "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. {}.\n       PROCEDURE DIVISION.\n           DISPLAY \"{word}\".\n           STOP RUN.\n",
+            name.to_uppercase()
+        )
+    }
+
+    /// What one build did: its result, the crates cargo compiled (by name, in
+    /// order) and every line it logged.
+    struct Built {
+        result: BuildResult,
+        compiled: Vec<String>,
+        log: Vec<String>,
+    }
+
+    fn cached_build(dir: &Path, name: &str, word: &str, root: &Path, sdk: &Path, full: bool) -> Built {
+        let src = dir.join(format!("{name}.cbl"));
+        fs::write(&src, plain_program(name, word)).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let opts = BuildOptions {
+            verbose: false,
+            workspace_root: Some(sdk.to_path_buf()),
+            build_dir: Some(root.to_path_buf()),
+            debug: true,
+            full,
+            progress: Some(tx),
+            ..Default::default()
+        };
+        let result = build_single_file(&src, &opts).unwrap_or_else(|e| panic!("the build of {name} failed: {e}"));
+        drop(opts);
+        let log: Vec<String> = rx.try_iter().map(|p| p.message).collect();
+        let compiled = log
+            .iter()
+            .filter_map(|m| m.strip_prefix("Compiling "))
+            .map(|n| n.trim_end_matches('…').trim().to_owned())
+            // "Compiling form programs…" is one of the build's own phases, not a crate.
+            .filter(|n| !n.contains(' '))
+            .collect();
+        Built { result, compiled, log }
+    }
+
+    fn run_binary(path: &Path) -> String {
+        String::from_utf8_lossy(&std::process::Command::new(path).output().unwrap().stdout).into_owned()
+    }
+
+    fn is_platform_or(name: &str, program: &str) -> bool {
+        name == program || SDK_CRATES.contains(&name)
+    }
+
+    /// `(name, version)` of every registry package in a `Cargo.lock`.
+    fn registry_packages(lock: &str) -> std::collections::BTreeSet<(String, String)> {
+        let mut out = std::collections::BTreeSet::new();
+        for block in lock.split("[[package]]") {
+            let field = |key: &str| {
+                block
+                    .lines()
+                    .find_map(|l| l.strip_prefix(key))
+                    .map(|v| v.trim().trim_matches('"').to_owned())
+            };
+            if let (Some(name), Some(version), Some(_)) = (field("name = "), field("version = "), field("source = ")) {
+                out.insert((name, version));
+            }
+        }
+        out
+    }
+
+    /// Edit one platform crate in an SDK copy. `age` of `None` leaves the new
+    /// file time alone (cargo sees a newer file); `Some(secs)` sets it that far
+    /// in the past — an SDK put back from an older copy.
+    fn edit_platform_crate(sdk: &Path, name: &str, note: &str, age: Option<u64>) {
+        let lib = sdk.join("crates").join(name).join("src").join("lib.rs");
+        let mut text = fs::read_to_string(&lib).unwrap();
+        text.push_str(&format!("\n// spec 101 test edit: {note}\n"));
+        fs::write(&lib, text).unwrap();
+        if let Some(secs) = age {
+            fs::File::options()
+                .write(true)
+                .open(&lib)
+                .unwrap()
+                .set_modified(SystemTime::now() - std::time::Duration::from_secs(secs))
+                .unwrap();
+        }
+    }
+
+    /// **AC1, AC2, AC4, AC8, R11 — two programs share what was compiled.**
+    ///
+    /// The second program compiles itself and nothing else; the first,
+    /// rebuilt, compiles nothing; the first's installed binary is not touched
+    /// by the second's build; a program's own `target/` from the older layout is
+    /// removed after its first good shared build; and a new program's lock holds
+    /// only versions the SDK's lock holds.
+    #[test]
+    fn programs_share_one_cache_and_an_old_private_target_goes() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let dir = temp_dir("cache-share");
+        let (root, sdk) = (dir.join("builds"), dir.join("sdk"));
+        stage_sdk(&repo_root(), &sdk).expect("stage an SDK copy");
+
+        let t = std::time::Instant::now();
+        let one = cached_build(&dir, "shareone", "alpha", &root, &sdk, false);
+        let cold_secs = t.elapsed().as_secs_f64();
+        assert_eq!(one.result.target_dir, root.join("shared-target"), "the build did not use the shared cache");
+        assert!(!one.result.build_dir.join("target").exists(), "the program kept a private target/");
+        let one_bin = dir.join("bin").join(installed_binary_name("shareone", true));
+        let one_bytes = fs::read(&one_bin).unwrap();
+
+        // AC4: every registry version in this program's lock is the SDK's.
+        let sdk_lock = registry_packages(&fs::read_to_string(sdk.join("Cargo.lock")).unwrap());
+        let one_lock = registry_packages(&fs::read_to_string(one.result.build_dir.join("Cargo.lock")).unwrap());
+        let off_sdk: Vec<_> = one_lock.difference(&sdk_lock).collect();
+        assert!(off_sdk.is_empty(), "versions the SDK's lock does not hold: {off_sdk:?}");
+
+        // A program from the older layout: its own target/, with something in it.
+        let old = root.join("cobolt-build-sharetwo").join("target").join("debug");
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("left-over.bin"), vec![0u8; 1 << 20]).unwrap();
+
+        let t = std::time::Instant::now();
+        let two = cached_build(&dir, "sharetwo", "beta", &root, &sdk, false);
+        let warm_secs = t.elapsed().as_secs_f64();
+        assert_eq!(two.compiled, vec!["sharetwo".to_owned()], "the second program compiled more than itself");
+        assert!(!root.join("cobolt-build-sharetwo").join("target").exists(), "the old private target/ was not removed");
+        assert!(
+            two.log.iter().any(|l| l.contains("Removed this program's own earlier compiled crates")),
+            "the log did not say what was freed: {:?}",
+            two.log
+        );
+        assert_eq!(fs::read(&one_bin).unwrap(), one_bytes, "building the second program changed the first's binary");
+        assert!(run_binary(&one_bin).contains("alpha"));
+        assert!(run_binary(&dir.join("bin").join(installed_binary_name("sharetwo", true))).contains("beta"));
+
+        let again = cached_build(&dir, "shareone", "alpha", &root, &sdk, false);
+        assert_eq!(again.result.crates_compiled, 0, "an unchanged program recompiled {:?}", again.compiled);
+
+        println!(
+            "SPEC101 AC1/AC2/AC4/AC8/R11: first program compiled {} crate(s) in {cold_secs:.1}s; \
+             second program compiled {} ({}) in {warm_secs:.1}s; first again compiled {}; \
+             lock versions off the SDK's lock: {}; cache {}",
+            one.compiled.len(),
+            two.compiled.len(),
+            two.compiled.join(","),
+            again.result.crates_compiled,
+            off_sdk.len(),
+            build_cache::human_size(dir_size(&root.join("shared-target"))),
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **AC3, AC5, AC14, R15 — a stale platform crate forces a full build.**
+    ///
+    /// A platform crate edited so cargo sees a NEWER file is rebuilt by cargo
+    /// alone (with what depends on it), never as a forced full build. The same
+    /// edit with a file time OLDER than the cache's record is what cargo would
+    /// believe fresh: the build is made a full one, names the crate, and
+    /// compiles the platform crates and the program but no third-party crate.
+    #[test]
+    fn a_stale_platform_crate_forces_a_full_build() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let dir = temp_dir("cache-stale");
+        let (root, sdk) = (dir.join("builds"), dir.join("sdk"));
+        stage_sdk(&repo_root(), &sdk).expect("stage an SDK copy");
+        let name = "stalecheck";
+        let only_ours = |b: &Built| b.compiled.iter().all(|c| is_platform_or(c, name));
+
+        let cold = cached_build(&dir, name, "v1", &root, &sdk, false);
+        assert!(cold.result.forced_full.is_empty());
+
+        // An unchanged SDK never forces a full build.
+        let same = cached_build(&dir, name, "v1", &root, &sdk, false);
+        assert_eq!(same.result.crates_compiled, 0);
+        assert!(same.result.forced_full.is_empty());
+
+        // A newer edit: cargo notices on its own.
+        edit_platform_crate(&sdk, "cobolt-lexer", "newer", None);
+        let newer = cached_build(&dir, name, "v1", &root, &sdk, false);
+        assert!(newer.result.forced_full.is_empty(), "a newer edit forced a full build: {:?}", newer.result.forced_full);
+        assert!(newer.compiled.iter().any(|c| c == "cobolt-lexer"), "the edited crate was not compiled: {:?}", newer.compiled);
+        assert!(only_ours(&newer), "a third-party crate was compiled: {:?}", newer.compiled);
+
+        // The same kind of edit, but the file looks a day old.
+        edit_platform_crate(&sdk, "cobolt-lexer", "older", Some(86_400));
+        let stale = cached_build(&dir, name, "v1", &root, &sdk, false);
+        assert_eq!(stale.result.forced_full, vec!["cobolt-lexer".to_owned()], "the stale crate was not found");
+        assert!(stale.log.iter().any(|l| l.contains("Stale platform crate")), "the log did not say why: {:?}", stale.log);
+        for must in ["cobolt-ast", "cobolt-lexer", "cobolt-runtime", name] {
+            assert!(stale.compiled.iter().any(|c| c == must), "{must} was not compiled again: {:?}", stale.compiled);
+        }
+        assert!(only_ours(&stale), "a third-party crate was compiled: {:?}", stale.compiled);
+        assert!(run_binary(&dir.join("bin").join(installed_binary_name(name, true))).contains("v1"));
+
+        // Settled: nothing is stale any more.
+        let settled = cached_build(&dir, name, "v1", &root, &sdk, false);
+        assert_eq!(settled.result.crates_compiled, 0);
+        assert!(settled.result.forced_full.is_empty());
+
+        // An explicit full build: ours again, third-party kept, not "forced".
+        let full = cached_build(&dir, name, "v1", &root, &sdk, true);
+        assert!(full.result.forced_full.is_empty());
+        assert!(full.compiled.iter().any(|c| c == "cobolt-runtime"), "{:?}", full.compiled);
+        assert!(only_ours(&full), "a third-party crate was compiled by a full build: {:?}", full.compiled);
+
+        // The cache is disposable: delete it and the next build is a cold one.
+        fs::remove_dir_all(root.join("shared-target")).unwrap();
+        let recold = cached_build(&dir, name, "v1", &root, &sdk, false);
+        assert!(recold.result.crates_compiled > full.result.crates_compiled);
+
+        println!(
+            "SPEC101 AC3/AC5/AC14: cold {}; unchanged {}; newer edit {} ({}); old-looking edit {} \
+             forced_full={:?}; settled {}; explicit full {}; cache deleted then built {}",
+            cold.result.crates_compiled,
+            same.result.crates_compiled,
+            newer.result.crates_compiled,
+            newer.compiled.join(","),
+            stale.result.crates_compiled,
+            stale.result.forced_full,
+            settled.result.crates_compiled,
+            full.result.crates_compiled,
+            recold.result.crates_compiled,
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **AC4, AC6, AC13 — the cache never makes a build fail.**
+    ///
+    /// A cache folder that cannot be made, a lock that pins a version this
+    /// machine cannot supply, and two programs built at the same moment on one
+    /// cache: each builds, and the programs run.
+    #[test]
+    fn the_cache_never_makes_a_build_fail() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let dir = temp_dir("cache-safe");
+        let sdk = dir.join("sdk");
+        stage_sdk(&repo_root(), &sdk).expect("stage an SDK copy");
+
+        // R14 — a plain file where the cache folder should be.
+        let blocked = dir.join("blocked");
+        fs::create_dir_all(&blocked).unwrap();
+        fs::write(blocked.join("shared-target"), b"not a folder").unwrap();
+        let own = cached_build(&dir, "safeown", "own", &blocked, &sdk, false);
+        assert_eq!(own.result.target_dir, own.result.build_dir.join("target"), "it should have used its own folder");
+        assert!(own.log.iter().any(|l| l.contains("compiled-crate cache is not used")), "{:?}", own.log);
+        assert!(run_binary(&dir.join("bin").join(installed_binary_name("safeown", true))).contains("own"));
+        let _ = fs::remove_dir_all(&blocked);
+
+        // R4 — a lock that pins a version this machine has never downloaded.
+        let lock = sdk.join("Cargo.lock");
+        let text = fs::read_to_string(&lock).unwrap();
+        let mut pinned = String::new();
+        let mut in_flate2 = false;
+        let mut changed = false;
+        for line in text.lines() {
+            if line == "name = \"flate2\"" {
+                in_flate2 = true;
+            } else if line == "[[package]]" {
+                in_flate2 = false;
+            }
+            if in_flate2 && line.starts_with("version = ") {
+                pinned.push_str("version = \"1.0.28\"\n");
+                changed = true;
+                continue;
+            }
+            if in_flate2 && line.starts_with("checksum = ") {
+                pinned.push_str(&format!("checksum = \"{}\"\n", "0".repeat(64)));
+                continue;
+            }
+            pinned.push_str(line);
+            pinned.push('\n');
+        }
+        assert!(changed, "the SDK's lock has no flate2 to pin");
+        fs::write(&lock, pinned).unwrap();
+        let seeded_root = dir.join("seeded");
+        let seeded = cached_build(&dir, "safeseed", "seed", &seeded_root, &sdk, false);
+        assert!(seeded.log.iter().any(|l| l.contains("cannot be used on this machine")), "{:?}", seeded.log);
+        let staged = fs::read_to_string(seeded.result.build_dir.join("Cargo.lock")).unwrap();
+        assert!(!staged.contains(&"0".repeat(64)), "the dropped seed's pin is still in the lock");
+        assert!(run_binary(&dir.join("bin").join(installed_binary_name("safeseed", true))).contains("seed"));
+        fs::write(&lock, text).unwrap();
+        let _ = fs::remove_dir_all(&seeded_root);
+
+        // R7, R8, AC6 — two programs at once on one cold cache.
+        let shared_root = dir.join("together");
+        let (a, b) = std::thread::scope(|s| {
+            let a = s.spawn(|| cached_build(&dir, "safea", "aaa", &shared_root, &sdk, false));
+            let b = s.spawn(|| cached_build(&dir, "safeb", "bbb", &shared_root, &sdk, false));
+            (a.join().expect("build a panicked"), b.join().expect("build b panicked"))
+        });
+        for (built, word, name) in [(&a, "aaa", "safea"), (&b, "bbb", "safeb")] {
+            let missing: Vec<_> = built.log.iter().filter(|l| l.contains("No such file")).collect();
+            assert!(missing.is_empty(), "{name} met a missing file: {missing:?}");
+            assert!(run_binary(&dir.join("bin").join(installed_binary_name(name, true))).contains(word));
+        }
+        let waited = [&a, &b].iter().filter(|x| x.log.iter().any(|l| l.contains("Another build is using"))).count();
+
+        println!(
+            "SPEC101 AC4/AC6/AC13: unusable cache -> built in its own folder ({} crates); \
+             unavailable pin -> seed dropped, built ({} crates); two at once -> a compiled {}, b compiled {} \
+             (builds that logged the wait: {waited})",
+            own.result.crates_compiled,
+            seeded.result.crates_compiled,
+            a.result.crates_compiled,
+            b.result.crates_compiled,
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **AC12 — measured, not asserted.** Run by hand (it builds two form
+    /// applications in the release profile, several times, and takes a long
+    /// while):
+    /// `cargo test -p cobolt-compiler --lib measure_the_shared_cache -- --ignored --nocapture`
+    ///
+    /// PowerDemo3 is built, then PowerSpatial, on a shared cache; PowerSpatial
+    /// is then built again on a cache that cannot be used (the old layout: its
+    /// own folder), and once more as a full build on the warm cache. Copies of
+    /// the examples are built, so the checkout is left as it is.
+    #[test]
+    #[ignore = "AC12: a measurement of form applications, run by hand"]
+    fn measure_the_shared_cache_with_form_applications() {
+        let _heavy = heavy_build_guard();
+        let _state = BuildRootState::clean();
+        let dir = temp_dir("cache-measure");
+        let repo = repo_root();
+        for name in ["PowerDemo3", "PowerSpatial"] {
+            copy_dir_all(repo.join("examples").join(name), dir.join(name)).unwrap();
+        }
+        let shared_root = dir.join("shared");
+        let old_root = dir.join("old-layout");
+        fs::create_dir_all(&old_root).unwrap();
+        fs::write(old_root.join("shared-target"), b"not a folder").unwrap();
+
+        let build = |name: &str, root: &Path, full: bool| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let opts = BuildOptions {
+                verbose: false,
+                workspace_root: Some(repo.clone()),
+                build_dir: Some(root.to_path_buf()),
+                progress: Some(tx),
+                full,
+                ..Default::default()
+            };
+            let manifest = dir.join(name).join(format!("{name}.project.toml"));
+            let t = std::time::Instant::now();
+            let built = build_project(&manifest, &opts).unwrap_or_else(|e| panic!("building {name} failed: {e}"));
+            let secs = t.elapsed().as_secs_f64();
+            drop(opts);
+            let waited = rx.try_iter().any(|p| p.message.contains("Another build is using"));
+            assert!(!waited, "nothing else should have been building");
+            (built, secs)
+        };
+
+        let (first, first_secs) = build("PowerDemo3", &shared_root, false);
+        let (second, second_secs) = build("PowerSpatial", &shared_root, false);
+        let (old, old_secs) = build("PowerSpatial", &old_root, false);
+        let (full, full_secs) = build("PowerSpatial", &shared_root, true);
+        let (again, again_secs) = build("PowerSpatial", &shared_root, false);
+
+        let t = std::time::Instant::now();
+        let check = build_cache::check_platform(&repo, &shared_root.join("shared-target")).unwrap();
+        let check_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        println!("SPEC101 AC12 (release profile, this machine, macOS):");
+        println!("  PowerDemo3, empty cache ................ {:>4} crates {first_secs:>7.1} s", first.crates_compiled);
+        println!("  PowerSpatial, after PowerDemo3 ......... {:>4} crates {second_secs:>7.1} s   <- shared cache", second.crates_compiled);
+        println!("  PowerSpatial, its own folder (before) .. {:>4} crates {old_secs:>7.1} s   <- the old layout", old.crates_compiled);
+        println!("  PowerSpatial, full build, warm cache ... {:>4} crates {full_secs:>7.1} s   (forced_full {:?})", full.crates_compiled, full.forced_full);
+        println!("  PowerSpatial, nothing changed .......... {:>4} crates {again_secs:>7.1} s", again.crates_compiled);
+        println!(
+            "  disk: shared cache {} for both programs; PowerSpatial's own folder (before) {}",
+            build_cache::human_size(dir_size(&shared_root.join("shared-target"))),
+            build_cache::human_size(dir_size(&old_root.join("cobolt-build-powerspatial"))),
+        );
+        println!("  the freshness check of the 14 platform crates: {check_ms:.0} ms ({} stale, {} to record)", check.stale.len(), check.record.len());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
 }
 
 #[cfg(test)]
@@ -12862,6 +13403,44 @@ mod sdk_tests {
                 "{rel} is listed but missing from the source tree"
             );
         }
+    }
+
+    /// **Spec 101 — the shared cache's freshness check sees every file a platform
+    /// crate is compiled from.** It hashes each crate's folder plus the one icon
+    /// `cobolt-form-host` bakes in (`SDK_EXTRA_PATHS[0]`). A compile-time include
+    /// from anywhere else would change a compiled crate without changing its
+    /// hash, and a stale unit would go unseen.
+    #[test]
+    fn the_platform_hash_covers_every_compile_time_asset() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+        let mut escaping = Vec::new();
+        for name in SDK_CRATES {
+            collect_escaping_includes(&root.join("crates").join(name), &mut escaping);
+        }
+        assert!(!escaping.is_empty(), "the scanner found nothing — it has stopped testing anything");
+        for rel in &escaping {
+            assert_eq!(
+                rel, SDK_EXTRA_PATHS[0],
+                "{rel} is read at compile time from outside its crate but the freshness check \
+                 (build_cache::crate_state) does not hash it"
+            );
+        }
+        println!("freshness hash: {} compile-time include(s) outside the crates, all hashed", escaping.len());
+    }
+
+    /// **Spec 101 R4 — a shipped SDK carries the lock new programs start from.**
+    /// Without it every program resolves its own versions and the shared cache
+    /// stops applying between them.
+    #[test]
+    fn a_staged_sdk_holds_the_lock_the_source_tree_has() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+        let dest = std::env::temp_dir().join(format!("prc-sdk-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dest);
+        stage_sdk(root, &dest).expect("stage the SDK");
+        let source = std::fs::read(root.join("Cargo.lock")).expect("the source tree has a Cargo.lock");
+        let staged = std::fs::read(dest.join("Cargo.lock")).expect("the staged SDK has a Cargo.lock");
+        let _ = std::fs::remove_dir_all(&dest);
+        assert_eq!(source, staged, "the staged lock is not the source tree's");
     }
 
     /// Every path in the list must exist, or staging dies mid-copy.

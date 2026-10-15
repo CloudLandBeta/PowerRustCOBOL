@@ -12899,6 +12899,8 @@ impl CoboltApp {
             ui.label(ide(
                 "A new folder starts empty, so the next build compiles everything again. The old folder is left as it is — delete it yourself when you no longer need it.",
             ));
+            ui.add_space(6.0);
+            ui.label(ide("All your programs share one cache of compiled code, kept in this folder as shared-target, so what was compiled for one program is not compiled again for the next. It is safe to delete: the next build then compiles everything once more."));
 
             ui.add_space(12.0);
             ui.separator();

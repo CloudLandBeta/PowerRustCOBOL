@@ -17,6 +17,38 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.160] — 2026-10-15
+
+*(Written on `fixes`, after 1.91.159 — spec 101.)*
+
+### Fix: every program compiled the whole platform again; builds now share one compiled-code cache
+
+Operator, 2026-10-15: *"can the build identify project crates sources that were not updated between powerrustcobol versions, so it would be compiled just once … this has the potential to accelerate the builds"*, ruled a fix (it withdraws a cost, it offers no new capability) — with one rule added: *"if anything is stale in the shared crates, force a full rebuild"*.
+
+- *Cause, read in the source and measured:* each program kept its own cargo `target/` (1.4 GB, 1.4 GB and 2.6 GB for the three staged on this machine). A form application compiles about 500 crates, of which 12 are ours; the rest are third-party and no PowerRustCOBOL version can change them. The Build button's full build discarded all of it, so every upgrade recompiled it for every program. And nothing seeded a program's `Cargo.lock`, so two programs already differed on `aes`, `inout` and `json5`, which would have stopped a shared folder from applying.
+- *Fix:* every build writes to one `shared-target` folder in the build folder (`build_cache.rs`, new). A crate compiled for one program is reused by the next.
+  - A program with no lock starts from the SDK's `Cargo.lock`; if this machine cannot supply a version it pins, the seed is dropped and the program resolves as before (the failure does not contain the word `--offline`, so the old cold-cache retry did not see it).
+  - **Stale platform crates force a full build (the operator's rule).** Each of the 14 platform crates has a marker — a SHA-256 of its files and the time it was written. A crate whose source differs from what the cache compiled, while its files do not look newer, is one cargo would believe (an SDK put back from an older copy: shown by a test, a changed source with a 2020 date was not rebuilt). If such a crate is in the program's graph the build becomes a full one, the log names it, and `BuildResult::forced_full` reports it. A normal edit (newer files) is left to cargo, so incremental builds are unchanged.
+  - A full build (asked for, or forced) discards the program's working folder as before and cleans the platform crates the program uses with `cargo clean -p`; third-party crates stay. Cleaning is done through cargo from the program's folder: in a shipped SDK, whose workspace is trimmed and whose lock is the full 1,046 packages, `--locked` is refused and without it cargo rewrites the SDK's own lock (both measured).
+  - A build that finds another using the cache says so in its log (*Another build is using the compiled-crate cache — waiting for it to finish…*) instead of looking hung.
+  - A program's old private `target/` is removed after its first good shared build, and the log says how much was freed.
+  - **The cache can only make a build faster:** if it cannot be created or judged, the build runs in the program's own folder as before and says why.
+- *Measured (AC12, release profile, this machine, macOS; copies of PowerDemo3 and PowerSpatial):*
+
+  | build | crates compiled | time |
+  |---|---|---|
+  | PowerDemo3, empty cache | 511 | 163.2 s |
+  | PowerSpatial after it, shared cache | 100 | 84.1 s |
+  | PowerSpatial in its own folder (the old layout) | 363 | 122.1 s |
+  | PowerSpatial, full build on the warm cache | 12 | 40.9 s |
+  | PowerSpatial, nothing changed | 0 | 1.8 s |
+
+  The second program compiled 100 crates, not 1, because it turns on other features of the runtime than PowerDemo3 and a crate built with other features is another unit; two console programs of the same kind compile only themselves (209 crates, then 1). On disk, the shared cache held **1.8 GB for both programs**; PowerSpatial's own folder in the old layout was **1.0 GB** on its own (PowerDemo3's, in the operator's real cache, is 1.4 GB — a different build, so not summed here). The freshness check of the 14 crates took **716 ms in this unoptimised test build** (hashing 18 MB); it is not measured in the release IDE.
+- *Tests:* `build_cache.rs` — 11 without cargo (the verdict table row by row, the hash ignoring `target/` and dot-files and seeing one byte, whole crate names, markers replaced whole, the lock seed, cargo 1.95's waiting line, a check that follows a crate from new to stale). Three real-build tests: `programs_share_one_cache_and_an_old_private_target_goes` (first program 209 crates in 27.5 s; second program 1 crate in 1.8 s; the first again 0; its binary byte-identical; every registry version in the new lock is the SDK's; the old `target/` gone), `a_stale_platform_crate_forces_a_full_build` (a newer edit: 8 crates, no forced full; the same edit looking a day old: 9 crates, `forced_full = ["cobolt-lexer"]`, no third-party crate; settled 0; explicit full 9; cache deleted then 209), `the_cache_never_makes_a_build_fail` (an unusable cache, a lock pinning a version nobody downloaded, two builds at once). Two SDK guards: `a_staged_sdk_holds_the_lock_the_source_tree_has` and `the_platform_hash_covers_every_compile_time_asset`. All of `cobolt-compiler` (184 + the integration tests, `test_external_crates_e2e` included), `cobolt-cli`, `cobolt-project-tools` pass; `cobolt-ide` passes 1,676 of 1,677 — the one failure, `docs_embed::every_document_ships_in_every_language`, lists every document of `docs/` (not only the one edited here) as lacking its translations: the red GOLDEN RULE #8 describes, there before this change.
+- *Found by the tests:* the marker's temporary file was named by process id, so two builds in one process (the IDE's Run and Build) renamed each other's away; it is now unique per call.
+- *Words:* the Build Folder window gains one line about the shared cache (six languages); the stale-build prompt no longer says a full build "recompiles everything" (six languages); `rcrun build --full` help; the Guide's *Where your builds are kept* and *Full builds and the recorded version*.
+- *Not checked:* Windows and Linux (macOS only; the release workflow runs no tests); the dialog on screen (the operator's eye); a program whose lock was made by an older version keeps it until its next full build, as specified.
+
 ## [PowerRustCOBOL 1.91.159] — 2026-10-15
 
 *(Written on `fixes`, after 1.91.158.)*
