@@ -6256,4 +6256,100 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         );
     }
 
+    /// **A program that writes the rail's `Collapsed` folds or opens the shell's pane.**
+    ///
+    /// Spec 049 R44 gave a CHILD form `super::<menu>::Collapse()`. The form that owns the
+    /// SideMenu had nothing: `Collapse()`, `Open()` and its own `Collapsed` writes changed a
+    /// property the shell never read, so the rail did not move and nothing was remembered
+    /// (operator, 2026-10-15). The write reaches the host as a state update; the host turns it
+    /// into the very request the child's verb makes, and the shell applies and remembers it.
+    #[test]
+    fn a_program_writing_the_rails_collapsed_property_folds_the_shells_pane() {
+        let mut form = cobolt_forms::Form::new("MAIN-FORM", "Main", 900, 600);
+        form.main_form = true;
+        let mut rail =
+            cobolt_forms::Control::new("SIDE-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+        rail.rect = cobolt_forms::model::Rect::new(0, 0, 200, 600);
+        let mut other =
+            cobolt_forms::Control::new("PANEL-1", cobolt_forms::ControlType::Panel, 300, 40);
+        other.rect = cobolt_forms::model::Rect::new(300, 40, 200, 100);
+        let flat = vec![rail, other];
+
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            indexed_engine: Default::default(),
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        let size = Vec2::new(1000.0, 700.0);
+        let mut frames = |n: usize, host: &mut crate::FormHost| {
+            for _ in 0..n {
+                let mut full = ctx.run_ui(raw(size), |root_ui| {
+                    let _ = shell.show_with_host(root_ui, |_ui| {}, host);
+                });
+                full.textures_delta.clear();
+            }
+        };
+        let write = |ctrl: &str, prop: &str, value: &str| {
+            state_tx
+                .send(cobolt_runtime::StateUpdate::new(ctrl.to_owned(), prop.to_owned(), value.to_owned()))
+                .unwrap();
+        };
+
+        // Past the host's 450 ms arming window, as the other shell tests are.
+        frames(1, &mut host);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        frames(3, &mut host);
+        assert_eq!(host.take_menu_pane_request(), None, "the designed state is where the application OPENS, not a request");
+
+        // The program folds the rail — as COBOL writes it (upper-case id, `true`).
+        write("SIDE-1", "Collapsed", "true");
+        frames(2, &mut host);
+        assert_eq!(host.take_menu_pane_request(), Some(true), "Collapsed = true must fold the pane");
+        assert_eq!(host.take_menu_pane_request(), None, "a request is taken once");
+        assert_eq!(host.control_prop("SIDE-1", "Collapsed").as_deref(), Some("true"), "and the live property still reads back");
+
+        // And opens it again, whatever the case of the id.
+        write("side-1", "COLLAPSED", "false");
+        frames(2, &mut host);
+        assert_eq!(host.take_menu_pane_request(), Some(false), "Collapsed = false must open the pane");
+
+        // Nothing else is a request: another control's `Collapsed`, the rail's other properties.
+        write("PANEL-1", "Collapsed", "true");
+        write("SIDE-1", "SelectedItemId", "home");
+        frames(2, &mut host);
+        assert_eq!(host.take_menu_pane_request(), None, "only the rail's own Collapsed asks the shell to fold");
+        println!("049 R44 (own form) — Collapsed true -> fold request, false -> open request, nothing else asks");
+    }
 }

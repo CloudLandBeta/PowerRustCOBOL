@@ -16530,7 +16530,23 @@ you have selected, so what you design is what starts.
 > button at the top of the sidebar itself, *including before you have added a
 > single menu item*. Being able to reclaim the width is the operator's control
 > over the window, so it never depends on what you put in the menu. COBOL can
-> drive the same thing with `super::<menu-id>::Collapse()` / `::Open()`.
+> drive the same thing. From the form that owns the sidebar:
+>
+> ```cobol
+>            SIDE-1::Collapse().
+>            SIDE-1::Open().
+>            MOVE 1 TO SIDE-1::Collapsed.
+> ```
+>
+> and from a form loaded into the ContentPane, `super::SIDE-1::Collapse()` /
+> `::Open()`. Either way the rail changes at once, the window narrows or widens
+> with it, and the choice is remembered for the next start exactly as the **☰**
+> button's is.
+
+> ⚠️ **Caveat.** `Collapsed` read back from COBOL is what the *program* last
+> wrote (or the designed state), not what the operator chose with the **☰**
+> button, and there is no `Toggle()`: a program that must flip the rail keeps
+> its own flag.
 
 **Your controls move when the rail closes — on the canvas too.** Collapsing the
 sidebar hands its width back to the content, which slides left to take it, and

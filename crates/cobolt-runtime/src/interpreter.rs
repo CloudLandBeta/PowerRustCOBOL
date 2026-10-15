@@ -14536,12 +14536,15 @@ impl Interpreter {
     }
 
     /// Spec 066 — a method called on a SideMenu that edits the rows the
-    /// program added. `None` when the name is not one of them, so every other
-    /// method (`Collapse`, `OpenStandAloneFormSync`, …) goes on as before.
+    /// program added, or (`Collapse`, `Open`) folds or opens the rail itself.
+    /// `None` when the name is not one of them, so every other method
+    /// (`OpenStandAloneFormSync`, …) goes on as before.
     ///
     /// The list-control names (`AddItem`, `RemoveItem`, `Clear`, `GetCount`)
     /// MUST be answered here: their generic arms edit an `Items` property a
     /// SideMenu does not have, so falling through would do nothing, silently.
+    /// `Collapse` and `Open` are the same kind of name: the generic arms write
+    /// `Expanded` (a Panel's) and open an SQL database.
     /// A change answers `1`; a refused one — a designed row, an unknown id, too
     /// deep — answers `0` and leaves the menu exactly as it was.
     fn side_menu_method(&mut self, obj: &str, m: &str, arg: &dyn Fn(usize) -> String) -> Option<String> {
@@ -14566,6 +14569,18 @@ impl Interpreter {
             self.menu_activations += 1;
             let token = format!("{id}#{}", self.menu_activations);
             self.obj_set(obj, cobolt_forms::menu::runtime::ACTIVATE_ITEM_PROP, token);
+            return Some("1".into());
+        }
+        // The pane itself, from the form that owns the rail: `Collapse()` folds
+        // it to the icon rail, `Open()` opens it — the two verbs a child form has
+        // as `super::<menu>::Collapse()` / `::Open()` (049 R44). Without this arm
+        // `Collapse()` fell through to the Panel and GroupBox verb and wrote
+        // `Expanded`, which a SideMenu does not have, and `Open()` was taken for
+        // the SQL database verb: neither moved the rail. The host turns the
+        // `Collapsed` write into the shell's request, as it does for a program
+        // that writes the property itself.
+        if m == "COLLAPSE" || m == "OPEN" {
+            self.obj_set(obj, "Collapsed", if m == "COLLAPSE" { "1" } else { "0" }.into());
             return Some("1".into());
         }
         let outcome: Result<(), rt::Refusal> = match m {

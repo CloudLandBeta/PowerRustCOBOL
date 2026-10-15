@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.163] — 2026-10-15
+
+*(Written on `fixes`, after 1.91.162.)*
+
+### Fix: a program could not fold or open the SideMenu of its own form
+
+Operator, 2026-10-15: *"programatically toggling the sidemenu is not working"*.
+
+- *Reproduced, through the real `rcrun`, on a copy of PowerDemo3 whose buttons DISPLAY their own id (so the run proved each handler ran):* in the main form — the one that owns the SideMenu — `SideMenu-1::Collapse()`, `::Open()` and `MOVE 1 TO SideMenu-1::Collapsed` left the rail where it was, and the shell remembered nothing. From a form loaded into the ContentPane, `super::SideMenu-1::Collapse()` and `::Open()` (spec 049 R44) did work: the shell remembered `collapsed = true`, then `false`. (A first run of the probe looked as if every case failed: this machine's remembered state for `SIDEBAR-FORM` is `collapsed = false` and wins over the designed `Collapsed`, so the "starts collapsed" baseline started open. The probe then ran with a private `HOME`.)
+- *Two causes.* In the interpreter `Collapse()` on a SideMenu fell through to the Panel and GroupBox verb, which writes `Expanded` (a SideMenu has none), and `Open()` to the verb that opens an SQL database. And a write of `Collapsed` — by the property or by a verb — reached the host as a state update, but nothing turned it into the shell's request: the shell keeps the pane's state, the designed `Collapsed` says only where the application opens, and the host did not even know which control was the rail (`pane_layout` removes the SideMenu from the main form's controls).
+- *Fix:* `side_menu_method` answers `Collapse()` and `Open()` with a write of `Collapsed`; `FormHost` records the rail's id (`root_rail_id`) when it builds the pane layout, and a state update for that control's `Collapsed` becomes the same `pending_menu_pane` request the child's verb makes — so the shell applies it, resizes the window and remembers the choice (R9). The designed state is still only where the application opens, and the remembered choice still wins at start-up.
+- *Tests, red first:* `test_side_menu_pane` (runtime: the verbs and two property writes give `Collapsed` true, false, true, false, true and no `Expanded`; a Panel's `Collapse()` still writes `Expanded`); `a_program_writing_the_rails_collapsed_property_folds_the_shells_pane` (host: `true` asks the shell to fold, `false` to open, another control's `Collapsed`, the rail's other properties and the designed state ask nothing); `a_program_folds_and_opens_the_rail_of_its_own_form` (through `rcrun`, private `HOME`: idle remembers nothing; `Collapse()` → `collapsed = true`; `Open()` on a folded rail → `collapsed = false`; `MOVE 1 TO Collapsed` → `collapsed = true`). The host test failed on the unfixed host at the fold assertion, and the first host attempt (using the body's control list) failed too, which is how the missing rail id was found.
+- *Sweeps:* `cobolt-runtime` 1,427 passed / 0 failed (171 targets, 28 ignored); `cobolt-form-host` 198 / 0; `cobolt-cli` 35 / 0 (3 ignored); the compiler's documentation tests 4 / 0; the IDE's knowledge, version and language tests 113 / 0.
+- *Docs:* the Guide's sidebar note gains the own-form calls and a caveat; the System KB gains `Collapse()` and `Open()` for the SideMenu and a corrected `Collapsed` description; `chunked.data` regenerated (3,363 records, 11,931,648 bytes).
+- *Not done / not checked:* there is **no `Toggle()`** — a program cannot read the live state the operator's ☰ leaves (the shell keeps it), so one that must flip the rail keeps its own flag (the Guide says so); the window narrowing on screen (a headless run cannot resize, so the proof is the remembered-state file the shell writes when it applies a change); Windows and Linux.
+
 ## [PowerRustCOBOL 1.91.162] — 2026-10-15
 
 *(Written on `fixes`, after 1.91.161.)*

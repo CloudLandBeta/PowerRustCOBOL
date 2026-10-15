@@ -7310,7 +7310,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "BreadcrumbHeight" => ("points ≥ 16 (default 28)", "SideMenu only. Height of the breadcrumb frame. Independent of the font: text too big is clipped by the frame, and a form loaded into the ContentPane starts below it."),
         "BreadcrumbIconSize" => ("points 8–200, or 0", "SideMenu only. Size of the Open/Collapsed toggle at the head of the breadcrumb, never taller than the frame. 0 (the default) keeps it a square of the frame's height, capped at 48."),
         "BreadcrumbTextAlign" => ("one of: `Top` | `Middle` | `Bottom`", "SideMenu only. Places the breadcrumb chain and its toggle, as one group, against the top, in the middle (default) or against the bottom of the frame."),
-        "Collapsed" => ("`1` (true) or `0` (false)", "SideMenu only. The pane state the application opens in: collapsed to the icon rail or open (default). At run time the operator's own remembered choice wins over it."),
+        "Collapsed" => ("`1` (true) or `0` (false)", "SideMenu only. The pane state the application opens in: collapsed to the icon rail or open (default). At start-up the operator's own remembered choice wins over it. While the program runs, writing `Collapsed` (or `Collapse()` / `Open()`) on the form that owns the SideMenu folds or opens the pane; the shell applies the change and remembers it. From a child form, use `super::<menu-id>::Collapse()` / `Open()`."),
         "CornerRadiusBottomLeft" => ("pixels ≥ 0, or -1", "Snackbar: the notification's bottom-left corner radius. -1 (default) takes CornerRadius (12)."),
         "CornerRadiusBottomRight" => ("pixels ≥ 0, or -1", "Snackbar: the notification's bottom-right corner radius. -1 (default) takes CornerRadius (12)."),
         "CornerRadiusTopLeft" => ("pixels ≥ 0, or -1", "Snackbar: the notification's top-left corner radius. -1 (default) takes CornerRadius (12)."),
@@ -8102,6 +8102,8 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Clear()", "Remove every row the program added. The designed menu stays exactly as designed."),
             ("GetCount() → Integer", "How many rows the program has added (sections included)."),
             ("HasItem(id: String) → 1/0", "Whether a row with this id exists — designed or added."),
+            ("Collapse()", "Fold the rail to its icon rail, from the form that owns the SideMenu. The same as writing `Collapsed` 1 — a child form uses `super::<menu-id>::Collapse()`. In the shell the window narrows by the difference and the choice is remembered for the next start, as the ☰ button's is."),
+            ("Open()", "Open the rail again, from the form that owns the SideMenu. The same as writing `Collapsed` 0 — a child form uses `super::<menu-id>::Open()`."),
             ("ActivateItem(id: String) → 1/0", "Do what a click on that row does — open its form in the ContentPane (`open-form:`), go `home`, raise `onMenuClick` — from code, e.g. to show a welcome form on first run. Shell only (a main form whose SideMenu is its menu pane). `0` for an unknown id; a disabled row does nothing."),
             (
                 "OpenStandAloneFormSync(formId: String, windowState: String, x: Integer, y: Integer, width: Integer, height: Integer, modal: Boolean)",

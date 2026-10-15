@@ -465,6 +465,16 @@ impl FormHost {
         // time. The designed width is the one that matters, not the live pane
         // width: Open/Collapsed moves the pane edge, and the form travels with
         // it because it is anchored to the pane, not to the window.
+        // The rail's id, which `pane_layout` takes out of the body's controls: a
+        // program that folds or opens its own rail writes `Collapsed` on it, and the
+        // drain in `ui_impl` has to know that write is the rail's.
+        let root_rail_id = (surface == Surface::Pane)
+            .then(|| {
+                flat.iter()
+                    .find(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+                    .map(|c| c.id.clone())
+            })
+            .flatten();
         let (flat, footer_ids, side_dx) = if surface == Surface::Pane {
             pane_layout(flat)
         } else {
@@ -649,6 +659,7 @@ impl FormHost {
             last_pane_backdrop_fill: None,
             last_content_scroll: egui::Vec2::ZERO,
             pending_menu_pane: None,
+            root_rail_id,
         };
         (host, form)
     }
@@ -3977,6 +3988,11 @@ pub struct FormHost {
     last_content_scroll: egui::Vec2,
     /// 049 R44 — a COBOL-driven MenuPane state change awaiting the shell.
     pending_menu_pane: Option<bool>,
+    /// The id of the SideMenu this host's main form carries when it runs as a
+    /// shell's ContentPane occupant (the shell paints the rail, so the body's
+    /// controls no longer hold it). `None` for a window host and for a form with
+    /// no rail.
+    root_rail_id: Option<String>,
 }
 
 impl FormHost {
@@ -6521,6 +6537,20 @@ impl FormHost {
         // repeating-group member writes to the drawn card-instance id.
         let mut drained = 0usize;
         while let Ok(u) = self.root.state_rx.try_recv() {
+            // The program wrote the rail's own `Collapsed` — directly, or through
+            // `Collapse()` / `Open()` on it. The SHELL holds the pane's state, and the
+            // designed `Collapsed` is only where the application opens, so the write
+            // becomes the request `super::<menu>::Collapse()` makes (049 R44): the shell
+            // folds or opens the pane, resizes the window and remembers the choice
+            // (R9). The write is still stored below, as any property is.
+            if u.prop.eq_ignore_ascii_case("Collapsed")
+                && self
+                    .root_rail_id
+                    .as_deref()
+                    .is_some_and(|rail| rail.eq_ignore_ascii_case(&u.ctrl_id))
+            {
+                self.pending_menu_pane = Some(matches!(u.value.trim(), "1" | "true" | "True" | "TRUE"));
+            }
             // 037 R16 — mirror the form object's FormState into the
             // supervisor so close vetoes see the live value.
             if u.prop.eq_ignore_ascii_case("FormState")
