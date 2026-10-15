@@ -1,6 +1,6 @@
 # Spec — Grid editing in the Form Designer
 
-- **Status:** draft
+- **Status:** implemented in 1.91.166 (tasks T1–T20 done; every acceptance criterion proved by a test, listed under *Proofs*); the operator's visual check is the one open item
 - **Folder:** specs/088-grid-editing/
 - **Author:** operator request, written by Claude   **Date:** 2026-10-05, amended 2026-10-07
 
@@ -198,45 +198,45 @@ This feature makes the grid directly editable on the canvas:
   the one layout engine places them.
 
 ## 5. Acceptance criteria
-- [ ] **AC1 (R1, R2, R5)** — A fresh designer window shows the Show Grid button
+- [x] **AC1 (R1, R2, R5)** — A fresh designer window shows the Show Grid button
   highlighted. Toggling it changes no byte of the saved `.cfrm`.
-- [ ] **AC2 (R3)** — On PowerSpatial's `main-form`, with Show Grid on and
+- [x] **AC2 (R3)** — On PowerSpatial's `main-form`, with Show Grid on and
   nothing selected, the track lines of every Grid container are drawn.
-- [ ] **AC3 (R6)** — With Show Grid on, clicking `Lbl-AC-Sub` inside `Crd-AC`
+- [x] **AC3 (R6)** — With Show Grid on, clicking `Lbl-AC-Sub` inside `Crd-AC`
   selects a cell of `Crd-AC`, not the label, and dragging cannot move it.
-- [ ] **AC4 (R7, R8, R9)** — Selecting a cell shows the floating toolbar beside
+- [x] **AC4 (R7, R8, R9)** — Selecting a cell shows the floating toolbar beside
   the grid. Every button has a tooltip in all six languages, and Merge is
   disabled for a single empty cell.
-- [ ] **AC5 (R10)** — On a 2×2 grid `1fr 1fr` / `1fr 1fr` with a child at
+- [x] **AC5 (R10)** — On a 2×2 grid `1fr 1fr` / `1fr 1fr` with a child at
   (2, 2), Add column after column 1 gives `1fr 1fr 1fr`, and the child is at
   (3, 2), in the same visual cell as before.
-- [ ] **AC6 (R11, R12)** — Removing row 1 of a 2-row grid holding a child only
+- [x] **AC6 (R11, R12)** — Removing row 1 of a 2-row grid holding a child only
   in row 1: `GridRows` loses that track, the child survives with `GridRow = 0`,
   a notice names it, and the remaining row fills the container.
-- [ ] **AC7 (R13)** — After the AC6 removal and an unrelated edit elsewhere,
+- [x] **AC7 (R13)** — After the AC6 removal and an unrelated edit elsewhere,
   Restore puts the row and the child's placement back exactly, and the
   unrelated edit remains.
-- [ ] **AC8 (R14)** — On a grid whose `GridColumns` is `Repeat(3, 1fr)`, the
+- [x] **AC8 (R14)** — On a grid whose `GridColumns` is `Repeat(3, 1fr)`, the
   column add/remove/restore buttons are disabled with the explanatory tooltip.
-- [ ] **AC9 (R15, R16, R17)** — Selecting a 2×1 range holding one control and
+- [x] **AC9 (R15, R16, R17)** — Selecting a 2×1 range holding one control and
   pressing Merge gives it `ColumnSpan = 2`. Split returns it to 1. A range
   holding two controls has Merge disabled.
-- [ ] **AC10 (R19, R20)** — Dragging the line between `1fr 1fr` to the 25 %
+- [x] **AC10 (R19, R20)** — Dragging the line between `1fr 1fr` to the 25 %
   mark yields `0.5fr 1.5fr` (total 2 kept). Between `100px 200px`, a 50 px
   drag yields `150px 150px`. An `Auto` track dragged becomes `Npx`.
-- [ ] **AC11 (R21)** — No drag can produce a track narrower than 8 px.
-- [ ] **AC12 (R23, R24)** — With Show Grid off, widening `Lbl-AC-Sub` by its
+- [x] **AC11 (R21)** — No drag can produce a track narrower than 8 px.
+- [x] **AC12 (R23, R24)** — With Show Grid off, widening `Lbl-AC-Sub` by its
   right edge changes `Crd-AC`'s `GridColumns`, and the label's own `w` in the
   `.cfrm` is unchanged.
-- [ ] **AC13 (R25)** — Every gesture above is undone by one Ctrl+Z.
-- [ ] **AC14 (R26)** — For each AC above, the canvas layout and `rcrun
+- [x] **AC13 (R25)** — Every gesture above is undone by one Ctrl+Z.
+- [x] **AC14 (R26)** — For each AC above, the canvas layout and `rcrun
   run-form`'s layout of the saved form produce the same control rects (the
   existing static-vs-run parity harness).
-- [ ] **AC15 (R27, R30, R31)** — On PowerSpatial's `main-form`, with Show Grid
+- [x] **AC15 (R27, R30, R31)** — On PowerSpatial's `main-form`, with Show Grid
   off, selecting `Lbl-AC-Sub` draws the track lines of `Crd-AC` (the grid that
   holds it) and no other grid, with its cell highlighted; selecting a control
   outside any grid hides them.
-- [ ] **AC16 (R28, R29)** — In that state, dragging the line between two of
+- [x] **AC16 (R28, R29)** — In that state, dragging the line between two of
   `Crd-AC`'s columns resizes those columns (units kept, per AC10) as one undo
   step, the label stays selected, and the label's own `w` in the `.cfrm` is
   unchanged; a press on the label away from the line still selects/moves it.
@@ -260,6 +260,12 @@ This feature makes the grid directly editable on the canvas:
   from its icon count, never from available space.
 - **Classification:** **feature** (a new IDE capability). It goes on the
   `features` line and bumps `z` only.
+- **Amendment A2 (2026-10-15, from `/plan`):** the **Show Grid** toggle of R1–R5 is a
+  button of its own, distinct from the designer's existing *Toggle Grid* (the
+  alignment dots): its own icon and tip, both on by default, neither affecting the
+  other. The scope of "Grid container" throughout is a **control** whose
+  `LayoutMode` is Grid (Panel, GroupBox, TabControl); a form whose own
+  `LayoutMode` is Grid is a follow-up.
 
 ## 7. Open questions
 - **Q1:** Should Show Grid on/off persist across IDE restarts (an IDE
@@ -274,3 +280,28 @@ This feature makes the grid directly editable on the canvas:
 - **Q3:** Should a range selection containing no control offer Merge as
   "reserve an empty spanned area"? The model has no span without a control,
   so *proposed: no (R16)*.
+
+## Proofs (1.91.166)
+
+Each acceptance criterion is proved by a frame-driven test of the real designer
+(`crates/cobolt-ide/src/panels/designer_grid_layout_edit_tests.rs`, module
+`grid_layout_088`) unless it names the forms engine. Each was mutation-checked: with
+the code it guards broken, the named test fails.
+
+| AC | Test |
+|---|---|
+| AC1 | `show_grid_starts_on_reads_as_engaged_and_changes_no_byte_of_the_form` |
+| AC2 | `with_show_grid_on_every_grid_container_draws_its_lines` |
+| AC3 | `a_press_on_a_control_in_a_grid_selects_a_cell_and_the_control_cannot_be_moved` |
+| AC4 | `selecting_a_cell_brings_up_the_toolbar_beside_the_grid_with_tips_in_six_languages` |
+| AC5 | `add_column_through_the_toolbar_renumbers_the_child` |
+| AC6, AC7 | `remove_row_keeps_the_child_names_it_and_restore_brings_it_back` |
+| AC8 | `a_repeat_axis_disables_its_buttons_and_pressing_them_does_nothing` |
+| AC9 | `merge_and_split_through_the_toolbar` |
+| AC10 | `dragging_a_line_writes_each_track_in_its_own_unit` |
+| AC11 | `no_drag_makes_a_track_narrower_than_eight_pixels` |
+| AC12 | `widening_a_control_in_a_grid_widens_its_column_and_not_the_control`, `every_edge_and_corner_moves_the_line_it_stands_on` |
+| AC13 | `every_gesture_is_one_undo_step_and_one_redo` (11 gestures) |
+| AC14 | forms engine: `the_canvas_and_run_form_place_an_edited_grid_the_same` — the designer's layout and the saved form's layout (what Run Form reads) agree after every operation. The run-form half is the shared layout engine, not a spawned window. |
+| AC15 | `selecting_a_control_shows_the_grid_it_sits_in_and_no_other` |
+| AC16 | `the_selected_controls_grid_can_be_dragged_and_the_control_keeps_its_own_gestures` |

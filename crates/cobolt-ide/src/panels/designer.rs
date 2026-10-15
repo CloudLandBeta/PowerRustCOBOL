@@ -1157,6 +1157,17 @@ enum Cmd {
         old: Option<String>,
         new: String,
     },
+    /// Spec 088 — one edit of a Grid container's structure: its property writes as
+    /// one undoable step, and what it did to the Restore history. A removal
+    /// (`added`) puts its [`RemovedTrack`] on the history and undoing it takes it
+    /// off again; a Restore (`taken`) takes one off — remembering where it was — and
+    /// undoing that puts it back there. Undo and Restore are separate, and neither
+    /// can leave the other with a record of something that did not happen (R13).
+    GridEdit {
+        cmds: Vec<Cmd>,
+        added: Option<cobolt_forms::layout::grid_edit::RemovedTrack>,
+        taken: Option<(usize, cobolt_forms::layout::grid_edit::RemovedTrack)>,
+    },
     /// A batch of commands applied and reverted as **one** undoable step: the
     /// unit an approved agent change-set becomes (spec 025 R6), and the unit a
     /// Splitter division drag becomes — the line and the contents it carried
@@ -1295,7 +1306,7 @@ pub enum HistoryDir {
 fn touches_procedures(cmd: &Cmd) -> bool {
     match cmd {
         Cmd::SetProcedure { .. } | Cmd::AddProcedure { .. } | Cmd::RemoveProcedure { .. } => true,
-        Cmd::Batch { cmds } => cmds.iter().any(touches_procedures),
+        Cmd::Batch { cmds } | Cmd::GridEdit { cmds, .. } => cmds.iter().any(touches_procedures),
         _ => false,
     }
 }
@@ -1431,6 +1442,23 @@ fn handle_pos(r: &cobolt_forms::model::Rect, h: Handle) -> Pos2 {
 }
 
 impl DesignerPanel {
+    /// The selection knob of the selected control that `(px, py)` — canvas coordinates —
+    /// is on, if any. The grab zones sit on the rect the knobs were DRAWN on (see
+    /// `sel_handle_rect`), so a knob is grabbable exactly where it appears. A selected
+    /// Line has endpoint handles instead, which turns this off for it.
+    fn knob_at(&self, px: i32, py: i32) -> Option<Handle> {
+        let sid = self.selected_ids.first()?;
+        if self.line_endpoints_of(sid).is_some() || !self.controls_movable() || self.grid_edit.is_some() {
+            return None;
+        }
+        let knobs = self.form.find_control(sid).map(handles_for).unwrap_or(&ALL_HANDLES);
+        let r = self.handle_rect_of(sid)?;
+        knobs.iter().copied().find(|&h| {
+            let hp = handle_pos(&r, h);
+            ((px as f32 - hp.x).powi(2) + (py as f32 - hp.y).powi(2)).sqrt() < 8.0
+        })
+    }
+
     /// The rect `id`'s resize knobs sit on, in form coordinates: the one the
     /// last canvas frame drew them on, or the control's own rect when the
     /// canvas has not reported one (no frame yet, or a control it did not
@@ -1692,6 +1720,24 @@ enum DragState {
         pane: SidebarPane,
         orig_h: i32,
         start_y: i32,
+    },
+    /// Spec 088 R7 — dragging across the cells of a Grid container (grid-editing mode)
+    /// to select a range of them.
+    SelectingCells {
+        container: String,
+    },
+    /// Spec 088 R19, R23 — dragging one or two lines between the tracks of a Grid
+    /// container: the line under the pointer (R19), or the lines an edge of a control
+    /// stands on (R23). The tracks are written live from `orig` (the container as it was
+    /// when the press landed), and the drag ends as one undoable step.
+    DraggingGridLines {
+        grid: String,
+        /// Each line: its axis, the track before it, and where the pointer was along the
+        /// axis when the press landed.
+        lines: Vec<(cobolt_forms::layout::grid_edit::Axis, usize, f32)>,
+        orig: cobolt_forms::layout::grid_edit::GridView,
+        /// The container's own track properties before the drag, so one undo puts them back.
+        old_props: Vec<(&'static str, Option<PropValue>)>,
     },
     /// Dragging a Splitter's division line, which redistributes its two panes.
     /// The developer does this at DESIGN time to lay the form out; the running
@@ -2920,6 +2966,12 @@ pub struct DesignerPanel {
     /// The layout the canvas was last painted with (same condition): the
     /// placement a drag on a laid-out canvas is inverted through (R33).
     canvas_layout: Option<cobolt_forms::layout::LayoutOutput>,
+    /// Spec 088 — grid editing's view state (the Restore history, and what T10+ add).
+    pub(crate) layout_grid: super::layout_grid_edit::LayoutGridView,
+    /// Which grids' track lines the last frame drew — what a test reads (spec 088 R3).
+    pub(crate) grid_overlay_ids: Vec<String>,
+    /// The cell highlighted for a selected control's grid, last frame (spec 088 R27).
+    pub(crate) grid_overlay_cell: Option<(String, cobolt_forms::layout::grid_edit::CellRange)>,
     /// The press that started this gesture landed on an anchor-gizmo pin: it
     /// toggled the edge, so it neither drags nor selects (R31).
     pin_consumed: bool,
@@ -3170,6 +3222,9 @@ impl DesignerPanel {
             view_base_notice: None,
             canvas_laid: None,
             canvas_layout: None,
+            layout_grid: Default::default(),
+            grid_overlay_ids: Vec::new(),
+            grid_overlay_cell: None,
             drag_laid: Default::default(),
             pin_consumed: false,
             press_form_edge: None,
@@ -4465,6 +4520,7 @@ impl DesignerPanel {
             Cmd::Rename { old, new } => {
                 self.form.rename_control(old, new);
                 self.retarget_selection(old, new);
+                self.layout_grid.renamed(old, new);
             }
             Cmd::SetEventCode {
                 control_id,
@@ -4480,6 +4536,21 @@ impl DesignerPanel {
             Cmd::Batch { cmds } => {
                 for c in cmds {
                     self.execute(c);
+                }
+            }
+            Cmd::GridEdit { cmds, added, taken } => {
+                for c in cmds {
+                    self.execute(c);
+                }
+                if let Some(r) = added {
+                    self.layout_grid.history.push(r.clone());
+                }
+                if let Some((at, r)) = taken {
+                    let h = &mut self.layout_grid.history;
+                    let i = if h.get(*at) == Some(r) { Some(*at) } else { h.iter().rposition(|x| x == r) };
+                    if let Some(i) = i {
+                        h.remove(i);
+                    }
                 }
             }
             Cmd::SetFormProp { key, new, .. } => {
@@ -4645,6 +4716,7 @@ impl DesignerPanel {
             Cmd::Rename { old, new } => {
                 self.form.rename_control(new, old);
                 self.retarget_selection(new, old);
+                self.layout_grid.renamed(new, old);
             }
             Cmd::SetEventCode {
                 control_id,
@@ -4660,6 +4732,20 @@ impl DesignerPanel {
             Cmd::Batch { cmds } => {
                 for c in cmds.iter().rev() {
                     self.reverse(c);
+                }
+            }
+            Cmd::GridEdit { cmds, added, taken } => {
+                for c in cmds.iter().rev() {
+                    self.reverse(c);
+                }
+                if let Some(r) = added {
+                    if let Some(i) = self.layout_grid.history.iter().rposition(|x| x == r) {
+                        self.layout_grid.history.remove(i);
+                    }
+                }
+                if let Some((at, r)) = taken {
+                    let h = &mut self.layout_grid.history;
+                    h.insert((*at).min(h.len()), r.clone());
                 }
             }
             Cmd::SetAnimations { id, old, .. } => {
@@ -4810,11 +4896,468 @@ impl DesignerPanel {
 
     /// Rename a control's id form-wide (undoable). Returns `false` if the new id
     /// is invalid or already taken.
+    // ── Spec 088 — editing a Grid container ───────────────────────────────────
+
+    /// **The floating toolbar of grid-editing mode** (R8, R9): beside the selected Grid
+    /// container, outside it and on the canvas, with the seven buttons and — under it — the
+    /// notice of what a removal left auto-placed, else the hint that the mode is on.
+    fn show_layout_grid_toolbar(&mut self, ui: &mut Ui, origin: Pos2, canvas: Rect) {
+        use super::layout_grid_edit as lg;
+        self.layout_grid.toolbar = None;
+        if !self.layout_grid_mode() {
+            return;
+        }
+        let [id] = self.selected_ids.as_slice() else { return };
+        let id = id.clone();
+        let Some(view) = self.grid_view(&id) else { return };
+        let Some(r) = self.canvas_layout.as_ref().and_then(|l| l.rects.get(&id)).copied() else { return };
+        let container = Rect::from_min_size(origin + Vec2::new(r.x, r.y), Vec2::new(r.w, r.h));
+        let sel = self.layout_grid.selection.clone().filter(|s| s.container == id);
+        let latest = self.layout_grid.latest_for(&id).map(|(_, rec)| rec.clone());
+        let state: Vec<(lg::Tool, Result<(), lg::Why>)> =
+            lg::TOOLS.iter().map(|&t| (t, lg::availability(t, &view, sel.as_ref(), latest.as_ref()))).collect();
+        let accent = crate::theme::active().accent;
+        let toolbar_id = ui.id().with("layout-grid-toolbar");
+        let pos = lg::toolbar_pos(container, canvas, lg::toolbar_size());
+        let (pressed, strip) = lg::show_toolbar(ui.ctx(), toolbar_id, pos, &state, accent);
+        self.layout_grid.toolbar = Some(strip);
+        let now = ui.ctx().input(|i| i.time);
+        let notice = self.layout_grid.notice.clone().filter(|n| now - n.at < lg::NOTICE_SECONDS);
+        match &notice {
+            Some(n) => {
+                let text = crate::ui_text::idef("Now placed automatically on this axis: {}", &[&n.controls.join(", ")]);
+                lg::show_caption(ui.ctx(), toolbar_id.with("notice"), strip, &text, true);
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+            }
+            None => lg::show_caption(
+                ui.ctx(),
+                toolbar_id.with("hint"),
+                strip,
+                crate::ui_text::ide("Grid editing — click the grid button to select controls"),
+                false,
+            ),
+        }
+        if notice.is_none() {
+            self.layout_grid.notice = None;
+        }
+        if let Some(tool) = pressed {
+            self.layout_grid_run(tool, &id, now);
+        }
+    }
+
+    /// Carry out a toolbar button on Grid container `id` (R10–R17), as one undoable step.
+
+    /// Carry out a toolbar button on Grid container `id` (R10–R17), as one undoable step:
+    /// what the button's availability said yes to, and only that.
+    pub(crate) fn layout_grid_run(&mut self, tool: super::layout_grid_edit::Tool, id: &str, now: f64) {
+        use super::layout_grid_edit::Tool;
+        use cobolt_forms::layout::grid_edit::{merge, split_cell, Axis};
+        let Some(view) = self.grid_view(id) else { return };
+        let sel = self
+            .layout_grid
+            .selection
+            .clone()
+            .filter(|s| s.container == id)
+            .map(|s| s.clamped(view.row_sizes.len(), view.column_sizes.len()));
+        let range = sel.as_ref().map(|s| s.range());
+        match tool {
+            Tool::AddColumn => {
+                let after = range.map(|r| r.column + r.columns - 1);
+                let _ = self.grid_insert(id, Axis::Column, after);
+            }
+            Tool::AddRow => {
+                let after = range.map(|r| r.row + r.rows - 1);
+                let _ = self.grid_insert(id, Axis::Row, after);
+            }
+            Tool::RemoveColumn | Tool::RemoveRow => {
+                let Some(r) = range else { return };
+                let (axis, index) = if tool == Tool::RemoveColumn { (Axis::Column, r.column) } else { (Axis::Row, r.row) };
+                if let Ok(now_auto) = self.grid_remove(id, axis, index) {
+                    // The cell that was selected is gone.
+                    self.layout_grid.selection = None;
+                    self.layout_grid.notice = (!now_auto.is_empty()).then_some(super::layout_grid_edit::Notice { controls: now_auto, at: now });
+                }
+            }
+            Tool::Restore => {
+                let _ = self.grid_restore(id);
+            }
+            Tool::Merge => {
+                if let Some(Ok(edits)) = range.map(|r| merge(&view, r)) {
+                    self.commit_grid_edit(edits, None, None);
+                }
+            }
+            Tool::Split => {
+                if let Some(Ok(edits)) = sel.as_ref().map(|s| split_cell(&view, s.anchor.0, s.anchor.1)) {
+                    self.commit_grid_edit(edits, None, None);
+                }
+            }
+        }
+    }
+
+    /// Whether a cell (or a range of cells) of the selected Grid container is what is
+    /// selected: then the container itself is only the thing the cells belong to, and
+    /// Delete, Cut and the arrow keys must not act on it.
+    pub(crate) fn layout_grid_cell_selected(&self) -> bool {
+        self.layout_grid_mode()
+            && self
+                .layout_grid
+                .selection
+                .as_ref()
+                .is_some_and(|s| self.selected_ids.first() == Some(&s.container))
+    }
+
+    /// **Selecting a control shows its grid** (spec 088 A1, R27, R31): with Show Grid off and
+    /// a control selected that sits in a Grid container, that container — the innermost, the
+    /// control's own parent — and the cell the control is in.
+    pub(crate) fn selected_control_grid(&self) -> Option<(String, cobolt_forms::layout::grid_edit::CellRange)> {
+        use cobolt_forms::layout::grid_edit::CellRange;
+        if self.layout_grid_mode() || !self.layout_grid_available() {
+            return None;
+        }
+        let [id] = self.selected_ids.as_slice() else { return None };
+        let parent = self.form.find_control(id)?.parent.clone()?;
+        let view = self.grid_view(&parent)?;
+        let cell = view.children.iter().find(|c| c.id == *id)?.cell;
+        Some((parent, CellRange { row: cell.row, column: cell.column, rows: cell.row_span, columns: cell.column_span }))
+    }
+
+    /// The grids whose track lines can be taken: with Show Grid on, every one; with it off,
+    /// the one a selected control sits in (A1, R28).
+    fn draggable_grids(&self) -> Vec<super::layout_grid_edit::GridGeom> {
+        let Some(layout) = self.canvas_layout.as_ref() else { return Vec::new() };
+        if self.layout_grid_mode() {
+            return super::layout_grid_edit::GridGeom::all(layout);
+        }
+        self.selected_control_grid()
+            .and_then(|(id, _)| super::layout_grid_edit::GridGeom::of(layout, &id))
+            .into_iter()
+            .collect()
+    }
+
+    /// **A track line takes the pointer** (R18–R21, R25): a press within the line's grab
+    /// band outranks what is under it — the splitter-division order — and drags the two
+    /// tracks it separates; the cursor says so on hover. Only within the band: anywhere
+    /// else the gesture is whatever it would have been (R29). Returns whether it has the
+    /// pointer this frame.
+    fn grid_line_pointer(&mut self, ctx: &egui::Context, resp: &egui::Response, ptr_canvas: Option<(i32, i32)>) -> bool {
+        use super::layout_grid_edit::{GridGeom, LINE_GRAB};
+        use cobolt_forms::layout::grid_edit::{resize_pair, Axis};
+        let (down, pressed) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.primary_pressed()));
+        let along = |axis: Axis, x: i32, y: i32| if axis == Axis::Column { x as f32 } else { y as f32 };
+
+        // A drag in progress: write the tracks from where the press found them.
+        if let DragState::DraggingGridLines { grid, lines, orig, old_props } = self.drag.clone() {
+            let mut edits: cobolt_forms::layout::grid_edit::Edits = Vec::new();
+            for (axis, line, start) in &lines {
+                let delta = ptr_canvas.map(|(x, y)| along(*axis, x, y) - start).unwrap_or(0.0);
+                edits.extend(resize_pair(&orig, *axis, *line, delta).unwrap_or_default());
+            }
+            if let Some((axis, _, _)) = lines.first() {
+                ctx.set_cursor_icon(if *axis == Axis::Column { egui::CursorIcon::ResizeColumn } else { egui::CursorIcon::ResizeRow });
+            }
+            if down {
+                // Live, so the canvas lays out under the pointer; the original is kept.
+                for (id, k, v) in &edits {
+                    if let Some(c) = self.form.find_control_mut(id) {
+                        c.set_prop(k, v.clone());
+                    }
+                }
+            } else {
+                // One step: put the original back, then write the result as an undoable edit.
+                if let Some(c) = self.form.find_control_mut(&grid) {
+                    for (key, old) in &old_props {
+                        match old {
+                            Some(v) => c.set_prop(*key, v.clone()),
+                            None => {
+                                c.properties.swap_remove(*key);
+                            }
+                        }
+                    }
+                }
+                self.commit_grid_edit(edits, None, None);
+                self.dirty = true;
+                self.drag = DragState::None;
+            }
+            return true;
+        }
+
+        let Some((x, y)) = ptr_canvas else { return false };
+        // A knob of the selected control is drawn on top of the line it stands on: it wins,
+        // so a corner takes the line on each axis, not the nearer one (R23).
+        if self.knob_at(x, y).is_some() {
+            return false;
+        }
+        let grids = self.draggable_grids();
+        if grids.is_empty() {
+            return false;
+        }
+        // The nearest line of the innermost grid that has one under the pointer, if it can be dragged.
+        let mut best: Option<(f32, &GridGeom, super::layout_grid_edit::LineHit)> = None;
+        for g in &grids {
+            if let Some(hit) = g.line_at(x as f32, y as f32, LINE_GRAB) {
+                let b = g.bounds();
+                let area = b.w * b.h;
+                if best.as_ref().is_none_or(|(a, _, _)| area < *a) {
+                    best = Some((area, g, hit));
+                }
+            }
+        }
+        let Some((_, g, hit)) = best else { return false };
+        let Some(orig) = self.grid_view(&hit.grid) else { return false };
+        if resize_pair(&orig, hit.axis, hit.line, 1.0).is_err() {
+            return false; // a MinMax or Repeat track, or a scaled grid: no cursor, no drag (R20)
+        }
+        ctx.set_cursor_icon(if hit.axis == Axis::Column { egui::CursorIcon::ResizeColumn } else { egui::CursorIcon::ResizeRow });
+        if !(pressed && resp.contains_pointer()) {
+            return false;
+        }
+        let old_prop = self.form.find_control(&hit.grid).and_then(|c| c.get_prop(hit.axis.tracks_key()).cloned());
+        if self.selected_ids.as_slice() != [hit.grid.clone()] && self.layout_grid_mode() {
+            self.set_selected_one(Some(hit.grid.clone()));
+            self.layout_grid.selection = None;
+        }
+        let _ = g;
+        self.drag = DragState::DraggingGridLines {
+            grid: hit.grid,
+            lines: vec![(hit.axis, hit.line, along(hit.axis, x, y))],
+            orig,
+            old_props: vec![(hit.axis.tracks_key(), old_prop)],
+        };
+        true
+    }
+
+    /// **Resizing a control that sits in a Grid container resizes its cell** (R23, R24): the
+    /// edge a handle stands on is a line between tracks — the one after the control's last
+    /// column or row, the one before its first — and dragging the handle drags that line. The
+    /// outer border of the container is no line, so an edge on it moves nothing; and the
+    /// control's own x, y, width and height are never written. Returns whether `id` is such a
+    /// control and the drag has begun.
+    fn start_grid_cell_resize(&mut self, id: &str, handle: Handle, px: i32, py: i32) -> bool {
+        use cobolt_forms::layout::grid_edit::Axis;
+        let Some(parent) = self.form.find_control(id).and_then(|c| c.parent.clone()) else { return false };
+        let Some(view) = self.grid_view(&parent) else { return false };
+        let Some(child) = view.children.iter().find(|c| c.id == id) else { return false };
+        let k = child.cell;
+        let (cols, rows) = (view.column_sizes.len(), view.row_sizes.len());
+        let mut lines: Vec<(Axis, usize, f32)> = Vec::new();
+        let right = matches!(handle, Handle::Right | Handle::TopRight | Handle::BotRight);
+        let left = matches!(handle, Handle::Left | Handle::TopLeft | Handle::BotLeft);
+        let bottom = matches!(handle, Handle::Bot | Handle::BotLeft | Handle::BotRight);
+        let top = matches!(handle, Handle::Top | Handle::TopLeft | Handle::TopRight);
+        if right && k.column + k.column_span < cols {
+            lines.push((Axis::Column, k.column + k.column_span - 1, px as f32));
+        }
+        if left && k.column > 0 {
+            lines.push((Axis::Column, k.column - 1, px as f32));
+        }
+        if bottom && k.row + k.row_span < rows {
+            lines.push((Axis::Row, k.row + k.row_span - 1, py as f32));
+        }
+        if top && k.row > 0 {
+            lines.push((Axis::Row, k.row - 1, py as f32));
+        }
+        let old_props = [Axis::Column, Axis::Row]
+            .into_iter()
+            .map(|a| (a.tracks_key(), self.form.find_control(&parent).and_then(|c| c.get_prop(a.tracks_key()).cloned())))
+            .collect();
+        // Even with no line to move the drag is a grid drag: a control in a grid is never
+        // given a size of its own by a gesture (R24).
+        self.drag = DragState::DraggingGridLines { grid: parent, lines, orig: view, old_props };
+        true
+    }
+
+    /// **Grid-editing mode takes the pointer** (R6, R7): a press inside a Grid container
+    /// acts on the grid — it selects the container and one cell, a drag or a Shift-press
+    /// widens the selection to a range — and never on the controls placed in it, which
+    /// are not selected, moved or resized from the canvas. Returns whether it has the
+    /// pointer this frame, so the ordinary gestures stand aside.
+    fn layout_grid_pointer(
+        &mut self,
+        ctx: &egui::Context,
+        resp: &egui::Response,
+        ptr_canvas: Option<(i32, i32)>,
+        selection_changed: &mut bool,
+    ) -> bool {
+        use super::layout_grid_edit::{grid_at, CellSel, GridGeom};
+        // A cell selection belongs to its container and to the mode.
+        let mode = self.layout_grid_mode();
+        if self
+            .layout_grid
+            .selection
+            .as_ref()
+            .is_some_and(|s| !mode || self.selected_ids.first() != Some(&s.container))
+        {
+            self.layout_grid.selection = None;
+        }
+        if !mode {
+            if matches!(self.drag, DragState::SelectingCells { .. }) {
+                self.drag = DragState::None;
+            }
+            return false;
+        }
+        let (down, pressed, shift) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.primary_pressed(), i.modifiers.shift));
+        let Some(layout) = self.canvas_layout.as_ref() else { return false };
+        let grids = GridGeom::all(layout);
+
+        // A drag across cells: the far end follows the pointer, wherever it goes.
+        if let DragState::SelectingCells { container } = self.drag.clone() {
+            if let (Some(g), Some((x, y))) = (grids.iter().find(|g| g.id == container), ptr_canvas) {
+                let cell = g.nearest_cell(x as f32, y as f32);
+                if let Some(sel) = self.layout_grid.selection.as_mut() {
+                    sel.head = cell;
+                }
+            }
+            if !down {
+                self.drag = DragState::None;
+            }
+            return true;
+        }
+
+        let Some((x, y)) = ptr_canvas else { return false };
+        if !(pressed && resp.contains_pointer()) {
+            return false;
+        }
+        let Some(g) = grid_at(&grids, x as f32, y as f32) else { return false };
+        let cell = g.cell_at(x as f32, y as f32).unwrap_or((0, 0));
+        let id = g.id.clone();
+        let extend = shift && self.layout_grid.selection.as_ref().is_some_and(|s| s.container == id);
+        if extend {
+            if let Some(sel) = self.layout_grid.selection.as_mut() {
+                sel.head = cell;
+            }
+        } else {
+            self.layout_grid.selection = Some(CellSel::single(&id, cell));
+        }
+        if self.selected_ids.as_slice() != [id.clone()] {
+            self.set_selected_one(Some(id.clone()));
+            *selection_changed = true;
+        }
+        self.drag = DragState::SelectingCells { container: id };
+        true
+    }
+
+    /// The Show Grid button (R1–R5): a designer view setting, not saved and not a change
+    /// to the form — the canvas simply switches mode at once (R4).
+    pub(crate) fn toggle_layout_grid(&mut self) {
+        self.layout_grid.show = !self.layout_grid.show;
+        // A cell chosen in grid-editing mode means nothing once the mode is left.
+        self.layout_grid.selection = None;
+    }
+
+    /// Whether the canvas may treat the pointer as editing a layout grid at all: the
+    /// form lays out (spec 056), and no other designer mode owns the pointer — the
+    /// Non-Visuals tab, DataGrid edit mode, the Format Painter, Visual Tab Order, a
+    /// control being placed. (Spec 088 plan §1.)
+    pub(crate) fn layout_grid_available(&self) -> bool {
+        self.form.lays_out()
+            && self.controls_movable()
+            && self.grid_edit.is_none()
+            && matches!(self.format_painter, FormatPainter::Idle)
+            && self.tab_order_modal.is_none()
+            && !matches!(self.drag, DragState::PlacingNew { .. })
+    }
+
+    /// **Grid-editing mode** (Show Grid on, R6): a press inside a Grid container acts on
+    /// the grid and not on the controls placed in it. Only when there is a grid to act on.
+    pub(crate) fn layout_grid_mode(&self) -> bool {
+        self.layout_grid.show
+            && self.layout_grid_available()
+            && self.canvas_layout.as_ref().is_some_and(|l| !super::layout_grid_edit::GridGeom::all(l).is_empty())
+    }
+
+    /// The Grid container `id` as the canvas laid it out: its track lists, its track
+    /// sizes and where each child sits. `None` until the canvas has been laid out, and
+    /// for a control that is not a laid-out Grid.
+    pub(crate) fn grid_view(&self, id: &str) -> Option<cobolt_forms::layout::grid_edit::GridView> {
+        use cobolt_forms::layout::LayoutMode;
+        let geom = self.canvas_layout.as_ref()?.containers.get(id)?;
+        if geom.mode != LayoutMode::Grid {
+            return None;
+        }
+        let container = self.form.find_control(id)?;
+        let kids: Vec<&Control> = self
+            .form
+            .controls
+            .iter()
+            .filter(|c| c.parent.as_deref() == Some(id) && !c.control_type.is_non_visual())
+            .collect();
+        Some(cobolt_forms::layout::grid_edit::GridView::from_layout(container, &kids, geom))
+    }
+
+    /// Write a grid edit as ONE undoable step (R25): each property write a
+    /// [`Cmd::SetProperty`] carrying the value it replaces, wrapped in a
+    /// [`Cmd::GridEdit`] with what the edit does to the Restore history. A write that
+    /// would change nothing is dropped; an edit with nothing left to do pushes
+    /// nothing. Returns whether a step was pushed.
+    pub(crate) fn commit_grid_edit(
+        &mut self,
+        edits: cobolt_forms::layout::grid_edit::Edits,
+        added: Option<cobolt_forms::layout::grid_edit::RemovedTrack>,
+        taken: Option<(usize, cobolt_forms::layout::grid_edit::RemovedTrack)>,
+    ) -> bool {
+        let mut cmds = Vec::new();
+        for (id, key, new) in edits {
+            let Some(c) = self.form.find_control(&id) else { continue };
+            let old = c.get_prop(&key).cloned();
+            if old.as_ref().is_some_and(|o| o.to_xml_string() == new.to_xml_string()) {
+                continue;
+            }
+            cmds.push(Cmd::SetProperty { id, key, old, new });
+        }
+        if cmds.is_empty() && added.is_none() && taken.is_none() {
+            return false;
+        }
+        self.apply(Cmd::GridEdit { cmds, added, taken });
+        true
+    }
+
+    /// **Add a row or a column** to Grid container `id` (R10).
+    pub(crate) fn grid_insert(
+        &mut self,
+        id: &str,
+        axis: cobolt_forms::layout::grid_edit::Axis,
+        after: Option<usize>,
+    ) -> Result<(), cobolt_forms::layout::grid_edit::Refusal> {
+        use cobolt_forms::layout::grid_edit::{insert_track, Refusal};
+        let view = self.grid_view(id).ok_or(Refusal::NoSuchTrack)?;
+        let edits = insert_track(&view, axis, after)?;
+        self.commit_grid_edit(edits, None, None);
+        Ok(())
+    }
+
+    /// **Remove a row or a column** from Grid container `id` (R11, R12). Answers the
+    /// controls it left auto-placed, for the notice; the removal is remembered for
+    /// Restore.
+    pub(crate) fn grid_remove(
+        &mut self,
+        id: &str,
+        axis: cobolt_forms::layout::grid_edit::Axis,
+        index: usize,
+    ) -> Result<Vec<String>, cobolt_forms::layout::grid_edit::Refusal> {
+        use cobolt_forms::layout::grid_edit::{remove_track, Refusal};
+        let view = self.grid_view(id).ok_or(Refusal::NoSuchTrack)?;
+        let removal = remove_track(&view, axis, index)?;
+        self.commit_grid_edit(removal.edits, Some(removal.record), None);
+        Ok(removal.now_auto)
+    }
+
+    /// **Restore** the most recent row or column removed from Grid container `id`
+    /// (R13). `Err(NoSuchTrack)` when there is none to restore.
+    pub(crate) fn grid_restore(&mut self, id: &str) -> Result<(), cobolt_forms::layout::grid_edit::Refusal> {
+        use cobolt_forms::layout::grid_edit::{restore_track, Refusal};
+        let (at, record) = self.layout_grid.latest_for(id).map(|(i, r)| (i, r.clone())).ok_or(Refusal::NoSuchTrack)?;
+        let view = self.grid_view(id).ok_or(Refusal::NoSuchTrack)?;
+        let edits = restore_track(&view, &record)?;
+        self.commit_grid_edit(edits, None, Some((at, record)));
+        Ok(())
+    }
+
     pub fn rename_control(&mut self, old: &str, new: &str) -> bool {
         if !self.form.rename_control(old, new) {
             return false;
         }
         self.retarget_selection(old, new);
+        self.layout_grid.renamed(old, new);
         self.undo_stack.push(Cmd::Rename {
             old: old.to_owned(),
             new: new.to_owned(),
@@ -9808,6 +10351,11 @@ impl DesignerPanel {
                 // its grid, its frame band and its toolbar first (and ends on Esc,
                 // a press away from it, or a double-click on its frame).
                 let grid_edit_has_pointer = self.grid_edit_pointer(ui.ctx(), &resp, resp.rect);
+                // Spec 088 — grid-editing mode takes a press inside a Grid container.
+                let layout_grid_has_pointer = !grid_edit_has_pointer
+                    && (self.grid_line_pointer(ui.ctx(), &resp, ptr_canvas)
+                        || self.layout_grid_pointer(ui.ctx(), &resp, ptr_canvas, &mut selection_changed));
+                let grid_edit_has_pointer = grid_edit_has_pointer || layout_grid_has_pointer;
                 if resp.double_clicked() && !grid_edit_has_pointer {
                     if let Some((cx, cy)) = ptr_canvas {
                         if let Some(id) = self.splitter_division_at(cx, cy) {
@@ -10577,6 +11125,9 @@ impl DesignerPanel {
                     self.show_grid_edit(ui, frame, grid_reports, resp.rect);
                 }
 
+                // Spec 088 — grid-editing mode's floating toolbar, over everything else.
+                self.show_layout_grid_toolbar(ui, origin, resp.rect);
+
                 // Right-click context menu
                 resp.context_menu(|ui| {
                     let tr = crate::i18n::current_tr(ui.ctx());
@@ -10796,7 +11347,9 @@ impl DesignerPanel {
 
                 // Click on canvas — select / deselect (not the click that
                 // toggled an anchor pin).
-                if resp.clicked() && !self.pin_consumed {
+                // Grid-editing mode (spec 088) has already acted on a press inside a Grid
+                // container, so the click it ends is not a selection of what is under it.
+                if resp.clicked() && !self.pin_consumed && !layout_grid_has_pointer {
                     let ctrl_held = ui.ctx().input(|i| i.modifiers.command);
                     if let Some((cx, cy)) = ptr_canvas {
                         // A click on a TabControl's tab strip switches its active
@@ -10875,7 +11428,11 @@ impl DesignerPanel {
         // Grid edit mode (spec 094) owns the keyboard too: an arrow moves the
         // grid's cell, not the control, and Delete is the cell editor's.
         let no_text_focus = ctx.memory(|m| m.focused().is_none()) && self.grid_edit.is_none();
+        // A cell selected in a Grid container (spec 088) is not the container: Delete,
+        // Cut and the arrows leave it alone.
+        let cells = self.layout_grid_cell_selected();
         let want_delete = no_text_focus
+            && !cells
             && !self.selected_ids.is_empty()
             && ctx.input(|i| {
                 (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
@@ -10907,6 +11464,7 @@ impl DesignerPanel {
             self.copy_selected(clipboard);
         }
         if no_text_focus
+            && !cells
             && !self.selected_ids.is_empty()
             && ctx.input(|i| i.key_pressed(egui::Key::X) && i.modifiers.command)
         {
@@ -10930,7 +11488,7 @@ impl DesignerPanel {
         // arithmetic already says.
         // …and not on `Non-Visuals`: a card sits where the grid puts it, so there is
         // nothing to nudge (spec 091 R52).
-        if no_text_focus && !self.selected_ids.is_empty() && self.controls_movable() {
+        if no_text_focus && !cells && !self.selected_ids.is_empty() && self.controls_movable() {
             let (dx, dy) = ctx.input(|i| {
                 let step = nudge_step(
                     self.form.grid_size as i32,
@@ -14035,45 +14593,65 @@ impl DesignerPanel {
     /// 056 R45 — a selected flex, flow or grid container's structure: its
     /// items' boundaries (flex/flow), or its track lines with their sizes
     /// (grid).
-    fn paint_container_overlay(&self, painter: &egui::Painter, origin: Pos2) {
+    fn paint_container_overlay(&mut self, painter: &egui::Painter, origin: Pos2) {
         use cobolt_forms::layout::LayoutMode;
-        let (Some(id), Some(layout)) = (self.selected_ids.first(), &self.canvas_layout) else { return };
-        let Some(g) = layout.containers.get(id) else { return };
-        if g.mode == LayoutMode::Absolute {
-            return;
-        }
+        self.grid_overlay_ids.clear();
+        let Some(layout) = &self.canvas_layout else { return };
         let accent = crate::theme::active().accent;
-        let at = |p: egui::Pos2| origin + p.to_vec2();
-        let dash = Stroke::new(1.0, accent.gamma_multiply(0.8));
-        if g.mode == LayoutMode::Grid {
-            let font = egui::FontId::proportional(9.0);
-            let (top, bottom) = (g.client.y, g.client.y + g.rows.iter().sum::<f32>() + g.rows.len().saturating_sub(1) as f32 * g.gaps.1);
-            let (left, right) = (g.client.x, g.client.x + g.columns.iter().sum::<f32>() + g.columns.len().saturating_sub(1) as f32 * g.gaps.0);
-            let mut x = g.client.x;
-            for (i, w) in g.columns.iter().enumerate() {
-                if i > 0 {
-                    x += g.gaps.0;
-                }
-                painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(x, top)), at(egui::pos2(x, bottom))], dash, 4.0, 3.0));
-                painter.text(at(egui::pos2(x + w / 2.0, top + 2.0)), egui::Align2::CENTER_TOP, format!("{w:.0}"), font.clone(), accent);
-                x += w;
-            }
-            painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(x, top)), at(egui::pos2(x, bottom))], dash, 4.0, 3.0));
-            let mut y = g.client.y;
-            for (i, h) in g.rows.iter().enumerate() {
-                if i > 0 {
-                    y += g.gaps.1;
-                }
-                painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(left, y)), at(egui::pos2(right, y))], dash, 4.0, 3.0));
-                painter.text(at(egui::pos2(left + 2.0, y + h / 2.0)), egui::Align2::LEFT_CENTER, format!("{h:.0}"), font.clone(), accent);
-                y += h;
-            }
-            painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(left, y)), at(egui::pos2(right, y))], dash, 4.0, 3.0));
+        // Spec 088 R3 — with Show Grid on, every Grid container's lines are drawn, the
+        // selected one or not.
+        let mut grids: Vec<super::layout_grid_edit::GridGeom> = if self.layout_grid_mode() {
+            super::layout_grid_edit::GridGeom::all(layout)
         } else {
-            for c in self.form.controls.iter().filter(|c| c.parent.as_deref() == Some(id.as_str())) {
-                if let Some(r) = layout.rects.get(&c.id) {
-                    let rect = egui::Rect::from_min_size(at(egui::pos2(r.x, r.y)), egui::vec2(r.w, r.h));
-                    painter.rect_stroke(rect, 0.0, dash, egui::StrokeKind::Outside);
+            Vec::new()
+        };
+        let selected = self.selected_ids.first().cloned();
+        if let Some(g) = selected.as_deref().and_then(|id| layout.containers.get(id)) {
+            if g.mode == LayoutMode::Grid {
+                // 056 R45 — a selected grid shows its structure even with Show Grid off.
+                let id = selected.clone().unwrap_or_default();
+                if !grids.iter().any(|x| x.id == id) {
+                    grids.extend(super::layout_grid_edit::GridGeom::of(layout, &id));
+                }
+            } else if g.mode != LayoutMode::Absolute {
+                // A selected flex or flow container: its items' boundaries.
+                let dash = Stroke::new(1.0, accent.gamma_multiply(0.8));
+                let at = |p: egui::Pos2| origin + p.to_vec2();
+                if let Some(id) = &selected {
+                    for c in self.form.controls.iter().filter(|c| c.parent.as_deref() == Some(id.as_str())) {
+                        if let Some(r) = layout.rects.get(&c.id) {
+                            let rect = egui::Rect::from_min_size(at(egui::pos2(r.x, r.y)), egui::vec2(r.w, r.h));
+                            painter.rect_stroke(rect, 0.0, dash, egui::StrokeKind::Outside);
+                        }
+                    }
+                }
+            }
+        }
+        // Spec 088 A1 — the grid a selected control sits in, and the cell it is in.
+        let a1 = self.selected_control_grid();
+        if let Some((id, _)) = &a1 {
+            if !grids.iter().any(|x| x.id == *id) {
+                if let Some(l) = &self.canvas_layout {
+                    grids.extend(super::layout_grid_edit::GridGeom::of(l, id));
+                }
+            }
+        }
+        self.grid_overlay_cell = None;
+        for g in &grids {
+            super::layout_grid_edit::paint_grid(painter, origin, g, accent);
+            self.grid_overlay_ids.push(g.id.clone());
+        }
+        if let Some((id, range)) = a1 {
+            if let Some(g) = grids.iter().find(|g| g.id == id) {
+                super::layout_grid_edit::paint_range(painter, origin, g, range, accent);
+                self.grid_overlay_cell = Some((id, range));
+            }
+        }
+        // The selected cells, in grid-editing mode (R7).
+        if self.layout_grid_mode() {
+            if let Some(sel) = &self.layout_grid.selection {
+                if let Some(g) = grids.iter().find(|g| g.id == sel.container) {
+                    super::layout_grid_edit::paint_selection(painter, origin, g, sel, accent);
                 }
             }
         }
@@ -15810,28 +16388,7 @@ impl DesignerPanel {
         // Check if pointer is currently over a resize handle (for cursor feedback).
         // The grab zones sit on the rect the knobs were DRAWN on (see
         // `sel_handle_rect`), so a knob is grabbable exactly where it appears.
-        let handle_hover = if selected_line.is_some() || !self.controls_movable() || self.grid_edit.is_some() {
-            None
-        } else {
-            self.selected_ids.first().and_then(|sid| {
-                let knobs = self
-                    .form
-                    .find_control(sid)
-                    .map(handles_for)
-                    .unwrap_or(&ALL_HANDLES);
-                self.handle_rect_of(sid).and_then(|r| {
-                    for &h in knobs {
-                        let hp = handle_pos(&r, h);
-                        let dist =
-                            ((px as f32 - hp.x).powi(2) + (py as f32 - hp.y).powi(2)).sqrt();
-                        if dist < 8.0 {
-                            return Some(h);
-                        }
-                    }
-                    None
-                })
-            })
-        };
+        let handle_hover = self.knob_at(px, py);
 
         if let Some(h) = handle_hover {
             resp.ctx.set_cursor_icon(handle_cursor(h));
@@ -16032,7 +16589,9 @@ impl DesignerPanel {
                     // (the pointer has already moved by the time drag_started fires).
                     if let Some(h) = self.press_handle.take() {
                         if let Some(sid) = self.selected_ids.first().cloned() {
-                            if let Some(ctrl) = self.form.find_control(&sid) {
+                            if self.start_grid_cell_resize(&sid, h, px, py) {
+                                // A control in a Grid container: its cell is resized instead.
+                            } else if let Some(ctrl) = self.form.find_control(&sid) {
                                 self.drag = DragState::ResizingControl {
                                     id: sid,
                                     handle: h,
@@ -16279,6 +16838,9 @@ impl DesignerPanel {
                 DragState::ResizingSidebarPane { .. } => {
                     self.apply_sidebar_seam_drag(py);
                 }
+                // Spec 088 — a cell selection is carried by `layout_grid_pointer`, which
+                // has the pointer for as long as it lasts.
+                DragState::SelectingCells { .. } | DragState::DraggingGridLines { .. } => {}
                 DragState::MovingSplitterDivision { .. } => {
                     self.apply_splitter_division_drag(px, py);
                 }
@@ -16479,6 +17041,9 @@ impl DesignerPanel {
                 DragState::ResizingSidebarPane { .. } => {
                     self.finish_sidebar_seam_drag();
                 }
+                // Spec 088 — a cell selection is carried by `layout_grid_pointer`, which
+                // has the pointer for as long as it lasts.
+                DragState::SelectingCells { .. } | DragState::DraggingGridLines { .. } => {}
                 DragState::MovingSplitterDivision { .. } => {
                     self.finish_splitter_division_drag();
                 }
@@ -17548,6 +18113,8 @@ pub(crate) enum DesignerToolbarAction {
     TogglePreview,
     ToggleAnimPreview,
     ToggleGrid,
+    /// Spec 088 — Show Grid: the layout grids' structure, edited on the canvas.
+    ToggleLayoutGrid,
     ToggleGlass,
     /// Spec 089 — the toolbox's magnifier.
     ToggleMagnifier,
@@ -17629,6 +18196,9 @@ pub(crate) fn draw_icon_toolbar(
     // 089 — the Magnifier toggle and its tip (`tr.tb_magnifier`).
     magnifier_on: bool,
     magnifier_tip: &str,
+    // 088 — Show Grid (the layout grids), engaged while on, and its tip.
+    layout_grid_on: bool,
+    layout_grid_tip: &str,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -17832,6 +18402,9 @@ pub(crate) fn draw_icon_toolbar(
         }
         if icon_btn(ui, true, grid_on, crate::ui_text::ide("Toggle Grid"), &icon_grid) {
             action = DesignerToolbarAction::ToggleGrid;
+        }
+        if icon_btn(ui, true, layout_grid_on, layout_grid_tip, &icon_layout_grid) {
+            action = DesignerToolbarAction::ToggleLayoutGrid;
         }
         if icon_btn(ui, true, glass_on, crate::ui_text::ide("Toggle Glass Theme"), &icon_glass) {
             action = DesignerToolbarAction::ToggleGlass;
@@ -18242,6 +18815,22 @@ fn icon_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         }
     }
     out.push(Shape::rect_stroke(sr, 1.0, s, egui::StrokeKind::Middle));
+}
+
+/// Spec 088 — Show Grid: a framed table of cells (two lines each way) — the
+/// layout grid of a container, so it cannot be mistaken for [`icon_grid`]'s dots,
+/// which are the alignment grid.
+fn icon_layout_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let sr = r.shrink(3.0);
+    out.push(Shape::rect_stroke(sr, 1.5, Stroke::new(1.5, c), egui::StrokeKind::Middle));
+    let s = Stroke::new(1.2, c);
+    for i in 1..3 {
+        let t = i as f32 / 3.0;
+        let x = sr.min.x + sr.width() * t;
+        let y = sr.min.y + sr.height() * t;
+        out.push(Shape::line_segment([Pos2::new(x, sr.min.y), Pos2::new(x, sr.max.y)], s));
+        out.push(Shape::line_segment([Pos2::new(sr.min.x, y), Pos2::new(sr.max.x, y)], s));
+    }
 }
 
 /// A magnifying glass: the lens and its handle.
@@ -26448,6 +27037,9 @@ mod layers_091;
 #[cfg(test)]
 #[path = "designer_grid_edit_094_tests.rs"]
 mod grid_edit_094;
+#[cfg(test)]
+#[path = "designer_grid_layout_edit_tests.rs"]
+mod grid_layout_088;
 
 // Spec 096 — a tilted control in the Designer: drawn tilted, selected and resized by the
 // rectangle it was designed in.

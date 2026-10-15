@@ -57,11 +57,24 @@ pub struct Item {
     pub height: Limits,
 }
 
+/// The cell an item sits in, 0-based: its first row and column and how many of
+/// each it spans. Auto-placed items have one too — the engine's answer, which an
+/// editor must agree with (spec 088).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cell {
+    pub row: usize,
+    pub column: usize,
+    pub row_span: usize,
+    pub column_span: usize,
+}
+
 /// What [`solve`] returns.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Solved {
     /// One rectangle per item, in the order given.
     pub rects: Vec<LRect>,
+    /// One cell per item, in the order given.
+    pub cells: Vec<Cell>,
     /// The column widths and row heights chosen.
     pub columns: Vec<f32>,
     pub rows: Vec<f32>,
@@ -403,8 +416,14 @@ pub fn solve(c: &Container, items: &[Item], client: LRect) -> Solved {
     let total = |sizes: &[f32], gap: f32| sizes.iter().sum::<f32>() + sizes.len().saturating_sub(1) as f32 * gap;
     let content_columns = size_tracks(&columns_t, None, c.column_gap, &col_spans);
     let content_rows = size_tracks(&rows_t, None, c.row_gap, &row_spans);
+    let cells: Vec<Cell> = items
+        .iter()
+        .zip(&cells)
+        .map(|(it, &(row, column))| Cell { row, column, row_span: it.row_span, column_span: it.column_span })
+        .collect();
     Solved {
         rects,
+        cells,
         content: (total(&content_columns, c.column_gap), total(&content_rows, c.row_gap)),
         columns,
         rows,
@@ -441,6 +460,39 @@ mod tests {
     }
 
     const CLIENT: LRect = LRect { x: 10.0, y: 20.0, w: 800.0, h: 400.0 };
+
+    /// Spec 088 T2 — the solver says which cell each item is in, auto-placed
+    /// items included, so an editor agrees with the engine about where a control
+    /// is. Each cell is checked against the rectangle `solve` returns for it.
+    #[test]
+    fn solve_reports_the_cell_of_every_item() {
+        let at = |col: usize, row: usize, cs: usize, rs: usize| Item { column: col, row, column_span: cs, row_span: rs, ..it(10.0, 10.0) };
+        // 2 × 2 template; A explicit (2, 1), B auto, C spans two columns on row 2,
+        // D is locked to row 4 — a row the template does not have.
+        let items = vec![at(2, 1, 1, 1), at(0, 0, 1, 1), at(1, 2, 2, 1), at(0, 4, 1, 1)];
+        let g = grid("100px 100px", "50px 50px");
+        let s = solve(&g, &items, CLIENT);
+        let cell = |row: usize, column: usize, row_span: usize, column_span: usize| Cell { row, column, row_span, column_span };
+        assert_eq!(
+            s.cells,
+            vec![cell(0, 1, 1, 1), cell(0, 0, 1, 1), cell(1, 0, 1, 2), cell(3, 0, 1, 1)],
+            "explicit, auto (first free cell), a two-column span, and an implicit row"
+        );
+        assert_eq!(s.rows.len(), 4, "row 4 exists only because D sits in it");
+        // Every cell agrees with the rectangle: a Stretch item fills its cell area.
+        let (mut checked, mut apart) = (0, 0);
+        for (rect, c) in s.rects.iter().zip(&s.cells) {
+            let x0: f32 = s.columns[..c.column].iter().sum();
+            let y0: f32 = s.rows[..c.row].iter().sum();
+            let w: f32 = s.columns[c.column..c.column + c.column_span].iter().sum();
+            checked += 1;
+            if (rect.x - (CLIENT.x + x0)).abs() > 0.01 || (rect.y - (CLIENT.y + y0)).abs() > 0.01 || (rect.w - w).abs() > 0.01 {
+                apart += 1;
+            }
+        }
+        assert_eq!(apart, 0);
+        println!("grid cells: {checked} items, each cell matches the rectangle the engine placed it in");
+    }
 
     /// AC25 — `200px 1fr 2fr` in 800: 200 fixed, 600 left for 3 fr → 200,
     /// 400. Three items auto-placed across: x 10, 210, 410.

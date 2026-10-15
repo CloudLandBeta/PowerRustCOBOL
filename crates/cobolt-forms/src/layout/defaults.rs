@@ -110,6 +110,19 @@ pub const COLLIDE_TOUCH_EPS: f32 = 0.01;
 /// time, at most this many times, until the splitter's own rounding gives
 /// each pane its minimum.
 pub const SPLITTER_FIT_ROUNDS: u32 = 4;
+
+// ── Editing a grid on the canvas (spec 088) ─────────────────────────────────
+
+/// No track is dragged below this many pixels (R21).
+pub const GRID_EDIT_MIN_TRACK_PX: f32 = 8.0;
+/// A drag that moves a line less than this changes nothing, so it makes no edit.
+pub const GRID_EDIT_MIN_DRAG_PX: f32 = 0.0005;
+/// The smallest divisor when a flexible track is written back from pixels, so a
+/// grid with no flexible track to measure a rate from never divides by zero.
+pub const GRID_EDIT_MIN_UNIT: f32 = 0.0001;
+/// A track size is written with at most three decimals: a size is rounded to
+/// the nearest 1/1000 (`{:.3}` in `tracks::fmt_num`).
+pub const GRID_EDIT_DECIMAL_SCALE: f32 = 1000.0;
 /// An OS window cannot take an infinite maximum: an unbounded axis is this.
 pub const WINDOW_UNBOUNDED: f32 = 100_000.0;
 /// A breakpoint's font factor when it states none (R67).

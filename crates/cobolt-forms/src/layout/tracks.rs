@@ -166,6 +166,114 @@ fn parse_entries(text: &str) -> Vec<Entry> {
     out
 }
 
+/// What a token of a track list is, for an editor (spec 088).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TokenKind {
+    /// One ordinary track: `Npx`, `N`, `N%`, `Nfr`, `Auto`.
+    Plain(Track),
+    /// One `MinMax(a, b)` track: it is a track, but it cannot be dragged.
+    MinMax,
+    /// `Repeat(N, …)` or `Repeat(AutoFill, …)`: any number of tracks, which an
+    /// edit leaves alone.
+    Repeat,
+    /// Something the parser skips — no track, no error.
+    Unreadable,
+}
+
+/// The top-level tokens of a track list exactly as written (a `MinMax(…)` or
+/// `Repeat(…)` is one token), so an editor can replace, insert or remove one and
+/// leave every other — an unreadable one included — as the developer typed it.
+pub fn split(text: &str) -> Vec<String> {
+    split_top(text, char::is_whitespace).into_iter().map(str::to_owned).collect()
+}
+
+/// Tokens back into a list: one space between them.
+pub fn join(tokens: &[String]) -> String {
+    tokens.join(" ")
+}
+
+/// What one token is, by the parser's own rules: a token the parser would skip
+/// is [`TokenKind::Unreadable`].
+pub fn kind_of(token: &str) -> TokenKind {
+    let lower = token.trim().to_ascii_lowercase();
+    if let Some(args) = call(&lower, "repeat") {
+        let parts = split_top(args, |c| c == ',');
+        let Some((count, rest)) = parts.split_first() else { return TokenKind::Unreadable };
+        let has_tracks = rest.iter().flat_map(|p| parse_entries(p)).any(|e| matches!(e, Entry::Track(_)));
+        let count = count.trim().replace(['-', '_'], "");
+        return if has_tracks && (count == "autofill" || count.parse::<usize>().is_ok()) {
+            TokenKind::Repeat
+        } else {
+            TokenKind::Unreadable
+        };
+    }
+    if let Some(args) = call(&lower, "minmax") {
+        let parts = split_top(args, |c| c == ',');
+        return match parts.as_slice() {
+            [a, b] if breadth(a).is_some() && breadth(b).is_some() => TokenKind::MinMax,
+            _ => TokenKind::Unreadable,
+        };
+    }
+    match breadth(&lower) {
+        Some(b) => TokenKind::Plain(Track::of(b)),
+        None => TokenKind::Unreadable,
+    }
+}
+
+/// Whether any token of the list is a `Repeat(…)`.
+pub fn has_repeat(text: &str) -> bool {
+    split(text).iter().any(|t| kind_of(t) == TokenKind::Repeat)
+}
+
+/// A track list as an editor sees it: the tokens, and which token holds each
+/// track.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Slots {
+    pub tokens: Vec<String>,
+    /// For each explicit track (a `Plain` or `MinMax` token), in order, the index
+    /// of its token. An unreadable token holds none. Meaningless past a `Repeat`
+    /// — check [`Slots::has_repeat`] first.
+    pub track_to_token: Vec<usize>,
+    pub has_repeat: bool,
+}
+
+pub fn slots(text: &str) -> Slots {
+    let tokens = split(text);
+    let kinds: Vec<TokenKind> = tokens.iter().map(|t| kind_of(t)).collect();
+    Slots {
+        track_to_token: kinds
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| matches!(k, TokenKind::Plain(_) | TokenKind::MinMax))
+            .map(|(i, _)| i)
+            .collect(),
+        has_repeat: kinds.contains(&TokenKind::Repeat),
+        tokens,
+    }
+}
+
+/// A number as written back into a track list: at most three decimals, no
+/// trailing zeros.
+fn fmt_num(v: f32) -> String {
+    let s = format!("{:.3}", (v * defaults::GRID_EDIT_DECIMAL_SCALE).round() / defaults::GRID_EDIT_DECIMAL_SCALE);
+    s.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
+/// `150px` — pixels are whole numbers.
+pub fn fmt_px(v: f32) -> String {
+    format!("{}px", v.round() as i64)
+}
+
+/// `0.5fr`.
+pub fn fmt_fr(v: f32) -> String {
+    format!("{}fr", fmt_num(v))
+}
+
+/// `25%`.
+pub fn fmt_percent(v: f32) -> String {
+    format!("{}%", fmt_num(v))
+}
+
 /// `name(args)` → `args`.
 fn call<'a>(tok: &'a str, name: &str) -> Option<&'a str> {
     tok.strip_prefix(name)?.trim_start().strip_prefix('(')?.strip_suffix(')')
@@ -234,6 +342,85 @@ mod tests {
             ]
         );
         assert!(parse("").is_empty());
+    }
+
+    /// Spec 088 T1 — a track list is edited as TOKENS, so what the parser cannot
+    /// read survives an edit: splitting and joining keeps every token as written
+    /// (an unreadable one included), however the list is spelled.
+    #[test]
+    fn a_track_list_splits_into_tokens_and_joins_back_unchanged() {
+        let cases = [
+            "1fr 1fr",
+            "100px 200px",
+            "1FR  100",
+            "Repeat(3, 1fr)",
+            "MinMax(100px, 1fr) 2fr",
+            "200px nonsense 1fr",
+            "Repeat(AutoFill, MinMax(160px, 1fr)) 50%",
+            "",
+            "   ",
+        ];
+        for c in cases {
+            let tokens = split(c);
+            let again = split(&join(&tokens));
+            assert_eq!(tokens, again, "split(join(split({c:?}))) must be split({c:?})");
+        }
+        assert_eq!(split("1FR  100"), ["1FR", "100"], "spelling is kept, spaces between tokens are not");
+        assert_eq!(split("MinMax(100px, 1fr) 2fr"), ["MinMax(100px, 1fr)", "2fr"], "a call stays one token");
+        assert_eq!(split("200px nonsense 1fr"), ["200px", "nonsense", "1fr"], "an unreadable token is kept");
+        assert_eq!(join(&split("  1fr   2fr ")), "1fr 2fr");
+        assert!(split("").is_empty() && split("  ").is_empty());
+        println!("track lists: {} spellings split and joined back token-for-token", cases.len());
+    }
+
+    /// What each token is: a track, a MinMax track, a Repeat (which a drag, an
+    /// add and a remove refuse), or something the parser skips.
+    #[test]
+    fn a_token_says_what_it_is() {
+        use TokenKind::*;
+        assert_eq!(kind_of("1fr"), Plain(fr(1.0)));
+        assert_eq!(kind_of("100"), Plain(px(100.0)));
+        assert_eq!(kind_of("25%"), Plain(Track { min: Breadth::Percent(25.0), max: Breadth::Percent(25.0) }));
+        assert_eq!(kind_of("Auto"), Plain(Track { min: Breadth::Auto, max: Breadth::Auto }));
+        assert_eq!(kind_of("MinMax(100px, 1fr)"), MinMax);
+        assert_eq!(kind_of("Repeat(3, 1fr)"), Repeat);
+        assert_eq!(kind_of("repeat(auto-fill, 100px)"), Repeat);
+        assert_eq!(kind_of("nonsense"), Unreadable);
+        assert_eq!(kind_of("Repeat(0, 1fr)"), Repeat, "an empty repeat is still a Repeat the developer wrote");
+        assert_eq!(kind_of("Repeat(2)"), Unreadable, "a Repeat with nothing to repeat is skipped by the parser");
+        assert!(has_repeat("100px Repeat(2, 1fr)") && !has_repeat("100px 1fr MinMax(1px, 1fr)"));
+        println!("token kinds: plain, MinMax, Repeat (fixed and AutoFill) and unreadable told apart");
+    }
+
+    /// Which token holds which track: an unreadable token holds none, so the
+    /// third TRACK of `1fr nonsense 2fr 3fr` is the FOURTH token.
+    #[test]
+    fn a_track_knows_which_token_holds_it() {
+        let s = slots("1fr nonsense 2fr MinMax(10px, 1fr)");
+        assert_eq!(s.tokens.len(), 4);
+        assert_eq!(s.track_to_token, vec![0, 2, 3], "nonsense holds no track");
+        assert!(!s.has_repeat);
+        assert!(slots("100px Repeat(2, 1fr)").has_repeat);
+        println!("track → token: [0, 2, 3] over 4 tokens, the unreadable one skipped");
+    }
+
+    /// What an edit writes back: whole numbers of pixels, trimmed decimals for
+    /// the rest.
+    #[test]
+    fn written_tracks_are_short_and_exact() {
+        assert_eq!(fmt_px(150.0), "150px");
+        assert_eq!(fmt_px(149.6), "150px", "pixels round to a whole number");
+        assert_eq!(fmt_fr(0.5), "0.5fr");
+        assert_eq!(fmt_fr(1.5), "1.5fr");
+        assert_eq!(fmt_fr(2.0), "2fr");
+        assert_eq!(fmt_fr(1.0 / 3.0), "0.333fr", "at most three decimals");
+        assert_eq!(fmt_percent(25.0), "25%");
+        assert_eq!(fmt_percent(33.3333), "33.333%");
+        // What is written is read back as what was meant.
+        for (text, want) in [(fmt_fr(0.5), fr(0.5)), (fmt_px(150.0), px(150.0))] {
+            assert_eq!(kind_of(&text), TokenKind::Plain(want), "{text} reads back");
+        }
+        println!("fmt: 150px, 0.5fr, 1.5fr, 2fr, 0.333fr, 25%, 33.333% — and read back as written");
     }
 
     /// AC25 — `Repeat(AutoFill, MinMax(160px, 1fr))`: as many columns of at

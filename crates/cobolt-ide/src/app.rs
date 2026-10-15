@@ -19172,6 +19172,8 @@ impl CoboltApp {
                         saved_flash,
                         self.designers[idx].1.magnifier_on,
                         tr.tb_magnifier,
+                        self.designers[idx].1.layout_grid.show,
+                        crate::ui_text::ide("Show layout grids and edit their structure"),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -19217,6 +19219,9 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::ToggleGrid => {
                         self.designers[idx].1.show_grid = !self.designers[idx].1.show_grid;
+                    }
+                    DesignerToolbarAction::ToggleLayoutGrid => {
+                        self.designers[idx].1.toggle_layout_grid();
                     }
                     DesignerToolbarAction::ToggleGlass => {
                         self.designers[idx].1.glass_mode = !self.designers[idx].1.glass_mode;

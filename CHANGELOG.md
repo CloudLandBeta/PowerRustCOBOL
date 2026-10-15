@@ -17,6 +17,29 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.166] — 2026-10-15
+
+*(Written on `features`, after 1.91.165 — spec 088.)*
+
+### Feature: a Grid container is edited on the canvas — cells, rows, columns, lines and the cell of a control
+
+A Grid container (`LayoutMode` = Grid) was designed only through text: `GridColumns`, `GridRows`, and each child's `GridColumn`, `GridRow`, `ColumnSpan` and `RowSpan`, typed in the Properties pane. The Form Designer now edits all of them on the canvas, and every edit is an ordinary property change — one undo step, saved in the `.cfrm`, laid out by the same engine Run Form uses (so the form runs exactly as it was drawn).
+
+- **A Show grid button**, beside — and separate from — *Toggle Grid* (the alignment dots), on in every new designer window and written nowhere. With it **on**, a press inside a Grid container acts on the grid: every Grid container draws its lines, a click selects a cell, a drag or Shift-click selects a range, and the controls placed in it cannot be selected, moved or resized from the canvas. With it **off**, the controls are edited as before.
+- **A floating grid toolbar** beside the selected grid, never over it: *Add column / row* (after the selected cell, the size of the track it follows; later children renumbered so each keeps its cell; a spanning child grows), *Remove column / row* (the selected cell's own; a child that sat only there is **never deleted** — it is auto-placed and a notice names it), *Restore* (the last removal of that grid, in place, with its children's placement; separate from Ctrl+Z, and either works), *Merge* (the one control in the range spans it) and *Split*. A button that does not apply is greyed, and its tip says why — in the six languages; a `Repeat(…)` axis disables its buttons with the way out.
+- **Track lines are handles.** Dragging the line between two tracks resizes both in opposite directions, live, as one undo step; each track keeps its unit (`px` stays `px`, `%` stays `%`, two `fr` re-share their total, `Auto` becomes `px`); none goes below 8 px; `MinMax` and `Repeat` tracks and the container's border are not lines.
+- **Resizing a control in a grid resizes its cell.** With Show grid off, selecting a control that sits in a Grid draws that grid (only that one) with its cell lit, and its lines can be dragged; the control's own edges move the line they stand on (a corner moves one on each axis), and the control's own position and size are never written.
+- *Engine (`cobolt-forms`).* A new `layout::grid_edit` — the edits as pure functions over the track lists as the developer wrote them (token-level, so `Repeat(…)`/`MinMax(…)` are never rewritten); the solver now reports each child's cell, and an empty Grid container has a geometry too.
+- *A knob outranks a line.* A selection knob of the selected control is drawn on top of the track line it stands on, so it now wins the press — which is what lets a corner take both lines.
+- *Found by the sweep, fixed here:* the spec 056 R85 guard (`no_numeric_literal_lives_outside_the_defaults_table`) failed on six numeric literals in the new code; they are now four named constants in `layout/defaults.rs`.
+- *Not done / limits, stated in the Guide:* a form's **own** grid (the form itself laid out as a Grid) is still edited as text; a Grid drawn at a scale (an expanded card) cannot have its lines dragged; `Repeat(…)` axes are edited in the Properties pane.
+
+*Tests (red first; each mutation-checked — with the code broken, the named test fails):* `cobolt-forms` 20 new in `grid_edit` (pure edits; refusals; the designer's layout and the saved form's layout agree after every operation) and 4 in `tracks`; `cobolt-ide` 6 in `layout_grid_edit` and **27 frame-driven tests of the real designer** (`grid_layout_088`) — one per acceptance criterion AC1–AC16, among them `every_gesture_is_one_undo_step_and_one_redo` (11 gestures, each one step, undone and redone byte for byte) and the real-drag cases for lines, edges and corners.
+
+*Sweeps (this tree, `--no-fail-fast`):* `cobolt-forms --features render` 1,639 passed / 0 failed / 2 ignored (90 targets); `cobolt-ide` 1,708 passed / 4 failed / 4 ignored (bin) and 1,740 passed / 12 failed with the integration tests — **none caused by this change**: `docs_embed::every_document_ships_in_every_language` (the Developer's Guide has no translations to match), two `external_crates_service` tests that need the network, `every_completion_description_exists_in_six_languages` (`Collapse()`/`Open()` untranslated since 1.91.163), and eight `powerchat_*` tests that read the git-ignored `examples/PowerChat/generated/`, which was stale in this tree — regenerated from the committed forms they pass, 24 of 24; `cobolt-form-host` 200 / 0; `cobolt-cli` 36 / 0 (3 ignored).
+
+*Docs:* the Developer's Guide gains *Editing a grid on the canvas* (the two modes, the toolbar, the lines, the cell of a control, caveats; three screenshot placeholders). The System KB tables needed no change (`ColumnSpan`/`RowSpan` already said what the engine does).
+
 ## [PowerRustCOBOL 1.91.165] — 2026-10-15
 
 *(Written on `features`, after 1.91.164 — spec 102.)*

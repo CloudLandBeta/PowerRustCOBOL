@@ -31,6 +31,7 @@ pub mod dock;
 pub mod flex;
 pub mod fonts;
 pub mod grid;
+pub mod grid_edit;
 pub mod inverse;
 pub mod limits;
 pub mod minsize;
@@ -180,6 +181,10 @@ pub struct ContainerGeom {
     pub columns: Vec<f32>,
     pub rows: Vec<f32>,
     pub gaps: (f32, f32),
+    /// A grid's children and the cell each sits in, in the order the engine
+    /// placed them — what the designer's grid editing reads (spec 088). Empty for
+    /// any other mode.
+    pub cells: Vec<(String, grid::Cell)>,
 }
 
 /// Everything the solver reads.
@@ -581,6 +586,26 @@ fn place_children(
     for &i in &visual {
         let c = &input.controls[i];
         if tree.children(Some(&c.id)).is_empty() {
+            // An empty Grid still has tracks to show and to edit (spec 088): its
+            // geometry is its own track lists laid out in its client.
+            if lays_out_children(c) && props::layout_mode(c) == LayoutMode::Grid {
+                let laid = out.rects[&c.id];
+                let g = grid::container(c);
+                let lclient = client_of(c, laid);
+                let s = grid::solve(&g, &[], lclient);
+                out.containers.insert(
+                    c.id.clone(),
+                    ContainerGeom {
+                        mode: LayoutMode::Grid,
+                        designed_client: client_of(c, designed_rect(input, c)),
+                        client: lclient,
+                        columns: s.columns,
+                        rows: s.rows,
+                        gaps: (g.column_gap, g.row_gap),
+                        cells: Vec::new(),
+                    },
+                );
+            }
             continue;
         }
         let laid = out.rects[&c.id];
@@ -597,6 +622,7 @@ fn place_children(
                     columns: Vec::new(),
                     rows: Vec::new(),
                     gaps: (0.0, 0.0),
+                    cells: Vec::new(),
                 },
             );
             // Everything inside an expanded card grows with it — its contents,
@@ -813,6 +839,7 @@ fn place_items(
                 geom.columns = s.columns.clone();
                 geom.rows = s.rows.clone();
                 geom.gaps = (g.column_gap, g.row_gap);
+                geom.cells = order.iter().zip(&s.cells).map(|(&i, c)| (input.controls[i].id.clone(), *c)).collect();
             }
             (s.rects, s.content)
         }
@@ -888,6 +915,7 @@ fn carry_splitter(
                 columns: Vec::new(),
                 rows: Vec::new(),
                 gaps: (0.0, 0.0),
+                cells: Vec::new(),
             },
         );
         place_children(input, tree, Some(&pane.id), pane, mode, dclient, lclient, None, out);
@@ -947,6 +975,28 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::*;
     use super::*;
+
+    /// Spec 088 T2 — the designer's overlay data carries each child's cell, keyed by
+    /// control id, with the tracks it already carries.
+    #[test]
+    fn a_grid_container_reports_the_cell_of_each_child() {
+        let s = |v: &str| PropValue::String(v.into());
+        let mut panel = ctrl("G", ControlType::Panel, (0, 0, 400, 200), None);
+        panel = with(panel, "LayoutMode", s("Grid"));
+        panel = with(panel, "GridColumns", s("1fr 1fr"));
+        panel = with(panel, "GridRows", s("1fr 1fr"));
+        let a = with(with(ctrl("A", ControlType::Button, (0, 0, 40, 20), Some("G")), "GridColumn", 2i64), "GridRow", 1i64);
+        let b = ctrl("B", ControlType::Button, (0, 30, 40, 20), Some("G"));
+        let c = with(with(ctrl("C", ControlType::Button, (0, 60, 40, 20), Some("G")), "GridRow", 2i64), "ColumnSpan", 2i64);
+        let o = solve_at(&[panel, a, b, c], (400.0, 200.0), (400.0, 200.0));
+        let g = &o.containers["G"];
+        let cell = |id: &str| g.cells.iter().find(|(i, _)| i == id).map(|(_, c)| (c.row, c.column, c.row_span, c.column_span));
+        assert_eq!(cell("A"), Some((0, 1, 1, 1)));
+        assert_eq!(cell("B"), Some((0, 0, 1, 1)), "auto-placed: the first free cell");
+        assert_eq!(cell("C"), Some((1, 0, 1, 2)));
+        assert_eq!(g.cells.len(), 3);
+        println!("container cells: A (0,1), B auto (0,0), C (1,0) spanning two columns — keyed by control id");
+    }
 
     /// AC28 (R58–R62) — a form designed at 1280 × 800 (Expanded):
     ///   SIDE, a `Left` dock 200 wide; MAIN, the `Fill` rest, a grid `1fr 1fr`

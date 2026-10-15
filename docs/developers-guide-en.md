@@ -2423,6 +2423,130 @@ meet too:
 > arranges each page's controls separately. Its minimum size is that of its
 > largest page.
 
+### Editing a grid on the canvas
+
+A container whose `LayoutMode` is Grid is built from **tracks**: `GridColumns`
+and `GridRows` list the sizes of its columns and rows (`1fr 2fr`, `120px 1fr`,
+`Auto 30%`), and each control placed in it names its cell with `GridColumn` and
+`GridRow` (counted from 1; 0 leaves the placement to the layout) and may cover
+several cells with `ColumnSpan` and `RowSpan`. You can type all of them in the
+Properties pane. The Form Designer also lets you edit them on the canvas, and
+what you do there is an ordinary property change: it is undone with Ctrl+Z,
+saved in the form, and Run Form shows exactly what the canvas shows, because
+one layout places both.
+
+**Two modes, one button.** The designer's toolbar has a **Show grid** button
+(*Show layout grids and edit their structure*), next to **Toggle Grid** — the
+dots that help you line controls up, which is a different thing and is left
+as it was. Each designer window starts with Show grid on.
+
+| Show grid | What a press inside a Grid container does |
+|---|---|
+| **On** | It acts on the **grid**: every Grid container draws its lines, a click selects a cell, and the controls placed in it can not be selected, moved or resized from the canvas. Turn the button off to work on them. |
+| **Off** | It acts on the **controls**, as always — with one difference: a control in a grid takes its size from its cell (see *Resizing a control in a grid*, below). |
+
+The button is a setting of the designer window, not of the form: it writes
+nothing to the form.
+
+> 📷 Screenshot needed — `grid-edit-mode.png`: open PowerSpatial's
+> `main-form` in the Form Designer with Show grid on and nothing selected,
+> so the track lines of every Grid container are drawn. Capture the toolbar
+> with the **Show grid** button highlighted and the canvas below it.
+
+**Selecting cells.** With Show grid on, click a cell to select it. Drag across
+cells, or Shift-click a second one, to select a rectangle of cells. The
+selected cells are tinted, and a small **grid toolbar** appears beside the
+container — outside it, never over it. Its buttons carry icons only; hover one
+to read what it does. A button that does not apply to the selection is greyed
+out, and its tip says why.
+
+| Button | What it does |
+|---|---|
+| **Add column** / **Add row** | Inserts a track after the selected cell's column or row (at the end when no cell is selected), the same size as the track it follows. Every control after the new track is renumbered so that it keeps its cell, and a control that spans across it grows by one. |
+| **Remove column** / **Remove row** | With one cell selected, removes that cell's own column or row. The tracks that remain share the space by their usual rules, so `fr` tracks grow to fill the gap. Controls after it are renumbered, and a control that spans across it shrinks by one. |
+| **Restore** | Puts back the most recently removed column or row of this grid: the same size, in the same place, with the placement and spans of the controls it held. |
+| **Merge** | Makes the control in the selected cells cover all of them: it is placed in the top-left cell and given the range's size as `ColumnSpan` and `RowSpan`. |
+| **Split** | Gives a merged control `ColumnSpan` and `RowSpan` 1 again, in its top-left cell. |
+
+> 📷 Screenshot needed — `grid-edit-toolbar.png`: select two neighbouring
+> cells of a grid and capture the grid with the floating toolbar beside it,
+> showing Merge enabled and Restore greyed out.
+
+> **Note.** Removing a column or row **never deletes a control**. A control
+> that sat only in the removed track stays on the form and becomes
+> auto-placed on that axis (its `GridColumn` or `GridRow` is 0); a notice over
+> the canvas names it. Restore puts it back where it was. The last column or
+> row of a grid cannot be removed.
+
+> **Note.** Restore is not Undo. Ctrl+Z undoes your last edit, whatever it
+> was. Restore brings back a removed column or row on its own — any removal
+> you made since the designer opened, newest first — and leaves the edits you
+> made after it where they are. Undoing a Restore removes the track again;
+> undoing a removal brings the track back and takes it off Restore's list.
+
+**Merge needs exactly one control.** A control counts as being in every cell
+it covers. A range holding no control, or more than one, can not be merged,
+and the button says which.
+
+**Dragging a line.** With Show grid on, the lines between tracks are handles:
+the pointer turns into a resize arrow over one, and dragging it resizes the
+two tracks it separates in opposite directions, so the container's total stays
+the same. The canvas follows the pointer, and letting go is one undo step.
+Each track keeps its own unit:
+
+| The track was | After the drag |
+|---|---|
+| `120px` | `150px` — a new pixel size. |
+| `25%` | A new percentage. |
+| two `fr` tracks, `1fr 1fr` | The same total shared in the new proportion — dragged a quarter of the pair's width to the left, `0.5fr 1.5fr`. |
+| `Auto` | A pixel track of the size you dragged it to. |
+
+No drag leaves a track narrower than 8 px. The border of the container is not
+a line, and a `MinMax(…)` or `Repeat(…)` track has no handle: the pointer does
+not change over it.
+
+> 📷 Screenshot needed — `grid-edit-drag.png`: drag the line between two
+> columns and capture the moment before letting go — the resize cursor on the
+> line and the two columns at their new widths.
+
+**Resizing a control in a grid.** With Show grid off, select a control that
+sits in a Grid container. Its container's lines appear — only that container's
+— with the control's cell tinted, and you can drag them even though Show grid
+is off: on a responsive form, that grid is what sizes the control. The control's
+own handles do the same job from the other side: dragging its right edge moves
+the line after its last column, its left edge the line before its first,
+and the bottom and top edges do the same for rows. A corner moves one line in
+each direction, as one step. For a control that spans several tracks, the outer
+line of its span moves. An edge that lies on the container's border moves
+nothing. A press anywhere else on the control keeps its ordinary meaning: drag
+it to another cell to place it there.
+
+A gesture never gives such a control a position or size of its own. Its size
+is the size of its cell.
+
+The same properties are open to your program while the form runs, so a handler
+can reshape a grid the way you would on the canvas. PowerDemo3's *Responsive:
+from COBOL* form does it with a line like this, where `RT-STAGE` is the Grid
+container:
+
+```cobol
+           SET     RT-STAGE::GridColumns         TO    "1fr 2fr"
+```
+
+> ⚠️ **Caveats.**
+> - A `Repeat(…)` list is written as one entry, so the buttons that add or
+>   remove a track on that axis are disabled for it, with a tip saying to edit
+>   the list in the Properties pane. Its lines have no handle either: the
+>   pointer does not change over them.
+> - A grid drawn at a scale other than the one you designed it at — an
+>   expanded card, for example — can not have its lines dragged; edit it at
+>   its own size.
+> - This covers Grid **containers** — a Panel, a GroupBox and the like with
+>   `LayoutMode` Grid. The form's own grid, when the form itself is laid out
+>   as a Grid, is still edited as text in the Properties pane.
+> - Flex and Flow containers have no cells, so the grid tools do not apply to
+>   them.
+
 ### Target devices
 
 The **Target Device** section lets you size the form for a real device profile
