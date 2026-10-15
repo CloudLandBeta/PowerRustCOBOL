@@ -17,6 +17,29 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.165] — 2026-10-15
+
+*(Written on `features`, after 1.91.164 — spec 102.)*
+
+### Feature: properties that go together are drawn one after the other
+
+Operator, 2026-10-15: *"reorder the properties so properties that go together (for example, but not limited to: gradient start color / end color) are placed one after the other. Apply to all properties of all controls."*
+
+The Properties pane drew each control's rows in whatever order its code listed them, and over time related ones drifted apart. This changes the **order only** — no row is added, removed, renamed or re-labelled, and no default, range or saved value changes. A control's related rows now sit together, for all 62 control types:
+
+- **Charts (all seven):** the axes are one run — grid, X axis, its label, Y axis, its label — instead of the labels sitting after the animation rows and splitting `Monochrome` from its colour; the legend and tooltips come before them. **Radar:** the scale (rings, minimum, maximum, ring values) first, then the series' fill and points.
+- **CheckBox and RadioButton:** every `Check…` row — alignment, spacing, size, tick colour, box colour, box border — is now in one *Check box* section (before, the tick's rows were in *Basic*, split from the box's by a section header); a RadioButton's `GroupName` moved up beside its `Selected`.
+- **TreeView:** the lines (`ShowLines`, `ShowRootLines`, `LineColor`), the row under the pointer (`HotTracking`, `HotTrackColor`), the selection (`SelectionColor`, `HighContrastText`), the icons, the metrics, the border; the check-box rows (including `CheckBoxes` and `CheckBoxSize`) together in *Check box*.
+- **Shape** fill then line (style, thickness, colour); **Line** where it points, then how it is drawn; **ListBox** `ActiveItemColor`, `ActiveItemTextColor`, `SelectedItemsColor`; **TabControl** `TabPadding` beside `TabPosition`; **GroupBox** caption rows (alignment, size, shape, background, padding); **TextBox** `Multiline`, `WordWrap`, `ScrollBars`; **DateTimePicker** the formats and the dates; **Slider** `Orientation` before the ticks; **SideMenu** `CollapsedWidth` beside `Collapsed`; **Gauge** each threshold beside its colour; **Snackbar** the category's icon beside the category and the font rows together; **Viewer** the user bubble's colour, text colour and bold.
+- **Non-visual:** an agent's `MaximumTokens` beside `MaximumContinuations`; a REST client's `DefaultHeaders` beside `DefaultMethod`; AWS Polly's `Engine` beside `OutputFormat` (the catalog's order, which the published control documentation reads — so `chunked.data` was regenerated).
+- **Responsive layout:** a grid cell reads column, column span, row, row span; the size limits read min and max width, then min and max height.
+
+*The proof is a test that reads the rows the pane really draws.* `properties_that_go_together_are_drawn_one_after_the_other` records every section header and row (a test-only log in the pane), for every control type as created, with every boolean on, with every one off, and — for the Layout section — on a responsive form in each of the four layout modes (434 panes, 1,888 family checks), against a table of named families (`FAMILIES`, the executable form of the spec) plus two rules: a gradient's start colour is followed by its end colour, and a few pairs read as one (`GridColumn`→`ColumnSpan`, `MinWidth`→`MaxWidth`, …). *Red first:* 73 split reports across 17 control types on its first run; **0** after. *It bites on the layout rows:* reverting only the Grid and Min/Max orders makes it report 380. The 67 other Properties-pane tests (a tooltip for every row, the search, six-language coverage) pass unchanged.
+
+*Left as found, on purpose (spec 102 §6):* the **ToolBar** draws `BackgroundColor`, `Transparency` and `CornerRadius` a second time in its own frame with the bar's own defaults; the **Viewer** draws `FontSize` twice; the **form's own pane** (not a control) still has `Transparency`, the grid and the theme between its background colour and its background image; `CornerRadius` stays with *Geometry*. A property drawn twice is reported by the test as a duplicate, not counted as a split.
+
+*Sweeps:* `cobolt-ide` binary 1,674 passed / 5 failed on the full run, none from this change — `docs_embed` (the Guide's translations, the standing signal), two live-network crate-resolver tests, `every_completion_description_exists_in_six_languages` (`Collapse()` and `Open()`, added untranslated by 1.91.163), and `prebuilt_chunked_kb_matches_the_published_documentation`, which this change *did* turn red and which passes again after the store was regenerated (3,368 records from 8 documents, 11,960,320 bytes, on Metal); `cobolt-forms` (`--features render`) + `cobolt-codegen` + `cobolt-form-host` + `cobolt-compiler` 2,092 passed / 3 failed, none from this change — two are another session's untracked `zz_pdf_repro` tests, one is `every_example_form_generates_its_snapshot`, whose PowerDemo3 `layers-form` snapshot was never committed (it fails the same on `main`); `cobolt-runtime` `test_nonvisual_property_readers` 5 / 0. *Docs:* the Guide's Properties-pane paragraph says related properties sit together; spec 102 added. No string was added or moved, so no translation changed.
+
 ## [PowerRustCOBOL 1.91.164] — 2026-10-15
 
 *(Written on `features`, after 1.91.163 — spec 066, Phases B and C.)*

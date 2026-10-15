@@ -4493,9 +4493,10 @@ impl PropertiesPanel {
                 bool_row_inline(ui, id, "FlowBreak", tr.lbl_flow_break, ctrl, action);
             }
             LayoutMode::Grid => {
+                // A cell is a column and how many it spans, then a row and how many.
                 int_row_inline(ui, id, "GridColumn", tr.lbl_grid_column, ctrl, action, 0..=999);
-                int_row_inline(ui, id, "GridRow", tr.lbl_grid_row, ctrl, action, 0..=999);
                 int_row_inline(ui, id, "ColumnSpan", tr.lbl_column_span, ctrl, action, 1..=999);
+                int_row_inline(ui, id, "GridRow", tr.lbl_grid_row, ctrl, action, 0..=999);
                 int_row_inline(ui, id, "RowSpan", tr.lbl_row_span, ctrl, action, 1..=999);
                 combo_row_inline_labeled(ui, id, "JustifySelf", tr.lbl_justify_self, ctrl, action, &ALIGN, d::JUSTIFY_SELF);
                 combo_row_inline_labeled(ui, id, "AlignSelf", tr.lbl_align_self, ctrl, action, &ALIGN, d::ALIGN_SELF);
@@ -4503,8 +4504,8 @@ impl PropertiesPanel {
         }
         for (key, label) in [
             ("MinWidth", tr.lbl_min_width),
-            ("MinHeight", tr.lbl_min_height),
             ("MaxWidth", tr.lbl_max_width),
+            ("MinHeight", tr.lbl_min_height),
             ("MaxHeight", tr.lbl_max_height),
         ] {
             int_row_inline(ui, id, key, label, ctrl, action, 0..=20000);
@@ -7057,6 +7058,14 @@ impl PropertiesPanel {
                 }
                 bool_row_inline(ui, id, "Multiline", "Multiline", ctrl, action);
                 bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
+                combo_row_inline(
+                    ui,
+                    id,
+                    "ScrollBars",
+                    ctrl,
+                    action,
+                    &["None", "Horizontal", "Vertical", "Both"],
+                );
                 bool_row_inline(ui, id, "ReadOnly", "ReadOnly", ctrl, action);
                 bool_row_inline(ui, id, "AutoEnter", "AutoEnter", ctrl, action);
                 {
@@ -7084,14 +7093,6 @@ impl PropertiesPanel {
                         }
                     });
                 }
-                combo_row_inline(
-                    ui,
-                    id,
-                    "ScrollBars",
-                    ctrl,
-                    action,
-                    &["None", "Horizontal", "Vertical", "Both"],
-                );
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
@@ -7114,30 +7115,6 @@ impl PropertiesPanel {
                     "Checked (default)"
                 };
                 bool_row_inline(ui, id, state_key, state_label, ctrl, action);
-                combo_row_inline(
-                    ui,
-                    id,
-                    "CheckAlignment",
-                    ctrl,
-                    action,
-                    &["Left", "Center", "Right"],
-                );
-                color_row(ui, id, "CheckColor", ctrl, action);
-                int_prop_row(ui, id, "CheckSpacing", tr.lbl_check_spacing, ctrl, action, 0..=64, Some("px"), 6);
-                // A CheckBox's tick has a size; a radio's circle is filled whole.
-                if matches!(ctrl.control_type, ControlType::CheckBox) {
-                    int_prop_row(
-                        ui,
-                        id,
-                        "CheckSize",
-                        "Check size",
-                        ctrl,
-                        action,
-                        10..=100,
-                        Some("%"),
-                        70,
-                    );
-                }
                 if matches!(ctrl.control_type, ControlType::RadioButton) {
                     let cur = ctrl
                         .get_prop("GroupName")
@@ -7163,6 +7140,32 @@ impl PropertiesPanel {
                 // canvas cannot disagree).
                 ui.add_space(4.0);
                 section_header(ui, "Check box");
+                // The tick (or dot) and where it sits, then the box that holds it: every
+                // `Check…` row together, one after the other.
+                combo_row_inline(
+                    ui,
+                    id,
+                    "CheckAlignment",
+                    ctrl,
+                    action,
+                    &["Left", "Center", "Right"],
+                );
+                int_prop_row(ui, id, "CheckSpacing", tr.lbl_check_spacing, ctrl, action, 0..=64, Some("px"), 6);
+                // A CheckBox's tick has a size; a radio's circle is filled whole.
+                if matches!(ctrl.control_type, ControlType::CheckBox) {
+                    int_prop_row(
+                        ui,
+                        id,
+                        "CheckSize",
+                        "Check size",
+                        ctrl,
+                        action,
+                        10..=100,
+                        Some("%"),
+                        70,
+                    );
+                }
+                color_row(ui, id, "CheckColor", ctrl, action);
                 let eff_box = cobolt_forms::paint::checkbox_box_fill(
                     ui.ctx(),
                     ctrl,
@@ -7291,15 +7294,6 @@ impl PropertiesPanel {
                     action,
                     eff_active,
                 );
-                color_row_effective(
-                    ui,
-                    id,
-                    "SelectedItemsColor",
-                    "Selected rows",
-                    ctrl,
-                    action,
-                    eff_selected,
-                );
                 // The ink on the active row. Its effective value is what the
                 // painter would derive when nothing is chosen, so the swatch
                 // shows the floor rather than an empty box the developer has to
@@ -7321,6 +7315,15 @@ impl PropertiesPanel {
                         )
                         .unwrap_or(egui::Color32::WHITE),
                     ),
+                );
+                color_row_effective(
+                    ui,
+                    id,
+                    "SelectedItemsColor",
+                    "Selected rows",
+                    ctrl,
+                    action,
+                    eff_selected,
                 );
                 // The three things a list reports, and which is which. Runtime
                 // values, like DroppedFiles — shown so the developer knows what
@@ -7450,6 +7453,14 @@ impl PropertiesPanel {
                     None,
                     20,
                 );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Orientation",
+                    ctrl,
+                    action,
+                    &["Horizontal", "Vertical"],
+                );
                 int_prop_row(
                     ui,
                     id,
@@ -7460,14 +7471,6 @@ impl PropertiesPanel {
                     1..=9999,
                     None,
                     10,
-                );
-                combo_row_inline(
-                    ui,
-                    id,
-                    "Orientation",
-                    ctrl,
-                    action,
-                    &["Horizontal", "Vertical"],
                 );
                 combo_row_inline(
                     ui,
@@ -7617,6 +7620,20 @@ impl PropertiesPanel {
                     None,
                     0,
                 );
+                // What each zone is PAINTED in. These were literals in the
+                // painter until 1.61.154 — a green, an amber and a red nobody
+                // could change — on a control whose every other colour is a
+                // property. Each swatch shows the built-in until the operator
+                // picks something, so an unset colour still tells the truth.
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "NormalColor",
+                    tr.lbl_gauge_normal_color,
+                    ctrl,
+                    action,
+                    "#2E7D32",
+                );
                 {
                     let cur = ctrl
                         .get_prop("WarningThreshold")
@@ -7633,6 +7650,15 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "WarningColor",
+                    tr.lbl_gauge_warning_color,
+                    ctrl,
+                    action,
+                    "#F57C00",
+                );
                 {
                     let cur = ctrl
                         .get_prop("CriticalThreshold")
@@ -7649,29 +7675,6 @@ impl PropertiesPanel {
                         action,
                     );
                 }
-                // What each zone is PAINTED in. These were literals in the
-                // painter until 1.61.154 — a green, an amber and a red nobody
-                // could change — on a control whose every other colour is a
-                // property. Each swatch shows the built-in until the operator
-                // picks something, so an unset colour still tells the truth.
-                color_prop_row_default(
-                    ui,
-                    id,
-                    "NormalColor",
-                    tr.lbl_gauge_normal_color,
-                    ctrl,
-                    action,
-                    "#2E7D32",
-                );
-                color_prop_row_default(
-                    ui,
-                    id,
-                    "WarningColor",
-                    tr.lbl_gauge_warning_color,
-                    ctrl,
-                    action,
-                    "#F57C00",
-                );
                 color_prop_row_default(
                     ui,
                     id,
@@ -8019,6 +8022,7 @@ impl PropertiesPanel {
                     action,
                     &["Top", "Bottom", "Left", "Right"],
                 );
+                int_row_inline(ui, id, "TabPadding", "Tab padding", ctrl, action, 0..=64);
                 color_prop_row_fallback(
                     ui,
                     id,
@@ -8039,7 +8043,6 @@ impl PropertiesPanel {
                 ] {
                     color_prop_row_default(ui, id, key, label, ctrl, action, &hex(derived));
                 }
-                int_row_inline(ui, id, "TabPadding", "Tab padding", ctrl, action, 0..=64);
                 // Container behaviour (spec 012).
                 bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
                 bool_row_inline(ui, id, "VScroll", "V-Scroll", ctrl, action);
@@ -8074,6 +8077,18 @@ impl PropertiesPanel {
                 if matches!(ctrl.control_type, ControlType::GroupBox) {
                     bool_row_inline(ui, id, "HideCaption", "Hide caption", ctrl, action);
                     bool_row_inline(ui, id, "CaptionEnabled", "Caption enabled", ctrl, action);
+                    combo_row_inline_labeled(
+                        ui, id, "CaptionAlignment", tr.lbl_caption_alignment, ctrl, action,
+                        &["Auto", "Left", "Center", "Right"], "Auto",
+                    );
+                    combo_row_inline_labeled(
+                        ui, id, "CaptionSize", tr.lbl_caption_size, ctrl, action,
+                        &["Text", "Full", "Inner"], "Text",
+                    );
+                    combo_row_inline_labeled(
+                        ui, id, "CaptionShape", tr.lbl_caption_shape, ctrl, action,
+                        &["Rectangle", "Pill", "AngledLeft", "AngledRight"], "Rectangle",
+                    );
                     // Caption box: None keeps the classic legend on the border;
                     // Flat / Gradient draw the caption in a shaped box.
                     combo_row_inline_labeled(
@@ -8099,21 +8114,9 @@ impl PropertiesPanel {
                         }
                         _ => {}
                     }
-                    combo_row_inline_labeled(
-                        ui, id, "CaptionShape", tr.lbl_caption_shape, ctrl, action,
-                        &["Rectangle", "Pill", "AngledLeft", "AngledRight"], "Rectangle",
-                    );
-                    combo_row_inline_labeled(
-                        ui, id, "CaptionSize", tr.lbl_caption_size, ctrl, action,
-                        &["Text", "Full", "Inner"], "Text",
-                    );
                     int_row_inline(ui, id, "CaptionPadding", tr.lbl_caption_padding, ctrl, action, 0..=64);
                     layout_text_row(ui, &mut self.text_bufs, id, "CaptionPaddingHorizontal", tr.lbl_caption_padding_h, ctrl, action, Some(tr.caption_padding_follow));
                     layout_text_row(ui, &mut self.text_bufs, id, "CaptionPaddingVertical", tr.lbl_caption_padding_v, ctrl, action, Some(tr.caption_padding_follow));
-                    combo_row_inline_labeled(
-                        ui, id, "CaptionAlignment", tr.lbl_caption_alignment, ctrl, action,
-                        &["Auto", "Left", "Center", "Right"], "Auto",
-                    );
                 }
                 bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
                 // Spec 090 — a card that can take the room of its siblings.
@@ -8237,18 +8240,6 @@ impl PropertiesPanel {
             // ── Line ─────────────────────────────────────────────────────────
             ControlType::Line if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
-                color_row(ui, id, "LineColor", ctrl, action);
-                int_prop_row(
-                    ui,
-                    id,
-                    "LineThickness",
-                    "Thickness",
-                    ctrl,
-                    action,
-                    1..=32,
-                    None,
-                    1,
-                );
                 combo_row_inline(
                     ui,
                     id,
@@ -8276,6 +8267,19 @@ impl PropertiesPanel {
                     0..=359,
                     None,
                     angle_fallback,
+                );
+                // How it is drawn: colour and thickness, the dashes, the ends.
+                color_row(ui, id, "LineColor", ctrl, action);
+                int_prop_row(
+                    ui,
+                    id,
+                    "LineThickness",
+                    "Thickness",
+                    ctrl,
+                    action,
+                    1..=32,
+                    None,
+                    1,
                 );
                 combo_row_inline(
                     ui,
@@ -8316,7 +8320,6 @@ impl PropertiesPanel {
                     action,
                     &["Short", "Long", "Time", "Custom"],
                 );
-                bool_row_inline(ui, id, "ShowUpDown", "Show up/down", ctrl, action);
                 {
                     let cur = ctrl
                         .get_prop("CustomFormat")
@@ -8365,6 +8368,7 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                bool_row_inline(ui, id, "ShowUpDown", "Show up/down", ctrl, action);
                 color_row(ui, id, "BorderColor", ctrl, action);
                 ui.add_space(4.0);
             }
@@ -8474,13 +8478,39 @@ impl PropertiesPanel {
                 }
                 bool_row_inline(ui, id, "AllowEdit", "Allow rename", ctrl, action);
                 bool_row_inline(ui, id, "AllowDrag", "Allow drag", ctrl, action);
-                bool_row_inline(ui, id, "CheckBoxes", "Checkboxes", ctrl, action);
+                bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
+                // The lines the tree draws between its nodes.
                 bool_row_inline(ui, id, "ShowLines", "Show lines", ctrl, action);
                 bool_row_inline(ui, id, "ShowRootLines", "Root lines", ctrl, action);
-                bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
-                bool_row_inline(ui, id, "HotTracking", "Hot tracking", ctrl, action);
                 color_row(ui, id, "LineColor", ctrl, action);
-                color_row(ui, id, "BorderColor", ctrl, action);
+                // The row under the pointer, then the selected row and its ink.
+                bool_row_inline(ui, id, "HotTracking", "Hot tracking", ctrl, action);
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "HotTrackColor",
+                    "Hot-track row",
+                    ctrl,
+                    action,
+                    "#FFFFFF12",
+                );
+                color_prop_row_default(
+                    ui,
+                    id,
+                    "SelectionColor",
+                    "Selected row",
+                    ctrl,
+                    action,
+                    "#466EC846",
+                );
+                bool_row_inline(
+                    ui,
+                    id,
+                    "HighContrastText",
+                    "High-contrast text",
+                    ctrl,
+                    action,
+                );
                 // ── Icons ──────────────────────────────────────────────────
                 // From the platform's own catalogue, the same one the menu and
                 // toolbar editors draw from. A node names its own after a TAB
@@ -8563,34 +8593,6 @@ impl PropertiesPanel {
                     action,
                     "#DCE2FA",
                 );
-                // ── Text and bands ─────────────────────────────────────────
-                ui.add_space(4.0);
-                bool_row_inline(
-                    ui,
-                    id,
-                    "HighContrastText",
-                    "High-contrast text",
-                    ctrl,
-                    action,
-                );
-                color_prop_row_default(
-                    ui,
-                    id,
-                    "SelectionColor",
-                    "Selected row",
-                    ctrl,
-                    action,
-                    "#466EC846",
-                );
-                color_prop_row_default(
-                    ui,
-                    id,
-                    "HotTrackColor",
-                    "Hot-track row",
-                    ctrl,
-                    action,
-                    "#FFFFFF12",
-                );
                 // ── Metrics ────────────────────────────────────────────────
                 ui.add_space(4.0);
                 int_prop_row(ui, id, "RowHeight", "Row height", ctrl, action, 8..=200, None, 18);
@@ -8616,6 +8618,18 @@ impl PropertiesPanel {
                     None,
                     16,
                 );
+                color_row(ui, id, "BorderColor", ctrl, action);
+                // ── Check box ──────────────────────────────────────────────
+                // The SAME five rows a CheckBox shows, reading the same keys.
+                // The tick box used to be three numbers nailed into the painter
+                // — a black-alpha well, a 1px rim and a tick at 28 % — and the
+                // pane offered only its SIZE.
+                //
+                // "Checkbox size" is the box; "Tick size" is how much of that
+                // box the tick fills, the split a CheckBox already makes.
+                ui.add_space(4.0);
+                section_header(ui, "Check box");
+                bool_row_inline(ui, id, "CheckBoxes", "Checkboxes", ctrl, action);
                 int_prop_row(
                     ui,
                     id,
@@ -8627,17 +8641,6 @@ impl PropertiesPanel {
                     None,
                     12,
                 );
-                // ── Check box ──────────────────────────────────────────────
-                // The SAME five rows a CheckBox shows, reading the same keys.
-                // The tick box used to be three numbers nailed into the painter
-                // — a black-alpha well, a 1px rim and a tick at 28 % — and the
-                // pane offered only its SIZE.
-                //
-                // "Checkbox size" above is the box; "Tick size" here is how
-                // much of that box the tick fills, the split a CheckBox already
-                // makes.
-                ui.add_space(4.0);
-                section_header(ui, "Check box");
                 color_prop_row_default(
                     ui,
                     id,
@@ -8831,15 +8834,20 @@ impl PropertiesPanel {
 
                 section_header(ui, tr.sec_viewer_conversation);
                 bool_row_inline(ui, id, "RenderAsHtml", "RenderAsHtml", ctrl, action);
+                // The user's bubble — colour, text colour, bold — then the agent's.
                 for (key, label, builtin) in [
                     ("UserBubbleColor", "User bubble", cobolt_forms::viewer::USER_BUBBLE_COLOR),
                     ("UserBubbleTextColor", "User bubble text", cobolt_forms::viewer::BUBBLE_TEXT_COLOR),
+                ] {
+                    color_prop_row_default(ui, id, key, label, ctrl, action, builtin);
+                }
+                bool_row_inline(ui, id, "UserBubbleBold", "User bubble bold", ctrl, action);
+                for (key, label, builtin) in [
                     ("AgentBubbleColor", "Agent bubble", cobolt_forms::viewer::AGENT_BUBBLE_COLOR),
                     ("AgentBubbleTextColor", "Agent bubble text", cobolt_forms::viewer::BUBBLE_TEXT_COLOR),
                 ] {
                     color_prop_row_default(ui, id, key, label, ctrl, action, builtin);
                 }
-                bool_row_inline(ui, id, "UserBubbleBold", "User bubble bold", ctrl, action);
                 ui.add_space(6.0);
             }
 
@@ -8886,6 +8894,7 @@ impl PropertiesPanel {
                     action,
                     &["Info", "Question", "Warning", "Error", "Critical"],
                 );
+                bool_row_inline(ui, id, "ShowCategoryIcon", "Show category icon", ctrl, action);
                 combo_row_inline(ui, id, "Size", ctrl, action, &["Small", "Medium", "Large"]);
                 // -1 = "from the Category" (§7); 0 = never expires (R6). Both
                 // are inside the range on purpose — the sentinel has to be
@@ -8909,7 +8918,6 @@ impl PropertiesPanel {
                     ctrl,
                     action,
                 );
-                bool_row_inline(ui, id, "ShowCategoryIcon", "Show category icon", ctrl, action);
                 ui.add_space(4.0);
             }
 
@@ -9020,6 +9028,9 @@ impl PropertiesPanel {
                 let eff_fg = hex_to_color32(&cobolt_forms::snackbar::effective_foreground(ctrl));
                 color_row_effective(ui, id, "BackgroundColor", "BackgroundColor", ctrl, action, eff_bg);
                 color_row_effective(ui, id, "ForegroundColor", "ForegroundColor", ctrl, action, eff_fg);
+                int_prop_row(ui, id, "FontSize", "FontSize", ctrl, action, 6..=72, None, 14);
+                bool_row_inline(ui, id, "Bold", "Bold", ctrl, action);
+                bool_row_inline(ui, id, "TextWrap", "TextWrap", ctrl, action);
                 // The icon falls back to the INK, not the background: `paint.rs`
                 // uses the effective foreground when this is empty.
                 color_row_effective(
@@ -9035,9 +9046,6 @@ impl PropertiesPanel {
                     ui, id, "CategoryIconSize", "CategoryIconSize (0 = auto)", ctrl, action,
                     0..=128, None, 0,
                 );
-                int_prop_row(ui, id, "FontSize", "FontSize", ctrl, action, 6..=72, None, 14);
-                bool_row_inline(ui, id, "Bold", "Bold", ctrl, action);
-                bool_row_inline(ui, id, "TextWrap", "TextWrap", ctrl, action);
                 int_prop_row(
                     ui, id, "CornerRadius", "CornerRadius", ctrl, action, 0..=64, None, 12,
                 );
@@ -9099,6 +9107,15 @@ impl PropertiesPanel {
                     action,
                     &["Solid", "None", "Hatched"],
                 );
+                color_row(ui, id, "FillColor", ctrl, action);
+                combo_row_inline(
+                    ui,
+                    id,
+                    "LineStyle",
+                    ctrl,
+                    action,
+                    &["None", "Solid", "Dash", "Dot", "DashDot"],
+                );
                 int_prop_row(
                     ui,
                     id,
@@ -9110,15 +9127,6 @@ impl PropertiesPanel {
                     None,
                     1,
                 );
-                combo_row_inline(
-                    ui,
-                    id,
-                    "LineStyle",
-                    ctrl,
-                    action,
-                    &["None", "Solid", "Dash", "Dot", "DashDot"],
-                );
-                color_row(ui, id, "FillColor", ctrl, action);
                 color_row(ui, id, "LineColor", ctrl, action);
                 ui.add_space(4.0);
             }
@@ -9150,6 +9158,18 @@ impl PropertiesPanel {
                 if ctrl.control_type == ControlType::SideMenu {
                     bool_row_inline(ui, id, "FullHeight", tr.prop_full_height, ctrl, action);
                     bool_row_inline(ui, id, "Collapsed", tr.prop_collapsed, ctrl, action);
+                    // The collapsed icon rail's width, on every surface
+                    // (operator, 2026-08-23). Floor 24: below it an icon row
+                    // has nothing to fit in.
+                    int_row_inline(
+                        ui,
+                        id,
+                        "CollapsedWidth",
+                        tr.prop_collapsed_width,
+                        ctrl,
+                        action,
+                        24..=200,
+                    );
                     combo_row_inline(
                         ui,
                         id,
@@ -9169,18 +9189,6 @@ impl PropertiesPanel {
                         ctrl,
                         action,
                         8..=64,
-                    );
-                    // The collapsed icon rail's width, on every surface
-                    // (operator, 2026-08-23). Floor 24: below it an icon row
-                    // has nothing to fit in.
-                    int_row_inline(
-                        ui,
-                        id,
-                        "CollapsedWidth",
-                        tr.prop_collapsed_width,
-                        ctrl,
-                        action,
-                        24..=200,
                     );
                     // The breadcrumb frame the rail owns. Its width is not a
                     // property: it always runs from the rail's right edge to
@@ -9759,6 +9767,18 @@ impl PropertiesPanel {
                     None,
                     1024,
                 );
+                // An answer cut off by MaximumTokens is continued this often.
+                int_prop_row(
+                    ui,
+                    id,
+                    "MaximumContinuations",
+                    "Max continuations",
+                    ctrl,
+                    action,
+                    0..=20,
+                    None,
+                    4,
+                );
                 int_prop_row(
                     ui,
                     id,
@@ -9796,18 +9816,6 @@ impl PropertiesPanel {
                     1..=50,
                     None,
                     8,
-                );
-                // An answer cut off by MaximumTokens is continued this often.
-                int_prop_row(
-                    ui,
-                    id,
-                    "MaximumContinuations",
-                    "Max continuations",
-                    ctrl,
-                    action,
-                    0..=20,
-                    None,
-                    4,
                 );
 
                 section_header(ui, tr.sec_cobol_integration);
@@ -9937,6 +9945,33 @@ impl PropertiesPanel {
                     action,
                     &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
                 );
+                {
+                    let cur = ctrl
+                        .get_prop("DefaultHeaders")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let bk = format!("{id}-DefaultHeaders");
+                    let wid = egui::Id::new(&bk);
+                    let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
+                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = cur;
+                    }
+                    property_row_keyed(ui, "Default headers (Key: Value, one per line):", Some("DefaultHeaders"), |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                .desired_rows(3)
+                                .desired_width(ui.available_width()),
+                        );
+                        if resp.lost_focus() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                "DefaultHeaders".into(),
+                                PropValue::String(buf.clone()),
+                            ));
+                        }
+                    });
+                }
                 combo_row_inline(
                     ui,
                     id,
@@ -9994,33 +10029,6 @@ impl PropertiesPanel {
                 );
                 bool_row_inline(ui, id, "FollowRedirects", "Follow redirects", ctrl, action);
                 bool_row_inline(ui, id, "VerifyTLS", "Verify TLS cert", ctrl, action);
-                {
-                    let cur = ctrl
-                        .get_prop("DefaultHeaders")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    let bk = format!("{id}-DefaultHeaders");
-                    let wid = egui::Id::new(&bk);
-                    let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur;
-                    }
-                    property_row_keyed(ui, "Default headers (Key: Value, one per line):", Some("DefaultHeaders"), |ui| {
-                        let resp = ui.add(
-                            egui::TextEdit::multiline(buf)
-                                .id(wid)
-                                .desired_rows(3)
-                                .desired_width(ui.available_width()),
-                        );
-                        if resp.lost_focus() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "DefaultHeaders".into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                    });
-                }
 
                 section_header(ui, tr.sec_cobol_integration);
                 {
@@ -10652,16 +10660,45 @@ impl PropertiesPanel {
                 );
                 color_row_labeled(ui, id, "TitleColor", "Title colour", ctrl, action);
                 bool_row_inline(ui, id, "ShowLegend", "Show legend", ctrl, action);
+                bool_row_inline(ui, id, "ShowTooltips", "Show tooltips", ctrl, action);
+                // The axes together: the grid, then each axis line with its own label
+                // (a pie, a donut or a radar has no X/Y axes to show, hide or name).
                 bool_row_inline(ui, id, "ShowGridLines", "Show grid lines", ctrl, action);
-                // A pie, a donut or a radar has no X/Y axes to show or hide.
                 if !matches!(
                     ctrl.control_type,
                     ControlType::PieChart | ControlType::DonutChart | ControlType::RadarChart
                 ) {
                     bool_row_inline(ui, id, "ShowXAxis", "Show X axis line", ctrl, action);
+                    let cx = ctrl
+                        .get_prop("XAxisLabel")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "XAxisLabel",
+                        &cx,
+                        "X-axis label:",
+                        "Month",
+                        action,
+                    );
                     bool_row_inline(ui, id, "ShowYAxis", "Show Y axis line", ctrl, action);
+                    let cy = ctrl
+                        .get_prop("YAxisLabel")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "YAxisLabel",
+                        &cy,
+                        "Y-axis label:",
+                        "Amount",
+                        action,
+                    );
                 }
-                bool_row_inline(ui, id, "ShowTooltips", "Show tooltips", ctrl, action);
                 bool_row_inline(ui, id, "AnimateOnLoad", "Animate on load", ctrl, action);
                 // Value animation, and its duration BENEATH it — the operator
                 // asked for the duration to appear only once the animation is
@@ -10691,39 +10728,6 @@ impl PropertiesPanel {
                 }
                 bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
                 bool_row_inline(ui, id, "Monochrome", "Monochrome", ctrl, action);
-                if !matches!(
-                    ctrl.control_type,
-                    ControlType::PieChart | ControlType::DonutChart | ControlType::RadarChart
-                ) {
-                    let cx = ctrl
-                        .get_prop("XAxisLabel")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    text_row_hint(
-                        ui,
-                        &mut self.hints,
-                        id,
-                        "XAxisLabel",
-                        &cx,
-                        "X-axis label:",
-                        "Month",
-                        action,
-                    );
-                    let cy = ctrl
-                        .get_prop("YAxisLabel")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    text_row_hint(
-                        ui,
-                        &mut self.hints,
-                        id,
-                        "YAxisLabel",
-                        &cy,
-                        "Y-axis label:",
-                        "Amount",
-                        action,
-                    );
-                }
 
                 // ── Monochrome base colour (spec 013) ─────────────────────────
                 // When Monochrome is on: a Gradient toggle + a compact 16×16
@@ -11013,19 +11017,6 @@ impl PropertiesPanel {
                 if matches!(ctrl.control_type, ControlType::RadarChart) {
                     section_header(ui, tr.sec_radar_options);
                     int_prop_row(ui, id, "GridLevels", "Grid rings", ctrl, action, 1..=10, None, 5);
-                    int_prop_row(
-                        ui,
-                        id,
-                        "FillOpacity",
-                        "Fill opacity (%)",
-                        ctrl,
-                        action,
-                        0..=100,
-                        Some("%"),
-                        35,
-                    );
-                    bool_row_inline(ui, id, "ShowPoints", "Show points", ctrl, action);
-                    int_prop_row(ui, id, "PointRadius", "Point radius", ctrl, action, 0..=20, None, 3);
                     // The scale shared by every axis. Text rows, not integer
                     // ones: a scale of 0 to 1.5 is as likely as 0 to 100.
                     let min_v = ctrl
@@ -11048,6 +11039,20 @@ impl PropertiesPanel {
                         action,
                     );
                     bool_row_inline(ui, id, "ShowAxisValues", "Show ring values", ctrl, action);
+                    // How the series itself is drawn: its fill, then its points.
+                    int_prop_row(
+                        ui,
+                        id,
+                        "FillOpacity",
+                        "Fill opacity (%)",
+                        ctrl,
+                        action,
+                        0..=100,
+                        Some("%"),
+                        35,
+                    );
+                    bool_row_inline(ui, id, "ShowPoints", "Show points", ctrl, action);
+                    int_prop_row(ui, id, "PointRadius", "Point radius", ctrl, action, 0..=20, None, 3);
                 }
                 if matches!(ctrl.control_type, ControlType::ScatterChart) {
                     section_header(ui, tr.sec_scatter_options);
@@ -12608,6 +12613,27 @@ fn end_row_search() -> Option<usize> {
     SEARCH.with(|s| s.borrow_mut().take().map(|st| st.shown))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Every section header and property row drawn since the last
+    /// [`take_row_log`], in the order the pane drew them — what a test reads to
+    /// hold the pane's ORDER to account (properties that go together sit together).
+    static ROW_LOG: std::cell::RefCell<Vec<RowLogEntry>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RowLogEntry {
+    Section(String),
+    /// A property row: the label it is drawn with, and its property name when it has one.
+    Row { label: String, key: Option<String> },
+}
+
+#[cfg(test)]
+pub(crate) fn take_row_log() -> Vec<RowLogEntry> {
+    ROW_LOG.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
+
 enum RowAdmission {
     Hidden,
     /// Shown, and the first of its section: draw the section's header first.
@@ -12619,6 +12645,10 @@ enum RowAdmission {
 /// in its explanation (in the IDE's language and in English), the section it
 /// sits in, or its purpose (`prop_search`).
 fn search_admits(label: &str, key: Option<&str>) -> RowAdmission {
+    #[cfg(test)]
+    ROW_LOG.with(|l| {
+        l.borrow_mut().push(RowLogEntry::Row { label: label.to_owned(), key: key.map(str::to_owned) })
+    });
     SEARCH.with(|s| {
         let mut b = s.borrow_mut();
         let Some(st) = b.as_mut() else { return RowAdmission::Shown };
@@ -13239,6 +13269,8 @@ fn glow_color_rows(ui: &mut Ui, ctrl_id: &str, ctrl: &Control, action: &mut Insp
 }
 
 fn section_header(ui: &mut Ui, title: &str) {
+    #[cfg(test)]
+    ROW_LOG.with(|l| l.borrow_mut().push(RowLogEntry::Section(title.to_owned())));
     // The section before this one ends here: its rows go to their A–Z places.
     sort_end(ui);
     // While a search narrows the rows, a section is announced only when its
@@ -17775,6 +17807,251 @@ mod label_help_tests {
         assert!(!has(&lifecycle, "onMouseDown"), "and only them: {lifecycle:?}");
         let mouse = painted_texts(&form, None, InspectorTab::Events, "mouse");
         assert!(has(&mouse, "onMouseDown"), "a word finds the events named with it: {mouse:?}");
+    }
+
+    /// The rows and section headers the Props tab draws for `ctrl` (or for the form), in order.
+    fn pane_order(form: &Form, ctrl: Option<&Control>) -> Vec<RowLogEntry> {
+        let lang = crate::i18n::Language::English;
+        let tr = &lang.tr();
+        let ctx = egui::Context::default();
+        crate::i18n::set_language(&ctx, lang);
+        let mut panel = PropertiesPanel::new();
+        let _ = take_row_log();
+        let mut full = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 20000.0))),
+                ..Default::default()
+            },
+            |ui| {
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    let _ = panel.show(ui, form, ctrl, &[], tr);
+                });
+            },
+        );
+        full.textures_delta.clear();
+        take_row_log()
+    }
+
+    /// Properties that go together, as the operator reads them (2026-10-15: "properties
+    /// that go together — gradient start colour / end colour, for example — are placed one
+    /// after the other"). In any pane, the members of a family that are present sit one
+    /// after the other: no other row, and no section header, between two of them.
+    ///
+    /// A family lists exact property names. It is a statement about the ORDER ONLY — which
+    /// rows a control has is its own business, so a member a control lacks is simply absent.
+    const FAMILIES: &[(&str, &[&str])] = &[
+        ("background", &["BackgroundColor", "BackgroundGradientEnabled", "BackgroundGradientStartColor", "BackgroundGradientEndColor", "BackgroundGradientDirection"]),
+        ("border", &["BorderColor", "BorderStyle", "BorderWidth", "BorderGradientEnabled", "BorderGradientStartColor", "BorderGradientEndColor", "BorderGradientDirection", "BorderBlur", "BorderTransparency", "BorderGlowTopLeft", "BorderGlowTopRight", "BorderGlowBottomRight", "BorderGlowBottomLeft"]),
+        ("font", &["FontName", "FontSize", "Bold"]),
+        ("button icon", &["IconPath", "IconAlignment", "IconPadding", "IconSize"]),
+        ("rail icons", &["IconEffect", "IconSize", "IconSizeCollapsed"]),
+        ("rail collapse", &["Collapsed", "CollapsedWidth"]),
+        ("rail breadcrumb", &["BreadcrumbHeight", "BreadcrumbBackgroundColor", "BreadcrumbTextAlign", "BreadcrumbFontSize", "BreadcrumbIconSize"]),
+        ("rail highlight", &["HighlightBgColor", "HighlightFgColor", "SelectedBgColor", "SelectedFgColor"]),
+        ("tree icons", &["ShowIcons", "ParentIcon", "ParentIconOpen", "LeafIcon", "IconSize", "IconColor"]),
+        ("tree lines", &["ShowLines", "ShowRootLines", "LineColor"]),
+        ("tree hot tracking", &["HotTracking", "HotTrackColor"]),
+        ("tree selection", &["SelectionColor", "HighContrastText"]),
+        ("tree metrics", &["RowHeight", "NodeSpacing", "IndentWidth"]),
+        ("tree edit", &["AllowEdit", "AllowDrag"]),
+        ("image", &["ImagePath", "ImageAlignment", "SizeMode"]),
+        ("check marks", &["CheckBoxes", "CheckAlignment", "CheckColor", "CheckSpacing", "CheckSize", "CheckBoxSize", "CheckBoxColor", "CheckBoxBorderStyle", "CheckBoxBorderColor", "CheckBoxBorderWidth"]),
+        ("group caption", &["HideCaption", "CaptionEnabled", "CaptionAlignment", "CaptionSize", "CaptionShape", "CaptionBackgroundStyle", "CaptionPadding", "CaptionPaddingHorizontal", "CaptionPaddingVertical"]),
+        ("scroll", &["HScroll", "VScroll"]),
+        ("expand", &["Expandable", "Expanded"]),
+        ("tabs", &["Tabs", "TabPosition", "TabPadding", "ActiveTabColor", "ActiveTabForegroundColor", "InactiveTabColor", "InactiveTabForegroundColor"]),
+        ("list item colours", &["ActiveItemColor", "ActiveItemTextColor", "HoverItemColor", "SelectedItemsColor"]),
+        ("list contents", &["Items", "ItemsFile"]),
+        ("text box layout", &["TextAlignment", "VerticalAlignment", "InnerPadding"]),
+        ("text box lines", &["Multiline", "WordWrap", "ScrollBars"]),
+        ("range", &["Minimum", "Maximum", "Value", "Step", "LargeChange"]),
+        ("date range", &["Format", "CustomFormat", "MinimumDate", "MaximumDate"]),
+        ("slider ticks", &["TickFrequency", "TickStyle"]),
+        ("show value", &["ShowValue", "ShowRange"]),
+        ("slider colours", &["FillColor", "TrackColor", "ThumbColor"]),
+        ("knob colours", &["Accent", "FaceColor", "RimColor", "TrackColor"]),
+        ("splitter grip", &["GripStyle", "GripSize", "GripColor"]),
+        ("splitter line", &["LineColor", "LineSize"]),
+        ("line direction", &["LineDirection", "LineAngle"]),
+        ("line style", &["LineColor", "LineThickness", "DashStyle", "RoundedEnds"]),
+        ("radar scale", &["GridLevels", "MinValue", "MaxValue", "ShowAxisValues"]),
+        ("shape fill", &["FillStyle", "FillColor"]),
+        ("shape line", &["LineStyle", "LineThickness", "LineColor"]),
+        ("chart title", &["Title", "TitleFontSize", "TitleColor"]),
+        ("chart axes", &["ShowGridLines", "ShowXAxis", "XAxisLabel", "ShowYAxis", "YAxisLabel"]),
+        ("chart animation", &["AnimateOnLoad", "AnimateValues", "AnimationDuration"]),
+        ("chart monochrome", &["Monochrome", "MonochromeColor", "MonochromeGradient"]),
+        ("chart points", &["Smooth", "ShowPoints", "PointRadius", "FillAlpha"]),
+        ("chart data", &["DataSource", "DataCount", "LabelField", "ValueFields", "SeriesLabels", "SeriesColors"]),
+        ("gauge levels", &["NormalColor", "WarningThreshold", "WarningColor", "CriticalThreshold", "CriticalColor"]),
+        ("gauge needle", &["ShowNeedle", "NeedleColor"]),
+        ("maps colours", &["MarkerColor", "MarkerBorderColor", "RouteColor", "RouteCasingColor", "RegionFillColor", "RegionBorderColor", "TileBackgroundColor", "TileLoadingColor"]),
+        ("snackbar stack", &["StackAnchor", "Margin", "StackSpacing", "StackOrder"]),
+        ("agent generation", &["Temperature", "MaximumTokens", "MaximumContinuations"]),
+        ("agent tools", &["ToolProtocol", "MaximumToolRounds"]),
+        ("agent output", &["StreamReply", "Verbose"]),
+        ("agent model", &["AgentAPI", "AgentURL", "AgentModel", "AgentEndpoint", "AgentAPIKey"]),
+        ("rest request", &["BaseURL", "DefaultMethod", "DefaultHeaders"]),
+        ("rest auth", &["AuthType", "AuthToken"]),
+        ("rest transport", &["TimeoutSeconds", "FollowRedirects", "VerifyTLS"]),
+        ("polly output", &["VoiceId", "Engine", "OutputFormat", "OutputFile"]),
+        ("viewer view", &["View1Zoom", "View1ViewMode", "View1CardSize", "View1ShowFilmstrip"]),
+        ("viewer bubbles", &["UserBubbleColor", "UserBubbleTextColor", "UserBubbleBold", "AgentBubbleColor", "AgentBubbleTextColor"]),
+        ("grid cell", &["GridColumn", "ColumnSpan", "GridRow", "RowSpan", "JustifySelf", "AlignSelf"]),
+        ("flex item", &["FlexGrow", "FlexShrink", "FlexBasis", "AlignSelf", "Order"]),
+        ("size limits", &["MinWidth", "MaxWidth", "MinHeight", "MaxHeight"]),
+        ("font scaling", &["ScaleFont", "MinFontSize", "MaxFontSize"]),
+        ("padding", &["Padding", "PaddingLeft", "PaddingTop", "PaddingRight", "PaddingBottom"]),
+        ("flex container", &["FlexDirection", "FlexWrap", "JustifyContent", "AlignItems", "AlignContent"]),
+        ("grid container", &["GridColumns", "GridRows", "JustifyItems", "AlignItems"]),
+        ("gaps", &["Gap", "RowGap", "ColumnGap"]),
+        ("3D tilt", &["RotateX", "RotateY", "PerspectiveDistance", "PerspectiveStrength"]),
+        ("3D pins", &["PinTopLeftX", "PinTopLeftY", "PinTopRightX", "PinTopRightY", "PinBottomRightX", "PinBottomRightY", "PinBottomLeftX", "PinBottomLeftY"]),
+    ];
+
+    /// Splits left on purpose, each with its reason: `(control type, family)`.
+    const KEPT_APART: &[(&str, &str, &str)] = &[
+        // The bar's own frame (1.61.69) draws `BackgroundColor` again with the bar's own
+        // defaults — transparent, radius 10 — which the standard row does not show; with a
+        // gradient on, the standard row is hidden and this one stays.
+        ("ToolBar", "background", "its own frame repeats BackgroundColor with the bar's own defaults"),
+    ];
+
+    /// Pairs that read as one: the second row comes straight after the first.
+    const NEXT_TO: &[(&str, &str)] = &[
+        ("GridColumn", "ColumnSpan"),
+        ("GridRow", "RowSpan"),
+        ("MinWidth", "MaxWidth"),
+        ("MinHeight", "MaxHeight"),
+    ];
+
+    /// A responsive form with the control inside a Panel laid out in `mode`, and the control
+    /// itself laid out the same way (so a container shows its own layout rows too): the rows
+    /// of the Layout section, which a free-form form does not show.
+    fn layout_scenario(t: &cobolt_forms::ControlType, mode: &str) -> (Form, Control) {
+        let mut form = Form::new("F", "F", 640, 480);
+        form.responsive = true;
+        let mut panel = Control::new("P".to_owned(), cobolt_forms::ControlType::Panel, 0, 0);
+        panel.set_prop("LayoutMode", mode);
+        let mut c = Control::new("X".to_owned(), t.clone(), 0, 0);
+        c.parent = Some("P".to_owned());
+        c.set_prop("LayoutMode", mode);
+        form.controls.push(panel);
+        form.controls.push(c.clone());
+        (form, c)
+    }
+
+    /// The three states the census reads: as a control is born, with every boolean property
+    /// on, and with every one off — the rows that appear only for a setting are then seen.
+    fn pane_states(t: &cobolt_forms::ControlType) -> Vec<(&'static str, Control)> {
+        let born = Control::new("X".to_owned(), t.clone(), 0, 0);
+        let flipped = |on: bool| {
+            let mut c = born.clone();
+            let keys: Vec<String> = c
+                .properties
+                .iter()
+                .filter(|(_, v)| matches!(v, PropValue::Bool(_)))
+                .map(|(k, _)| k.clone())
+                .collect();
+            for k in keys {
+                c.set_prop(&k, PropValue::Bool(on));
+            }
+            c
+        };
+        vec![("born", born.clone()), ("all on", flipped(true)), ("all off", flipped(false))]
+    }
+
+    /// **Properties that go together are drawn one after the other**, for every control type
+    /// (operator, 2026-10-15) — and a gradient's start colour is followed by its end colour.
+    #[test]
+    fn properties_that_go_together_are_drawn_one_after_the_other() {
+        let form = Form::new("F", "F", 640, 480);
+        let mut broken: Vec<String> = Vec::new();
+        let mut checked = 0usize;
+        let mut panes = 0usize;
+        for t in cobolt_forms::ControlType::ALL {
+            let mut scenarios: Vec<(String, Form, Control)> = Vec::new();
+            for (state, c) in pane_states(t) {
+                let mut f = form.clone();
+                f.controls.push(c.clone());
+                scenarios.push((state.to_owned(), f, c));
+            }
+            for mode in ["Absolute", "Flex", "Flow", "Grid"] {
+                let (f, c) = layout_scenario(t, mode);
+                scenarios.push((format!("responsive, {mode}"), f, c));
+            }
+            for (state, f, c) in scenarios {
+                let state = state.as_str();
+                let rows = pane_order(&f, Some(&c));
+                panes += 1;
+                let keys: Vec<Option<&str>> = rows
+                    .iter()
+                    .map(|e| match e {
+                        RowLogEntry::Row { key, .. } => key.as_deref(),
+                        RowLogEntry::Section(_) => None,
+                    })
+                    .collect();
+                // A property drawn twice (ToolBar and Viewer repeat a few of the standard rows
+                // in their own sections) is not a split of a family: it is a duplicate, and is
+                // left out of the check rather than counted against either place.
+                let drawn_twice: std::collections::HashSet<&str> = {
+                    let mut seen = std::collections::HashSet::new();
+                    keys.iter().flatten().copied().filter(|k| !seen.insert(*k)).collect()
+                };
+                for (family, members) in FAMILIES {
+                    if KEPT_APART.iter().any(|(ty, fam, _)| *ty == t.as_str() && fam == family) {
+                        continue;
+                    }
+                    let at: Vec<usize> = keys
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, k)| k.is_some_and(|k| members.contains(&k) && !drawn_twice.contains(k)))
+                        .map(|(i, _)| i)
+                        .collect();
+                    if at.len() < 2 {
+                        continue;
+                    }
+                    checked += 1;
+                    // The rows between the first and last member that are neither members nor
+                    // a duplicate of one.
+                    let foreign: Vec<usize> = (at[0]..=at[at.len() - 1])
+                        .filter(|i| !at.contains(i) && !keys[*i].is_some_and(|k| drawn_twice.contains(k) && members.contains(&k)))
+                        .collect();
+                    if !foreign.is_empty() {
+                        let between: Vec<String> = foreign
+                            .iter()
+                            .copied()
+                            .map(|i| match &rows[i] {
+                                RowLogEntry::Section(s) => format!("[{s}]"),
+                                RowLogEntry::Row { label, key } => key.clone().unwrap_or_else(|| label.clone()),
+                            })
+                            .collect();
+                        broken.push(format!("{t:?} ({state}): {family}: {} | between: {}", at.iter().map(|i| keys[*i].unwrap_or("")).collect::<Vec<_>>().join(", "), between.join(", ")));
+                    }
+                }
+                // A gradient's start colour is followed by its end colour.
+                for (i, k) in keys.iter().enumerate() {
+                    if let Some(k) = k.filter(|k| k.contains("GradientStart")) {
+                        let end = k.replace("Start", "End");
+                        if keys.get(i + 1).copied().flatten() != Some(end.as_str()) {
+                            broken.push(format!("{t:?} ({state}): {k} is not followed by {end}"));
+                        }
+                    }
+                    for (first, second) in NEXT_TO {
+                        if *k == Some(first) && keys.get(i + 1).copied().flatten() != Some(second) {
+                            broken.push(format!("{t:?} ({state}): {first} is not followed by {second}"));
+                        }
+                    }
+                }
+            }
+        }
+        broken.sort();
+        broken.dedup();
+        for b in &broken {
+            println!("split: {b}");
+        }
+        println!("{} family checks over {panes} panes ({} control types × 3 states + 4 layout modes), {} split", checked, cobolt_forms::ControlType::ALL.len(), broken.len());
+        assert!(broken.is_empty(), "{} groups of properties that go together are split:\n{}", broken.len(), broken.join("\n"));
     }
 
     /// Every label the Props tab shows — for the form and for each control

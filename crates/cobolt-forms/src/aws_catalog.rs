@@ -202,8 +202,8 @@ pub const CONTROLS: &[AwsControl] = &[
         events: &["onSynthesized", "onComplete", "onError", "onTimeout", "onCancelled"],
         seeds: &[
             ("VoiceId", Seed::Str("Joanna")),
-            ("OutputFormat", Seed::Str("mp3")),
             ("Engine", Seed::Str("neural")),
+            ("OutputFormat", Seed::Str("mp3")),
             ("OutputFile", Seed::Str("")),
         ],
         runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "ContentType", "Characters", "SavedFile"],

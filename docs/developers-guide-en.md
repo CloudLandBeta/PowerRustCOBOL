@@ -1889,7 +1889,12 @@ flowchart LR
   selected, the **form** itself. The pane is organised into collapsible
   **section cards**; for the form these are **Form Properties**, **COBOL
   Structure**, **Target Device**, **Window**, **Appearance**, **Form Events**
-  and **Animations**, in that order. Drag its **left border** to widen it — the border
+  and **Animations**, in that order. Inside a card, properties that belong
+  together sit one after the other: a gradient's start colour is followed by its
+  end colour, the border's colour, style and width share a run, a font's name
+  comes before its size, and so on for each control's own groups — the tick of
+  a check box, the axes of a chart, the two ends of a slider's range. Drag its
+  **left border** to widen it — the border
   brightens as you hover it. It is a **drawer**: the
   vertically-centered **◀** tab hides it (leaving a thin **▶** tab to slide it
   back), and it reopens at the width you last set.
