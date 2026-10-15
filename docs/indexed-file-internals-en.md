@@ -74,6 +74,7 @@ disk does **not** track logical record order.
 | `4` | `PT_OVERFLOW` | continuation for a record too big to fit inline |
 | `5` | `PT_DIR`      | a leaf of the RecordId directory (255 locations) |
 | `6` | `PT_DIRIDX`   | an index page of the RecordId directory (510 children) |
+| `7` | `PT_META`     | a page of the record definition — the `FD` text (version 4) |
 
 ---
 
@@ -97,11 +98,13 @@ little-endian, in this order:
  ──────────────────────────────────────────────────────────────────────
  next_alt_seq (u64)      dir_root (u64)    dir_height (u8)   (versions 2 and 3)
  crc32 (u32)             covers every byte of the header before it
+ ──────────────────────────────────────────────────────────────────────
+ meta_page (u64)  meta_len (u32)  meta_crc (u32)  ext_crc (u32)      (version 4)
 ```
 
 | Header field      | Meaning                                                       |
 |-------------------|---------------------------------------------------------------|
-| `version`         | Format version (currently `3`).                               |
+| `version`         | Format version (currently `4`).                               |
 | `page_size`       | Page size in bytes (4096).                                    |
 | `rec_fmt`         | Record format: `1` = fixed length.                            |
 | `compressing`     | `1` if record payloads are RLE-compressed on disk.            |
@@ -116,12 +119,47 @@ little-endian, in this order:
 | `next_alt_seq`    | Next creation-order sequence for a duplicate alternate key (version 2). |
 | `dir_root`, `dir_height` | Root page of the radix RecordId directory and its number of levels; `1` means the root is a leaf (version 3). |
 | `crc32`           | CRC-32 of the header bytes before it — what makes a torn header detectable. |
+| `meta_page`, `meta_len`, `meta_crc` | Where the record definition starts (a page id, `0` = none), how many bytes of text it is, and the CRC-32 of those bytes (version 4). |
+| `ext_crc`         | CRC-32 of those three fields. Written **after** `crc32`, so a version 3 reader — which verifies `crc32` and stops — opens a version 4 file and does not see the definition. |
 | `alt_root[k]`     | Root page of alternate key *k*'s B+tree.                      |
 | KEY SCHEMA        | Per-key duplicate policy + composite-part byte ranges.        |
 
-**What is deliberately *not* in the header:** there are **no data-field names**
-and **no per-record metadata**. The schema is purely *key geometry* (byte
-ranges). Everything else about a record is positional — see §6.
+**What the header does not hold:** field names, PICTUREs, USAGE, REDEFINES —
+anything about the *meaning* of a record's bytes. The header's schema is key
+geometry (byte ranges) and nothing else; the meaning is in the **record
+definition** the header points to (§3b). Per record, nothing is stored beyond
+its bytes, which are positional — see §6.
+
+### 3b. The record definition (version 4)
+
+A container written by version 4 carries the `FD` that describes its records:
+the text of the `FD` paragraph and its `01` record descriptions, in canonical
+free-form COBOL (the format is in
+[`indexed-file-format-en.md`](indexed-file-format-en.md), *The record
+definition*). Any program can open the file, follow `meta_page` and read the
+layout of a record with no `.cidx` and no source beside it.
+
+It is stored as a run of **consecutive `PT_META` pages**:
+
+```
+ tag (u8 = 7)  kind (u8 = 1: UTF-8 FD text)  pad (u16)
+ seq (u32)     len (u32)                      crc32 (u32, of this page's bytes)
+ ── `len` bytes of text, up to 4080 per page ──
+```
+
+- **A file this engine creates** writes the run first, so it occupies pages
+  1.. directly after the header: the definition is at the start of the file.
+  The trees and data pages follow it.
+- **A file written before version 4** has nowhere to put it but the end of the
+  container. The first open that may write — `OPEN OUTPUT`, `I-O` or `EXTEND` —
+  by a program that declares an `FD` appends the run and publishes the three
+  header fields, in one journalled transaction: a crash leaves the file as it
+  was. An `OPEN INPUT` never converts: it never changes a file.
+- **A file that already has a definition keeps it.** Two programs may describe
+  the same bytes differently; the second does not overwrite the first. Only
+  `OPEN OUTPUT`, which makes a new file, writes a new one.
+- **Damage to the definition never makes the records unreadable.** Every page
+  and the whole text are checksummed; a bad one reads as "no definition".
 
 ---
 

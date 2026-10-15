@@ -279,6 +279,100 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
     }
 }
 
+/// Where each item of the record description sits in the record, in the order
+/// `cobolt_ast::fd_text` lists them: the record, then everything under it, depth
+/// first. `(offset, length)` in bytes from the start of the record; the length of
+/// an item with `OCCURS` covers all its occurrences. `None` for an entry that
+/// holds no bytes of its own — a condition name.
+///
+/// The same rules as [`compute_layout`], which it is held to by test: a group
+/// is its members laid end to end, a `REDEFINES` item shares the bytes of the
+/// item it redefines, a national or UTF-8 field takes its image's bytes, a
+/// separate sign takes one more.
+pub fn item_extents(record: &DataDecl) -> cobolt_ast::fd_text::Extents {
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    place(record, record.sign, &mut offset, Some(&mut out));
+    out
+}
+
+/// Place `d` at `*offset`, advance `*offset` past it, and — when `out` is given —
+/// record its extent and its members' (first occurrence only) in listing order.
+fn place(
+    d: &DataDecl,
+    sign: Option<SignClause>,
+    offset: &mut usize,
+    mut out: Option<&mut Vec<Option<(usize, usize)>>>,
+) {
+    let slot = out.as_deref_mut().map(|o| {
+        o.push(None);
+        o.len() - 1
+    });
+    let times = d.occurs.as_ref().map(|o| o.max.max(1) as usize).unwrap_or(1);
+    let sign = d.sign.or(sign);
+    let began = *offset;
+    let mut holds_bytes = false;
+    for i in 0..times {
+        let sink = if i == 0 { out.as_deref_mut() } else { None };
+        if has_members(d) {
+            holds_bytes = true;
+            place_siblings(&d.children, sign, offset, sink);
+        } else if let Some(pic) = &d.picture {
+            holds_bytes = true;
+            let sep = usize::from(
+                matches!(pic.kind, PicKind::Numeric) && sign.is_some_and(|s| s.separate),
+            );
+            let len = match crate::environment::decl_class(d) {
+                Some(c) => c.width(),
+                None => (pic.digits as usize + pic.decimals as usize + sep).max(1),
+            };
+            *offset += len;
+            // An 88 under an elementary item takes its place in the listing.
+            if i == 0 {
+                if let Some(o) = out.as_deref_mut() {
+                    for _ in &d.children {
+                        o.push(None);
+                    }
+                }
+            }
+        }
+    }
+    if let (Some(slot), Some(o)) = (slot, out) {
+        if holds_bytes {
+            o[slot] = Some((began, *offset - began));
+        }
+    }
+}
+
+/// [`place`] for one group's members, a `REDEFINES` item sharing the bytes of
+/// the item it redefines — the counterpart of `walk_siblings`.
+fn place_siblings(
+    children: &[DataDecl],
+    sign: Option<SignClause>,
+    offset: &mut usize,
+    mut out: Option<&mut Vec<Option<(usize, usize)>>>,
+) {
+    let mut placed: Vec<(String, usize)> = Vec::new();
+    for c in children {
+        let target = c.redefines.as_ref().and_then(|t| {
+            let t = t.to_ascii_uppercase();
+            placed.iter().find(|(n, _)| *n == t).map(|(_, at)| *at)
+        });
+        let resume = *offset;
+        if let Some(at) = target {
+            *offset = at;
+        }
+        let began = *offset;
+        place(c, sign, offset, out.as_deref_mut());
+        if target.is_some() {
+            *offset = resume.max(*offset);
+        }
+        if let Some(n) = &c.name {
+            placed.push((n.to_ascii_uppercase(), began));
+        }
+    }
+}
+
 impl RecordLayout {
     pub fn field(&self, name: &str) -> Option<&FieldPos> {
         self.field_qualified(name, &[])
@@ -631,6 +725,79 @@ mod tests {
             sign: None,
             byte_length: None,
         }
+    }
+
+    /// `item_extents` and `compute_layout` are one layout: every elementary item
+    /// the layout finds is where the extents say it is, a `REDEFINES` item shows
+    /// the bytes it shares, and a group's extent is its members'.
+    #[test]
+    fn the_extents_agree_with_the_layout() {
+        // 01 REC.
+        //    05 KEY-AREA.  10 K1 PIC X(5).  10 K2 PIC X(3).
+        //    05 REDF REDEFINES KEY-AREA.  10 R1 PIC X(8).
+        //    05 N PIC 9(4).  88 N-ZERO …
+        //    05 TAIL PIC X(4).
+        let mut redf = group("REDF", vec![elem("R1", pic("X(8)", PicKind::Alphanumeric, 8, 0))]);
+        redf.redefines = Some("KEY-AREA".into());
+        let mut n = elem("N", pic("9(4)", PicKind::Numeric, 4, 0));
+        let mut zero = elem("N-ZERO", pic("X", PicKind::Alphanumeric, 1, 0));
+        zero.level = 88;
+        zero.picture = None;
+        n.children.push(zero);
+        let rec = group(
+            "REC",
+            vec![
+                group(
+                    "KEY-AREA",
+                    vec![
+                        elem("K1", pic("X(5)", PicKind::Alphanumeric, 5, 0)),
+                        elem("K2", pic("X(3)", PicKind::Alphanumeric, 3, 0)),
+                    ],
+                ),
+                redf,
+                n,
+                elem("TAIL", pic("X(4)", PicKind::Alphanumeric, 4, 0)),
+            ],
+        );
+        let layout = compute_layout(&rec);
+        let ext = item_extents(&rec);
+        // REC, KEY-AREA, K1, K2, REDF, R1, N, N-ZERO, TAIL — listing order.
+        assert_eq!(
+            ext,
+            vec![
+                Some((0, 16)),
+                Some((0, 8)),
+                Some((0, 5)),
+                Some((5, 3)),
+                Some((0, 8)),
+                Some((0, 8)),
+                Some((8, 4)),
+                None,
+                Some((12, 4)),
+            ]
+        );
+        // …and the layout says the same of every elementary item.
+        for (name, at) in [("K1", ext[2]), ("K2", ext[3]), ("R1", ext[5]), ("N", ext[6]), ("TAIL", ext[8])] {
+            let f = layout.field(name).expect(name);
+            assert_eq!(Some((f.offset, f.len)), at, "{name}");
+        }
+        assert_eq!(layout.len, 16);
+    }
+
+    /// An item with `OCCURS` covers all of its occurrences.
+    #[test]
+    fn an_occurs_item_covers_every_occurrence() {
+        let mut month = elem("MONTH", pic("9(3)", PicKind::Numeric, 3, 0));
+        month.occurs = Some(cobolt_ast::data::OccursClause {
+            min: 0,
+            max: 12,
+            depending_on: None,
+            indexed_by: Vec::new(),
+            keys: Vec::new(),
+            span: Span::dummy(),
+        });
+        let rec = group("REC", vec![elem("ID", pic("9(2)", PicKind::Numeric, 2, 0)), month]);
+        assert_eq!(item_extents(&rec), vec![Some((0, 38)), Some((0, 2)), Some((2, 36))]);
     }
 
     /// A condition name under an item is not storage and does not make the item

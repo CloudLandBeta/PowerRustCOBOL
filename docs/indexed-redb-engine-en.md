@@ -166,7 +166,7 @@ There are two ways to stay safe, and they are not equivalent:
 | `primary`  | table    | primary-key bytes → (optionally compressed) record |
 | `alt`      | multimap | `[u16 idx][alt-key bytes]` → `[u64 seq][primary key]` |
 | `seq`      | table    | primary-key bytes → `u64` insertion sequence  |
-| `meta`     | table    | `schema`, `compress`, `nextseq` descriptors   |
+| `meta`     | table    | `schema`, `compress`, `nextseq` descriptors, and `fd` — the record definition (the `FD` as COBOL text; see [`indexed-file-format-en.md`](indexed-file-format-en.md)) |
 
 - A **single `alt` multimap** holds every alternate key, namespaced by a 2-byte
   big-endian key index. Byte order is therefore `(key index, alt value,

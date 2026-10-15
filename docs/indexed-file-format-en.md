@@ -39,6 +39,84 @@ metadata it reads out of a Fujitsu file, without a matching `FD` on hand.
 
 ---
 
+## The record definition — the FD inside the file
+
+The key schema says where the keys are. It cannot say what a record *is*: for
+that a reader needs the `FD`. A file written by container version 4 (`PRCIDXD1`
+version 4, PowerRustCOBOL 1.91.169 and later) therefore carries it, so that **any
+program can open the file and understand the structure of a record** — names,
+PICTUREs, USAGE, REDEFINES, OCCURS, condition names — with no `.cidx` and no
+source.
+
+**The definition is COBOL.** It is the text of the `FD` paragraph and its `01`
+record descriptions in free-form COBOL, UTF-8, one data description per line,
+four spaces of indentation per level of nesting, two-digit level numbers, the
+clauses of each item in one fixed order (`REDEFINES`, `PIC`, usage, `SIGN`,
+`OCCURS`, `JUSTIFIED`, `BLANK WHEN ZERO`, `VALUE`), so that one `FD` always gives
+the same bytes:
+
+```cobol
+FD CUST
+    RECORD CONTAINS 40 CHARACTERS.
+01 CUST-REC. *> @0+40
+    05 CUST-ID PIC 9(6). *> @0+6
+    05 CUST-NAME PIC X(20). *> @6+20
+    05 BALANCE PIC S9(7)V99 COMP-3. *> @26+9
+    05 BAL-TEXT REDEFINES BALANCE PIC X(9). *> @26+9
+    05 FLAG PIC X. *> @35+1
+        88 IS-VIP VALUE "V".
+    05 TAIL PIC X(4). *> @36+4
+```
+
+**Where the bytes are.** Each item that holds bytes ends with a comment
+`*> @offset+length`: from byte *offset* (counting from 0) for *length* bytes.
+For an item with `OCCURS` the length covers every occurrence; a `REDEFINES` item
+shows the bytes it shares. This comment — not a reading of the clauses — is the
+authority on position, because a file's layout is a property of the engine that
+wrote it. In this release a numeric item of any `USAGE` is stored as its digits
+(`S9(7)V99 COMP-3` above takes nine bytes, not five), and that is exactly why
+the position is written down instead of left to be derived. The clauses are the
+authority on *meaning*; `GLOBAL` and `EXTERNAL`, which say where a program may
+see an item rather than what the record is, are not written.
+
+**Where it lives.**
+
+| Container | Where the definition is |
+|---|---|
+| `PRCIDXD1` version 4 (the default; both `STORAGE` modes) | In consecutive `PT_META` pages; the header (page 0) holds the first page, the length and a checksum. For a file the engine creates they are pages 1.., directly after the header. Layout in [`indexed-file-internals-en.md`](indexed-file-internals-en.md) §3b. |
+| redb (`--indexed-engine redb`) | In the `meta` table, under the key `fd`. |
+| `PRCIDX1`, `PRCISAM1` (legacy, read only) | Not carried. A program that opens one for writing converts it to `PRCIDXD1` version 4 and it gets the definition then. |
+
+**When it is written.**
+
+- `OPEN OUTPUT`, and `I-O` or `EXTEND` of a file that does not exist yet, create
+  the file with the definition of the `FD` the program declares.
+- `I-O` or `EXTEND` of a file that has **no** definition — one written by an
+  earlier release — **converts it**: the definition is added, as one
+  crash-safe step, every record untouched. This is how a file becomes version 4:
+  by being opened for writing by a program that declares its `FD`.
+- `INPUT` never converts: an `INPUT` open never changes a file.
+- A file that already has a definition **keeps it**; another program's different
+  description does not replace it. A `STORAGE IS MEMORY WITH PERSISTENCE` save
+  rewrites the container whole and keeps the one it was opened with.
+- The IDE's *Finalize* writes the definition of the `.cidx` into the data file
+  it creates, and the grid browser, which opens a file for writing, gives one to
+  a file that has none.
+
+**It describes; it does not gate.** The record length and the keys decide FILE
+STATUS 39 on `OPEN`, as before. A definition that differs from a program's `FD`
+is not an error, and one whose pages are damaged reads as no definition — the
+records are never made unreadable by it.
+
+**Reading it.** `IndexedFileInfo::definition` (from `inspect_path`, or
+`cobolt_runtime::indexed_import::inspect_any_path`) is the text. *Import
+existing…* in the IDE builds the `.cidx` from it: every field, with its PICTURE,
+usage and REDEFINES, and the keys named after their fields. The text parses with
+any COBOL reader that takes free-form source, and with PowerRustCOBOL's own
+parser: it reads back to the descriptions it was made from.
+
+---
+
 ## Metadata model
 
 These Rust types (re-exported from `cobolt_runtime`) are the schema. They mirror
@@ -223,6 +301,10 @@ container header records that compression is on.
 
 ## Backward compatibility
 
+* `PRCIDXD1` version 4 adds the record definition (above). It sits after version
+  3's checksum, so a release that knows only version 3 opens a version 4 file and
+  does not see it — and, writing the header back, drops the pointer to it, which
+  loses the definition and nothing else.
 * `PRCIDXD1` (magic `PRCIDXD1`) — the paged B+tree container, and since
   1.80.37 the one format both native modes write (read + write).
 * `PRCIDX1` (magic `PRCIDX1\0`) — the self-describing format MEMORY-mode

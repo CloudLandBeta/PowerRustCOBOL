@@ -16,6 +16,7 @@
 //! |-----------|----------|
 //! | `program` | Top-level program structure and all divisions |
 //! | `data`    | DATA DIVISION: `DataDecl`, `PicClause`, `Usage`, `OccursClause` |
+//! | `fd_text` | the canonical COBOL text of a record description (what an indexed file carries) |
 //! | `expr`    | `Expr`, `Literal`, `FigurativeConstant`, `Condition`, operators |
 //! | `intrinsics` | the set of intrinsic functions RustCOBOL implements |
 //! | `stmt`    | `Stmt` and all supporting clause types |
@@ -30,6 +31,7 @@
 //! inside the AST without requiring callers to carry a separate source map.
 
 pub mod data;
+pub mod fd_text;
 pub mod intrinsics;
 pub mod methods;
 pub mod expr;

@@ -269,6 +269,10 @@ struct FileSpec {
     /// `LINAGE` page layout, when the FD declares one. Its presence is what
     /// makes `LINAGE-COUNTER` and the `AT END-OF-PAGE` condition meaningful.
     linage: Option<cobolt_ast::data::Linage>,
+    /// The FD as COBOL text (`cobolt_ast::fd_text`) — what an indexed file this
+    /// program creates carries inside it, so that another program can read the
+    /// layout of its records without the FD that wrote them.
+    definition: Option<String>,
 }
 
 impl FileSpec {
@@ -1007,6 +1011,7 @@ fn collect_file_specs(
     let mut fd_layouts: HashMap<String, Vec<(String, crate::files::RecordLayout)>> = HashMap::new();
     let mut fd_linage: HashMap<String, cobolt_ast::data::Linage> = HashMap::new();
     let mut fd_sizing: HashMap<String, cobolt_ast::data::RecordSizing> = HashMap::new();
+    let mut fd_text: HashMap<String, String> = HashMap::new();
     if let Some(data) = &program.data {
         for section in &data.sections {
             if let DataSection::FileSection(fds) = section {
@@ -1018,6 +1023,13 @@ fn collect_file_specs(
                         .map(|n| n.to_ascii_uppercase())
                         .collect();
                     let fkey = fd.name.to_ascii_uppercase();
+                    // The FD as text, each item with the bytes it takes: what an
+                    // indexed file this program creates carries inside itself.
+                    let extents: Vec<_> = fd.records.iter().map(crate::files::item_extents).collect();
+                    fd_text.insert(
+                        fkey.clone(),
+                        cobolt_ast::fd_text::render_file_description_with(fd, &extents),
+                    );
                     if let Some(first) = fd.records.first() {
                         fd_layout.insert(fkey.clone(), crate::files::compute_layout(first));
                     }
@@ -1084,6 +1096,7 @@ fn collect_file_specs(
                         sizing: fd_sizing.get(&key).cloned(),
                         optional: fc.optional,
                         linage: fd_linage.get(&key).cloned(),
+                        definition: fd_text.get(&key).cloned(),
                     },
                 );
             }
@@ -1272,6 +1285,7 @@ fn make_indexed_engine(
         let mut e = RedbIndexedFile::new(path, reclen, primary, alts);
         e.set_key_names(names);
         e.set_compressing(compressing);
+        e.set_definition(spec.definition.clone());
         e.set_log_level(log_level);
         e.set_log_format(log_format);
         return Box::new(e);
@@ -1282,6 +1296,7 @@ fn make_indexed_engine(
             e.set_key_names(names);
             e.set_compressing(compressing);
             e.set_persist(spec.persist);
+            e.set_definition(spec.definition.clone());
             Box::new(e)
         }
         StorageMode::Disk => {
@@ -1289,6 +1304,7 @@ fn make_indexed_engine(
             let mut e = DiskIndexedFile::new(path, reclen, primary, alts);
             e.set_key_names(names);
             e.set_compressing(compressing);
+            e.set_definition(spec.definition.clone());
             Box::new(e)
         }
     }

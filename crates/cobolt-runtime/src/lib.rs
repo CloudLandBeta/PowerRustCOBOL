@@ -132,7 +132,7 @@ pub use indexed::{
 pub use indexed_ide::{
     compare_schema, create_empty_from_definition, key_specs_from_def, GridSession, SchemaDrift,
 };
-pub use indexed_import::{definition_from_inspect, inspect_any_path};
+pub use indexed_import::{definition_from_inspect, fields_from_definition, inspect_any_path};
 pub use interpreter::Interpreter;
 pub use objects::ObjectRegistry;
 pub use rust_bridge::{BridgeError, BridgeValue, RustBridge};

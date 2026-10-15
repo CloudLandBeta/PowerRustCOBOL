@@ -64,6 +64,9 @@ const META: TableDefinition<Slice, Slice> = TableDefinition::new("meta");
 const META_SCHEMA: &[u8] = b"schema";
 const META_COMPRESS: &[u8] = b"compress";
 const META_NEXTSEQ: &[u8] = b"nextseq";
+/// The `FD` text of the records (see `cobolt_ast::fd_text`): what lets any
+/// program that opens the container understand the layout of a record.
+const META_FD: &[u8] = b"fd";
 
 /// Each record carries a stable monotonic insertion sequence (the redb analogue
 /// of the PRCIDXD1 RecordId). Alternate-index entries are valued
@@ -273,6 +276,8 @@ pub struct RedbIndexedFile {
     key_names: Vec<Option<String>>,
     strict_metadata: bool,
     compressing: bool,
+    /// The FD text the program that opens this file declares.
+    definition: Option<String>,
 
     db: Option<RedbHandle>,
     wtx: Option<WriteTransaction>,
@@ -318,6 +323,7 @@ impl RedbIndexedFile {
             key_names: Vec::new(),
             strict_metadata: true,
             compressing: false,
+            definition: None,
             db: None,
             wtx: None,
             open: None,
@@ -349,6 +355,23 @@ impl RedbIndexedFile {
     }
     pub fn set_compressing(&mut self, on: bool) {
         self.compressing = on;
+    }
+    /// The FD text of the records. Written into a container this engine
+    /// creates, and into an older one the first time it is opened for writing.
+    pub fn set_definition(&mut self, text: Option<String>) {
+        self.definition = text.filter(|t| !t.trim().is_empty());
+    }
+    /// The definition a container at `path` carries, read without writing.
+    pub fn definition_of(path: impl AsRef<Path>) -> Option<String> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return None;
+        }
+        let db = open_or_migrate(path, |p: &Path| ReadOnlyDatabase::open(p)).ok()?;
+        let r = db.begin_read().ok()?;
+        let t = r.open_table(META).ok()?;
+        let bytes = t.meta_get(META_FD)?;
+        String::from_utf8(bytes).ok()
     }
     /// Enable the per-file transaction log at `<assign-path>.log`.
     pub fn set_log_level(&mut self, level: LogLevel) {
@@ -823,7 +846,25 @@ impl RedbIndexedFile {
                 .map_err(|_| ())?;
             m.insert(META_NEXTSEQ, 0u64.to_be_bytes().as_slice())
                 .map_err(|_| ())?;
+            if let Some(text) = &self.definition {
+                m.insert(META_FD, text.as_bytes()).map_err(|_| ())?;
+            }
         }
+        Ok(())
+    }
+
+    /// Give a container that has no record definition the one this program
+    /// declares — inside the transaction this open already holds, so it lands
+    /// with the first commit and not before. One that has a definition keeps it.
+    fn publish_definition(&self) -> Result<(), ()> {
+        let (Some(text), Some(w)) = (&self.definition, self.wtx.as_ref()) else {
+            return Ok(());
+        };
+        let mut m = w.open_table(META).map_err(|_| ())?;
+        if m.get(META_FD).map_err(|_| ())?.is_some() {
+            return Ok(());
+        }
+        m.insert(META_FD, text.as_bytes()).map_err(|_| ())?;
         Ok(())
     }
 
@@ -990,6 +1031,11 @@ impl IndexedStore for RedbIndexedFile {
                             self.wtx = None;
                             self.db = None;
                             return status::ATTR_MISMATCH;
+                        }
+                        if self.publish_definition().is_err() {
+                            self.wtx = None;
+                            self.db = None;
+                            return status::IO_ERROR;
                         }
                     } else if self.init_tables_and_meta().is_err() {
                         return status::IO_ERROR;
@@ -1396,6 +1442,9 @@ impl IndexedStore for RedbIndexedFile {
         self.open.is_some()
     }
 
+    fn set_definition(&mut self, text: Option<String>) {
+        RedbIndexedFile::set_definition(self, text)
+    }
     fn commit(&mut self) {
         if let Some(wtx) = self.wtx.take() {
             let _ = wtx.commit();

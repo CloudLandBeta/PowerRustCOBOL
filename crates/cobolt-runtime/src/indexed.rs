@@ -48,6 +48,11 @@ pub trait IndexedStore {
     /// Record the operator/user opening the file (`OPEN … WITH REGISTERED USER`),
     /// for the observability log. Default: no-op (engines without a log ignore it).
     fn set_registered_user(&mut self, _user: Option<String>) {}
+    /// The `FD` text of the file's records, as the program that opens it
+    /// declares it (see [`IndexedFileInfo::definition`]). An engine that can
+    /// carry it writes it into a file it creates, and into an older file the
+    /// first time that file is opened for writing. Default: ignored.
+    fn set_definition(&mut self, _text: Option<String>) {}
     /// `COMMIT` — make changes durable and start a new transaction. Default: no-op.
     fn commit(&mut self) {}
     /// `ROLLBACK` — undo changes since the last `COMMIT`/`OPEN`. Default: no-op.
@@ -326,6 +331,15 @@ pub struct IndexedFileInfo {
     pub total_key_length: u32,
     pub primary: KeyDescriptor,
     pub alternates: Vec<KeyDescriptor>,
+    /// The `FD` that describes the file's records, as the COBOL text of the
+    /// paragraph and its record descriptions (`cobolt_ast::fd_text`): every
+    /// field's name, PICTURE and USAGE, REDEFINES, OCCURS and condition names.
+    /// `Some` for a file written by container version 4 or later whose program
+    /// declared one; `None` for an older file, or one whose writer gave none.
+    ///
+    /// Not part of the schema a program is held to on `OPEN`: the keys and the
+    /// record length decide status 39, and the definition only describes.
+    pub definition: Option<String>,
 }
 
 /// A key: a `[offset, offset+len)` slice of the record — or, for a SPLIT key,
@@ -440,6 +454,13 @@ pub struct IndexedFile {
     /// load; only the test encoder of that format writes it any more.
     #[cfg_attr(not(test), allow(dead_code))]
     created_ms: u64,
+    /// The FD text the program declares for the records (container version 4).
+    definition: Option<String>,
+    /// The definition the existing container carried when it was opened. A
+    /// save keeps it: the container is rewritten whole, and a program that
+    /// declares the records differently should not overwrite the description
+    /// another program gave the same bytes.
+    stored_definition: Option<String>,
 }
 
 impl IndexedFile {
@@ -469,6 +490,8 @@ impl IndexedFile {
             compressing: false,
             persist: false,
             created_ms: 0,
+            definition: None,
+            stored_definition: None,
         }
     }
 
@@ -539,11 +562,18 @@ impl IndexedFile {
             total_key_length,
             primary,
             alternates,
+            definition: self.definition.clone(),
         }
     }
 
     pub fn is_open(&self) -> bool {
         self.open.is_some()
+    }
+
+    /// The FD text of the records — see [`IndexedFileInfo::definition`]. Written
+    /// into the container each time this engine saves it.
+    pub fn set_definition(&mut self, text: Option<String>) {
+        self.definition = text.filter(|t| !t.trim().is_empty());
     }
 
     /// Set the key of reference for subsequent sequential access (0 = primary).
@@ -574,6 +604,7 @@ impl IndexedFile {
             OpenMode::Output => {
                 self.records.clear();
                 self.rebuild_alt_index();
+                self.stored_definition = None;
                 // OPEN OUTPUT always (re)creates the on-disk container, even for
                 // an ephemeral (non-persistent) MEMORY file — so the file exists
                 // on disk regardless of the WITH PERSISTENCE setting.
@@ -594,6 +625,10 @@ impl IndexedFile {
                     ) {
                         Ok(records) => {
                             self.records.clear();
+                            self.stored_definition = crate::indexed_disk::DiskIndexedFile::inspect_path(&self.path)
+                                .ok()
+                                .flatten()
+                                .and_then(|info| info.definition);
                             for rec in records {
                                 let pkey = self.primary.extract(&rec);
                                 self.records.insert(pkey, rec);
@@ -1300,6 +1335,7 @@ impl IndexedFile {
             total_key_length,
             primary,
             alternates,
+            definition: None,
         })
     }
 
@@ -1318,6 +1354,7 @@ impl IndexedFile {
             &self.alternates,
             &self.key_names,
             self.compressing,
+            self.stored_definition.as_deref().or(self.definition.as_deref()),
             &self.records_in_key_order(),
             Some(&self.join_seqs_in_key_order()),
         )
@@ -1573,6 +1610,9 @@ impl IndexedStore for IndexedFile {
     }
     fn unlock(&mut self) {
         self.locks.clear();
+    }
+    fn set_definition(&mut self, text: Option<String>) {
+        self.set_definition(text)
     }
     fn commit(&mut self) {
         self.commit()

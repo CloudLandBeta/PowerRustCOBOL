@@ -47,6 +47,29 @@ const PT_DATA: u8 = 3;
 const PT_OVERFLOW: u8 = 4;
 const PT_DIR: u8 = 5; // RecordId directory — a radix leaf from version 3
 const PT_DIRIDX: u8 = 6; // RecordId directory — a radix index page (version 3)
+const PT_META: u8 = 7; // a page of the record definition (version 4)
+
+// ── The record definition (container version 4) ──────────────────────────────
+//
+// Version 4 lets the container carry the **FD** that describes its records —
+// the text a COBOL reader would take for the file's `FD` paragraph (see
+// `cobolt_ast::fd_text`) — so that any program can open the file and understand
+// the layout of a record, with no `.cidx` and no source beside it.
+//
+// The text lives in a run of consecutive `PT_META` pages. The header (page 0)
+// names the first page, the length and a checksum; for a file this engine
+// creates the run follows page 0 directly, so the definition sits at the start
+// of the file. A file converted from an older version has nowhere to put it but
+// the end, and is found through the same three header fields.
+//
+// Each page: tag(1) kind(1) pad(2) seq(4) len(4) crc32(4), then `len` bytes of
+// UTF-8. The fields go in the header **after** version 3's checksum, with a
+// checksum of their own, so a version 3 reader — which stops at its own
+// checksum — opens a version 4 file and simply does not see the definition.
+const META_HDR: usize = 16;
+const META_PAYLOAD: usize = PAGE_SIZE - META_HDR;
+/// What a definition is: UTF-8 text of an `FD` paragraph and its records.
+const META_KIND_FD_TEXT: u8 = 1;
 
 // ── The RecordId directory, as a radix page table (container version 3) ──────
 //
@@ -94,8 +117,8 @@ const CHECKPOINT_PAGES: usize = 256;
 const JRN_MAGIC: &[u8; 8] = b"PRCJRN01";
 
 /// The container version this engine writes. See [`DiskIndexedFile::migrate`]
-/// for what separates it from 2.
-const VERSION: u16 = 3;
+/// for what separates 3 from 2; version 4 adds the record definition.
+const VERSION: u16 = 4;
 
 /// A physical record location recorded in the RecordId directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -176,6 +199,15 @@ pub struct DiskIndexedFile {
     key_names: Vec<Option<String>>,
     strict_metadata: bool,
     compressing: bool,
+    /// The FD text the program that opened this file declares. Written into a
+    /// file this engine creates, and into an older file the first time a
+    /// program opens it for writing — see [`Self::publish_definition`].
+    definition: Option<String>,
+    /// First page of the definition stored in the container (0 = none), its
+    /// length in bytes and its checksum — the three header fields.
+    meta_page: u64,
+    meta_len: u32,
+    meta_crc: u32,
 
     open: Option<OpenMode>,
     kor: usize,
@@ -396,6 +428,7 @@ pub(crate) fn write_disk_container(
     alternates: &[KeySpec],
     key_names: &[Option<String>],
     compressing: bool,
+    definition: Option<&str>,
     records: &[Bytes],
 ) -> std::io::Result<()> {
     write_disk_container_in_join_order(
@@ -405,6 +438,7 @@ pub(crate) fn write_disk_container(
         alternates,
         key_names,
         compressing,
+        definition,
         records,
         None,
     )
@@ -423,6 +457,7 @@ pub(crate) fn write_disk_container_in_join_order(
     alternates: &[KeySpec],
     key_names: &[Option<String>],
     compressing: bool,
+    definition: Option<&str>,
     records: &[Bytes],
     alt_seqs: Option<&[Vec<u64>]>,
 ) -> std::io::Result<()> {
@@ -435,6 +470,7 @@ pub(crate) fn write_disk_container_in_join_order(
     let mut f = DiskIndexedFile::new(&tmp, record_len, primary.clone(), alternates.to_vec());
     f.set_key_names(key_names.to_vec());
     f.set_compressing(compressing);
+    f.set_definition(definition.map(str::to_owned));
     let st = f.open(OpenMode::Output);
     if st != status::OK {
         return Err(fail("OPEN OUTPUT", st));
@@ -478,6 +514,10 @@ impl DiskIndexedFile {
             key_names: Vec::new(),
             strict_metadata: true,
             compressing: false,
+            definition: None,
+            meta_page: 0,
+            meta_len: 0,
+            meta_crc: 0,
             open: None,
             kor: 0,
             cursor: None,
@@ -519,6 +559,11 @@ impl DiskIndexedFile {
     }
     pub fn set_compressing(&mut self, on: bool) {
         self.compressing = on;
+    }
+    /// The FD text of the records, as the program that opens the file declares
+    /// it. Empty text is no definition.
+    pub fn set_definition(&mut self, text: Option<String>) {
+        self.definition = text.filter(|t| !t.trim().is_empty());
     }
     pub fn is_open(&self) -> bool {
         self.open.is_some()
@@ -1670,6 +1715,7 @@ impl DiskIndexedFile {
             &self.alternates,
             &self.key_names,
             self.compressing,
+            self.definition.as_deref(),
             &records,
         ) {
             Ok(()) => Some(status::OK),
@@ -1867,6 +1913,16 @@ impl DiskIndexedFile {
                                 self.file = None;
                                 return status::IO_ERROR;
                             }
+                            // A file that carries no record definition gets the
+                            // one this program declares — the conversion from
+                            // version 3 to version 4, done by the first open
+                            // that may write. `OPEN INPUT` reads the file as it
+                            // is: it never changes one, and a copy is not the
+                            // user's file to convert.
+                            if mode != OpenMode::Input && self.publish_definition().is_err() {
+                                self.file = None;
+                                return status::IO_ERROR;
+                            }
                         }
                         Ok(None) => {
                             self.file = None;
@@ -1904,6 +1960,17 @@ impl DiskIndexedFile {
         self.dir_root = 0;
         self.dir_height = 0;
         self.dir_count = 0;
+        // The record definition first, so it sits at the start of the file:
+        // pages 1.. directly after the header.
+        self.meta_page = 0;
+        self.meta_len = 0;
+        self.meta_crc = 0;
+        if let Some(text) = self.definition.clone() {
+            let (first, len, crc) = self.write_meta_chain(&text)?;
+            self.meta_page = first;
+            self.meta_len = len;
+            self.meta_crc = crc;
+        }
         // Root leaf for the primary + each alternate index.
         self.primary_root = self.new_leaf(0, 0)?;
         let n = self.alternates.len();
@@ -2694,6 +2761,7 @@ impl DiskIndexedFile {
             total_key_length: total,
             primary,
             alternates,
+            definition: self.definition.clone(),
         }
     }
 
@@ -2704,9 +2772,17 @@ impl DiskIndexedFile {
     // ── Header + directory persistence (page 0 / dir chain) ──────────────────
 
     fn write_header(&mut self) -> R<()> {
+        let b = self.header_bytes(VERSION);
+        self.write_page(0, &b)
+    }
+
+    /// Page 0 as container `version` writes it. Only [`Self::write_header`]
+    /// asks for the current one; a test asks for 3 to have a file the previous
+    /// release would have produced.
+    fn header_bytes(&self, version: u16) -> Vec<u8> {
         let mut b = Vec::with_capacity(PAGE_SIZE);
         b.extend_from_slice(MAGIC);
-        b.extend_from_slice(&VERSION.to_le_bytes());
+        b.extend_from_slice(&version.to_le_bytes());
         b.extend_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
         b.push(1u8); // record format: fixed
         b.push(if self.compressing { 1 } else { 0 });
@@ -2750,7 +2826,103 @@ impl DiskIndexedFile {
         // detectable at all. It covers every byte before it.
         let sum = crate::indexed::crc32(&b);
         b.extend_from_slice(&sum.to_le_bytes());
-        self.write_page(0, &b)
+        // Version 4: where the record definition is. After version 3's
+        // checksum, and with a checksum of its own, so a version 3 reader — which
+        // verifies and stops at its own — never sees it.
+        if version >= 4 {
+            let ext = b.len();
+            b.extend_from_slice(&self.meta_page.to_le_bytes());
+            b.extend_from_slice(&self.meta_len.to_le_bytes());
+            b.extend_from_slice(&self.meta_crc.to_le_bytes());
+            let ext_sum = crate::indexed::crc32(&b[ext..]);
+            b.extend_from_slice(&ext_sum.to_le_bytes());
+        }
+        b
+    }
+
+    // ── The record definition (version 4) ────────────────────────────────────
+
+    /// Write `text` as a run of consecutive `PT_META` pages at the end of the
+    /// container, and return where it starts, how long it is and its checksum.
+    /// Nothing points at the pages until a header does.
+    fn write_meta_chain(&mut self, text: &str) -> R<(u64, u32, u32)> {
+        let bytes = text.as_bytes();
+        let first = self.next_page_id;
+        let mut pages = 0u64;
+        for (seq, chunk) in bytes.chunks(META_PAYLOAD).enumerate() {
+            let mut p = Vec::with_capacity(PAGE_SIZE);
+            p.push(PT_META);
+            p.push(META_KIND_FD_TEXT);
+            p.extend_from_slice(&[0, 0]);
+            p.extend_from_slice(&(seq as u32).to_le_bytes());
+            p.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+            p.extend_from_slice(&crate::indexed::crc32(chunk).to_le_bytes());
+            p.extend_from_slice(chunk);
+            self.write_page(first + seq as u64, &p)?;
+            pages += 1;
+        }
+        self.next_page_id += pages;
+        Ok((first, bytes.len() as u32, crate::indexed::crc32(bytes)))
+    }
+
+    /// The record definition the container carries, if it carries one.
+    ///
+    /// `Ok(None)` for a file written before version 4, or by a program that
+    /// declared none. An error means the pages are damaged — which never makes
+    /// the records unreadable: the definition describes them, it is not part of
+    /// them.
+    pub fn read_definition(&mut self) -> R<Option<String>> {
+        if self.meta_page == 0 || self.meta_len == 0 {
+            return Ok(None);
+        }
+        let total = self.meta_len as usize;
+        let mut bytes = Vec::with_capacity(total);
+        let mut seq = 0u32;
+        while bytes.len() < total {
+            let p = self.read_page(self.meta_page + seq as u64)?;
+            let len = u32::from_le_bytes(p[8..12].try_into().unwrap()) as usize;
+            let sum = u32::from_le_bytes(p[12..16].try_into().unwrap());
+            let seq_stored = u32::from_le_bytes(p[4..8].try_into().unwrap());
+            if p[0] != PT_META || p[1] != META_KIND_FD_TEXT || seq_stored != seq || len > META_PAYLOAD {
+                return Err(corrupt("a page of the record definition is not one"));
+            }
+            let chunk = &p[META_HDR..META_HDR + len];
+            if crate::indexed::crc32(chunk) != sum {
+                return Err(corrupt("a page of the record definition does not match its checksum"));
+            }
+            bytes.extend_from_slice(chunk);
+            seq += 1;
+        }
+        if bytes.len() != total || crate::indexed::crc32(&bytes) != self.meta_crc {
+            return Err(corrupt("the record definition does not match its checksum"));
+        }
+        String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|_| corrupt("the record definition is not UTF-8"))
+    }
+
+    /// Give a file that has no record definition the one the program declares:
+    /// the conversion from version 3 to version 4.
+    ///
+    /// Done as a transaction of its own, so a crash leaves the file as it was:
+    /// the definition goes into new pages at the end of the container, nothing
+    /// refers to them until the header does, and the header is journalled like
+    /// any other page. A file that already carries a definition is left alone —
+    /// two programs may describe the same bytes differently, and neither should
+    /// overwrite the other.
+    fn publish_definition(&mut self) -> R<()> {
+        let Some(text) = self.definition.clone() else {
+            return Ok(());
+        };
+        if self.meta_page != 0 {
+            return Ok(());
+        }
+        self.in_tx = true;
+        let (first, len, crc) = self.write_meta_chain(&text)?;
+        self.meta_page = first;
+        self.meta_len = len;
+        self.meta_crc = crc;
+        self.tx_commit()
     }
 
     /// Load page 0 into the header fields; returns the stored schema.
@@ -2846,6 +3018,23 @@ impl DiskIndexedFile {
             }
             self.dir_count = dir_len as u64;
             self.pending_migration = None;
+            // Version 4 appends where the record definition is, with a
+            // checksum of its own. A bad one means no definition — the
+            // records do not depend on it.
+            self.meta_page = 0;
+            self.meta_len = 0;
+            self.meta_crc = 0;
+            if version >= 4 {
+                let ext = i + 4;
+                if ext + 20 <= p.len() {
+                    let ext_sum = read_u32(&p, ext + 16);
+                    if ext_sum == crate::indexed::crc32(&p[ext..ext + 16]) {
+                        self.meta_page = read_u64(&p, ext);
+                        self.meta_len = read_u32(&p, ext + 8);
+                        self.meta_crc = read_u32(&p, ext + 12);
+                    }
+                }
+            }
         } else {
             // Unconverted. `dir_head` and `dir_len` describe the old chain;
             // `migrate()` reads it and publishes a radix directory in its place.
@@ -2877,6 +3066,7 @@ impl DiskIndexedFile {
             total_key_length: total,
             primary,
             alternates,
+            definition: None,
         }))
     }
 
@@ -3135,7 +3325,12 @@ impl DiskIndexedFile {
         let f = OpenOptions::new().read(true).open(path.as_ref())?;
         probe.file = Some(f);
         probe.strict_metadata = false;
-        let info = probe.load_header()?;
+        let mut info = probe.load_header()?;
+        // The definition describes the records and never gates them: pages
+        // that are damaged are reported as no definition, not as a bad file.
+        if let Some(info) = info.as_mut() {
+            info.definition = probe.read_definition().ok().flatten();
+        }
         Ok(info)
     }
 
@@ -3197,6 +3392,9 @@ impl crate::indexed::IndexedStore for DiskIndexedFile {
     }
     fn is_open(&self) -> bool {
         self.is_open()
+    }
+    fn set_definition(&mut self, text: Option<String>) {
+        DiskIndexedFile::set_definition(self, text)
     }
     fn commit(&mut self) {
         self.commit()
@@ -3820,7 +4018,7 @@ mod tests {
         let mut g = newfile(p.clone(), true, false);
         assert_eq!(g.open(OpenMode::Io), status::OK);
         g.close();
-        assert_eq!(container_version(&p), 3, "the open published version 3");
+        assert_eq!(container_version(&p), VERSION, "the open published the current version");
 
         assert_eq!(read_all(&p, true), before, "every record survived, in order");
         let _ = std::fs::remove_file(&p);
@@ -3919,8 +4117,227 @@ mod tests {
         let mut h = newfile_pk(p.clone());
         assert_eq!(h.open(OpenMode::Io), status::OK);
         h.close();
-        assert_eq!(container_version(&p), 3);
+        assert_eq!(container_version(&p), VERSION);
         assert_eq!(read_all(&p, false).len(), 300);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    // ── The record definition (container version 4) ──────────────────────────
+
+    /// The FD of the 15-byte test record, as the interpreter would hand it over.
+    const DEF: &str = "FD CUST-FILE\n    RECORD CONTAINS 15 CHARACTERS.\n\
+        01 CUST-REC. *> @0+15\n    05 ID PIC X(5). *> @0+5\n    05 NAME PIC X(10). *> @5+10\n";
+
+    fn with_definition(p: PathBuf, text: &str) -> DiskIndexedFile {
+        let mut f = newfile(p, true, false);
+        f.set_definition(Some(text.to_owned()));
+        f
+    }
+
+    fn definition_of(p: &PathBuf) -> Option<String> {
+        DiskIndexedFile::inspect_path(p).unwrap().expect("a container").definition
+    }
+
+    /// A file carries the FD it was created with, and the definition sits at the
+    /// start of the file: page 1, straight after the header.
+    #[test]
+    fn a_new_file_carries_its_definition_at_the_start() {
+        let p = tmp("def-new");
+        let _ = std::fs::remove_file(&p);
+        let mut f = with_definition(p.clone(), DEF);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=50u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "NAME")), status::OK);
+        }
+        f.close();
+
+        assert_eq!(definition_of(&p).as_deref(), Some(DEF));
+        assert_eq!(container_version(&p), 4);
+        let bytes = std::fs::read(&p).unwrap();
+        assert_eq!(bytes[PAGE_SIZE], PT_META, "page 1 is the definition");
+        let info = DiskIndexedFile::inspect_path(&p).unwrap().unwrap();
+        assert_eq!(info.record_format, RecordFormat::Fixed { length: 15 });
+
+        // The records are where they always were, behind the definition.
+        let mut g = newfile(p.clone(), true, false);
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        assert!(g.primary_root > g.meta_page, "the trees are allocated after the definition");
+        g.close();
+        assert_eq!(read_all(&p, true).len(), 50);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Reopening, writing and closing again keeps the definition as it was.
+    #[test]
+    fn the_definition_survives_more_writing() {
+        let p = tmp("def-survives");
+        let _ = std::fs::remove_file(&p);
+        let mut f = with_definition(p.clone(), DEF);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        assert_eq!(f.write(&rec("1", "ONE")), status::OK);
+        f.close();
+        let mut g = with_definition(p.clone(), DEF);
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        for i in 2..=300u32 {
+            assert_eq!(g.write(&rec(&i.to_string(), "MORE")), status::OK);
+        }
+        g.close();
+        assert_eq!(definition_of(&p).as_deref(), Some(DEF));
+        assert_eq!(read_all(&p, true).len(), 300);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A definition longer than a page runs over consecutive pages and reads
+    /// back whole.
+    #[test]
+    fn a_long_definition_spans_pages() {
+        let p = tmp("def-long");
+        let _ = std::fs::remove_file(&p);
+        let mut text = String::from("FD BIG\n");
+        for n in 0..900 {
+            text.push_str(&format!("05 FIELD-{n:04} PIC X(2). *> @{}+2\n", n * 2));
+        }
+        assert!(text.len() > 3 * META_PAYLOAD, "{} bytes", text.len());
+        let mut f = with_definition(p.clone(), &text);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        assert_eq!(f.write(&rec("1", "ONE")), status::OK);
+        f.close();
+        assert_eq!(definition_of(&p).as_deref(), Some(text.as_str()));
+        assert_eq!(read_all(&p, true).len(), 1);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A file written before version 4 is converted by the first open that may
+    /// write — and by no open that may not.
+    #[test]
+    fn an_older_file_is_converted_by_the_first_open_that_may_write() {
+        let p = tmp("def-convert");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile(p.clone(), true, false);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=40u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "OLD")), status::OK);
+        }
+        f.close();
+        // Put it back into the form release 1.91.x wrote: version 3, no definition.
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        let v3 = f.header_bytes(3);
+        f.write_page_raw(0, &v3).unwrap();
+        f.sync().unwrap();
+        f.open = None;
+        f.file = None;
+        assert_eq!(container_version(&p), 3, "the fixture really is version 3");
+        assert_eq!(definition_of(&p), None);
+        let before = std::fs::read(&p).unwrap();
+
+        // OPEN INPUT never changes a file, whatever the program declares.
+        let mut r = with_definition(p.clone(), DEF);
+        assert_eq!(r.open(OpenMode::Input), status::OK);
+        r.close();
+        assert_eq!(std::fs::read(&p).unwrap(), before, "an INPUT open left the file as it was");
+
+        // The first open that may write gives it the definition.
+        let mut w = with_definition(p.clone(), DEF);
+        assert_eq!(w.open(OpenMode::Io), status::OK);
+        w.close();
+        assert_eq!(container_version(&p), 4);
+        assert_eq!(definition_of(&p).as_deref(), Some(DEF));
+        assert_eq!(read_all(&p, true).len(), 40, "every record survived");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Two programs may describe the same bytes differently; the second does not
+    /// overwrite the first.
+    #[test]
+    fn a_file_that_has_a_definition_keeps_it() {
+        let p = tmp("def-keeps");
+        let _ = std::fs::remove_file(&p);
+        let mut f = with_definition(p.clone(), DEF);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        assert_eq!(f.write(&rec("1", "ONE")), status::OK);
+        f.close();
+        let mut g = with_definition(p.clone(), "FD OTHER.\n01 R PIC X(15).\n");
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        g.close();
+        assert_eq!(definition_of(&p).as_deref(), Some(DEF));
+        // …but OPEN OUTPUT makes a new file, and with it a new definition.
+        let mut h = with_definition(p.clone(), "FD OTHER.\n01 R PIC X(15).\n");
+        assert_eq!(h.open(OpenMode::Output), status::OK);
+        h.close();
+        assert_eq!(definition_of(&p).as_deref(), Some("FD OTHER.\n01 R PIC X(15).\n"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// The definition describes the records; damage to it never makes them
+    /// unreadable.
+    #[test]
+    fn a_damaged_definition_never_hides_the_records() {
+        let p = tmp("def-damaged");
+        let _ = std::fs::remove_file(&p);
+        let mut f = with_definition(p.clone(), DEF);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=20u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "KEEP")), status::OK);
+        }
+        f.close();
+        // Flip a byte inside the definition's page.
+        let mut bytes = std::fs::read(&p).unwrap();
+        bytes[PAGE_SIZE + META_HDR + 3] ^= 0xFF;
+        std::fs::write(&p, &bytes).unwrap();
+
+        assert_eq!(definition_of(&p), None, "a bad definition is no definition");
+        let mut g = newfile(p.clone(), true, false);
+        assert_eq!(g.open(OpenMode::Io), status::OK, "the records still open");
+        assert!(g.read_definition().is_err(), "…and the damage is reported to whoever asks");
+        g.close();
+        assert_eq!(read_all(&p, true).len(), 20);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A header with nothing in the version-4 extension — what a version 3 writer
+    /// leaves — has no definition, and opens.
+    #[test]
+    fn a_header_without_the_extension_has_no_definition() {
+        let p = tmp("def-no-ext");
+        let _ = std::fs::remove_file(&p);
+        let mut f = with_definition(p.clone(), DEF);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        assert_eq!(f.write(&rec("1", "ONE")), status::OK);
+        f.close();
+        let mut bytes = std::fs::read(&p).unwrap();
+        let v3 = f.header_bytes(3).len();
+        // Blank everything after version 3's checksum, as an older writer leaves it.
+        for b in &mut bytes[v3..PAGE_SIZE] {
+            *b = 0;
+        }
+        std::fs::write(&p, &bytes).unwrap();
+        let mut g = newfile(p.clone(), true, false);
+        assert_eq!(g.open(OpenMode::Input), status::OK);
+        assert_eq!(g.read_definition().unwrap(), None);
+        g.close();
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// `STORAGE IS MEMORY WITH PERSISTENCE` rewrites the whole container on
+    /// `CLOSE`; the definition goes into it, and an existing one is kept.
+    #[test]
+    fn a_memory_file_saves_the_definition_it_declares() {
+        let p = tmp("def-memory");
+        let _ = std::fs::remove_file(&p);
+        let mut m = memfile(p.clone(), true);
+        m.set_definition(Some(DEF.to_owned()));
+        assert_eq!(m.open(OpenMode::Output), status::OK);
+        assert_eq!(m.write(&rec("1", "ONE")), status::OK);
+        m.close();
+        assert_eq!(definition_of(&p).as_deref(), Some(DEF));
+
+        let mut again = memfile(p.clone(), true);
+        again.set_definition(Some("FD OTHER.\n01 R PIC X(15).\n".to_owned()));
+        assert_eq!(again.open(OpenMode::Io), status::OK);
+        assert_eq!(again.write(&rec("2", "TWO")), status::OK);
+        again.close();
+        assert_eq!(definition_of(&p).as_deref(), Some(DEF), "the description it was given stays");
+        assert_eq!(read_all(&p, true).len(), 2);
         let _ = std::fs::remove_file(&p);
     }
 

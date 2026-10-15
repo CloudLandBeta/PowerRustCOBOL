@@ -631,3 +631,50 @@ fn a_reader_cannot_join_a_live_writer() {
     assert_eq!(reader.open(OpenMode::Input), status::OK);
     assert_eq!(reader.close(), status::OK);
 }
+
+/// The FD an indexed file carries (container version 4) is in the redb file's
+/// META table: written when the file is created, given to a file that has none
+/// the first time a program opens it for writing, and never overwritten.
+#[test]
+fn a_redb_file_takes_a_definition_once_and_keeps_it() {
+    let path = tmp_path("definition");
+    let primary = || KeySpec {
+        parts: Vec::new(),
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
+    // Created by a program that declared no FD.
+    let mut f = RedbIndexedFile::new(&path, 9, primary(), vec![]);
+    assert_eq!(f.open(OpenMode::Output), status::OK);
+    assert_eq!(f.write(&rec("1", "ALPHA")), status::OK);
+    assert_eq!(f.close(), status::OK);
+    assert_eq!(RedbIndexedFile::definition_of(&path), None);
+
+    // An INPUT open never writes, so it gives nothing.
+    let mut r = RedbIndexedFile::new(&path, 9, primary(), vec![]);
+    r.set_definition(Some("FD A.\n01 R PIC X(9).\n".into()));
+    assert_eq!(r.open(OpenMode::Input), status::OK);
+    assert_eq!(r.close(), status::OK);
+    assert_eq!(RedbIndexedFile::definition_of(&path), None);
+
+    // The first open that may write does.
+    let mut g = RedbIndexedFile::new(&path, 9, primary(), vec![]);
+    g.set_definition(Some("FD A.\n01 R PIC X(9).\n".into()));
+    assert_eq!(g.open(OpenMode::Io), status::OK);
+    assert_eq!(g.close(), status::OK);
+    assert_eq!(RedbIndexedFile::definition_of(&path).as_deref(), Some("FD A.\n01 R PIC X(9).\n"));
+
+    // Another program's description does not replace it…
+    let mut h = RedbIndexedFile::new(&path, 9, primary(), vec![]);
+    h.set_definition(Some("FD B.\n01 R PIC X(9).\n".into()));
+    assert_eq!(h.open(OpenMode::Io), status::OK);
+    assert_eq!(h.close(), status::OK);
+    assert_eq!(RedbIndexedFile::definition_of(&path).as_deref(), Some("FD A.\n01 R PIC X(9).\n"));
+
+    // …and the record is still there.
+    let mut k = RedbIndexedFile::new(&path, 9, primary(), vec![]);
+    assert_eq!(k.open(OpenMode::Input), status::OK);
+    assert!(matches!(k.read_seq(ReadDir::Next), (Some(_), _)));
+    k.close();
+}

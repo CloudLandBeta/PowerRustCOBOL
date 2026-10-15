@@ -390,6 +390,7 @@ pub fn validate(cidx_text: &str, stored: &IndexedFileInfo) -> Result<Checked, Re
         total_key_length: 0,
         primary: descriptor(1, &primary),
         alternates: declared_alts,
+        definition: None,
     };
     if !crate::indexed::schema_equivalent(&declared, stored) {
         return Err(key_mismatch());
@@ -897,6 +898,7 @@ mod tests {
                 ordering: KeyOrdering::Ascending,
             },
             alternates: Vec::new(),
+            definition: None,
         }
     }
 

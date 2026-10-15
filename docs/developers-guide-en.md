@@ -1759,24 +1759,36 @@ vector-index entries. The `Knowledge Base/` root itself cannot be deleted.
 
 To **import an existing file** into a category, **right-click the ➕** and choose
 *Import existing…*. For **Indexed Files**, this picks an on-disk `.idx` (or similar)
-data file and builds a starting `.cidx` from it when the file carries a
-self-describing schema.
+data file and builds a `.cidx` from it.
 
-That starting point is only as rich as the data file. The `.cidx` is the
-definition: it holds every field's name and PICTURE. The data file holds only
-its **key schema**:
-- each key's position, length and encoding;
-- whether the key allows duplicates;
-- optionally, the key's name.
+**An indexed file carries the description of its own records.** When a program
+creates one — or the *Finalize* button of the Indexed File Editor does — the file
+is given the `FD` that describes its records: every field's name, PICTURE and
+USAGE, the `REDEFINES` and `OCCURS`, the condition names, and the bytes each item
+takes. The import reads it, so the `.cidx` comes in complete: the fields with
+their real names and PICTUREs, the keys named after the fields they cover, and
+the same record layout the program used. Nothing has to be retyped, and no other
+program needs your source to understand the file. The format is in
+`docs/indexed-file-format-en.md`.
 
-So the imported `.cidx` has the keys at their real positions, as
-alphanumeric fields (`PIC X(n)`), named after the key when the file recorded
-a name. Every other byte of the record comes in as `FILLER-n`.
+**A file written by an earlier release** (before 1.91.169) holds only its **key
+schema**: each key's position, length and encoding, whether it allows
+duplicates, and optionally its name. The `.cidx` imported from it has the keys
+at their real positions, as alphanumeric fields (`PIC X(n)`), and every other
+byte of the record comes in as `FILLER-n`. Such a file is **converted the first
+time a program opens it for writing** — `OPEN I-O`, `EXTEND` or `OUTPUT` — or the
+grid browser does: the `FD` the program declares is added to the file, every
+record untouched, and from then on it imports complete. An `OPEN INPUT` never
+changes a file, so it never converts one.
 
-> ⚠️ **Caveat.** After an import, open the `.cidx` in the Indexed File Editor
-> and give the fields their real names and PICTUREs: numeric, packed and
-> binary fields cannot be recovered from the data file. The record layout your
-> program uses always comes from its FD, never from the data file.
+> ⚠️ **Caveat.** A file is described by the program that last created it or
+> converted it, and keeps that description: another program that declares the
+> same bytes differently does not replace it. If the description is wrong,
+> create the file again (`OPEN OUTPUT`). For a file with no description at all
+> (an earlier release, never opened for writing since), open the imported
+> `.cidx` in the Indexed File Editor and give the fields their real names and
+> PICTUREs; numeric, packed and binary fields cannot be recovered from the key
+> schema. The record layout your program uses always comes from its own FD.
 
 > **Note.** Generated `.cbl` files live in `generated/`, are tracked
 > automatically, and open read-only. Editing belongs in the form (the Designer),
@@ -12078,6 +12090,48 @@ spellings you may be bringing with you, for `RECORD KEY` and for
 > **Note.** In PowerCOBOL you could only reach this by laying the fields out
 > side by side under a group item. That still works, and a group key is still
 > the right choice when the fields already sit together.
+
+### The file carries its own record layout
+
+An indexed file does not need your source to be understood. When a program opens
+a file for output, the file is given the `FD` that describes its records, and a
+program that has never seen your source can read the layout from the file alone:
+which fields there are, their PICTURE and USAGE, which ones redefine which, and
+the bytes each one takes.
+
+```cobol
+       FD  CUST-FILE.
+       01  CUST-REC.
+           05  CUST-ID     PIC 9(6).
+           05  CUST-NAME   PIC X(20).
+           05  BALANCE     PIC S9(7)V99 COMP-3.
+           05  BAL-TEXT    REDEFINES BALANCE PIC X(9).
+           05  FLAG        PIC X.
+               88  IS-VIP  VALUE "V".
+```
+
+That is all the description a program supplies; the file stores it in canonical
+form, each item with a comment saying where its bytes are —
+`05 BALANCE PIC S9(7)V99 COMP-3. *> @26+9`, nine bytes from byte 26.
+
+- **A file you made before this existed** gets its description the first time a
+  program opens it for writing (`OPEN I-O`, `EXTEND` or `OUTPUT`), every record
+  untouched. `OPEN INPUT` never changes a file, so it does not.
+- **The description never gets in the way.** A program whose `FD` differs from
+  it still opens the file: the record length and the keys decide status 39, as
+  before, and the description only describes.
+- **The first description stays.** A second program that declares the same
+  bytes in other words does not replace it. To describe a file afresh, create it
+  afresh with `OPEN OUTPUT`.
+- **Importing is complete.** *Import existing…* in the IDE builds the `.cidx` from
+  it — fields, PICTUREs, usage and `REDEFINES` — instead of the key columns
+  and `FILLER` that a bare data file allows.
+
+> ⚠️ **Caveat.** The comment `@offset+length` is the authority on where a field
+> is. In this release a numeric item of any `USAGE` is held as its digits, so
+> the `COMP-3` field above takes nine bytes, not five; a program reading the file
+> from outside should take the position and the length from the comment, not
+> compute them from the clauses.
 
 ### When data reaches disk (persistence timing)
 

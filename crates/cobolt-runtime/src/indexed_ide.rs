@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use cobolt_indexed::{IndexedDefinition, RecordFormatDef, StorageMode};
+use cobolt_indexed::{IndexedDefinition, IndexedField, RecordFormatDef, StorageMode};
 
 use crate::indexed::{
     status, IndexedFileInfo, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp,
@@ -91,6 +91,120 @@ pub(crate) fn sniff_disk_format(path: &Path) -> DiskFormat {
     DiskFormat::Prcidxd1
 }
 
+/// The FD of a `.cidx` as the text a data file carries (`cobolt_ast::fd_text`):
+/// the record's fields with their PICTURE, USAGE, REDEFINES and OCCURS, and the
+/// bytes each one takes. What Finalize writes into the file it creates, and what
+/// the grid browser gives a file that has none.
+pub fn definition_text_of(def: &IndexedDefinition) -> String {
+    use cobolt_ast::data::{DataDecl, FileDescription, OccursClause, PicClause, PicKind, RecordSizing, Usage};
+    use cobolt_indexed::FieldUsage;
+    use cobolt_lexer::Span;
+
+    fn decl(f: &IndexedField) -> DataDecl {
+        let leaf = f.is_leaf();
+        let children: Vec<DataDecl> = f.children.iter().map(decl).collect();
+        let kind = match f.pic.trim_start_matches('\u{200B}').chars().next().map(|c| c.to_ascii_uppercase()) {
+            Some('X') => PicKind::Alphanumeric,
+            Some('A') => PicKind::Alphabetic,
+            Some('N') => PicKind::National,
+            Some('U') => PicKind::Utf8,
+            Some('9' | 'S' | 'V' | 'P') => PicKind::Numeric,
+            _ => PicKind::NumericEdited,
+        };
+        DataDecl {
+            level: f.level,
+            name: Some(f.name.clone()),
+            picture: leaf.then(|| PicClause {
+                template: f.pic.trim_start_matches('\u{200B}').to_owned(),
+                kind,
+                digits: 0,
+                decimals: 0,
+                span: Span::new(0, 0, 1, 1),
+            }),
+            value: None,
+            usage: match f.usage {
+                FieldUsage::Display => Usage::Display,
+                FieldUsage::Comp => Usage::Comp,
+                FieldUsage::Comp3 => Usage::Comp3,
+                FieldUsage::Comp4 | FieldUsage::Binary => Usage::Binary,
+                FieldUsage::PackedDecimal => Usage::PackedDecimal,
+                FieldUsage::Index => Usage::Index,
+                FieldUsage::Pointer => Usage::Pointer,
+            },
+            object_class: None,
+            occurs: f.occurs.map(|n| OccursClause {
+                min: 0,
+                max: n,
+                depending_on: None,
+                indexed_by: Vec::new(),
+                keys: Vec::new(),
+                span: Span::new(0, 0, 1, 1),
+            }),
+            redefines: f.redefines.clone(),
+            renames: None,
+            condition_values: Vec::new(),
+            is_global: false,
+            is_external: false,
+            blank_when_zero: false,
+            children,
+            span: Span::new(0, 0, 1, 1),
+            justified: false,
+            sign: None,
+            byte_length: None,
+        }
+    }
+
+    /// Each field's extent, in listing order (the field, then its members).
+    fn extents_of(f: &IndexedField, out: &mut cobolt_ast::fd_text::Extents) -> Option<(usize, usize)> {
+        let slot = out.len();
+        out.push(None);
+        let times = f.occurs.map(|n| n.max(1) as usize).unwrap_or(1);
+        let own = match (f.offset, f.length) {
+            (Some(o), Some(l)) => Some((o as usize, l as usize * times)),
+            _ => None,
+        };
+        let mut span: Option<(usize, usize)> = own;
+        for c in &f.children {
+            if let Some((o, l)) = extents_of(c, out) {
+                span = Some(match span {
+                    None => (o, l),
+                    Some((so, sl)) => {
+                        let start = so.min(o);
+                        (start, (so + sl).max(o + l) - start)
+                    }
+                });
+            }
+        }
+        out[slot] = span;
+        span
+    }
+
+    let mut records = Vec::new();
+    let mut extents: Vec<cobolt_ast::fd_text::Extents> = Vec::new();
+    for root in &def.fields {
+        records.push(decl(root));
+        let mut list = Vec::new();
+        extents_of(root, &mut list);
+        extents.push(list);
+    }
+    let fd = FileDescription {
+        name: def.name.clone(),
+        is_global: false,
+        records,
+        linage: None,
+        record_sizing: Some(match def.record_format {
+            RecordFormatDef::Fixed { length } => {
+                RecordSizing { min: Some(length), max: Some(length), varying: false, depending_on: None }
+            }
+            RecordFormatDef::Variable { min_length, max_length } => {
+                RecordSizing { min: Some(min_length), max: Some(max_length), varying: true, depending_on: None }
+            }
+        }),
+        span: Span::new(0, 0, 1, 1),
+    };
+    cobolt_ast::fd_text::render_file_description_with(&fd, &extents)
+}
+
 /// Build runtime key specs from a definition.
 pub fn key_specs_from_def(def: &IndexedDefinition) -> (KeySpec, Vec<KeySpec>) {
     // Every part of a key: a definition whose key joins several fields
@@ -141,13 +255,15 @@ pub fn create_empty_from_definition(def: &IndexedDefinition, path: &Path) -> std
     // created as `PRCIDXD1` like any other.
     let mut file: Box<dyn IndexedStore> = match def.storage {
         StorageMode::Disk => {
-            let f =
+            let mut f =
                 crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
+            f.set_definition(Some(definition_text_of(def)));
             Box::new(f)
         }
         StorageMode::Memory => {
             let mut f =
                 crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
+            f.set_definition(Some(definition_text_of(def)));
             f.set_compressing(def.compression);
             let names: Vec<Option<String>> = std::iter::once(def.keys.primary.name.clone())
                 .chain(def.keys.alternates.iter().map(|k| k.name.clone()))
@@ -212,12 +328,16 @@ impl GridSession {
                     // for looking at rows, not for enforcing the schema a
                     // COBOL program's own OPEN would.
                     f.set_strict_metadata(false);
+                    f.set_definition(Some(definition_text_of(def)));
                     Box::new(f)
                 }
                 DiskFormat::Prcidxd1 => {
-                    let f = crate::indexed_disk::DiskIndexedFile::new(
+                    let mut f = crate::indexed_disk::DiskIndexedFile::new(
                         path, record_len, primary, alternates,
                     );
+                    // Browsing a file that carries no description gives it the
+                    // one this definition has: the first open that may write.
+                    f.set_definition(Some(definition_text_of(def)));
                     Box::new(f)
                 }
             },
@@ -383,6 +503,25 @@ mod tests {
         }];
         def.finalized = true;
         def
+    }
+
+    /// What Finalize writes: the data file carries the definition's fields.
+    #[test]
+    fn finalize_writes_the_definition_into_the_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("t.idx");
+        let def = test_def();
+        create_empty_from_definition(&def, &path).unwrap();
+        let info = crate::indexed_import::inspect_any_path(&path).unwrap().unwrap();
+        let text = info.definition.clone().expect("the file carries its definition");
+        assert_eq!(
+            text,
+            "FD T-FILE\n    RECORD CONTAINS 10 CHARACTERS.\n01 REC. *> @0+3\n    05 K PIC X(3). *> @0+3\n"
+        );
+        // …and importing it back gives the same fields.
+        let again = crate::indexed_import::definition_from_inspect("T-FILE", dir.path(), &path, &info);
+        assert_eq!(again.fields[0].name, "REC");
+        assert_eq!(again.fields[0].children[0].name, "K");
     }
 
     #[test]
