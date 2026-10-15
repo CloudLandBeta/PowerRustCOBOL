@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.168] — 2026-10-15
+
+*(Written on `fixes`, after 1.91.167.)*
+
+### Fixed: a condition name under an item of a file record no longer takes the item's bytes
+
+`05 A PIC X(3).` followed by `88 A-OK VALUE "abc".` in an `FD` made `A` a *group with nothing in it*: the record layout treats any item that has children as a group, and the condition name is a child in the tree. `A` got no bytes, and every field after it moved: a program that wrote `"abc"` to `A` and `"xy"` to `B` put `ab` in the file instead of `abcxy`. It reached every organization — sequential, line sequential, relative, indexed, sort — because they share one layout, and it was found while looking at what an indexed file records about its own fields.
+
+`files.rs` now asks whether an item has *members* — subordinate items other than `88`s — before calling it a group. The same program writes `abcxy`.
+
+*Tests:* `a_condition_name_does_not_turn_an_item_into_a_group` (the layout of that record: `A` at 0 for 3, `B` at 3 for 2, 5 bytes), and the program above run through `rcrun` before and after. The existing file-I/O suites — `test_fileio_storage`, `test_indexed`, `test_indexed_examples`, `test_indexed_redb`, `test_relative`, `test_sort` — 68 tests, all pass.
+
 ## [PowerRustCOBOL 1.91.167] — 2026-10-15
 
 *(Written on `features`, after 1.91.166 — code style.)*

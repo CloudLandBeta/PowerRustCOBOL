@@ -75,6 +75,16 @@ pub struct RecordLayout {
     pub groups: Vec<FieldPos>,
 }
 
+/// Whether `d` has subordinate **items** — which is what makes it a group.
+///
+/// Its `88` condition names are children in the tree, but they are not storage:
+/// an elementary item with a condition name under it is still elementary. Taking
+/// them for members made `05 A PIC X(3). 88 A-OK VALUE "abc".` a group with
+/// nothing in it, so the item got no bytes and every field after it moved.
+fn has_members(d: &DataDecl) -> bool {
+    d.children.iter().any(|c| c.level != 88)
+}
+
 /// Lay out one data description: recurse into a group's children, or take an
 /// elementary item's bytes. `OCCURS` repeats the subtree.
 fn walk(
@@ -94,7 +104,7 @@ fn walk(
     // signed item that does not carry its own.
     let sign = d.sign.or(sign);
     for i in 0..times {
-        if !d.children.is_empty() {
+        if has_members(d) {
             // A group name qualifies everything under it. `FILLER` groups
             // have no name and qualify nothing.
             let began = *offset;
@@ -243,7 +253,7 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
     // The `01` itself does not qualify its subordinates — a key is written
     // `IX-FD3-KEY IN IX-FD3-RECKEY-AREA`, naming the group, not the record.
     let mut path: Vec<String> = Vec::new();
-    if record.children.is_empty() {
+    if !has_members(record) {
         walk(
             record,
             record.sign,
@@ -621,6 +631,26 @@ mod tests {
             sign: None,
             byte_length: None,
         }
+    }
+
+    /// A condition name under an item is not storage and does not make the item
+    /// a group: `05 A PIC X(3). 88 A-OK VALUE "abc".` is three bytes, and the
+    /// field after it starts at 3. Taken for a group it had no bytes, and every
+    /// later field of the record landed three bytes early.
+    #[test]
+    fn a_condition_name_does_not_turn_an_item_into_a_group() {
+        let mut a = elem("A", pic("X(3)", PicKind::Alphanumeric, 3, 0));
+        let mut ok = elem("A-OK", pic("X", PicKind::Alphanumeric, 1, 0));
+        ok.level = 88;
+        ok.picture = None;
+        a.children.push(ok);
+        let b = elem("B", pic("X(2)", PicKind::Alphanumeric, 2, 0));
+        let rec = group("REC", vec![a, b]);
+        let layout = compute_layout(&rec);
+        let at = |n: &str| layout.field(n).map(|f| (f.offset, f.len));
+        assert_eq!(at("A"), Some((0, 3)));
+        assert_eq!(at("B"), Some((3, 2)));
+        assert_eq!(layout.len, 5);
     }
 
     /// A `REDEFINES` item describes storage that already exists.
