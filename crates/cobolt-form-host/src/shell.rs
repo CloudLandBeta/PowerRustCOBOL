@@ -520,6 +520,17 @@ pub struct Shell {
     /// footer Panel and its controls are drawn into. Recorded while the rail is
     /// laid out, spent once the pane's `Ui` is in hand.
     last_footer_rect: Option<Rect>,
+    /// Spec 066 Phase B — where the header band's Panel and its controls are
+    /// drawn: the band row of the SAME layout, so it follows the rail exactly.
+    /// `None` while the rail is collapsed or the band has no height.
+    last_header_band_rect: Option<Rect>,
+    /// Spec 066 Phase C — the rows that host a control, as the last frame laid
+    /// them out: where each control is drawn this frame. Empty while the rail
+    /// is collapsed.
+    pub(crate) last_hosted_rows: Vec<cobolt_forms::sidebar::HostedRow>,
+    /// Every control id a row of the mounted menus names — on screen or not —
+    /// so the ContentPane can be told not to draw them.
+    hosted_names: Vec<String>,
     /// Where each drawn menu item landed last frame, by item id. Lets a test
     /// click the item it means instead of a magic coordinate that shifts
     /// whenever the pane gains chrome.
@@ -558,6 +569,9 @@ impl Default for Shell {
             last_menu_fill: None,
             last_toggle_rect: None,
             last_footer_rect: None,
+            last_header_band_rect: None,
+            last_hosted_rows: Vec::new(),
+            hosted_names: Vec::new(),
             last_item_rects: Vec::new(),
         }
     }
@@ -993,6 +1007,16 @@ impl Shell {
             .iter()
             .find(|r| matches!(r.kind, RowKind::Footer))
             .map(|r| r.rect);
+        // …and the header band's, from the same rows, so it cannot be anywhere
+        // but on the band the menu was pushed down by.
+        self.last_header_band_rect = rows
+            .iter()
+            .find(|r| matches!(r.kind, RowKind::HeaderBand))
+            .map(|r| r.rect);
+        // Spec 066 Phase C — and the controls the rows host: where each goes, and
+        // which controls any row names, so the pane never draws them itself.
+        self.last_hosted_rows = sidebar::hosted_rows(&rows, &items, &state);
+        self.hosted_names = cobolt_forms::menu::hosted_control_ids(&items);
 
         let mut clicks = Vec::new();
         let mut rects: Vec<(String, Rect)> = Vec::new();
@@ -1255,6 +1279,23 @@ impl Shell {
                     let behind = self.last_menu_fill.unwrap_or(CHROME_FILL);
                     host.draw_side_menu_footer(ui, band, behind);
                 }
+                // The header band's controls, on the band under the logo —
+                // outside the scroll area too: the band does not move when the
+                // menu scrolls (spec 066 Phase B).
+                if let Some(band) = self.last_header_band_rect {
+                    let behind = self.last_menu_fill.unwrap_or(CHROME_FILL);
+                    host.draw_side_menu_header(ui, band, behind);
+                }
+                // The controls the menu rows host (spec 066 Phase C): each in its
+                // row's rectangle, clipped to the menu pane it scrolls in. The pane
+                // is told first which controls these are, so it does not draw them.
+                if let Some(rail) = self.side_ctrl.as_ref().map(|c| c.id.clone()) {
+                    host.set_hosted_controls(&rail, &self.hosted_names);
+                    let behind = self.last_menu_fill.unwrap_or(CHROME_FILL);
+                    for row in self.last_hosted_rows.clone() {
+                        host.draw_side_menu_hosted(ui, &row, behind);
+                    }
+                }
             });
         let menu_rect = panel.response.rect;
 
@@ -1505,6 +1546,20 @@ pub trait PaneHost {
     fn control_prop(&self, ctrl_id: &str, prop: &str) -> Option<String>;
     /// The SideMenu's footer Panel, into the rail's footer band.
     fn draw_side_menu_footer(&mut self, ui: &mut Ui, band: Rect, behind: egui::Color32);
+    /// The SideMenu's header band Panel, into the rail's header band
+    /// (spec 066 Phase B).
+    fn draw_side_menu_header(&mut self, ui: &mut Ui, band: Rect, behind: egui::Color32);
+    /// Tell the window which controls the rail's menu rows host (by id, any
+    /// case): the rail draws them, so the ContentPane must not (spec 066
+    /// Phase C). Cheap when nothing changed.
+    fn set_hosted_controls(&mut self, rail_id: &str, names: &[String]);
+    /// One control a menu row hosts, into that row's rectangle.
+    fn draw_side_menu_hosted(
+        &mut self,
+        ui: &mut Ui,
+        row: &cobolt_forms::sidebar::HostedRow,
+        behind: egui::Color32,
+    );
     /// The breadcrumb chrome for this frame, and how tall its band is.
     fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, Rect)>>, band: f32);
     /// Draw the ContentPane: the form on it.
@@ -1522,6 +1577,20 @@ impl PaneHost for crate::FormHost {
     }
     fn draw_side_menu_footer(&mut self, ui: &mut Ui, band: Rect, behind: egui::Color32) {
         crate::FormHost::draw_side_menu_footer(self, ui, band, behind)
+    }
+    fn draw_side_menu_header(&mut self, ui: &mut Ui, band: Rect, behind: egui::Color32) {
+        crate::FormHost::draw_side_menu_header(self, ui, band, behind)
+    }
+    fn set_hosted_controls(&mut self, rail_id: &str, names: &[String]) {
+        crate::FormHost::set_hosted_controls(self, rail_id, names)
+    }
+    fn draw_side_menu_hosted(
+        &mut self,
+        ui: &mut Ui,
+        row: &cobolt_forms::sidebar::HostedRow,
+        behind: egui::Color32,
+    ) {
+        crate::FormHost::draw_side_menu_hosted(self, ui, row, behind)
     }
     fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, Rect)>>, band: f32) {
         crate::FormHost::set_pane_chrome(self, chrome, band)
@@ -5820,6 +5889,266 @@ mod shell_event_tests {
     /// **The shell's chrome belongs to the MAIN form, whatever the pane
     /// holds.**
     ///
+    /// **A control in the rail's header band answers a click while the rail is
+    /// open, and is not there when it is collapsed** (spec 066 R11–R13).
+    ///
+    /// The band sits under the logo header; in a shell the rail is chrome, so
+    /// the band's controls are drawn by the rail's own pass, in the band the
+    /// layout laid out — and a collapsed rail has no band.
+    #[test]
+    fn a_control_in_the_header_band_answers_a_click_open_and_is_gone_collapsed() {
+        let mut form = cobolt_forms::Form::new("CHAT-FORM", "Chat", 1000, 760);
+        form.main_form = true;
+        let mut rail =
+            cobolt_forms::Control::new("SideMenu-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+        rail.rect = cobolt_forms::model::Rect::new(0, 0, 264, 760);
+        rail.set_prop("HeaderBandHeight", 56i64);
+        let header_id = cobolt_forms::model::side_menu_header_id(&rail.id);
+        let mut band_panel =
+            cobolt_forms::Control::new(&header_id, cobolt_forms::ControlType::Panel, 0, 120);
+        band_panel.rect = cobolt_forms::model::Rect::new(0, 120, 264, 56);
+        band_panel.parent = Some(rail.id.clone());
+        band_panel.set_prop(cobolt_forms::model::SIDE_MENU_HEADER_PROP, true);
+        let mut pick =
+            cobolt_forms::Control::new("BTN-PICK", cobolt_forms::ControlType::Button, 20, 128);
+        pick.rect = cobolt_forms::model::Rect::new(20, 128, 120, 32);
+        pick.parent = Some(header_id.clone());
+        pick.ensure_event("onClick");
+        let flat = vec![rail.clone(), band_panel, pick];
+
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            indexed_engine: Default::default(),
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        shell.side_ctrl = Some(rail);
+        let size = Vec2::new(1000.0, 760.0);
+        let run = |ctx: &egui::Context, shell: &mut Shell, host: &mut crate::FormHost, input: egui::RawInput| {
+            let mut full = ctx.run_ui(input, |root_ui| {
+                let _ = shell.show_with_host(root_ui, |_ui| {}, host);
+            });
+            full.textures_delta.clear();
+        };
+        let click = |ctx: &egui::Context, shell: &mut Shell, host: &mut crate::FormHost, at: egui::Pos2| {
+            let mut hover = raw(size);
+            hover.events = vec![egui::Event::PointerMoved(at)];
+            run(ctx, shell, host, hover);
+            let mut down = raw(size);
+            down.events = vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }];
+            run(ctx, shell, host, down);
+            let mut up = raw(size);
+            up.events = vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }];
+            run(ctx, shell, host, up);
+            for _ in 0..3 {
+                run(ctx, shell, host, raw(size));
+            }
+        };
+        // Past the host's 450 ms arming window.
+        run(&ctx, &mut shell, &mut host, raw(size));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        for _ in 0..2 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        while ev_rx.try_recv().is_ok() {}
+
+        // Open: the band is laid out under the 120pt header, and the button in
+        // it answers a click.
+        let band = shell.last_header_band_rect.expect("the open rail laid out its header band");
+        assert_eq!((band.min.y, band.height()), (120.0, 56.0), "under the header, 56pt high");
+        let inside = band.min + Vec2::new(20.0 + 60.0, 16.0);
+        click(&ctx, &mut shell, &mut host, inside);
+        let evs: Vec<(String, String)> = ev_rx.try_iter().map(|e| (e.ctrl_id, e.event_id)).collect();
+        assert!(
+            evs.iter().any(|(c, e)| c == "BTN-PICK" && e.eq_ignore_ascii_case("onClick")),
+            "a click on the control in the header band must reach its handler; got {evs:?}"
+        );
+
+        // Collapsed: no band, so no control — a click where it was lands on the
+        // rail's own icons, not on a hidden button.
+        shell.collapsed = true;
+        for _ in 0..3 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        assert!(shell.last_header_band_rect.is_none(), "a collapsed rail has no header band");
+        while ev_rx.try_recv().is_ok() {}
+        click(&ctx, &mut shell, &mut host, egui::pos2(24.0, 128.0 + 16.0));
+        let evs: Vec<(String, String)> = ev_rx.try_iter().map(|e| (e.ctrl_id, e.event_id)).collect();
+        assert!(
+            !evs.iter().any(|(c, _)| c == "BTN-PICK"),
+            "a collapsed rail must not hand a click to a control in the band; got {evs:?}"
+        );
+        println!("066 B shell — open: band {band:?}, click reached BTN-PICK; collapsed: no band, no event");
+    }
+
+    /// **A control a menu row hosts is drawn by the rail, in its row, and answers
+    /// a click there — and is gone when the rail is collapsed** (spec 066 R13a,
+    /// R13b, AC6a).
+    ///
+    /// The Button is a child of the SideMenu designed far from the rail, in the
+    /// ContentPane's coordinates: only the row can put it where the click lands,
+    /// and the pane must not draw a second copy of it.
+    #[test]
+    fn a_control_a_row_hosts_is_drawn_by_the_rail_and_gone_when_collapsed() {
+        let mut form = cobolt_forms::Form::new("CHAT-FORM", "Chat", 1000, 760);
+        form.main_form = true;
+        let mut rail =
+            cobolt_forms::Control::new("SideMenu-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+        rail.rect = cobolt_forms::model::Rect::new(0, 0, 264, 760);
+        let mut host_btn =
+            cobolt_forms::Control::new("BTN-HOSTED", cobolt_forms::ControlType::Button, 600, 500);
+        host_btn.rect = cobolt_forms::model::Rect::new(600, 500, 120, 32);
+        host_btn.parent = Some(rail.id.clone());
+        host_btn.ensure_event("onClick");
+        let flat = vec![rail.clone(), host_btn];
+
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            indexed_engine: Default::default(),
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        shell.side_ctrl = Some(rail);
+        let mut hosting = cobolt_forms::menu::MenuItem::new_action("assistant", "Assistant");
+        hosting.icon = Some("user".into());
+        hosting.action = Some("event".into());
+        hosting.control = Some("BTN-HOSTED".into());
+        shell.mount_root_menu(
+            "CHAT-FORM",
+            cobolt_forms::menu::MenuDefinition {
+                menu: vec![cobolt_forms::menu::MenuItem::new_action("home", "Home"), hosting],
+                hash: String::new(),
+            },
+        );
+        let size = Vec2::new(1000.0, 760.0);
+        let run = |ctx: &egui::Context, shell: &mut Shell, host: &mut crate::FormHost, input: egui::RawInput| {
+            let mut full = ctx.run_ui(input, |root_ui| {
+                let _ = shell.show_with_host(root_ui, |_ui| {}, host);
+            });
+            full.textures_delta.clear();
+        };
+        let click = |ctx: &egui::Context, shell: &mut Shell, host: &mut crate::FormHost, at: egui::Pos2| {
+            let mut hover = raw(size);
+            hover.events = vec![egui::Event::PointerMoved(at)];
+            run(ctx, shell, host, hover);
+            for pressed in [true, false] {
+                let mut input = raw(size);
+                input.events = vec![egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                }];
+                run(ctx, shell, host, input);
+            }
+            for _ in 0..3 {
+                run(ctx, shell, host, raw(size));
+            }
+        };
+        let clicked = |rx: &mpsc::Receiver<cobolt_runtime::FormEvent>| {
+            rx.try_iter().any(|e| e.ctrl_id == "BTN-HOSTED" && e.event_id.eq_ignore_ascii_case("onClick"))
+        };
+        // Past the host's 450 ms arming window.
+        run(&ctx, &mut shell, &mut host, raw(size));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        for _ in 0..3 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        while ev_rx.try_recv().is_ok() {}
+
+        // Open: the rail laid the row out and the control is on it.
+        let placed = shell.last_hosted_rows.first().cloned().expect("the rail laid out the hosting row");
+        assert_eq!(placed.control, "BTN-HOSTED");
+        click(&ctx, &mut shell, &mut host, placed.rect.center());
+        assert!(clicked(&ev_rx), "a click in the row must reach the hosted control");
+
+        // The pane does not draw a second copy where the control was DESIGNED.
+        let pane = host.pane_backdrop_rect().expect("the pane was painted");
+        click(&ctx, &mut shell, &mut host, pane.min + Vec2::new(600.0 + 60.0, 500.0 + 16.0));
+        assert!(!clicked(&ev_rx), "the ContentPane must not draw the hosted control at its own rect");
+
+        // Collapsed: no hosting row, no control.
+        shell.collapsed = true;
+        for _ in 0..3 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        assert!(shell.last_hosted_rows.is_empty(), "a collapsed rail hosts nothing");
+        while ev_rx.try_recv().is_ok() {}
+        click(&ctx, &mut shell, &mut host, placed.rect.center().min(egui::pos2(40.0, placed.rect.center().y)));
+        assert!(!clicked(&ev_rx), "a collapsed rail hands no click to the hosted control");
+        println!("066 C shell — open: BTN-HOSTED in row {:?} answered a click; not drawn in the pane; collapsed: none", placed.rect);
+    }
+
     /// The rail, the breadcrumb and the SideMenu's footer Panel are drawn by
     /// the shell BEFORE `host.pane_frame` runs -- and until 1.65.89 nothing on
     /// that path published a form theme. Every theme-sensitive read in it

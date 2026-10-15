@@ -130,7 +130,7 @@ pub fn is_known_method(name: &str) -> bool {
             // Spec 066 — SideMenu rows added at run time.
             | "ADDSECTION" | "SETITEMLABEL" | "SETITEMICON" | "SETITEMBADGE" | "SETITEMENABLED"
             | "ACTIVATEITEM"
-            | "SETITEMACTION" | "HASITEM"
+            | "SETITEMACTION" | "SETITEMCONTROL" | "HASITEM"
             | "NODECOUNT" | "NODEINDEXOF" | "NODETEXT" | "NODENAME" | "NODEPATH"
             | "NODELEVEL" | "NODEICON" | "NODECOLOR" | "NODECOLOUR"
             | "NODEBACKCOLOR" | "NODEBACKGROUND" | "NODECHILDCOUNT"

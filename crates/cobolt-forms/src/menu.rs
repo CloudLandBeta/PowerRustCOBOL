@@ -62,6 +62,14 @@ pub struct MenuItem {
     /// How [`Self::badge`] is drawn. Ignored when there is no badge.
     #[serde(default, skip_serializing_if = "BadgeStyle::is_default")]
     pub badge_style: BadgeStyle,
+    /// Spec 066 Phase C — the id of a control on the same form that this row
+    /// HOSTS in place of its label: a ComboBox that picks an assistant, a
+    /// TextBox that searches. The control is a child of the SideMenu; where it
+    /// is drawn comes from the row, not from its own rectangle. `None` — and then
+    /// not written to the file — is an ordinary row, so every menu saved before
+    /// this field existed keeps its text and its hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<MenuItem>,
 }
@@ -229,6 +237,7 @@ impl MenuItem {
             preserve_previous_form: false,
             badge: None,
             badge_style: BadgeStyle::default(),
+            control: None,
             items: Vec::new(),
         }
     }
@@ -245,9 +254,27 @@ impl MenuItem {
             preserve_previous_form: false,
             badge: None,
             badge_style: BadgeStyle::default(),
+            control: None,
             items: Vec::new(),
         }
     }
+}
+
+/// Every control id a row of this menu hosts (spec 066 Phase C), submenus
+/// included — whether or not the row is on screen.
+pub fn hosted_control_ids(items: &[MenuItem]) -> Vec<String> {
+    items
+        .iter()
+        .flat_map(|i| {
+            i.control
+                .as_deref()
+                .map(str::trim)
+                .filter(|c| !c.is_empty())
+                .map(str::to_owned)
+                .into_iter()
+                .chain(hosted_control_ids(&i.items))
+        })
+        .collect()
 }
 
 /// Every item id in a menu tree, submenus included.
@@ -593,9 +620,48 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    // ── Spec 066 Phase C — a row that hosts a control ───────────────────────
+
+    /// **A row may name a control to host, and no existing menu is disturbed**
+    /// (spec 066 R13a). The field is optional and absent from the file when
+    /// unset, so every `.menu.yaml` written before it round-trips byte-identical
+    /// and its HMAC still verifies; set, it is part of what the HMAC covers.
+    #[test]
+    fn a_row_can_name_a_hosted_control_and_no_existing_menu_changes() {
+        // An existing menu, hash and all, still verifies with the field in the model.
+        let existing = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/PowerDemo3/forms/SideMenu-1.menu.yaml");
+        let def = load_menu(&existing).expect("a menu written before the field must still verify");
+        assert!(def.menu.iter().all(|i| i.control.is_none()), "and hosts nothing");
+        let reserialised = serde_yaml::to_string(&def).unwrap();
+        assert!(!reserialised.contains("control:"), "an unset control is not written:\n{reserialised}");
+
+        // Set, it survives a save and a load.
+        let dir = std::env::temp_dir().join(format!("prc-menu-control-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("SIDE.menu.yaml");
+        let mut hosted = MenuItem::new_action("assistant", "Assistant");
+        hosted.control = Some("CMB-ASSISTANT".into());
+        let menu = MenuDefinition { menu: vec![MenuItem::new_action("home", "Home"), hosted], hash: String::new() };
+        save_menu(&path, &menu).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("control: CMB-ASSISTANT"), "written as `control:`:\n{text}");
+        let back = load_menu(&path).expect("it verifies with its own hash");
+        assert_eq!(back.menu[1].control.as_deref(), Some("CMB-ASSISTANT"));
+        assert_eq!(back.menu[0].control, None);
+
+        // The hash covers it: a control added by hand to the file no longer verifies.
+        let tampered = text.replace("- id: home", "- control: CMB-HIJACK\n  id: home");
+        assert_ne!(tampered, text, "the edit applied");
+        assert!(matches!(parse_menu(&tampered), Err(MenuError::HmacMismatch)), "an edited hosted control must fail the check");
+        let _ = std::fs::remove_dir_all(&dir);
+        eprintln!("066 C menu — existing PowerDemo3 menu verifies; control: round-trips; hand edit -> HmacMismatch");
+    }
+
     fn sample_menu() -> MenuDefinition {
         MenuDefinition {
             menu: vec![MenuItem {
+                control: None,
                 id: "file".into(),
                 label: "File".into(),
                 item_type: MenuItemType::Action,
@@ -608,6 +674,7 @@ mod tests {
                 badge_style: BadgeStyle::default(),
                 items: vec![
                     MenuItem {
+                        control: None,
                         id: "file-new".into(),
                         label: "New".into(),
                         item_type: MenuItemType::Action,
@@ -622,6 +689,7 @@ mod tests {
                     },
                     MenuItem::new_separator("sep-1"),
                     MenuItem {
+                        control: None,
                         id: "file-exit".into(),
                         label: "Exit".into(),
                         item_type: MenuItemType::Action,
@@ -930,6 +998,7 @@ mod depth_tests {
             preserve_previous_form: false,
             badge: None,
             badge_style: BadgeStyle::default(),
+            control: None,
             items: Vec::new(),
         }
     }

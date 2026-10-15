@@ -26,27 +26,28 @@
 - [x] **T6** host `control_prop`; shell merges live rows + live
       `SelectedItemId`. *Verify:* shell test feeding `RuntimeRows` (AC2, AC6b).
 - [x] **T7** parity test: engine and shell lay out the same merged rows (AC7).
-- [ ] **T8** editor autocomplete, KB tables + `chunked.data`, Guide section.
+- [x] **T8** editor autocomplete, KB tables + `chunked.data`, Guide section.
 
 ## Phase B — header band
 
-- [ ] **T9** model: `HeaderBandHeight`, `IsSideMenuHeader`,
+- [x] **T9** model: `HeaderBandHeight`, `IsSideMenuHeader`,
       `sync_side_menu_header_panels`, `side_menu_header_subtree`, backfill.
-- [ ] **T10** sidebar: `RowKind::HeaderBand`, menu band moves while expanded,
+- [x] **T10** sidebar: `RowKind::HeaderBand`, menu band moves while expanded,
       0 when collapsed.
-- [ ] **T11** render: skip a collapsed menu's header subtree; designer sync +
+- [x] **T11** render: skip a collapsed menu's header subtree; designer sync +
       drag-lock; properties row.
-- [ ] **T12** shell/host: `draw_side_menu_band` generalises the footer pass.
-- [ ] **T13** tests (AC6), KB, Guide.
+- [x] **T12** shell/host: `draw_side_menu_band` generalises the footer pass.
+- [x] **T13** tests (AC6), KB, Guide.
 
 ## Phase C — rows that host a control
 
-- [ ] **T14** `MenuItem.control` (skip when none; hash unchanged).
-- [ ] **T15** layout rect for hosted rows; `side_menu_row_rect` in
+- [x] **T14** `MenuItem.control` (skip when none; hash unchanged).
+- [x] **T15** layout rect for hosted rows; `side_menu_row_rect` in
       `resolved_rect`; shell band pass per hosted row; hidden when collapsed.
-- [ ] **T16** `SetItemControl`; menu editor *Hosted control* (i18n ×6).
-- [ ] **T17** tests (AC6a), KB, Guide.
+- [x] **T16** `SetItemControl`; menu editor *Hosted control* (i18n ×6).
+- [x] **T17** tests (AC6a), KB, Guide.
 
 ## Close
 
-- [ ] **T18** full sweeps; CHANGELOG + `z` bump; acceptance criteria checked.
+- [x] **T18** full sweeps; CHANGELOG + `z` bump; acceptance criteria checked
+      (all but AC8, recorded as not run in `spec.md`).

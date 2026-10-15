@@ -14608,6 +14608,15 @@ impl Interpreter {
                 })
             }
             "SETITEMENABLED" => rt::set_enabled(&designed, &mut rows, &arg(0), truthy(&arg(1))),
+            // Spec 066 Phase C — the control a run-time row hosts in place of
+            // its label (a designed row's is the designer's, so it is refused
+            // like the other fields). Empty gives the control back.
+            "SETITEMCONTROL" => {
+                let v = arg(1).trim().to_owned();
+                rt::set_field(&designed, &mut rows, &arg(0), |i| {
+                    i.control = Some(v).filter(|s| !s.is_empty())
+                })
+            }
             "SETITEMACTION" => {
                 let v = arg(1);
                 rt::set_field(&designed, &mut rows, &arg(0), |i| {

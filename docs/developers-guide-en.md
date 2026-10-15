@@ -16625,6 +16625,21 @@ it, and **FooterHeight** is.
 > **IconEffect** property (`None` | `Shadow` | `Neumorphic`) chooses how those
 > icons are painted — `Neumorphic` matches the IDE's Neumorphic surface style.
 
+**A band for your own controls under the logo.** The footer is not the only place a rail can hold controls of yours. Give the SideMenu a **HeaderBandHeight** (in points; the default, 0, is no band) and the designer creates a second Panel for the rail, `<id>-Header`, in the band under the logo and above the menu rows. It is an ordinary container, exactly like the footer's: drop a ComboBox to pick an assistant, a TextBox to search a list of conversations, and bind and handle events on them as anywhere else. The menu rows start below the band.
+
+Two things differ from the footer:
+
+- **The band exists only while the sidebar is open.** Collapsed to the icon rail, the band and every control in it are hidden, and the menu gets its height back — a picker has no room on a rail one icon wide. Open the rail again and they return unchanged.
+- **Turning the band off deletes nothing.** Setting **HeaderBandHeight** back to 0 keeps the Panel and everything you put in it, at zero height, until you give it a height again.
+
+As with the footer, you do not position the Panel: its rectangle is re-pinned under the logo on every change, so it follows a form resize, a **HeaderHeight** edit and the rail's width; **HeaderBandHeight** is how tall it is. And as with the footer, the running rail draws the band's controls, so a control in it is the one other place where a designed X is not measured from the form's left edge.
+
+> ⚠️ **Caveat.** The Panel is created in the **Designer**, the first frame after the height is set — as the footer's is. A form whose **HeaderBandHeight** was edited in a text editor shows an empty band until it is opened in the Designer once and saved.
+
+<!-- 📷 sidemenu-header-band.png — a SideMenu with HeaderBandHeight 56: a ComboBox in the
+     band under the logo, the menu rows below it. Capture it open, and again collapsed
+     (the band gone, the rows moved up). -->
+
 **One icon size per rail state.** The inspector offers two:
 
 
@@ -16748,7 +16763,7 @@ disappear when the program ends. Nothing is written back to the menu file.
 |---|---|
 | `AddItem(id, label [, icon [, parent-id [, action]]])` | Adds a row, or replaces the row *you* added with that id, in place. `parent-id` hangs it under any row, designed or yours, up to three levels. `action` is what a designed row's action would be; empty means `onMenuItemClick` |
 | `AddSection(title)` | Adds a section title; answers its id |
-| `SetItemLabel` / `SetItemIcon` / `SetItemBadge` / `SetItemEnabled` / `SetItemAction` `(id, value)` | Change one of your rows. `SetItemLabel` and `SetItemEnabled` also reach a designed row |
+| `SetItemLabel` / `SetItemIcon` / `SetItemBadge` / `SetItemEnabled` / `SetItemAction` / `SetItemControl` `(id, value)` | Change one of your rows. `SetItemLabel` and `SetItemEnabled` also reach a designed row. `SetItemControl` names the control the row shows in place of its label — see *A row that hosts a control* below |
 | `RemoveItem(id)` | Removes one of your rows and everything under it |
 | `Clear()` | Removes all of your rows; the designed menu stays, with any label or state you gave it |
 | `GetCount()` / `HasItem(id)` | How many rows you added; whether an id exists at all |
@@ -16770,7 +16785,7 @@ not, so a program can tell.
 
 > ⚠️ **The designed menu's structure is yours at design time, not at run
 > time.** A program can never remove or replace a row that came from the menu
-> editor, nor change its icon, badge or action — the call answers `0` and the
+> editor, nor change its icon, badge, action or hosted control — the call answers `0` and the
 > menu is untouched. Give your own rows ids that cannot collide with the
 > designed ones (a prefix such as `CHAT-` is enough).
 >
@@ -16794,6 +16809,75 @@ not, so a program can tell.
 > 📷 Screenshot needed — `sidemenu-runtime-rows.png`. Capture a shell whose
 > rail shows two designed rows, a "History" section and three conversation rows
 > added by the program, with one of them selected.
+
+#### A row that hosts a control
+
+A row does not have to show a label. It can show **one of your controls** — a
+ComboBox to pick the assistant, a TextBox to filter the conversations — sitting
+among the other rows. It is the same idea as the footer and the header band,
+except that the control belongs to a *row*, so it sits wherever that row falls
+in the menu, scrolls with it and moves when the menu above it changes.
+
+**In the designer:**
+
+1. Drop the control onto the SideMenu, so that it is a **child** of the SideMenu
+   (the ComboBox's parent in the Project tree is the SideMenu). A control placed
+   anywhere else on the form is never hosted by a row.
+2. Open **Edit Menu…**, select the row, and choose the control in **Hosted
+   control**. The list offers the SideMenu's own children; **(none)** gives the
+   row its label back.
+3. The canvas moves the control into that row at once, and keeps it there as
+   you add, remove or reorder rows. Do not position it by hand.
+
+**What the row looks like.** The control fills the row from the right of the
+row's icon to the row's right padding, a few points shorter than the row at the
+top and bottom so the row's own highlight still shows around it. A row that has
+no icon starts at the row's padding instead. The row keeps its icon, its badge
+and its place in the menu, and does not draw its label: the control is the
+label. The control's own **X**, **Y**, **Width** and **Height** do not matter at
+run time — the row decides them — and it keeps all its other properties and
+every event, exactly as on any other form.
+
+**When the sidebar is collapsed** the row is only its icon, as every row is, and
+the control is **hidden**; it comes back, unchanged, when the sidebar opens. A
+row scrolled half under the header or the footer clips its control with it.
+
+**From a program**, a row you added can host a control too, with
+`SetItemControl(row-id, control-id)`; an empty control id takes the control back:
+
+```cobol
+      *> a picker row among the conversations
+           MOVE SIDEMENU-1::AddItem("PICK", "Assistant", "user") TO WS-OK
+           MOVE SIDEMENU-1::SetItemControl("PICK", "CMB-ASSISTANT") TO WS-OK
+      *> later: the row shows its label again
+           MOVE SIDEMENU-1::SetItemControl("PICK", "") TO WS-OK
+```
+
+> **Notes.**
+> - While a row names a control, the control is shown **only** in that row: when
+>   the row is not on screen (the sidebar is collapsed, or the row is scrolled
+>   out of the menu) it is hidden, never left at its designed position.
+> - When a row lets go of it — an empty `SetItemControl`, or the row is removed —
+>   it is an ordinary control of the form again, at the position it was designed
+>   at. A control that only a program will host belongs, until then, where you
+>   would want it to be.
+> - Reading and changing the control — `CMB-ASSISTANT::Value`, its events — is
+>   unchanged; it is still *your* control, only placed by the row. Name a
+>   control in one row only.
+
+> ⚠️ **Caveats.**
+> - The control must be a **direct child of the SideMenu**. A control inside a
+>   Panel that is itself on the rail is placed by that Panel, not by a row.
+> - Host a **single, ordinary control** — a ComboBox, a TextBox, a Button, a
+>   Switch. A container (a Panel with other controls inside it) is not
+>   supported as a hosted control.
+> - A designed row's hosted control is set in the menu editor; a program cannot
+>   change it — `SetItemControl` on a designed row answers `0`.
+
+> 📷 Screenshot needed — `sidemenu-hosted-row.png`. Capture a shell whose rail
+> has the History section and, among its rows, one row that shows a ComboBox in
+> place of its label; then the same rail collapsed, with that row reduced to its
+> icon.
 
 ### The breadcrumb frame
 

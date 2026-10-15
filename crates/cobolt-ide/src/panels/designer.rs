@@ -2065,6 +2065,9 @@ pub struct MenuEditorModal {
     /// unique within the window, not just within its own menu, so a new id
     /// avoids these as well as this menu's own.
     reserved_ids: HashSet<String>,
+    /// Spec 066 R13a — the controls a row of this SideMenu can host: its direct
+    /// children, minus the header and footer bands' own Panels.
+    hosted_candidates: Vec<String>,
 }
 
 impl MenuEditorModal {
@@ -2083,7 +2086,14 @@ impl MenuEditorModal {
             split_ratio: 0.40,
             is_side_menu: false,
             reserved_ids: HashSet::new(),
+            hosted_candidates: Vec::new(),
         }
+    }
+
+    /// Builder: the controls a row may host (spec 066 R13a).
+    pub fn with_hosted_candidates(mut self, ids: Vec<String>) -> Self {
+        self.hosted_candidates = ids;
+        self
     }
 
     /// Builder: the item ids already taken by the form's other menus.
@@ -8316,6 +8326,9 @@ impl DesignerPanel {
         // footer band otherwise. Runs AFTER the height sync, because the band
         // is measured from the sidebar's bottom edge.
         self.form.sync_side_menu_footer_panels();
+        // …and the header band's Panel under the logo (spec 066 Phase B), the
+        // same way: created once the band has a height, re-pinned every frame.
+        self.form.sync_side_menu_header_panels();
         // …and every Splitter's two panes, for the same reason: they are
         // derived from where the division line sits, so one call here is what
         // makes them follow a `SplitPosition` drag, an `Orientation` flip and a
@@ -8368,6 +8381,10 @@ impl DesignerPanel {
                 }
             }
         }
+
+        // Spec 066 Phase C — a control a menu row hosts follows its row. Runs
+        // after the menu cache above is warm, since the rows come from it.
+        self.sync_hosted_row_controls(ui.ctx());
 
         // Step animation previews
         let now = std::time::Instant::now();
@@ -11624,6 +11641,7 @@ impl DesignerPanel {
                                 let cur_preserve = item.preserve_previous_form;
                                 let item_id = item.id.clone();
                                 let cur_badge_style = item.badge_style;
+                                let cur_control = item.control.clone().unwrap_or_default();
 
                                 if !is_sep {
                                     // Label
@@ -11848,6 +11866,43 @@ impl DesignerPanel {
                                                     &modal.selected,
                                                 ) {
                                                     it.badge_style = style;
+                                                }
+                                            }
+                                        });
+                                        // Hosted control (spec 066 R13a) — a control that
+                                        // is a child of this menu, shown in the row in place
+                                        // of its label.
+                                        ui.horizontal(|ui| {
+                                            ui.label(crate::ui_text::ide("Hosted control:"));
+                                            let none = crate::ui_text::tx("(none)");
+                                            let mut pick = cur_control.clone();
+                                            let shown = if pick.is_empty() { none } else { pick.as_str() };
+                                            egui::ComboBox::from_id_salt("menu_hosted_control")
+                                                .selected_text(shown)
+                                                .width(180.0)
+                                                .show_ui(ui, |ui| {
+                                                    ui.selectable_value(&mut pick, String::new(), none);
+                                                    for id in &modal.hosted_candidates {
+                                                        ui.selectable_value(&mut pick, id.clone(), id);
+                                                    }
+                                                    // A name the form no longer has stays
+                                                    // listed, so it can be seen and cleared.
+                                                    if !cur_control.is_empty()
+                                                        && !modal.hosted_candidates.contains(&cur_control)
+                                                    {
+                                                        ui.selectable_value(&mut pick, cur_control.clone(), &cur_control);
+                                                    }
+                                                })
+                                                .response
+                                                .on_hover_text(crate::ui_text::ide(
+                                                    "A control that is a child of this menu. The row shows it in place of its label; it is hidden while the menu is folded to its rail.",
+                                                ));
+                                            if pick != cur_control {
+                                                if let Some(it) = MenuEditorModal::item_at_mut(
+                                                    &mut modal.def.menu,
+                                                    &modal.selected,
+                                                ) {
+                                                    it.control = (!pick.is_empty()).then_some(pick);
                                                 }
                                             }
                                         });
@@ -13756,6 +13811,47 @@ impl DesignerPanel {
     /// Drop the shown-state override when the developer edits `Collapsed`
     /// itself, so the property they just typed is what they see. Called once a
     /// frame, before the canvas draws.
+    /// Pin every control a designed menu row HOSTS to that row's rectangle
+    /// (spec 066 R13a), so the canvas shows the control where the application
+    /// puts it. Only a DIRECT child of the rail is moved — a control elsewhere
+    /// is the developer's own — and the write is skipped when the rectangle is
+    /// already right, so this runs every frame without being an edit.
+    ///
+    /// `designed_hosted_rects` is the one place a hosted control's place is
+    /// worked out; the engine and the shell read the same function.
+    pub(crate) fn sync_hosted_row_controls(&mut self, ctx: &egui::Context) {
+        let mut pins: Vec<(String, cobolt_forms::model::Rect)> = Vec::new();
+        for side in self.form.controls.iter().filter(|c| c.control_type == ControlType::SideMenu) {
+            let Some(def) = cobolt_forms::paint::get_menu_cache(ctx, &side.id) else {
+                continue;
+            };
+            for h in cobolt_forms::sidebar::designed_hosted_rects(ctx, side, &def.menu) {
+                let child = self.form.controls.iter().find(|c| {
+                    c.id.eq_ignore_ascii_case(&h.control)
+                        && c.parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(&side.id))
+                });
+                if let Some(child) = child {
+                    pins.push((
+                        child.id.clone(),
+                        cobolt_forms::model::Rect::new(
+                            h.rect.min.x.round() as i32,
+                            h.rect.min.y.round() as i32,
+                            h.rect.width().round() as i32,
+                            h.rect.height().round() as i32,
+                        ),
+                    ));
+                }
+            }
+        }
+        for (id, rect) in pins {
+            if let Some(c) = self.form.find_control_mut(&id) {
+                if c.rect != rect {
+                    c.rect = rect;
+                }
+            }
+        }
+    }
+
     fn sync_rail_view(&mut self) {
         let designed = self.shell_side_menu().map(|c| c.side_menu_collapsed());
         if designed != self.rail_designed_collapsed {
@@ -13995,7 +14091,7 @@ impl DesignerPanel {
         }
         let id = self.selected_ids[0].clone();
         let c = self.form.find_control(&id)?;
-        if c.control_type.is_non_visual() || c.is_splitter_pane() || c.is_side_menu_footer() {
+        if c.control_type.is_non_visual() || c.is_splitter_pane() || c.is_side_menu_footer() || c.is_side_menu_header() {
             return None;
         }
         // Spec 091 R21 — a control in a layer has no Dock or Anchor to show.
@@ -14141,7 +14237,7 @@ impl DesignerPanel {
                 })
             });
             if let (Some((dx, dy)), Some(ctrl)) = (own, self.form.find_control_mut(id)) {
-                if ctrl.is_locked() || ctrl.is_side_menu_footer() || ctrl.is_splitter_pane() {
+                if ctrl.is_locked() || ctrl.is_side_menu_footer() || ctrl.is_side_menu_header() || ctrl.is_splitter_pane() {
                     continue;
                 }
                 ctrl.rect.x = ox + dx;
@@ -16065,8 +16161,10 @@ impl DesignerPanel {
                                 // puts it straight back. It is a normal container
                                 // in every other way, and it is the drop target
                                 // each half of a splitter offers.
+                                // …and the header band's Panel, for the same reason.
                                 if ctrl.is_locked()
                                     || ctrl.is_side_menu_footer()
+                                    || ctrl.is_side_menu_header()
                                     || ctrl.is_splitter_pane()
                                 {
                                     continue;
@@ -23849,6 +23947,70 @@ mod sidebar_seam_tests {
         let mut dp = DesignerPanel::new(form);
         dp.set_selected_one(Some("SideMenu-1".into()));
         dp
+    }
+
+    /// **A control a menu row hosts is pinned to that row on the canvas**
+    /// (spec 066 R13a): the developer drops it on the rail, names it in the menu
+    /// editor, and it sits where the row is — followed when the menu changes —
+    /// instead of wherever it happened to be dropped. A control no row names, or
+    /// one that is not a child of the rail, is left alone.
+    #[test]
+    fn a_control_a_row_hosts_is_pinned_to_its_row_on_the_canvas() {
+        use cobolt_forms::menu::{MenuDefinition, MenuItem};
+        let ctx = egui::Context::default();
+        let mut dp = sidebar_form();
+        let mut host = |id: &str, parent: Option<&str>| {
+            let mut c = Control::new(id, ControlType::ComboBox, 600, 300);
+            c.parent = parent.map(str::to_owned);
+            c.rect = cobolt_forms::model::Rect::new(600, 300, 90, 20);
+            dp.form.controls.push(c);
+        };
+        host("CMB-ASSISTANT", Some("SideMenu-1"));
+        host("CMB-LOOSE", None);
+        host("CMB-UNNAMED", Some("SideMenu-1"));
+
+        let mut picker = MenuItem::new_action("assistant", "Assistant");
+        picker.action = Some("event".into());
+        picker.control = Some("cmb-assistant".into()); // case is not significant
+        let mut stray = MenuItem::new_action("stray", "Stray");
+        stray.action = Some("event".into());
+        stray.control = Some("CMB-LOOSE".into()); // not a child of the rail
+        let def = MenuDefinition {
+            menu: vec![MenuItem::new_action("home", "Home"), picker, stray],
+            hash: String::new(),
+        };
+        cobolt_forms::paint::set_menu_cache(&ctx, "SideMenu-1", std::sync::Arc::new(def));
+
+        dp.sync_hosted_row_controls(&ctx);
+
+        let at = |dp: &DesignerPanel, id: &str| dp.form.find_control(id).unwrap().rect;
+        let r = at(&dp, "CMB-ASSISTANT");
+        // On the rail, below the header (120) and above the footer (744 - 72).
+        assert!(r.x >= 0 && r.x + r.w <= 200, "inside the rail's width: {r:?}");
+        assert!(r.y >= 120 && r.y + r.h <= 744 - 72, "between header and footer: {r:?}");
+        assert!(r.h > 0 && r.h < 60, "a row tall, not the rail: {r:?}");
+        assert!(r.y > 120 + 20, "below the Home row: {r:?}");
+        // The very rectangle the layout gives the row — one geometry.
+        let side = dp.form.find_control("SideMenu-1").unwrap().clone();
+        let items = cobolt_forms::paint::get_menu_cache(&ctx, "SideMenu-1").unwrap();
+        let want = cobolt_forms::sidebar::designed_hosted_rects(&ctx, &side, &items.menu);
+        let want = want.iter().find(|h| h.control.eq_ignore_ascii_case("CMB-ASSISTANT")).unwrap();
+        assert_eq!(r.x, want.rect.min.x.round() as i32);
+        assert_eq!(r.y, want.rect.min.y.round() as i32);
+        assert_eq!(r.w, want.rect.width().round() as i32);
+        assert_eq!(r.h, want.rect.height().round() as i32);
+
+        // Left alone: not named by a row, and named but not a child of the rail.
+        let untouched = cobolt_forms::model::Rect::new(600, 300, 90, 20);
+        assert_eq!(at(&dp, "CMB-UNNAMED"), untouched);
+        assert_eq!(at(&dp, "CMB-LOOSE"), untouched);
+
+        // Idempotent, so it can run every frame without making an edit.
+        let rects = |dp: &DesignerPanel| dp.form.controls.iter().map(|c| c.rect).collect::<Vec<_>>();
+        let before = rects(&dp);
+        dp.sync_hosted_row_controls(&ctx);
+        assert_eq!(rects(&dp), before, "a second pass changes nothing");
+        println!("  066 C canvas — hosted control pinned to {r:?}; unnamed and loose controls untouched");
     }
 
     /// The FIRST drag on a sidebar that never set the property starts from the

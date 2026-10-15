@@ -232,3 +232,45 @@ fn activate_item_writes_a_fresh_request_per_call() {
         .collect();
     assert_eq!(requests, ["docs-new#1", "docs-new#2"]);
 }
+
+/// Spec 066 Phase C (R13a) — a program names the control a row hosts, with
+/// `SetItemControl(id, control-id)`: on its own rows, never on a designed one
+/// (the designer places those), and an empty name takes the control back.
+#[test]
+fn a_program_names_the_control_a_row_hosts() {
+    let (out, ups) = run(
+        r#"
+           MOVE MENU-1::AddItem("assistant", "Assistant", "user") TO WS-OK.
+           MOVE MENU-1::SetItemControl("assistant", "CMB-ASSISTANT") TO WS-OK.
+           DISPLAY "SET=" WS-OK.
+           MOVE MENU-1::SetItemControl("home", "CMB-ASSISTANT") TO WS-OK.
+           DISPLAY "DESIGNED=" WS-OK.
+           MOVE MENU-1::SetItemControl("nope", "CMB-ASSISTANT") TO WS-OK.
+           DISPLAY "UNKNOWN=" WS-OK.
+"#,
+    );
+    let joined = out.join("\n");
+    assert!(joined.contains("SET=1"), "{joined}");
+    assert!(joined.contains("DESIGNED=0"), "a designed row's control is the designer's: {joined}");
+    assert!(joined.contains("UNKNOWN=0"), "{joined}");
+    let rows = final_rows(&ups);
+    let hosted: Vec<(&str, Option<&str>)> =
+        rows.iter().map(|r| (r.item.id.as_str(), r.item.control.as_deref())).collect();
+    assert_eq!(hosted, vec![("assistant", Some("CMB-ASSISTANT"))]);
+
+    // Naming nothing takes the control back, and `Items` is never written.
+    let (_out, ups) = run(
+        r#"
+           MOVE MENU-1::AddItem("assistant", "Assistant", "user") TO WS-OK.
+           MOVE MENU-1::SetItemControl("assistant", "CMB-ASSISTANT") TO WS-OK.
+           MOVE MENU-1::SetItemControl("assistant", "") TO WS-OK.
+"#,
+    );
+    assert_eq!(final_rows(&ups)[0].item.control, None, "an empty name releases the control");
+    assert!(
+        ups.iter().all(|u| !u.prop.eq_ignore_ascii_case("Items")),
+        "a SideMenu has no Items to write"
+    );
+    println!("SideMenu SetItemControl: run-time row hosts CMB-ASSISTANT; designed row 0; unknown 0; empty releases it");
+}
+

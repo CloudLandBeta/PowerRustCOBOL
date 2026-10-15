@@ -5505,6 +5505,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "侧边栏页脚区域的高度（磅，默认 72）。页脚 Panel 固定在此区域；设为 0 则不显示页脚。",
         "Hauteur de la bande de pied de la barre latérale en points (72 par défaut). Le Panel du pied y est calé ; 0 supprime le pied.",
     ] },
+    PropHelp { ty: "SideMenu", prop: "HeaderBandHeight", text: [
+        "Height in points of a band for your own controls between the logo header and the menu rows (default 0 = no band). A Panel is created in it; drop a picker or a search box there. The band shows while the sidebar is open and is hidden when it is collapsed.",
+        "Alto en puntos de una franja para sus propios controles entre el encabezado del logo y las filas del menú (predeterminado 0 = sin franja). Se crea un Panel en ella; suelte allí un selector o un cuadro de búsqueda. La franja se muestra con la barra abierta y se oculta al contraerla.",
+        "Altura em pontos de uma faixa para os seus próprios controles entre o cabeçalho do logotipo e as linhas do menu (padrão 0 = sem faixa). Um Panel é criado nela; solte ali um seletor ou uma caixa de busca. A faixa aparece com a barra aberta e fica oculta quando ela é recolhida.",
+        "ロゴのヘッダーとメニュー行の間に置く、独自のコントロール用の帯の高さ（ポイント、既定 0 ＝ 帯なし）。帯の中に Panel が作られ、セレクターや検索ボックスを置けます。帯はサイドバーが開いている間だけ表示され、折りたたむと隠れます。",
+        "位于徽标标题与菜单行之间、用于放置您自己控件的区域的高度（磅，默认 0 = 无该区域）。其中会创建一个 Panel，可在其中放置选择器或搜索框。侧边栏展开时显示该区域，折叠时隐藏。",
+        "Hauteur en points d'une bande pour vos propres contrôles entre l'en-tête du logo et les lignes du menu (0 par défaut = pas de bande). Un Panel y est créé ; déposez-y un sélecteur ou une zone de recherche. La bande s'affiche quand la barre est ouverte et se masque quand elle est repliée.",
+    ] },
     PropHelp { ty: "SideMenu", prop: "FullHeight", text: [
         "On (default): the sidebar spans the window's full height and the breadcrumb starts at its right edge. Off: the breadcrumb spans the full width and the sidebar sits below it.",
         "Activado (predeterminado): la barra lateral ocupa todo el alto y el breadcrumb empieza a su derecha. Desactivado: el breadcrumb ocupa todo el ancho y la barra queda debajo.",

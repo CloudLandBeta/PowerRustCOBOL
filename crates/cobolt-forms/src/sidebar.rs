@@ -192,6 +192,11 @@ pub enum RowKind {
     /// lives inside it is rendered by the form's own container machinery, so
     /// whatever the developer dropped in it draws normally.
     Footer,
+    /// The header BAND (spec 066 Phase B): a band of the developer's controls
+    /// between the logo header and the menu rows, present only while the rail
+    /// is open and `HeaderBandHeight` is above 0. Like the footer it paints
+    /// nothing itself — the Panel it owns draws what was dropped into it.
+    HeaderBand,
 }
 
 /// One laid-out row and where it landed.
@@ -221,6 +226,10 @@ pub struct SidebarChrome {
     pub header_h: f32,
     /// Footer pane height in points. `0` means no footer pane.
     pub footer_h: f32,
+    /// Header band height in points (`HeaderBandHeight`, spec 066 Phase B): a
+    /// band for the developer's controls under the logo header. `0` — the
+    /// default — means no band. Only an OPEN rail has one.
+    pub header_band_h: f32,
 }
 
 impl Default for SidebarChrome {
@@ -229,6 +238,7 @@ impl Default for SidebarChrome {
             app_title: String::new(),
             header_h: HEADER_H,
             footer_h: FOOTER_H,
+            header_band_h: 0.0,
         }
     }
 }
@@ -249,6 +259,7 @@ impl SidebarChrome {
                 .unwrap_or_default(),
             header_h: num("HeaderHeight", HEADER_H),
             footer_h: num("FooterHeight", FOOTER_H),
+            header_band_h: num("HeaderBandHeight", 0.0),
         }
     }
 }
@@ -546,6 +557,20 @@ pub fn layout(rect: Rect, state: &SidebarState<'_>) -> Vec<SidebarRow> {
         Rect::from_min_size(rect.min, Vec2::new(rect.width(), state.chrome.header_h)),
     ));
 
+    // ── Header band ────────────────────────────────────────────────
+    // The developer's band of controls, between the logo header and the menu
+    // rows (spec 066 R11). Open only: a collapsed rail has no room for it, so
+    // it has no row and its height goes back to the menu. It does not scroll.
+    if header_band_h(state) > 0.0 {
+        rows.push(SidebarRow::whole(
+            RowKind::HeaderBand,
+            Rect::from_min_size(
+                Pos2::new(rect.min.x, rect.min.y + state.chrome.header_h),
+                Vec2::new(rect.width(), header_band_h(state)),
+            ),
+        ));
+    }
+
     // ── Menu pane ───────────────────────────────────────────────────────────
     // Every row is laid out, whether or not it fits; the ones outside the band
     // are dropped AFTER the walk, so scrolling reaches them. Dropping them
@@ -577,11 +602,11 @@ pub fn layout(rect: Rect, state: &SidebarState<'_>) -> Vec<SidebarRow> {
     // one straddling an edge keeps its geometry for the painter but only its
     // visible part for the pointer.
     rows.retain(|r| match r.kind {
-        RowKind::Header | RowKind::Footer => true,
+        RowKind::Header | RowKind::HeaderBand | RowKind::Footer => true,
         _ => r.rect.intersects(band),
     });
     for r in &mut rows {
-        if !matches!(r.kind, RowKind::Header | RowKind::Footer) {
+        if !matches!(r.kind, RowKind::Header | RowKind::HeaderBand | RowKind::Footer) {
             r.visible = r.rect.intersect(band);
         }
     }
@@ -598,11 +623,36 @@ fn footer_h(state: &SidebarState<'_>) -> f32 {
     state.chrome.footer_h
 }
 
-/// The band the scrolling menu rows live in — the rail minus its header and
-/// footer panes.
+/// The header band's height — the developer's while the rail is OPEN, and 0 on
+/// a collapsed one (spec 066 R12): unlike the footer, which keeps its height in
+/// both states, the band has nothing to show on a rail one icon wide, so the
+/// menu gets its height back.
+fn header_band_h(state: &SidebarState<'_>) -> f32 {
+    if state.collapsed {
+        0.0
+    } else {
+        state.chrome.header_band_h.max(0.0)
+    }
+}
+
+/// The header band's rect for a sidebar occupying `rect` — where the Panel the
+/// SideMenu owns for it is laid out. `None` when the rail is collapsed or the
+/// band has no height.
+pub fn header_band_rect(rect: Rect, chrome: &SidebarChrome, collapsed: bool) -> Option<Rect> {
+    if collapsed || chrome.header_band_h <= 0.0 {
+        return None;
+    }
+    Some(Rect::from_min_size(
+        Pos2::new(rect.min.x, rect.min.y + chrome.header_h),
+        Vec2::new(rect.width(), chrome.header_band_h),
+    ))
+}
+
+/// The band the scrolling menu rows live in — the rail minus its header, its
+/// header band (while open) and its footer pane.
 pub fn menu_band(rect: Rect, state: &SidebarState<'_>) -> Rect {
     Rect::from_min_max(
-        Pos2::new(rect.min.x, rect.min.y + state.chrome.header_h),
+        Pos2::new(rect.min.x, rect.min.y + state.chrome.header_h + header_band_h(state)),
         Pos2::new(rect.max.x, rect.max.y - footer_h(state)),
     )
 }
@@ -660,6 +710,13 @@ pub fn clamp_scroll(rect: Rect, state: &SidebarState<'_>) -> f32 {
 pub fn rail_view(controls: &[Control], side: &Control, collapsed: bool) -> Vec<Control> {
     let footer_id = crate::model::side_menu_footer_id(&side.id);
     let width = shown_width(side, collapsed) as i32;
+    // Spec 066 R12 — a collapsed rail has no header band: its Panel and
+    // everything dropped into it are not drawn. Open, nothing changes.
+    let hidden: std::collections::HashSet<String> = if collapsed {
+        crate::model::side_menu_header_subtree(controls).into_iter().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
     // Shown collapsed, the CONTENT travels left with the rail's edge — the
     // same slide the running shell's ContentPane makes (operator, 2026-08-23:
     // "If I collapse the sidebar, the content pane should move to the left,
@@ -672,6 +729,7 @@ pub fn rail_view(controls: &[Control], side: &Control, collapsed: bool) -> Vec<C
     let dx = if collapsed { side.rect.w - width } else { 0 };
     controls
         .iter()
+        .filter(|c| !hidden.contains(&c.id))
         .map(|c| {
             if c.id != side.id && c.id != footer_id {
                 let mut c = c.clone();
@@ -974,6 +1032,8 @@ pub fn paint(
                 }
             }
             RowKind::Footer => paint_footer(painter, row.rect, state),
+            // The header band's Panel draws itself, like the footer's.
+            RowKind::HeaderBand => {}
         }
     }
     // A NEGATIVE `ShadowBlurStrength` is the sunken variant: it goes over the
@@ -1232,6 +1292,89 @@ fn item_label_x(rect: Rect, depth: usize, icon: f32) -> f32 {
     rect.min.x + PAD_X + nest_offset(depth) + icon + 10.0
 }
 
+/// A row that HOSTS a control (spec 066 Phase C), as laid out: which control,
+/// where it sits, and the part of it that can be seen.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HostedRow {
+    /// The id of the control on the form — the row's `control`.
+    pub control: String,
+    /// Where the control goes: in place of the row's label — right of the icon
+    /// box, to the row's right padding, inset a few points top and bottom.
+    pub rect: Rect,
+    /// `rect` clipped to the menu pane, for a row scrolled half under the header
+    /// or the footer: what the control may draw and take clicks in.
+    pub visible: Rect,
+}
+
+/// The room a hosted control gets inside its row.
+///
+/// A row with an icon puts the control where its label would start (so the
+/// icon keeps its place beside it); a row without one starts at the row's
+/// padding, as a control has nothing to line up with. It always keeps a few
+/// points of the row above and below, so the row's own hover and selection pill
+/// still reads around it.
+fn hosted_control_rect(row: Rect, depth: usize, icon: f32, has_icon: bool) -> Rect {
+    let left = if has_icon {
+        item_label_x(row, depth, icon)
+    } else {
+        row.min.x + PAD_X + nest_offset(depth)
+    };
+    let right = (row.max.x - PAD_X).max(left + 24.0);
+    Rect::from_min_max(
+        Pos2::new(left, row.min.y + 4.0),
+        Pos2::new(right, row.max.y - 4.0),
+    )
+}
+
+/// The rows of a laid-out rail that host a control, and where each control
+/// goes (spec 066 R13a). Both surfaces — the engine's SideMenu and the shell's
+/// MenuPane — read this one list, so a control cannot land in a different place
+/// on either.
+///
+/// A COLLAPSED rail hosts nothing (R13b): the row is its icon, and the control
+/// is hidden until the rail opens again.
+pub fn hosted_rows(rows: &[SidebarRow], items: &[MenuItem], state: &SidebarState<'_>) -> Vec<HostedRow> {
+    if state.collapsed {
+        return Vec::new();
+    }
+    rows.iter()
+        .filter_map(|row| {
+            let RowKind::Item { path, depth, .. } = &row.kind else {
+                return None;
+            };
+            let item = item_at(items, path)?;
+            let control = item.control.as_deref().map(str::trim).filter(|c| !c.is_empty())?;
+            let has_icon = item.icon.as_deref().is_some_and(|i| !i.trim().is_empty());
+            let rect = hosted_control_rect(row.rect, *depth, state.icon_size, has_icon);
+            Some(HostedRow {
+                control: control.to_owned(),
+                visible: rect.intersect(row.visible),
+                rect,
+            })
+        })
+        .collect()
+}
+
+/// Where the controls a rail's designed rows host sit on the DESIGNER canvas,
+/// in form coordinates (spec 066 R13a).
+///
+/// The canvas shows the rail open, unscrolled and with every group expanded —
+/// the same view `paint.rs` draws — so this lays out exactly that, whatever
+/// `Collapsed` says: a control must have a place to be dragged to even while
+/// the rail is folded for a look at the narrow state.
+pub fn designed_hosted_rects(ctx: &egui::Context, side: &Control, items: &[MenuItem]) -> Vec<HostedRow> {
+    let mut open = side.clone();
+    open.set_prop("Collapsed", "false");
+    let expanded = all_parent_ids(items);
+    let state = state_for_control(ctx, &open, items, 255, &expanded);
+    let rect = Rect::from_min_size(
+        Pos2::new(side.rect.x as f32, side.rect.y as f32),
+        Vec2::new(side.rect.w as f32, side.rect.h as f32),
+    );
+    let rows = layout(rect, &state);
+    hosted_rows(&rows, items, &state)
+}
+
 /// The ink of a hovered row: `HighlightFgColor` where it clears WCAG AA
 /// (4.5:1) on what is actually behind it — the hover tint over the rail over
 /// the form — and the row's normal ink where it would not. It was never read,
@@ -1423,6 +1566,11 @@ fn paint_item(
         Pos2::new(label_x, rect.min.y),
         Pos2::new(right.max(label_x), rect.max.y),
     );
+    // A row that hosts a control has its control where the label would be
+    // (spec 066 Phase C); drawing the label under it would show through.
+    if item.control.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        return;
+    }
     let p = painter.with_clip_rect(clip);
     p.text(
         Pos2::new(label_x, rect.center().y),
@@ -1664,6 +1812,7 @@ mod tests {
                 app_title: "AdminMart".into(),
                 header_h: HEADER_H,
                 footer_h: FOOTER_H,
+                header_band_h: 0.0,
             },
             palette: SidebarPalette {
                 fg: Color32::WHITE,
@@ -2637,6 +2786,321 @@ mod tests {
     /// The rail owns where the Panel sits and nothing else — `paint_footer` is
     /// deliberately empty. Operator report: its background and border style
     /// could not be changed.
+    // ── Spec 066 Phase B — the header band ──────────────────────────────────
+
+    /// **The header band's Panel exists only for a height, and sits under the logo.**
+    ///
+    /// A band of controls between the logo header and the menu rows (R11): the
+    /// SideMenu owns one Panel for it, created when the developer gives the band
+    /// a height and pinned below the header pane on every frame — never before,
+    /// so a form that never asked for a band gains nothing.
+    #[test]
+    fn the_header_band_panel_is_created_only_for_a_height_and_pinned_under_the_logo() {
+        use crate::model::{Form, Rect as MRect};
+
+        let mut form = Form::new("F", "F", 960, 744);
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = MRect::new(0, 0, 200, 744);
+        form.controls.push(side);
+        assert_eq!(form.controls[0].side_menu_header_band_height(), 0, "a new SideMenu has no band");
+
+        // No height, no Panel: nothing is created while the band is off.
+        form.sync_side_menu_header_panels();
+        assert!(
+            form.controls.iter().all(|c| !c.is_side_menu_header()),
+            "a band of height 0 must not create a Panel"
+        );
+
+        // A height creates it once, below the header pane.
+        form.controls[0].set_prop("HeaderBandHeight", 56i64);
+        form.sync_side_menu_header_panels();
+        let headers: Vec<&Control> = form.controls.iter().filter(|c| c.is_side_menu_header()).collect();
+        assert_eq!(headers.len(), 1, "exactly one header band Panel");
+        let h = headers[0];
+        assert_eq!(h.id, crate::model::side_menu_header_id("SideMenu-1"));
+        assert_eq!(h.control_type, crate::ControlType::Panel);
+        assert!(h.is_container(), "a container, so it can be dropped into");
+        assert_eq!(h.parent.as_deref(), Some("SideMenu-1"), "owned by the rail");
+        assert!(!h.is_side_menu_footer(), "and not the footer");
+        assert_eq!((h.rect.x, h.rect.y, h.rect.w, h.rect.h), (0, 120, 200, 56), "under the 120pt header pane");
+
+        // Idempotent, and it follows what it hangs from.
+        form.sync_side_menu_header_panels();
+        assert_eq!(form.controls.iter().filter(|c| c.is_side_menu_header()).count(), 1);
+        form.controls[0].set_prop("HeaderHeight", 100i64);
+        form.controls[0].rect.w = 260;
+        form.sync_side_menu_header_panels();
+        let h = form.controls.iter().find(|c| c.is_side_menu_header()).unwrap();
+        assert_eq!((h.rect.y, h.rect.w), (100, 260), "it follows the header pane and the rail's width");
+
+        // Taking the band away does not delete the developer's Panel (or what
+        // they put in it): it goes to zero height and waits.
+        form.controls[0].set_prop("HeaderBandHeight", 0i64);
+        form.sync_side_menu_header_panels();
+        let h = form.controls.iter().find(|c| c.is_side_menu_header()).expect("the Panel is kept");
+        assert_eq!(h.rect.h, 0, "a band of 0 keeps its Panel at zero height");
+
+        eprintln!(
+            "066 B — no Panel at height 0; one Panel, parent=SideMenu-1, pinned to (0,120,200,56) \
+             at 56; idempotent; follows HeaderHeight and the rail's width; kept at zero height when the band is turned off"
+        );
+    }
+
+    /// **The header band pushes the menu down while the rail is open, and is
+    /// gone when it is collapsed** (spec 066 R11, R12).
+    ///
+    /// The band sits between the logo header and the menu rows. Open, it takes
+    /// its height off the top of the menu pane; collapsed, it is 0 high and has
+    /// no row — unlike the footer, which keeps its height in both states.
+    #[test]
+    fn the_header_band_pushes_the_menu_down_while_open_and_is_gone_when_collapsed() {
+        let items = sample();
+        let none: Vec<String> = Vec::new();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(OPEN_WIDTH, 700.0));
+
+        // No band: the menu starts at the header's foot, as it always did.
+        let plain = state(&items, false, &none);
+        assert_eq!(menu_band(rect, &plain).min.y, HEADER_H);
+        assert!(layout(rect, &plain).iter().all(|r| r.kind != RowKind::HeaderBand), "no band, no row");
+
+        // A 56 pt band: one row under the header, and the menu band follows it.
+        let mut open = state(&items, false, &none);
+        open.chrome.header_band_h = 56.0;
+        let rows = layout(rect, &open);
+        let band = rows.iter().find(|r| r.kind == RowKind::HeaderBand).expect("the band is a row");
+        assert_eq!(
+            band.rect,
+            Rect::from_min_size(Pos2::new(0.0, HEADER_H), Vec2::new(OPEN_WIDTH, 56.0)),
+            "under the header pane, the rail's full width"
+        );
+        assert_eq!(menu_band(rect, &open).min.y, HEADER_H + 56.0);
+        for r in rows.iter().filter(|r| matches!(r.kind, RowKind::Item { .. })) {
+            assert!(r.rect.min.y >= HEADER_H + 56.0, "item {:?} sits above the band's foot", r.kind);
+        }
+        assert_eq!(header_band_rect(rect, &open.chrome, false), Some(band.rect));
+
+        // Collapsed: no row, and the menu band is the plain one again.
+        let mut shut = state(&items, true, &none);
+        shut.chrome.header_band_h = 56.0;
+        let col_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(COLLAPSED_WIDTH, 700.0));
+        assert!(layout(col_rect, &shut).iter().all(|r| r.kind != RowKind::HeaderBand), "collapsed: no band row");
+        assert_eq!(menu_band(col_rect, &shut).min.y, HEADER_H, "collapsed: the band gives its height back");
+        assert_eq!(header_band_rect(col_rect, &shut.chrome, true), None);
+
+        // The scroll limit counts the room the band takes.
+        let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(OPEN_WIDTH, 420.0));
+        let (with, without) = (max_scroll(short, &open), max_scroll(short, &plain));
+        assert!(
+            (with - without - 56.0).abs() < 0.01 || without == 0.0 && with >= 0.0,
+            "a band of 56 leaves 56 less to show the menu in: {with} vs {without}"
+        );
+        eprintln!(
+            "066 B layout — band 56pt at y={HEADER_H}: menu band starts at {} (was {HEADER_H}); \
+             collapsed: no row, menu band starts at {HEADER_H}; scroll limit {without:.0} -> {with:.0}",
+            HEADER_H + 56.0
+        );
+    }
+
+    /// A collapsed rail hides the header band's controls; an open one leaves
+    /// them exactly where they were designed (spec 066 R12).
+    #[test]
+    fn a_collapsed_rail_view_drops_the_header_band_subtree() {
+        use crate::model::Rect as MRect;
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = MRect::new(0, 0, 240, 700);
+        side.set_prop("HeaderBandHeight", 56i64);
+        let header_id = crate::model::side_menu_header_id("SideMenu-1");
+        let mut band = Control::new(&header_id, crate::ControlType::Panel, 0, 120);
+        band.rect = MRect::new(0, 120, 240, 56);
+        band.parent = Some("SideMenu-1".into());
+        band.set_prop(crate::model::SIDE_MENU_HEADER_PROP, true);
+        let mut picker = Control::new("CMB-ASSISTANT", crate::ControlType::ComboBox, 10, 130);
+        picker.parent = Some(header_id.clone());
+        let content = Control::new("BTN-1", crate::ControlType::Button, 300, 40);
+        let controls = vec![side.clone(), band, picker, content];
+
+        let open = rail_view(&controls, &side, false);
+        let ids: Vec<&str> = open.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["SideMenu-1", header_id.as_str(), "CMB-ASSISTANT", "BTN-1"], "open: the design as it is");
+        assert_eq!(open[2].rect.x, 10, "and a control in the band is where it was drawn");
+
+        let shut = rail_view(&controls, &side, true);
+        let ids: Vec<&str> = shut.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["SideMenu-1", "BTN-1"], "collapsed: the band's Panel and its controls are not drawn");
+        eprintln!("066 B rail_view — open keeps all 4 controls; collapsed drops the band Panel and its picker (2)");
+    }
+
+    // ── Spec 066 Phase C — rows that host a control ─────────────────────────
+
+    fn painted_text(items: &[MenuItem], collapsed: bool) -> Vec<String> {
+        let none: Vec<String> = Vec::new();
+        let st = state(items, collapsed, &none);
+        let width = if collapsed { COLLAPSED_WIDTH } else { OPEN_WIDTH };
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 700.0));
+        let rows = layout(rect, &st);
+        let ctx = egui::Context::default();
+        let mut raw = egui::RawInput::default();
+        raw.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 800.0)));
+        let mut full = ctx.run_ui(raw, |ui| paint(ui.painter(), rect, &rows, &st));
+        full.textures_delta.clear();
+        fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                _ => {}
+            }
+        }
+        let mut seen = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut seen);
+        }
+        seen
+    }
+
+    /// **A row can host a direct child of its rail — and only that** (spec 066
+    /// R13a): not the Panels the rail owns for its two bands, not a control
+    /// that is not drawn, and not one that belongs to something else.
+    #[test]
+    fn a_row_can_host_a_direct_child_of_the_rail_but_not_a_band_panel_or_a_stranger() {
+        use crate::model::{Form, Rect as MRect};
+
+        let mut form = Form::new("F", "F", 960, 744);
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = MRect::new(0, 0, 200, 744);
+        side.set_prop("HeaderBandHeight", 56i64);
+        side.set_prop("FooterHeight", 72i64);
+        form.controls.push(side);
+        let mut other = Control::new("SideMenu-2", crate::ControlType::SideMenu, 300, 0);
+        other.rect = MRect::new(300, 0, 200, 744);
+        form.controls.push(other);
+        let mut child = |id: &str, ty: crate::ControlType, parent: Option<&str>| {
+            let mut c = Control::new(id, ty, 10, 200);
+            c.parent = parent.map(str::to_owned);
+            form.controls.push(c);
+        };
+        child("CMB-A", crate::ControlType::ComboBox, Some("SideMenu-1"));
+        child("TMR-1", crate::ControlType::Timer, Some("SideMenu-1")); // not drawn
+        child("CMB-FREE", crate::ControlType::ComboBox, None); // a stranger
+        child("CMB-OTHER", crate::ControlType::ComboBox, Some("SideMenu-2")); // another rail's
+        child("LBL-B", crate::ControlType::Label, Some("sidemenu-1")); // case is not significant
+        form.sync_side_menu_footer_panels();
+        form.sync_side_menu_header_panels();
+        assert!(form.controls.iter().any(|c| c.is_side_menu_header()), "the band Panels exist to be refused");
+        assert!(form.controls.iter().any(|c| c.is_side_menu_footer()));
+
+        assert_eq!(form.hosted_row_candidates("SideMenu-1"), vec!["CMB-A".to_owned(), "LBL-B".to_owned()]);
+        assert_eq!(form.hosted_row_candidates("SideMenu-2"), vec!["CMB-OTHER".to_owned()]);
+        assert!(form.hosted_row_candidates("Nowhere").is_empty());
+        println!("066 C editor — SideMenu-1 rows can host: {:?}", form.hosted_row_candidates("SideMenu-1"));
+    }
+
+    /// **A row that hosts a control leaves room for it, in place of its label,
+    /// and has none on the collapsed rail** (spec 066 R13a, R13b).
+    #[test]
+    fn a_row_hosting_a_control_leaves_room_for_it_open_and_none_collapsed() {
+        let mut picker = MenuItem::new_action("assistant", "Assistant");
+        picker.icon = Some("user".into());
+        picker.action = Some("event".into());
+        picker.control = Some("CMB-ASSISTANT".into());
+        let items = vec![MenuItem::new_action("home", "Home"), picker];
+        let none: Vec<String> = Vec::new();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(OPEN_WIDTH, 700.0));
+
+        let st = state(&items, false, &none);
+        let rows = layout(rect, &st);
+        let hosted = hosted_rows(&rows, &items, &st);
+        assert_eq!(hosted.len(), 1, "one row hosts a control");
+        let h = &hosted[0];
+        assert_eq!(h.control, "CMB-ASSISTANT");
+        let row = rows
+            .iter()
+            .find(|r| matches!(&r.kind, RowKind::Item { id, .. } if id == "assistant"))
+            .expect("the row");
+        assert!(h.rect.min.x >= item_label_x(row.rect, 0, ICON) - 0.01, "right of the icon: {:?} in {:?}", h.rect, row.rect);
+        assert!(h.rect.max.x <= row.rect.max.x - PAD_X + 0.01, "inside the row's padding");
+        assert!(h.rect.min.y > row.rect.min.y && h.rect.max.y < row.rect.max.y, "inset top and bottom");
+        assert_eq!(h.visible, h.rect, "a row that is wholly in the menu band is wholly visible");
+
+        // The control stands where the label would have: the label is not painted.
+        let texts = painted_text(&items, false);
+        assert!(texts.iter().any(|t| t == "Home"), "an ordinary row keeps its label: {texts:?}");
+        assert!(!texts.iter().any(|t| t == "Assistant"), "a hosting row paints no label: {texts:?}");
+
+        // Collapsed: the row is its icon, the control is not hosted at all.
+        let col = state(&items, true, &none);
+        let col_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(COLLAPSED_WIDTH, 700.0));
+        let col_rows = layout(col_rect, &col);
+        assert!(hosted_rows(&col_rows, &items, &col).is_empty(), "collapsed: nothing to host");
+        assert!(
+            col_rows.iter().any(|r| matches!(&r.kind, RowKind::Item { id, .. } if id == "assistant")),
+            "…and the row still shows its icon"
+        );
+
+        // Scrolled half under the header: only the part inside the menu band is visible.
+        let mut scrolled = state(&items, false, &none);
+        let band = menu_band(rect, &scrolled);
+        scrolled.scroll = (row.rect.min.y - band.min.y) + row.rect.height() * 0.5;
+        let short = Rect::from_min_size(Pos2::ZERO, Vec2::new(OPEN_WIDTH, 420.0));
+        let rows = layout(short, &scrolled);
+        let h = hosted_rows(&rows, &items, &scrolled);
+        if let Some(h) = h.first() {
+            let band = menu_band(short, &scrolled);
+            assert!(band.contains_rect(h.visible) || h.visible.is_negative(), "visible stays in the band: {:?} vs {band:?}", h.visible);
+            assert!(h.visible.height() <= h.rect.height() + 0.01);
+        }
+        eprintln!(
+            "066 C layout — hosted rect {:?} in row {:?}; label not painted; collapsed: none",
+            hosted[0].rect, row.rect
+        );
+    }
+
+    /// **What belongs to the header band, by ancestry** — and not the footer's.
+    #[test]
+    fn the_header_band_subtree_is_everything_inside_it_and_nothing_else() {
+        use crate::model::{side_menu_header_subtree, Form, Rect as MRect};
+
+        let mut form = Form::new("F", "F", 960, 744);
+        let mut side = Control::new("SideMenu-1", crate::ControlType::SideMenu, 0, 0);
+        side.rect = MRect::new(0, 0, 200, 744);
+        side.set_prop("HeaderBandHeight", 56i64);
+        form.controls.push(side);
+        form.sync_side_menu_header_panels();
+        form.sync_side_menu_footer_panels();
+
+        let header_id = crate::model::side_menu_header_id("SideMenu-1");
+        let footer_id = crate::model::side_menu_footer_id("SideMenu-1");
+        // A picker in the band, a Panel in the band, a label in THAT panel
+        // (child listed before parent on purpose), one control in the footer,
+        // content, and one parented to the rail itself.
+        let mut deep = Control::new("LBL-DEEP", crate::ControlType::Label, 0, 0);
+        deep.parent = Some("PNL-INNER".into());
+        let mut inner = Control::new("PNL-INNER", crate::ControlType::Panel, 0, 0);
+        inner.parent = Some(header_id.clone());
+        let mut picker = Control::new("CMB-ASSISTANT", crate::ControlType::ComboBox, 0, 0);
+        picker.parent = Some(header_id.clone());
+        let mut in_footer = Control::new("LBL-CLOCK", crate::ControlType::Label, 0, 0);
+        in_footer.parent = Some(footer_id.clone());
+        let content = Control::new("BTN-1", crate::ControlType::Button, 300, 40);
+        let mut on_rail = Control::new("LBL-RAIL", crate::ControlType::Label, 10, 10);
+        on_rail.parent = Some("SideMenu-1".into());
+        form.controls.extend([deep, inner, picker, in_footer, content, on_rail]);
+
+        let mut ids = side_menu_header_subtree(&form.controls);
+        ids.sort();
+        let mut want = vec![
+            "CMB-ASSISTANT".to_string(),
+            "LBL-DEEP".to_string(),
+            "PNL-INNER".to_string(),
+            header_id,
+        ];
+        want.sort();
+        assert_eq!(ids, want, "the Panel, both its levels of children, and nothing else");
+        assert!(
+            crate::model::side_menu_footer_subtree(&form.controls).contains(&"LBL-CLOCK".to_string()),
+            "the footer's own subtree is unchanged"
+        );
+    }
+
     /// **What belongs to the footer, by ancestry.** The shell has to hand the
     /// rail everything the developer put in the footer Panel, and a control two
     /// levels down is no less in the footer than a direct child — a Panel

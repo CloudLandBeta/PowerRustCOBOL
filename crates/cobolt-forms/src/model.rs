@@ -4397,6 +4397,12 @@ pub const DEFAULT_FORM_BACKGROUND_COLOR: &str = "#2E3138FF";
 /// pinned somewhere the rail does not paint.
 pub const DEFAULT_SIDE_MENU_FOOTER_H: i32 = 72;
 
+/// The default height of a SideMenu's header pane (the logo band), in points.
+/// Mirrors the renderer's `sidebar::HEADER_H`, for the same reason as the
+/// footer's: the model is not behind the `render` feature and the Panel below
+/// the header has to be pinned where the rail paints it.
+pub const DEFAULT_SIDE_MENU_HEADER_H: i32 = 120;
+
 /// The breadcrumb frame's default height, in points — what a rail with no
 /// `BreadcrumbHeight` is drawn at. Re-exported as `breadcrumb::HEIGHT`, which
 /// is the name the renderer and its callers use; it lives here because the
@@ -4457,9 +4463,33 @@ pub fn side_menu_footer_id(side_id: &str) -> String {
 /// Membership is by ANCESTRY, not by one level of `parent`: a Panel inside the
 /// footer Panel takes its children with it, however deep.
 pub fn side_menu_footer_subtree(controls: &[Control]) -> Vec<String> {
+    rail_panel_subtree(controls, Control::is_side_menu_footer)
+}
+
+/// Marks the Panel a SideMenu owns in its HEADER BAND — the band of controls
+/// between the logo header and the menu rows (spec 066, Phase B). A property
+/// rather than an id convention, so the Panel survives being renamed.
+pub const SIDE_MENU_HEADER_PROP: &str = "IsSideMenuHeader";
+
+/// The id of the Panel a SideMenu owns in its header band.
+pub fn side_menu_header_id(side_id: &str) -> String {
+    format!("{side_id}-Header")
+}
+
+/// The header band's Panel of every SideMenu in `controls`, and everything the
+/// developer dropped into it, by id — the footer's rule, for the other band.
+/// Like the footer it belongs to the RAIL: in a shell the rail is chrome drawn
+/// outside the ContentPane, so these controls must not be slid over with the
+/// content. Membership is by ancestry.
+pub fn side_menu_header_subtree(controls: &[Control]) -> Vec<String> {
+    rail_panel_subtree(controls, Control::is_side_menu_header)
+}
+
+/// The controls `is_root` accepts, and everything below them by `parent`, by id.
+fn rail_panel_subtree(controls: &[Control], is_root: fn(&Control) -> bool) -> Vec<String> {
     let mut ids: Vec<String> = controls
         .iter()
-        .filter(|c| c.is_side_menu_footer())
+        .filter(|c| is_root(c))
         .map(|c| c.id.clone())
         .collect();
     if ids.is_empty() {
@@ -5690,6 +5720,11 @@ impl Control {
                     // breathe without them having to discover the property.
                     props.insert("HeaderHeight".into(), PropValue::Int(120));
                     props.insert("FooterHeight".into(), PropValue::Int(72));
+                    // Spec 066 Phase B — a band of controls between the header
+                    // and the menu rows. 0, the default, is no band: nothing is
+                    // drawn or created, so every form saved before it existed
+                    // is unchanged.
+                    props.insert("HeaderBandHeight".into(), PropValue::Int(0));
                     // The breadcrumb frame the rail owns: how tall it is, and
                     // what colour it is. An empty colour keeps the historical
                     // behaviour — the strip follows the content pane's own
@@ -7088,6 +7123,35 @@ impl Control {
             .map(|v| v.as_i64() as i32)
             .filter(|h| *h >= 0)
             .unwrap_or(DEFAULT_SIDE_MENU_FOOTER_H)
+    }
+
+    /// The height of a SideMenu's header pane (the logo band), in points.
+    pub fn side_menu_header_height(&self) -> i32 {
+        self.get_prop("HeaderHeight")
+            .map(|v| v.as_i64() as i32)
+            .filter(|h| *h >= 0)
+            .unwrap_or(DEFAULT_SIDE_MENU_HEADER_H)
+    }
+
+    /// Spec 066 Phase B — the height of a SideMenu's header band, in points.
+    /// `0` — the default, and what an absent or negative value reads as — is no
+    /// band.
+    pub fn side_menu_header_band_height(&self) -> i32 {
+        self.get_prop("HeaderBandHeight")
+            .map(|v| v.as_i64() as i32)
+            .filter(|h| *h > 0)
+            .unwrap_or(0)
+    }
+
+    /// Spec 066 Phase B — is this the Panel a SideMenu owns in its header band?
+    /// A normal container to the developer, positioned by the rail, exactly as
+    /// the footer Panel is.
+    pub fn is_side_menu_header(&self) -> bool {
+        self.control_type == ControlType::Panel
+            && self
+                .get_prop(SIDE_MENU_HEADER_PROP)
+                .map(|v| v.as_bool())
+                .unwrap_or(false)
     }
 
     /// 049 — is this the Panel a SideMenu owns in its footer pane?
@@ -9003,6 +9067,64 @@ impl Form {
             // The marker the designer's locks and the renderers key off, so a
             // footer Panel stays recognisable after a rename or a reload.
             p.set_prop(SIDE_MENU_FOOTER_PROP, true);
+            self.controls.push(p);
+        }
+    }
+
+    /// Spec 066 R13a — the controls a row of SideMenu `side_id` can host: its
+    /// DIRECT children that are drawn, minus the two Panels the rail owns for its
+    /// bands (they belong to the rail, not to a row). In form order, so the menu
+    /// editor lists them as the designer's tree does.
+    ///
+    /// A direct child only: the rail places the control from its row, and a
+    /// control nested deeper has a container that places it already.
+    pub fn hosted_row_candidates(&self, side_id: &str) -> Vec<String> {
+        self.controls
+            .iter()
+            .filter(|c| c.parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(side_id)))
+            .filter(|c| !c.control_type.is_non_visual())
+            .filter(|c| !c.is_side_menu_header() && !c.is_side_menu_footer())
+            .map(|c| c.id.clone())
+            .collect()
+    }
+
+    /// Spec 066 Phase B — a SideMenu with a `HeaderBandHeight` owns a Panel in
+    /// the band under its logo header, and this is what creates and pins it.
+    ///
+    /// The footer's rule for the other band: the Panel is the developer's (they
+    /// drop controls into it, style it through the inspector); what they do not
+    /// own is where it sits, so the rect is re-pinned here every frame. Nothing
+    /// is created while the height is 0 — a form that never asked for a band
+    /// gains no control — and a Panel that exists when the height is set back to
+    /// 0 is KEPT, at zero height, with whatever the developer put in it: turning
+    /// the band off must never delete what they built.
+    ///
+    /// The collapsed rail has no band; hiding it is the surfaces' business
+    /// ([`crate::sidebar::rail_view`] and the shell's band pass), not the
+    /// model's, so the design is the same in both rail states.
+    pub fn sync_side_menu_header_panels(&mut self) {
+        let sides: Vec<(String, Rect, i32, i32)> = self
+            .controls
+            .iter()
+            .filter(|c| c.control_type == ControlType::SideMenu)
+            .map(|c| (c.id.clone(), c.rect, c.side_menu_header_height(), c.side_menu_header_band_height()))
+            .collect();
+
+        for (side_id, side_rect, header_h, band_h) in sides {
+            let pinned = Rect::new(side_rect.x, side_rect.y + header_h, side_rect.w, band_h);
+            let header_id = side_menu_header_id(&side_id);
+            if let Some(p) = self.controls.iter_mut().find(|c| c.id == header_id) {
+                p.rect = pinned;
+                p.parent = Some(side_id.clone());
+                continue;
+            }
+            if band_h == 0 {
+                continue;
+            }
+            let mut p = Control::new(&header_id, ControlType::Panel, pinned.x, pinned.y);
+            p.rect = pinned;
+            p.parent = Some(side_id.clone());
+            p.set_prop(SIDE_MENU_HEADER_PROP, true);
             self.controls.push(p);
         }
     }

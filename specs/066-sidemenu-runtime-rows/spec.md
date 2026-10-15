@@ -1,6 +1,6 @@
 # Spec — SideMenu: run-time rows and hosted controls
 
-- **Status:** open questions resolved (operator, 2026-09-22) → ready for `/plan`
+- **Status:** **implemented** — Phase A 1.70.161, Phases B and C 1.91.164 (2026-10-15). Every acceptance criterion is proven except **AC8**, which was checked by a source assertion and not by building and running a binary (see it below).
 - **Folder:** specs/066-sidemenu-runtime-rows/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-22
 
@@ -130,28 +130,38 @@ in the rail — with identical behaviour on all four surfaces the renderer serve
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A COBOL program adds 50 rows, a section and a nested row; all
+- [x] **AC1** — A COBOL program adds 50 rows, a section and a nested row; all
       appear in order under the designed rows. *(R1, R2, R6)*
-- [ ] **AC2** — Clicking a run-time row sets `SelectedItemId` to its id and runs
+      *Proof: `test_side_menu_rows` — 50 rows, a section and a nested row, 53 calls in 22.89 ms, in order after the designed rows (1.70.161).*
+- [x] **AC2** — Clicking a run-time row sets `SelectedItemId` to its id and runs
       the `onMenuItemClick` handler, on Run Form and in the shell. *(R7, R14)*
-- [ ] **AC3** — Relabel, badge, disable and remove of a run-time row are visible
+      *Proof: engine layout+click test and the shell-rail test with actions (1.70.161).*
+- [x] **AC3** — Relabel, badge, disable and remove of a run-time row are visible
       on the next frame; removing a parent removes its children. *(R3, R4)*
-- [ ] **AC4** — Attempting to remove or rename a designed row leaves the menu
+      *Proof: the 15 `menu::runtime` cases — relabel, badge, disable, remove with descendants (1.70.161).*
+- [x] **AC4** — Attempting to remove or rename a designed row leaves the menu
       unchanged, returns a failure indicator, and the program continues. *(R5)*
-- [ ] **AC5** — Clearing run-time rows restores exactly the designed menu. *(R4)*
-- [ ] **AC6** — A ComboBox dropped into the header band is shown in the rail
+      *Proof: `test_side_menu_rows` refusals — a designed row answers `0` and the menu is untouched (1.70.161); `SetItemControl` on a designed row refuses the same way (1.91.164).*
+- [x] **AC5** — Clearing run-time rows restores exactly the designed menu. *(R4)*
+      *Proof: `Clear()` keeps the designed menu exactly (1.70.161).*
+- [x] **AC6** — A ComboBox dropped into the header band is shown in the rail
       when expanded, hidden when collapsed, and fires its events. *(R11–R13)*
-- [ ] **AC6a** — A ComboBox hosted in a menu row lays out in that row's
+      *Proof: a TextBox in the header band, through the real `rcrun run-form` with a picture (`side_menu_hosted_controls`): drawn inside the band at (22,118)–(168,142) while the rail is open, none of it once folded; and the host test `a_control_in_the_header_band_answers_a_click_open_and_is_gone_collapsed` for the events. A TextBox rather than a ComboBox — the rail draws any control the same way.*
+- [x] **AC6a** — A ComboBox hosted in a menu row lays out in that row's
       rectangle on every surface, and hides when the menu collapses. *(R13a,
       R13b)*
-- [ ] **AC6b** — A run-time row added with `open-form:SETTINGS` opens that form
+      *Proof: the same real-`rcrun` test with a TextBox hosted by the third row: drawn at (14,258)–(226,288), inside the rail and not at its designed x=600, none of it once folded; the engine test `engine_draws_a_hosted_control_in_its_row_and_not_when_collapsed`; the shell test `a_control_a_row_hosts_is_drawn_by_the_rail_and_gone_when_collapsed`; the canvas pin `a_control_a_row_hosts_is_pinned_to_its_row_on_the_canvas`.*
+- [x] **AC6b** — A run-time row added with `open-form:SETTINGS` opens that form
       when clicked, exactly as a designed row with the same action. *(R7)*
-- [ ] **AC7** — The same rows, produced by the same program, lay out to the
+      *Proof: the shell-rail test with actions (1.70.161).*
+- [x] **AC7** — The same rows, produced by the same program, lay out to the
       same row rectangles on `render_interactive` and on the shell's
       MenuPane (a test compares `sidebar::layout` inputs from both). *(R14)*
+      *Proof: the engine/shell spacing parity test (1.70.161); hosted rectangles come from the one `sidebar::hosted_rows` on both paths (1.91.164).*
 - [ ] **AC8** — A compiled binary shows the same run-time rows as
       `rcrun run-form` for the same program. *(R15)*
-- [ ] **AC9** — `engine_reference_form_parity_static_vs_faces` still passes, and
+      *Not run: only the hand-over order in the compiled template was asserted (1.70.161); no binary was built and run for this. The compiled binary shares the form host with `rcrun run-form`, which the picture test did drive.*
+- [x] **AC9** — `engine_reference_form_parity_static_vs_faces` still passes, and
       `cargo test -p cobolt-forms --features render` is green. *(R14, R16)*
 
 ## 6. Constraints & steering check
@@ -204,3 +214,4 @@ All four were answered by the operator on 2026-09-22.
 - **Q4 — transport: decided in `/plan`**, under one hard rule: the shell's
   MenuPane and `render_interactive` read the *same* merged row list, so AC7 can
   compare them.
+      *Proof: `cargo test -p cobolt-forms --features render`: 1,613 passed / 0 failed, `engine_reference_form_parity_static_vs_faces` included (1.91.164).*

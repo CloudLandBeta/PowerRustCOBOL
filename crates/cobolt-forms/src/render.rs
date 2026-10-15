@@ -2370,6 +2370,23 @@ fn live_control(controls: &[Control], idx: usize, state: &dyn FormState) -> Cont
     live
 }
 
+/// Where a control a SideMenu row hosts goes this frame (spec 066 Phase C): in
+/// the row's rectangle, or nowhere. Rects are in FORM space, like a control's
+/// own, so the render loop treats a placed control like any other afterwards.
+#[derive(Clone, Debug)]
+enum HostedPlacement {
+    /// The rail is collapsed, or the row is not on screen (inside a closed
+    /// group): the control is not drawn and takes no input.
+    Hidden,
+    /// The row's rectangle for the control, and the part of it inside the menu
+    /// pane — the control is clipped to that while its row scrolls.
+    Placed { rect: Rect, visible: Rect },
+}
+
+/// A SideMenu's hosted controls this frame, by control id (lower-case: COBOL
+/// upper-cases ids, a designer keeps what was typed).
+type HostedMap = std::collections::HashMap<String, HostedPlacement>;
+
 /// The rect a control actually occupies this frame, with splitter geometry
 /// resolved **recursively**.
 ///
@@ -2995,6 +3012,13 @@ fn render_form_inner(
             }
         }};
     }
+    // Spec 066 Phase C — the SideMenus whose rows may host a control, and where
+    // each publishes where it put them this frame.
+    let hosting_rails: Vec<(&str, egui::Id)> = controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::SideMenu)
+        .map(|c| (c.id.as_str(), rt_id_in(scope, &c.id).with("side-hosted")))
+        .collect();
     for &idx in &order {
         // Leaving a container's subtree: what paints over its controls goes on now.
         while open_containers.last().is_some_and(|&c| depths[c] >= depths[idx]) {
@@ -3051,6 +3075,32 @@ fn render_form_inner(
 
         // Live control (designer source-of-truth face via draw_control).
         let mut live = live_control(controls, idx, input.state);
+        // Spec 066 Phase C — a control a SideMenu row hosts is drawn where its ROW
+        // is, not where it was designed; a collapsed rail, or a row that is not
+        // on screen, draws and hears nothing.
+        let mut hosted_visible: Option<Rect> = None;
+        if !hosting_rails.is_empty() {
+            let name = base.id.to_ascii_lowercase();
+            let placement = hosting_rails
+                .iter()
+                .filter(|(rail, _)| base.parent.as_deref() == Some(*rail))
+                .find_map(|(_, key)| {
+                    ui.data(|d| d.get_temp::<HostedMap>(*key)).and_then(|m| m.get(&name).cloned())
+                });
+            match placement {
+                Some(HostedPlacement::Hidden) => continue,
+                Some(HostedPlacement::Placed { rect, visible }) => {
+                    live.rect = crate::model::Rect::new(
+                        rect.min.x.round() as i32,
+                        rect.min.y.round() as i32,
+                        rect.width().round() as i32,
+                        rect.height().round() as i32,
+                    );
+                    hosted_visible = Some(visible);
+                }
+                None => {}
+            }
+        }
         // A Label with AutoSize follows its (live) caption: one set from COBOL
         // resizes it at run time, as the designer resizes it while editing.
         // A control a responsive layout placed was measured BEFORE layout
@@ -3100,6 +3150,11 @@ fn render_form_inner(
             None => content_rect,
         }
         .intersect(surface_clip);
+        // …and a hosted control never leaves the menu pane its row scrolls in.
+        let clip = match hosted_visible {
+            Some(v) => clip.intersect(Rect::from_min_size(origin + v.min.to_vec2() - scroll, v.size())),
+            None => clip,
+        };
         // An animation that makes a control GROW past its place (an elastic
         // zoom overshoots, a pulse swells) is let out of its containers while
         // it does: the card is clipped to nothing but the surface — and so is
@@ -4605,6 +4660,26 @@ pub fn render_faces_with(
             }
         }};
     }
+    // Spec 066 Phase C — a COLLAPSED rail hosts nothing: the controls its menu rows
+    // name are not drawn on the canvas either, so the design shows what the
+    // operator will see. (Open, the canvas draws them where the designer pinned
+    // them — the row's place.)
+    let hidden_on_collapsed_rail: std::collections::HashSet<(String, String)> = controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::SideMenu)
+        .filter(|c| {
+            matches!(
+                input.state.live(c).get_prop("Collapsed").map(|v| v.as_str().trim().to_ascii_lowercase()).as_deref(),
+                Some("1") | Some("true")
+            )
+        })
+        .filter_map(|c| crate::paint::get_menu_cache(painter.ctx(), &c.id).map(|d| (c.id.clone(), d)))
+        .flat_map(|(rail, def)| {
+            crate::menu::hosted_control_ids(&def.menu)
+                .into_iter()
+                .map(move |name| (rail.clone(), name.to_ascii_lowercase()))
+        })
+        .collect();
     for &idx in &order {
         while open_containers.last().is_some_and(|&c| depths[c] >= depths[idx]) {
             if let Some(c) = open_containers.pop() {
@@ -4631,6 +4706,11 @@ pub fn render_faces_with(
             at_grid(base);
         }
         if !visible_in(input, base) {
+            continue;
+        }
+        if base.parent.as_deref().is_some_and(|rail| {
+            hidden_on_collapsed_rail.contains(&(rail.to_owned(), base.id.to_ascii_lowercase()))
+        }) {
             continue;
         }
         // The canvas draws what the DESIGN hides, and what is inside it — the
@@ -15037,6 +15117,30 @@ fn render_interactive(
             state.hovered = hover_pos.and_then(|p| crate::sidebar::row_at(&rows, p));
             crate::sidebar::paint(&painter, screen, &rows, &state);
 
+            // Spec 066 Phase C — where the controls this rail's rows host go. Every
+            // control any row names is hidden unless its row is on screen and the
+            // rail is open; the map is replaced whole each frame, so a control a row
+            // lets go of (`SetItemControl(id, "")`) is an ordinary control again.
+            {
+                let mut map = HostedMap::new();
+                for name in crate::menu::hosted_control_ids(items) {
+                    map.insert(name.to_ascii_lowercase(), HostedPlacement::Hidden);
+                }
+                let to_form = |r: Rect| {
+                    Rect::from_min_size(
+                        egui::Pos2::new(ctrl.rect.x as f32, ctrl.rect.y as f32) + (r.min - screen.min),
+                        r.size(),
+                    )
+                };
+                for h in crate::sidebar::hosted_rows(&rows, items, &state) {
+                    map.insert(
+                        h.control.to_ascii_lowercase(),
+                        HostedPlacement::Placed { rect: to_form(h.rect), visible: to_form(h.visible) },
+                    );
+                }
+                ui.data_mut(|d| d.insert_temp(ctrl_id.with("side-hosted"), map));
+            }
+
             // One interaction per laid-out row, using that row's own rect.
             let mut toggle = false;
             let mut flip: Option<String> = None;
@@ -22955,6 +23059,154 @@ mod tests {
             outer_y_off > 0.5,
             "control test: wheel outside the grid should scroll the container (offset_y={outer_y_off})"
         );
+    }
+
+    /// **A control a SideMenu row hosts is drawn in that row's rectangle, and not
+    /// at all while the rail is collapsed** (spec 066 R13a, R13b, AC6a).
+    ///
+    /// The ComboBox is a child of the SideMenu designed far from the rail, so a
+    /// result in the row can only come from the row: its own rectangle is not
+    /// what is used.
+    #[test]
+    fn engine_draws_a_hosted_control_in_its_row_and_not_when_collapsed() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+        struct NoState;
+        impl FormState for NoState {}
+
+        let mut picker = MenuItem::new_action("assistant", "Assistant");
+        picker.icon = Some("user".into());
+        picker.action = Some("event".into());
+        picker.control = Some("CMB-ASSISTANT".into());
+        let designed = vec![MenuItem::new_action("home", "Home"), picker];
+        crate::paint::register_menus([(
+            "SideMenu-1".to_owned(),
+            MenuDefinition { menu: designed.clone(), hash: String::new() },
+        )]);
+
+        let build = |collapsed: bool| {
+            let side = ctrlp(
+                "SideMenu-1",
+                ControlType::SideMenu,
+                0,
+                0,
+                240,
+                600,
+                &[("Collapsed", if collapsed { "1" } else { "0" })],
+            );
+            let mut combo = ctrlp("CMB-ASSISTANT", ControlType::ComboBox, 300, 500, 90, 24, &[]);
+            combo.parent = Some("SideMenu-1".into());
+            vec![side, combo]
+        };
+        let render = |controls: &[Control]| -> HashMap<String, Rect> {
+            let ctx = egui::Context::default();
+            ctx.set_fonts(egui::FontDefinitions::default());
+            let active = ActiveTabs::new();
+            let mut rects = HashMap::new();
+            for i in 0..3 {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+                input.time = Some(i as f64 * 0.05);
+                let mut full = ctx.run_ui(input, |root_ui| {
+                    egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let inp = RenderInput {
+                            controls,
+                            state: &NoState,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        rects = render_form(ui, &inp).control_rects;
+                    });
+                });
+                full.textures_delta.clear();
+            }
+            rects
+        };
+
+        // Where the layout says the control goes, computed the way the engine does.
+        let open_controls = build(false);
+        let ctx = egui::Context::default();
+        let mut want = None;
+        ctx.run_ui(egui::RawInput::default(), |_| {
+            let state = crate::sidebar::state_for_control(&ctx, &open_controls[0], &designed, 255, &[]);
+            let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(240.0, 600.0));
+            let rows = crate::sidebar::layout(rect, &state);
+            want = crate::sidebar::hosted_rows(&rows, &designed, &state).into_iter().next();
+        })
+        .textures_delta
+        .clear();
+        let want = want.expect("the layout hosts the control").rect;
+
+        let drawn = render(&open_controls);
+        let got = *drawn.get("CMB-ASSISTANT").expect("an open rail draws the hosted control");
+        assert!(
+            (got.min - want.min).length() < 1.5 && (got.size() - want.size()).length() < 1.5,
+            "the control must be drawn in its row's rectangle: got {got:?}, the row says {want:?}"
+        );
+        assert!(got.min.x < 240.0, "not at its own designed 300,500: {got:?}");
+
+        let shut = render(&build(true));
+        assert!(
+            !shut.contains_key("CMB-ASSISTANT"),
+            "a collapsed rail hides the hosted control; drawn at {:?}",
+            shut.get("CMB-ASSISTANT")
+        );
+        crate::paint::register_menus(std::iter::empty());
+        eprintln!("066 C engine — open: ComboBox drawn at {got:?} (row says {want:?}); collapsed: not drawn");
+    }
+
+    /// The designer canvas draws a control a menu row hosts while the rail is
+    /// open and not while it is collapsed (spec 066 R13b) — the same rule the
+    /// running surfaces follow, so a designer who collapses the rail sees what
+    /// the operator will.
+    #[test]
+    fn the_canvas_hides_a_hosted_control_on_a_collapsed_rail() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+        struct NoState;
+        impl FormState for NoState {}
+
+        let mut picker = MenuItem::new_action("assistant", "Assistant");
+        picker.control = Some("CMB-ASSISTANT".into());
+        crate::paint::register_menus([(
+            "SideMenu-1".to_owned(),
+            MenuDefinition { menu: vec![MenuItem::new_action("home", "Home"), picker], hash: String::new() },
+        )]);
+        let faces = |collapsed: bool| -> HashMap<String, Rect> {
+            let side = ctrlp("SideMenu-1", ControlType::SideMenu, 0, 0, 240, 600, &[("Collapsed", if collapsed { "1" } else { "0" })]);
+            let mut combo = ctrlp("CMB-ASSISTANT", ControlType::ComboBox, 44, 170, 160, 30, &[]);
+            combo.parent = Some("SideMenu-1".into());
+            let other = ctrlp("BTN-OTHER", ControlType::Button, 300, 40, 90, 24, &[]);
+            let controls = vec![side, combo, other];
+            let ctx = egui::Context::default();
+            let active = ActiveTabs::new();
+            let mut rects = HashMap::new();
+            let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let inp = RenderInput {
+                    controls: &controls,
+                    state: &NoState,
+                    form_size: Vec2::new(400.0, 300.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Backdrop::default(),
+                };
+                rects = render_faces(ui.painter(), pos2(0.0, 0.0), &inp).control_rects;
+            });
+            full.textures_delta.clear();
+            rects
+        };
+        let open = faces(false);
+        assert!(open.contains_key("CMB-ASSISTANT"), "an open rail's canvas draws the hosted control: {:?}", open.keys());
+        let shut = faces(true);
+        assert!(!shut.contains_key("CMB-ASSISTANT"), "a collapsed rail's canvas does not: {:?}", shut.keys());
+        assert!(shut.contains_key("BTN-OTHER"), "and nothing else disappears");
+        crate::paint::register_menus(std::iter::empty());
+        eprintln!("066 C canvas — open draws CMB-ASSISTANT; collapsed hides it; BTN-OTHER stays");
     }
 
     fn drive(

@@ -299,6 +299,7 @@ fn main() {
                     next_id += 1;
                     println!("  + {display} / {label}  ->  {form}");
                     items.push(MenuItem {
+                        control: None,
                         id: format!("sample-{next_id}"),
                         label: label.clone(),
                         item_type: MenuItemType::Action,
@@ -320,6 +321,7 @@ fn main() {
         }
         next_id += 1;
         folders.push(MenuItem {
+            control: None,
             id: format!("sample-folder-{next_id}"),
             label: (*display).to_owned(),
             item_type: MenuItemType::Action,
@@ -348,6 +350,7 @@ fn main() {
                     next_id += 1;
                     println!("  + General / {label}  ->  {form}");
                     items.push(MenuItem {
+                        control: None,
                         id: format!("sample-{next_id}"),
                         label: label.clone(),
                         item_type: MenuItemType::Action,
@@ -365,6 +368,7 @@ fn main() {
         }
         next_id += 1;
         folders.push(MenuItem {
+            control: None,
             id: format!("sample-folder-{next_id}"),
             label: "General".to_owned(),
             item_type: MenuItemType::Action,
@@ -389,6 +393,7 @@ fn main() {
             .collect();
         next_id += 1;
         folders.push(MenuItem {
+            control: None,
             id: format!("sample-folder-{next_id}"),
             label: "Other".to_owned(),
             item_type: MenuItemType::Action,

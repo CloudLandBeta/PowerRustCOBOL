@@ -475,11 +475,13 @@ impl FormHost {
                     .map(|c| c.id.clone())
             })
             .flatten();
-        let (flat, footer_ids, side_dx) = if surface == Surface::Pane {
+        let (flat, footer_ids, header_band_ids, side_dx) = if surface == Surface::Pane {
             pane_layout(flat)
         } else {
-            (flat, std::collections::HashSet::new(), 0)
+            (flat, std::collections::HashSet::new(), std::collections::HashSet::new(), 0)
         };
+        let rail_ids: std::collections::HashSet<String> =
+            footer_ids.iter().chain(header_band_ids.iter()).cloned().collect();
 
         let glass_style = form.glass_style;
         let form_object = form.name.trim().to_ascii_uppercase();
@@ -521,6 +523,9 @@ impl FormHost {
                 owns_window: surface == Surface::Window,
             last_window_crumb: None,
                 footer_ids: footer_ids.clone(),
+                header_band_ids,
+                rail_ids,
+                hosted_ids: std::collections::HashSet::new(),
                 theme_pack,
                 surface_theme,
                 glass_style,
@@ -762,6 +767,16 @@ pub(crate) struct FormBody {
     /// the SideMenu footer Panel and whatever was dropped into it. Empty in a
     /// window host, where the rail is an ordinary control.
     pub(crate) footer_ids: std::collections::HashSet<String>,
+    /// Spec 066 Phase B — the same for the header band: the Panel under the
+    /// rail's logo and whatever was dropped into it. Empty in a window host.
+    pub(crate) header_band_ids: std::collections::HashSet<String>,
+    /// Everything the RAIL draws — the footer's ids and the header band's —
+    /// which is what the content pass withholds. Empty in a window host.
+    pub(crate) rail_ids: std::collections::HashSet<String>,
+    /// Spec 066 Phase C — the controls a menu row hosts, which the rail draws
+    /// into the row's rectangle. Set each frame by the shell from the mounted
+    /// menus; part of [`Self::rail_ids`], so the content pass withholds them.
+    pub(crate) hosted_ids: std::collections::HashSet<String>,
     /// Resolved asset-pack theme (None = built-in Liquid Glass) + the form's
     /// glass style — pushed into the egui context so the unified painter reads
     /// the same theme state as under the IDE (spec 017 parity).
@@ -917,6 +932,29 @@ pub(crate) struct FormBody {
 /// lookup for that surface; they must not drift apart.
 pub(crate) fn footer_id_scope() -> egui::Id {
     egui::Id::new("cobolt-sidemenu-footer")
+}
+
+/// The id space the SideMenu header band's fragment renders in — a third
+/// surface in the frame beside the footer's and the pane's, with its own scope
+/// for the same reason (a `TextBox-1` in the band and one in the pane must not
+/// ask egui for the same id; spec 066 Phase B).
+pub(crate) fn header_band_id_scope() -> egui::Id {
+    egui::Id::new("cobolt-sidemenu-header")
+}
+
+/// The id space a control a menu row hosts renders in — a fourth surface in the
+/// frame, with its own scope for the same reason as the others (spec 066 Phase C).
+pub(crate) fn hosted_id_scope() -> egui::Id {
+    egui::Id::new("cobolt-sidemenu-hosted")
+}
+
+/// Which of the rail's two bands of the developer's controls a draw pass is for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum RailBand {
+    /// Under the logo header (spec 066 Phase B); open rail only.
+    Header,
+    /// At the foot of the rail; both rail states.
+    Footer,
 }
 
 /// A form that goes away forgets the dialogs it opened and never collected.
@@ -1103,15 +1141,138 @@ impl FormBody {
         behind: egui::Color32,
         blocked: bool,
     ) {
-        if self.footer_ids.is_empty() || band.width() < 1.0 || band.height() < 1.0 {
+        self.draw_side_menu_band(ui, band, behind, blocked, RailBand::Footer);
+    }
+
+    /// Spec 066 Phase C — record which controls the rail's menu rows host. They
+    /// are children of the rail (`rail_id`) named by a row, in any case; the
+    /// content pass withholds them, because the rail draws each in its row.
+    /// Cheap when the set has not changed.
+    pub(crate) fn set_hosted_controls(&mut self, rail_id: &str, names: &[String]) {
+        let wanted: std::collections::HashSet<String> = self
+            .controls
+            .iter()
+            .filter(|c| {
+                c.parent.as_deref() == Some(rail_id)
+                    && names.iter().any(|n| n.trim().eq_ignore_ascii_case(&c.id))
+            })
+            .map(|c| c.id.clone())
+            .collect();
+        if wanted == self.hosted_ids {
             return;
         }
+        self.hosted_ids = wanted;
+        self.rail_ids = self
+            .footer_ids
+            .iter()
+            .chain(self.header_band_ids.iter())
+            .chain(self.hosted_ids.iter())
+            .cloned()
+            .collect();
+    }
+
+    /// Spec 066 Phase C — draw ONE control a menu row hosts into the row's
+    /// rectangle, as the footer's and the header band's passes draw theirs: the
+    /// same engine, live state and event forwarding, its own `Ui`. The control
+    /// (and anything inside it) is rebased on its own designed origin and
+    /// stretched to the row's room; what it may draw is clipped to the part of
+    /// the row inside the menu pane.
+    pub(crate) fn draw_side_menu_hosted(
+        &mut self,
+        ui: &mut egui::Ui,
+        row: &cobolt_forms::sidebar::HostedRow,
+        behind: egui::Color32,
+        blocked: bool,
+    ) {
+        let rect = row.rect;
+        if rect.width() < 1.0 || rect.height() < 1.0 || row.visible.width() < 1.0 || row.visible.height() < 1.0 {
+            return;
+        }
+        let Some(root) = self
+            .controls
+            .iter()
+            .find(|c| self.hosted_ids.contains(&c.id) && c.id.eq_ignore_ascii_case(&row.control))
+        else {
+            return;
+        };
+        let (origin, root_id) = ((root.rect.x, root.rect.y), root.id.clone());
+        // The control and everything below it, by ancestry.
+        let mut ids = vec![root_id.clone()];
+        loop {
+            let before = ids.len();
+            for c in &self.controls {
+                if c.parent.as_deref().is_some_and(|p| ids.iter().any(|i| i == p)) && !ids.contains(&c.id) {
+                    ids.push(c.id.clone());
+                }
+            }
+            if ids.len() == before {
+                break;
+            }
+        }
+        let subtree: Vec<cobolt_forms::Control> = self
+            .controls
+            .iter()
+            .filter(|c| ids.contains(&c.id))
+            .map(|c| {
+                let mut c = c.clone();
+                c.rect.x -= origin.0;
+                c.rect.y -= origin.1;
+                if c.id == root_id {
+                    // It fills the room its row gives it.
+                    c.rect.w = rect.width().round() as i32;
+                    c.rect.h = rect.height().round() as i32;
+                    c.parent = None;
+                }
+                c
+            })
+            .collect();
+        self.draw_rail_fragment(ui, rect, row.visible, behind, blocked, &subtree, hosted_id_scope(), "sidemenu-hosted");
+    }
+
+    /// Spec 066 Phase B — the same pass for the header band: the Panel the
+    /// SideMenu owns under its logo, and whatever was dropped into it, drawn
+    /// into the band the rail laid out. Nothing else differs: the engine, the
+    /// live state and the event forwarding are the footer's, and the band gets
+    /// its own id scope.
+    pub(crate) fn draw_side_menu_header(
+        &mut self,
+        ui: &mut egui::Ui,
+        band: egui::Rect,
+        behind: egui::Color32,
+        blocked: bool,
+    ) {
+        self.draw_side_menu_band(ui, band, behind, blocked, RailBand::Header);
+    }
+
+    fn draw_side_menu_band(
+        &mut self,
+        ui: &mut egui::Ui,
+        band: egui::Rect,
+        behind: egui::Color32,
+        blocked: bool,
+        which: RailBand,
+    ) {
+        let (scope, salt) = match which {
+            RailBand::Footer => (footer_id_scope(), "sidemenu-footer"),
+            RailBand::Header => (header_band_id_scope(), "sidemenu-header"),
+        };
+        let ids = match which {
+            RailBand::Footer => &self.footer_ids,
+            RailBand::Header => &self.header_band_ids,
+        };
+        if ids.is_empty() || band.width() < 1.0 || band.height() < 1.0 {
+            return;
+        }
+        let is_band_panel = |c: &cobolt_forms::Control| match which {
+            RailBand::Footer => c.is_side_menu_footer(),
+            RailBand::Header => c.is_side_menu_header(),
+        };
         // The panel's designed origin — everything in the band is placed
         // relative to it.
         let Some(origin) = self
             .controls
             .iter()
-            .find(|c| c.is_side_menu_footer() && self.footer_ids.contains(&c.id))
+            .find(|c| is_band_panel(c) && ids.contains(&c.id))
             .map(|c| (c.rect.x, c.rect.y))
         else {
             return;
@@ -1119,7 +1280,7 @@ impl FormBody {
         let subtree: Vec<cobolt_forms::Control> = self
             .controls
             .iter()
-            .filter(|c| self.footer_ids.contains(&c.id))
+            .filter(|c| ids.contains(&c.id))
             .map(|c| {
                 let mut c = c.clone();
                 c.rect.x -= origin.0;
@@ -1128,6 +1289,26 @@ impl FormBody {
             })
             .collect();
 
+        self.draw_rail_fragment(ui, band, band, behind, blocked, &subtree, scope, salt);
+    }
+
+    /// Draw `subtree` — controls rebased on the origin of `rect` — into `rect`,
+    /// clipped to `visible`, as a form surface of its own inside the viewport.
+    /// The footer's pass, the header band's and a hosted row's are all this: the
+    /// same engine, the same live state and the same event forwarding as the
+    /// content pass; only the `Ui` it draws into, and the id space, differ.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_rail_fragment(
+        &mut self,
+        ui: &mut egui::Ui,
+        band: egui::Rect,
+        visible: egui::Rect,
+        behind: egui::Color32,
+        blocked: bool,
+        subtree: &[cobolt_forms::Control],
+        scope: egui::Id,
+        salt: &str,
+    ) {
         // `hidden: None` — this IS the pass that owns them.
         let st = LiveState {
             state: &self.state,
@@ -1138,9 +1319,9 @@ impl FormBody {
         };
         let active_tabs = self.active_tabs();
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
-        child.set_clip_rect(band.intersect(ui.clip_rect()));
+        child.set_clip_rect(visible.intersect(ui.clip_rect()));
         let input = cobolt_forms::render::RenderInput {
-            controls: &subtree,
+            controls: subtree,
             state: &st,
             form_size: band.size(),
             glass: true,
@@ -1168,8 +1349,8 @@ impl FormBody {
         // separate them: the engine's control ids are absolute by design, so
         // the id space has to be passed in.
         let out = child
-            .push_id("sidemenu-footer", |ui| {
-                cobolt_forms::render::render_form_scoped(ui, &input, None, footer_id_scope())
+            .push_id(salt, |ui| {
+                cobolt_forms::render::render_form_scoped(ui, &input, None, scope)
             })
             .inner;
 
@@ -1184,7 +1365,7 @@ impl FormBody {
             &out.csv_export_requests,
             &out.toolbar_actions,
             pre_focus,
-            Some(footer_id_scope()),
+            Some(scope),
         );
         self.forward_interaction(&out.prop_updates, out.events, blocked);
     }
@@ -3124,7 +3305,7 @@ impl FormBody {
             let st = LiveState {
                 state: &self.state,
                 anim: &self.anim,
-                hidden: Some(&self.footer_ids),
+                hidden: Some(&self.rail_ids),
                 viewer_docs: None,
                 special_names: &self.special_names,
             };
@@ -3435,6 +3616,23 @@ impl crate::shell::PaneHost for ChildPaneView<'_> {
         self.body.draw_side_menu_footer(ui, band, behind, self.blocked);
     }
 
+    fn draw_side_menu_header(&mut self, ui: &mut egui::Ui, band: egui::Rect, behind: egui::Color32) {
+        self.body.draw_side_menu_header(ui, band, behind, self.blocked);
+    }
+
+    fn set_hosted_controls(&mut self, rail_id: &str, names: &[String]) {
+        self.body.set_hosted_controls(rail_id, names);
+    }
+
+    fn draw_side_menu_hosted(
+        &mut self,
+        ui: &mut egui::Ui,
+        row: &cobolt_forms::sidebar::HostedRow,
+        behind: egui::Color32,
+    ) {
+        self.body.draw_side_menu_hosted(ui, row, behind, self.blocked);
+    }
+
     fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>, band: f32) {
         self.pane.pane_chrome = chrome;
         self.pane.pane_band = band;
@@ -3484,7 +3682,12 @@ impl crate::shell::PaneHost for ChildPaneView<'_> {
 /// window that runs as a shell (spec 085) take exactly this transform.
 pub(crate) fn pane_layout(
     flat: Vec<cobolt_forms::Control>,
-) -> (Vec<cobolt_forms::Control>, std::collections::HashSet<String>, i32) {
+) -> (
+    Vec<cobolt_forms::Control>,
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+    i32,
+) {
     let side_dx = flat
         .iter()
         .find(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
@@ -3492,17 +3695,21 @@ pub(crate) fn pane_layout(
         .unwrap_or(0);
     let footer_ids: std::collections::HashSet<String> =
         cobolt_forms::model::side_menu_footer_subtree(&flat).into_iter().collect();
+    // Spec 066 Phase B — the header band's Panel and its controls are rail too:
+    // they keep their designed rects and the rail draws them.
+    let header_band_ids: std::collections::HashSet<String> =
+        cobolt_forms::model::side_menu_header_subtree(&flat).into_iter().collect();
     let flat = flat
         .into_iter()
         .filter(|c| c.control_type != cobolt_forms::ControlType::SideMenu)
         .map(|mut c| {
-            if !footer_ids.contains(&c.id) {
+            if !footer_ids.contains(&c.id) && !header_band_ids.contains(&c.id) {
                 c.rect.x = (c.rect.x - side_dx).max(0);
             }
             c
         })
         .collect();
-    (flat, footer_ids, side_dx)
+    (flat, footer_ids, header_band_ids, side_dx)
 }
 
 /// Keep a docked child against its opener (form `DockToOpener`, operator
@@ -4655,6 +4862,35 @@ impl FormHost {
         self.root.draw_side_menu_footer(ui, band, behind, blocked);
     }
 
+    /// Spec 066 Phase C — tell the main form which controls the rail's menu rows
+    /// host, so its content pass leaves them to the rail.
+    pub fn set_hosted_controls(&mut self, rail_id: &str, names: &[String]) {
+        self.root.set_hosted_controls(rail_id, names);
+    }
+
+    /// Spec 066 Phase C — draw one control a menu row hosts into its row.
+    pub fn draw_side_menu_hosted(
+        &mut self,
+        ui: &mut egui::Ui,
+        row: &cobolt_forms::sidebar::HostedRow,
+        behind: egui::Color32,
+    ) {
+        let blocked = crate::debug_link::is_paused() || self.root_modal_blocked();
+        self.root.draw_side_menu_hosted(ui, row, behind, blocked);
+    }
+
+    /// Spec 066 Phase B — the same for the main form's header band Panel, into
+    /// the band the shell laid out under the rail's logo.
+    pub fn draw_side_menu_header(
+        &mut self,
+        ui: &mut egui::Ui,
+        band: egui::Rect,
+        behind: egui::Color32,
+    ) {
+        let blocked = crate::debug_link::is_paused() || self.root_modal_blocked();
+        self.root.draw_side_menu_header(ui, band, behind, blocked);
+    }
+
     pub fn show_occupant(&mut self, form_object: Option<&str>) {
         self.show_occupant_in(cobolt_runtime::form_host::ROOT_HANDLE, form_object)
     }
@@ -5139,11 +5375,13 @@ impl FormHost {
 
         // Spec 085 — a window that runs as a shell lays its own form out the
         // way the main window's shell does: the rail is chrome.
-        let (flat, footer_ids, side_dx) = if as_shell {
+        let (flat, footer_ids, header_band_ids, side_dx) = if as_shell {
             pane_layout(flat)
         } else {
-            (flat, std::collections::HashSet::new(), 0)
+            (flat, std::collections::HashSet::new(), std::collections::HashSet::new(), 0)
         };
+        let rail_ids: std::collections::HashSet<String> =
+            footer_ids.iter().chain(header_band_ids.iter()).cloned().collect();
 
         // The child's theme: the glue resolves it (embedded vs on-disk art);
         // without a resolver it paints procedural Liquid Glass.
@@ -5168,6 +5406,9 @@ impl FormHost {
             // and nothing is withheld from its content pass. A window that
             // runs as a shell owns its rail, footer band included.
             footer_ids,
+            header_band_ids,
+            rail_ids,
+            hosted_ids: std::collections::HashSet::new(),
             theme_pack,
             surface_theme,
             glass_style: form.glass_style,
@@ -6801,7 +7042,7 @@ impl FormHost {
             let st = LiveState {
                 state: &self.root.state,
                 anim: &self.root.anim,
-                hidden: Some(&self.root.footer_ids),
+                hidden: Some(&self.root.rail_ids),
                 viewer_docs: Some(&viewer_docs),
                 special_names: &self.root.special_names,
             };
@@ -10868,6 +11109,9 @@ mod parity {
             owns_window: false,
             last_window_crumb: None,
             footer_ids: std::collections::HashSet::new(),
+            header_band_ids: std::collections::HashSet::new(),
+            rail_ids: std::collections::HashSet::new(),
+            hosted_ids: std::collections::HashSet::new(),
             theme_pack: None,
             surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             glass_style: cobolt_forms::model::GlassStyle::default(),

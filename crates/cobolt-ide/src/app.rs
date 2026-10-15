@@ -19773,10 +19773,13 @@ impl CoboltApp {
                 dir.as_deref(),
                 &ctrl_id,
             );
+            // Spec 066 R13a — what a row of this SideMenu can host.
+            let hosted_candidates = self.designers[idx].1.form.hosted_row_candidates(&ctrl_id);
             // Opening converts every item to a generated id (kept if it has one).
             self.designers[idx].1.menu_modal = Some(
                 super::panels::designer::MenuEditorModal::new(ctrl_id, existing)
                     .for_side_menu(is_side_menu)
+                    .with_hosted_candidates(hosted_candidates)
                     .with_reserved_ids(reserved_ids)
                     .with_generated_ids(),
             );

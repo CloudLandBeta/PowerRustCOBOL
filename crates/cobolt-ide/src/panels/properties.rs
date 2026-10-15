@@ -14087,7 +14087,7 @@ fn combo_row_inline_labeled(
 /// Splitter's pane, a SideMenu's footer, anything inside a Splitter or a
 /// SideMenu, and everything inside a repeating group's template.
 fn layout_owner_positioned(form: &Form, ctrl: &Control) -> bool {
-    if ctrl.is_splitter_pane() || ctrl.is_side_menu_footer() {
+    if ctrl.is_splitter_pane() || ctrl.is_side_menu_footer() || ctrl.is_side_menu_header() {
         return true;
     }
     let mut cur = ctrl.parent.as_deref().and_then(|p| form.find_control(p));
