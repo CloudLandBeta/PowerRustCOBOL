@@ -71,7 +71,7 @@ pub fn describe_declared(name: &str, decl: Option<&str>, nullable: Option<bool>)
         .map(|(inner, _)| inner.split(',').filter_map(|x| x.trim().parse().ok()).collect())
         .unwrap_or_default();
     use type_code::*;
-    d.code = if base.contains("INT") {
+    d.code = if base.contains("INT") && !base.contains("INTERVAL") && !base.contains("POINT") {
         INTEGER
     } else if base.contains("DEC") || base.contains("NUM") || base == "MONEY" {
         DECIMAL
@@ -118,5 +118,9 @@ mod tests {
         assert_eq!(describe_declared("X", None, None), Described::unknown("X"));
         assert_eq!(describe_declared("D", Some("DATE"), None).code, type_code::DATE);
         assert_eq!(describe_declared("I", Some("INTEGER"), None).code, type_code::INTEGER);
+        // Words that merely contain INT are not integers.
+        assert_eq!(describe_declared("V", Some("INTERVAL"), None).code, type_code::UNKNOWN);
+        assert_eq!(describe_declared("P", Some("POINT"), None).code, type_code::UNKNOWN);
+        assert_eq!(describe_declared("B", Some("BIGINT"), None).code, type_code::INTEGER);
     }
 }

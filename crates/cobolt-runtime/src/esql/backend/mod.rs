@@ -89,6 +89,31 @@ pub trait Backend: Send {
     /// (what the cursor's query selects, what the condition compares) — one
     /// pair per key column.
     fn row_key(&mut self, table: &str) -> Result<Vec<(String, String)>, SqlError>;
+
+    /// Whether the database keeps cursors itself (R25): the rows then arrive in
+    /// batches as the program fetches them, instead of all at `OPEN`, so a large
+    /// result never has to fit in memory. A database that does not (SQLite
+    /// statements cannot be shared across threads; MySQL must drain a result
+    /// before the next command) answers `false` and its rows are read at `OPEN`.
+    fn native_cursors(&self) -> bool {
+        false
+    }
+
+    /// Declare the cursor `name` over `sql` (only when [`Self::native_cursors`]).
+    /// `hold` keeps it open across `COMMIT`.
+    fn declare_cursor(&mut self, _name: &str, _sql: &str, _params: &[SqlValue], _hold: bool) -> Result<(), SqlError> {
+        Err(SqlError::new(super::state::code::NOT_SUPPORTED, "this database keeps no cursors of its own"))
+    }
+
+    /// The next `count` rows of the cursor `name` — fewer when it ends.
+    fn fetch_cursor(&mut self, _name: &str, _count: usize) -> Result<Vec<Vec<SqlValue>>, SqlError> {
+        Err(SqlError::new(super::state::code::NOT_SUPPORTED, "this database keeps no cursors of its own"))
+    }
+
+    /// Close the cursor `name`.
+    fn close_cursor(&mut self, _name: &str) -> Result<(), SqlError> {
+        Ok(())
+    }
 }
 
 /// Open a connection from a connection string (R34: the caller has already

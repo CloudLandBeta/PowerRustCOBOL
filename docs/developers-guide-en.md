@@ -12214,13 +12214,14 @@ certainly do it the classic way: SQL written right in the COBOL source between
 `EXEC SQL` and `END-EXEC`, exchanging values with COBOL data items called
 **host variables**. RustCOBOL reads that style directly.
 
-> ⚠️ **Caveat — PostgreSQL and MySQL are a preview.** Embedded SQL runs
-> against **SQLite, PostgreSQL and MySQL** — every statement in this section,
-> under Run, Debug, Run Form and `rcrun` and in a built application. SQLite is
-> proven end to end; PostgreSQL and MySQL are new in this release and have not
-> yet been run against live servers by this release's own test suite, so try
-> them on a test database first. The differences that matter are under
-> **Per database** below.
+> ⚠️ **Caveat — which servers were tried.** Embedded SQL runs against
+> **SQLite, PostgreSQL and MySQL** — every statement in this section, under
+> Run, Debug, Run Form and `rcrun` and in a built application. This release's
+> own tests run the same programs against a live **PostgreSQL 17** and a live
+> **MySQL 26** (the connection, every value type, cursors across their
+> batches, units of work, errors, a connection the server ends); other server
+> versions are untried, so run your own programs on a test database first. The
+> differences that matter are under **Per database** below.
 
 **The block.** `EXEC SQL`, the statement, `END-EXEC` — in fixed or free format,
 over as many lines as you like, with no continuation mark. A period after
@@ -12457,17 +12458,23 @@ it — then open it, fetch until no data, and close it:
 - `UPDATE … WHERE CURRENT OF` and `DELETE … WHERE CURRENT OF` act on the row
   the cursor last fetched. The cursor must read ONE table — a join, a list of
   tables, `DISTINCT` or `GROUP BY` gives `0A000`.
+- `FOR UPDATE OF STATUS` names, as the standard says, the **columns** the
+  cursor may change. PostgreSQL and MySQL read those words as table names, so
+  the program sends them `FOR UPDATE` and the rows the cursor reads are locked
+  as a whole; SQLite needs neither.
 - A cursor declared in a form's WORKING-STORAGE is known to the form's event
   handlers; one declared inside a handler belongs to that handler. Two copies
   of the same form open at once each have their own cursors.
 - `EXEC SQL COMMIT` closes every cursor except those declared `WITH HOLD`;
   `EXEC SQL ROLLBACK` closes them all.
 
-> **Note — SQLite.** On SQLite a cursor's rows are read when it is opened, so
-> a very large result is held in memory until the cursor is closed; filter in
-> the `WHERE` clause rather than in COBOL. `FOR UPDATE` is accepted and
-> ignored there — SQLite locks the whole database for the duration of a
-> write.
+> **Note — large results.** On SQLite and MySQL a cursor's rows are read when
+> it is opened, so a very large result is held in memory until the cursor is
+> closed; filter in the `WHERE` clause rather than in COBOL. PostgreSQL keeps
+> the cursor itself and hands the rows over in batches as the program fetches
+> them, so there a large result need not fit in memory. `FOR UPDATE` is
+> accepted and ignored on SQLite — it locks the whole database for the
+> duration of a write.
 
 **Dynamic SQL** is for statements the program builds while it runs — a
 search screen whose filters the user chooses, a report over a table named at
@@ -12650,14 +12657,22 @@ differences a program can notice.
 | A unit of work begins | before the first statement that changes data | before the first statement | before the first statement |
 | A failing statement inside a unit | the unit carries on | the unit carries on (each statement runs under a savepoint) | the unit carries on |
 | `CREATE`/`ALTER`/`DROP` inside a unit | part of the unit | part of the unit | **commits the unit** (MySQL's rule); the next statement starts a new one |
-| `WHERE CURRENT OF` names the row by | its `rowid` | its physical address — a row the same unit changed since the FETCH is not found (`02000`) | the table's **primary key** — a table without one gives `0A000` |
+| `WHERE CURRENT OF` names the row by | its `rowid` | the cursor's own position — the server's `CURRENT OF` | the table's **primary key** — a table without one gives `0A000` |
+| A cursor's rows | read when it opens | kept by the server, fetched in batches of 1000 (one at a time for a cursor updated with `WHERE CURRENT OF`) | read when it opens |
+| What a reading unit sees of other connections' commits | the latest, at every statement | the latest, at every statement | the **snapshot of the unit's first statement**, until `COMMIT` or `ROLLBACK` — end a polling loop's unit to see new rows |
+| A connection the server ends | — | `57P01`, with the server's words | `08006` |
 | `UPDATE` counts | the rows the `WHERE` matched, even when a value is left as it was | the same | the same — the connection asks MySQL to count matched rows, not changed ones |
 | Values a host variable cannot take | — | arrays, ranges, geometry and other special types give `0A000`: cast them in the query (`::text`) | — |
 | `DESCRIBE INPUT` parameter types | unknown | known | unknown |
+| A column's name in a descriptor | as it was written | in **lower case**, unless it was quoted | as it was written |
+| A column's length, precision, scale | from the declared type | from the type: `VARCHAR(10)`, `NUMERIC(9,2)` | from the type, a length counted in characters |
 
-On all three a cursor reads its rows when it opens, so a query over a very
-large table belongs behind a `WHERE` that narrows it. PostgreSQL and MySQL are
-reached without TLS: use them on a trusted network, or through a tunnel.
+On SQLite and MySQL a query over a very large table belongs behind a `WHERE`
+that narrows it. A statement that fails inside a PostgreSQL unit costs it
+nothing, but each statement pays a savepoint — about two round trips instead of
+one — so a program that runs thousands of statements over a slow network
+should keep that in mind. PostgreSQL and MySQL are reached without TLS: use
+them on a trusted network, or through a tunnel.
 
 **In the editor and the debugger.** The COBOL editor draws an `EXEC SQL`
 block as SQL — keywords, strings and comments in their colours, across as many

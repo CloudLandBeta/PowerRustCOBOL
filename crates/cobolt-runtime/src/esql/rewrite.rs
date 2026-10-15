@@ -117,6 +117,33 @@ pub fn strip_for_update(sql: &str) -> String {
     sql.to_string()
 }
 
+/// `sql` with a top-level `FOR UPDATE OF column, …` turned into `FOR UPDATE`.
+///
+/// In standard embedded SQL the `OF` list names the COLUMNS the cursor may
+/// update (R25). PostgreSQL and MySQL read the same words as TABLE names and
+/// refuse the statement (`relation "amount" in FOR UPDATE clause not found`).
+/// The rows the cursor reads are the rows it may update, so locking them all
+/// is what the standard's clause asks for. Anything after the list — a
+/// `NOWAIT` or `SKIP LOCKED` — is kept.
+pub fn for_update_rows(sql: &str) -> String {
+    let w = code_words(sql);
+    for i in 0..w.len().saturating_sub(2) {
+        if w[i].3 == 0 && w[i].0 == "FOR" && w[i + 1].0 == "UPDATE" && w[i + 2].0 == "OF" {
+            let of_start = w[i + 2].1;
+            let tail = w[i + 3..]
+                .iter()
+                .find(|x| x.3 == 0 && matches!(x.0.as_str(), "NOWAIT" | "SKIP" | "WAIT"))
+                .map(|x| x.1);
+            let head = sql[..of_start].trim_end();
+            return match tail {
+                Some(t) => format!("{head} {}", sql[t..].trim_start()),
+                None => head.to_string(),
+            };
+        }
+    }
+    sql.to_string()
+}
+
 /// The one table a positioned cursor's query reads (R26): where its select
 /// list starts, and the table as written. Only a query over ONE table has a
 /// row to name: a join, a list of tables, `DISTINCT` or `GROUP BY` gives
@@ -208,5 +235,17 @@ mod tests {
         assert_eq!(keyed_select("SELECT A FROM T", 6, &["`ID`".into(), "`LINE`".into()]), "SELECT `ID`, `LINE`, A FROM T");
         assert_eq!(strip_for_update("SELECT A FROM T FOR UPDATE OF A"), "SELECT A FROM T");
         assert_eq!(strip_for_update("SELECT 'FOR UPDATE' FROM T"), "SELECT 'FOR UPDATE' FROM T");
+    }
+
+    /// The standard's `FOR UPDATE OF column` is read as table names by PostgreSQL
+    /// and MySQL, which refuse it: the column list is dropped, the rest kept.
+    #[test]
+    fn for_update_of_columns_becomes_for_update() {
+        assert_eq!(for_update_rows("SELECT ID, AMOUNT FROM ITEMS ORDER BY ID FOR UPDATE OF AMOUNT"), "SELECT ID, AMOUNT FROM ITEMS ORDER BY ID FOR UPDATE");
+        assert_eq!(for_update_rows("SELECT A FROM T FOR UPDATE OF A, B, \"C d\""), "SELECT A FROM T FOR UPDATE");
+        assert_eq!(for_update_rows("SELECT A FROM T FOR UPDATE OF A NOWAIT"), "SELECT A FROM T FOR UPDATE NOWAIT");
+        assert_eq!(for_update_rows("SELECT A FROM T FOR UPDATE"), "SELECT A FROM T FOR UPDATE");
+        assert_eq!(for_update_rows("SELECT A FROM T"), "SELECT A FROM T");
+        assert_eq!(for_update_rows("SELECT 'FOR UPDATE OF X' FROM T"), "SELECT 'FOR UPDATE OF X' FROM T");
     }
 }

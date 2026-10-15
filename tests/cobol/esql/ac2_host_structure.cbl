@@ -30,7 +30,7 @@
            EXEC SQL CONNECT TO ':memory:' AS AC2 END-EXEC
            EXEC SQL
                CREATE TABLE CUSTOMER
-                 (ID INTEGER, NAME TEXT, CITY TEXT, BALANCE NUMERIC)
+                 (ID INTEGER, NAME TEXT, CITY TEXT, BALANCE NUMERIC(15,2))
            END-EXEC
            EXEC SQL INSERT INTO CUSTOMER
                VALUES (7, 'Ana Lima', 'Recife', -1234.56) END-EXEC

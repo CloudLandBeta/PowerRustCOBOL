@@ -93,6 +93,13 @@ struct Ready {
     cut: bool,
 }
 
+/// A number no other cursor of this process carries: the name a database that
+/// keeps cursors itself gives this one (`prc_c<n>`).
+fn next_cursor() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A fresh identity for an interpreter in the run unit's cursor table.
 pub(crate) fn next_instance() -> u64 {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -331,8 +338,15 @@ impl Interpreter {
             SqlKind::Close { cursor } => {
                 trace.text = format!("CLOSE {cursor}");
                 let key = (self.sql_instance, owner.to_string(), cursor.clone());
-                match self.sql_lock()?.cursors.remove(&key) {
-                    Some(_) => Ok(Done::ok(0)),
+                let mut unit = self.sql_lock()?;
+                match unit.cursors.remove(&key) {
+                    Some(c) => {
+                        // A cursor the database keeps is closed there too.
+                        if let (Some(n), Some(i)) = (&c.native, unit.find(&c.session)) {
+                            unit.sessions[i].close_cursor(&n.name)?;
+                        }
+                        Ok(Done::ok(0))
+                    }
                     None => Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is not open"))),
                 }
             }
@@ -411,9 +425,41 @@ impl Interpreter {
         if bk == BackendKind::Sqlite {
             // SQLite neither takes nor needs it: a write locks the database.
             sql = crate::esql::rewrite::strip_for_update(&sql);
+        } else {
+            // The standard's `OF column` lists are not table names (PostgreSQL, MySQL).
+            sql = crate::esql::rewrite::for_update_rows(&sql);
         }
         let mut unit = self.sql_lock()?;
         let session = unit.current_mut()?;
+        // A database that keeps cursors itself (PostgreSQL) declares one: the rows
+        // come in batches as the program fetches them, and `WHERE CURRENT OF` is its own.
+        if session.native_cursors() {
+            // R26: `WHERE CURRENT OF` needs a cursor over one table — said the same way on every database.
+            if decl.positioned {
+                crate::esql::rewrite::single_table(&sql)?;
+            }
+            let name = format!("prc_c{}", next_cursor());
+            trace.text = format!("OPEN {cursor}: DECLARE {name} CURSOR FOR {sql}");
+            session.declare_cursor(&name, &sql, &params, decl.with_hold)?;
+            let session_name = session.name.clone();
+            unit.cursors.insert(
+                key,
+                crate::esql::OpenCursor {
+                    session: session_name,
+                    rows: Vec::new(),
+                    next: 0,
+                    with_hold: decl.with_hold,
+                    key: Vec::new(),
+                    current: None,
+                    native: Some(crate::esql::NativeCursor {
+                        name,
+                        batch: if decl.positioned { 1 } else { crate::esql::CURSOR_BATCH },
+                        exhausted: false,
+                    }),
+                },
+            );
+            return Ok(Done::ok(0));
+        }
         // R26: a positioned cursor selects its rows' keys too.
         let mut row_key = Vec::new();
         if decl.positioned {
@@ -435,6 +481,7 @@ impl Interpreter {
                 with_hold: decl.with_hold,
                 key: row_key,
                 current: None,
+                native: None,
             },
         );
         Ok(Done::ok(0))
@@ -446,6 +493,25 @@ impl Interpreter {
         let key = (self.sql_instance, owner.to_string(), cursor.to_string());
         let (row, keyed) = {
             let mut unit = self.sql_lock()?;
+            let Some(cur) = unit.cursors.get_mut(&key) else {
+                return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is not open")));
+            };
+            // The batch ran out: a cursor the database keeps is asked for the next one.
+            if cur.next >= cur.rows.len() {
+                if let Some(n) = cur.native.clone().filter(|n| !n.exhausted) {
+                    let session = cur.session.clone();
+                    let i = unit
+                        .find(&session)
+                        .ok_or_else(|| SqlError::new(code::NO_CONNECTION, format!("the connection of cursor {cursor} is closed")))?;
+                    let rows = unit.sessions[i].fetch_cursor(&n.name, n.batch)?;
+                    let cur = unit.cursors.get_mut(&key).expect("the cursor is still open");
+                    if let Some(nc) = cur.native.as_mut() {
+                        nc.exhausted = rows.len() < n.batch;
+                    }
+                    cur.rows = rows;
+                    cur.next = 0;
+                }
+            }
             let Some(cur) = unit.cursors.get_mut(&key) else {
                 return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {cursor} is not open")));
             };
@@ -834,6 +900,11 @@ impl Interpreter {
                     let Some(row) = cur.current.clone() else {
                         return Err(SqlError::new(code::INVALID_CURSOR_STATE, format!("cursor {c} is not on a row")));
                     };
+                    // A cursor the database keeps names its own row.
+                    if let Some(n) = &cur.native {
+                        sql.push_str(&format!("CURRENT OF \"{}\"", n.name));
+                        continue;
+                    }
                     if cur.key.is_empty() {
                         return Err(SqlError::new(
                             code::NOT_SUPPORTED,

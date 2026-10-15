@@ -30,13 +30,46 @@ type BoxError = Box<dyn StdError + Sync + Send>;
 pub struct PostgresBackend {
     client: postgres::Client,
     in_tx: bool,
+    /// The previous statement's savepoint is still defined: it is released
+    /// together with the next statement's, in one round trip (see [`Self::guarded`]).
+    savepoint: bool,
+    /// Statements already prepared on this connection, by their text: a loop
+    /// that runs one statement a thousand times parses it once.
+    statements: std::collections::HashMap<String, postgres::Statement>,
+}
+
+/// How many prepared statements a connection keeps before it starts over.
+const STATEMENT_CACHE: usize = 128;
+
+/// `sql` prepared on `client`, from the cache when it has been before.
+fn prepared(
+    client: &mut postgres::Client,
+    cache: &mut std::collections::HashMap<String, postgres::Statement>,
+    sql: &str,
+) -> Result<postgres::Statement, postgres::Error> {
+    if let Some(s) = cache.get(sql) {
+        return Ok(s.clone());
+    }
+    let stmt = client.prepare(sql)?;
+    if cache.len() >= STATEMENT_CACHE {
+        cache.clear();
+    }
+    cache.insert(sql.to_string(), stmt.clone());
+    Ok(stmt)
+}
+
+/// An error that says a prepared statement went stale: a table it reads
+/// changed shape since it was prepared. Starting over with a fresh one is
+/// the cure, and the only one.
+fn is_stale(e: &SqlError) -> bool {
+    e.sqlstate == "0A000" && e.message.contains("cached plan must not change result type")
 }
 
 impl PostgresBackend {
     /// From a `postgres://` connection string.
     pub fn open_url(url: &str) -> Result<Self, SqlError> {
         let client = postgres::Client::connect(url.trim(), postgres::NoTls).map_err(map_connect_error)?;
-        Ok(Self { client, in_tx: false })
+        Ok(Self { client, in_tx: false, savepoint: false, statements: Default::default() })
     }
 
     /// From its parts, field by field: the password never enters a URL.
@@ -62,21 +95,39 @@ impl PostgresBackend {
             config.password(password);
         }
         let client = config.connect(postgres::NoTls).map_err(map_connect_error)?;
-        Ok(Self { client, in_tx: false })
+        Ok(Self { client, in_tx: false, savepoint: false, statements: Default::default() })
     }
 
-    /// Run `f` under a savepoint when a unit of work is open (R22).
-    fn guarded<T>(&mut self, f: impl FnOnce(&mut postgres::Client) -> Result<T, postgres::Error>) -> Result<T, SqlError> {
+    /// Run `f` under a savepoint when a unit of work is open (R22): a failing
+    /// statement rolls back to it, and the unit of work carries on.
+    ///
+    /// A round trip is the price of a statement on a network, so the savepoint
+    /// costs one and not two: it is not released when the statement succeeds,
+    /// but with the NEXT statement's savepoint, in one command
+    /// (`RELEASE SAVEPOINT …; SAVEPOINT …`). The unit of work's end (`COMMIT`,
+    /// `ROLLBACK`) releases the last one. Measured on the gated suite: 10,000
+    /// INSERTs, three round trips each before, two now.
+    fn guarded<T>(
+        &mut self,
+        f: impl FnOnce(&mut postgres::Client, &mut std::collections::HashMap<String, postgres::Statement>) -> Result<T, postgres::Error>,
+    ) -> Result<T, SqlError> {
         if !self.in_tx {
-            return f(&mut self.client).map_err(map_error);
+            return f(&mut self.client, &mut self.statements).map_err(map_error);
         }
-        self.client.batch_execute("SAVEPOINT esql_statement").map_err(map_error)?;
-        match f(&mut self.client) {
-            Ok(v) => {
-                self.client.batch_execute("RELEASE SAVEPOINT esql_statement").map_err(map_error)?;
-                Ok(v)
-            }
+        let open = if self.savepoint {
+            "RELEASE SAVEPOINT esql_statement; SAVEPOINT esql_statement"
+        } else {
+            "SAVEPOINT esql_statement"
+        };
+        self.client.batch_execute(open).map_err(|e| {
+            self.savepoint = false;
+            map_error(e)
+        })?;
+        self.savepoint = true;
+        match f(&mut self.client, &mut self.statements) {
+            Ok(v) => Ok(v),
             Err(e) => {
+                // The savepoint stays defined: the next statement releases it.
                 let _ = self.client.batch_execute("ROLLBACK TO SAVEPOINT esql_statement");
                 Err(map_error(e))
             }
@@ -303,12 +354,102 @@ fn with_causes(e: &dyn StdError) -> String {
     out
 }
 
+/// The rows of a result, every value decoded from its binary form.
+fn decode_rows(rows: &[postgres::Row]) -> Result<Vec<Vec<SqlValue>>, SqlError> {
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let mut row = Vec::with_capacity(r.columns().len());
+        for (i, col) in r.columns().iter().enumerate() {
+            let raw: Raw = r.try_get(i).map_err(map_error)?;
+            row.push(match raw.0 {
+                None => SqlValue::Null,
+                Some(bytes) => decode(col.type_(), &bytes)?,
+            });
+        }
+        out.push(row);
+    }
+    Ok(out)
+}
+
+/// A cursor's name as an SQL identifier. The runtime makes the names itself
+/// (`prc_c…`), so quoting is a guard, not a convenience.
+fn cursor_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
 fn params_of(params: &[SqlValue]) -> Vec<TextParam> {
     params.iter().map(text_param).collect()
 }
 
 fn refs(p: &[TextParam]) -> Vec<&(dyn ToSql + Sync)> {
     p.iter().map(|x| x as &(dyn ToSql + Sync)).collect()
+}
+
+/// A column's type as standard SQL spells it, with the length, precision and
+/// scale the server keeps in the column's type modifier (R41): `NUMERIC(9,2)`,
+/// `VARCHAR(10)`, `INTEGER`. A type the descriptor has no standard word for
+/// keeps the server's own name.
+pub fn type_name(ty: &Type, modifier: i32) -> String {
+    // The modifier counts a 4-byte header; -1 says "unconstrained".
+    let body = modifier - 4;
+    match *ty {
+        Type::INT2 => "SMALLINT".into(),
+        Type::INT4 => "INTEGER".into(),
+        Type::INT8 => "BIGINT".into(),
+        Type::FLOAT4 => "REAL".into(),
+        Type::FLOAT8 => "DOUBLE PRECISION".into(),
+        Type::NUMERIC if modifier >= 4 => {
+            // Precision in the high half; the scale in the low 11 bits, signed.
+            let precision = (body >> 16) & 0xFFFF;
+            let scale = ((body & 0x7FF) ^ 1024) - 1024;
+            format!("NUMERIC({precision},{scale})")
+        }
+        Type::NUMERIC => "NUMERIC".into(),
+        Type::VARCHAR if modifier >= 4 => format!("VARCHAR({body})"),
+        Type::BPCHAR if modifier >= 4 => format!("CHAR({body})"),
+        Type::BPCHAR => "CHAR".into(),
+        Type::BOOL => "BOOLEAN".into(),
+        Type::TIMESTAMPTZ => "TIMESTAMP WITH TIME ZONE".into(),
+        ref other => other.name().to_ascii_uppercase(),
+    }
+}
+
+/// The columns of a prepared statement, with the type each one declares.
+fn columns_of(cols: &[postgres::Column]) -> Vec<Column> {
+    cols.iter()
+        .map(|c| Column { name: c.name().to_string(), decl_type: Some(type_name(c.type_(), c.type_modifier())), nullable: None })
+        .collect()
+}
+
+impl PostgresBackend {
+    /// Whether each column may hold NULL, for the columns that come straight
+    /// from a table — the only ones PostgreSQL can say anything about (an
+    /// expression has no declaration). Asked of the catalog in one round trip;
+    /// a column it cannot place stays unknown (R41), as does everything when
+    /// the catalog cannot be read.
+    fn nullability(&mut self, cols: &[postgres::Column]) -> Vec<Option<bool>> {
+        let mut known = vec![None; cols.len()];
+        let oids: Vec<u32> = cols.iter().filter_map(|c| c.table_oid()).filter(|o| *o != 0).collect();
+        if oids.is_empty() {
+            return known;
+        }
+        let list = oids.iter().map(u32::to_string).collect::<Vec<_>>().join(", ");
+        // The OIDs came from the server as numbers: nothing of the program's goes into the text.
+        let sql = format!("SELECT attrelid::text, attnum::text, attnotnull::text FROM pg_attribute WHERE attrelid IN ({list}) AND attnum > 0");
+        // Under the statement guard: a failed catalog read must not end the unit of work.
+        let Ok(rows) = self.guarded(|c, _| c.simple_query(&sql)) else { return known };
+        for m in rows {
+            if let postgres::SimpleQueryMessage::Row(r) = m {
+                let (Some(rel), Some(num), Some(notnull)) = (r.get(0), r.get(1), r.get(2)) else { continue };
+                for (i, c) in cols.iter().enumerate() {
+                    if c.table_oid().is_some_and(|o| o.to_string() == rel) && c.column_id().is_some_and(|n| n.to_string() == num) {
+                        known[i] = Some(notnull != "t");
+                    }
+                }
+            }
+        }
+        known
+    }
 }
 
 impl Backend for PostgresBackend {
@@ -318,49 +459,57 @@ impl Backend for PostgresBackend {
 
     fn execute(&mut self, sql: &str, params: &[SqlValue]) -> Result<u64, SqlError> {
         let p = params_of(params);
-        self.guarded(|c| c.execute(sql, &refs(&p)))
+        let run = |this: &mut Self| {
+            this.guarded(|c, cache| {
+                let stmt = prepared(c, cache, sql)?;
+                c.execute(&stmt, &refs(&p))
+            })
+        };
+        match run(self) {
+            Err(e) if is_stale(&e) => {
+                self.statements.clear();
+                run(self)
+            }
+            other => other,
+        }
     }
 
     fn query(&mut self, sql: &str, params: &[SqlValue]) -> Result<Rows, SqlError> {
         let p = params_of(params);
-        let (rows, stmt) = self.guarded(|c| {
-            let stmt = c.prepare(sql)?;
-            let rows = c.query(&stmt, &refs(&p))?;
-            Ok((rows, stmt))
-        })?;
-        let columns: Vec<Column> = stmt
-            .columns()
-            .iter()
-            .map(|c| Column { name: c.name().to_string(), decl_type: Some(c.type_().name().to_string()), nullable: None })
-            .collect();
-        let mut out = Vec::with_capacity(rows.len());
-        for r in &rows {
-            let mut row = Vec::with_capacity(columns.len());
-            for (i, col) in r.columns().iter().enumerate() {
-                let raw: Raw = r.try_get(i).map_err(map_error)?;
-                row.push(match raw.0 {
-                    None => SqlValue::Null,
-                    Some(bytes) => decode(col.type_(), &bytes)?,
-                });
+        let run = |this: &mut Self| {
+            this.guarded(|c, cache| {
+                let stmt = prepared(c, cache, sql)?;
+                let rows = c.query(&stmt, &refs(&p))?;
+                Ok((rows, stmt))
+            })
+        };
+        let (rows, stmt) = match run(self) {
+            Err(e) if is_stale(&e) => {
+                self.statements.clear();
+                run(self)?
             }
-            out.push(row);
-        }
-        Ok(Rows { columns, rows: out })
+            other => other?,
+        };
+        let columns: Vec<Column> = columns_of(stmt.columns());
+        Ok(Rows { columns, rows: decode_rows(&rows)? })
     }
 
     fn begin(&mut self) -> Result<(), SqlError> {
         self.client.batch_execute("BEGIN").map_err(map_error)?;
         self.in_tx = true;
+        self.savepoint = false;
         Ok(())
     }
 
     fn commit(&mut self) -> Result<(), SqlError> {
         self.in_tx = false;
+        self.savepoint = false;
         self.client.batch_execute("COMMIT").map_err(map_error)
     }
 
     fn rollback(&mut self) -> Result<(), SqlError> {
         self.in_tx = false;
+        self.savepoint = false;
         self.client.batch_execute("ROLLBACK").map_err(map_error)
     }
 
@@ -369,20 +518,51 @@ impl Backend for PostgresBackend {
     }
 
     fn describe(&mut self, sql: &str) -> Result<(Vec<Column>, Vec<Column>), SqlError> {
-        let stmt = self.guarded(|c| c.prepare(sql))?;
-        let cols = stmt
-            .columns()
-            .iter()
-            .map(|c| Column { name: c.name().to_string(), decl_type: Some(c.type_().name().to_string()), nullable: None })
-            .collect();
+        let stmt = self.guarded(|c, cache| prepared(c, cache, sql))?;
+        let mut cols = columns_of(stmt.columns());
+        for (col, known) in cols.iter_mut().zip(self.nullability(stmt.columns())) {
+            col.nullable = known;
+        }
         // PostgreSQL infers each parameter's type, and says so (R44).
         let params = stmt
             .params()
             .iter()
             .enumerate()
-            .map(|(i, t)| Column { name: format!("?{}", i + 1), decl_type: Some(t.name().to_string()), nullable: None })
+            .map(|(i, t)| Column { name: format!("?{}", i + 1), decl_type: Some(type_name(t, -1)), nullable: None })
             .collect();
         Ok((params, cols))
+    }
+
+    fn native_cursors(&self) -> bool {
+        true
+    }
+
+    /// `DECLARE name NO SCROLL CURSOR [WITH HOLD] FOR sql`, the cursor's host
+    /// variables bound as parameters of the declaration.
+    fn declare_cursor(&mut self, name: &str, sql: &str, params: &[SqlValue], hold: bool) -> Result<(), SqlError> {
+        let text = format!(
+            "DECLARE {} NO SCROLL CURSOR {}FOR {sql}",
+            cursor_ident(name),
+            if hold { "WITH HOLD " } else { "" }
+        );
+        let p = params_of(params);
+        // A declaration is named for one cursor and never run twice: not cached.
+        self.guarded(|c, _| c.execute(&text, &refs(&p)))?;
+        Ok(())
+    }
+
+    fn fetch_cursor(&mut self, name: &str, count: usize) -> Result<Vec<Vec<SqlValue>>, SqlError> {
+        let text = format!("FETCH FORWARD {count} FROM {}", cursor_ident(name));
+        let rows = self.guarded(|c, cache| {
+            let stmt = prepared(c, cache, &text)?;
+            c.query(&stmt, &[])
+        })?;
+        decode_rows(&rows)
+    }
+
+    fn close_cursor(&mut self, name: &str) -> Result<(), SqlError> {
+        let text = format!("CLOSE {}", cursor_ident(name));
+        self.guarded(|c, _| c.batch_execute(&text))
     }
 
     /// The row's physical address. It names the row the cursor read for the
@@ -448,6 +628,25 @@ mod tests {
         assert_eq!(decode(&Type::UUID, &uuid).unwrap(), SqlValue::Text("00010203-0405-0607-0809-0a0b0c0d0e0f".into()));
         assert_eq!(decode(&Type::INT8, &(-7i64).to_be_bytes()).unwrap(), SqlValue::Int(-7));
         assert_eq!(decode(&Type::POINT, &[0; 16]).unwrap_err().sqlstate, code::NOT_SUPPORTED);
+    }
+
+    /// A column's type reads as standard SQL, with the sizes the modifier keeps.
+    #[test]
+    fn type_names_carry_length_precision_and_scale() {
+        // NUMERIC(9,2): precision 9 in the high half, scale 2, plus the 4-byte header.
+        assert_eq!(type_name(&Type::NUMERIC, ((9 << 16) | 2) + 4), "NUMERIC(9,2)");
+        assert_eq!(type_name(&Type::NUMERIC, ((38 << 16) | 0) + 4), "NUMERIC(38,0)");
+        assert_eq!(type_name(&Type::NUMERIC, -1), "NUMERIC", "unconstrained says nothing more");
+        // A negative scale (PostgreSQL 15 and later) keeps its sign.
+        assert_eq!(type_name(&Type::NUMERIC, ((5 << 16) | (0x7FF & -2i32)) + 4), "NUMERIC(5,-2)");
+        assert_eq!(type_name(&Type::VARCHAR, 14), "VARCHAR(10)");
+        assert_eq!(type_name(&Type::VARCHAR, -1), "VARCHAR");
+        assert_eq!(type_name(&Type::BPCHAR, 7), "CHAR(3)");
+        assert_eq!(type_name(&Type::INT4, -1), "INTEGER");
+        assert_eq!(type_name(&Type::INT8, -1), "BIGINT");
+        assert_eq!(type_name(&Type::FLOAT8, -1), "DOUBLE PRECISION");
+        assert_eq!(type_name(&Type::TIMESTAMPTZ, -1), "TIMESTAMP WITH TIME ZONE");
+        assert_eq!(type_name(&Type::UUID, -1), "UUID");
     }
 
     /// A parameter's `Debug` never shows its value; values travel as text.

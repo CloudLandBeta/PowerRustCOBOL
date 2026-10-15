@@ -27,6 +27,9 @@ use super::{Backend, BackendKind, Column, Rows};
 pub struct MySqlBackend {
     conn: mysql::Conn,
     in_tx: bool,
+    /// Bytes per character of each collation, read when a descriptor first
+    /// needs it (a column reports its length in bytes, a character is up to four).
+    widths: Option<std::collections::HashMap<u16, u32>>,
 }
 
 impl MySqlBackend {
@@ -61,7 +64,19 @@ impl MySqlBackend {
             e if e.sqlstate.starts_with("28") => e,
             e => SqlError::new(code::CANNOT_CONNECT, e.message).with_native(e.native),
         })?;
-        Ok(Self { conn, in_tx: false })
+        Ok(Self { conn, in_tx: false, widths: None })
+    }
+
+    /// The longest a character of each collation can be, in bytes, asked of the
+    /// server once. Empty when the catalog cannot be read: lengths then stay unknown.
+    fn char_widths(&mut self) -> std::collections::HashMap<u16, u32> {
+        if self.widths.is_none() {
+            let sql = "SELECT c.ID, s.MAXLEN FROM information_schema.COLLATIONS c \
+                       JOIN information_schema.CHARACTER_SETS s USING (CHARACTER_SET_NAME)";
+            let rows: Vec<(u64, u64)> = self.conn.query(sql).unwrap_or_default();
+            self.widths = Some(rows.into_iter().filter_map(|(id, w)| Some((u16::try_from(id).ok()?, u32::try_from(w).ok()?))).collect());
+        }
+        self.widths.clone().unwrap_or_default()
     }
 }
 
@@ -152,7 +167,9 @@ pub fn refine(number: u16, state: &str) -> String {
 pub fn map_error(e: mysql::Error) -> SqlError {
     match e {
         mysql::Error::MySqlError(m) => SqlError::new(&refine(m.code, &m.state), m.message).with_native(m.code as i64),
+        // The connection broke under the statement: the server ended it, or the network did.
         mysql::Error::IoError(io) => SqlError::new("08006", io.to_string()),
+        mysql::Error::CodecError(c) => SqlError::new("08006", format!("the connection to MySQL was lost: {c}")),
         // The driver's own sentence, without the variant's wrapping.
         mysql::Error::DriverError(d) => SqlError::new(code::GENERAL, d.to_string()),
         other => SqlError::new(code::GENERAL, other.to_string()),
@@ -168,7 +185,10 @@ fn commits_implicitly(sql: &str) -> bool {
 
 /// A MySQL column type as the standard SQL type it is, so a descriptor
 /// classifies it the way it classifies the other databases' types.
-pub fn type_name(ty: ColumnType, length: u32, decimals: u8, binary: bool, unsigned: bool) -> String {
+///
+/// `chars` is the length of a character column in CHARACTERS — the server reports it in bytes, a
+/// character being up to four of them — when it is known; without it the length stays unknown.
+pub fn type_name(ty: ColumnType, length: u32, decimals: u8, binary: bool, unsigned: bool, chars: Option<u32>) -> String {
     use ColumnType as T;
     match ty {
         T::MYSQL_TYPE_TINY | T::MYSQL_TYPE_SHORT | T::MYSQL_TYPE_LONG | T::MYSQL_TYPE_INT24
@@ -180,9 +200,11 @@ pub fn type_name(ty: ColumnType, length: u32, decimals: u8, binary: bool, unsign
             format!("DECIMAL({},{decimals})", length.saturating_sub(overhead))
         }
         T::MYSQL_TYPE_FLOAT | T::MYSQL_TYPE_DOUBLE => "DOUBLE".into(),
-        T::MYSQL_TYPE_VARCHAR | T::MYSQL_TYPE_VAR_STRING | T::MYSQL_TYPE_STRING => {
-            if binary { "VARBINARY" } else { "VARCHAR" }.into()
-        }
+        T::MYSQL_TYPE_VARCHAR | T::MYSQL_TYPE_VAR_STRING | T::MYSQL_TYPE_STRING => match (binary, chars) {
+            (true, _) => format!("VARBINARY({length})"),
+            (false, Some(n)) => format!("VARCHAR({n})"),
+            (false, None) => "VARCHAR".into(),
+        },
         T::MYSQL_TYPE_TINY_BLOB | T::MYSQL_TYPE_MEDIUM_BLOB | T::MYSQL_TYPE_LONG_BLOB | T::MYSQL_TYPE_BLOB => {
             if binary { "BLOB" } else { "TEXT" }.into()
         }
@@ -197,11 +219,18 @@ pub fn type_name(ty: ColumnType, length: u32, decimals: u8, binary: bool, unsign
     }
 }
 
-fn columns_of(cols: &[mysql::Column]) -> Vec<Column> {
+fn columns_of(cols: &[mysql::Column], widths: &std::collections::HashMap<u16, u32>) -> Vec<Column> {
     cols.iter()
         .map(|c| Column {
             name: c.name_str().into_owned(),
-            decl_type: Some(type_name(c.column_type(), c.column_length(), c.decimals(), c.character_set() == 63, c.flags().contains(ColumnFlags::UNSIGNED_FLAG))),
+            decl_type: Some(type_name(
+                c.column_type(),
+                c.column_length(),
+                c.decimals(),
+                c.character_set() == 63,
+                c.flags().contains(ColumnFlags::UNSIGNED_FLAG),
+                widths.get(&c.character_set()).filter(|w| **w > 0).map(|w| c.column_length() / w),
+            )),
             nullable: Some(!c.flags().contains(ColumnFlags::NOT_NULL_FLAG)),
         })
         .collect()
@@ -226,7 +255,8 @@ impl Backend for MySqlBackend {
         let p: Vec<mysql::Value> = params.iter().map(param).collect();
         let result = self.conn.exec_iter(sql, mysql::Params::Positional(p)).map_err(map_error)?;
         let cols: Vec<mysql::Column> = result.columns().as_ref().to_vec();
-        let columns = columns_of(&cols);
+        // A result's types are only described on request (DESCRIBE): no catalog query here.
+        let columns = columns_of(&cols, &Default::default());
         let mut rows = Vec::new();
         for r in result {
             let values = r.map_err(map_error)?.unwrap();
@@ -264,7 +294,8 @@ impl Backend for MySqlBackend {
     fn describe(&mut self, sql: &str) -> Result<(Vec<Column>, Vec<Column>), SqlError> {
         let stmt = self.conn.prep(sql).map_err(map_error)?;
         // MySQL reports no parameter types (R44): unknown, not guessed.
-        Ok((super::untyped_params(stmt.num_params() as usize), columns_of(&stmt.columns())))
+        let widths = self.char_widths();
+        Ok((super::untyped_params(stmt.num_params() as usize), columns_of(&stmt.columns(), &widths)))
     }
 
     /// The table's primary key; a table without one has no row to name.
@@ -339,11 +370,15 @@ mod tests {
         );
         assert_eq!(read(mysql::Value::Time(true, 1, 2, 3, 4, 0), ColumnType::MYSQL_TYPE_TIME, false), SqlValue::Text("-26:03:04".into()));
         assert_eq!(read(mysql::Value::UInt(u64::MAX), ColumnType::MYSQL_TYPE_LONGLONG, false), SqlValue::Decimal { mantissa: u64::MAX as i128, scale: 0 });
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_NEWDECIMAL, 11, 2, false, false), "DECIMAL(9,2)");
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_NEWDECIMAL, 5, 0, false, true), "DECIMAL(5,0)");
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_LONGLONG, 20, 0, false, false), "INTEGER");
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_BLOB, 65535, 0, false, false), "TEXT");
-        assert_eq!(type_name(ColumnType::MYSQL_TYPE_BLOB, 65535, 0, true, false), "BLOB");
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_NEWDECIMAL, 11, 2, false, false, None), "DECIMAL(9,2)");
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_NEWDECIMAL, 5, 0, false, true, None), "DECIMAL(5,0)");
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_LONGLONG, 20, 0, false, false, None), "INTEGER");
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_BLOB, 65535, 0, false, false, None), "TEXT");
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_BLOB, 65535, 0, true, false, None), "BLOB");
+        // 10 characters of utf8mb4 arrive as 40 bytes; the descriptor says 10.
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_VAR_STRING, 40, 0, false, false, Some(10)), "VARCHAR(10)");
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_VAR_STRING, 40, 0, false, false, None), "VARCHAR", "an unknown width leaves the length unknown");
+        assert_eq!(type_name(ColumnType::MYSQL_TYPE_VAR_STRING, 16, 0, true, false, None), "VARBINARY(16)");
         assert!(commits_implicitly("  create table t (a int)") && commits_implicitly("DROP TABLE t"));
         assert!(!commits_implicitly("INSERT INTO t VALUES (1)"));
     }

@@ -59,6 +59,29 @@ impl Session {
         self.backend.query(sql, params)
     }
 
+    /// Whether the database keeps cursors itself (see [`Backend::native_cursors`]).
+    pub fn native_cursors(&self) -> bool {
+        self.backend.native_cursors()
+    }
+
+    /// Declare a cursor the database keeps (R25), inside the unit of work.
+    pub fn declare_cursor(&mut self, name: &str, sql: &str, params: &[SqlValue], hold: bool) -> Result<(), SqlError> {
+        self.ensure_unit(false)?;
+        self.backend.declare_cursor(name, sql, params, hold)
+    }
+
+    /// The next `count` rows of a cursor the database keeps.
+    pub fn fetch_cursor(&mut self, name: &str, count: usize) -> Result<Vec<Vec<SqlValue>>, SqlError> {
+        self.ensure_unit(false)?;
+        self.backend.fetch_cursor(name, count)
+    }
+
+    /// Close a cursor the database keeps. It opens no unit of work: a cursor
+    /// declared `WITH HOLD` outlives the unit that declared it.
+    pub fn close_cursor(&mut self, name: &str) -> Result<(), SqlError> {
+        self.backend.close_cursor(name)
+    }
+
     /// How a row of `table` is named for `WHERE CURRENT OF` (R26).
     pub fn row_key(&mut self, table: &str) -> Result<Vec<(String, String)>, SqlError> {
         self.backend.row_key(table)

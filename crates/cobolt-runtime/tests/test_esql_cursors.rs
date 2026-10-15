@@ -56,3 +56,11 @@ fn ac7_a_cursor_over_ten_thousand_rows() {
 fn ac8_units_of_work_and_with_hold() {
     assert_passed(&run_file("ac8_units_of_work.cbl"));
 }
+
+/// AC7 again, across the batches of a database that keeps cursors itself: 2,500
+/// rows read through, two cursors read alternately, a host variable in the
+/// query, WITH HOLD across a COMMIT, a positioned UPDATE in a long result.
+#[test]
+fn ac7b_cursors_across_batch_boundaries() {
+    assert_passed(&run_file("ac7b_cursor_batches.cbl"));
+}

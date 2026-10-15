@@ -33,7 +33,7 @@
        MAIN-PARA.
            EXEC SQL CONNECT TO ':memory:' AS AC7 END-EXEC
            EXEC SQL CREATE TABLE ITEMS (ID INTEGER PRIMARY KEY,
-                    AMOUNT NUMERIC) END-EXEC
+                    AMOUNT NUMERIC(15,2)) END-EXEC
            PERFORM NOW-MS
            MOVE WS-MS TO WS-T0
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 10000

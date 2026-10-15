@@ -61,9 +61,13 @@
            END-IF
            MOVE 100 TO SQLDA-CAPACITY
            EXEC SQL DESCRIBE S1 INTO SQLDA END-EXEC
+      *> A name is what the database reports: SQLite keeps the case it was
+      *> written in, PostgreSQL folds it to lower case. Compared in upper case
+      *> so the program holds on every database.
            IF SQLSTATE = "00000" AND SQLDA-COUNT = 3
-              AND SQLDA-NAME (1) = "CODE" AND SQLDA-NAME (2) = "PRICE"
-              AND SQLDA-NAME (3) = "QTY"
+              AND FUNCTION UPPER-CASE (SQLDA-NAME (1)) = "CODE"
+              AND FUNCTION UPPER-CASE (SQLDA-NAME (2)) = "PRICE"
+              AND FUNCTION UPPER-CASE (SQLDA-NAME (3)) = "QTY"
               AND SQLDA-TYPE (1) = 4 AND SQLDA-LENGTH (1) = 10
               AND SQLDA-TYPE (2) = 2 AND SQLDA-PRECISION (2) = 9
               AND SQLDA-SCALE (2) = 2 AND SQLDA-TYPE (3) = 1
@@ -105,8 +109,11 @@
            MOVE 1000 TO WS-MIN-QTY
            EXEC SQL OPEN C1 USING :WS-MIN-QTY END-EXEC
            EXEC SQL FETCH C1 USING DESCRIPTOR SQLDA END-EXEC
+      *> A decimal arrives as the text the database gives it: "0.1" from SQLite,
+      *> "0.10" from a NUMERIC(9,2) column. Compared as numbers.
            IF SQLSTATE = "00000" AND SQLDA-VALUE (1) = "NUT"
-              AND SQLDA-VALUE (2) = "0.1" AND SQLDA-VALUE (3) = "1500"
+              AND FUNCTION NUMVAL (SQLDA-VALUE (2)) = 0.1
+              AND FUNCTION NUMVAL (SQLDA-VALUE (3)) = 1500
               AND SQLDA-IND (1) = 0
                ADD 1 TO WS-PASS
            ELSE

@@ -61,7 +61,24 @@ pub struct OpenCursor {
     pub key: Vec<String>,
     /// The key of the row last fetched.
     pub current: Option<Vec<value::SqlValue>>,
+    /// Set when the database keeps the cursor itself: `rows` then holds only the
+    /// batch last fetched, and the next batch is asked for when it runs out.
+    pub native: Option<NativeCursor>,
 }
+
+/// A cursor the database keeps (PostgreSQL): its name there, how many rows a
+/// fetch asks for, and whether it has run out.
+#[derive(Debug, Clone)]
+pub struct NativeCursor {
+    pub name: String,
+    pub batch: usize,
+    pub exhausted: bool,
+}
+
+/// How many rows a fetch asks of a cursor the database keeps. A positioned
+/// cursor asks for one at a time instead: the database's `CURRENT OF` names the
+/// row it last handed over, which must be the row the program is on.
+pub const CURSOR_BATCH: usize = 1000;
 
 impl SqlRunUnit {
     pub fn find(&self, name: &str) -> Option<usize> {
@@ -81,13 +98,46 @@ impl SqlRunUnit {
     /// End of a unit of work on `session` (R30): a COMMIT keeps the cursors
     /// declared `WITH HOLD` open and closes the rest; a ROLLBACK closes all.
     pub fn end_unit(&mut self, session: &str, committed: bool) {
-        self.cursors.retain(|_, c| c.session != session || (committed && c.with_hold));
+        // The database ends the cursors of a unit of work with it, except one
+        // declared WITH HOLD in an earlier unit that a ROLLBACK now closes
+        // (R30): that one is told to.
+        let mut to_close: Vec<(String, String)> = Vec::new();
+        self.cursors.retain(|_, c| {
+            let keep = c.session != session || (committed && c.with_hold);
+            if !keep && !committed && c.with_hold {
+                if let Some(n) = &c.native {
+                    to_close.push((c.session.clone(), n.name.clone()));
+                }
+            }
+            keep
+        });
+        self.close_on_server(to_close);
+    }
+
+    /// Tell the databases to close cursors they keep. Best effort: a cursor the
+    /// database has already ended answers with an error, which means nothing here.
+    fn close_on_server(&mut self, cursors: Vec<(String, String)>) {
+        for (session, name) in cursors {
+            if let Some(i) = self.find(&session) {
+                let _ = self.sessions[i].close_cursor(&name);
+            }
+        }
     }
 
     /// Close every cursor an interpreter instance owns — the program that
     /// opened them has ended.
     pub fn release_instance(&mut self, instance: u64) {
-        self.cursors.retain(|k, _| k.0 != instance);
+        let mut to_close: Vec<(String, String)> = Vec::new();
+        self.cursors.retain(|k, c| {
+            if k.0 != instance {
+                return true;
+            }
+            if let Some(n) = &c.native {
+                to_close.push((c.session.clone(), n.name.clone()));
+            }
+            false
+        });
+        self.close_on_server(to_close);
         self.prepared.retain(|k, _| k.0 != instance);
     }
 
