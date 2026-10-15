@@ -1,6 +1,6 @@
 # Spec — Application Knowledge Base (the KnowledgeBase control)
 
-- **Status:** implemented 2026-09-24 (1.70.189). Open: AC4 on an SMB share (operator), AC16 as a full run in all three hosts.
+- **Status:** implemented 2026-09-24 (1.70.189) and **closed as completed by the operator, 2026-10-15** (*"I can't test it right now. leave it as completed"*). Two criteria were NOT tested and stay unticked on purpose: AC4 on an SMB share, and AC16 as a full run in all three hosts.
 - **Folder:** specs/068-application-knowledge-base/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-24
 - **Parents:** `specs/063-rag-chatbot-boilerplate/spec.md` (umbrella, §4.1–4.2,
@@ -210,7 +210,8 @@ uses them however it likes.
       indexes, then two indexing together; every search answers, every
       document lands, and redb's integrity check passes. Run on a local disk
       and on an SMB share, and the guide says which shares were verified.
-      *(R8–R11)*
+      *(R8–R11)* *Not tested on an SMB share; the spec was closed without it
+      (operator, 2026-10-15).*
 - [x] **AC5** — A writer kept waiting past the bound gets a "busy" result, not an
       error or a corrupt index. *(R10)*
 - [x] **AC6** — Deleting the index and refreshing yields the same search results
@@ -243,7 +244,9 @@ uses them however it likes.
 - [x] **AC15** — An `AgentObject` given a collection answers a question from one
       of its documents and names that document. *(R32, R33)*
 - [ ] **AC16** — The same program gives the same results under `rcrun run-form`,
-      as an embedded child form, and as a compiled binary. *(R34)*
+      as an embedded child form, and as a compiled binary. *(R34)* *Not run as a
+      full comparison in all three hosts; the spec was closed without it
+      (operator, 2026-10-15).*
 - [x] **AC17** — Tests report quantified results: documents and chunks indexed,
       time per phase, searches per second (GOLDEN RULE #7).
 

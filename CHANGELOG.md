@@ -17,6 +17,17 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.162] — 2026-10-15
+
+*(Written on `fixes`, after 1.91.161.)*
+
+### Housekeeping: specs 046 and 068 closed
+
+Operator, 2026-10-15. No code changes.
+
+- **046 (copy/paste a form across projects):** the operator's manual pass of AC1, AC3 and AC6 — the three criteria that need a real IDE session, one of them two IDE processes and the OS clipboard — is accepted (*"046 is ok, close it"*). The three boxes are ticked, each noting who accepted it; the status is *implemented and closed*.
+- **068 (the KnowledgeBase control):** closed as completed (*"I can't test it right now. leave it as completed"*). Two criteria were **not tested** and stay unticked, each now saying so: AC4 (three processes on one KB, on an SMB share) and AC16 (the same program in `rcrun run-form`, as an embedded child form and as a compiled binary). Closing the spec does not claim they were proved.
+
 ## [PowerRustCOBOL 1.91.161] — 2026-10-15
 
 *(Written on `fixes`, after 1.91.160 — spec 087, the System KB's wording.)*

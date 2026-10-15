@@ -5,9 +5,10 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — Copy/Paste a Form Across Projects
 
-- **Status:** draft → approved → **implemented, pending operator manual
-  verification** (1.60.49, 2026-08-08 — AC1/AC3/AC6 need a real `CoboltApp`
-  GUI session and, for AC6, two separate running IDE processes; see §5)
+- **Status:** draft → approved → **implemented** (1.60.49, 2026-08-08) and
+  **closed** — the operator's manual pass of AC1, AC3 and AC6 (a real `CoboltApp`
+  session; for AC6 two separate IDE processes) is accepted: *"046 is ok, close
+  it"*, 2026-10-15 (see §5)
 - **Folder:** specs/046-form-clipboard/
 - **Author:** Emerson Lopes (requirements) · drafted with Claude Sonnet 5   **Date:** 2026-08-08
 
@@ -134,7 +135,7 @@ prompt (R7).
 
 ## 5. Acceptance criteria
 
-- [ ] AC1 — Copy Form on a form row, then Paste Form in a different project
+- [x] AC1 — Copy Form on a form row, then Paste Form in a different project
       open in the same running IDE, produces a new form whose controls,
       properties, animations, and data bindings match the source exactly.
       **Needs the operator's manual pass** (plan §6, step 1) — the full
@@ -142,7 +143,7 @@ prompt (R7).
       `eframe::CreationContext` and cannot be constructed in an automated
       test in this codebase (confirmed while implementing T4/T5/T6: the
       exact precedent function, `save_new_form_to`, has zero test coverage
-      for the same reason).
+      for the same reason). *Accepted by the operator, 2026-10-15.*
 - [x] AC2 — Every event handler on the pasted form's controls carries its
       full original COBOL body verbatim (verified by content, not just
       presence) — including every reference inside that body to a control
@@ -150,12 +151,12 @@ prompt (R7).
       `form_to_string_and_load_form_from_str_round_trip` (T1) round-trips a
       control's full event body through the exact serialization
       `copy_form`/`register_pasted_form` use, byte-for-byte content checked.
-- [ ] AC3 — Pasting into a project that already has a same-named form
+- [x] AC3 — Pasting into a project that already has a same-named form
       prompts for rename-or-replace; choosing rename creates the form under
       the new name without touching the existing one; choosing replace
       requires its own confirmation and then replaces it. **Needs the
       operator's manual pass** (plan §6, step 4) — same `CoboltApp`
-      constraint as AC1.
+      constraint as AC1. *Accepted by the operator, 2026-10-15.*
 - [x] AC4 — Pasting a form whose controls reuse IDs an unrelated,
       already-present form in the target project also uses internally
       (e.g. both have a `BUTTON1`) causes no conflict — the pasted form's
@@ -170,12 +171,13 @@ prompt (R7).
 - [x] AC5 — Pasting arbitrary clipboard text (not a copied form) shows a
       clear refusal and creates nothing.
       `invalid_clipboard_text_is_refused_and_changes_nothing` (T3).
-- [ ] AC6 — Copy → close the IDE entirely → reopen a different project in a
+- [x] AC6 — Copy → close the IDE entirely → reopen a different project in a
       fresh IDE process → Paste Form succeeds (proves the OS clipboard, not
       just in-app state, carries the copy). **Needs the operator's manual
       pass** (plan §6, step 2) — requires two real, separate running IDE
       processes and the actual OS clipboard; not reproducible in this
-      environment at all, automated or otherwise.
+      environment at all, automated or otherwise. *Accepted by the operator,
+      2026-10-15.*
 - [x] AC7 — After a successful paste, the new form's Generated Code entry
       exists immediately, without requiring a manual Build/Run/Debug/Check
       first. Verified by construction: `register_pasted_form` calls
