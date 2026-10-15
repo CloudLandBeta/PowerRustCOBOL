@@ -74,7 +74,7 @@ fn the_maps_example_generates_a_program_that_compiles() {
         "the example must read its async answer from ResponseBody"
     );
     assert!(
-        src.contains("\"AddRoute\""),
+        src.contains("MAP-1::AddRoute("),
         "the example must trace the route it received"
     );
     println!(

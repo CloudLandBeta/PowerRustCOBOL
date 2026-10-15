@@ -6,7 +6,6 @@
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-NOW                                 GLOBAL    PIC X(21).
        01 WS-EOF                                 GLOBAL    PIC X.
-       01 WS-OK                                  GLOBAL    PIC X(4).
        01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
        01 WS-TOPICS-PATH                         GLOBAL    PIC X(240).
        01 WS-PROMPTS-PATH                        GLOBAL    PIC X(240).
@@ -613,7 +612,7 @@
            *>   marker, a preview of the text, then the promote, edit and delete
            *>   icon buttons.
 
-           SET     WS-OK                         TO    Dg-List::ClearRows()
+           Dg-List::ClearRows()
            SET     WS-VER-COUNT WS-LAST-VER WS-ACTIVE-VER
                                                  TO    0
 
@@ -735,7 +734,7 @@
                                "icon:trash"
                                INTO WS-ROW
 
-                           SET     WS-OK         TO    Dg-List::AddRow(WS-ROW)
+                           Dg-List::AddRow(WS-ROW)
                        END-IF
                END-READ
            END-PERFORM

@@ -233,8 +233,7 @@
            *> Compare the two: the blue line is eight points you wrote, the green one
            *> is every bend Google's route actually takes.
 
-           INVOKE    MAP-1 "AddRoute" USING
-               "DRIVEN" "#12A150" "6" WS-POLYLINE
+           MAP-1::AddRoute( "DRIVEN" "#12A150" "6" WS-POLYLINE )
 
            *> How much road geometry came back, in characters. It is the one number
            *> that tells the two lines apart at a glance: the corridor above is a
@@ -295,8 +294,7 @@
                WS-SECONDS
                WS-POLYLINE
 
-           INVOKE    MAP-1 "AddRoute" USING
-               "ROAD" "#E8711A" "6" WS-POLYLINE
+           MAP-1::AddRoute( "ROAD" "#E8711A" "6" WS-POLYLINE )
 
            *> Same length measure as the Google path: WS-POLYLINE is space-padded
            *> and an encoded polyline holds no spaces, so counting up to the first
@@ -372,23 +370,23 @@
 
            *> Invokes MAP-1 "AddMarker" to add a marker with id="ANA", latitude="40.4168", longitude="-3.7038", label="Ana — Centro", info="Madrid".
 
-           INVOKE    MAP-1 "AddMarker" USING "ANA" "40.4168" "-3.7038" "Ana — Centro" "Madrid"
+           MAP-1::AddMarker( "ANA" "40.4168" "-3.7038" "Ana — Centro" "Madrid" )
 
            *> Invokes MAP-1 "AddMarker" to add a marker with id="BRUNO", latitude="41.3874", longitude="2.1686", label="Bruno — Noreste", info="Barcelona".
 
-           INVOKE    MAP-1 "AddMarker" USING "BRUNO" "41.3874" "2.1686" "Bruno — Noreste" "Barcelona"
+           MAP-1::AddMarker( "BRUNO" "41.3874" "2.1686" "Bruno — Noreste" "Barcelona" )
 
            *> Invokes MAP-1 "AddMarker" to add a marker with id="CARMEN", latitude="39.4699", longitude="-0.3763", label="Carmen — Levante", info="Valencia".
 
-           INVOKE    MAP-1 "AddMarker" USING "CARMEN" "39.4699" "-0.3763" "Carmen — Levante" "Valencia"
+           MAP-1::AddMarker( "CARMEN" "39.4699" "-0.3763" "Carmen — Levante" "Valencia" )
 
            *> Invokes MAP-1 "AddMarker" to add a marker with id="DIEGO", latitude="37.3891", longitude="-5.9845", label="Diego — Sur", info="Sevilla".
 
-           INVOKE    MAP-1 "AddMarker" USING "DIEGO" "37.3891" "-5.9845" "Diego — Sur" "Sevilla"
+           MAP-1::AddMarker( "DIEGO" "37.3891" "-5.9845" "Diego — Sur" "Sevilla" )
 
            *> Invokes MAP-1 "AddMarker" to add a marker with id="ELENA", latitude="43.3623", longitude="-8.4115", label="Elena — Norte", info="A Coruna".
 
-           INVOKE    MAP-1 "AddMarker" USING "ELENA" "43.3623" "-8.4115" "Elena — Norte" "A Coruna"
+           MAP-1::AddMarker( "ELENA" "43.3623" "-8.4115" "Elena — Norte" "A Coruna" )
 
            SET     LBL-STATUS::Caption           TO    "Five markers placed. Click one."
 ]]></Event>
@@ -433,25 +431,25 @@
            *> shows the LABEL, clicking it opens a card with the INFO underneath.
            *> Both are optional — leave them off and the region simply has no card.
 
-           INVOKE    MAP-1 "AddRegion" USING "NORTE" "#E5484D55" "#E5484D" "2"
+           MAP-1::AddRegion( "NORTE" "#E5484D55" "#E5484D" "2"
                "43.79,-7.87;43.55,-5.66;43.40,-3.02;42.85,-2.95;42.60,-6.50;42.40,-8.87"
-               "Norte - Elena" "18 accounts - 1.24M EUR YTD - A Coruna"
+               "Norte - Elena" "18 accounts - 1.24M EUR YTD - A Coruna" )
 
-           INVOKE    MAP-1 "AddRegion" USING "NORESTE" "#3E63DD55" "#3E63DD" "2"
+           MAP-1::AddRegion( "NORESTE" "#3E63DD55" "#3E63DD" "2"
                "42.85,-1.65;43.38,-1.79;42.50,3.17;41.10,1.20;40.30,-0.40;41.65,-1.90"
-               "Noreste - Bruno" "31 accounts - 2.80M EUR YTD - Barcelona"
+               "Noreste - Bruno" "31 accounts - 2.80M EUR YTD - Barcelona" )
 
-           INVOKE    MAP-1 "AddRegion" USING "CENTRO" "#F5A62355" "#F5A623" "2"
+           MAP-1::AddRegion( "CENTRO" "#F5A62355" "#F5A623" "2"
                "42.00,-6.90;42.05,-2.30;40.20,-1.70;39.30,-2.60;38.90,-5.30;40.30,-7.00"
-               "Centro - Ana" "27 accounts - 2.15M EUR YTD - Madrid"
+               "Centro - Ana" "27 accounts - 2.15M EUR YTD - Madrid" )
 
-           INVOKE    MAP-1 "AddRegion" USING "LEVANTE" "#12A15055" "#12A150" "2"
+           MAP-1::AddRegion( "LEVANTE" "#12A15055" "#12A150" "2"
                "40.55,-0.35;40.10,0.55;38.75,0.20;37.55,-0.70;37.40,-1.90;38.80,-1.35"
-               "Levante - Carmen" "22 accounts - 1.63M EUR YTD - Valencia"
+               "Levante - Carmen" "22 accounts - 1.63M EUR YTD - Valencia" )
 
-           INVOKE    MAP-1 "AddRegion" USING "SUR" "#8E4EC655" "#8E4EC6" "2"
+           MAP-1::AddRegion( "SUR" "#8E4EC655" "#8E4EC6" "2"
                "38.70,-6.30;38.30,-2.90;37.35,-1.65;36.72,-4.42;36.00,-5.60;37.20,-7.40"
-               "Sur - Diego" "19 accounts - 1.41M EUR YTD - Sevilla"
+               "Sur - Diego" "19 accounts - 1.41M EUR YTD - Sevilla" )
 
            SET     LBL-STATUS::Caption           TO    "Five territories. Hover one for its name, click for the detail."
 ]]></Event>
@@ -500,13 +498,11 @@
            *> "geometry you wrote" versus "geometry a routing service returned"
            *> actually looks like.
 
-           INVOKE    MAP-1 "AddRoute" USING "PLANNED" "#1E6EDC" "5"
-               "40.4168,-3.7038;40.0300,-3.6000;39.4600,-3.5300;38.9900,-3.3700;38.7600,-3.3800;38.1000,-3.7700;37.7700,-3.7900;37.1773,-3.5986"
+           MAP-1::AddRoute( "PLANNED" "#1E6EDC" "5"
+               "40.4168,-3.7038;40.0300,-3.6000;39.4600,-3.5300;38.9900,-3.3700;38.7600,-3.3800;38.1000,-3.7700;37.7700,-3.7900;37.1773,-3.5986" )
 
-           INVOKE    MAP-1 "AddMarker" USING
-               "ORIGEN" "40.4168" "-3.7038" "Madrid" "Origin"
-           INVOKE    MAP-1 "AddMarker" USING
-               "DESTINO" "37.1773" "-3.5986" "Granada" "Destination"
+           MAP-1::AddMarker( "ORIGEN" "40.4168" "-3.7038" "Madrid" "Origin" )
+           MAP-1::AddMarker( "DESTINO" "37.1773" "-3.5986" "Granada" "Destination" )
 
            SET     MAP-1::CenterLat              TO    "37.9000"
            SET     MAP-1::CenterLng              TO    "-3.6500"
@@ -551,7 +547,7 @@
            SET     WS-PROVIDER                   TO    "G"
            SET     LBL-STATUS::Caption           TO    "Asking Google for the drive time..."
 
-           INVOKE    MAP-1 "Directions" USING "Madrid, Spain" "Granada, Spain"
+           MAP-1::Directions( "Madrid, Spain" "Granada, Spain" )
 ]]></Event>
   </Control>
   <Control id="BTN-CLEAR" type="Button" x="944" y="320" w="320" h="32" tab-order="6" z-order="6" visible="true" enabled="true">
@@ -587,8 +583,8 @@
            *> go by blanking the Markers property. Centre and zoom return to the
            *> view that onLoad set.
 
-           INVOKE    MAP-1 "ClearRoutes"
-           INVOKE    MAP-1 "ClearRegions"
+           MAP-1::ClearRoutes()
+           MAP-1::ClearRegions()
 
            SET     MAP-1::Markers                TO    SPACES
            SET     MAP-1::CenterLat              TO    "40.0000"
@@ -857,8 +853,7 @@
                SET     WS-PROVIDER               TO    "O"
                SET     LBL-STATUS::Caption       TO    "Asking OpenRouteService for the road..."
 
-               INVOKE    MAP-1 "TraceRoad" USING
-                   WS-ORS-KEY "40.4168" "-3.7038" "37.1773" "-3.5986"
+               MAP-1::TraceRoad( WS-ORS-KEY "40.4168" "-3.7038" "37.1773" "-3.5986" )
            END-IF
 ]]></Event>
   </Control>

@@ -50,8 +50,8 @@ fn the_code_style_examples_all_pass() {
     let out: Vec<String> = display_rx.try_iter().collect();
     let out = out.join("\n");
     println!("{out}");
-    assert!(out.contains("FORMS EXERCISED : 12"), "{out}");
-    assert!(out.contains("TESTS RUN       : 0026"), "{out}");
+    assert!(out.contains("FORMS EXERCISED : 13"), "{out}");
+    assert!(out.contains("TESTS RUN       : 0030"), "{out}");
     assert!(out.contains("TESTS FAILED    : 0000"), "{out}");
     assert!(out.contains("OVERALL RESULT  : PASS"), "{out}");
 }

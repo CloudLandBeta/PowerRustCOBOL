@@ -5,7 +5,6 @@
        01 WS-SET-NAME                            GLOBAL    PIC X(20).
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-EOF                                 GLOBAL    PIC X.
-       01 WS-OK                                  GLOBAL    PIC X(4).
        01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
        01 WS-MODELS-PATH                         GLOBAL    PIC X(240).
        *>   The interface texts (spec 071 R44): one row per text, one column
@@ -773,45 +772,45 @@
            *>   connection (connection N is item N + 1); the one the agent uses now
            *>   is selected.
 
-           SET     WS-OK                         TO    Cmb-Agent-1::Clear()
-           SET     WS-OK                         TO    Cmb-Agent-1::AddItem(T-AGENT-NONE::Trim())
+           Cmb-Agent-1::Clear()
+           Cmb-Agent-1::AddItem(T-AGENT-NONE::Trim())
            SET     WS-INDEX                      TO    1
 
            PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               SET     WS-OK                     TO    Cmb-Agent-1::AddItem(WS-CONN-NAME(WS-P)::Trim())
+               Cmb-Agent-1::AddItem(WS-CONN-NAME(WS-P)::Trim())
                IF    WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(1)
                    COMPUTE    WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
 
            SET     WS-P                          TO    WS-INDEX
-           SET     WS-OK                         TO    Cmb-Agent-1::SetSelectedIndex(WS-P)
-           SET     WS-OK                         TO    Cmb-Agent-2::Clear()
-           SET     WS-OK                         TO    Cmb-Agent-2::AddItem(T-AGENT-NONE::Trim())
+           Cmb-Agent-1::SetSelectedIndex(WS-P)
+           Cmb-Agent-2::Clear()
+           Cmb-Agent-2::AddItem(T-AGENT-NONE::Trim())
            SET     WS-INDEX                      TO    1
 
            PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               SET     WS-OK                     TO    Cmb-Agent-2::AddItem(WS-CONN-NAME(WS-P)::Trim())
+               Cmb-Agent-2::AddItem(WS-CONN-NAME(WS-P)::Trim())
                IF    WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(2)
                    COMPUTE    WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
 
            SET     WS-P                          TO    WS-INDEX
-           SET     WS-OK                         TO    Cmb-Agent-2::SetSelectedIndex(WS-P)
-           SET     WS-OK                         TO    Cmb-Agent-3::Clear()
-           SET     WS-OK                         TO    Cmb-Agent-3::AddItem(T-AGENT-NONE::Trim())
+           Cmb-Agent-2::SetSelectedIndex(WS-P)
+           Cmb-Agent-3::Clear()
+           Cmb-Agent-3::AddItem(T-AGENT-NONE::Trim())
            SET     WS-INDEX                      TO    1
 
            PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               SET     WS-OK                     TO    Cmb-Agent-3::AddItem(WS-CONN-NAME(WS-P)::Trim())
+               Cmb-Agent-3::AddItem(WS-CONN-NAME(WS-P)::Trim())
                IF    WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(3)
                    COMPUTE    WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
 
            SET     WS-P                          TO    WS-INDEX
-           SET     WS-OK                         TO    Cmb-Agent-3::SetSelectedIndex(WS-P)
+           Cmb-Agent-3::SetSelectedIndex(WS-P)
 ]]></Event>
     <Event name="onClose" paragraph="AGENTS-FORM--ONCLOSE">
     </Event>

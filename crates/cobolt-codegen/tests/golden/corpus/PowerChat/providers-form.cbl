@@ -119,7 +119,6 @@
        01 WS-SET-NAME                            GLOBAL    PIC X(20).
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-EOF                                 GLOBAL    PIC X.
-       01 WS-OK                                  GLOBAL    PIC X(4).
        01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
        01 WS-MODELS-PATH                         GLOBAL    PIC X(240).
        *>   The interface texts (spec 071 R44): one row per text, one column
@@ -1240,7 +1239,7 @@
            *>   ending with its pencil (edit) and trash can (delete) buttons.
 
            CALL    "PC-LOAD-CONNS"
-           SET     WS-OK                         TO    Dg-List::ClearRows()
+           Dg-List::ClearRows()
            IF    WS-CONN-COUNT = 0
                EXIT PROGRAM
            END-IF
@@ -1290,7 +1289,7 @@
                "icon:pencil" X"09" "icon:trash"
                INTO WS-ROW
 
-           SET     WS-OK                         TO    Dg-List::AddRow(WS-ROW)
+           Dg-List::AddRow(WS-ROW)
 
            GOBACK.
 
@@ -1321,7 +1320,7 @@
                SET     Txt-Url::Text             TO    SPACES
                SET     WS-LAST-DEFAULT           TO    SPACES
                SET     Txt-Name::Enabled         TO    "true"
-               SET     WS-OK                     TO    Cmb-Provider::SetSelectedIndex(0)
+               Cmb-Provider::SetSelectedIndex(0)
 
                EXIT PROGRAM
            END-IF
@@ -1346,7 +1345,7 @@
                    CALL    "PC-PROVIDER-LABEL"
                    IF    WS-PROV-IX > 0
                        SET     WS-P              TO    WS-PROV-IX
-                       SET     WS-OK             TO    Cmb-Provider::SetSelectedIndex(WS-P)
+                       Cmb-Provider::SetSelectedIndex(WS-P)
                    END-IF
 
                    *> Remember the provider's default address: changing the provider later
@@ -1634,11 +1633,11 @@
            *>   the combo's items are their names, in the IDE's order.
 
            COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
-           SET     WS-OK                         TO    Cmb-Provider::Clear()
+           Cmb-Provider::Clear()
            PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-PROV-COUNT
                COBOL::"PROVIDER-GET" ( WS-P WS-PROV-ID WS-PROV-LABEL
                    WS-PROV-EP WS-PROV-NEEDS )
-               SET     WS-OK                     TO    Cmb-Provider::AddItem(WS-PROV-LABEL::Trim())
+               Cmb-Provider::AddItem(WS-PROV-LABEL::Trim())
            END-PERFORM
 
            GOBACK.

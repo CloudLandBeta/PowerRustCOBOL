@@ -359,7 +359,6 @@
            05 WS-REG-NAME                        PIC    X(30)    OCCURS 100.
        01 WS-FILE-NOTE                           GLOBAL    PIC X(300).
        01 WS-FAILED                              GLOBAL    PIC 9(3).
-       01 WS-RESULT                              GLOBAL    PIC X(30).
        *>   New conversation's topic picker (PICK-FORM): the ids behind the
        *>   names it shows, the preselected one and its answer.
 
@@ -3252,9 +3251,8 @@
                                                  TO    AGENT-1::RegisteredName
                            ELSE
                                ADD    1 TO WS-FAILED
-                               SET     WS-RESULT TO    AGENT-1::RegisterResult
                                STRING    WS-FILE-NOTE::Trim() " " FUNCTION TRIM(TF-NAME)
-                                   " (" WS-RESULT::Trim() ")"
+                                   " (" AGENT-1::RegisterResult::Trim() ")"
                                    INTO WS-FILE-NOTE
                            END-IF
                        END-IF

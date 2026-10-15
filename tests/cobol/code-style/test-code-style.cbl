@@ -9,6 +9,9 @@
       *>   C  methods of an ordinary data item (value methods)
       *>   D  an expression where COBOL-85 wants an identifier
       *>   E  the built-ins, written inline: COBOL::"NAME" ( ... )
+      *>   F  commas between the arguments of a call
+      *>   G  a property goes straight into a call (INVOKE USING and
+      *>      the inline form), a sign needs a comma
       *> Self-checking: a case prints only if it FAILS; one result
       *> block at the end lists every form and its tally.
       *> ============================================================
@@ -28,6 +31,8 @@
        01  WS-PERSON-NAME          PIC X(40) VALUE "Dr. House, MD".
        01  WS-TEXT                 PIC X(30) VALUE SPACES.
        01  WS-CNT                  PIC 9(4)  VALUE 0.
+       01  WS-NL                   PIC X.
+       01  WS-SIGN                 PIC S9(4) VALUE 5.
        01  WS-RECORD.
            05 WS-REC-ID            PIC 9(4).
            05 WS-REC-NAME          PIC X(20).
@@ -36,7 +41,7 @@
        01  WS-ROWS                 PIC 9(4).
        01  WS-VAL                  PIC X(20).
        01  WS-GROUPS.
-           05 WS-G OCCURS 12 TIMES.
+           05 WS-G OCCURS 13 TIMES.
               10 WS-G-NAME         PIC X(40).
               10 WS-G-RUN          PIC 9(3) VALUE 0.
               10 WS-G-OK           PIC 9(3) VALUE 0.
@@ -234,6 +239,37 @@
            MOVE "a;b" TO WS-EXP.
            PERFORM CHECK-TEXT.
 
+      *> ---- G. a property goes straight into a call -------------
+           MOVE 13 TO WS-GI.
+           SET WS-NL TO FUNCTION CHAR(11).
+           MOVE "alpha" TO TXT-Q::Text.
+           INVOKE LST-2 "AddItem" USING TXT-Q::Text.
+           LST-2::AddItem(TXT-Q::Text::Trim()).
+           LST-2::AddItem(LST-2::GetCount()).
+           MOVE SPACES TO WS-EXP.
+           STRING "alpha" WS-NL "alpha" WS-NL "2"
+               DELIMITED BY SIZE INTO WS-EXP.
+           MOVE LST-2::Items TO WS-RES.
+           MOVE "G1 INVOKE USING, inline, an answer as argument"
+               TO WS-LABEL.
+           PERFORM CHECK-TEXT.
+           INVOKE LST-2 "GetCount" RETURNING WS-N.
+           MOVE "G2 INVOKE ... RETURNING an item" TO WS-LABEL.
+           MOVE 3 TO WS-EXPN.
+           PERFORM CHECK-NUM.
+           SET WS-N TO 0.
+           SET WS-N TO LST-2::GetCount().
+           MOVE "G3 SET an item TO the inline answer" TO WS-LABEL.
+           PERFORM CHECK-NUM.
+           LST-3::AddItem( WS-SIGN -1 ).
+           LST-3::AddItem( WS-SIGN, -1 ).
+           MOVE SPACES TO WS-EXP.
+           STRING "4" WS-NL "5" DELIMITED BY SIZE INTO WS-EXP.
+           MOVE LST-3::Items TO WS-RES.
+           MOVE "G4 a sign: spaces make one argument, a comma two"
+               TO WS-LABEL.
+           PERFORM CHECK-TEXT.
+
            PERFORM SHOW-RESULTS.
            STOP RUN.
 
@@ -250,6 +286,7 @@
            MOVE "D  expressions in MOVE/SET/STRING" TO WS-G-NAME (10).
            MOVE "E  built-ins written inline" TO WS-G-NAME (11).
            MOVE "F  commas between arguments" TO WS-G-NAME (12).
+           MOVE "G  a property straight into a call" TO WS-G-NAME (13).
 
        CHECK-TEXT.
            ADD 1 TO WS-TOT-RUN.
@@ -283,12 +320,12 @@
            DISPLAY "The RustCOBOL extensions of the Code style".
            DISPLAY "section, by form (passed / run):".
            DISPLAY "--------------------------------------------".
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 12
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 13
                DISPLAY "  " WS-G-NAME (WS-I) " "
                    WS-G-OK (WS-I) " / " WS-G-RUN (WS-I)
            END-PERFORM.
            DISPLAY "--------------------------------------------".
-           DISPLAY "FORMS EXERCISED : 12".
+           DISPLAY "FORMS EXERCISED : 13".
            DISPLAY "TESTS RUN       : " WS-TOT-RUN.
            DISPLAY "TESTS PASSED    : " WS-TOT-OK.
            DISPLAY "TESTS FAILED    : " WS-TOT-BAD.

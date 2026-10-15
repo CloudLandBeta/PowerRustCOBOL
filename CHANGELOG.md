@@ -17,6 +17,26 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.167] — 2026-10-15
+
+*(Written on `features`, after 1.91.166 — code style.)*
+
+### Housekeeping: a property goes straight into the call — the rule, and the examples brought up to it
+
+Operator, 2026-10-15: a scratch item that only carries a control's property to a call is unnecessary with PowerRustCOBOL AI — pass the property in `USING`, and write the `INVOKE` inline: `SET WS-STARTED TO KB-1::Query( WS-KB TXT-QUESTION::Text )`. No behaviour changes; the code that ships is untouched.
+
+- **The rule, in the Developer's Guide** (*Code style*, §13): *A property goes straight into the call* — the three rungs (scratch item → property in `INVOKE … USING` → the inline call), the spaces-or-commas rule (`OBJ::M(WS-A -1)` is **one** argument, checked), and rules 11–12. Two limits are written down because they were found by running, not remembered: **calls on `me` and `super` keep `INVOKE`** (✨ Beautify leaves them alone on purpose), and **an inline call is a call only to a method the control has** — a name it does not answer parses as a subscript and does nothing, silently.
+- **The examples.** PowerDemo3 *Maps*: 19 `INVOKE MAP-1 "…" USING …` are `MAP-1::AddMarker( … )` and the like. PowerDemo3 *REST*: 11 `SET WS-LINE TO RestClient-1::BaseURL` + `AppendText(FUNCTION TRIM(WS-LINE))` pairs are `AppendText(RestClient-1::BaseURL::Trim())`, and the 5 items that carried them are gone. PowerChat: 32 `SET WS-OK TO Ctl::Method(…)` whose `WS-OK` was never read are plain calls in six forms (`WS-OK` removed from each), and the form `chat-form` no longer copies `AGENT-1::RegisterResult` into `WS-RESULT` to use it once.
+- *Left as found, on purpose:* calls on `ME`/`super` (above); PowerChat's four larger forms, whose `Uses:`/`Result:` comments name `WS-OK` — a comment already there is never edited, so the item stays; code kept in a `<DeletedControl>` block (it is the recycle bin, not live code); `main-form.recovered.cfrm` (an IDE recovery file, not in the project's `forms` list); the `INVOKE … RETURNING` of `GetProperty` on `ME`/`super`.
+- *Found, not fixed (a `fixes` item):* **an inline `ME::OpenFormSync("X")` / `ME::OpenFormAsync("X")` opens no window and says nothing** — `OpenFormSync`/`OpenFormAsync` are not in `cobolt_ast::methods::is_known_method`, so a call with arguments reads as a subscript. `INVOKE ME::OpenFormAsync("X")` opens it. The runtime guard that polices this list covers `exec_method` only, not the window calls.
+
+*Tests:* `tests/cobol/code-style/test-code-style.cbl` gains form **G** — a property in `INVOKE … USING`, the inline call, an answer as another call's argument, `INVOKE … RETURNING` against `SET … TO obj::M()`, and the sign case — 26 → **30 cases over 13 forms**, all passing; with the property-in-`USING` call and the comma removed, G1–G4 fail. `test_code_style` updated to the new counts.
+
+*Text the tests pinned:* `maps_demo_compiles` looked for the old spelling `"AddRoute"` in the generated program and now looks for `MAP-1::AddRoute(`; nine snapshots of the codegen golden corpus (`PowerChat` agents, chat, model, pick, prompts, providers and settings; `PowerDemo3` maps-demo and restapi-form) carry exactly the delta of these edits — checked file by file against a fresh generation from the committed and from the edited forms.
+*Found, not fixed:* `cobolt-codegen`'s `every_example_form_generates_its_snapshot` is red at HEAD already: `PowerDemo3/General__layers-form.cbl` has no snapshot, and the committed snapshots of the Responsive Layout and PowerChat forms predate the `*>` blocks above their `CALL`s. `UPDATE_GOLDEN=1` would rewrite 30 files (6,117 lines), so it is left to a change of its own.
+
+*Proof the examples still do what they did:* `run_form` of the same script against the committed form and the edited one, `display` and `reads` identical — the REST demo (load, GET, GET by URL, bad host, timeout probe) and the Maps demo (markers, regions, route, Clear); `check` clean on the eight edited forms; PowerChat **24 of 24** (4 compile, 20 run) with `generated/` refreshed from the edited forms. Not run: the Maps demo's *Drive* and *Road* buttons (they need a Google / OpenRouteService key). `cobolt-ide` (bin and integration tests) 1,748 passed / 4 failed — the four of 1.91.166, none caused by this change; `cobolt-project-tools` 80 / 0; `cobolt-runtime` `test_code_style` 1 / 0.
+
 ## [PowerRustCOBOL 1.91.166] — 2026-10-15
 
 *(Written on `features`, after 1.91.165 — spec 088.)*

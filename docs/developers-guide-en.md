@@ -9061,7 +9061,7 @@ a value.** If the value can be read, tested or moved where it is, do that.
 | write `CALL "COBOL-OPEN-DB" USING …` | `COBOL::"OPEN-DB" ( ":memory:" WS-DB WS-ST )` |
 
 Every behaviour described below is exercised by a program that runs under the
-test suite — `tests/cobol/code-style/test-code-style.cbl` (26 cases over 12
+test suite — `tests/cobol/code-style/test-code-style.cbl` (30 cases over 13
 syntax forms) and `tests/cobol/string-ops/test-data-item-methods.cbl` (32 cases
 over 16 syntax forms) — so the examples show what the compiler and the runtime
 actually do.
@@ -9143,6 +9143,51 @@ separate "record buffer" item is needed:
 Use `INVOKE obj::Method(args) RETURNING item` only when you want the answer to
 stay in an item for later; if you use it once, put the call where it is used.
 
+#### A property goes straight into the call
+
+The arguments of a call are values, read at the moment of the call, and a
+property is a value. So a call never needs an item whose only job is to carry
+the property to it. The same call, three ways — the SQL text typed into
+`TXT-SQL`, run by the `DB-LOCAL` database:
+
+```cobol
+      *> avoid — WS-SQL exists only to carry the text from the control to the call
+           MOVE TXT-SQL::Text TO WS-SQL
+           INVOKE DB-LOCAL "Query" USING WS-SQL RETURNING WS-N
+
+      *> better — the property is the argument; WS-SQL is gone
+           INVOKE DB-LOCAL "Query" USING TXT-SQL::Text RETURNING WS-N
+
+      *> write this — the inline form reads like the call it is
+           SET     WS-N                          TO    DB-LOCAL::Query(TXT-SQL::Text)
+```
+
+`INVOKE obj "Method" USING a b RETURNING r` is `SET r TO obj::Method(a b)`; with
+no answer to keep it is the statement `obj::Method(a b)` on its own. A value
+method may clean the argument on the way in — `LST-1::AddItem(TXT-A::Text::Trim())`
+— and a method's answer may be an argument of another call.
+
+Three things to watch:
+
+- **Separate the arguments with spaces, but use a comma wherever an argument
+  could be read as the continuation of the one before it.** `LST-1::AddItem(WS-A -1)`
+  is one argument, `WS-A` minus 1; to pass a negative number write
+  `OBJ::Method(WS-A, -1)`. Quoted literals, identifiers and properties are safe
+  with spaces.
+- **Only a method the control has can be written inline.** A name the control does
+  not answer is read as a subscript and does nothing — silently. Look it up in the
+  control catalogue (§8) before you write it.
+- **Calls on the window itself keep `INVOKE`.** `INVOKE ME::OpenFormSync("X")`,
+  `INVOKE ME::OpenFormAsync("X") RETURNING WS-H` (the only way to receive a
+  *windowHandler*), `INVOKE ME::SetProperty(…)`, `INVOKE ME::GetProperty(…)
+  RETURNING …`, `INVOKE ME::Close()` and the same on `super`. The window supervisor
+  runs them, and ✨ Beautify leaves them as they are. What you pass them still
+  goes straight in: `INVOKE ME::SetProperty("ConfirmText", TXT-Q::Text::Trim())`.
+
+Keep an item when the value is a real working value — used more than once,
+accumulated, taken as a snapshot before something changes it, or a loop bound
+that must not be read again.
+
 #### An ordinary data item has methods too
 
 A `PIC X` item (and a group, a table occurrence, a slice) answers a small, fixed
@@ -9211,7 +9256,9 @@ and `Replace(",", ";")` are the same call.
    `COMPUTE`, `ADD … TO`, `MOVE`, `SET`, `STRING`, `DISPLAY`.
 3. **Put a method call inside the expression that needs it**; call a method
    whose answer you do not need as a statement of its own, without `INVOKE`
-   (`Txt-Log::AppendText(WS-NL)`); `INVOKE … RETURNING` only to keep the answer.
+   (`Txt-Log::AppendText(WS-NL)`); `INVOKE … RETURNING` only to keep the answer —
+   and then as `SET item TO obj::Method(args)`. Calls on `me` and `super` keep
+   `INVOKE`.
 4. **`MOVE` a returned record into its 01 group**; do not unpack it by hand.
 5. **Chain the value methods** (`::Trim()::Upper()`) rather than writing an
    `INSPECT` or a scratch item for a text clean-up.
@@ -9226,6 +9273,11 @@ and `Replace(",", ";")` are the same call.
     `INSPECT`, `UNSTRING`, reference modification, the intrinsic functions —
     rather than asking a data item for a method it does not have: any other
     name after a data item is an **error**.
+11. **Pass a property as the argument**, never through a scratch item:
+    `Txt-Log::AppendText(RestClient-1::BaseURL::Trim())`, not a `MOVE` into
+    `WS-LINE` followed by the call. Separate the arguments with spaces, and with
+    commas where one starts with a sign or a parenthesis.
+12. **Write only methods the control has.** Inline, any other name does nothing.
 
 #### Layout and comments
 

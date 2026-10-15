@@ -115,7 +115,6 @@
        01 WS-SET-NAME                            GLOBAL    PIC X(20).
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-EOF                                 GLOBAL    PIC X.
-       01 WS-OK                                  GLOBAL    PIC X(4).
        01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
        01 WS-MODELS-PATH                         GLOBAL    PIC X(240).
        *>   The interface texts (spec 071 R44): one row per text, one column
@@ -469,17 +468,17 @@
            COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
            SET     WS-CUR-NAME                   TO    SPACES
            CALL    "PC-LOAD-CONNS"
-           SET     WS-OK                         TO    Cmb-Conn::Clear()
+           Cmb-Conn::Clear()
            IF    WS-CONN-COUNT = 0
                SET     Lbl-Status::Caption       TO    T-SUM-NEED-PROVIDER::Trim()
                EXIT PROGRAM
            END-IF
            PERFORM    VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               SET     WS-OK                     TO    Cmb-Conn::AddItem(WS-CONN-NAME(WS-P)::Trim())
+               Cmb-Conn::AddItem(WS-CONN-NAME(WS-P)::Trim())
            END-PERFORM
            *>   Opening connects: the first connection and its models, at once.
 
-           SET     WS-OK                         TO    Cmb-Conn::SetSelectedIndex(1)
+           Cmb-Conn::SetSelectedIndex(1)
            CALL    "PC-OPEN-CONN"
 
            GOBACK.
@@ -938,7 +937,7 @@
            CALL    "PC-FMT"
 
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
-           SET     WS-OK                         TO    Cmb-Model::Clear()
+           Cmb-Model::Clear()
 
            *> A blank key plus the connection's name (WS-CUR-NAME) makes the runtime
            *> use the key stored for it; this form can never read that key.
@@ -952,8 +951,8 @@
 
                SET     Lbl-Status::Caption       TO    WS-LONG
                IF    WS-MODEL-ID NOT = SPACES
-                   SET     WS-OK                 TO    Cmb-Model::AddItem(WS-MODEL-ID::Trim())
-                   SET     WS-OK                 TO    Cmb-Model::SetSelectedIndex(1)
+                   Cmb-Model::AddItem(WS-MODEL-ID::Trim())
+                   Cmb-Model::SetSelectedIndex(1)
                END-IF
                SET     Cmb-Model::Value          TO    WS-MODEL-ID
                EXIT PROGRAM
@@ -964,7 +963,7 @@
            SET     WS-INDEX                      TO    0
            PERFORM    VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
                COBOL::"MODEL-LIST-GET" ( WS-M WS-XVAL )
-               SET     WS-OK                     TO    Cmb-Model::AddItem(WS-XVAL::Trim())
+               Cmb-Model::AddItem(WS-XVAL::Trim())
                IF    WS-XVAL = WS-MODEL-ID
                    SET     WS-INDEX              TO    WS-M
                END-IF
@@ -979,7 +978,7 @@
            END-IF
 
            SET     WS-P                          TO    WS-INDEX
-           SET     WS-OK                         TO    Cmb-Model::SetSelectedIndex(WS-P)
+           Cmb-Model::SetSelectedIndex(WS-P)
            SET     Cmb-Model::Value              TO    WS-MODEL-ID
            SET     WS-FMT                        TO    T-MODELS-AVAILABLE
            SET     WS-NE                         TO    WS-N

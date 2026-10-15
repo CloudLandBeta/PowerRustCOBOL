@@ -322,7 +322,6 @@
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 WS-LINE                                PIC    X(200).
        01 WS-NL                                  PIC    X.
 
        LINKAGE SECTION.
@@ -336,36 +335,27 @@
            SET     WS-NL                         TO    FUNCTION CHAR(11)
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-LINE                       TO    RestClient-1::BaseURL
-
            TextBox-LOG::AppendText("   BaseURL:   ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::BaseURL::Trim())
            TextBox-LOG::AppendText(WS-NL)
-
-           SET     WS-LINE                       TO    RestClient-1::DefaultMethod
 
            TextBox-LOG::AppendText("   Method:    ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::DefaultMethod::Trim())
            TextBox-LOG::AppendText(WS-NL)
-
-           SET     WS-LINE                       TO    RestClient-1::AuthType
 
            TextBox-LOG::AppendText("   AuthType:  ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::AuthType::Trim())
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-LINE                       TO    RestClient-1::AuthToken
-           IF    FUNCTION TRIM(WS-LINE) = SPACES
+           IF    RestClient-1::AuthToken::Trim() = SPACES
                TextBox-LOG::AppendText("   AuthToken: (none configured)")
            ELSE
                TextBox-LOG::AppendText("   AuthToken: (configured, sent as X-API-Key)")
            END-IF
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-LINE                       TO    RestClient-1::Mode
-
            TextBox-LOG::AppendText("   Mode:      ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::Mode::Trim())
            TextBox-LOG::AppendText(" (Async returns at once; the answer arrives as an event)")
            TextBox-LOG::AppendText(WS-NL)
            TextBox-LOG::AppendText(WS-NL)
@@ -401,7 +391,6 @@
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 WS-LINE                                PIC    X(200).
        01 WS-NL                                  PIC    X.
 
        LINKAGE SECTION.
@@ -421,23 +410,18 @@
            TextBox-LOG::AppendText("-- GET (BaseURL, no argument)")
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-LINE                       TO    RestClient-1::BaseURL
            SET     WS-NL                         TO    FUNCTION CHAR(11)
 
            TextBox-LOG::AppendText("   url:     ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::BaseURL::Trim())
            TextBox-LOG::AppendText(WS-NL)
-
-           SET     WS-LINE                       TO    RestClient-1::AuthType
 
            TextBox-LOG::AppendText("   auth:    ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::AuthType::Trim())
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-LINE                       TO    RestClient-1::TimeoutMs
-
            TextBox-LOG::AppendText("   timeout: ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::TimeoutMs::Trim())
            TextBox-LOG::AppendText(" ms")
            TextBox-LOG::AppendText(WS-NL)
 
@@ -727,7 +711,6 @@
        01 WS-LINE                                PIC    X(200).
        01 WS-NL                                  PIC    X.
        01 WS-N                                   PIC    X(12).
-       01 WS-BODY                                PIC    X(4000).
 
        LINKAGE SECTION.
 
@@ -747,10 +730,8 @@
            TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-BODY                       TO    RestClient-1::ResponseBody
-
            TextBox-BODY::Clear()
-           TextBox-BODY::AppendText(FUNCTION TRIM(WS-BODY))
+           TextBox-BODY::AppendText(RestClient-1::ResponseBody::Trim())
 
            *> Only 200 and 201 count as success. Any other status, even another
            *> 2xx such as 204, takes the ELSE branch.
@@ -779,7 +760,6 @@
        DATA DIVISION.
 
        WORKING-STORAGE SECTION.
-       01 WS-LINE                                PIC    X(200).
        01 WS-NL                                  PIC    X.
        01 WS-N                                   PIC    X(12).
 
@@ -795,10 +775,8 @@
            TextBox-LOG::AppendText("!! onError")
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-LINE                       TO    RestClient-1::LastError
-
            TextBox-LOG::AppendText("   reason:  ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           TextBox-LOG::AppendText(RestClient-1::LastError::Trim())
            TextBox-LOG::AppendText(WS-NL)
 
            SET     Label-STATUS::Caption         TO    "FAILED - see the log"
@@ -818,7 +796,6 @@
        WORKING-STORAGE SECTION.
        01 WS-LINE                                PIC    X(200).
        01 WS-NL                                  PIC    X.
-       01 WS-N                                   PIC    X(12).
 
        LINKAGE SECTION.
 
@@ -831,10 +808,8 @@
            TextBox-LOG::AppendText("!! onTimeout")
            TextBox-LOG::AppendText(WS-NL)
 
-           SET     WS-N                          TO    RestClient-1::TimeoutMs
-
            TextBox-LOG::AppendText("   after:   ")
-           TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
+           TextBox-LOG::AppendText(RestClient-1::TimeoutMs::Trim())
            TextBox-LOG::AppendText(" ms")
            TextBox-LOG::AppendText(WS-NL)
 

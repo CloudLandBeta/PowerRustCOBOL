@@ -145,7 +145,6 @@
        01 WS-ITEMS                               GLOBAL    PIC X(8400).
        01 WS-ITEM                                GLOBAL    PIC X(120).
        01 WS-PTR                                 GLOBAL    PIC 9(5).
-       01 WS-OK                                  GLOBAL    PIC X(4).
        01 WS-IDX                                 GLOBAL    PIC S9(4).
        01 WS-ANSWER                              GLOBAL    PIC 9(4).
 
@@ -243,7 +242,7 @@
            END-IF
            INVOKE    super::GetProperty("PickItems") RETURNING WS-ITEMS
 
-           SET     WS-OK                         TO    Lst-Items::Clear()
+           Lst-Items::Clear()
            SET     WS-PTR                        TO    1
 
            *> 8400 is the size of WS-ITEMS. The first blank piece ends the list: the
@@ -257,7 +256,7 @@
                IF    WS-ITEM = SPACES
                    EXIT PERFORM
                END-IF
-               SET     WS-OK                     TO    Lst-Items::AddItem(WS-ITEM::Trim())
+               Lst-Items::AddItem(WS-ITEM::Trim())
            END-PERFORM
            INVOKE    super::GetProperty("PickSelected") RETURNING WS-TEXT
            IF    WS-TEXT = SPACES

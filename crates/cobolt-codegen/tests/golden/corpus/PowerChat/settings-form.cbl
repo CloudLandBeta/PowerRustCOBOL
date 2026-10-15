@@ -126,7 +126,6 @@
        01 WS-SET-VALUE                           GLOBAL    PIC X(200).
        01 WS-NOW                                 GLOBAL    PIC X(21).
        01 WS-EOF                                 GLOBAL    PIC X.
-       01 WS-OK                                  GLOBAL    PIC X(4).
        01 WS-SETTINGS-PATH                       GLOBAL    PIC X(240).
        01 WS-MODELS-PATH                         GLOBAL    PIC X(240).
        01 WS-MODEL-COUNT                         GLOBAL    PIC 9(4)    VALUE 0.
@@ -1300,7 +1299,7 @@
            *>   The model list, one row each: name, model, and whether a key is
            *>   stored - never the key itself (spec 071 R37, 076 R6).
 
-           SET     WS-OK                         TO    Lst-Models::Clear()
+           Lst-Models::Clear()
            SET     WS-MODEL-COUNT                TO    0
            SET     WS-WITH-MODEL                 TO    0
 
@@ -1392,7 +1391,7 @@
                                    STRING    WS-ARG4::Trim() "  " WS-FMT-OUT::Trim() INTO WS-ROW
                                END-IF
                            END-PERFORM
-                           SET     WS-OK         TO    Lst-Models::AddItem(WS-ROW::Trim())
+                           Lst-Models::AddItem(WS-ROW::Trim())
                        END-IF
                END-READ
            END-PERFORM
