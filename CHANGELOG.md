@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.159] — 2026-10-15
+
+*(Written on `fixes`, after 1.91.158.)*
+
+### Fix: the title bar of the Build Folder window ended short of the window
+
+Operator, 2026-10-15, with a screenshot of **Settings ▸ Build Folder…**: the title bar was narrower than the window and its right end stopped about 26 pt before the frame's edge. The window had been built the way the Platform SDK window is — `fixed_size([560, 0])` and a body `set_width(560)` — and that is one width too many: `fixed_size` is the window's OUTER size, egui fits the title bar and the body inside it after the frame's margin and stroke and then the body's own margin, so a body 560 wide pushed the frame out to 586 while the title bar stayed at the width the window had offered. The repository already knew this (`leaderboard_modal.rs` subtracts `window_margin` and the stroke, with a test) and I copied the older, wrong pattern.
+
+- *Fix:* a small shared helper, `panels/fixed_dialog.rs` (`show`, `content_width`), builds the window and gives the body the width that fits. Both dialogs that had the pattern now use it: Build Folder, and the Platform SDK window it was copied from, which had the same flaw.
+- *Tests, red first:* `the_title_bar_and_the_window_frame_are_the_same_rect` (at 1x and 2x) and `the_dialog_is_exactly_as_wide_as_it_was_given_and_does_not_grow` (2, 6 and 16 frames). With the old sizing they failed with exactly the report — the window **586** wide instead of 560, the title bar's right edge at 1267 against the frame's 1293 — and with the helper they pass: 560.0 wide at every frame count, left and right edges equal.
+- *Not checked:* the window on screen (the operator's eye); every other dialog of the IDE was not audited for the same pattern — a search for `fixed_size([` finds only these two.
+
 ## [PowerRustCOBOL 1.91.158] — 2026-10-15
 
 *(Written on `fixes`, after 1.91.157.)*

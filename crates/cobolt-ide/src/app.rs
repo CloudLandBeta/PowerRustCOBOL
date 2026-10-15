@@ -12763,60 +12763,54 @@ impl CoboltApp {
         let resolved = cobolt_compiler::resolve_workspace_root(configured.clone());
 
         let mut open = self.sdk_modal_open;
-        egui::Window::new(tr.sdk_menu_label)
-            .collapsible(false)
-            .resizable(false)
-            .fixed_size([W, 0.0])
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.set_width(W);
-                ui.add_space(4.0);
-                ui.label(tr.sdk_explain);
-                ui.add_space(8.0);
+        // `W` is the window's OUTER width; the body is laid out from what fits inside it.
+        crate::panels::fixed_dialog::show(ctx, tr.sdk_menu_label, W, &mut open, |ui| {
+            ui.add_space(4.0);
+            ui.label(tr.sdk_explain);
+            ui.add_space(8.0);
 
-                // What is in force right now, and where it came from.
-                ui.horizontal_wrapped(|ui| {
-                    ui.strong(format!("{}:", tr.sdk_in_use));
-                    match &resolved {
-                        Some(root) => ui.monospace(root.display().to_string()),
-                        None => ui.colored_label(egui::Color32::from_rgb(220, 90, 90), tr.sdk_none),
-                    };
-                });
-                ui.add_space(2.0);
-                ui.label(if configured.is_some() {
-                    tr.sdk_source_setting
-                } else if resolved.is_some() {
-                    tr.sdk_source_auto
-                } else {
-                    tr.sdk_missing_hint
-                });
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                ui.horizontal(|ui| {
-                    if ui.button(tr.sdk_browse).clicked() {
-                        let mut spec = crate::file_dialog::DialogSpec::folder();
-                        if let Some(dir) = configured.as_ref() {
-                            spec = spec.directory(dir.clone());
-                        }
-                        crate::file_dialog::begin(ctx, "sdk_root", spec);
-                    }
-                    if ui
-                        .add_enabled(configured.is_some(), egui::Button::new(tr.sdk_clear))
-                        .clicked()
-                    {
-                        crate::ui_prefs::save_workspace_root(None);
-                    }
-                    ui.add_space(ui.spacing().item_spacing.x);
-                    if ui.button(tr.sdk_close).clicked() {
-                        self.sdk_modal_open = false;
-                    }
-                });
-                ui.add_space(4.0);
+            // What is in force right now, and where it came from.
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(format!("{}:", tr.sdk_in_use));
+                match &resolved {
+                    Some(root) => ui.monospace(root.display().to_string()),
+                    None => ui.colored_label(egui::Color32::from_rgb(220, 90, 90), tr.sdk_none),
+                };
             });
+            ui.add_space(2.0);
+            ui.label(if configured.is_some() {
+                tr.sdk_source_setting
+            } else if resolved.is_some() {
+                tr.sdk_source_auto
+            } else {
+                tr.sdk_missing_hint
+            });
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui.button(tr.sdk_browse).clicked() {
+                    let mut spec = crate::file_dialog::DialogSpec::folder();
+                    if let Some(dir) = configured.as_ref() {
+                        spec = spec.directory(dir.clone());
+                    }
+                    crate::file_dialog::begin(ctx, "sdk_root", spec);
+                }
+                if ui
+                    .add_enabled(configured.is_some(), egui::Button::new(tr.sdk_clear))
+                    .clicked()
+                {
+                    crate::ui_prefs::save_workspace_root(None);
+                }
+                ui.add_space(ui.spacing().item_spacing.x);
+                if ui.button(tr.sdk_close).clicked() {
+                    self.sdk_modal_open = false;
+                }
+            });
+            ui.add_space(4.0);
+        });
         if !open {
             self.sdk_modal_open = false;
         }
@@ -12873,72 +12867,66 @@ impl CoboltApp {
         let (in_force, source) = cobolt_compiler::resolve_build_root(configured.as_deref());
 
         let mut open = self.build_folder_modal_open;
-        egui::Window::new(ide("📁 Build Folder…"))
-            .collapsible(false)
-            .resizable(false)
-            .fixed_size([W, 0.0])
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.set_width(W);
-                ui.add_space(4.0);
-                ui.label(ide(
-                    "Building an application stages it in a working folder, where the generated files and everything already compiled are kept between builds. Leave it on the default to use the system's own place — the per-user cache folder — or choose another folder, for example on a larger drive.",
-                ));
-                ui.add_space(8.0);
+        // `W` is the window's OUTER width; the body is laid out from what fits inside it.
+        crate::panels::fixed_dialog::show(ctx, ide("📁 Build Folder…"), W, &mut open, |ui| {
+            ui.add_space(4.0);
+            ui.label(ide(
+                "Building an application stages it in a working folder, where the generated files and everything already compiled are kept between builds. Leave it on the default to use the system's own place — the per-user cache folder — or choose another folder, for example on a larger drive.",
+            ));
+            ui.add_space(8.0);
 
-                // What is in force right now, and where it came from.
-                ui.horizontal_wrapped(|ui| {
-                    ui.strong(format!("{}:", tr.sdk_in_use));
-                    ui.monospace(in_force.display().to_string());
-                });
-                ui.add_space(2.0);
-                ui.label(match source {
-                    cobolt_compiler::BuildRootSource::Setting => tr.sdk_source_setting,
-                    cobolt_compiler::BuildRootSource::Environment => {
-                        ide("Set by the environment variable POWERRUSTCOBOL_BUILD_DIR.")
-                    }
-                    cobolt_compiler::BuildRootSource::Default => {
-                        ide("The system's own place; no setting needed.")
-                    }
-                });
-                if let Some(problem) = &self.build_folder_problem {
-                    ui.add_space(4.0);
-                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), problem);
-                }
-
-                ui.add_space(8.0);
-                ui.label(ide(
-                    "A new folder starts empty, so the next build compiles everything again. The old folder is left as it is — delete it yourself when you no longer need it.",
-                ));
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                ui.horizontal(|ui| {
-                    if ui.button(tr.sdk_browse).clicked() {
-                        let mut spec = crate::file_dialog::DialogSpec::folder();
-                        if let Some(dir) = configured.as_ref() {
-                            spec = spec.directory(dir.clone());
-                        }
-                        crate::file_dialog::begin(ctx, "build_folder", spec);
-                    }
-                    if ui
-                        .add_enabled(configured.is_some(), egui::Button::new(ide("Use the default")))
-                        .clicked()
-                    {
-                        crate::ui_prefs::save_build_dir(None);
-                        cobolt_compiler::set_build_root_override(None);
-                        self.build_folder_problem = None;
-                    }
-                    ui.add_space(ui.spacing().item_spacing.x);
-                    if ui.button(tr.sdk_close).clicked() {
-                        self.build_folder_modal_open = false;
-                    }
-                });
-                ui.add_space(4.0);
+            // What is in force right now, and where it came from.
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(format!("{}:", tr.sdk_in_use));
+                ui.monospace(in_force.display().to_string());
             });
+            ui.add_space(2.0);
+            ui.label(match source {
+                cobolt_compiler::BuildRootSource::Setting => tr.sdk_source_setting,
+                cobolt_compiler::BuildRootSource::Environment => {
+                    ide("Set by the environment variable POWERRUSTCOBOL_BUILD_DIR.")
+                }
+                cobolt_compiler::BuildRootSource::Default => {
+                    ide("The system's own place; no setting needed.")
+                }
+            });
+            if let Some(problem) = &self.build_folder_problem {
+                ui.add_space(4.0);
+                ui.colored_label(egui::Color32::from_rgb(220, 90, 90), problem);
+            }
+
+            ui.add_space(8.0);
+            ui.label(ide(
+                "A new folder starts empty, so the next build compiles everything again. The old folder is left as it is — delete it yourself when you no longer need it.",
+            ));
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui.button(tr.sdk_browse).clicked() {
+                    let mut spec = crate::file_dialog::DialogSpec::folder();
+                    if let Some(dir) = configured.as_ref() {
+                        spec = spec.directory(dir.clone());
+                    }
+                    crate::file_dialog::begin(ctx, "build_folder", spec);
+                }
+                if ui
+                    .add_enabled(configured.is_some(), egui::Button::new(ide("Use the default")))
+                    .clicked()
+                {
+                    crate::ui_prefs::save_build_dir(None);
+                    cobolt_compiler::set_build_root_override(None);
+                    self.build_folder_problem = None;
+                }
+                ui.add_space(ui.spacing().item_spacing.x);
+                if ui.button(tr.sdk_close).clicked() {
+                    self.build_folder_modal_open = false;
+                }
+            });
+            ui.add_space(4.0);
+        });
         if !open {
             self.build_folder_modal_open = false;
         }
