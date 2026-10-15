@@ -17,6 +17,19 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.161] — 2026-10-15
+
+*(Written on `fixes`, after 1.91.160 — spec 087, the System KB's wording.)*
+
+### Fix: the System KB still called PostgreSQL and MySQL "a preview, not yet verified against live servers"
+
+Since 1.91.156 both have been run against live servers (PostgreSQL 17.11, MySQL 26.7.0), and the Developer's Guide says so, but the page the AI agents search — the System KB's *Embedded SQL* section, in the compiler's documentation constants — still carried the old sentence, and still said a cursor's rows are read at OPEN "on all three".
+
+- *Fix:* the page now says what the Guide says, each claim checked against the code and the Guide before it went in: PostgreSQL 17 and MySQL 26 were run against live servers by the project's own gated tests and other versions are untried; PostgreSQL keeps a cursor itself and hands the rows over in batches (`CURSOR_BATCH` = 1000; one at a time for a cursor updated with `WHERE CURRENT OF`), SQLite and MySQL read a cursor's rows at OPEN; a unit that only reads sees others' commits at each statement on SQLite and PostgreSQL but the snapshot of its first statement on MySQL; `FOR UPDATE OF column-list` is accepted on all three (sent as `FOR UPDATE`, `for_update_rows`); a connection the server ends is `08006` on MySQL and `57P01` on PostgreSQL.
+- *The store:* `assets/knowledge/chunked.data` regenerated with `build_chunked_kb` — 3,361 records from 8 documents, 11,923,456 bytes, on Metal, 100 s. The embedding model (`multilingual-e5-small`, 3 files, 655 + 17,082,730 + 470,641,600 bytes) was **already on this machine** (`~/PowerRustCOBOL/data/models/multilingual-e5-small/`, since 1 October; the sizes equal what Hugging Face reports), so nothing was downloaded; an earlier note that it was missing came from looking in the wrong folder.
+- *Tests:* `prebuilt_chunked_kb_matches_the_published_documentation` passes with the new store, and the compiler's `published_documentation_tests` and `publishes_system_documentation_correctly` pass.
+- *Not done:* AC15's MySQL half still needs the operator's own listings (`F-ART-PURGA.cob`, `TyC.cob`), which are not on this machine.
+
 ## [PowerRustCOBOL 1.91.160] — 2026-10-15
 
 *(Written on `fixes`, after 1.91.159 — spec 101.)*

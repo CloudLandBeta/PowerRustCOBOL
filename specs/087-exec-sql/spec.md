@@ -9,7 +9,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   the live PostgreSQL 17 and MySQL 26 runs (T27, T28) done. AC15's MySQL half
   needs the operator's own listings, which are not on the machine that ran
   the servers (T38). Approved by the operator 2026-10-05 (Q1–Q7, §7); amended
-  the same day (Q8–Q13) and 2026-10-06 (Q14).
+  the same day (Q8–Q13) and 2026-10-06 (Q14). The System KB page no longer
+  calls PostgreSQL and MySQL a preview (2026-10-15, 1.91.161; the prebuilt
+  store regenerated).
 - **Folder:** specs/087-exec-sql/
 - **Author:** Claude (for Emerson Lopes)   **Date:** 2026-10-05
 
