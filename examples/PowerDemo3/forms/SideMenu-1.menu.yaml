@@ -366,6 +366,12 @@ menu:
       icon: control-bar-chart
       action: open-form:charts-form
       enabled: true
+    - id: mvbu
+      label: Charts 3D
+      type: action
+      icon: preorder
+      action: open-form:chart-3d
+      enabled: true
   - id: xkqo
     label: General
     type: action
@@ -409,4 +415,4 @@ menu:
       icon: layers
       action: open-form:layers-form
       enabled: true
-hash: f3cb34567df3edbd3d18eae4157feb696ca30bf2c475cfecc67b95192b2a954f
+hash: 9f36ffa87b68e5b69f858bd53234f3c9c179680b65d72a67410e8df18dcf1574
