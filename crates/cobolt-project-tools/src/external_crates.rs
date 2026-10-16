@@ -443,6 +443,29 @@ fn probe(
     })
 }
 
+/// Start the probe from the SDK's `Cargo.lock`, as a real build does (spec 101 R4).
+///
+/// A probe with no lock resolves its whole graph afresh, so a crate whose only matching release has
+/// since been **yanked** cannot be resolved at all — and one is: every release of `zip` before 9.0.3
+/// was yanked on 2026-10-13, and `markdownify` 0.3.8, which `cobolt-docs` links for Office documents,
+/// asks for `zip ^8.6.0`. Every External Crates probe then failed with "version 8.6.0 is yanked",
+/// whatever crate was being added. A lock that already holds the yanked release is still honoured, so
+/// the probe asks only the question it exists to ask: does the *candidate* fit the graph the
+/// platform is built from. Only a probe with no lock of its own is seeded; a copy that cannot be made
+/// leaves the probe to resolve as it always did.
+fn seed_probe_lock(crates_path: &Path, scratch: &Path) {
+    let target = scratch.join("Cargo.lock");
+    if target.exists() {
+        return;
+    }
+    let Some(source) = crates_path.parent().map(|root| root.join("Cargo.lock")).filter(|p| p.is_file()) else {
+        return;
+    };
+    if std::fs::copy(&source, &target).is_err() {
+        let _ = std::fs::remove_file(&target);
+    }
+}
+
 fn resolve_graph(
     crates_path: &Path,
     project_dir: &Path,
@@ -459,6 +482,7 @@ fn resolve_graph(
         probe_manifest(crates_path, project_dir, pins, candidate),
     )
     .map_err(|e| format!("cannot stage probe manifest: {e}"))?;
+    seed_probe_lock(crates_path, scratch);
 
     let output = std::process::Command::new("cargo")
         .args(["metadata", "--format-version", "1"])
@@ -1048,5 +1072,33 @@ mod tests {
         // An unknown crate is a clean error, not a mutation.
         assert!(remove(&dir, &mut pins, "nope", &mut |_| panic!("nothing to save")).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// A probe starts from the SDK's lock: a graph that holds a yanked release (every `zip` before
+    /// 9.0.3, through `markdownify`) resolves from a lock that has it and not from a fresh one.
+    /// Only a probe with no lock of its own is seeded, and one is not seeded from nothing.
+    #[test]
+    fn a_probe_starts_from_the_sdks_lock_and_never_replaces_its_own() {
+        let root = std::env::temp_dir().join(format!("prc-probe-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("crates")).unwrap();
+        std::fs::write(root.join("Cargo.lock"), "# the SDK's lock\n").unwrap();
+        let scratch = root.join("probe");
+        std::fs::create_dir_all(&scratch).unwrap();
+
+        seed_probe_lock(&root.join("crates"), &scratch);
+        assert_eq!(std::fs::read_to_string(scratch.join("Cargo.lock")).unwrap(), "# the SDK's lock\n", "seeded");
+
+        std::fs::write(scratch.join("Cargo.lock"), "# the probe's own\n").unwrap();
+        seed_probe_lock(&root.join("crates"), &scratch);
+        assert_eq!(std::fs::read_to_string(scratch.join("Cargo.lock")).unwrap(), "# the probe's own\n", "a lock it has is kept");
+
+        let bare = std::env::temp_dir().join(format!("prc-probe-nolock-{}", std::process::id()));
+        std::fs::create_dir_all(bare.join("crates")).unwrap();
+        let other = bare.join("probe");
+        std::fs::create_dir_all(&other).unwrap();
+        seed_probe_lock(&bare.join("crates"), &other);
+        assert!(!other.join("Cargo.lock").exists(), "no SDK lock, nothing to seed from");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bare);
     }
 }

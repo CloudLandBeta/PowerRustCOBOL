@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.178] — 2026-10-16
+
+*(Written on `fixes`, after 1.91.176. 1.91.177 is `features`'.)*
+
+### Fixed: adding an External Crate failed with "version 8.6.0 is yanked" — the probe now starts from the SDK's lock, as a build does
+
+A sweep of the `features` tree went red in five places it had not been the day before, all with the same line from cargo: `failed to select a version for the requirement zip = "^8.6.0" — version 8.6.0 is yanked ... required by package markdownify v0.3.8`.
+
+- **What happened upstream.** By 2026-10-16 **every release of the `zip` crate before 9.0.3 has been yanked** — 2.x through 8.x and 9.0.0 to 9.0.2; 9.0.3 was published on 2026-10-13 (the 9.0.1 notes: "`set_permissions` was still following symlinks in non-streaming extraction"). `cobolt-docs` links `markdownify` 0.3.8 for Office documents (spec 074), and 0.3.8 — the newest release — asks for `zip ^8.6.0`, whose only match is the yanked 8.6.0.
+- **What broke.** A yanked release can still be used by a project whose lock already holds it, and cannot be chosen by one that resolves afresh. The External Crates **probe** (`cargo metadata` over a staged project, the conflict oracle of spec 044) has no lock, so every **Add** and **Update** — in the Project's Crates dialog and in the `add_crate` tool of the coding-agent plugin — failed, whatever crate was being added. Two tests that stage a program without a lock failed the same way (the generated-`main.rs` compile check and the plugin's `add_crate` test), as did three of the IDE's External Crates flow tests.
+- **What did not.** A build. It starts from the SDK's `Cargo.lock` (spec 101 R4), which holds 8.6.0, and cargo keeps a release a lock already holds. No program the product builds was affected.
+- **The fix.** The probe is seeded with the SDK's lock when it has none of its own — the same preference a build applies — so it asks the one question it exists to ask: does the candidate fit the graph the platform is built from. The compile-check test seeds its program the way `build_core` does. A lock the probe already has is never replaced, and a probe with no SDK lock to copy resolves as before.
+- **Deliberately not done.** The workspace's own `zip` requirements (`8.6` in `cobolt-docs`, `cobolt-forms`, `cobolt-kb`, `cobolt-runtime`; `2` in `cobolt-cli`, `cobolt-ide`) were **not** moved to 9.0.3: `markdownify` would still pull the yanked 8.6.0, and the binary would carry two copies of `zip`. Nothing in the product calls `extract`, which is where the fixed defect lies; archives are read in memory and written from memory. What remains is a decision for the operator: wait for a `markdownify` release that asks for `zip` 9, vendor and patch it, or stop using it. Until one happens, **`cargo update` of this workspace, or a checkout without `Cargo.lock`, will fail** to resolve.
+
+*Tests.* New: `a_probe_starts_from_the_sdks_lock_and_never_replaces_its_own` (`cobolt-project-tools`). The five reds above are green on a clean build of this tree: the plugin's `add_crate` test, the generated-`main.rs` compile check, and the three External Crates flow tests of the IDE. Two others of that group, `live_resolver_verdicts` and `compatible_and_reserved_collisions_still_refuse`, stay red for a different reason that predates this: they ask the live registry for `egui` and expect a refusal, and crates.io now offers egui 0.37.0 against the platform's 0.36, so the answer is an alias offer.
+
 ## [PowerRustCOBOL 1.91.176] — 2026-10-16
 
 *(Written on `fixes`, after 1.91.169. The numbers 1.91.170 to 1.91.175 are `features`' and are not here; this entry takes the next number after the highest in either branch so that no number names two changes.)*

@@ -10755,6 +10755,9 @@ function_prefix = "sales-"
         );
         std::fs::write(dir.join("src/main.rs"), &main_rs).unwrap();
         std::fs::write(dir.join("Cargo.toml"), &cargo_toml).unwrap();
+        // A program starts from the SDK's lock, as `build_core` does (spec 101 R4): resolved afresh,
+        // this graph needs `zip ^8.6.0` (through `markdownify`), whose every release has been yanked.
+        build_cache::seed_lock(&workspace_root, &dir);
         // `main.rs` declares `mod exec_rust_blocks;` unconditionally, so the
         // module has to exist even for a program with no blocks (spec 041 T9).
         let empty = cobolt_parser::parse(cobolt_lexer::tokenize(
