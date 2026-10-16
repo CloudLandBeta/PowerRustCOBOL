@@ -24,31 +24,40 @@ Branches: `features-powercloud` (integration) ← `features-pc-aws`, `features-p
 - [x] T11  Amend spec 078 (A6) and every text listed in plan §WP1; `i18n.rs` ×6 and `prop_help_data.rs` `Connection` help ×6
 
 ## WP2a — IMAGE-FIT, IMAGE-INFO, HTTP-DOWNLOAD (branch features-pc-media)
-- [ ] T12  `images` runtime feature + shim, forwarding, `RuntimeFeatures` plumbing and pinned test strings
-- [ ] T13  `IMAGE-FIT`, `IMAGE-INFO` (EXIF orientation, crop-to-fill, PNG/JPEG by extension, 64 MP guard)
-- [ ] T14  `HTTP-DOWNLOAD` (bytes, redirects, `.part` rename, caps, no query string in logs) with a local test server
-- [ ] T15  BUILTINS, KB table, Guide §11, support matrix; a quantified `tests/cobol/` program
+- [x] T12  `images` runtime feature + shim, forwarding, `RuntimeFeatures` plumbing and pinned test strings
+- [x] T13  `IMAGE-FIT`, `IMAGE-INFO` (EXIF orientation, crop-to-fill, PNG/JPEG by extension, 64 MP guard)
+- [x] T14  `HTTP-DOWNLOAD` (bytes, redirects, `.part` rename, caps, no query string in logs) with a local test server
+- [x] T15  BUILTINS, KB table, Guide §11, support matrix; a quantified `tests/cobol/` program
 
 ## WP2b — DataGrid Image cell retry (branch features-pc-grid)
-- [ ] T16  Retry a failed Image-cell load; render test (file appears after first paint); document the Image kind in the KB tables and the Guide
+- [x] T16  Retry a failed Image-cell load; render test (file appears after first paint); document the Image kind in the KB tables and the Guide
 
 ## WP3 — audio built-ins (branch features-pc-audio, after WP2a)
-- [ ] T17  `audio` feature, dedicated device thread, null sink, state machine
-- [ ] T18  `AUDIO-PLAY/PAUSE/RESUME/STOP/STATE`; BUILTINS, KB, Guide, support matrix, `scan_*`
-- [ ] T19  BUILDING-en, README and CI package list (ALSA); `cargo tree` proof that a build without audio calls links none
+- [x] T17  `audio` feature, dedicated device thread, null sink, state machine
+- [x] T18  `AUDIO-PLAY/PAUSE/RESUME/STOP/STATE`; BUILTINS, KB, Guide, support matrix, `scan_*`
+- [x] T19  BUILDING-en, README and CI package list (ALSA); `cargo tree` proof that a build without audio calls links none
 
 ## WP4 — the example (branch features-pc-example, after WP1–WP3)
-- [ ] T20  Project, assets (wheel image), palette, frameless main form, title panel, tabs
-- [ ] T21  Settings tab (credentials, Connect, Deploy, Save template, link) and `cloudformation/powercloud.yaml` + its test
-- [ ] T22  DynamoDB tab (+ pet popup, view popup), S3 tab, Lambda tab
-- [ ] T23  Polly tab (player), EC2 tab (+ Working… window), Rekognition tab (boxes)
-- [ ] T24  Help ▸ Examples entry, `Tr` ×6, `EXAMPLES` tests, README
-- [ ] T25  `powercloud_hosts.rs` with a quantified summary; goldens; 091 guard
+- [x] T20  Project, assets (wheel image), palette, frameless main form, title panel, tabs
+- [x] T21  Settings tab (credentials, Connect, Deploy, Save template, link) and `cloudformation/powercloud.yaml` + its test
+- [x] T22  DynamoDB tab (+ pet popup, view popup), S3 tab, Lambda tab
+- [x] T23  Polly tab (player), EC2 tab (+ Working… window), Rekognition tab (boxes)
+- [x] T24  Help ▸ Examples entry, `Tr` ×6, `EXAMPLES` tests, README
+- [x] T25  `powercloud_hosts.rs` with a quantified summary; goldens; 091 guard
 
 ## WP5 — documentation and translations (integration branch)
-- [ ] T26  Guide, support matrix, DEPENDENCIES (English), CHANGELOG entries
-- [ ] T27  Regenerate `chunked.data` once
+- [x] T26  Guide, support matrix, DEPENDENCIES (English), CHANGELOG entries
+- [x] T27  Regenerate `chunked.data` once
 - [ ] T28  Translate the Guide, the matrix and DEPENDENCIES; verify; `every_document_ships_in_every_language` green
+  *Not done on purpose (GOLDEN RULE #8): the regeneration cycle runs only when the operator raises the minor or major version. Every English edit of the three documents already deleted its translations, so nothing stale is left; the guard stays red until then.*
+
+## What was done where
+
+WP1–WP3 (T1–T19) reached `main` in 1.91.0; their tasks were never ticked, which is why this file said they were open. Their proofs
+are the tests listed in the spec's *Proofs* table. WP4 and WP5 (T20–T27) are 1.91.170 on `features`:
+the example (`examples/PowerCloud`: five forms, six region connections, the services wheel, five icons, a README), its Help ▸ Examples entry
+in six languages, `crates/cobolt-cli/tests/powercloud_hosts.rs` (three tests), the corpus snapshots, the Guide, the CHANGELOG.
+T27 needed no regeneration: `prebuilt_chunked_kb_matches_the_published_documentation` is green on this tree.
 
 ## Done criteria
 All acceptance criteria of the spec checked; `cargo test` sweeps (per crate, `--no-fail-fast`) with every `test result:` read;

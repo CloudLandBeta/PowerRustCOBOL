@@ -176,8 +176,101 @@ fn validate_binding(form: &Form, binding: &DataBindingDef, findings: &mut Vec<Gu
     validate_target(form, binding, findings);
     validate_source_field_collisions(binding, findings);
     validate_mappings(form, binding, findings);
+    validate_control_array_members(form, binding, findings);
     validate_writable_identity(binding, findings);
     validate_rest_agent_safety(binding, findings);
+}
+
+/// Spec 024 R12, R20 and the display-only rule (Q6): what a repeating group's mappings
+/// must satisfy beyond the ones every binding has.
+///
+/// - every mapped member is a control **inside** the group (a control that is not would
+///   be filled on no card, or on a card of another group) — blocker;
+/// - two source fields do not map to the same member property — blocker (R12);
+/// - in a **writable** binding, a member that only shows (a Label, a picture, a bar) is
+///   read-only by nature: nothing it shows is ever written back — warning, never a
+///   blocker, because the binding still fills the card (Q6).
+fn validate_control_array_members(form: &Form, binding: &DataBindingDef, findings: &mut Vec<GuardianFinding>) {
+    let BindingTargetDescriptor::ControlArray { array_id, .. } = &binding.target else {
+        return;
+    };
+    let group = resolve_control_array(form, array_id);
+    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+    for mapping in &binding.mappings {
+        let BindingTargetPath::ControlProperty { control_id, property_name, .. } = &mapping.target else {
+            continue;
+        };
+        let Some(member) = form.find_control(control_id) else {
+            continue; // `missing-target-control` already says so
+        };
+        if let Some(group) = group {
+            if !is_inside(form, member, &group.id) {
+                let mut finding = GuardianFinding::new(
+                    GuardianSeverity::Blocker,
+                    "member-not-in-array",
+                    format!(
+                        "Mapped control '{control_id}' is not inside the repeating group '{}': it would be filled on no card",
+                        group.id
+                    ),
+                    binding.id.clone(),
+                );
+                finding.target_control_id = Some(control_id.clone());
+                finding.source_field = Some(mapping.source_field.clone());
+                findings.push(finding);
+            }
+        }
+        if !seen.insert((control_id.to_ascii_uppercase(), property_name.to_ascii_uppercase())) {
+            let mut finding = GuardianFinding::new(
+                GuardianSeverity::Blocker,
+                "duplicate-member-property",
+                format!("Two source fields are mapped to '{control_id}.{property_name}'; each member property takes one field"),
+                binding.id.clone(),
+            );
+            finding.target_control_id = Some(control_id.clone());
+            finding.source_field = Some(mapping.source_field.clone());
+            findings.push(finding);
+        }
+        if binding.mode == BindingMode::Writable && is_display_only(&member.control_type) {
+            let mut finding = GuardianFinding::new(
+                GuardianSeverity::Warning,
+                "display-only-member",
+                format!(
+                    "'{control_id}' only shows its value, so nothing is written back from it; the field '{}' is read-only here",
+                    mapping.source_field
+                ),
+                binding.id.clone(),
+            );
+            finding.target_control_id = Some(control_id.clone());
+            finding.source_field = Some(mapping.source_field.clone());
+            findings.push(finding);
+        }
+    }
+}
+
+/// `true` when `control` is `group_id` or sits somewhere below it.
+fn is_inside(form: &Form, control: &cobolt_forms::Control, group_id: &str) -> bool {
+    let mut parent = control.parent.clone();
+    let mut guard = 0;
+    while let Some(id) = parent {
+        if id.eq_ignore_ascii_case(group_id) {
+            return true;
+        }
+        guard += 1;
+        if guard > 64 {
+            return false;
+        }
+        parent = form.find_control(&id).and_then(|c| c.parent.clone());
+    }
+    false
+}
+
+/// A control that shows a value and cannot be edited by the operator.
+fn is_display_only(control_type: &cobolt_forms::ControlType) -> bool {
+    use cobolt_forms::ControlType as C;
+    matches!(
+        control_type,
+        C::Label | C::PictureBox | C::ProgressBar | C::Gauge | C::Line | C::Shape | C::Animator | C::StatusBar
+    )
 }
 
 fn replace_source_fields(binding: &mut DataBindingDef, fields: Vec<BindingField>) {
@@ -1145,6 +1238,124 @@ mod tests {
 
         let findings = validate_form_bindings(&form);
         assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    // ── Spec 024 R12 / R20 / Q6: a repeating group's members ───────────────
+
+    /// A form with a repeating group `ROWS` (array `CUSTOMERS`) holding a TextBox `NAME`
+    /// and a Label `CAPTION`, and a TextBox `OUTSIDE` that is not inside it.
+    fn array_form() -> Form {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let mut group = Control::new("ROWS", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        group.set_prop("ArrayName", PropValue::String("CUSTOMERS".into()));
+        let mut name = Control::new("NAME", ControlType::TextBox, 10, 10);
+        name.parent = Some("ROWS".into());
+        let mut caption = Control::new("CAPTION", ControlType::Label, 10, 40);
+        caption.parent = Some("ROWS".into());
+        form.add_control(group);
+        form.add_control(name);
+        form.add_control(caption);
+        form.add_control(Control::new("OUTSIDE", ControlType::TextBox, 300, 10));
+        form
+    }
+
+    fn array_binding(mode: BindingMode, targets: &[(&str, &str, &str)]) -> DataBindingDef {
+        let mut binding = valid_grid_binding();
+        binding.mode = mode;
+        binding.target = BindingTargetDescriptor::ControlArray {
+            array_id: "CUSTOMERS".into(),
+            member_control_ids: Vec::new(),
+        };
+        binding.mappings = targets
+            .iter()
+            .map(|(field, control, property)| {
+                FieldMapping::new(
+                    *field,
+                    BindingTargetPath::ControlProperty {
+                        array_id: "CUSTOMERS".into(),
+                        control_id: (*control).into(),
+                        property_name: (*property).into(),
+                    },
+                )
+            })
+            .collect();
+        binding
+    }
+
+    fn codes(form: &Form) -> Vec<String> {
+        validate_form_bindings(form).into_iter().map(|f| f.code).collect()
+    }
+
+    #[test]
+    fn a_member_outside_the_repeating_group_is_blocked() {
+        let mut form = array_form();
+        form.data_bindings.push(array_binding(BindingMode::ReadOnly, &[("CUSTOMER-NAME", "OUTSIDE", "Text")]));
+        let findings = validate_form_bindings(&form);
+        let blocked = findings.iter().find(|f| f.code == "member-not-in-array").expect("a finding");
+        assert_eq!(blocked.severity, GuardianSeverity::Blocker);
+        assert_eq!(blocked.target_control_id.as_deref(), Some("OUTSIDE"));
+        assert!(has_blockers(&findings));
+    }
+
+    #[test]
+    fn two_fields_on_the_same_member_property_are_blocked_but_two_properties_are_not() {
+        let mut form = array_form();
+        form.data_bindings.push(array_binding(BindingMode::ReadOnly, &[("CUSTOMER-NAME", "NAME", "Text"), ("CUSTOMER-ID", "NAME", "text")]));
+        assert!(codes(&form).contains(&"duplicate-member-property".to_owned()), "{:?}", codes(&form));
+
+        let mut fine = array_form();
+        fine.data_bindings.push(array_binding(BindingMode::ReadOnly, &[("CUSTOMER-NAME", "NAME", "Text"), ("CUSTOMER-ID", "NAME", "Tooltip")]));
+        assert!(!codes(&fine).contains(&"duplicate-member-property".to_owned()));
+    }
+
+    #[test]
+    fn a_label_in_a_writable_binding_is_a_warning_not_a_blocker_and_only_there() {
+        let mut writable = array_form();
+        writable.data_bindings.push(array_binding(BindingMode::Writable, &[("CUSTOMER-NAME", "NAME", "Text"), ("CUSTOMER-ID", "CAPTION", "Caption")]));
+        let findings = validate_form_bindings(&writable);
+        let warned = findings.iter().find(|f| f.code == "display-only-member").expect("a warning");
+        assert_eq!((warned.severity.clone(), warned.target_control_id.as_deref()), (GuardianSeverity::Warning, Some("CAPTION")));
+        assert!(!has_blockers(&findings), "{findings:?}");
+        assert_eq!(findings.iter().filter(|f| f.code == "display-only-member").count(), 1, "the TextBox is editable");
+
+        let mut read_only = array_form();
+        read_only.data_bindings.push(array_binding(BindingMode::ReadOnly, &[("CUSTOMER-NAME", "NAME", "Text"), ("CUSTOMER-ID", "CAPTION", "Caption")]));
+        assert!(!codes(&read_only).contains(&"display-only-member".to_owned()), "a read-only binding writes nothing, so there is nothing to warn about");
+    }
+
+    #[test]
+    fn a_member_nested_inside_a_panel_of_the_group_still_belongs_to_it() {
+        let mut form = array_form();
+        let mut panel = Control::new("INNER", ControlType::Panel, 5, 5);
+        panel.parent = Some("ROWS".into());
+        let mut deep = Control::new("DEEP", ControlType::TextBox, 6, 6);
+        deep.parent = Some("INNER".into());
+        form.add_control(panel);
+        form.add_control(deep);
+        form.data_bindings.push(array_binding(BindingMode::ReadOnly, &[("CUSTOMER-NAME", "DEEP", "Text")]));
+        assert!(!codes(&form).contains(&"member-not-in-array".to_owned()), "{:?}", codes(&form));
+    }
+
+    #[test]
+    fn repairing_an_array_binding_keeps_the_groups_layout_and_the_members_handlers() {
+        let mut form = array_form();
+        form.find_control_mut("ROWS").unwrap().set_prop("LayoutDirection", PropValue::String("Grid".into()));
+        form.find_control_mut("NAME").unwrap().events.push(EventBinding {
+            event: "onChange".into(),
+            paragraph: "NAME--ONCHANGE".into(),
+            code: "       PROCEDURE DIVISION.\n           CONTINUE.\n".into(),
+        });
+        form.data_bindings.push(array_binding(BindingMode::Writable, &[("CUSTOMER-NAME", "NAME", "Text"), ("CUSTOMER-ID", "OUTSIDE", "Text")]));
+        let before = control_snapshot(&form);
+
+        // The binding names a control that is not a member: drop that mapping, then mark it read-only.
+        apply_repair(&mut form, "BIND-CUSTOMERS", BindingRepairAction::RemoveMapping { source_field: "CUSTOMER-ID".into() }).expect("remove");
+        apply_repair(&mut form, "BIND-CUSTOMERS", BindingRepairAction::MarkReadOnly).expect("read-only");
+
+        assert_eq!(control_snapshot(&form), before, "a repair touches the binding, never the controls");
+        assert!(!codes(&form).contains(&"member-not-in-array".to_owned()), "{:?}", codes(&form));
+        assert_eq!(form.find_control("NAME").unwrap().events.len(), 1);
     }
 
     // ── Spec 039 T6: ScalarControl (Knob/Gauge/Switch) binding target ──────

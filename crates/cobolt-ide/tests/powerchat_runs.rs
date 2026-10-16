@@ -2367,3 +2367,299 @@ fn powerchat_models_are_the_applications() {
     println!("  withdrawn : removed from the application → \"No connection yet\" in PowerChat");
     println!("  elapsed   : {} ms", t.elapsed().as_millis());
 }
+
+// ── Spec 063 R52–R57, R65–R66, R70, R71: who orchestrates ─────────────────────────
+
+/// A PowerChat data folder whose model list holds `models` — `(name, model, tools, rank)` — with the
+/// agents assigned `agents` (entry names, agent 1 first). The application's model list starts empty:
+/// PowerChat adopts what is in its own file, as it does the first time it runs.
+fn mesh_setup(tag: &str, url: &str, models: &[(&str, &str, &str, u8)], agents: &[&str]) -> (PathBuf, PathBuf) {
+    let root = std::env::temp_dir().join(format!(
+        "prc-063-{tag}-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    plant_model(&root, false);
+    std::env::set_var("POWERCHAT_DATA", &data);
+    std::env::set_var("POWERCHAT_SAMPLES", project().join("samples"));
+    cobolt_runtime::model_list::use_memory_only();
+    cobolt_runtime::model_list::clear();
+    let names = ["AGENT-1-ENTRY", "AGENT-2-ENTRY", "AGENT-3-ENTRY"];
+    let mut settings = vec![("CUR-TOPIC", "HR")];
+    for (n, entry) in agents.iter().enumerate() {
+        settings.push((names[n], entry));
+    }
+    seed_settings(&data, &settings);
+    seed_indexed(
+        &data.join("topics.idx"),
+        "           05 TOP-ID PIC X(16).\n           05 TOP-NAME PIC X(40).\n           05 TOP-PROMPT PIC X(1000).\n           05 TOP-CREATED PIC X(14).\n           05 TOP-SAMPLE PIC X.\n",
+        "TOP-ID",
+        "           MOVE \"HR\" TO TOP-ID\n           MOVE \"HR\" TO TOP-NAME\n           MOVE \"You answer HR questions.\" TO TOP-PROMPT\n           WRITE R\n",
+    );
+    let mut writes = String::new();
+    for (name, model, tools, rank) in models {
+        writes.push_str(&format!(
+            "           MOVE \"{name}\" TO MDL-NAME\n           MOVE \"ollama\" TO MDL-API\n           MOVE \"{url}\" TO MDL-URL\n           MOVE \"{model}\" TO MDL-MODEL\n           MOVE \"{tools}\" TO MDL-TOOLS\n           MOVE {rank} TO MDL-RANK\n           WRITE R\n"
+        ));
+    }
+    seed_indexed(
+        &data.join("models.idx"),
+        "           05 MDL-NAME PIC X(30).\n           05 MDL-API PIC X(12).\n           05 MDL-URL PIC X(200).\n           05 MDL-MODEL PIC X(80).\n           05 MDL-TOOLS PIC X.\n           05 MDL-RANK PIC 9.\n",
+        "MDL-NAME",
+        &writes,
+    );
+    (root, data)
+}
+
+/// The agent numbers the status line names: `(orchestrator, tools)`; `tools` is 0 when no agent does the
+/// tool work. `None` when there is no such line (fewer than two agents).
+fn elected_in(line: &str) -> Option<(u32, u32)> {
+    let after = |key: &str| -> Option<u32> {
+        let at = line.find(key)? + key.len();
+        line[at..].chars().next()?.to_digit(10)
+    };
+    Some((after("Orchestrator: agent ")?, after("tools: agent ")?))
+}
+
+/// Start the chat on this data folder and answer who was elected.
+fn elected_by(data_agents: &[&str]) -> (u32, u32) {
+    let _ = data_agents;
+    let mut s = Session::start("chat-form.cfrm");
+    let line = s.wait_for("Lbl-Status", "Caption", |v| v.contains("Orchestrator:"));
+    s.quit();
+    elected_in(&line).unwrap_or_else(|| panic!("no election in: {line}"))
+}
+
+/// R54–R56, R66 and AC23–AC25: the election, in every shape the agents can come in. Each shape is held
+/// twice, because "the same set of models elects the same agents" is part of what is claimed (AC23).
+#[test]
+fn powerchat_elects_its_orchestrator_by_the_rules_of_063() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    type Model = (&'static str, &'static str, &'static str, u8);
+    let cases: [(&str, Vec<Model>, Vec<&str>, (u32, u32)); 6] = [
+        // R55 — the agent that cannot call tools orchestrates; the other does the tool work.
+        ("AC24: one without tools, one with", vec![("A", "m-a", "Y", 5), ("B", "m-b", "N", 9)], vec!["A", "B"], (2, 1)),
+        // R56 — the strongest orchestrator is the only one that can call tools: it works, the other orchestrates.
+        ("AC25: the best is the only one with tools", vec![("A", "m-a", "Y", 9), ("B", "m-b", "N", 3)], vec!["A", "B"], (2, 1)),
+        // R55 with three — the one without tools orchestrates although two others rank higher; the better of the two works.
+        ("R55: three, one without tools", vec![("A", "m-a", "N", 5), ("B", "m-b", "Y", 9), ("C", "m-c", "Y", 3)], vec!["A", "B", "C"], (1, 2)),
+        // R54 — every one can call tools: the best-ranked orchestrates, the best of the rest works.
+        ("R54: all with tools", vec![("A", "m-a", "Y", 5), ("B", "m-b", "Y", 9), ("C", "m-c", "Y", 7)], vec!["A", "B", "C"], (2, 3)),
+        // R66 — none can: the best orchestrates and there is no tool worker (the chat runs without tools).
+        ("R66: none with tools", vec![("A", "m-a", "N", 4), ("B", "m-b", "N", 6)], vec!["A", "B"], (2, 0)),
+        // A tie goes to the first.
+        ("tie: the first", vec![("A", "m-a", "N", 5), ("B", "m-b", "N", 5)], vec!["A", "B"], (1, 0)),
+    ];
+    let mut rows = Vec::new();
+    for (what, models, agents, want) in cases {
+        let (root, _data) = mesh_setup("elect", "http://127.0.0.1:1", &models, &agents);
+        let first = elected_by(&agents);
+        let second = elected_by(&agents);
+        assert_eq!(first, want, "{what}");
+        assert_eq!(second, first, "{what}: the same models elect the same agents again");
+        rows.push(format!("{what:<42} orchestrator agent {}, tools agent {} (twice)", first.0, first.1));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    println!("\n  ── 063 R54–R57, R66 · the election ───────────────────────");
+    for r in &rows {
+        println!("  {r}");
+    }
+    println!("  ───────────────────────────────────────────────────────\n");
+}
+
+/// R57, R70 and R71, AC26 and AC31: every agent on one model elects at random — and a different agent
+/// from one start to the next, because the generator is seeded; once elected it stays in office
+/// while nothing about the agents changes; and when a model does change the agents elect again.
+#[test]
+fn powerchat_one_model_elects_at_random_and_keeps_its_choice_until_a_model_changes() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let models = [("A", "one-model", "Y", 5), ("B", "one-model", "Y", 5), ("C", "one-model", "Y", 9)];
+    let (root, _data) = mesh_setup("random", "http://127.0.0.1:1", &models, &["A", "B", "C"]);
+
+    // AC26 — a dozen starts do not always elect the same agent (the chance that they would is 3^-11).
+    let mut chosen = Vec::new();
+    for _ in 0..12 {
+        chosen.push(elected_by(&["A", "B", "C"]).0);
+    }
+    let mut distinct = chosen.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert!(distinct.len() >= 2, "twelve elections, one agent every time: {chosen:?}");
+    assert!(chosen.iter().all(|a| (1..=3).contains(a)));
+
+    // AC31 — one session: start until the random choice is not the agent a change would favour, then
+    // let the model-change handler run eight times with nothing changed. The office does not move.
+    let mut s;
+    let in_office;
+    loop {
+        let mut t = Session::start("chat-form.cfrm");
+        let line = t.wait_for("Lbl-Status", "Caption", |v| v.contains("Orchestrator:"));
+        let (orch, _) = elected_in(&line).unwrap();
+        if orch != 3 {
+            in_office = orch;
+            s = t;
+            break;
+        }
+        t.quit();
+    }
+    for round in 1..=8 {
+        s.events.send(FormEvent::new("AGENT-1", "onModelChanged")).unwrap();
+        let line = s.wait_for("Lbl-Status", "Caption", |v| v.contains("Orchestrator:"));
+        assert_eq!(elected_in(&line).unwrap().0, in_office, "round {round}: nothing changed, so the same agent stays in office");
+    }
+
+    // R71 — agent 3's model changes: the agents no longer share one, so they elect again, on rank.
+    let Some(c) = cobolt_runtime::model_list::get("C") else { panic!("PowerChat adopted C into the application's list") };
+    cobolt_runtime::model_list::set("C", cobolt_runtime::model_list::ModelEntry { model: "another-model".into(), ..c.0 });
+    s.events.send(FormEvent::new("AGENT-3", "onModelChanged")).unwrap();
+    let line = s.wait_for("Lbl-Status", "Caption", |v| v.contains("Orchestrator: agent 3"));
+    s.quit();
+    println!(
+        "\n  ── 063 R57, R70, R71 · random, stable, re-elected ───────\n  12 starts on one model elected agents {chosen:?} ({} distinct); \
+         agent {in_office} stayed in office through 8 unchanged model-change events; a model changed → \"{}\"\n",
+        distinct.len(),
+        line.trim()
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// One request a [`timed_server`] answered: who asked (the model), what for, and when it was open.
+#[derive(Clone, Debug)]
+struct Timed {
+    model: String,
+    kind: &'static str,
+    start: Instant,
+    end: Instant,
+}
+
+/// A scripted Ollama that answers each connection on a thread of its own, and keeps for every request
+/// the window in which it was open. The plan is `tasks` small tasks; a task takes `delay` to answer; a
+/// composing request is answered `COMPOSED ANSWER`. Every reply reports 50 input and 20 output tokens.
+fn timed_server(tasks: &'static [&'static str], delay: Duration) -> (String, Arc<Mutex<Vec<Timed>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = Arc::new(Mutex::new(Vec::<Timed>::new()));
+    let log = seen.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let log = log.clone();
+            thread::spawn(move || {
+                let start = Instant::now();
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 8192];
+                let head_end = loop {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break None,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                    if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break Some(i + 4);
+                    }
+                };
+                let Some(head_end) = head_end else { return };
+                let head = String::from_utf8_lossy(&buf[..head_end]).to_ascii_lowercase();
+                let len = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                while buf.len() < head_end + len {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let body = String::from_utf8_lossy(&buf[head_end..]).into_owned();
+                let model = serde_json::from_str::<serde_json::Value>(&body)
+                    .ok()
+                    .and_then(|v| v["model"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                let (kind, content) = if body.contains("Split the user") {
+                    ("plan", tasks.iter().map(|t| format!("TASK: {t}")).collect::<Vec<_>>().join("\n"))
+                } else if body.contains("Your assistants reported") {
+                    ("compose", "COMPOSED ANSWER".to_string())
+                } else if let Some(t) = tasks.iter().find(|t| body.contains(&format!("Task: {t}"))) {
+                    thread::sleep(delay);
+                    ("task", format!("Answer for {t}."))
+                } else {
+                    ("other", "unused".to_string())
+                };
+                let reply = serde_json::json!({
+                    "message": {"role": "assistant", "content": content},
+                    "prompt_eval_count": 50, "eval_count": 20
+                })
+                .to_string();
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                log.lock().unwrap().push(Timed { model, kind, start, end: Instant::now() });
+            });
+        }
+    });
+    (format!("http://127.0.0.1:{port}/api"), seen)
+}
+
+/// R59, R60 and AC27: a planner that cannot call tools orchestrates, two assistants that can are given a
+/// task each — and the two tasks are open at the same moment, the planner having planned first and
+/// composing only after both reported. R76 and AC33, in the same run: every response's reported tokens
+/// reach the month's totals, and a second conversation adds to them.
+#[test]
+fn powerchat_runs_independent_tasks_at_once_and_counts_every_response_in_the_month() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    const TASKS: &[&str] = &["PART-A", "PART-B"];
+    let (url, log) = timed_server(TASKS, Duration::from_millis(700));
+    let models = [("P", "planner", "N", 9), ("W1", "worker-1", "Y", 5), ("W2", "worker-2", "Y", 4)];
+    let (root, _data) = mesh_setup("overlap", &url, &models, &["W1", "P", "W2"]);
+    let ask = |question: &str| -> String {
+        let mut s = Session::start("chat-form.cfrm");
+        let elected = s.wait_for("Lbl-Status", "Caption", |v| v.contains("Orchestrator:"));
+        assert_eq!(elected_in(&elected), Some((2, 1)), "the planner (agent 2) orchestrates; agent 1 has tools and rank: {elected}");
+        s.type_into("Txt-Input", question);
+        s.click("Btn-Send");
+        let status = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month: ") && !v.starts_with("This month: 0"));
+        s.quit();
+        status
+    };
+    let t = Instant::now();
+    let first = ask("Describe the leave policy and the travel policy");
+    let one = log.lock().unwrap().clone();
+    let by = |kind: &str| -> Vec<Timed> { one.iter().filter(|r| r.kind == kind).cloned().collect() };
+    let (plan, tasks, compose) = (by("plan"), by("task"), by("compose"));
+    assert_eq!((plan.len(), tasks.len(), compose.len()), (1, 2, 1), "a plan, a task each, a composition: {one:#?}");
+    assert_eq!(plan[0].model, "planner");
+    assert_eq!(compose[0].model, "planner", "the orchestrator composes");
+    let mut workers: Vec<&str> = tasks.iter().map(|r| r.model.as_str()).collect();
+    workers.sort_unstable();
+    assert_eq!(workers, ["worker-1", "worker-2"], "each assistant has one task");
+    let overlap = {
+        let (a, b) = (&tasks[0], &tasks[1]);
+        let from = a.start.max(b.start);
+        let to = a.end.min(b.end);
+        to.saturating_duration_since(from)
+    };
+    assert!(overlap >= Duration::from_millis(300), "the two tasks were open together for only {overlap:?}");
+    assert!(tasks.iter().all(|r| r.start >= plan[0].end), "the tasks follow the plan");
+    let last_task_end = tasks.iter().map(|r| r.end).max().unwrap();
+    assert!(compose[0].start >= last_task_end, "the orchestrator answers only after both have reported");
+
+    // R76 — what each response reported is what the month adds up: four responses, 50 and 20 each.
+    assert!(first.starts_with("This month: 1 conversation(s), 200 input and 80 output tokens"), "{first}");
+    let second = ask("And what about the sick-leave policy?");
+    assert!(second.starts_with("This month: 2 conversation(s), 400 input and 160 output tokens"), "{second}");
+    println!(
+        "\n  ── 063 R59, R60, R76 · tasks at once, tokens summed ──────\n  plan → 2 tasks (workers 1 and 2) open together for {} ms of {} ms each → compose after both; \
+         4 responses × (50 in, 20 out) = {}; a second conversation → {} — {:.0} ms\n",
+        overlap.as_millis(),
+        tasks[0].end.duration_since(tasks[0].start).as_millis(),
+        first.trim().trim_start_matches("This month: "),
+        second.trim().trim_start_matches("This month: "),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

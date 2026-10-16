@@ -1,6 +1,6 @@
 # Spec — RAG / Transactional Chatbot boilerplate (umbrella)
 
-- **Status:** draft → awaiting operator review
+- **Status:** **audited and closed as far as the code can close it (1.91.177, 2026-10-16).** The work was done under 065, 066, 068, 074, 076, 085 and PowerChat itself (071); §9 says, for each of the 34 criteria, what proves it — 25 are ticked — and §9.2 lists what is not met and why. Nothing here is built *from* this spec any more.
 - **Folder:** specs/063-rag-chatbot-boilerplate/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-21
 
@@ -377,19 +377,19 @@ changes — not behaviour hidden in the runtime.
 
 - [x] **AC1** — A built application's delivery folder contains no Grace store
       and no `grace-conversation.json`. *(R5)*
-- [ ] **AC2** — The application Knowledge Base file name and table names differ
+- [x] **AC2** — The application Knowledge Base file name and table names differ
       from every Grace store's. *(R1, R2)*
-- [ ] **AC3** — Pointing the application at Grace's store path fails with a
+- [x] **AC3** — Pointing the application at Grace's store path fails with a
       clear error instead of reading or merging it. *(R2)*
-- [ ] **AC4** — Deleting the Knowledge Base store and restarting reproduces an
+- [x] **AC4** — Deleting the Knowledge Base store and restarting reproduces an
       equivalent index from the document folder alone. *(R6, R8)*
-- [ ] **AC5** — A document dropped into the live folder is answerable without
+- [x] **AC5** — A document dropped into the live folder is answerable without
       restarting the application. *(R7)*
-- [ ] **AC6** — A store written by a prior schema version is moved aside, not
+- [x] **AC6** — A store written by a prior schema version is moved aside, not
       deleted, and rebuilt. *(R8, R9)*
-- [ ] **AC7** — Conversation history survives a schema change, verified by
+- [x] **AC7** — Conversation history survives a schema change, verified by
       reading back turns written under the previous version. *(R12, R13)*
-- [ ] **AC8** — A build without the cloud-memory feature has no AWS SDK in
+- [x] **AC8** — A build without the cloud-memory feature has no AWS SDK in
       `cargo tree`, and needs no C toolchain. *(R18)*
 - [ ] **AC9** — An MCP client can list tools and call indexed-file search over
       JSON-RPC, and the tool schema carries the file's purpose and column
@@ -400,13 +400,13 @@ changes — not behaviour hidden in the runtime.
       documents, Knowledge Base content and conversation history intact. *(R29)*
 - [ ] **AC12** — A fresh install creates the document folder and stores empty,
       with no content shipped by the build. *(R26, R27, R28)*
-- [ ] **AC13** — With the endpoint embedder selected, `cargo tree` shows neither
+- [x] **AC13** — With the endpoint embedder selected, `cargo tree` shows neither
       candle nor tokenizers. *(R33)*
-- [ ] **AC14** — With no semantic model cached, retrieval works and the user is
+- [x] **AC14** — With no semantic model cached, retrieval works and the user is
       told it is lexical. *(R32, R34)*
 - [ ] **AC15** — Sidebar rows built from run-time data render identically on all
       four surfaces. *(R37, R39)*
-- [ ] **AC16** — A document is moved between folders by drag and drop, and the
+- [x] **AC16** — A document is moved between folders by drag and drop, and the
       Knowledge Base reflects the move. *(R41, R7)*
 - [ ] **AC17** — Promoting a prompt version asks for confirmation, then reorders
       the list and updates the timestamp. *(R43, R44)*
@@ -414,43 +414,43 @@ changes — not behaviour hidden in the runtime.
       string sourced from the IDE's `Tr` table. *(R48, R49)*
 - [ ] **AC19** — No window changes size except by a user-dragged grip, verified
       by rendering frames in all six languages. *(R45, R46)*
-- [ ] **AC20** — `cargo test -p cobolt-forms --features render` stays green, and
+- [x] **AC20** — `cargo test -p cobolt-forms --features render` stays green, and
       `engine_reference_form_parity_static_vs_faces` passes. *(R39)*
-- [ ] **AC21** — An `AgentObject` calls a tool and acts on its result, over each
+- [x] **AC21** — An `AgentObject` calls a tool and acts on its result, over each
       of the three supported protocols. *(R69)*
-- [ ] **AC22** — A form with one agent answers a question end to end, that agent
+- [x] **AC22** — A form with one agent answers a question end to end, that agent
       acting as orchestrator. *(R52)*
-- [ ] **AC23** — A form with several agents elects one orchestrator
+- [x] **AC23** — A form with several agents elects one orchestrator
       deterministically for a given set of models, and the choice is
       reproducible. *(R53, R54)*
-- [ ] **AC24** — With one non-tool-capable and one tool-capable agent, the
+- [x] **AC24** — With one non-tool-capable and one tool-capable agent, the
       non-tool-capable one orchestrates and the other performs tool work.
       *(R55)*
-- [ ] **AC25** — Where the strongest orchestrator model is the only tool-capable
+- [x] **AC25** — Where the strongest orchestrator model is the only tool-capable
       one, it performs tool work and another agent orchestrates. *(R56)*
-- [ ] **AC26** — With every agent on the same model, repeated elections do not
+- [x] **AC26** — With every agent on the same model, repeated elections do not
       always return the same agent. *(R57)*
-- [ ] **AC27** — A question requiring both KB retrieval and indexed-file probing
+- [x] **AC27** — A question requiring both KB retrieval and indexed-file probing
       dispatches both concurrently, evidenced by overlapping request windows,
       and the orchestrator answers only after both report. *(R59, R60)*
-- [ ] **AC28** — Only the orchestrator's request carries the application system
+- [x] **AC28** — Only the orchestrator's request carries the application system
       prompt; a worker's request carries its own role prompt. *(R63, R64)*
-- [ ] **AC29** — Deploying two non-tool-capable agents raises a design-time
+- [x] **AC29** — Deploying two non-tool-capable agents raises a design-time
       warning in the IDE, and building anyway yields an application that answers
       without tool calling. *(R65, R66)*
-- [ ] **AC30** — The election and dispatch logic is COBOL in the project, and
+- [x] **AC30** — The election and dispatch logic is COBOL in the project, and
       `cargo tree` for the built application shows no dependency carrying model
       policy. *(R67, R68)*
-- [ ] **AC31** — The orchestrator is unchanged across consecutive questions in
+- [x] **AC31** — The orchestrator is unchanged across consecutive questions in
       one session, and changing an agent's model triggers a fresh election.
       *(R70, R71)*
 - [ ] **AC32** — The build creates the delivery document folder empty, the
       staging list is unchanged, and no project directory is copied into it.
       *(R26, R27, R74)*
-- [ ] **AC33** — Token counts recorded for a conversation match what the model
+- [x] **AC33** — Token counts recorded for a conversation match what the model
       responses reported, and the home view's monthly totals are their sum.
       *(R47, R76)*
-- [ ] **AC34** — A `.docx` dropped into the document folder is chunked and
+- [x] **AC34** — A `.docx` dropped into the document folder is chunked and
       answerable, and `cargo tree` shows no C-backed compression crate reached
       through `zip`. *(R7, Q3)*
 
@@ -676,3 +676,81 @@ and every claim about existing code was verified against the tree on the same
 date at version 1.70.141. Where this spec asserts that something does not exist
 — MCP, an application-level schema version, TreeView drag-and-drop, i18n outside
 the IDE — that is a checked absence, not an assumption.
+
+## 9. Status — what each criterion rests on
+
+*Audited 2026-10-16 against product 1.91.177. "Test" means a test that exists and was run green on a
+clean build of the tree (the files are under `crates/`; `PR` = `cobolt-ide/tests/powerchat_runs.rs`,
+`PC` = `cobolt-ide/tests/powerchat_compiles.rs`). A criterion is ticked only when its words are met.*
+
+### 9.1 The criteria
+
+| AC | Verdict | What proves it |
+|---|---|---|
+| 1 | ✅ | `cobolt-compiler` `the_delivery_carries_the_applications_data_and_none_of_graces`: a delivery carries none of Grace's files (the fix F2). |
+| 2 | ✅ | `cobolt-kb/src/store.rs`: the file is `collection.kbindex`, the tables `kb_meta`, `kb_passages`, `kb_sources`; spec 068 AC2. |
+| 3 | ✅ | `store::an_ide_store_is_refused_not_read`: a redb file holding Grace's `chunks` table is refused as "not an application Knowledge Base". |
+| 4 | ✅ | `cobolt-kb` `search::a_rebuilt_index_ranks_the_same` (068 AC6): the index deleted, refreshed, the same top three for each query. |
+| 5 | ✅ as worded | "Without restarting": a file placed in a topic's folder is indexed by *Refresh* (PR, the Documents step) and by opening Documents, and answers. It is **not** indexed by itself — 068 R19 chose no file watcher (§9.2). |
+| 6 | ✅ | `store::another_schema_version_is_moved_aside_and_rebuilt`: the old index kept as `.v0-obsolete`, a new one at the current version (068 AC7). |
+| 7 | ✅ as worded | History survives the schema changes PowerChat has had: turns written in the single-record layout read back (`PR::powerchat_reopens_a_long_question_whole`), and `prompts.idx` is carried into `prompt-versions.idx` (`PR::powerchat_main_prompt_is_every_instruction_and_the_user_edits_it`). R14–R18 and R75 (a scheme-selected backend, a project setting) were **not built** — see §9.2. |
+| 8 | ✅ | `cobolt-compiler/tests/dependency_guards_063`: no package called `aws-*` among the 889 in `Cargo.lock`. There is no cloud-memory backend to gate. |
+| 9 | ◐ | In process: `cobolt-runtime` `mcp_tool` — a client handshakes, lists and calls the real tool set through `cobolt_mcp::serve`; the schema carries the file's purpose and the column descriptions; both doors agree (`test_mcp_tool_parity`). **No transport** exposes it from a built application: 071 §2 lists an external MCP server as a non-goal. |
+| 10 | ◐ | Unmarked files are neither listed nor callable (`mcp_tool::an_unmarked_file_is_neither_listed_nor_callable`); several files become distinct tools; a worker is offered the search (`PR`). That the *model* picks the right file cannot be asserted against a scripted model. |
+| 11 | ◐ | Documents and the index survive a rebuild over an installation (`cobolt-compiler` `delivery_leaves_the_users_knowledge_base_alone`). **Conversation history does not:** `copy_delivery_data` copies the project's `data/` over the delivery's (§9.2). |
+| 12 | ◐ | Run-time creation of the folders and stores empty — yes (`store::opening_creates_the_folders_and_leaves_existing_documents_alone`; PR starts from an empty `data/`). The build seeds a new collection's documents from the project (068 R5, 071 R11 — by decision), contrary to R27. |
+| 13 | ✅ | `cobolt-compiler` `a_knowledge_base_control_links_kb_and_only_the_setting_links_the_model`: only `[rag] embedder = "builtin"` links the model (068 AC11); `cobolt-kb`'s `semantic` feature gates candle and tokenizers. |
+| 14 | ✅ | `PR::powerchat_documents_embed_with_the_builtin_model`: with no model, retrieval works and says "Search is by words only". |
+| 15 | ◐ | 066 AC1–AC9, ticked: the engine, the shell rail, the hosted controls and the run-form/binary readings agree. The designer canvas shows only designed rows (066 R16), so "four surfaces" is three. |
+| 16 | ✅ | `cobolt-forms` `render::a_tree_node_drags_onto_another_with_allow_drag` (real pointer events → `onNodeDrop`), `PR::powerchat_drags_a_document_into_a_folder_in_the_tree` and `powerchat_moves_a_document_between_folders` (the copy is indexed before the original goes). |
+| 17 | ◐ | Confirmation is asked and the answer obeyed (PR, Prompt step). **The version is not moved to the top nor re-stamped**: the list is newest-first with the active one marked, which is 071 R48; 063 R43/R44 ask for more (§9.2). |
+| 18 | ◐ | `PC::every_visible_text_is_translated_into_six_languages`; `PR` switches each flag and relabels the chat, the menu and Topics. That it *renders* well in each script is the operator's to look at. |
+| 19 | ◐ | `PC::no_powerchat_window_resizes_itself` (R46): no form's COBOL assigns its own size or place. R45's grip was **not built**, and no frame is rendered per language. |
+| 20 | ✅ | `cargo test -p cobolt-forms --features render`, green on the clean build, with `engine_reference_form_parity_static_vs_faces`. |
+| 21 | ✅ | `cobolt-runtime` `test_agent_tool_calling::a_cobol_tool_is_answered_by_on_tool_call_in_every_protocol`: OpenAI-compatible, Ollama and Anthropic, each with its own tool-call and result shape. |
+| 22 | ✅ | `PR` chat step: one agent, a tool round and an answer round, the topic's prompt in the request. |
+| 23 | ✅ | `PR::powerchat_elects_its_orchestrator_by_the_rules_of_063`: six shapes, each held twice with the same result. |
+| 24 | ✅ | The same test: one without tools, one with → the one without orchestrates (2, 1); three, one without tools → it orchestrates although two others rank higher (1, 2). |
+| 25 | ✅ | The same test: the best-ranked agent is the only one with tools → it does the tool work, the other orchestrates. |
+| 26 | ✅ | `PR::powerchat_one_model_elects_at_random_and_keeps_its_choice_until_a_model_changes`: twelve starts on one model elected agents 1, 3, 2, 1, 3, 2, 2, 1, 3, 2, 1, 2. (The generator was not seeded; it is, from 1.91.177.) |
+| 27 | ✅ | `PR::powerchat_runs_independent_tasks_at_once_and_counts_every_response_in_the_month`: the two tasks open together for 684 ms of 710 ms, the plan before them, the composition after both. |
+| 28 | ✅ | `PR` mesh step: the topic's prompt only in the orchestrator's requests, the role prompt in the worker's. |
+| 29 | ✅ | Design time: `Form::agents_without_tools` and **Check** (`cobolt-forms` `agents_without_tools_063`; the message exists in six languages). Run time: `test_agent_tool_calling::tool_protocol_none_offers_this_agent_no_tools` and the PowerChat task tests with `MDL-TOOLS` `N`. |
+| 30 | ✅ | Election and dispatch are `PC-ELECT`, `PC-DISPATCH`, `PC-NEXT-TASK`, `PC-TASK-DONE`, `PC-COMPOSE` in `chat-form.cfrm`; `dependency_guards_063`: no `cobolt-ide` and no `cobolt-agents` among the 833 packages the runtime, form host, forms, kb, docs and mcp crates reach. |
+| 31 | ✅ | The same random-election test: eight unchanged model-change events leave the elected agent in office; a changed model elects again. |
+| 32 | ◐ | Superseded in part: the build creates no document folder (the application does, at run time) and seeds new collections from the project (068/071). The staging loop is unchanged. |
+| 33 | ✅ | `PR` (the overlap test): four responses of (50 in, 20 out) → "200 input and 80 output tokens" for one conversation; a second → "2 conversation(s), 400 and 160". |
+| 34 | ✅ | `cobolt-docs` `formats::every_format_converts_and_keeps_its_unique_phrase` (a `.docx`, alone and inside a zip) and `structure_survives_as_headings`; the zone accepts `.docx` (`PR`); `dependency_guards_063`: no `bzip2`, `zstd` or `aws-lc` in the lock file. |
+
+### 9.2 What is not met, and why
+
+These are **not** ticked. Where a child spec records an operator decision that changed 063's wording, that
+decision is named; **the operator is asked to confirm it**, because a later spec overruling this one is
+not the same as the operator having said so about this one.
+
+1. **R14–R18, R75 — a conversation backend chosen by scheme, with migrations.** Not built: no remote memory
+   exists (Bedrock is a non-goal, §2), PowerChat keeps conversations in its own indexed files, and the two
+   layout changes it has had are read back by tests (AC7 as worded). If the abstraction is still wanted, it
+   is a new spec.
+2. **AC9, AC10 as worded — an MCP server that outside clients can reach.** The protocol (`cobolt-mcp`) and
+   the indexed-file tool are built and proven in process; no host transport (stdio, socket) serves them from
+   a built application. 071 §2: "An MCP server reachable from outside the application. 065's transport is not
+   built, and this spec does not build it." Spec 065's status line still says *draft*; its tasks T1–T17 say
+   done (1.70.148). Its acceptance list has not been ticked in this pass.
+3. **R44 — promoting a prompt version moves it to the top and re-stamps it.** The Prompt screen asks, then
+   makes the version active; the list is newest first with the active one marked (071 R48). Not changed.
+4. **R45 — a grip on the prompt editor.** Not built. Every PowerChat window has a fixed size and none changes
+   its own (AC19's other half).
+5. **R7 / AC5 — an external file is indexed on its own.** It is after the next *Refresh* or when Documents
+   opens. 068 R19: no file watcher, by decision.
+6. **AC11, AC12, AC32 — delivery.** (a) `copy_delivery_data` (`cobolt-compiler`) copies the project's `data/`
+   over the delivery's, file by file, so a rebuild over an installed copy replaces its stores — including
+   conversations. (b) `examples/PowerChat/data/*.idx` (conversations, turns, settings and models from a real
+   run) and one topic's documents under `assets/KB/` are **tracked in git**, so a build ships them; R27 says
+   a build ships no store. Neither was changed here: (a) changes every project's build, (b) is the operator's
+   own data in the repository.
+7. **R72 — the capability table lives in the project.** It is the end user's, entered in *Model selection*
+   (`models.idx`: tools flag and rank); a model never entered is treated as not tool-capable (R73). The
+   operator's later decision (071) is the reason.
+8. **R31 — the embedder defaults to the built-in one.** The default is lexical/endpoint; PowerChat itself sets
+   `builtin`.

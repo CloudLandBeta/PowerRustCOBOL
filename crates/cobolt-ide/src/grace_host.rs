@@ -1198,7 +1198,7 @@ const PLAN_EXTRACT_PREAMBLE: &str = "The provided text is an agent's workflow-pl
 
 const VERDICT_EXTRACT_PREAMBLE: &str = "The provided text is a Pedantic reviewer's round verdict whose verdict JSON could not be parsed. Extract the verdict EXACTLY as the review states it: pedantic_verdict is \"acceptable\" only when the review approves the submission without requiring corrections, otherwise \"defects\"; correction_request carries the requested corrections verbatim (empty when acceptable); defective_ops lists the operations the review attributed its findings to, exactly as the review names them (an empty array when it named none). Never soften, add, or drop defects.";
 
-const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a form specialist's submission (Form Designer or COBOL Event Handler Script Agent) whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure, add_layer, rename_layer, delete_layer, move_layer, set_layer_property, move_to_layer — with identifiers, property names, values, and code copied verbatim. A submission that presents an operation as prose or a bullet list (for example \"Operation: generate_event_handler, control_id: X, event: onClick\" followed by a fenced code block) still specifies that operation: extract it, taking the handler body verbatim from the code block. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
+const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a form specialist's submission (Form Designer or COBOL Event Handler Script Agent) whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure, set_menu_items, add_layer, rename_layer, delete_layer, move_layer, set_layer_property, move_to_layer — with identifiers, property names, values, and code copied verbatim. A submission that presents an operation as prose or a bullet list (for example \"Operation: generate_event_handler, control_id: X, event: onClick\" followed by a fenced code block) still specifies that operation: extract it, taking the handler body verbatim from the code block. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
 
 impl DbAgentInvoker {
     /// Provider-native typed extraction over `source` using `agent`'s resolved
@@ -3869,7 +3869,7 @@ fn matching_brace(s: &str, start: usize) -> Option<usize> {
 
 /// Turn change-set operations into plain-language lines (grouping identical
 /// property assignments across controls).
-fn summarize_operations(ops: &[serde_json::Value]) -> Vec<String> {
+pub(crate) fn summarize_operations(ops: &[serde_json::Value]) -> Vec<String> {
     use std::collections::BTreeMap;
     let str_of = |v: &serde_json::Value, k: &str| -> String {
         v.get(k)
@@ -3917,6 +3917,10 @@ fn summarize_operations(ops: &[serde_json::Value]) -> Vec<String> {
             }
             "create_procedure" => {
                 lines.push(format!("Added procedure {}.", str_of(op, "name")));
+            }
+            "set_menu_items" => {
+                let top = op.get("items").and_then(|v| v.as_array()).map_or(0, Vec::len);
+                lines.push(format!("Set the items of menu {} ({top} at the top level).", str_of(op, "control_id")));
             }
             "add_layer" => match op.get("name").and_then(|v| v.as_str()) {
                 Some(name) => lines.push(format!("Added layer '{name}'.")),
@@ -5805,7 +5809,7 @@ mod tests {
     /// its objective names.
     /// The shipped System KB answers a menu-reordering request with the
     /// SideMenu's own record, which carries its content structure: where the
-    /// items live, that `MENU ITEMS` shows them, and that no change-set edits
+    /// items live, that `MENU ITEMS` shows them, and that `set_menu_items` edits
     /// them. Written as a `###` section it ranked 62nd; inside the control's
     /// record it ranks first.
     #[test]
@@ -6443,7 +6447,7 @@ mod layer_summary_tests {
     /// or it would drop them as "operations the text does not state".
     #[test]
     fn the_change_set_extractor_names_the_layer_operations() {
-        for op in ["add_layer", "rename_layer", "delete_layer", "move_layer", "set_layer_property", "move_to_layer"] {
+        for op in ["set_menu_items", "add_layer", "rename_layer", "delete_layer", "move_layer", "set_layer_property", "move_to_layer"] {
             assert!(CHANGE_SET_EXTRACT_PREAMBLE.contains(op), "{op} missing from the extraction preamble");
         }
     }

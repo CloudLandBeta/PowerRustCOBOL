@@ -1608,6 +1608,10 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // `AllowEdit` — a renamed node's old label, written before `onNodeRenamed`
     // (the new one is the node payload's `CONTROL-NODE`).
     const TREE_VIEW: &[&str] = &["PreviousNodeText"];
+    // Spec 024 R17–R19 — a repeating group bound to a COBOL table: how the last edit of a card's
+    // member ended (`00` written, `91` read-only binding, `92` the value does not fit its field),
+    // why, and the edits waiting for repair (one `card TAB member TAB property TAB value` per line).
+    const GROUP_BOX: &[&str] = &["CommitStatus", "LastError", "PendingEdits"];
     match ControlType::from_str(type_name) {
         ControlType::MenuBar => MENU_BAR,
         ControlType::SideMenu => SIDE_MENU,
@@ -1616,6 +1620,7 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::SqlDatabase => SQL,
         ControlType::DataGrid => DATA_GRID,
         ControlType::TreeView => TREE_VIEW,
+        ControlType::GroupBox => GROUP_BOX,
         ControlType::KnowledgeBase => KNOWLEDGE_BASE,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
         // Spec 078: each AWS control's answers, from the catalogue.
@@ -6987,6 +6992,14 @@ impl Control {
             && self.get_prop("AutoEnter").map(|v| v.as_bool()).unwrap_or(false)
     }
 
+    /// Spec 063 R65 — is this an `AgentObject` set to offer its model **no tools**
+    /// (`ToolProtocol` = `None`)? The setting is the developer's; it is never guessed
+    /// from the model's name.
+    pub fn offers_no_tools(&self) -> bool {
+        self.control_type == ControlType::AgentObject
+            && self.get_prop("ToolProtocol").map(|v| v.as_str().trim().eq_ignore_ascii_case("None")).unwrap_or(false)
+    }
+
     pub fn get_prop(&self, name: &str) -> Option<&PropValue> {
         self.properties.get(name).or_else(|| {
             let lower = name.to_ascii_lowercase();
@@ -9409,6 +9422,19 @@ impl Form {
     pub fn find_control(&self, id: &str) -> Option<&Control> {
         let upper = id.to_ascii_uppercase();
         self.controls.iter().find_map(|c| find_in(c, &upper))
+    }
+
+    /// Spec 063 R65 — the ids of the `AgentObject`s that are set to offer no tools, when
+    /// **two or more** are: a form whose agents cannot call tools runs without tool calling
+    /// (R66) rather than fail, and the developer is told so at design time. A single such agent
+    /// is a plain chat, so it says nothing.
+    pub fn agents_without_tools(&self) -> Vec<&str> {
+        let ids: Vec<&str> = self.controls.iter().filter(|c| c.offers_no_tools()).map(|c| c.id.as_str()).collect();
+        if ids.len() >= 2 {
+            ids
+        } else {
+            Vec::new()
+        }
     }
 
     pub fn find_control_mut(&mut self, id: &str) -> Option<&mut Control> {

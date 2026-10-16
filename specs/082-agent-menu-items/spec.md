@@ -1,6 +1,6 @@
 # Spec — Agents edit a menu's designed items
 
-- **Status:** draft
+- **Status:** implemented in 1.91.174 (AC8 needs a live model run — the operator's)
 - **Folder:** specs/082-agent-menu-items/
 - **Author:** Claude, for the operator   **Date:** 2026-10-02
 
@@ -87,25 +87,25 @@ other operation.
 
 ## 5. Acceptance criteria
 
-- [ ] AC1 (R1, R2, R8): a change-set with `set_menu_items` for PowerDemo3's
+- [x] AC1 (R1, R2, R8): a change-set with `set_menu_items` for PowerDemo3's
   `SideMenu-1`, ordering *Samples > Responsive Layout* A-Z, writes a
   `.menu.yaml` that `load_menu` accepts, with those twelve items in
   alphabetical order and nothing else changed.
-- [ ] AC2 (R3): every item kept by the reorder still has its old id.
-- [ ] AC3 (R4): an item sent with no id gets a four-letter id unique in the
+- [x] AC2 (R3): every item kept by the reorder still has its old id.
+- [x] AC3 (R4): an item sent with no id gets a four-letter id unique in the
   window.
-- [ ] AC4 (R5): a tree four levels deep, a repeated id, and an
+- [x] AC4 (R5): a tree four levels deep, a repeated id, and an
   `open-form:` target that is `Standalone` are each refused with a reason
   that names the item; the file is untouched.
-- [ ] AC5 (R6): dropping an item whose id appears in a handler lists the
+- [x] AC5 (R6): dropping an item whose id appears in a handler lists the
   item and the handler in the outcome; the handler is unchanged.
-- [ ] AC6 (R7): one Undo after AC1 restores the file byte for byte.
-- [ ] AC7 (R10): the context built after AC1 lists the new order under
+- [x] AC6 (R7): one Undo after AC1 restores the file byte for byte.
+- [x] AC7 (R10): the context built after AC1 lists the new order under
   `MENU ITEMS`.
 - [ ] AC8: asked "reorder Samples > Responsive Layout sub-items in
   alphabetic order (A-Z)", Grace plans one Form Designer task whose
   change-set is a single `set_menu_items`, and the menu changes.
-- [ ] AC9: `example_menus_open_their_forms` stays green.
+- [x] AC9: `example_menus_open_their_forms` stays green.
 
 ## 6. Constraints & steering check
 
@@ -138,3 +138,21 @@ other operation.
   instead of only reported?
 - Q3: Should a MenuBar's accelerators be part of R2? The field exists
   (`accelerator`) but the SideMenu does not use it.
+
+## 8. Decisions and proofs (1.91.174)
+
+- **Q1 — whole tree.** One operation, one validation path. The tokens an agent spends on a large menu are the price;
+  a planner that carries over every field the agent does not send keeps the request to ids and labels (the sort of the
+  12-item group sends 69 items of `id` + `label`).
+- **Q2 — report, don't refuse.** A dropped item's handlers are named in the outcome and never edited (user code is sacred).
+- **Q3 — the accelerator is part of R2.** Optional, like the other fields; a MenuBar uses it.
+- **Beyond the spec:** labels are stored verbatim (the real file holds `"z-order "` with a trailing space, which a trim
+  changed — found by AC1's whole-tree comparison); a kept item starts from the existing one, so `control` (a hosted row,
+  spec 066) is carried although R2 does not list it; two operations on one menu in one change-set chain.
+- **Proofs.** `cobolt-ide` `menu_items_082` (11 tests, `designer_menu_items_082_tests.rs`): AC1/AC2 the sort leaves the
+  rest of the 69-item file equal; AC3 fresh ids; AC4 refusals (depth, repeated id, Standalone `open-form:`) with the file
+  untouched; AC5 dropped items and the handler that names them, handler unchanged; AC6 one Undo byte for byte;
+  AC7 the context's new order. AC9 `example_menus_open_their_forms` ok.
+- **AC8** — Grace planning one Form Designer task for the operator's sentence — needs a model. What can be proved
+  without one is proved: the System KB passage and its retrieval for that sentence (`a_menu_reorder_request_retrieves_the_sidemenu_structure`),
+  the contract, the protocol, the prompts and Grace's summary all name the operation.

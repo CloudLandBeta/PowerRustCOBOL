@@ -128,8 +128,10 @@ impl<'a> TypeCtx<'a> {
         match stmt {
             // ── Arithmetic verbs ──────────────────────────────────────────────
             Stmt::Compute { targets, .. } => {
+                // Spec 093 Q3: `A = "x"` is a COMPUTE with no COMPUTE in the line, so the message names
+                // both spellings instead of blaming a verb the developer did not write.
                 for (t, _) in targets {
-                    self.require_numeric_receiver(t, "COMPUTE");
+                    self.require_numeric_receiver(t, "an arithmetic assignment (COMPUTE, or `name = expression`)");
                 }
             }
             Stmt::Add { to, giving, .. } => {

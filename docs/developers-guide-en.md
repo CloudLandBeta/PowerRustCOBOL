@@ -1227,14 +1227,36 @@ File UI's structural lock; the developer must explicitly unfinalize it in the
 UI before an agent can change its schema. Every result must pass **Data (Indexed
 File) Agent Pedantic Reviewer** before Grace reports completion.
 
-**What Grace sees of a menu.** A SideMenu's or MenuBar's items are not
-properties of the control: they are the tree you build in its menu editor,
-stored in `<control id>.menu.yaml` beside the form. Grace and the specialists
-are shown that tree, item by item, with each item's id and action, so a request
-such as "which form does *Samples ▸ Responsive Layout ▸ Responsive: grid*
-open?" is answered from your real menu. Agents cannot yet rearrange those
-items. A request to reorder, move or rename them gets an explanation that the
-menu editor does it, not a change.
+**What Grace sees of a menu, and what she can change.** A SideMenu's or
+MenuBar's items are not properties of the control: they are the tree you build
+in its menu editor, stored in `<control id>.menu.yaml` beside the form. Grace
+and the specialists are shown that tree, item by item, with each item's id and
+action, so a request such as "which form does *Samples ▸ Responsive Layout ▸
+Responsive: grid* open?" is answered from your real menu.
+
+They can also rewrite it. Ask "sort the *Responsive Layout* items A–Z" or "move
+*Charts* under *Samples* and call it *Dashboards*" and the Form Designer Agent
+sends the menu's **whole new tree** in one operation, `set_menu_items`. You
+review it in the preview like any other change, and one **Undo** puts the menu
+file back exactly as it was.
+
+- **An item the agent keeps is the same item.** Its id does not change, so a
+  handler that compares `SelectedItemId` with it keeps working. An item the
+  agent adds gets a new four-letter id from the IDE, the way the menu editor
+  would give one.
+- **What the agent does not mention stays.** An icon, a badge, an accelerator or
+  the form an item hosts keeps its value unless the agent sets it.
+- **An item missing from the new tree is removed.** The outcome lists each one,
+  with every handler on the form that still names its id. That code is never
+  changed or deleted: it is yours.
+- **The IDE refuses what the menu editor would not allow.** A tree nested more
+  than three levels, an id used twice, an action that does not exist, an
+  `open-form:` item that points at a form that is not *Embedded* or *Both*, an
+  `open-standalone-sync:` / `open-standalone-async:` item that points at one
+  that is not *Standalone* or *Both*. The refused operation is skipped, the rest
+  of the change-set applies, and the preview says which item and why.
+- **Rows a program adds while it runs are not in the file** (`AddItem` and the
+  other row methods) and an agent never touches them.
 
 **Specialists execute their tools.** Under Grace, agents don't just describe
 work — they carry it out, but only through governed, evidenced channels. An
@@ -1386,6 +1408,13 @@ statement catches it like any other; with no `CATCH`, it reaches
   each), search fields with a type-ahead list whose entries you tick, range
   filters, a Dashboard / Data menu with a data grid, and a layout that adapts
   down to a phone's width. It is the example to copy for a data dashboard.
+- **Help ▸ Examples ▸ PowerCloud** opens one window with a tab per AWS service:
+  DynamoDB (pets with photos), S3, Lambda, Polly (text to speech with a
+  player), EC2 (servers with an on / off column) and Rekognition (faces framed
+  on a photo), and a Settings tab that takes an AWS user's keys and deploys the
+  CloudFormation template the demo needs. It is the example to copy for an
+  application that talks to the cloud; see *Example: PowerCloud* in the AWS
+  chapter.
 
 The IDE finds each project itself, so you do not need to know where it lives:
 beside the executable in an installed build, or in the tree the IDE was built
@@ -1458,14 +1487,22 @@ run.
 **Three agents, one answer.** Each of the chat form's three agents is given a
 model from the RAG settings, and each model entry says whether it **calls
 tools** and how well it **orchestrates** (a rank from 1 to 9). With one agent
-assigned, it answers alone. With more, they hold an election once per session,
-and again whenever a model changes (`onModelChanged`):
+assigned, it answers alone. With more, they hold an election once per session.
+The agents that win it **stay in office** until something the election depends
+on changes — an agent's model, its *calls tools* flag or its rank, or which
+entry an agent is given — and then they elect again (`onModelChanged`); opening
+another topic or editing a prompt never moves them:
 
-- the highest rank orchestrates. If every agent runs the same model, one is
-  picked at random.
-- tool work goes to the best tool-capable agent that is not orchestrating. When
-  only one model can call tools, it does the tool work and the next-ranked agent
-  orchestrates.
+- an agent whose model **cannot call tools** orchestrates, when there is one —
+  the best-ranked of them if there are several; if every agent can call tools,
+  the highest rank orchestrates. A tie goes to the first agent. If every agent
+  runs the same model, one is picked at random, and the generator is seeded from
+  the clock, so one start does not always elect the same agent as the last.
+- tool work goes to the best-ranked tool-capable agent that is not
+  orchestrating. When only one model can call tools it does the tool work, and
+  another agent orchestrates, even if that one ranks higher. With no
+  tool-capable agent there is no tool worker, and the chat runs without tool
+  calling rather than failing.
 - the orchestrator alone gets the topic's system prompt. The others keep the
   role prompt designed on them, and only the tool worker is offered the
   Knowledge Base — the rest run with `ToolProtocol = None`.
@@ -2189,6 +2226,140 @@ enforces — an explicit `Picture`'s width, or `MaximumLength`. A box with neith
 is never full, so the property does nothing there. This is the classic
 data-entry rhythm: type a six-digit date into `9(6)` and the cursor is already
 in the next field.
+
+### Responsive design
+
+A form designed in pixels stays that size. Make its window larger and the form
+keeps its designed size in the top-left corner and leaves the rest empty; make
+it smaller and it scrolls. In PowerCOBOL you wrote an `onResize` handler that
+moved and stretched every control by hand. A **responsive** form does that
+work for you: each control says what it wants — *stay in this corner*,
+*stretch with the window*, *fill what is left*, *go in a row with its
+neighbours* — and the form lays itself out again whenever its window, or the
+pane it is loaded into, changes size. Your designed rectangles stay the source
+of truth; the layout is a view of them.
+
+Turn it on with the form's **Responsive design** property (`Responsive` in the
+`.cfrm`). A project created with this version turns it on for every new form;
+a form that existed before is never changed for you. Everything below is a
+property with a default, set in the Properties pane's **Layout** section or
+written from COBOL.
+
+**Anchoring and docking — each control against its parent.**
+
+| Property | What it says |
+|---|---|
+| `Anchor` | The parent edges the control follows: any of `Top`, `Bottom`, `Left`, `Right`, comma-separated. The default is `Top,Left`. One edge on an axis keeps that distance; both edges stretch the control with its parent; neither keeps its centre at the same proportion. A MenuBar defaults to `Top,Left,Right` and a StatusBar to `Bottom,Left,Right`. |
+| `Dock` | `Left`, `Top`, `Right`, `Bottom` or `Fill`. A docked control takes its edge of what the parent has left, in z-order, and ignores `Anchor`. `Fill` takes the rest. |
+| `MinWidth`, `MinHeight`, `MaxWidth`, `MaxHeight` | Limits on any dimension that is stretched, docked or grown. 0 means none. |
+| `Locked` | Not a layout property: it stops the mouse dragging the control on the designer canvas. |
+
+A text field anchored `Left,Right` grows with the window; a button anchored
+`Bottom,Right` stays in the corner; a panel docked `Left` with a `Fill` panel
+beside it is the classic list-and-detail screen.
+
+> 📷 **Screenshot needed — `responsive-anchors.png`.** Open PowerDemo3, choose
+> **Samples ▸ Responsive Layout ▸ Responsive: anchors and limits**, and capture
+> it at its designed size and again at twice the width.
+
+**Containers that arrange their children — `LayoutMode`.** A form, a Panel, a
+GroupBox or a TabControl has a `LayoutMode`:
+
+| `LayoutMode` | Think of it as | Properties that steer it |
+|---|---|---|
+| `Absolute` (default) | Anchors and docking, as above | `Anchor`, `Dock`, the limits |
+| `Flex` | A row or a column in which items share the space | `FlexDirection`, `FlexWrap`, `JustifyContent`, `AlignItems`, `AlignContent`, `Gap`; on each item `FlexGrow`, `FlexShrink`, `FlexBasis`, `AlignSelf`, `Order` |
+| `Grid` | A table of tracks | `GridColumns`, `GridRows` (`200px 1fr 2fr`, `Auto`, `MinMax(160px, 1fr)`, `Repeat(3, 1fr)`, `Repeat(AutoFill, MinMax(180px, 1fr))`), `Gap`, `JustifyItems`; on each item `GridColumn`, `GridRow`, `ColumnSpan`, `RowSpan` |
+| `Flow` | Text: items run in a line and wrap | `FlowDirection`, `WrapContents`, `Gap`; on each item `FlowBreak` |
+
+A container's children are placed by the container: their own `Anchor` and
+`Dock` are ignored, and the size they were drawn at is the size they ask for.
+`Padding` (and `PaddingLeft`, `PaddingTop`, `PaddingRight`, `PaddingBottom`)
+keeps them away from the container's edge in every mode. Containers nest: a
+Grid can hold a Flex row that holds a Flow.
+
+**Breakpoints — a different arrangement for a different width.** A responsive
+form has a table of named ranges of the width it has to draw in. The default
+is `Compact` (under 600), `Medium` (600 to 1023) and `Expanded` (1024 and
+over); you may rename them, add some and move their limits (**Breakpoints** in
+the form's properties). The width you drew the form at belongs to one of them,
+and that is the *design* breakpoint: it carries what you drew. Any other
+breakpoint can carry **overrides** — for a control, a different `Visible`,
+position, size, `Anchor`, `Dock`, container or item property, or `FontSize`.
+Overrides do not pile up: the layout at any width is what you drew, plus the
+overrides of the breakpoint that width is in. Captions, text, items and
+handlers cannot be overridden: one form still means one set of data and one
+set of code.
+
+In the Form Designer the **View at** bar shows the form at a width of your
+choice, and what you change while a breakpoint is chosen becomes an override
+of that breakpoint, with a way to reset it to the base design.
+
+> 📷 **Screenshot needed — `responsive-view-at.png`.** In PowerDemo3's
+> **Responsive: breakpoints** form, choose **View at ▸ Compact** and capture
+> the designer with the overridden controls selected.
+
+**Font scaling.** `FontScaling` is `None` (the default: sizes as designed),
+`Fluid` (the sizes follow the window's width divided by the designed width)
+or `Stepped` (each breakpoint carries one factor). `MinFontScale` (0.85) and
+`MaxFontScale` (1.50) bound the factor. A control can opt out with
+`ScaleFont = false`, or be held between its own `MinFontSize` and
+`MaxFontSize`. Scaling changes text, never a control's designed rectangle.
+
+**From COBOL.** The form answers `ME::Breakpoint` (the name of the active
+breakpoint) and `ME::FontScale` (the factor), and raises two events when the
+size changes: `onBreakpointChanged`, only when the width crossed into another
+breakpoint, and then `onResize`, once, after the layout is done:
+
+```cobol
+      *> In the form's onBreakpointChanged handler:
+           IF me::Breakpoint = "Compact"
+               SET     LBL-HINT::Caption             TO    "Narrow window"
+           ELSE
+               SET     LBL-HINT::Caption             TO    "Wide window"
+           END-IF
+```
+
+On a responsive form a control's `X`, `Y`, `Width` and `Height` read as they
+are laid out *now*, and a write is taken as the position on screen at the
+current size: `ADD 10 TO BTN-OK::X` moves the button ten pixels, whatever its
+anchors, and the next resize keeps the move. That is also why an old
+`onResize` handler that places controls by hand keeps working: its writes and
+the layout agree instead of fighting. The better migration is to delete the
+handler and say the same thing with anchors, a Flex or a Grid.
+
+```mermaid
+flowchart TD
+    W["The window, or the pane, changes size"] --> B["Which breakpoint holds this width?"]
+    B --> O["Base design + that breakpoint's overrides"]
+    O --> C{"Container's LayoutMode?"}
+    C -->|Absolute| A["Anchors and docking"]
+    C -->|Flex, Grid, Flow| F["The container places its children"]
+    A --> S["Font scaling, limits"]
+    F --> S
+    S --> R["onBreakpointChanged, then onResize"]
+```
+
+**Notes**
+
+- A form that is not responsive behaves exactly as it always did. The older,
+  proportional way to resize a form migrated from PowerCOBOL is *Obsolete
+  scaling style*, described below; prefer anchors and containers for new
+  forms.
+- PowerDemo3 has a form for each idea above; see *Responsive examples in
+  PowerDemo3* below.
+- A responsive form's window refuses to shrink past the size at which two
+  controls would collide; see the *A responsive window stops before its
+  controls collide* paragraph in the next section.
+
+> ⚠️ **Caveats.**
+> - A `1fr` grid track is never narrower than the widest item you drew in it.
+>   Write `MinMax(160px, 1fr)` to say how narrow a column may get.
+> - A Flex column takes the height of its content. Give the item that should
+>   fill the space `FlexGrow 1`, drawn at its smallest useful height.
+> - A breakpoint is chosen by the width of the surface the form is drawn on —
+>   a form loaded into a shell's content pane is measured by the pane, not by
+>   the screen.
 
 ### Starting a new form
 
@@ -3657,6 +3828,85 @@ Set `ItemCount` (in the designer, or `SET grp::ItemCount` from COBOL) for a
 fixed number of cards, or bind `DataSource` and let the
 data decide; `RefreshBinding()` on the group repopulates the cards from
 working-storage after you change it.
+
+#### Binding a repeating group to a COBOL table
+
+A repeating group can be filled from your data and can write what the operator
+types back to it. Where a DataGrid shows a table as rows of cells, a bound
+repeating group shows it as **cards**: one instance of the group per row, and
+each source field goes into one control of the card.
+
+1. Select the repeating group and open **Data Binding** in the properties pane.
+   The group is offered as a **Control Array** target; a plain GroupBox, or any
+   other control, is not.
+2. Choose a **COBOL table** as the source (see the next section for what a table
+   is) and map each field to **one member control and one of its properties**.
+   The property that suits the control is preselected: `Caption` for a Label or
+   Button, `Text` for a TextBox, `Checked` for a CheckBox, `Selected` for a
+   RadioButton, `ImagePath` for a PictureBox, `Value` for a ComboBox, ListBox,
+   NumericUpDown, Slider, ProgressBar or DateTimePicker. Pick another property
+   of the control if you want one. A member you do not map keeps the value you
+   designed, and two fields cannot take the same property of the same member.
+3. Run the form. The cards appear, one per row, filled from the table. After
+   your own code changes the table, call `RefreshBinding()` on the group.
+
+At design time the cards show sample values from the field definitions, so you
+can lay the card out before there is any data.
+
+```cobol
+      *> The group CUSTOMER-CARDS is bound to the table CUSTOMER-ROW; the table has changed.
+           MOVE "Ana Lima" TO CUSTOMER-NAME(2)
+           CUSTOMER-CARDS::RefreshBinding()
+```
+
+**Writing back.** Make the binding **writable** (and its table writable) and what
+the operator types into a member of card *n* is written to row *n*, into the
+field that member is mapped to and into no other:
+
+| What happens | `CommitStatus` | `LastError` | `PendingEdits` |
+|---|---|---|---|
+| The value was written | `00` | empty | the edit is removed if it was waiting |
+| The binding is read-only: nothing is written | `91` | says so | unchanged |
+| The field cannot hold the value (text typed into a number, a card past the last row) | `92` | which field and why | the edit is added |
+
+A refused edit is not lost: it stays in `PendingEdits`, one `card`, `member`,
+`property` and `value` per line separated by tabs, and the member still shows
+what was typed so the operator can correct it. Editing the member to something
+the table takes removes the line; `RefreshBinding()` re-reads the table and
+empties the list. These three are read-only properties of the group.
+
+```mermaid
+flowchart LR
+    E["Operator edits a member<br/>of card n"] --> W{"Writable binding<br/>and writable table?"}
+    W -->|No| R["CommitStatus 91<br/>nothing written"]
+    W -->|Yes| F{"Does the field<br/>take the value?"}
+    F -->|Yes| T["Row n, that field only<br/>CommitStatus 00"]
+    F -->|No| P["CommitStatus 92<br/>kept in PendingEdits"]
+```
+
+**How it differs from a DataGrid.**
+
+| | DataGrid | Repeating group |
+|---|---|---|
+| One unit is | a column | one member control and one of its properties |
+| Template of a row | a row of cells | the controls you designed in the group |
+| Where it can come from at run time | an indexed file, a COBOL table or a SQL table | a COBOL table |
+| Editing | in-cell editors, saved with `Save()` or by `AutoCommit` | the member controls themselves, written back as they are edited |
+| Also has | headers, sorting, filters, frozen panes, CSV export | the group's own layout (vertical, horizontal, grid) and card effects |
+
+The **Data Binding Guardian** checks a group's binding before a save, a run, a
+build or a check, and refuses to go on when a mapped control is not inside the
+group, or two fields take the same member property. In a writable binding it
+**warns**, without refusing, about a member that only shows its value (a Label,
+a picture, a bar): nothing is written back from it.
+
+> ⚠️ **Caveats.**
+> - Only a COBOL table fills the cards at run time. The binding editor lets you
+>   choose another source, which is useful for laying the card out, but nothing
+>   fills the group from an indexed file, a SQL table, a REST call or an agent.
+> - A group writes back only while its member is bound by a mapping; an edit to
+>   a property that is not mapped is left alone.
+> - A **nested** repeating group cannot be bound.
 
 #### Data binding and the Guardian
 
@@ -9241,6 +9491,47 @@ scratch item and no `COMPUTE`:
                INTO WS-LINE
 ```
 
+#### An assignment written without `COMPUTE`
+
+`COMPUTE` is the one arithmetic verb whose verb adds nothing: its `=` already says
+it. A statement that opens with a receiver and an `=` is a `COMPUTE`, and
+means exactly one:
+
+```cobol
+           TOTAL = PRICE * QTY
+           TOTAL ROUNDED = PRICE * QTY
+               ON SIZE ERROR
+                   DISPLAY "Too large"
+           END-COMPUTE
+```
+
+is the same program as `COMPUTE TOTAL = PRICE * QTY`, with `ROUNDED`, `ON SIZE
+ERROR`, `NOT ON SIZE ERROR` and `END-COMPUTE` working as they do there. The
+receiver is a data name, optionally qualified (`F OF G`), subscripted
+(`T(I, J)`) or reference-modified, or a control's member (`Txt-A::Text = WS-N + 1`).
+The shorthand takes **one** receiver; `COMPUTE A B = X` stays the way to write
+several. The debugger sets a breakpoint on such a line, Beautify lays it out
+like any other statement (its `ON SIZE ERROR` one level in, `END-COMPUTE` back
+under it), and the interpreter, the compiler and the generated code see only a
+`COMPUTE`.
+
+> ⚠️ **Caveats.**
+> - It is **arithmetic**. `NAME = "x"` on a text item is not a text assignment as
+>   in other languages: it is a `COMPUTE`, and the check refuses it with
+>   *"'NAME' is not numeric; an arithmetic assignment (COMPUTE, or `name =
+>   expression`) requires a numeric receiver"*. Use `MOVE` or `SET` for text.
+> - A data name that is also a reserved word (`COUNT`, `DATE`) is not read as a
+>   receiver; the line gives the usual error, as `MOVE` does for such a name.
+> - A line that begins `NAME = …` can also be the second line of a condition
+>   (`IF A > 1 AND` / `B = 2`). The parser tells them apart by what comes before;
+>   Beautify and the debugger look at the line above and treat it as a
+>   continuation when that line ends in `AND`, `OR`, `NOT` or an operator.
+> - It is outside COBOL-85, so the NIST suite never uses it and the standard
+>   flagging pass (which reads tokens, not statements) does not report it.
+> - It is not the property assignment the style rules prefer: for a control's
+>   property, `SET Txt-A::Text TO …` and `MOVE … TO Txt-A::Text` remain the
+>   forms to write.
+
 #### Built-ins are written inline
 
 The runtime's built-in calls (HTTP, SQL, files, dialogs, keys, models, charts)
@@ -9391,8 +9682,8 @@ with a blank line before it and a blank line after it, at most 100 columns wide.
 
 The plugin gives a coding agent the same practice as the `call-comments` golden
 rule, so the code an agent writes and the code you write read alike, and the
-examples that ship with the product — PowerChat, PowerAnalytics, PowerSpatial and
-PowerDemo3 — are written this way.
+examples that ship with the product — PowerChat, PowerAnalytics, PowerSpatial,
+PowerCloud and PowerDemo3 — are written this way.
 
 **Notes**
 
@@ -14577,6 +14868,14 @@ model cannot call tools at all, and that agent is offered none of them — its
 requests are plain chat, whatever the others do. PowerChat's election sets it
 on every agent except the one doing the tool work.
 
+⚠️ **Check warns about a form whose agents cannot call tools.** If two or more
+`AgentObject`s on one form are set to `ToolProtocol = None`, **Check** says so in
+the Output panel, naming the form and the agents: such an application still runs
+— it answers without tool calling — but you hear it at design time, not from a
+user. One agent set to `None` is a plain chat and says nothing. The warning reads
+the setting you made; it never guesses from the model's name. (PowerChat sets
+`None` at run time from the model list, so it has nothing to warn about.)
+
 > **Notes.**
 > - An agent that offers no tools sends exactly the request it always sent.
 >   Tools cost nothing until you declare one.
@@ -15556,6 +15855,98 @@ client secret**.
 - ⚠️ The password travels to AWS inside the request — encrypted, signed by
   the connection's profile, and never written anywhere by PowerRustCOBOL.
   Clear the field that held it, as the example does.
+
+#### Example: PowerCloud — one control of each kind
+
+**Help ▸ Examples ▸ PowerCloud** is a single window with seven tabs, and each
+tab shows one AWS control doing something a person would want done. It is the
+quickest way to see how the controls fit together in an application rather
+than in a demo form.
+
+| Tab | What it shows | Controls and built-ins it uses |
+|---|---|---|
+| Settings | Keys typed in, proved with one read-only call; the stack deployed or its template saved | `AwsMcp` `AwsCall`, `AWS-SET-CREDENTIALS`, `SAVE-FILE-DIALOG` |
+| DynamoDB | Create a table, filter a grid, add / view / edit / delete in popups | `AwsDynamoDB`, `AwsS3`, `AwsLambda`, `IMAGE-FIT`, `HTTP-DOWNLOAD` |
+| S3 | The account's buckets, and the objects of one | `AwsS3` `ListBuckets` and `List` |
+| Lambda | The function that makes temporary links, and a button to call it | `AwsLambda` `Invoke` |
+| Polly | A sentence spoken, with a play / pause / stop player | `AwsPolly` `Synthesize`, `AUDIO-PLAY` and its companions |
+| EC2 | Servers with class, vCPU and memory; a column that starts and stops one | `AwsEC2`, a Working window opened with `OpenFormAsync` |
+| Rekognition | A box drawn over every celebrity found | `AwsRekognition` `RecognizeCelebrities`, `IMAGE-INFO`, `Shape` |
+
+> 📷 **Screenshot needed — `powercloud-tabs.png`.** Open the example and press
+> **Connect** with a working AWS user, then capture the DynamoDB tab with two or
+> three pets, so that the 40 × 40 photos and the View, Edit and Delete icons show.
+
+Five ideas in it are worth copying.
+
+**One connection per region.** A control's region belongs to its *connection*,
+and a program can move a control to another connection, so the example declares
+one connection per region it offers and lets a list pick among them. The next
+call of each control goes to the new region:
+
+```cobol
+      *> In the region list's onSelectedIndexChanged handler:
+           SET     AWS-DDB::Connection           TO    CMB-REGION::GetSelected()
+           SET     AWS-S3::Connection            TO    CMB-REGION::GetSelected()
+           SET     AWS-REK::Connection           TO    CMB-REGION::GetSelected()
+```
+
+The keys of `AWS-SET-CREDENTIALS` are given to every one of those connections
+in a loop, and the boxes they were typed into are emptied straight after.
+
+**A photo's journey.** A photo is never stored as the user dropped it. The
+popup returns the file's path; the main form fits it to a 400 × 400 square,
+puts it in the bucket and stores the item. The grid reads it back through a
+temporary link, never through the bucket's own address:
+
+```mermaid
+flowchart LR
+    D["Photo dropped<br/>in the popup"] --> F["IMAGE-FIT<br/>400 x 400"]
+    F --> P["AwsS3 PutObject<br/>photos/id.jpg"]
+    P --> I["AwsDynamoDB PutItem<br/>name, race, age, key"]
+    I --> S["AwsDynamoDB Scan"]
+    S --> L["AwsLambda Invoke<br/>temporary link"]
+    L --> H["HTTP-DOWNLOAD<br/>into the local cache"]
+    H --> T["IMAGE-FIT 40 x 40<br/>thumbnail"]
+    T --> G["DataGrid Image cell"]
+```
+
+The grid is filled first, with the thumbnails' future paths, and a timer fetches
+one thumbnail per tick; an Image cell whose file does not exist yet is tried
+again, so each picture appears as soon as it has arrived.
+
+**An answer that is one object, not a list.** `GetField` reads the *rows* of an
+answer, and a row is an element of a list. A Lambda function that returns one
+JSON object (`{"url": "…", "expires": 900}`) has no rows, so the example cuts the
+value out of the answer text with the `Split` value method:
+
+```cobol
+           SET     WS-URL                        TO    WS-OUT::Replace( '": "', '":"' )::Split( '"url":"' )(2)::Split( '"' )(1)
+```
+
+**A window that waits for the cloud.** Starting a server takes a while.
+The EC2 tab starts it, opens a small *Working* form with `OpenFormAsync` and
+turns its own list off; a timer asks AWS every two seconds, and when the server
+reports the state asked for, the main form closes the window through its
+handle and lists the servers again. A modal window opened with `OpenFormSync`
+would not do: while it is open the opener's timer cannot run.
+
+**Boxes over a picture.** The Rekognition tab places each `Shape` from the
+*ratios* the service returns (`Left`, `Top`, `Width`, `Height`, each 0 to 1 of
+the picture). A picture shown with `SizeMode = Zoom` keeps its proportions and
+leaves bands on one side, so the program reads the picture's size with
+`IMAGE-INFO`, works out where it really sits inside the control, and only then
+multiplies.
+
+> ⚠️ **Caveats.**
+> - The example reaches a real AWS account. The cost is in the example's
+>   `README.md`: nothing while idle, except the demo server if you ask for one.
+> - The window that opens a popup is blocked while it is open, and a headless
+>   test cannot click inside it. The example's tests therefore replace each popup
+>   with a form that answers at once, which exercises the main form's side of the
+>   conversation — the properties it sets and reads — for real.
+> - The *On / off* column is a Checkbox cell: a DataGrid has no cell that looks
+>   like the Switch control.
 
 > **Note — the events are the asynchronous controls' own.** Each AWS control
 > raises its own completion event (`onInvoked`, `onFunctionsListed`,

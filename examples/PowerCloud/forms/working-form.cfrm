@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="WORKING-FORM" title="Working" width="420" height="150" background="#292A35FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" title-visible="false" corner-radius="24" resizable="false" index-base="1" start-position="Center" responsive="true">
+  <working-storage><![CDATA[       01 WS-TEXT   PIC X(300) GLOBAL.
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="WORKING-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+
+           INVOKE    super::GetProperty( "WorkingText" ) RETURNING WS-TEXT
+           SET     LBL-WORKING::Caption          TO    WS-TEXT::Trim()
+]]></Event>
+    <Event name="onClose" paragraph="WORKING-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Lbl-Working" type="Label" x="28" y="24" w="364" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Working…</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#F0F0F0</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">15</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="RotateX">0</Property>
+    <Property name="RotateY">0</Property>
+    <Property name="PerspectiveDistance">50</Property>
+    <Property name="PerspectiveStrength">100</Property>
+    <Property name="PinTopLeftX">0</Property>
+    <Property name="PinTopLeftY">0</Property>
+    <Property name="PinTopRightX">0</Property>
+    <Property name="PinTopRightY">0</Property>
+    <Property name="PinBottomRightX">0</Property>
+    <Property name="PinBottomRightY">0</Property>
+    <Property name="PinBottomLeftX">0</Property>
+    <Property name="PinBottomLeftY">0</Property>
+  </Control>
+  <Control id="Pgb-Working" type="ProgressBar" x="28" y="92" w="364" h="14" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#12131CFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">0</Property>
+    <Property name="BarColor">#4AC9F4FF</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="BlockSize">0</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Tmr-Working" type="Timer" x="0" y="0" w="24" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Interval">120</Property>
+    <Property name="Enabled">true</Property>
+    <Event name="onTick" paragraph="TMR-WORKING--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+
+           *> The bar only shows that something is going on; it does not measure anything.
+
+           ADD 8 TO PGB-WORKING::Value
+           IF PGB-WORKING::Value >= 100
+               SET     PGB-WORKING::Value            TO    0
+           END-IF
+]]></Event>
+  </Control>
+</Form>

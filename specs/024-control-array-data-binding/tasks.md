@@ -9,7 +9,7 @@ test green after each task. Do **not** commit or push.
 
 ---
 
-- [ ] **T1 — Indexed member-chain helper** (R2)
+- [x] **T1 — Indexed member-chain helper** (R2)
   - Files: `crates/cobolt-forms/src/model.rs` (or a small helper module).
   - Do: Add a helper to build and parse the spec-011 chain
     `ArrayName(i)::ChildId::Property` (1-based `i`). Single source of truth used by
@@ -17,7 +17,7 @@ test green after each task. Do **not** commit or push.
   - Verify: `cargo test -p cobolt-forms` — round-trip unit test (build → parse →
     equal) for several ids/properties/indices, including case-insensitive array id.
 
-- [ ] **T2 — Runtime instance rendering of a repeating GroupBox** (R13, spec-015
+- [x] **T2 — Runtime instance rendering of a repeating GroupBox** (R13, spec-015
   Phase 3 foundation)
   - Files: `crates/cobolt-forms/src/render.rs`, `crates/cobolt-forms/src/model.rs`
     (instance-count accessor).
@@ -30,7 +30,7 @@ test green after each task. Do **not** commit or push.
     renders 1 (unchanged); a repeating GroupBox with `ItemCount = k` produces k
     instances at expected offsets. `cargo build -p cobolt-ide` green.
 
-- [ ] **T3 — Per-instance member value resolution in the renderer** (R14 display,
+- [x] **T3 — Per-instance member value resolution in the renderer** (R14 display,
   R11)
   - Files: `crates/cobolt-forms/src/render.rs`.
   - Do: Each rendered instance `i` resolves each member's displayed property from
@@ -41,7 +41,7 @@ test green after each task. Do **not** commit or push.
     per-instance values, instance `i` shows its own value; a member with no seeded
     value shows the template value.
 
-- [ ] **T4 — Member default bindable-property table** (R10)
+- [x] **T4 — Member default bindable-property table** (R10)
   - Files: `crates/cobolt-ide/src/panels/data_binding.rs`.
   - Do: Promote `default_member_property` to the full per-control-type table
     (Label/Button→Caption, TextBox→Text, CheckBox/RadioButton→Checked,
@@ -51,7 +51,7 @@ test green after each task. Do **not** commit or push.
   - Verify: `cargo test -p cobolt-ide` — default property is correct for each
     control type; overridable set matches the table.
 
-- [ ] **T5 — ControlArray mapping editor (member + property pickers)** (R9, R11,
+- [x] **T5 — ControlArray mapping editor (member + property pickers)** (R9, R11,
   R12; sources R7/R8)
   - Files: `crates/cobolt-ide/src/panels/properties.rs`,
     `crates/cobolt-ide/src/panels/data_binding.rs`,
@@ -66,7 +66,7 @@ test green after each task. Do **not** commit or push.
     `(control, property)` is rejected; `cargo build -p cobolt-ide` green. Covers
     AC3, AC4, AC5.
 
-- [ ] **T6 — Target eligibility & array-member info panel** (R1, R5, R6)
+- [x] **T6 — Target eligibility & array-member info panel** (R1, R5, R6)
   - Files: `crates/cobolt-ide/src/panels/properties.rs`,
     `crates/cobolt-ide/src/panels/data_binding.rs`.
   - Do: A repeating GroupBox is offered as a **Control Array** target; a plain
@@ -77,7 +77,7 @@ test green after each task. Do **not** commit or push.
     `ApprovedTarget(ControlArray)` only for a repeating GroupBox, `ArrayMemberMapping`
     for its children, `Hidden` otherwise. Covers AC1, AC2.
 
-- [ ] **T7 — Design-time apply / preview seeding** (R15, R16)
+- [x] **T7 — Design-time apply / preview seeding** (R15, R16)
   - Files: `crates/cobolt-ide/src/app.rs`.
   - Do: Add a `ControlArray` branch to `apply_data_binding_target_properties`: set
     the group's instance count from the (preview) row count and seed preview member
@@ -88,7 +88,7 @@ test green after each task. Do **not** commit or push.
     rows and mapped members carry preview values while unmapped/overridden values
     are preserved; re-apply is idempotent. Covers AC8; supports AC7.
 
-- [ ] **T8 — Runtime population: `refresh_control_array_binding`** (R14)
+- [x] **T8 — Runtime population: `refresh_control_array_binding`** (R14)
   - Files: `crates/cobolt-runtime/src/interpreter.rs`.
   - Do: Analogous to `refresh_datagrid_binding`: derive row count from the source
     (COBOL-table `FIELD(n)` dims first), set the group's `ItemCount`, and for each
@@ -99,7 +99,7 @@ test green after each task. Do **not** commit or push.
     the `FIELD(n)` values with mask formatting; shrinking the data set leaves no
     stale instance. Covers AC6, AC7.
 
-- [ ] **T9 — Writable member writeback** (R17, R18, R19)
+- [x] **T9 — Writable member writeback** (R17, R18, R19)
   - Files: `crates/cobolt-runtime/src/interpreter.rs`.
   - Do: On a writable binding, pushing a changed **editable** member value updates
     only the mapped source field for that instance's row (via
@@ -109,7 +109,7 @@ test green after each task. Do **not** commit or push.
     row/field only; read-only edit does not write; forced-failure path preserves the
     pending value. Covers AC9.
 
-- [ ] **T10 — Seeding & deterministic codegen** (R21)
+- [x] **T10 — Seeding & deterministic codegen** (R21)
   - Files: `crates/cobolt-ide/src/form_runtime.rs`,
     `crates/cobolt-codegen/src/data_binding.rs`.
   - Do: Extend `append_data_binding_seed_props` to seed ControlArray binding
@@ -120,7 +120,7 @@ test green after each task. Do **not** commit or push.
     byte-stable across runs, carry the banner, and list `field -> ControlProperty`
     comments; `cargo test -p cobolt-ide` seed test. Supports AC11.
 
-- [ ] **T11 — Guardian: display-only-member rule + gate coverage** (R20)
+- [x] **T11 — Guardian: display-only-member rule + gate coverage** (R20)
   - Files: `crates/cobolt-ide/src/data_binding_guardian.rs`,
     `crates/cobolt-ide/src/i18n.rs`.
   - Do: A **writable** mapping whose member property is on a display-only control
@@ -132,7 +132,7 @@ test green after each task. Do **not** commit or push.
     Warning not a Blocker; each action gate blocks a deliberately-unsafe array
     binding and passes a safe one. Covers AC10.
 
-- [ ] **T12 — `.cfrm` round-trip & generated-form checks** (R22, R23)
+- [x] **T12 — `.cfrm` round-trip & generated-form checks** (R22, R23)
   - Files: tests in `crates/cobolt-forms` and `crates/cobolt-codegen` (+ parser as
     needed).
   - Do: Add end-to-end checks: an array-bound form saves→loads identical; a repair
@@ -142,7 +142,7 @@ test green after each task. Do **not** commit or push.
     `cargo test -p cobolt-parser` — round-trip equal; repair preserves layout/events;
     generated program parses/checks. Covers AC12, AC13, AC11.
 
-- [ ] **T13 — Docs & i18n** (R24, R25)
+- [x] **T13 — Docs & i18n** (R24, R25)
   - Files: `docs/developers-guide-en.md`, `crates/cobolt-ide/src/i18n.rs`.
   - Do: Document the array-binding workflow and the DataGrid-vs-array differences
     table in the English guide (translations untouched). Ensure every new `Tr` key
@@ -150,7 +150,7 @@ test green after each task. Do **not** commit or push.
   - Verify: `cargo test -p cobolt-ide` i18n completeness test (no empty
     translations); guide section renders. Covers AC14, AC15.
 
-- [ ] **T14 — Finalize: version, changelog, full verification**
+- [x] **T14 — Finalize: version, changelog, full verification**
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`.
   - Do: Apply the version bump + top `CHANGELOG.md` entry. **Resolve spec Q5:**
     functionally a feature (minor per tech.md), but the operator's pre-production
@@ -191,3 +191,24 @@ All acceptance criteria in `spec.md` are satisfied, every task's verification ha
 been run and reported with real results, docs and i18n are updated, the version/
 CHANGELOG change is applied per the resolved Q5 classification, and no commit or
 push is made unless the operator explicitly asks.
+
+---
+
+## What was done (2026-10-15, 1.91.172)
+
+All fourteen boxes were unticked although most of this had shipped in 1.8x and 1.9x; they are ticked now, after reading each one
+against the code and running the tests below.
+
+| Task | State |
+|---|---|
+| T1 | The chain's ids are built and taken apart in one module, `cobolt_forms::instance_id` (`member_instance_id`, `parse_member_instance_id`), used by the renderer and by the runtime; 2 round-trip tests. Before, the renderer built the id and the host took it apart with its own string code. |
+| T2, T3, T8 | Shipped earlier: `render.rs` draws one card per row (`is_repeating_instance_group`), `refresh_control_array_binding` sets `ItemCount` from the table and hydrates each card's mapped members (`test_control_array_refresh`). |
+| T4 | Shipped earlier (`default_member_property`); a unit test for every control type was added (`the_property_preselected_for_a_member_control_suits_its_type`). Q7 is settled by that table. |
+| T5, T6, T7 | Shipped earlier: the mapping editor and the member picker in `properties.rs` (`control_array_editor_maps_fields_to_member_properties`), the member-only view of a selected member (`visibility_for_control`), and the design-time preview (`seed_control_array_binding_preview_values`). |
+| T9 | New: `interpreter/array_edit.rs`. A member edited on a writable binding over a writable COBOL table is written to its row and field only (`00`); a read-only binding writes nothing (`91`); a value the field cannot hold is refused (`92`) and kept in `PendingEdits` until the member is repaired or `RefreshBinding()` re-reads the table. 8 tests in `test_control_array_write_back.rs`, 4 mutants killed. |
+| T10 | Shipped earlier for `_BindingKind`, `_BindingFields`, `_BindingMappings`; `_BindingWritable` added here, in the host's seeding and in the generated COBOL (`control_array_seed`, 2 tests; the host test `a_bound_repeating_group_is_seeded_…`). |
+| T11 | New in `binding_guardian.rs`: a mapped member not inside the group (`member-not-in-array`) and two fields on one member property (`duplicate-member-property`) block; a display-only member (Label, picture, bar…) in a writable binding warns (`display-only-member`). **Q6 is settled** as proposed: writeback applies to editable members only. 5 tests. |
+| T12 | `control_array_binding_round_trip` (save, load, identical, same bytes again), `control_array_seed` (the generated program parses and passes the analyser; byte-stable), a repair test that leaves the group's layout and the members' handlers alone. |
+| T13 | The Guide's *Binding a repeating group to a COBOL table* (workflow, write-back table and diagram, differences from a DataGrid, the Guardian, caveats), the System KB (the group's `CommitStatus`, `LastError`, `PendingEdits`, and a section on binding; `chunked.data` regenerated). No new IDE string was needed, so there is nothing to add to `Tr`. |
+| T14 | Q5 is settled: every agent change is a `z` bump (the operator's rule), 1.91.172. |
+

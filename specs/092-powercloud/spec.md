@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — PowerCloud: an AWS example, and the platform it needs
 
-- **Status:** approved by the operator's instruction of 2026-10-09 ("implement PowerCloud as defined"); decisions D1–D9
+- **Status:** implemented — the platform in 1.91.0, the example in 1.91.170 (2026-10-15); AC-live is the operator's opt-in smoke test, and T28 (translations) waits for the next minor. Approved by the operator's instruction of 2026-10-09 ("implement PowerCloud as defined"); decisions D1–D9
   below were taken by the implementing agent while the operator was away, on the operator's standing rule
   *"do what is right, not what is easier or less risky"*.
 - **Folder:** specs/092-powercloud/
@@ -239,29 +239,48 @@ is built on real, documented, tested features of the product and not on special 
 
 ## 6. Acceptance criteria
 
-- [ ] **AC1 (R1–R3, R9):** each new operation is driven by a demo form against the fake server and checks its rows and
+- [x] **AC1 (R1–R3, R9):** each new operation is driven by a demo form against the fake server and checks its rows and
   events; `aws_hosts` passes with the updated tallies.
-- [ ] **AC2 (R4):** `AwsCall` is refused without `AllowWrite`, raises `onError` carrying the AWS error code on a failing call,
+- [x] **AC2 (R4):** `AwsCall` is refused without `AllowWrite`, raises `onError` carrying the AWS error code on a failing call,
   and passes `no_op_accepts_script_text_from_cobol`.
-- [ ] **AC3 (R5–R8):** the credential-surface scan (R7) finds none of the planted values anywhere; with credentials set the
+- [x] **AC3 (R5–R8):** the credential-surface scan (R7) finds none of the planted values anywhere; with credentials set the
   server's environment carries exactly the three variables and the launch carries no profile; clearing them restarts
   the server without them.
-- [ ] **AC4 (R10–R13):** `IMAGE-FIT` of a 1200×800 JPEG gives a 400×400 file whose centre is the source's centre; a
+- [x] **AC4 (R10–R13):** `IMAGE-FIT` of a 1200×800 JPEG gives a 400×400 file whose centre is the source's centre; a
   portrait with EXIF rotation is upright; `IMAGE-INFO` agrees with the decoder; `HTTP-DOWNLOAD` saves the exact bytes of
   a binary body from a local test server, follows a redirect, refuses a 404 with `http-status 404`, and a program
   without these calls builds without the `images` feature.
-- [ ] **AC5 (R14):** a grid whose Image cell file appears after the first paint shows it within one repaint.
-- [ ] **AC6 (R15–R18):** the null-sink engine plays a 2 s WAV: `PLAYING`, a position that advances, `ENDED` at the length;
+- [x] **AC5 (R14):** a grid whose Image cell file appears after the first paint shows it within one repaint.
+- [x] **AC6 (R15–R18):** the null-sink engine plays a 2 s WAV: `PLAYING`, a position that advances, `ENDED` at the length;
   pause holds the position; stop gives `IDLE`; a missing file gives `ERROR`; no device gives `NODEVICE`, no panic.
-- [ ] **AC7 (R19–R27, R30):** `powercloud_hosts` runs every tab headless against the fake server and reports
+- [x] **AC7 (R19–R27, R30):** `powercloud_hosts` runs every tab headless against the fake server and reports
   the operations exercised, the calls made and the time per phase.
-- [ ] **AC8 (R28):** a test parses the template (YAML), checks its resources, parameters and outputs, that no statement
+- [x] **AC8 (R28):** a test parses the template (YAML), checks its resources, parameters and outputs, that no statement
   allows `*:*`, and that the Lambda's inline code compiles as Python-free text (no tab characters, under the 4 KB inline limit).
-- [ ] **AC9 (R29):** no credential in any new file; the 091 round-trip guard passes for the new forms.
-- [ ] **AC10 (R31–R33):** the Guide, the KB (`prebuilt_chunked_kb_matches_the_published_documentation`), IntelliSense and
+- [x] **AC9 (R29):** no credential in any new file; the 091 round-trip guard passes for the new forms.
+- [x] **AC10 (R31–R33):** the Guide, the KB (`prebuilt_chunked_kb_matches_the_published_documentation`), IntelliSense and
   the six-language `Tr` tables are complete.
 - [ ] **AC-live (opt-in):** with an operator-provided account and `COBOLT_AWS_LIVE=1`, a smoke test deploys nothing but
   calls one read-only operation per service the example uses and reports what answered.
+
+### Proofs
+
+| AC | Where it is proved (all green on this tree, 2026-10-15) |
+|---|---|
+| AC1 | `aws_hosts::the_demos_pass_under_run_form_and_as_embedded_child_forms` (16 demos, every one's tally pinned; 2 passed, the built-binary case is `--ignored`) |
+| AC2 | `aws_delivery_c` 9/9, including `no_op_accepts_script_text_from_cobol` |
+| AC3 | `aws_credentials` 7/7, `aws_process_env` 1/1, and the planted-secret scan, repeated across every output of `powercloud_hosts` |
+| AC4 | `test_image_builtins` 9/9, `test_http_download` 8/8, `runtime_features` 25/25 (the scan switches `images` on only for programs that call the built-ins) |
+| AC5 | five render tests of the DataGrid image retry (the file arrives at frame 6, is drawn at frame 10, with 1 read and 2 probes), 1.91.0 |
+| AC6 | `test_audio` 3/3 and the 13 unit tests of `audio_runtime` (null sink: PLAYING, a moving position, ENDED at the length, pause, stop, a missing file, no device) |
+| AC7 | `powercloud_hosts::every_tab_of_powercloud_runs_against_the_fake_servers` — eleven scenarios, 54 hosted calls, 72 s, each with its time |
+| AC8 | `powercloud_hosts::the_cloudformation_template_has_what_the_example_needs_and_no_wildcard_administrator` |
+| AC9 | `powercloud_hosts::the_example_holds_no_credential` (19 text files), `every_example_form_saves_unchanged_091`, `example_corpus_codegen` (five PowerCloud snapshots) |
+| AC10 | the Guide (*Help ▸ Examples*, *Example: PowerCloud*), `prebuilt_chunked_kb_matches_the_published_documentation`, `BUILTINS` for IntelliSense, `examples_powercloud_about` in six languages (`i18n` tests 15/15) |
+
+Not met as written: **R26's "switch"** — the On / off column is a Checkbox cell, because a DataGrid has no Switch cell kind; **R21's profile
+field** — a connection's profile is fixed with the project, so the Settings tab offers the keys or, left empty, the machine's default credentials.
+The popups are not driven by the hosted test (the harness drives the main window only): each is replaced there by a form that answers at once.
 
 ## 7. Constraints & steering check
 

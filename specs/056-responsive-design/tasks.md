@@ -694,7 +694,8 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 10 — Documentation, KB, i18n completeness
 
-- [ ] **T10.1 — Developer's Guide chapter "Responsive design"** (AC21)
+- [x] **T10.1 — Developer's Guide chapter "Responsive design"** (AC21)
+  - *Done 2026-10-15 (1.91.171): `### Responsive design` in Guide §7, before *Starting a new form*: anchoring and docking, the four LayoutModes, breakpoints and overrides, font scaling, the COBOL surface, a mermaid diagram, caveats, two screenshot slots. The support-matrix rows already existed.*
   - Files: `docs/developers-guide-en.md` (anchoring & docking, LayoutMode
     flex/grid/flow, breakpoints & overrides, font scaling, COBOL properties and
     events, the new-project default, migrating a hand-written `onResize`),
@@ -705,11 +706,13 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide docs_embed` (only the
     expected red).
 
-- [ ] **T10.2 — KB form-property table + final rebuild** (AC20)
+- [x] **T10.2 — KB form-property table + final rebuild** (AC20)
+  - *Verified 2026-10-15: the section "Responsive design: anchoring, docking, flex, grid and flow" is in the compiler's doc tables, and `prebuilt_chunked_kb_matches_the_published_documentation` is green on this tree, so the store is current.*
   - Files: `cobolt-compiler/src/lib.rs`, `assets/knowledge/chunked.data`.
   - Verify: KB coverage tests + freshness test green.
 
-- [ ] **T10.3 — i18n completeness** (AC19)
+- [x] **T10.3 — i18n completeness** (AC19)
+  - *Verified 2026-10-15: every label the spec lists is a `Tr` field in the `sample()` list of `i18n_tests`; `cargo test -p cobolt-ide --bin cobolt-ide i18n` is green (15 tests).*
   - Files: `i18n.rs` (`sample()` list extended with every new field).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n` green.
 

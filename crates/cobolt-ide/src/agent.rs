@@ -110,8 +110,60 @@ pub enum AgentOp {
         control_ids: Vec<String>,
         layer: String,
     },
+    /// Give a SideMenu or MenuBar a new designed tree (spec 082): reorder, regroup, rename, re-icon,
+    /// change an action, add or remove items. The WHOLE tree is sent, in display order, and replaces
+    /// the menu's `<control id>.menu.yaml`; an item that names an existing id keeps that item, and
+    /// every field the item does not send keeps its current value.
+    SetMenuItems {
+        control_id: String,
+        items: Vec<MenuItemSpec>,
+    },
     /// Return a conversational message to the user.
     Message { message: String },
+}
+
+/// What kind of row a menu item is (spec 082 R2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MenuItemKind {
+    #[default]
+    Action,
+    Separator,
+}
+
+/// One item of the tree a `set_menu_items` sends: the fields `cobolt_forms::menu::MenuItem` stores that
+/// an agent may write (spec 082 R2, and the accelerator, Q3). Every field but `label` may be left out;
+/// for an item that keeps an existing `id`, a field left out keeps its current value, and an empty
+/// string clears `icon`, `action`, `accelerator` and `badge`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MenuItemSpec {
+    /// The item's id. Send the one the context shows to keep the item; leave it out (or send one that is not
+    /// four lowercase letters, or that another item of the window already has) to get a new id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default, rename = "type")]
+    pub item_type: MenuItemKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// `event`, `home`, `close-application`, `open-form:<FORM>`, `open-standalone-sync:<FORM>` or
+    /// `open-standalone-async:<FORM>` (the last three and `home` only on a SideMenu).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accelerator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preserve_previous_form: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
+    /// `pill`, `count` or `outline`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_style: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<MenuItemSpec>,
 }
 
 /// One line naming what an operation was going to do, without its payload.
@@ -120,7 +172,7 @@ pub enum AgentOp {
 /// text is written into the chat history, and the chat history becomes part of
 /// the next request's context, so a handler pasted in here would be paid for on
 /// every later turn.
-fn op_headline(op: &AgentOp) -> String {
+pub(crate) fn op_headline(op: &AgentOp) -> String {
     match op {
         AgentOp::DeployControl { control_type, id, .. } => format!(
             "deploy_control {control_type} {}",
@@ -134,6 +186,9 @@ fn op_headline(op: &AgentOp) -> String {
         }
         AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
         AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
+        AgentOp::SetMenuItems { control_id, items } => {
+            format!("set_menu_items {control_id} ({} top-level item(s))", items.len())
+        }
         AgentOp::AddLayer { .. }
         | AgentOp::RenameLayer { .. }
         | AgentOp::DeleteLayer { .. }
@@ -916,6 +971,12 @@ pub(crate) fn op_form_free_error(op: &AgentOp) -> Option<String> {
             }
             None
         }
+        AgentOp::SetMenuItems { control_id, items } => {
+            if control_id.trim().is_empty() {
+                return Some("`control_id` names no menu control.".to_string());
+            }
+            menu_items_error(items, None)
+        }
         AgentOp::AddLayer { name } => name.as_deref().and_then(layer_name_error),
         AgentOp::RenameLayer { new_name, .. } => layer_name_error(new_name),
         AgentOp::MoveLayer { position, .. } => (*position == 0)
@@ -1020,6 +1081,7 @@ fn op_ref(op: &AgentOp) -> String {
         } => format!("generate_event_handler {control_id}.{event}"),
         AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
         AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
+        AgentOp::SetMenuItems { control_id, .. } => format!("set_menu_items {control_id}"),
         AgentOp::AddLayer { .. }
         | AgentOp::RenameLayer { .. }
         | AgentOp::DeleteLayer { .. }
@@ -1395,8 +1457,260 @@ fn validate_op(
             .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
             .or_else(|| unknown_layer_ref(code, inv)),
         AgentOp::SetFormStructure { .. } => op_form_free_error(op),
+        AgentOp::SetMenuItems { control_id, items } => {
+            if let Some(error) = op_form_free_error(op) {
+                return Some(error);
+            }
+            match known.get(&control_id.to_ascii_uppercase()) {
+                None => Some(format!("No control named '{control_id}'.")),
+                Some(ControlType::SideMenu) => menu_items_error(items, Some(true)),
+                Some(ControlType::MenuBar) => menu_items_error(items, Some(false)),
+                Some(other) => Some(format!(
+                    "'{control_id}' is a {}: only a SideMenu or a MenuBar has designed items.",
+                    other.as_str()
+                )),
+            }
+        }
         AgentOp::Message { .. } => None,
     }
+}
+
+// ── Menu items (spec 082) ─────────────────────────────────────────────────────
+
+/// Why a tree of items cannot be a menu, or `None` when it can: a reason that names the item (spec 082
+/// R5). `side_menu` says which control it is for (`None`: not known yet) — `home` and the standalone
+/// actions belong to a SideMenu only.
+pub(crate) fn menu_items_error(items: &[MenuItemSpec], side_menu: Option<bool>) -> Option<String> {
+    if items.is_empty() {
+        return Some(
+            "`items` is empty: it is the WHOLE new tree and replaces every item the menu has. Send at least one item."
+                .to_string(),
+        );
+    }
+    let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    fn walk(
+        items: &[MenuItemSpec],
+        depth: usize,
+        side_menu: Option<bool>,
+        seen: &mut std::collections::HashMap<String, String>,
+    ) -> Option<String> {
+        for item in items {
+            let name = if item.label.trim().is_empty() {
+                item.id.clone().unwrap_or_else(|| "(unnamed)".to_owned())
+            } else {
+                item.label.trim().to_owned()
+            };
+            if depth > cobolt_forms::menu::MAX_DEPTH {
+                return Some(format!(
+                    "Item '{name}' sits {depth} levels deep; a menu nests at most {}.",
+                    cobolt_forms::menu::MAX_DEPTH
+                ));
+            }
+            if let Some(id) = item.id.as_deref().map(str::trim).filter(|i| !i.is_empty()) {
+                if let Some(first) = seen.insert(id.to_owned(), name.clone()) {
+                    return Some(format!("The id '{id}' is on two items, '{first}' and '{name}'; each item has its own."));
+                }
+            }
+            if item.item_type == MenuItemKind::Action && item.label.trim().is_empty() {
+                return Some(format!(
+                    "An item{} has no label; only a separator may go without.",
+                    item.id.as_deref().map(|i| format!(" (id {i})")).unwrap_or_default()
+                ));
+            }
+            if let Some(style) = item.badge_style.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                if !["pill", "count", "outline"].iter().any(|v| v.eq_ignore_ascii_case(style)) {
+                    return Some(format!("Item '{name}': badge_style is pill, count or outline, not '{style}'."));
+                }
+            }
+            if let Some(action) = item.action.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+                if let Some(error) = menu_action_error(action, side_menu) {
+                    return Some(format!("Item '{name}': {error}"));
+                }
+            }
+            if let Some(error) = walk(&item.items, depth + 1, side_menu, seen) {
+                return Some(error);
+            }
+        }
+        None
+    }
+    walk(items, 1, side_menu, &mut seen)
+}
+
+/// Why `action` is not one a menu item can carry, or `None` when it is.
+fn menu_action_error(action: &str, side_menu: Option<bool>) -> Option<String> {
+    let (kind, target) = action.split_once(':').map_or((action, ""), |(k, t)| (k, t.trim()));
+    let needs_target = matches!(kind, "open-form" | "open-standalone-sync" | "open-standalone-async");
+    let known = matches!(kind, "event" | "home" | "close-application") || needs_target;
+    if !known {
+        return Some(format!(
+            "'{action}' is not an action. Use event, home, close-application, open-form:<FORM>,              open-standalone-sync:<FORM> or open-standalone-async:<FORM>."
+        ));
+    }
+    if needs_target && target.is_empty() {
+        return Some(format!("'{kind}' needs the form it loads, as `{kind}:<FORM>`."));
+    }
+    if !needs_target && !target.is_empty() {
+        return Some(format!("'{kind}' takes no target; remove ':{target}'."));
+    }
+    if side_menu == Some(false) && matches!(kind, "home" | "open-standalone-sync" | "open-standalone-async") {
+        return Some(format!("'{kind}' belongs to a SideMenu; a MenuBar offers event, open-form and close-application."));
+    }
+    None
+}
+
+/// What [`plan_menu_items`] decided: the definition to write, and what the new tree no longer has.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MenuPlan {
+    pub def: cobolt_forms::menu::MenuDefinition,
+    /// `(id, label)` of every item of the current tree that the new one does not keep, in order.
+    pub dropped: Vec<(String, String)>,
+}
+
+/// Turn the tree an agent sent into the definition to save, against the current one (spec 082 R3, R4).
+///
+/// An item that names the id of an existing item IS that item: it starts from it, so the fields the
+/// agent did not send — an icon, a badge, an accelerator, the control a row hosts — are kept. An item
+/// with no id, with an id that is not four lowercase letters, or with an id another menu or toolbar of
+/// the window already has, gets a new one exactly as the menu editor gives one. `taken` holds the ids the
+/// REST of the window uses (`item_ids::window_ids`). Depth is checked here too, against what is saved.
+pub(crate) fn plan_menu_items(
+    current: Option<&cobolt_forms::menu::MenuDefinition>,
+    taken: &std::collections::HashSet<String>,
+    specs: &[MenuItemSpec],
+) -> Result<MenuPlan, String> {
+    use cobolt_forms::menu::{MenuItem, MenuItemType};
+    let existing: std::collections::HashMap<String, &MenuItem> = current
+        .map(|d| {
+            let mut all = Vec::new();
+            fn collect<'a>(items: &'a [MenuItem], out: &mut Vec<&'a MenuItem>) {
+                for i in items {
+                    out.push(i);
+                    collect(&i.items, out);
+                }
+            }
+            collect(&d.menu, &mut all);
+            all.into_iter().map(|i| (i.id.clone(), i)).collect()
+        })
+        .unwrap_or_default();
+    let mut used: std::collections::HashSet<String> = taken.clone();
+    // Ids the new tree keeps are claimed first, so a new item never takes one of them.
+    fn claim_kept(
+        specs: &[MenuItemSpec],
+        existing: &std::collections::HashMap<String, &MenuItem>,
+        used: &mut std::collections::HashSet<String>,
+    ) {
+        for spec in specs {
+            if let Some(id) = spec.id.as_deref().map(str::trim) {
+                if existing.contains_key(id) {
+                    used.insert(id.to_owned());
+                }
+            }
+            claim_kept(&spec.items, existing, used);
+        }
+    }
+    claim_kept(specs, &existing, &mut used);
+    let mut kept: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    fn build(
+        specs: &[MenuItemSpec],
+        existing: &std::collections::HashMap<String, &MenuItem>,
+        used: &mut std::collections::HashSet<String>,
+        kept: &mut std::collections::HashSet<String>,
+    ) -> Vec<MenuItem> {
+        specs
+            .iter()
+            .map(|spec| {
+                let wanted = spec.id.as_deref().map(str::trim).unwrap_or("");
+                let base = existing.get(wanted).copied();
+                let mut item = match base {
+                    Some(b) => {
+                        kept.insert(b.id.clone());
+                        (*b).clone()
+                    }
+                    None => {
+                        // A new item: the id it asked for when it is a generated-looking one nobody has, else a fresh one.
+                        let mut id = wanted.to_owned();
+                        if !crate::panels::item_ids::is_generated(&id) || used.contains(&id) {
+                            id = crate::panels::item_ids::fresh_id(used);
+                        }
+                        used.insert(id.clone());
+                        MenuItem::new_action(id, String::new())
+                    }
+                };
+                // Verbatim: the file already holds labels with a trailing space, and "nothing else changed" is a promise.
+                item.label = spec.label.clone();
+                item.item_type = match spec.item_type {
+                    MenuItemKind::Action => MenuItemType::Action,
+                    MenuItemKind::Separator => MenuItemType::Separator,
+                };
+                // A field left out keeps its value; an empty string clears the optional ones.
+                let set = |field: &mut Option<String>, value: &Option<String>| {
+                    if let Some(v) = value {
+                        *field = (!v.trim().is_empty()).then(|| v.trim().to_owned());
+                    }
+                };
+                set(&mut item.icon, &spec.icon);
+                set(&mut item.action, &spec.action);
+                set(&mut item.accelerator, &spec.accelerator);
+                set(&mut item.badge, &spec.badge);
+                if let Some(e) = spec.enabled {
+                    item.enabled = e;
+                }
+                if let Some(p) = spec.preserve_previous_form {
+                    item.preserve_previous_form = p;
+                }
+                if let Some(style) = spec.badge_style.as_deref() {
+                    item.badge_style = cobolt_forms::menu::BadgeStyle::from_str(style);
+                }
+                item.items = build(&spec.items, existing, used, kept);
+                item
+            })
+            .collect()
+    }
+    let menu = build(specs, &existing, &mut used, &mut kept);
+    let def = cobolt_forms::menu::MenuDefinition { menu, hash: String::new() };
+    cobolt_forms::menu::validate_depth(&def).map_err(|e| e.to_string())?;
+
+    let mut dropped = Vec::new();
+    if let Some(cur) = current {
+        fn walk(items: &[MenuItem], kept: &std::collections::HashSet<String>, out: &mut Vec<(String, String)>) {
+            for i in items {
+                if !kept.contains(&i.id) {
+                    out.push((i.id.clone(), i.label.clone()));
+                }
+                walk(&i.items, kept, out);
+            }
+        }
+        walk(&cur.menu, &kept, &mut dropped);
+    }
+    Ok(MenuPlan { def, dropped })
+}
+
+/// Where code on the form mentions `id` as a string — `WHEN "abcd"`, `= "abcd"` — so a dropped item's
+/// readers can be named (spec 082 R6). `(control or procedure, event)` pairs; nothing is changed.
+pub(crate) fn code_naming_menu_id(form: &Form, id: &str) -> Vec<String> {
+    let double = format!("\"{id}\"");
+    let single = format!("'{id}'");
+    let mentions = |code: &str| code.contains(&double) || code.contains(&single);
+    let mut out = Vec::new();
+    for c in &form.controls {
+        for e in &c.events {
+            if mentions(&e.code) {
+                out.push(format!("{}::{}", c.id, e.event));
+            }
+        }
+    }
+    for e in &form.form_events {
+        if mentions(&e.code) {
+            out.push(format!("{}::{}", form.name, e.event));
+        }
+    }
+    for p in &form.user_procedures {
+        if mentions(&p.code) {
+            out.push(format!("procedure {}", p.name));
+        }
+    }
+    out
 }
 
 // ── Grid & alignment normalisation ───────────────────────────────────────────
@@ -2777,7 +3091,7 @@ pub(crate) fn menu_items_context(form: &Form, form_dir: &Path) -> String {
     format!(
         "MENU ITEMS (each menu's designed tree, nested by indentation. It is stored in \
          `<control id>.menu.yaml` beside the form, not in the control's properties, so \
-         `set_property` cannot change it. `open-form:<name>` loads that form):\n{out}"
+         `set_property` cannot change it; `set_menu_items` replaces the whole tree. `open-form:<name>` loads that form):\n{out}"
     )
 }
 

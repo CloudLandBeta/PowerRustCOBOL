@@ -107,6 +107,10 @@ pub mod perspective;
 #[cfg(feature = "render")]
 pub mod surface_theme;
 
+// The drawn ids of a repeating group's cards and members: built by the renderer, taken apart by
+// the runtime (spec 024 T1), so it is not behind `render`.
+pub mod instance_id;
+
 #[cfg(feature = "render")]
 pub mod render;
 

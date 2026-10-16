@@ -142,5 +142,12 @@ cargo run -p cobolt-ide --example powerchat_regen
 
 ## Not yet
 
-Moving a document between folders by dragging it (spec 071 R50) waits for
-TreeView drag and drop (spec 067).
+- **A grip to resize the prompt editor** (spec 063 R45). Every PowerChat window is
+  a fixed size; none changes its own (spec 063 R46 — a test scans the COBOL for it).
+- **The richer TreeView drag of spec 067** — a node that moves itself, drops before
+  or after a node, Escape to cancel. Dragging a document onto a folder works with the
+  TreeView's own `AllowDrag` and `onNodeDrop` (see *Documents* above); PowerChat does
+  not need more.
+- **A model whose tools cannot be known in advance.** Which model can call tools, and
+  how well it orchestrates, is what the user enters in *Model selection*
+  (spec 063 R72); a model that was never entered is treated as not tool-capable (R73).

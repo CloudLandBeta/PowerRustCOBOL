@@ -1,6 +1,6 @@
 # Spec — Data Binding for Control Arrays (repeating GroupBox)
 
-- **Status:** draft → approved
+- **Status:** implemented for COBOL-table sources (1.91.172, 2026-10-15). Indexed, SQL, REST and Agent AI sources can be chosen in the editor, but only a COBOL table fills the cards at run time — see *Proofs*
 - **Folder:** specs/024-control-array-data-binding/
 - **Author:** Anthropic Claude Codex Agent (with Eslopes)   **Date:** 2026-07-01
 - **Builds on:** spec 015 (visual repeating groups — this is its deferred
@@ -178,37 +178,55 @@ coverage, and the concrete differences from DataGrid binding.
   its differences from DataGrid binding in the English developer guide.
 
 ## 5. Acceptance criteria
-- [ ] AC1 — A repeating GroupBox is offered as a bindable **Control Array**
+- [x] AC1 — A repeating GroupBox is offered as a bindable **Control Array**
   target; a plain GroupBox and a non-GroupBox control are **not** (R1, R5).
-- [ ] AC2 — Selecting a member control shows only its array-member mapping, not a
+- [x] AC2 — Selecting a member control shows only its array-member mapping, not a
   scalar binding (R6).
-- [ ] AC3 — All five sources are selectable for an array target with the same
+- [x] AC3 — All five sources are selectable for an array target with the same
   editors/validation as DataGrid (R7, R8).
-- [ ] AC4 — A field maps to a chosen member control + property; the default
+- [x] AC4 — A field maps to a chosen member control + property; the default
   property is preselected per control type and can be overridden (R9, R10).
-- [ ] AC5 — Two fields cannot target the same member property; the UI/guardian
+- [x] AC5 — Two fields cannot target the same member property; the UI/guardian
   rejects it (R12).
-- [ ] AC6 — Running a form bound to a source with K rows renders exactly K group
+- [x] AC6 — Running a form bound to a source with K rows renders exactly K group
   instances in the group's layout, each member populated from its row and
   formatted through the field mask (R13, R14).
-- [ ] AC7 — Unmapped members keep their design-time values; changing the data set
+- [x] AC7 — Unmapped members keep their design-time values; changing the data set
   leaves no stale instances (R11, R14, R15).
-- [ ] AC8 — Design-time preview fills deterministic instances from field
+- [x] AC8 — Design-time preview fills deterministic instances from field
   definitions when only definitions exist (R16).
-- [ ] AC9 — A writable binding with a key writes a member edit back to the correct
+- [x] AC9 — A writable binding with a key writes a member edit back to the correct
   row/field, updating only mapped fields; a read-only binding never writes back;
   a failed update preserves the pending value (R17, R18, R19).
-- [ ] AC10 — Save / run / debug / check / build / package are blocked on unsafe
+- [x] AC10 — Save / run / debug / check / build / package are blocked on unsafe
   array mappings with actionable messages; safe bindings pass (R20).
-- [ ] AC11 — Generated COBOL for an array binding parses, checks, runs, and
+- [x] AC11 — Generated COBOL for an array binding parses, checks, runs, and
   debugs; it carries the banner and is regenerated on action (R21).
-- [ ] AC12 — Array bindings round-trip through `.cfrm` unchanged; existing
+- [x] AC12 — Array bindings round-trip through `.cfrm` unchanged; existing
   DataGrid/other bindings are unaffected (R22).
-- [ ] AC13 — A repair action that remaps/removes a member preserves layout and
+- [x] AC13 — A repair action that remaps/removes a member preserves layout and
   member event handlers (R23).
-- [ ] AC14 — All new binding UI text is localized in the six languages (R24).
-- [ ] AC15 — The English developer guide documents the array-binding workflow and
+- [x] AC14 — All new binding UI text is localized in the six languages (R24).
+- [x] AC15 — The English developer guide documents the array-binding workflow and
   DataGrid differences (R25).
+
+### Proofs (all green on this tree, 2026-10-15)
+
+| AC | Where |
+|---|---|
+| AC1, AC2 | `cobolt-forms` model tests `data_binding_targets_accept_explicit_arrays`, `data_binding_targets_resolve_array_member_context_without_scalar_target` |
+| AC3 | the editor builds a binding for each source kind (`data_binding_editor_creates_binding_for_every_source_type`). **Only a COBOL table is populated at run time**; an array bound to another source is a design-time template (the host's seeding says so in a comment, and the Guide's caveat) |
+| AC4 | `control_array_editor_maps_fields_to_member_properties`, `the_property_preselected_for_a_member_control_suits_its_type` |
+| AC5 | `binding_guardian::two_fields_on_the_same_member_property_are_blocked_but_two_properties_are_not` |
+| AC6, AC7 | `test_control_array_refresh` (a table of 2 rows gives `ItemCount` 2 and each mapped member filled from its row, in the item's own display form) |
+| AC8 | `seed_control_array_binding_preview_values` fills the preview from the field definitions |
+| AC9 | `test_control_array_write_back` (8 tests: the right row and field only; read-only never writes; a refused edit is kept and repairable; `RefreshBinding()` drops it) |
+| AC10 | the guardian's blockers (`member-not-in-array`, `duplicate-member-property`, plus the existing source, target and identity rules) reach every action gate (`data_binding_action_gates_block_all_actions_on_blockers`) |
+| AC11 | `cobolt-codegen` `control_array_seed` |
+| AC12 | `cobolt-forms` `control_array_binding_round_trip` |
+| AC13 | `binding_guardian::repairing_an_array_binding_keeps_the_groups_layout_and_the_members_handlers` |
+| AC14 | no new IDE text was needed (the Guardian's findings are English in every language, as for every other binding) |
+| AC15 | the Guide, *Binding a repeating group to a COBOL table* |
 
 ## 6. Constraints & steering check
 - **i18n (6 languages):** New binding-editor labels (target = control array,
@@ -237,16 +255,9 @@ coverage, and the concrete differences from DataGrid binding.
   REST / Agent AI).
 - **Q4:** Nested repeating-group binding — confirmed **out of scope** for v1
   (single level), matching spec 015. Confirm no near-term need.
-- **Q5:** Version classification at implementation — minor (feature per tech.md)
-  vs z (operator's pre-prod "treat all as fixes" rule). Operator to confirm.
-- **Q6:** When a writable member is a display-only control type (Label,
-  PictureBox), should the guardian treat its field as **read-only-by-nature**
-  (no writeback attempted) even inside a writable binding? Proposed: yes —
-  writeback applies only to editable member controls (TextBox, ComboBox,
-  CheckBox, NumericUpDown, DateTimePicker); resolve before `/plan`.
-- **Q7:** Default bindable-property table (R10) — confirm the per-control-type
-  default properties and the set of overridable writable properties per type
-  during `/plan`.
+- **Q5 (resolved):** every agent change is a `z` bump (the operator's rule): 1.91.172.
+- **Q6 (resolved, 2026-10-15):** yes — a member that only shows its value is read-only by nature; in a writable binding the guardian **warns** and nothing is written back from it.
+- **Q7 (resolved):** the table is `default_member_property`, tested for every control type.
 
 ## 8. DataGrid vs Control-Array binding (shared vs different)
 

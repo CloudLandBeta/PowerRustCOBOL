@@ -119,3 +119,46 @@ fn nothing_else_changes() {
     assert_eq!(targets.len(), 2, "COMPUTE keeps its receiver series");
     assert!(stmts.iter().any(|s| matches!(s, Stmt::InvokeExpr { .. })), "the method call is still a call");
 }
+
+/// Spec 093 AC2 (R6, R7, R9): every verb whose operand list is a run of names ends it in front of an
+/// assignment — the next line's name is a statement, never one operand more — and the receiver series of
+/// the arithmetic verbs, where `ROUNDED` follows a receiver, are unchanged.
+#[test]
+fn every_operand_list_ends_in_front_of_an_assignment() {
+    for (verb_line, label) in [
+        ("    ADD 1 TO A B", "ADD … TO a list of receivers"),
+        ("    SUBTRACT 1 FROM A B", "SUBTRACT"),
+        ("    MULTIPLY 2 BY A B", "MULTIPLY"),
+        ("    DIVIDE 2 INTO A B", "DIVIDE"),
+        ("    STRING \"a\" DELIMITED BY SIZE INTO A", "STRING"),
+        ("    UNSTRING A DELIMITED BY \",\" INTO B C", "UNSTRING"),
+        ("    CALL \"P\" USING A B", "CALL … USING"),
+        ("    INSPECT A TALLYING N FOR ALL \"x\"", "INSPECT … TALLYING"),
+        ("    SET I J TO 1", "SET"),
+        ("    MOVE 1 TO A B", "MOVE"),
+        ("    INITIALIZE A B", "INITIALIZE"),
+        ("    DISPLAY A B", "DISPLAY"),
+    ] {
+        let stmts = all_stmts(&format!("{verb_line}\n    Z = 9\n    STOP RUN.\n"));
+        assert_eq!(computes(&stmts).len(), 1, "{label}: the assignment after it is a statement of its own: {stmts:?}");
+        assert!(!matches!(stmts.first(), Some(Stmt::Compute { .. })), "{label}: the verb statement comes first");
+    }
+}
+
+#[test]
+fn the_receiver_series_of_the_arithmetic_verbs_and_computes_two_receivers_are_unchanged() {
+    // ROUNDED follows a receiver in every arithmetic verb, so it alone never ends the list (R7).
+    let stmts = all_stmts("    ADD 1 TO A ROUNDED B ROUNDED\n    Z = 9\n    STOP RUN.\n");
+    let Some(Stmt::Add { to, .. }) = stmts.first() else { panic!("{stmts:?}") };
+    assert_eq!(to.len(), 2, "both receivers of the ADD: {stmts:?}");
+    assert!(to.iter().all(|(_, rounded)| *rounded), "each carries ROUNDED");
+    assert_eq!(computes(&stmts).len(), 1);
+
+    let stmts = all_stmts("    MULTIPLY 2 BY A ROUNDED B ROUNDED\n    Z = 9\n    STOP RUN.\n");
+    assert_eq!(computes(&stmts).len(), 1, "{stmts:?}");
+
+    // COMPUTE's own list still stops at `=` only (R9).
+    let stmts = all_stmts("    COMPUTE A B = 7\n    STOP RUN.\n");
+    let Some(Stmt::Compute { targets, .. }) = stmts.first() else { panic!("{stmts:?}") };
+    assert_eq!(targets.len(), 2, "two receivers");
+}

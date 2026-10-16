@@ -1,6 +1,6 @@
 # Spec — Application model list and key store
 
-- **Status:** implemented (1.70.194); AC9 and AC12 partly open, see §6a
+- **Status:** implemented (1.70.194); AC9 and AC12 proven 1.91.175 (2026-10-15), see §6a
 - **Folder:** specs/076-application-model-list/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-24
 - **Parents:** `specs/071-powerchat/spec.md` (§4.6 R33–R37),
@@ -164,14 +164,14 @@ or the list changing.
 - [x] **AC7** — A missing keys file gives an empty store; a corrupt one is
       reported, left as it was, and the store starts empty. *(R11)*
 - [x] **AC8** — A `KnowledgeBase` embeds through a list entry. *(R13)*
-- [ ] **AC9** — An agent with a list entry, a `Configuration` and its own
+- [x] **AC9** — An agent with a list entry, a `Configuration` and its own
       properties uses the entry; without the entry, the `Configuration` through
       the environment variables; without both, its own properties. *(R14)*
 - [x] **AC10** — An unknown entry, and an entry missing a required key, each fail
       at once with `onError` naming the problem, and no request is sent. *(R15)*
 - [x] **AC11** — Changing an entry in use raises the notification R16 names.
       *(R16)*
-- [ ] **AC12** — The same program behaves identically under `rcrun run-form`, as
+- [x] **AC12** — The same program behaves identically under `rcrun run-form`, as
       an embedded child form, and as a compiled binary; `cargo tree` shows
       neither `cobolt-ide` nor `cobolt-agents`. *(R18, R19)*
 
@@ -207,15 +207,18 @@ or the list changing.
 - **AC6.** "A second user of the installation" is tested as a second store
   opened on the same folder. The file is shared, and the cipher key depends
   on the folder and host name, not on the user.
-- **AC9 — partly open.** Entry over own settings is tested end to end.
-  `Configuration` resolves at seed time into the same `AgentAPI`/`AgentURL`/
-  `AgentAPIKey` properties that an entry overrides at `Ask` time, so the entry
-  also wins over it. That order is unchanged code, but it has no end-to-end
-  test here.
-- **AC12 — partly open.** The list and store are process globals in the
-  runtime, used identically by every host (child forms share the process).
-  `cargo tree` shows no `cobolt-ide` or `cobolt-agents`. A full three-host run
-  is an operator step.
+- **AC9 and AC12 — proven end to end (1.91.175).** `model_list_hosts` in `cobolt-cli`: one form
+  with two agents and three scripted local servers that each answer with their own name and count
+  what they were asked. `AGT-1` has a `Configuration` (a model provider the host publishes from
+  `COBOLT_AGENT_PROVIDERS`), its own URL, and a list entry its handler hands over with
+  `COBOL::"MODEL-SET"`; `AGT-2` has only its own URL. Entry set → the **entry** server answers, with
+  the entry's model; entry cleared → the **Configuration** server, with the agent's own model;
+  `AGT-2` → its **own** server. One question reaches each server, on each of the three hosts —
+  `rcrun run-form`, a child form in an application shell's ContentPane, and a binary built by
+  `cobolt_compiler::build_project` and run with `PRC_HEADLESS_SCRIPT` (10.7 s; `--ignored`). The
+  entry is an Ollama one, so no key is needed and the key store is not touched. `cargo tree
+  --edges normal` for `cobolt-runtime`, `cobolt-form-host` and `cobolt-forms` lists neither
+  `cobolt-ide` nor `cobolt-agents` (0 lines each).
 - **Keys file:** `<app>/settings/model-keys.dat`, where `<app>` is the folder
   every host anchors assets on (`cobolt_forms::assets::current_base`).
 
