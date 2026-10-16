@@ -82,6 +82,94 @@
       *>── User Working Storage ────────────────────────────────────────
        01 WS-TEXT   PIC X(300) GLOBAL.
        01 WS-PHOTO  PIC X(300) GLOBAL.
+       *>   The interface language, as the form that opened this one has it (property UiLanguage):
+       *>   1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn. The texts: one row each, one column per language.
+
+       01 WS-LANG-IX PIC 9 GLOBAL VALUE 1.
+       01 PC-TEXT-DATA GLOBAL.
+           *>   TITLE
+           05 FILLER PIC X(160) VALUE "Pet".
+           05 FILLER PIC X(160) VALUE "Animal".
+           05 FILLER PIC X(160) VALUE "Mascota".
+           05 FILLER PIC X(160) VALUE "Animal".
+           05 FILLER PIC X(160) VALUE "ペット".
+           05 FILLER PIC X(160) VALUE "宠物".
+           *>   NAME
+           05 FILLER PIC X(160) VALUE "Name".
+           05 FILLER PIC X(160) VALUE "Nome".
+           05 FILLER PIC X(160) VALUE "Nombre".
+           05 FILLER PIC X(160) VALUE "Nom".
+           05 FILLER PIC X(160) VALUE "名前".
+           05 FILLER PIC X(160) VALUE "名称".
+           *>   RACE
+           05 FILLER PIC X(160) VALUE "Race".
+           05 FILLER PIC X(160) VALUE "Raça".
+           05 FILLER PIC X(160) VALUE "Raza".
+           05 FILLER PIC X(160) VALUE "Race".
+           05 FILLER PIC X(160) VALUE "品種".
+           05 FILLER PIC X(160) VALUE "品种".
+           *>   AGE
+           05 FILLER PIC X(160) VALUE "Age".
+           05 FILLER PIC X(160) VALUE "Idade".
+           05 FILLER PIC X(160) VALUE "Edad".
+           05 FILLER PIC X(160) VALUE "Âge".
+           05 FILLER PIC X(160) VALUE "年齢".
+           05 FILLER PIC X(160) VALUE "年龄".
+           *>   PHOTO
+           05 FILLER PIC X(160) VALUE "Photo".
+           05 FILLER PIC X(160) VALUE "Foto".
+           05 FILLER PIC X(160) VALUE "Foto".
+           05 FILLER PIC X(160) VALUE "Photo".
+           05 FILLER PIC X(160) VALUE "写真".
+           05 FILLER PIC X(160) VALUE "照片".
+           *>   DROP-HINT
+           05 FILLER PIC X(160) VALUE "Drop a photo here, or click to choose".
+           05 FILLER PIC X(160) VALUE "Solte uma foto aqui ou clique para escolher".
+           05 FILLER PIC X(160) VALUE "Suelta una foto aquí o haz clic para elegir".
+           05 FILLER PIC X(160) VALUE "Déposez une photo ici ou cliquez pour choisir".
+           05 FILLER PIC X(160) VALUE "写真をここにドロップするか、クリックして選択".
+           05 FILLER PIC X(160) VALUE "将照片拖放到此处，或单击选择".
+           *>   NOTE
+           05 FILLER PIC X(160) VALUE "The photo is cropped to a square and kept as 400 x 400 in the photo bucket.".
+           05 FILLER PIC X(160) VALUE "A foto é cortada em um quadrado e guardada com 400 x 400 no bucket das fotos.".
+           05 FILLER PIC X(160) VALUE "La foto se recorta en un cuadrado y se guarda como 400 x 400 en el bucket de fotos.".
+           05 FILLER PIC X(160) VALUE "La photo est recadrée en carré et conservée en 400 x 400 dans le bucket des photos.".
+           05 FILLER PIC X(160) VALUE "写真は正方形に切り抜かれ、400 x 400 で写真バケットに保存されます。".
+           05 FILLER PIC X(160) VALUE "照片会被裁剪为正方形，并以 400 x 400 保存在照片存储桶中。".
+           *>   SAVE
+           05 FILLER PIC X(160) VALUE "Save".
+           05 FILLER PIC X(160) VALUE "Salvar".
+           05 FILLER PIC X(160) VALUE "Guardar".
+           05 FILLER PIC X(160) VALUE "Enregistrer".
+           05 FILLER PIC X(160) VALUE "保存".
+           05 FILLER PIC X(160) VALUE "保存".
+           *>   CANCEL
+           05 FILLER PIC X(160) VALUE "Cancel".
+           05 FILLER PIC X(160) VALUE "Cancelar".
+           05 FILLER PIC X(160) VALUE "Cancelar".
+           05 FILLER PIC X(160) VALUE "Annuler".
+           05 FILLER PIC X(160) VALUE "キャンセル".
+           05 FILLER PIC X(160) VALUE "取消".
+           *>   NEEDS-NAME
+           05 FILLER PIC X(160) VALUE "A pet needs a name.".
+           05 FILLER PIC X(160) VALUE "Um animal precisa de um nome.".
+           05 FILLER PIC X(160) VALUE "Una mascota necesita un nombre.".
+           05 FILLER PIC X(160) VALUE "Un animal doit avoir un nom.".
+           05 FILLER PIC X(160) VALUE "ペットには名前が必要です。".
+           05 FILLER PIC X(160) VALUE "宠物必须有名称。".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+           05 PC-TEXT-ROW OCCURS 10.
+               10 PC-TEXT PIC X(160) OCCURS 6.
+       01 M-TITLE       PIC 99 GLOBAL VALUE 1.
+       01 M-NAME        PIC 99 GLOBAL VALUE 2.
+       01 M-RACE        PIC 99 GLOBAL VALUE 3.
+       01 M-AGE         PIC 99 GLOBAL VALUE 4.
+       01 M-PHOTO       PIC 99 GLOBAL VALUE 5.
+       01 M-DROP-HINT   PIC 99 GLOBAL VALUE 6.
+       01 M-NOTE        PIC 99 GLOBAL VALUE 7.
+       01 M-SAVE        PIC 99 GLOBAL VALUE 8.
+       01 M-CANCEL      PIC 99 GLOBAL VALUE 9.
+       01 M-NEEDS-NAME  PIC 99 GLOBAL VALUE 10.
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Title.
@@ -206,6 +294,23 @@
 
        PROCEDURE DIVISION.
 
+           *> The language of the window that opened this one, and the designed texts in it.
+
+           INVOKE    super::GetProperty( "UiLanguage" ) RETURNING WS-TEXT
+           SET     WS-LANG-IX                    TO    FUNCTION NUMVAL( WS-TEXT )
+           IF WS-LANG-IX < 1 OR WS-LANG-IX > 6
+               SET     WS-LANG-IX                    TO    1
+           END-IF
+           SET     LBL-TITLE::Caption            TO    PC-TEXT( M-TITLE, WS-LANG-IX )::Trim()
+           SET     LBL-NAME::Caption             TO    PC-TEXT( M-NAME, WS-LANG-IX )::Trim()
+           SET     LBL-RACE::Caption             TO    PC-TEXT( M-RACE, WS-LANG-IX )::Trim()
+           SET     LBL-AGE::Caption              TO    PC-TEXT( M-AGE, WS-LANG-IX )::Trim()
+           SET     LBL-PHOTO::Caption            TO    PC-TEXT( M-PHOTO, WS-LANG-IX )::Trim()
+           SET     DRP-PHOTO::Hint               TO    PC-TEXT( M-DROP-HINT, WS-LANG-IX )::Trim()
+           SET     LBL-NOTE::Caption             TO    PC-TEXT( M-NOTE, WS-LANG-IX )::Trim()
+           SET     BTN-SAVE::Caption             TO    PC-TEXT( M-SAVE, WS-LANG-IX )::Trim()
+           SET     BTN-CANCEL::Caption           TO    PC-TEXT( M-CANCEL, WS-LANG-IX )::Trim()
+
            *> The pet to edit arrives as properties of the form that opened this one.
 
            INVOKE    super::GetProperty( "PetName" ) RETURNING WS-TEXT
@@ -268,7 +373,7 @@
        PROCEDURE DIVISION.
 
            IF TXT-NAME::Text::Trim()::Len() = 0
-               SET     LBL-NOTE::Caption             TO    "A pet needs a name."
+               SET     LBL-NOTE::Caption             TO    PC-TEXT( M-NEEDS-NAME, WS-LANG-IX )::Trim()
                GOBACK
            END-IF
            INVOKE    super::SetProperty( "PetName", TXT-NAME::Text::Trim() )

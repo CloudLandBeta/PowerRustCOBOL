@@ -81,6 +81,30 @@
 
       *>── User Working Storage ────────────────────────────────────────
        01 WS-TEXT   PIC X(300) GLOBAL.
+       *>   The interface language, as the form that opened this one has it (property UiLanguage):
+       *>   1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn. The texts: one row each, one column per language.
+
+       01 WS-LANG-IX PIC 9 GLOBAL VALUE 1.
+       01 PC-TEXT-DATA GLOBAL.
+           *>   CLOSE
+           05 FILLER PIC X(60) VALUE "Close".
+           05 FILLER PIC X(60) VALUE "Fechar".
+           05 FILLER PIC X(60) VALUE "Cerrar".
+           05 FILLER PIC X(60) VALUE "Fermer".
+           05 FILLER PIC X(60) VALUE "閉じる".
+           05 FILLER PIC X(60) VALUE "关闭".
+           *>   AGE-OF
+           05 FILLER PIC X(60) VALUE "Age &1".
+           05 FILLER PIC X(60) VALUE "Idade &1".
+           05 FILLER PIC X(60) VALUE "Edad &1".
+           05 FILLER PIC X(60) VALUE "Âge &1".
+           05 FILLER PIC X(60) VALUE "年齢 &1".
+           05 FILLER PIC X(60) VALUE "年龄 &1".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+           05 PC-TEXT-ROW OCCURS 2.
+               10 PC-TEXT PIC X(60) OCCURS 6.
+       01 M-CLOSE       PIC 99 GLOBAL VALUE 1.
+       01 M-AGE-OF      PIC 99 GLOBAL VALUE 2.
 
       *>── Form controls ───────────────────────────────────────────────
        01 WS-Lbl-Name.
@@ -150,12 +174,21 @@
 
        PROCEDURE DIVISION.
 
+           *> The language of the window that opened this one, and the designed texts in it.
+
+           INVOKE    super::GetProperty( "UiLanguage" ) RETURNING WS-TEXT
+           SET     WS-LANG-IX                    TO    FUNCTION NUMVAL( WS-TEXT )
+           IF WS-LANG-IX < 1 OR WS-LANG-IX > 6
+               SET     WS-LANG-IX                    TO    1
+           END-IF
+           SET     BTN-CLOSE::Caption            TO    PC-TEXT( M-CLOSE, WS-LANG-IX )::Trim()
+
            INVOKE    super::GetProperty( "PetName" ) RETURNING WS-TEXT
            SET     LBL-NAME::Caption             TO    WS-TEXT::Trim()
            INVOKE    super::GetProperty( "PetRace" ) RETURNING WS-TEXT
            SET     LBL-RACE::Caption             TO    WS-TEXT::Trim()
            INVOKE    super::GetProperty( "PetAge" ) RETURNING WS-TEXT
-           SET     LBL-AGE::Caption              TO    "Age " & WS-TEXT::Trim()
+           SET     LBL-AGE::Caption              TO    PC-TEXT( M-AGE-OF, WS-LANG-IX )::Trim()::Replace( "&1", WS-TEXT::Trim() )
            INVOKE    super::GetProperty( "ViewPhoto" ) RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES
                SET     PIC-PHOTO::ImagePath          TO    WS-TEXT::Trim()

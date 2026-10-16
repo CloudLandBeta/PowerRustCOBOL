@@ -195,7 +195,9 @@ INVOKE    me::Close()"#
     );
     make(
         "CONFIRM-FORM",
-        r#"INVOKE    super::GetProperty( "ConfirmText" ) RETURNING WS-TEXT
+        r#"INVOKE    super::GetProperty( "UiLanguage" ) RETURNING WS-ID
+DISPLAY "LANG-SEEN " WS-ID::Trim()
+INVOKE    super::GetProperty( "ConfirmText" ) RETURNING WS-TEXT
 DISPLAY "CONFIRM-SEEN " WS-TEXT::Trim()
 INVOKE    super::SetProperty( "ConfirmAnswer", "Y" )
 INVOKE    me::Close()"#
@@ -470,6 +472,222 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
     });
 
     println!("\nspec 092 — PowerCloud, tab by tab, against the fake servers\n{}\n  total hosted calls: {}   (no secret reached any output: {KEY_ID}, the secret and the token were planted)", summary.join("\n"), calls_to(&p));
+}
+
+// ---- spec 092, amendment A1: the six languages ----------------------------------------------------
+
+/// Picking a language in CMB-LANGUAGE, as the user does: the position, then the event.
+fn pick(language: usize) -> Vec<Value> {
+    vec![set("Cmb-Language", "SelectedIndex", &language.to_string()), json!({"event": {"control": "Cmb-Language", "name": "onSelectedIndexChanged"}}), wait(200)]
+}
+
+/// The value a `read` step of a script answered.
+fn step_value(report: &Value, step: usize) -> String {
+    report["steps"][step]["value"].as_str().unwrap_or_else(|| panic!("step {step} read nothing: {}", report["steps"][step])).to_owned()
+}
+
+/// Every designed text the language picker changes: the main form's captions, hints, tab
+/// titles, list of voices and its eight status lines.
+const LANGUAGE_TEXTS: &[(&str, &str)] = &[
+    ("Lbl-Tagline", "Caption"), ("Tab-Main", "Tabs"), ("Lbl-SetHead", "Caption"), ("Lbl-SetHint", "Caption"), ("Lbl-Region", "Caption"),
+    ("Lbl-KeyId", "Caption"), ("Lbl-Token", "Caption"), ("Txt-Token", "HintText"), ("Lbl-Secret", "Caption"), ("Btn-Connect", "Caption"),
+    ("Lbl-Stack", "Caption"), ("Lbl-Bucket", "Caption"), ("Txt-Bucket", "HintText"), ("Lbl-Function", "Caption"), ("Btn-Deploy", "Caption"),
+    ("Btn-Save", "Caption"), ("Lbl-Link", "Caption"), ("Lbl-DdbHead", "Caption"), ("Btn-CreateTable", "Caption"), ("Btn-NewPet", "Caption"),
+    ("Btn-Reload", "Caption"), ("Btn-ClearFilters", "Caption"), ("Lbl-S3Head", "Caption"), ("Btn-S3Reload", "Caption"), ("Lbl-LamHead", "Caption"),
+    ("Lbl-LamText", "Caption"), ("Lbl-LamSrc", "Caption"), ("Lbl-LamKey", "Caption"), ("Btn-LamTry", "Caption"), ("Lbl-PollyHead", "Caption"),
+    ("Lbl-Lang", "Caption"), ("Cmb-Lang", "Items"), ("Btn-Speak", "Caption"), ("Lbl-Ec2Head", "Caption"), ("Btn-Ec2Reload", "Caption"),
+    ("Lbl-RekHead", "Caption"), ("Drp-Rek", "Hint"), ("Btn-Recognize", "Caption"), ("Lbl-Conn", "Caption"), ("Lbl-StackState", "Caption"),
+    ("Lbl-DdbState", "Caption"), ("Lbl-S3State", "Caption"), ("Lbl-LamResult", "Caption"), ("Lbl-PollyState", "Caption"), ("Lbl-Ec2State", "Caption"),
+    ("Lbl-RekDetails", "Caption"),
+];
+
+/// The language picker shows every text of the main form in each of the six languages, and
+/// English comes back exactly as it was designed.
+#[test]
+fn powercloud_shows_every_text_of_its_main_form_in_each_of_the_six_languages() {
+    let t = Instant::now();
+    let p = project("languages");
+    let n = LANGUAGE_TEXTS.len();
+    let reads = || LANGUAGE_TEXTS.iter().map(|(c, pr)| get(c, pr)).collect::<Vec<_>>();
+    // Block 0: English as the form opens. Blocks 1 to 5: pt es fr jp cn. Block 6: English again.
+    let mut steps = reads();
+    for language in 2..=6 {
+        steps.extend(pick(language));
+        steps.extend(reads());
+    }
+    steps.extend(pick(1));
+    steps.extend(reads());
+    let r = run_form(&p, &Value::Array(steps), 60);
+    let block = |b: usize| -> Vec<String> {
+        let first = if b == 0 { 0 } else { n + (b - 1) * (n + 3) + 3 };
+        (0..n).map(|i| step_value(&r, first + i)).collect()
+    };
+    let english = block(0);
+    assert!(english.iter().all(|v| !v.is_empty()), "an empty text in English: {english:?}");
+    assert_eq!(block(6), english, "English did not come back as it was designed");
+
+    let names = ["pt", "es", "fr", "jp", "cn"];
+    let (mut checked, mut changed) = (0, 0);
+    for b in 1..=5 {
+        let texts = block(b);
+        for (i, ((control, property), value)) in LANGUAGE_TEXTS.iter().zip(&texts).enumerate() {
+            checked += 1;
+            assert!(!value.is_empty(), "{control}::{property} is empty in {}", names[b - 1]);
+            assert!(value != &english[i], "{control}::{property} is still English in {}: {value:?}", names[b - 1]);
+            changed += 1;
+        }
+    }
+    let probes = [
+        ("pt", "Conectar", "Não conectado"),
+        ("es", "Conectar", "No conectado"),
+        ("fr", "Se connecter", "Non connecté"),
+        ("jp", "接続", "未接続"),
+        ("cn", "连接", "未连接"),
+    ];
+    let index = |control: &str, property: &str| LANGUAGE_TEXTS.iter().position(|(c, pr)| *c == control && *pr == property).unwrap();
+    for (b, (name, connect, conn)) in probes.iter().enumerate() {
+        let texts = block(b + 1);
+        assert_eq!(&texts[index("Btn-Connect", "Caption")], connect, "{name}");
+        assert_eq!(&texts[index("Lbl-Conn", "Caption")], conn, "{name}");
+    }
+    let tabs = |b: usize| block(b)[index("Tab-Main", "Tabs")].clone();
+    assert_eq!(tabs(0), "Settings\nDynamoDB\nS3\nLambda\nPolly\nEC2\nRekognition");
+    assert_eq!(tabs(1), "Configurações\nDynamoDB\nS3\nLambda\nPolly\nEC2\nRekognition");
+    assert_eq!(read_voices(&block(5), index("Cmb-Lang", "Items")), 6, "the voices lost an entry in Chinese");
+    println!(
+        "\nspec 092 amendment A1 — six languages on the main form\n  {n} texts x 6 languages read back; {checked} translated texts checked, {changed} differ from English;\n  English after a round trip identical to the design; {:.1} s",
+        t.elapsed().as_secs_f32()
+    );
+}
+
+fn read_voices(texts: &[String], at: usize) -> usize {
+    texts[at].lines().count()
+}
+
+/// A status line is written again in the language picked after it was shown: the message and
+/// what went into it are remembered, not the text.
+#[test]
+fn a_status_line_is_written_again_when_the_language_changes() {
+    let t = Instant::now();
+    let p = project("status");
+    let mut steps = vec![set("Txt-KeyId", "Text", KEY_ID), set("Txt-Secret", "Text", SECRET), set("Txt-Token", "Text", TOKEN), click("Btn-Connect"), wait(2500), get("Lbl-Conn", "Caption")];
+    let at = |steps: &Vec<Value>| steps.len() - 1;
+    let mut found = Vec::new();
+    found.push(("Lbl-Conn en", at(&steps)));
+    for language in [3, 5, 1] {
+        steps.extend(pick(language));
+        steps.push(get("Lbl-Conn", "Caption"));
+        found.push(("Lbl-Conn", at(&steps)));
+    }
+    steps.extend([click("Btn-Reload"), wait(1500), get("Lbl-DdbState", "Caption")]);
+    found.push(("Lbl-DdbState en", at(&steps)));
+    for language in [4, 6] {
+        steps.extend(pick(language));
+        steps.push(get("Lbl-DdbState", "Caption"));
+        found.push(("Lbl-DdbState", at(&steps)));
+    }
+    steps.extend(pick(1));
+    steps.extend([click("Btn-Ec2Reload"), wait(2000), get("Lbl-Ec2State", "Caption")]);
+    found.push(("Lbl-Ec2State en", at(&steps)));
+    steps.extend(pick(2));
+    steps.push(get("Lbl-Ec2State", "Caption"));
+    found.push(("Lbl-Ec2State pt", at(&steps)));
+    let r = run_form(&p, &Value::Array(steps), 90);
+    let said: Vec<String> = found.iter().map(|(_, i)| step_value(&r, *i)).collect();
+    let arn = "arn:aws:iam::123456789012:user/demo";
+    assert_eq!(said[0], format!("Connected as {arn}"));
+    assert_eq!(said[1], format!("Conectado como {arn}"));
+    assert_eq!(said[2], format!("{arn} として接続しました"));
+    assert_eq!(said[3], said[0], "English did not come back");
+    assert_eq!(said[4], "2 pet(s) in the table.");
+    assert_eq!(said[5], "2 animal(aux) dans la table.");
+    assert_eq!(said[6], "表中有 2 只宠物。");
+    assert_eq!(said[7], "2 server(s) in us-east-1");
+    assert_eq!(said[8], "2 servidor(es) em us-east-1");
+    println!("\nspec 092 amendment A1 — status lines rewritten after a change of language\n  {} lines read in 3 tabs and 6 languages, all as expected; {:.1} s", said.len(), t.elapsed().as_secs_f32());
+}
+
+/// The main form tells its popups the language (a property of its own) and asks the confirm
+/// popup its question already translated.
+#[test]
+fn the_popups_are_told_the_language_and_the_question_arrives_translated() {
+    let p = project("popups");
+    let mut steps = pick(2);
+    steps.extend([click("Btn-Reload"), wait(1500)]);
+    steps.extend([set("Dg-Pets", "ClickedRow", "2"), set("Dg-Pets", "ClickedColumn", "8"), json!({"event": {"control": "Dg-Pets", "name": "onCellClick"}}), wait(2500)]);
+    let r = run_form(&p, &Value::Array(steps), 90);
+    let out = shown(&r);
+    assert!(out.contains("LANG-SEEN 2"), "the popup was not told the language: {out}");
+    assert!(out.contains("CONFIRM-SEEN Excluir este animal e a foto dele?"), "the question did not arrive translated: {out}");
+}
+
+/// A popup run on its own has no opener, so what it asks the opener for is answered here: the
+/// language, the pet's age, nothing else. Everything else is the popup's own program.
+fn run_popup(p: &Project, stem: &str, language: usize, steps: &Value) -> Value {
+    let original = std::fs::read_to_string(example().join("forms").join(format!("{stem}.cfrm"))).unwrap();
+    let mut out = String::new();
+    for line in original.lines() {
+        if line.contains("super::GetProperty(") {
+            let value = if line.contains("\"UiLanguage\"") {
+                language.to_string()
+            } else if line.contains("\"PetAge\"") {
+                "7".to_owned()
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("           SET     WS-TEXT                       TO    \"{value}\"\n"));
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    let form_path = p.root.join("forms").join(format!("{stem}.cfrm"));
+    std::fs::write(&form_path, out).unwrap();
+    let form = cobolt_forms::load_form(&form_path).unwrap();
+    std::fs::write(p.root.join("generated").join(format!("{stem}.cbl")), cobolt_codegen::generate(&form)).unwrap();
+    let script = p.root.join("popup-steps.json");
+    std::fs::write(&script, steps.to_string()).unwrap();
+    let output = Command::new(rcrun())
+        .args(["run-form", &format!("forms/{stem}.cfrm"), &format!("generated/{stem}.cbl"), "--designer", "--headless", script.to_str().unwrap(), "--headless-limit", "30"])
+        .current_dir(&p.root)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(output.status.success(), "run-form of {stem} failed:\n{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
+    stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("@RUN-FORM-RESULT "))
+        .and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_else(|| panic!("no result line in:\n{stdout}"))
+}
+
+/// Each popup, told each of the six languages, shows its own texts in it; English is what it
+/// was designed with.
+#[test]
+fn each_popup_shows_its_texts_in_the_language_it_is_told() {
+    let t = Instant::now();
+    let p = project("popup-texts");
+    let confirm = [("Yes", "No"), ("Sim", "Não"), ("Sí", "No"), ("Oui", "Non"), ("はい", "いいえ"), ("是", "否")];
+    let view = [("Close", "Age 7"), ("Fechar", "Idade 7"), ("Cerrar", "Edad 7"), ("Fermer", "Âge 7"), ("閉じる", "年齢 7"), ("关闭", "年龄 7")];
+    let pet = [
+        ("Pet", "Save", "Cancel", "A pet needs a name."),
+        ("Animal", "Salvar", "Cancelar", "Um animal precisa de um nome."),
+        ("Mascota", "Guardar", "Cancelar", "Una mascota necesita un nombre."),
+        ("Animal", "Enregistrer", "Annuler", "Un animal doit avoir un nom."),
+        ("ペット", "保存", "キャンセル", "ペットには名前が必要です。"),
+        ("宠物", "保存", "取消", "宠物必须有名称。"),
+    ];
+    for language in 1..=6 {
+        let want = language - 1;
+        let r = run_popup(&p, "confirm-form", language, &json!([get("Btn-Yes", "Caption"), get("Btn-No", "Caption")]));
+        assert_eq!((read(&r, "Btn-Yes", "Caption"), read(&r, "Btn-No", "Caption")), (confirm[want].0.to_owned(), confirm[want].1.to_owned()), "confirm-form, language {language}");
+        let r = run_popup(&p, "view-form", language, &json!([get("Btn-Close", "Caption"), get("Lbl-Age", "Caption")]));
+        assert_eq!((read(&r, "Btn-Close", "Caption"), read(&r, "Lbl-Age", "Caption")), (view[want].0.to_owned(), view[want].1.to_owned()), "view-form, language {language}");
+        let r = run_popup(&p, "pet-form", language, &json!([get("Lbl-Title", "Caption"), get("Btn-Save", "Caption"), get("Btn-Cancel", "Caption"), click("Btn-Save"), get("Lbl-Note", "Caption")]));
+        let got = (read(&r, "Lbl-Title", "Caption"), read(&r, "Btn-Save", "Caption"), read(&r, "Btn-Cancel", "Caption"), read(&r, "Lbl-Note", "Caption"));
+        assert_eq!(got, (pet[want].0.to_owned(), pet[want].1.to_owned(), pet[want].2.to_owned(), pet[want].3.to_owned()), "pet-form, language {language}");
+    }
+    println!("\nspec 092 amendment A1 — the popups, told each language\n  3 popups x 6 languages = 18 runs, each texts as expected; {:.1} s", t.elapsed().as_secs_f32());
 }
 
 /// Spec 092 AC8 (R28) — the CloudFormation template: its resources, parameters and outputs,

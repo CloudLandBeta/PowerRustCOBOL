@@ -1,6 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="CONFIRM-FORM" title="Are you sure?" width="460" height="220" background="#292A35FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" title-visible="false" corner-radius="24" resizable="false" index-base="1" start-position="Center" responsive="true">
   <working-storage><![CDATA[       01 WS-TEXT   PIC X(300) GLOBAL.
+       *>   The interface language, as the form that opened this one has it (property UiLanguage):
+       *>   1 en, 2 pt, 3 es, 4 fr, 5 jp, 6 cn. The texts: one row each, one column per language.
+
+       01 WS-LANG-IX PIC 9 GLOBAL VALUE 1.
+       01 PC-TEXT-DATA GLOBAL.
+           *>   YES
+           05 FILLER PIC X(60) VALUE "Yes".
+           05 FILLER PIC X(60) VALUE "Sim".
+           05 FILLER PIC X(60) VALUE "Sí".
+           05 FILLER PIC X(60) VALUE "Oui".
+           05 FILLER PIC X(60) VALUE "はい".
+           05 FILLER PIC X(60) VALUE "是".
+           *>   NO
+           05 FILLER PIC X(60) VALUE "No".
+           05 FILLER PIC X(60) VALUE "Não".
+           05 FILLER PIC X(60) VALUE "No".
+           05 FILLER PIC X(60) VALUE "Non".
+           05 FILLER PIC X(60) VALUE "いいえ".
+           05 FILLER PIC X(60) VALUE "否".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+           05 PC-TEXT-ROW OCCURS 2.
+               10 PC-TEXT PIC X(60) OCCURS 6.
+       01 M-YES         PIC 99 GLOBAL VALUE 1.
+       01 M-NO          PIC 99 GLOBAL VALUE 2.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -56,6 +80,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> The language of the window that opened this one, and the designed texts in it.
+
+           INVOKE    super::GetProperty( "UiLanguage" ) RETURNING WS-TEXT
+           SET     WS-LANG-IX                    TO    FUNCTION NUMVAL( WS-TEXT )
+           IF WS-LANG-IX < 1 OR WS-LANG-IX > 6
+               SET     WS-LANG-IX                    TO    1
+           END-IF
+           SET     BTN-YES::Caption              TO    PC-TEXT( M-YES, WS-LANG-IX )::Trim()
+           SET     BTN-NO::Caption               TO    PC-TEXT( M-NO, WS-LANG-IX )::Trim()
 
            INVOKE    super::GetProperty( "ConfirmText" ) RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES

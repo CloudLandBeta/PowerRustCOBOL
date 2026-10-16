@@ -17,6 +17,28 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.179] — 2026-10-16
+
+*(Written on `features`, after 1.91.178.)*
+
+### Added: the PowerCloud example speaks the IDE's six languages (spec 092, amendment A1)
+
+Operator, 2026-10-16: *"PowerCloud - Add support for 6 languages (place the language selector next to the close button (x))"*.
+
+- **The selector.** `Cmb-Language`, a list in the title panel anchored to the right, 16 points to the left of the close button, with the languages' own names — English, Português, Español, Français, 日本語, 中文 — in the order of the IDE's own list. The tagline gave it the room (760 to 640 points wide). A list rather than six flags: it is one control that reads the same in every language and takes no assets.
+- **The texts.** One table in the main form's working storage — a row per text, a column per language (en, pt, es, fr, jp, cn) — 108 short texts and two paragraphs (the Settings hint and the Lambda explanation), in the pattern PowerChat already uses. `PC-TEXTS` copies the picked column into named items (`T-…`) and writes them into the captions, hints, tab titles (`TAB-MAIN::Tabs`), the headings of the three grids (`SetColumnTitle`) and the names of the six voices, which are built again keeping the voice picked. The English column is exactly what the form was designed with, so the program opens in English and a language round trip leaves it byte for byte as it was.
+- **Status lines.** Each of the eight status labels (the connection, the stack, the pets, the buckets, the Lambda answer, Polly, the servers, Rekognition) now remembers which message it last showed and the two values that went into its `&1` and `&2`, instead of only the text, so picking another language writes it again: *Connected as arn…* becomes *Conectado como arn…* with the same ARN. The Rekognition list, built from the control's last answer, is built again by its own procedure (`PC-REK-DETAILS`).
+- **The popups.** Forms never share data items, so the main form publishes the language as its property `UiLanguage` and the pet, view and confirm popups read it in their `onLoad` and carry a small table of their own. The confirm question and the Working window's text arrive already translated, as they did before. The Working popup needed no change.
+- **What stays as it was.** The choice is kept in memory for the run (nothing is written to a file); the voices and the sample sentence of the Polly tab (content, not interface); everything AWS returns; the Lambda's source; the picture of the wheel. A control's own words are not the program's to translate: the DataGrid's `Filter…` fields and the drop zones' `Drop files here, or browse` line (the example's hint beneath it is translated). The README and the Guide say so.
+
+*Tests.* `crates/cobolt-cli/tests/powercloud_hosts.rs` goes from 3 to 7 tests, and the existing tab-by-tab test passes unchanged — every English string it pins is still the same. New: all 46 texts of the main form read back in each of the other five languages, **230 translated texts checked, 230 different from English**, and English identical to the design after a round trip (6.9 s); a status line written in English and read again in Spanish, Japanese, French, Chinese and Portuguese with the same values in it, three tabs (9 lines, 16.7 s); the confirm popup told Portuguese and asked its question in it; and each of the three popups run on its own, told each of the six languages — 18 runs, every text as expected (15.6 s). Also green: `every_example_form_saves_unchanged_091` (the new control saves back byte for byte) and the Check of the whole project (0 errors, 0 warnings).
+
+*Snapshots.* The four PowerCloud snapshots of `example_corpus_codegen` were regenerated (`working-form` did not change). That test was already red before this change: PowerDemo3's `layers-form` has no snapshot, and the PowerChat and PowerDemo3 snapshots are behind their forms. They were left as they were; a deliberate `UPDATE_GOLDEN=1` of those two projects is a decision of its own.
+
+*Docs:* `examples/PowerCloud/README.md` (*Six languages*), the Developer's Guide (*Example: PowerCloud*: the sixth idea worth copying, and a caveat about a control's own words), spec 092 (amendment A1, R34 to R40, AC11 to AC14, T29). English only (GOLDEN RULE #8); no translation of the Guide exists to delete.
+
+*Not done.* AC14, the operator's own look at the window in the IDE in each language, is open: a headless picture of the Portuguese, French, Japanese and Chinese windows was looked at and showed no text cut off.
+
 ## [PowerRustCOBOL 1.91.178] — 2026-10-16
 
 *(Written on `fixes`, after 1.91.176. 1.91.177 is `features`'.)*

@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — PowerCloud: an AWS example, and the platform it needs
 
-- **Status:** implemented — the platform in 1.91.0, the example in 1.91.170 (2026-10-15); AC-live is the operator's opt-in smoke test, and T28 (translations) waits for the next minor. Approved by the operator's instruction of 2026-10-09 ("implement PowerCloud as defined"); decisions D1–D9
+- **Status:** implemented — the platform in 1.91.0, the example in 1.91.170 (2026-10-15), its six languages (amendment A1) in 1.91.179 (2026-10-16); AC-live is the operator's opt-in smoke test, and T28 (translations) waits for the next minor. Approved by the operator's instruction of 2026-10-09 ("implement PowerCloud as defined"); decisions D1–D9
   below were taken by the implementing agent while the operator was away, on the operator's standing rule
   *"do what is right, not what is easier or less risky"*.
 - **Folder:** specs/092-powercloud/
@@ -309,3 +309,60 @@ The popups are not driven by the hosted test (the harness drives the main window
   with no runtime change** — `aws_delivery_c.rs::moving_a_connection_name_switches_the_next_call` sends one call through
   each of two connections, the second after `MOVE "…" TO AWS-1::Connection`, and each reaches its own server in its own
   region.
+
+## 9. Amendment A1 — the example speaks the IDE's six languages (operator, 2026-10-16)
+
+**Origin.** The operator, 2026-10-16: *"PowerCloud - Add support for 6 languages (place the language selector next to the
+close button (x))"*. The review gates of /specify, /plan and /tasks are taken together: the request is one sentence, and the
+pattern it follows already exists in PowerChat (a table of texts, a column per language).
+
+### Decisions
+
+- **D10 — the list, not six flags.** One `ComboBox` (`Cmb-Language`) in the title panel, anchored top-right, 16 points to the
+  left of the close button, with the languages' own names — English, Português, Español, Français, 日本語, 中文 — in the order
+  of `Language::ALL` (en, pt, es, fr, jp, cn). The tagline gives it the room (760 → 640 points wide).
+- **D11 — in memory only.** The program opens in English and keeps the choice for the run. A file would be the example's
+  first write outside `data/cache`, and the project's test copies the folder afresh each time.
+- **D12 — a status line remembers its message, not its text.** Each of the eight status labels has a row number into the table
+  and the two values that went into its `&1` and `&2`; a change of language writes every one of them again. The Rekognition
+  list, which is built from the answer rather than from one message, is built again from the control's last answer.
+- **D13 — what stays as it was.** The voices of Polly and the sample sentence the user may type over (they are content, not
+  interface); the AWS values the program shows (ARNs, error texts, keys of objects); the Lambda's source; the picture of the wheel.
+
+### Requirements (EARS)
+
+- **R34 (event):** when a language is picked, the system shall write every designed text of the main form in it at once:
+  captions, hints, the tab titles, the headings of the three grids and the names of the voices.
+- **R35 (ubiquitous):** the language list shall sit in the title panel beside the close button and shall offer the six
+  languages of the IDE, by their own names.
+- **R36 (ubiquitous):** the program shall open in English, and the English text of every item shall be exactly what the form
+  was designed with.
+- **R37 (event):** when a language is picked, every status line already on screen shall be shown again in it, from the message
+  it last showed and the values that went into that message.
+- **R38 (ubiquitous):** the main form shall publish the language as its property `UiLanguage`; each popup shall read it when
+  it opens and show its own texts in it, and the confirm popup's question shall arrive already translated.
+- **R39 (ubiquitous):** identifiers, built-in names and the names AWS uses stay English in every language, and nothing AWS
+  returns is translated.
+- **R40 (ubiquitous):** the words a control draws itself — the DataGrid's `Filter…` fields and the drop zone's
+  `Drop files here, or browse` — and the picture of the wheel are outside the program's translation, and the README says so.
+
+### Acceptance criteria
+
+- [x] **AC11 (R34–R36):** for each of pt, es, fr, jp and cn, every one of 46 texts of the main form (captions, hints, tab titles,
+  voices, the eight status lines) differs from English; after a round trip through all six, English is identical to what the
+  form showed on opening; the Connect button and the "Not connected" line read as expected in each language.
+- [x] **AC12 (R37):** a line shown in English ("Connected as …", "2 pet(s) in the table.", "2 server(s) in us-east-1") is
+  written again in the language picked later, with the same values in it, and again in English on the way back.
+- [x] **AC13 (R38):** the confirm popup, opened after the language was set to Portuguese, is told the language and asked its
+  question in Portuguese; each of the three popups, told each of the six languages, shows its own texts in it.
+- [ ] **AC14 (R35, R34):** the operator's own look at the window in the IDE in each language — that the list sits well
+  beside the close button and that no text is cut off. A headless picture of the Portuguese, French, Japanese and Chinese
+  windows was looked at and showed none.
+
+### Proofs
+
+| AC | Where it is proved |
+|---|---|
+| AC11 | `powercloud_hosts::powercloud_shows_every_text_of_its_main_form_in_each_of_the_six_languages` |
+| AC12 | `powercloud_hosts::a_status_line_is_written_again_when_the_language_changes` |
+| AC13 | `powercloud_hosts::the_popups_are_told_the_language_and_the_question_arrives_translated`, `powercloud_hosts::each_popup_shows_its_texts_in_the_language_it_is_told` |
