@@ -114,9 +114,12 @@ pub struct RuntimeFeatures {
     /// The Viewer opening Word, PowerPoint, Excel and OpenDocument files as
     /// their text (`cobolt-docs`). Pure Rust; on for any form with a Viewer.
     pub office: bool,
-    /// Spec 078 — the AWS controls' client and server pool. Pure Rust and no
-    /// new crate; on for any form with an `Aws*` control (R29: an application
-    /// without one links none of it).
+    /// Spec 078 and spec 103 — the AWS controls: the pool of AWS Labs server
+    /// processes, and the native HTTPS transport to the hosted AWS MCP Server
+    /// (the AWS credential crates, `ureq` with the operating system's TLS, and
+    /// `tokio`). Pure Rust, no rustls and no C build; it implies `http`. On for
+    /// any form with an `Aws*` control (R29: an application without one links
+    /// none of it).
     pub aws: bool,
     /// Spec 092 — `IMAGE-FIT` / `IMAGE-INFO`: the `image` decoders. Pure
     /// Rust; on for a program that calls either. A form application links

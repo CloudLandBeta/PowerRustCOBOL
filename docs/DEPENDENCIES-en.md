@@ -169,6 +169,46 @@ because one family is not MIT/Apache:
 > MIT/Apache decoders instead (`hound`, `claxon`, `lewton`, `minimp3`), but its
 > MP3 one compiles C, which this project avoids.
 
+### AWS — the runtime's `aws` feature
+
+Added with spec 103 on **2026-10-16**, after the reconciliation stamped above (the totals at the top do not count it
+yet). The AWS controls reach AWS's hosted MCP Server over HTTPS, signed with SigV4 by the runtime itself, so a machine
+needs no `uv` or Python for those services. The five **AWS Labs servers** (Lambda, Bedrock Knowledge Bases, AgentCore,
+S3 Tables, Glue) are still child processes started with `uvx`; nothing here changes them.
+
+| Crate | Version | Used by | What it does |
+|---|---|---|---|
+| `aws-config` | 1.8.18 | runtime | The credential providers: environment, shared config and credentials files, `credential_process`, IAM Identity Center (SSO), `aws login` sessions, role assumption. Built with its default features **off**, so it has no HTTP client of its own |
+| `aws-sigv4` | 1.4.5 | runtime | Signs each request with SigV4 |
+| `aws-credential-types` | 1.2.14 | runtime | The credential value types shared by the two above |
+| `aws-smithy-runtime-api`, `aws-smithy-types` | 1.12.3, 1.5.0 | runtime | The `HttpClient` trait the product implements over `ureq` + the operating system's TLS, and the body type it exchanges |
+| `tokio` | 1.52.3 | runtime | Already a dependency (Maps, SMB). The AWS crates resolve credentials with it, on one private runtime that does nothing else |
+
+**Why the 1.8.x line.** Every `aws-*` release since July 2026 declares `rust-version = 1.94.1`; this workspace is
+**1.92**. The 1.8.x line declares 1.91.1 and already carries the `aws login` provider, so the feature is pinned to it
+(`~1.8`, `~1.4`, `~1.2`) and `Cargo.lock` was made with `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback`. A bare
+`cargo update` would move these crates to releases that need a newer compiler.
+
+**What the lock gained:** 52 packages (47 names that were not there, and a second version of `const-oid`, `http`,
+`http-body`, `time` and `time-macros`); no existing package changed version. All are pure Rust and all are licensed
+Apache-2.0, MIT, or MIT OR Apache-2.0:
+
+| Crate(s) | Version | Licence | Role |
+|---|---|---|---|
+| `aws-config`, `aws-credential-types`, `aws-runtime`, `aws-sigv4`, `aws-types`, `aws-smithy-async`, `aws-smithy-http`, `aws-smithy-json`, `aws-smithy-observability`, `aws-smithy-query`, `aws-smithy-runtime`, `aws-smithy-runtime-api`, `aws-smithy-runtime-api-macros`, `aws-smithy-schema`, `aws-smithy-types`, `aws-smithy-xml` | see `Cargo.lock` | Apache-2.0 | Signing, credentials and the Smithy runtime they share |
+| `aws-sdk-sso`, `aws-sdk-ssooidc`, `aws-sdk-sts`, `aws-sdk-signin` | 1.102.0, 1.104.0, 1.107.0, 1.14.0 | Apache-2.0 | The four clients that fetch sign-in credentials (IAM Identity Center, STS role assumption, `aws login`). **No service client** (`aws-sdk-s3`, …) is, or may be, in the lock |
+| `p256`, `ecdsa`, `elliptic-curve`, `primeorder`, `crypto-bigint`, `ff`, `group`, `rfc6979`, `sec1`, `signature`, `der`, `spki`, `pkcs8`, `pem-rfc7468`, `base16ct`, `base64ct`, `const-oid` 0.9.6 | 0.13.x and below | Apache-2.0 OR MIT (`ff`, `group`: MIT/Apache-2.0) | The P-256 key the `aws login` session proves possession with — RustCrypto, pure Rust |
+| `time` 0.3.55, `time-core`, `time-macros`, `deranged`, `num-conv`, `powerfmt` | — | MIT OR Apache-2.0 | Date and time handling inside `aws-smithy-types` (`time` 0.2.27 stays for its current user) |
+| `http` 0.2.12, `http-body` 0.4.6 | — | MIT OR Apache-2.0 / MIT | The older HTTP types some of the Smithy crates still use |
+| `arc-swap`, `base64-simd`, `vsimd`, `outref`, `bytes-utils`, `regex-lite`, `xmlparser` | — | MIT, or MIT OR Apache-2.0 | Small helpers (shared pointers, base64, byte buffers, XML) |
+
+**What it does not bring in** — and a test (`dependency_guards_063.rs`) keeps it that way: no `aws-lc-rs`, `aws-lc-sys`,
+`ring`, `rustls`, `rustls-webpki`, `tokio-rustls`, `hyper`, `hyper-rustls`, `h2`, `tower`, `reqwest`, `cc`, `cmake` or
+`aws-smithy-http-client` is reachable from these crates. (`Cargo.lock` as a whole does list `ring`, `rustls` and `hyper-rustls`
+through a weak feature edge of `reqwest`, which is why that test walks the lock from the AWS crates instead of searching it.)
+Their HTTP goes through the `ureq` + `native-tls` stack the `http` feature already links, which is why `aws` now implies `http`
+and why a console build with an AWS control needs the OpenSSL development package on Linux, as any HTTP verb already does.
+
 ### Cross-cutting
 
 | Crate | Version | Used by | What it does |

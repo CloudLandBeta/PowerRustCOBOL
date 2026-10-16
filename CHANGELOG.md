@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.183] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.182, the highest number in any worktree. `features` is held by another session.)*
+
+### Added: AWS without `uvx`, step 1 — the spec, the plan, the dependencies and the guard (spec 103)
+
+Operator, 2026-10-16, on *"AWS access needs the program "uvx", which is not installed on this machine"*: *"definitivamente não gosto da abordagem"* (of reimplementing `uvx`); chose a native Rust route instead. This step writes the design down and brings the dependencies in; **no behaviour changes yet** — the transport itself is the next step, and every AWS control still starts `uvx` for the hosted services until then.
+
+- **The design.** Spec 103 replaces `uvx mcp-proxy-for-aws` — a Python program that only signs MCP requests with SigV4 and forwards them to AWS's hosted MCP endpoint — with the same job done inside the runtime. The Python templates in `routes.toml` run in AWS's sandbox and are not touched: 33 of the route table's 49 operations stop needing `uvx` once the transport lands; the 14 on the five AWS Labs servers keep it. Decisions of the operator: native proxy with the templates unchanged; the official AWS crates; the native credential chain (the AWS CLI as a fallback only if a profile type needs it); `uvx` removed outright for the hosted route.
+- **The dependencies.** `aws` now implies `http` and brings `aws-config` 1.8.18, `aws-sigv4` 1.4.5, `aws-credential-types`, two Smithy crates and `tokio`, with their default HTTPS client **off** (the product will supply one over `ureq` and the operating system's TLS). They are the **1.8.x line on purpose**: every `aws-*` release since July declares `rust-version` 1.94.1 and this workspace is 1.92, so the lock was made with `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback` and the MSRV is unchanged. `Cargo.lock` gained **52 packages** (47 new names, a second version of `const-oid`, `http`, `http-body`, `time`, `time-macros`) and no existing package moved; all are pure Rust under Apache-2.0 or MIT. `cargo tree --no-default-features --features aws` shows **83 packages (81 names) that the `http` feature alone does not reach** and none of `ring`, `rustls`, `hyper`, `h2`, `tower`, `reqwest`, `cc`, `cmake`, `aws-lc-*`.
+- **The guard.** Spec 063's rule "no package named `aws-*`" became an allow-list (the credential and signing crates and the four sign-in clients) plus a walk of the lock file **from the AWS crates**, which may not reach a second HTTP stack, a TLS stack or a C build. The lock file as a whole is not clean — it lists `ring`, `rustls` and `hyper-rustls` through a weak `reqwest` feature edge, though only `hyper` is compiled — so the old wording ("the lock contains none of these") was never true; the spec says what is true now.
+
+*Tests.* `dependency_guards_063`: 2 tests become 3. The real lock passes (**936 package names, 20 `aws-*`, all allowed; 217 reachable from the AWS roots, none a second HTTP stack**), and the guard is shown to fail on four doctored lock files — a service client (`aws-sdk-s3`), the rustls HTTP client, `aws-lc-rs`, and an edge from `aws-config` to `hyper-rustls` — 4 refused. `cargo check -p cobolt-runtime` is green. **Baseline before any change** (recorded in the spec folder): 22 inline + 44 integration runtime AWS tests, 9 in `cobolt-cli` (`aws_hosts` 2 + 1 ignored, `powercloud_hosts` 7), 25 feature-selection tests, 1 forms catalogue test — all passed.
+
+*Docs:* spec 103 (`spec.md`, `plan.md`, `tasks.md`, `baseline.md`); `docs/DEPENDENCIES-en.md` (an AWS section) and `THIRD_PARTY_NOTICES.md` (the new crates and licences); the doc comment of `RuntimeFeatures::aws`. English only (GOLDEN RULE #8); the Guide and the System KB say nothing new until the transport lands.
+
+*Not done.* Everything the spec's R1–R9 and R11–R16 ask for: the HTTPS transport, the credential chain, Test connection for the hosted server, the Guide, the KB text and property help. AC12 — a live run with no `uvx` on the machine — is the operator's and gates the merge to `main`.
+
 ## [PowerRustCOBOL 1.91.179] — 2026-10-16
 
 *(Written on `features`, after 1.91.178.)*
