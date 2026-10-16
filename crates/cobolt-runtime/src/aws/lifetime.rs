@@ -13,7 +13,8 @@
 //!    crash and a kill included. This alone covers every platform in
 //!    practice.
 //! 2. **Orderly shutdown.** [`super::pool::shutdown`] closes every server's
-//!    input, waits two seconds, then kills. Every host calls it on its way
+//!    input, waits two seconds, then kills (a hosted server over HTTPS has no
+//!    process: its session is ended with a `DELETE` instead). Every host calls it on its way
 //!    out ([`crate::shutdown_child_processes`]).
 //! 3. **An operating-system backstop**, set up here when a server starts:
 //!    - **Linux:** the server is killed when the application dies

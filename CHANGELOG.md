@@ -17,6 +17,23 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.187] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.186.)*
+
+### Changed: AWS without `uvx`, step 5 — the documentation says what is now true (spec 103)
+
+The Developer's Guide, the support matrix, the PowerCloud README, the System KB and the property help described every AWS control as needing `uvx`, Python and a downloaded server. For the hosted services that is no longer so; the texts now say which controls need nothing installed and which still need `uv`.
+
+- **Developer's Guide** (*Calling AWS*): the two routes and a new diagram; *What a machine needs* split into the hosted services (nothing to install), the server programs (`uv`), the IAM policy and the sign-in (`aws login`, or `aws sso login` for IAM Identity Center); *Test connection* described as two lines; the run-time keys section says the hosted services are signed by the application and only a server program receives them in its environment; the hosted-server paragraph no longer speaks of a proxy; `StartTimeoutMs` and the not-signed-in caveat updated.
+- **Support matrix** (two rows), **PowerCloud README** (`uvx` is needed only for the Lambda tab and the photo links), **`DEPENDENCIES-en.md`** (written in step 1), the **steering registry** (a row for the AWS chapter).
+- **System KB** (four passages of the control notes and the `StartTimeoutMs` reference) and the **property help** of the ten affected controls in all six languages (nine hosted controls: opening the first session takes a moment; `AwsMcp`: a server program downloads on its first start, the hosted service only opens a session). The six controls served by server programs keep the download wording. `assets/knowledge/chunked.data` was regenerated once (3415 records from 8 documents).
+- Comments in `lifetime.rs`, `interpreter/aws.rs`, `aws_catalog.rs`, `pool.rs` and the module documentation say that a hosted server has no process.
+
+*Tests.* `cobolt-compiler` lib: 184 passed (the KB documentation tables); the Guide's 26 AWS COBOL handlers compile (`the_guides_aws_examples_compile`); the whole IDE binary: the freshness test of the prebuilt KB, the property-help and i18n completeness tests and the document guards all pass, and the only failures are the four of the known-red list (`every_document_ships_in_every_language`, `every_completion_description_exists_in_six_languages`, and the two live-crates.io `egui` tests).
+
+*Docs:* English only (GOLDEN RULE #8); the Guide has no translations in the tree to delete. *Not done:* the built-binary run over HTTPS (the ignored `aws_hosts` test), the full secret scan of every surface of the native path (AC7: the wire and the error messages are scanned; logs, `Verbose` output and the login-cache write-back are not), and AC12 — a live run with no `uvx` on the machine, the operator's. **Merged to `main` at the operator's request before AC12** (the spec had made AC12 the gate): the hosted route's signing name (`aws-mcp`), its answer form and its `_meta` handling are encoded from AWS's documentation and have not met the real endpoint yet.
+
 ## [PowerRustCOBOL 1.91.186] — 2026-10-16
 
 *(Written on `features-aws-native`, after 1.91.185.)*

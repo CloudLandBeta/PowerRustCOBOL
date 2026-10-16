@@ -15206,39 +15206,57 @@ None asks you to write an HTTP request or sign it, and none needs you to
 handle a credential — you drop the control, fill in its properties, and call a
 method, the way a PowerCOBOL or isCOBOL developer calls a control's method.
 
-Behind them, the application talks to **AWS's own MCP servers** (small
-programs AWS publishes), which do the AWS work with the AWS CLI's credentials
-— or with keys your program hands them (see *Keys typed in at run time*
-below):
+Behind them, the application talks to **AWS's own MCP servers**, in one of two
+ways. The services most programs use — DynamoDB, S3, S3 Vectors, Rekognition,
+Polly, Comprehend, Textract, EC2, Cognito and `AwsMcp.AwsCall` — go to **AWS's
+hosted MCP service** over the internet: the application signs each request
+itself, with the AWS CLI's sign-in or with keys your program hands it (see
+*Keys typed in at run time* below), and **nothing needs to be installed**.
+Lambda, Bedrock Knowledge Bases, AgentCore, S3 Tables and Glue are served by
+**small programs AWS publishes**, which the application starts on the machine,
+with the same credentials:
 
 ```mermaid
 flowchart LR
-    H["Your COBOL handler<br/>INVOKE LAMBDA-1 &quot;Invoke&quot;"] --> C["AwsLambda control"]
+    H["Your COBOL handler<br/>INVOKE DDB-1 &quot;GetItem&quot;"] --> C["An AWS control"]
     C --> R["Route table<br/>(which server, which tool)"]
-    R --> S["AWS MCP server<br/>(started once per connection)"]
-    S --> A["AWS<br/>signed with the profile<br/>(or the keys you set)"]
-    A --> S --> C
-    C --> E["onInvoked, then onComplete<br/>(ResponseBody, RowCount, …)"]
+    R --> W["AWS hosted MCP service<br/>(requests signed by the application)"]
+    R --> S["AWS server program<br/>(started once per connection)"]
+    W --> A["AWS<br/>signed with the profile<br/>(or the keys you set)"]
+    S --> A
+    A --> C
+    C --> E["The control's event, then onComplete<br/>(ResponseBody, RowCount, …)"]
 ```
 
 #### What a machine needs
 
-- **uv** (`uvx` starts AWS's servers) — `brew install uv`, `pip install uv`
-  or `winget install astral-sh.uv`. uv brings the Python the servers run on
-  (3.10 or later; 3.11 or later for `AwsS3Tables`, which uv fetches by
-  itself).
-- For the general-purpose controls, a profile whose IAM policy allows the
-  AWS MCP Server itself (AWS's setup page for it lists the permissions) and
-  the services you call.
-- **The AWS CLI** (2.32 or later) and a profile that is signed in:
-  `aws login --profile sales` once on that machine — unless the application
-  asks its user for keys instead (*Keys typed in at run time*, below).
+- **For the hosted services** (`AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`,
+  `AwsRekognition`, `AwsPolly`, `AwsComprehend`, `AwsTextract`, `AwsEC2`,
+  `AwsCognito` and `AwsMcp`'s `AwsCall`): **nothing to install** — no Python,
+  no `uv`. The machine only needs a **sign-in**, below.
+- **For `AwsLambda`, `AwsKnowledgeBase`, `AwsAgentCore`, `AwsAgentMemory`,
+  `AwsS3Tables` and `AwsGlue`: uv** (`uvx` starts AWS's server programs) —
+  `brew install uv`, `pip install uv` or `winget install astral-sh.uv`. uv
+  brings the Python they run on (3.10 or later; 3.11 or later for
+  `AwsS3Tables`, which uv fetches by itself).
+- A profile whose IAM policy allows the AWS MCP Server itself (AWS's setup
+  page for it lists the permissions) and the services you call.
+- **A sign-in.** The AWS CLI (2.32 or later) and a profile that is signed in:
+  `aws login --profile sales` once on that machine (`aws sso login --profile
+  sales` for a profile that uses IAM Identity Center). The application reads
+  the profile's sign-in itself — the shared AWS files, IAM Identity Center,
+  `aws login`, a `credential_process`, a role to assume — and renews it when
+  it is about to expire. When the connection names no profile, the AWS
+  environment variables are used. Or the application asks its user for keys
+  instead (*Keys typed in at run time*, below).
 
 That is the whole list, on your machine **and on your users'**: a built
-application carries no AWS key and no AWS library. The first call on a
-machine downloads the server it needs, which can take a minute; every call
-after that starts in about a second, and one server serves every AWS control
-on its connection until the application ends.
+application carries no AWS key and no AWS library of its own to configure.
+The first hosted call on a machine opens a session with AWS's service, which
+takes a second or two; the first call to a server program downloads it, which
+can take a minute, and every call after that starts in about a second. One
+session or server program serves every AWS control on its connection until the
+application ends.
 
 #### AWS connections
 
@@ -15249,16 +15267,21 @@ list**), and an optional route override for advanced cases. Nothing secret is
 stored — the profile signs every call on the machine that runs it, unless the
 running program hands the connection keys of its own.
 
-**Test connection** starts the connection's server and tells you, in your
-language, one of four things: the program it needs is not installed (and how
-to install it), the profile is not signed in (and the `aws login` command to
-run), the server does not answer as expected, or **connected** — with the
-Lambda functions it found.
+**Test connection** checks the two kinds of server separately and shows one
+line for each, in your language. For the **hosted services** it says whether
+the address could not be reached, the profile is not signed in or has expired
+(and the `aws login` or `aws sso login` command to run), AWS refused the
+session (the sign-in may not be allowed to use the service), the service does
+not answer as expected, or **connected**. For **Lambda and the other server
+programs** it says whether the program `uv` is not installed (and how to install
+it), the profile is not signed in, the server does not answer as expected, or
+**connected** — with the Lambda functions it found.
 
 > 📷 **Screenshot needed — `aws-connections.png`.** Open Settings ▸
 > Integrations, add an AWS connection with a profile and region, press **Test
-> connection**, and capture the AWS section showing the connection and the
-> green "Connected. Lambda functions offered: …" line.
+> connection**, and capture the AWS section showing the connection and the two
+> result lines — the hosted services' "Connected to the hosted AWS service …"
+> and the server programs' "Connected. Lambda functions offered: …".
 
 Each AWS control's **Connection** property names the connection by name. A
 control dropped in a project with exactly one AWS connection takes it, and
@@ -15301,8 +15324,10 @@ connection works with those keys instead of the connection's profile:
 flowchart LR
     U["Your user types the keys"] --> P["COBOL::&quot;AWS-SET-CREDENTIALS&quot;<br/>( connection key-id secret token status )"]
     P --> M["The runtime's memory<br/>(this run only)"]
-    M --> S["The connection's AWS server<br/>receives them in its environment,<br/>no profile"]
-    S --> A["AWS"]
+    M --> W["Hosted services:<br/>the application signs with them"]
+    M --> S["A server program (Lambda …):<br/>receives them in its environment,<br/>no profile"]
+    W --> A["AWS"]
+    S --> A
 ```
 
 | Built-in | Arguments | What it does |
@@ -15319,11 +15344,13 @@ What the runtime does with the keys, and what it never does:
 - They stay **in memory**, for this run of the application only. They are
   not a property, so no form, no project file, no `Verbose` line, no error
   message and no log ever holds them, and no built-in hands them back.
-- Only the AWS server the connection starts receives them, in its
-  environment — never on its command line, never in another program.
-- Setting new keys, or clearing them, ends the connection's running server at
-  once; the next call starts one with what is set now. The first call after
-  that takes a second longer.
+- For the hosted services the application signs with them itself, and they go
+  nowhere else. A server program the connection starts (Lambda and the other
+  programs) receives them in its environment — never on its command line,
+  never in another program.
+- Setting new keys, or clearing them, ends the connection's running servers
+  and hosted session at once; the next call opens or starts one with what is
+  set now. A server program takes a second longer to start.
 - A call AWS refuses because of the keys raises `onError` with a `LastError`
   that says the keys were refused and should be set again — never the keys.
 
@@ -15614,10 +15641,11 @@ no arguments follows exactly that run:
 
 `AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`,
 `AwsComprehend`, `AwsTextract`, `AwsEC2` and `AwsCognito` all go through
-**the AWS MCP Server** — the one AWS runs itself, reached through AWS's own
-proxy and signed by the connection's profile. You notice nothing of this: you
-call `GetItem` the way you call `Query` on the others. Two things are worth
-knowing:
+**the AWS MCP Server** — the one AWS runs itself. The application reaches it
+directly over the internet and signs each request itself, with the connection's
+profile (or the keys your program set); no program is started and nothing is
+installed for it. You notice nothing of this: you call `GetItem` the way you
+call `Query` on the others. Two things are worth knowing:
 
 - Every request is a small Python script **shipped with PowerRustCOBOL**, run
   by AWS in a sandbox. The values your program passes go into it as data
@@ -15997,14 +16025,14 @@ opens in English with nothing translated and a test can compare the two.
 > `onJobStarted`, `onJobRun`, `onCrawlerStarted`, `onTableSchema`, and
 > the general-purpose controls' `onItem`, `onLabels`, `onSignedIn` … listed
 > in each control's help), then `onComplete`; or `onError`,
-> `onTimeout` (after `TimeoutMs`, the first start having its own
-> `StartTimeoutMs`) or `onCancelled` (after `Cancel()`). One operation at a
+> `onTimeout` (after `TimeoutMs`; opening the hosted session or starting a server
+> program has its own `StartTimeoutMs`) or `onCancelled` (after `Cancel()`). One operation at a
 > time per control; `IsBusy()` says whether one is running.
 
 > ⚠️ **Caveats.**
 > - A profile that is not signed in fails with `onError` and a `LastError`
->   that names the profile and the `aws login` command; the server's own text
->   is never shown to your users. Keys set with `AWS-SET-CREDENTIALS` that
+>   that names the profile and the `aws login` command (`aws sso login` for an
+>   IAM Identity Center profile); AWS's own text is never shown to your users. Keys set with `AWS-SET-CREDENTIALS` that
 >   AWS refuses fail the same way, saying the keys were refused.
 > - `Verbose = true` narrates each call into the program's output, with
 >   anything that looks like an AWS key, session token or signed URL masked.

@@ -5,8 +5,11 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — AWS without `uvx`: a native transport for the hosted AWS MCP Server
 
-- **Status:** approved for planning (operator decisions D1–D4 recorded 2026-10-16; amended
-  2026-10-16 after the plan's research: A1 MSRV pin, A2 TLS wording, A3 translations — see §6)
+- **Status:** implemented and merged to `main` 2026-10-16 at the operator's request, **before AC12** (the live
+  run, the operator's), which D4 had made the gate. Checked: AC1–AC6, AC9, AC10, AC13. **Open:** AC7 (the full
+  secret scan of every surface of the native path, and the login-cache write-back check), the compiled-binary
+  halves of AC8 and AC11, and AC12. Amended 2026-10-16: A1 MSRV pin, A2 TLS wording, A3 translations, A4 CLI
+  fallback dropped — see §6
 - **Folder:** specs/103-aws-native-transport/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-10-16
 - **Amends:** spec 078 (AWS controls through MCP — folder removed in 1.91.155; read it with
@@ -240,19 +243,19 @@ All of AC1–AC11 run offline against a **loopback fake of the hosted endpoint**
 server inside the test, which also verifies the signature) and report a quantified summary block
 (GOLDEN RULE #7): operations exercised, requests made, milliseconds per request.
 
-- [ ] **AC1 (R3):** For each request the fake receives, an *independent* SigV4 computation in the
+- [x] **AC1 (R3):** For each request the fake receives, an *independent* SigV4 computation in the
   test (its own `hmac` + `sha2` code, not the crate under test) reproduces the `Authorization`
   signature from the received method, path, headers and body. 100 % of requests in the run match;
   a request with a byte of the body altered after signing fails to verify (demonstrated).
-- [ ] **AC2 (R2):** The handshake — `initialize`, session id, `notifications/initialized`,
+- [x] **AC2 (R2):** The handshake — `initialize`, session id, `notifications/initialized`,
   `tools/list` across two pages, `tools/call` — passes against the fake in **both** answer forms
   (`application/json` and `text/event-stream`), and the pool ends the session with a `DELETE`.
-- [ ] **AC3 (R4):** `params._meta.AWS_REGION` equals the connection's region on every request of
+- [x] **AC3 (R4):** `params._meta.AWS_REGION` equals the connection's region on every request of
   a run with two connections in two regions; the default is `us-east-1`.
-- [ ] **AC4 (R5):** Fake answers *session unknown* → exactly one re-initialise and a repeated
+- [x] **AC4 (R5):** Fake answers *session unknown* → exactly one re-initialise and a repeated
   call; twice → `onError`. Fake never answers → `onTimeout` within `TimeoutMs` + 1 s. Unreachable
   endpoint, `401` and `403` → the messages of R5/R7, not raw text.
-- [ ] **AC5 (R13):** A test hashes the 33 `[ops."…"]` tables (with their `.input` sub-tables)
+- [x] **AC5 (R13):** A test hashes the 33 `[ops."…"]` tables (with their `.input` sub-tables)
   routed to `hosted`, and the `[snippets]` table, against hashes recorded from `main` at
   2e57112f: all 34 hashes equal. Mutating one template byte fails it (demonstrated).
 - [x] **AC6 (R6, R7):** Precedence — keys set by the program beat a profile; a **named profile beats
@@ -278,7 +281,7 @@ server inside the test, which also verifies the signature) and report a quantifi
   **fail** when `aws-sdk-s3` is added to a copy of the lock (demonstrated); a project with no AWS
   control builds a binary whose tree contains none of the R17 packages; `git diff Cargo.lock` of
   the change is **additions only** (no existing package moves version).
-- [ ] **AC9 (headline, R1, R13, R14):** With `uvx` absent from `PATH`, every one of the 33 hosted
+- [x] **AC9 (headline, R1, R13, R14):** With `uvx` absent from `PATH`, every one of the 33 hosted
   operations (`AwsMcp.AwsCall` among them) completes against the fake, each raising its completion
   event then `onComplete`; the 14 Labs-server operations still answer with the *"needs the program
   uvx"* message. Counts reported: 33 succeeded / 14 correctly refused.
@@ -293,7 +296,7 @@ server inside the test, which also verifies the signature) and report a quantifi
   The run records what only AWS can say: the signing name the endpoint accepts, whether answers
   arrive as JSON or SSE, whether `_meta.AWS_REGION` is honoured, and the fixtures re-recorded
   from it. **This criterion gates the merge to `main`** (D4).
-- [ ] **AC13 (R20):** Guide chapter, support matrix, README and KB text updated (English only — the
+- [x] **AC13 (R20):** Guide chapter, support matrix, README and KB text updated (English only — the
   Guide has no translations in the tree to delete, amendment A3, and the red
   `every_document_ships_in_every_language` is not made worse);
   `prebuilt_chunked_kb_matches_the_published_documentation` green after `build_chunked_kb`;

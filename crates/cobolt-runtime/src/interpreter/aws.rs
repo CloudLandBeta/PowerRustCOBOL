@@ -331,7 +331,8 @@ impl Interpreter {
                 generation,
                 started_at: std::time::Instant::now(),
                 // The worker's own budgets end every call — the start budget
-                // for a first `uvx` download, then `TimeoutMs` — and it
+                // for a first start (a `uvx` download, or the hosted session),
+                // then `TimeoutMs` — and it
                 // reports `onTimeout` itself; an interpreter-side limit would
                 // cut a first start short.
                 timeout_ms: 0,

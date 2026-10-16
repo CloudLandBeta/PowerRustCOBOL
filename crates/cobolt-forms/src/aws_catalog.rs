@@ -53,7 +53,7 @@ pub const SHARED_SEEDS: &[(&str, Seed)] = &[
     ("Mode", Seed::Str("Async")),
     ("Busy", Seed::Bool(false)),
     ("TimeoutMs", Seed::Int(30_000)),
-    // A server's first start downloads packages (amendment A3).
+    // A server program's first start downloads packages, and a hosted session takes a moment (amendment A3, spec 103).
     ("StartTimeoutMs", Seed::Int(120_000)),
     // Read-only unless the developer opts in (R25).
     ("AllowWrite", Seed::Bool(false)),

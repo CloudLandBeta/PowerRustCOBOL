@@ -42,9 +42,9 @@ first) and adds a `CHANGELOG.md` entry. Before every commit: scan the staged dif
 - [x] **T19 — Tests** — hosted cases in `aws_credential_chain.rs` (they need its sandboxed environment): all good, route mismatch, unreachable, sign-in expired, session refused, not signed in (nothing sent); `aws_diagnose.rs` is unchanged and green.
 
 ## P5 — Docs, KB, help (R20; AC13)
-- [ ] **T20 — Guide, matrix, README, steering registry** — hosted vs Labs; no "verified" before AC12.
-- [ ] **T21 — KB constants and property help** — `lib.rs` 8299/8301/8311/7096; 16 `StartTimeoutMs` entries × 6 languages; comment cleanups.
-- [ ] **T22 — Regenerate** — `cargo run -p cobolt-ide --example build_chunked_kb` (once, last); the freshness test green.
+- [x] **T20 — Guide, matrix, README, steering registry** — hosted vs Labs; no "verified" before AC12.
+- [x] **T21 — KB constants and property help** — `lib.rs` 8299/8301/8311/7096; 16 `StartTimeoutMs` entries × 6 languages; comment cleanups.
+- [x] **T22 — Regenerate** — `cargo run -p cobolt-ide --example build_chunked_kb` (once, last); the freshness test green.
 
 ## P6 — Parity, regression, release (R19; AC11, AC12)
 - [ ] **T23 — Hosts** — the hosted suite over HTTP under `rcrun run-form`, an embedded child form and the compiled binary.

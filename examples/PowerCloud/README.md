@@ -23,8 +23,10 @@ with the services wheel on the left and the cloud-access fields on the right.
 
 ## What you need
 
-- **`uvx`** (from [uv](https://docs.astral.sh/uv/)) on the machine that runs the application. The first AWS call
-  starts the AWS servers with it; the first start of each takes a minute because it downloads them.
+- **Nothing to install for most of it.** The DynamoDB, S3, Polly, EC2, Rekognition and CloudFormation parts reach
+  AWS's hosted MCP service directly, over the internet. **`uvx`** (from [uv](https://docs.astral.sh/uv/)) is needed
+  only for the Lambda tab and for the temporary photo links on the DynamoDB tab, because both call a Lambda
+  function through the server program AWS publishes for it; its first start takes a minute because it downloads it.
 - **An AWS account and an AWS user** whose keys you type into the Settings tab. Nothing is written to a
   file: the keys are kept in memory for this run and the boxes are emptied as soon as you press **Connect**.
   Leave them empty to use the default AWS credentials of the machine instead.
