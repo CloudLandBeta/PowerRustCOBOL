@@ -24,6 +24,7 @@ use crate::i18n::Tr;
 use crate::llm::LlmConfig;
 use crate::panels::editor::{EditorPanel, KnownControl};
 use crate::project_model::CoboltProject;
+use cobolt_runtime::aws::diagnose::{self, Report, Server};
 
 /// A flat, comparable snapshot of every editable setting. `PartialEq` powers the
 /// dirty check (draft ≠ baseline → there are unsaved changes).
@@ -466,38 +467,47 @@ pub struct SettingsForm {
     /// `ctx.input(|i| i.time)` second it started (entrance → hold → exit).
     fx_preview_started: Option<f64>,
     /// Spec 078 — Test connection runs on a thread per AWS connection (id);
-    /// its outcome is kept to show under the connection.
-    aws_tests: std::collections::HashMap<String, std::sync::mpsc::Receiver<cobolt_runtime::aws::diagnose::Report>>,
-    aws_results: std::collections::HashMap<String, cobolt_runtime::aws::diagnose::Report>,
+    /// its outcome is kept to show under the connection. Spec 103: a run reports
+    /// each kind of server — the hosted one, then the AWS Labs ones — as it finishes.
+    aws_tests: std::collections::HashMap<String, std::sync::mpsc::Receiver<(Server, Report)>>,
+    aws_results: std::collections::HashMap<String, Vec<(Server, Report)>>,
 }
 
 /// What Test connection found, in the IDE's language (spec 078 R24).
-pub(crate) fn aws_report_text(tr: &Tr, report: &cobolt_runtime::aws::diagnose::Report) -> String {
-    use cobolt_runtime::aws::diagnose::Report;
+pub(crate) fn aws_report_text(tr: &Tr, report: &Report) -> String {
     match report {
         Report::ProgramMissing { program, .. } => tr.aws_test_program_missing.replace("{0}", program),
         Report::ProfileNotSignedIn { profile, .. } => tr.aws_test_profile.replace("{0}", profile),
         Report::RouteMismatch { detail } => tr.aws_test_route.replace("{0}", detail),
         Report::AllGood { functions } if functions.is_empty() => tr.aws_test_ok_none.to_owned(),
         Report::AllGood { functions } => tr.aws_test_ok.replace("{0}", &functions.join(", ")),
+        Report::EndpointUnreachable { host, detail } => tr.aws_test_endpoint.replace("{0}", host).replace("{1}", detail),
+        Report::SessionRefused { status, detail } => tr.aws_test_session.replace("{0}", status).replace("{1}", detail),
+        Report::HostedGood { tools } => tr.aws_test_ok_hosted.replace("{0}", &tools.to_string()),
     }
 }
 
-/// Run Test connection on a thread; the receiver gets the report.
+/// Whether a report is the good one for its kind of server.
+pub(crate) fn aws_report_is_good(report: &Report) -> bool {
+    matches!(report, Report::AllGood { .. } | Report::HostedGood { .. })
+}
+
+/// Run Test connection on a thread; the receiver gets a report for the hosted
+/// server, then one for the AWS Labs servers (the last one ends the run).
 fn spawn_aws_test(
     conn: cobolt_forms::connections::AwsConnection,
     ctx: egui::Context,
-) -> std::sync::mpsc::Receiver<cobolt_runtime::aws::diagnose::Report> {
+) -> std::sync::mpsc::Receiver<(Server, Report)> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        // A first start may download the server: give it two minutes, then
-        // half a minute to list the functions.
-        let report = cobolt_runtime::aws::diagnose::diagnose(
-            &conn,
-            std::time::Duration::from_secs(120),
-            std::time::Duration::from_secs(30),
-        );
-        let _ = tx.send(report);
+        // The hosted server needs nothing installed, so it answers in seconds.
+        let hosted = diagnose::diagnose_hosted(&conn, std::time::Duration::from_secs(30), std::time::Duration::from_secs(30));
+        let _ = tx.send((Server::Hosted, hosted));
+        ctx.request_repaint();
+        // A first start of an AWS Labs server may download it: give it two
+        // minutes, then half a minute to list the functions.
+        let labs = diagnose::diagnose(&conn, std::time::Duration::from_secs(120), std::time::Duration::from_secs(30));
+        let _ = tx.send((Server::Labs, labs));
         ctx.request_repaint();
     });
     rx
@@ -606,14 +616,18 @@ impl SettingsForm {
         let mut action = SettingsFormAction::default();
         self.cobol_proficiency_prompt_editor.known_controls = known_controls.to_vec();
         // Spec 078 — collect finished Test connection runs.
-        let finished: Vec<(String, cobolt_runtime::aws::diagnose::Report)> = self
-            .aws_tests
-            .iter()
-            .filter_map(|(id, rx)| rx.try_recv().ok().map(|r| (id.clone(), r)))
-            .collect();
-        for (id, report) in finished {
-            self.aws_tests.remove(&id);
-            self.aws_results.insert(id, report);
+        let mut arrived: Vec<(String, (Server, Report))> = Vec::new();
+        for (id, rx) in &self.aws_tests {
+            while let Ok(report) = rx.try_recv() {
+                arrived.push((id.clone(), report));
+            }
+        }
+        for (id, report) in arrived {
+            let last = report.0 == Server::Labs;
+            self.aws_results.entry(id.clone()).or_default().push(report);
+            if last {
+                self.aws_tests.remove(&id);
+            }
         }
         let theme = crate::theme::active();
 
@@ -2624,15 +2638,26 @@ impl SettingsForm {
                                                     ui.label(RichText::new(tr.settings_aws_testing).small());
                                                 }
                                             });
-                                            if let Some(report) = aws_results.get(&c.id) {
-                                                let good = matches!(report, cobolt_runtime::aws::diagnose::Report::AllGood { .. });
-                                                ui.label(
-                                                    RichText::new(aws_report_text(tr, report)).small().color(if good {
-                                                        Color32::from_rgb(90, 180, 110)
-                                                    } else {
-                                                        Color32::from_rgb(220, 120, 90)
-                                                    }),
-                                                );
+                                            if let Some(reports) = aws_results.get(&c.id) {
+                                                for (server, report) in reports {
+                                                    ui.label(
+                                                        RichText::new(match server {
+                                                            Server::Hosted => tr.aws_test_row_hosted,
+                                                            Server::Labs => tr.aws_test_row_labs,
+                                                        })
+                                                        .small()
+                                                        .strong(),
+                                                    );
+                                                    ui.label(
+                                                        RichText::new(aws_report_text(tr, report)).small().color(
+                                                            if aws_report_is_good(report) {
+                                                                Color32::from_rgb(90, 180, 110)
+                                                            } else {
+                                                                Color32::from_rgb(220, 120, 90)
+                                                            },
+                                                        ),
+                                                    );
+                                                }
                                             }
                                         });
                                     });
@@ -3451,5 +3476,83 @@ mod theme_keyboard_tests {
         s.press(egui::Key::ArrowDown);
         s.press(egui::Key::ArrowUp);
         assert_eq!(s.form.draft.theme_id, start.id);
+    }
+}
+
+/// Spec 103 R15 / AC10 — what Test connection says, in every language.
+#[cfg(test)]
+mod aws_test_text_tests {
+    use super::*;
+    use crate::i18n::Language;
+
+    /// One report of every kind, with values that must reach the text.
+    fn every_report() -> Vec<Report> {
+        vec![
+            Report::ProgramMissing { program: "uvx-prog".into(), message: String::new() },
+            Report::ProfileNotSignedIn { profile: "dev-prof".into(), message: String::new() },
+            Report::RouteMismatch { detail: "detail-route".into() },
+            Report::AllGood { functions: vec!["fn-a".into(), "fn-b".into()] },
+            Report::AllGood { functions: vec![] },
+            Report::EndpointUnreachable { host: "host.example".into(), detail: "detail-net".into() },
+            Report::SessionRefused { status: "403".into(), detail: "detail-denied".into() },
+            Report::HostedGood { tools: 7 },
+        ]
+    }
+
+    /// Every outcome reads in every IDE language: no placeholder is left, and the values it was
+    /// given are in the sentence.
+    #[test]
+    fn every_outcome_reads_in_every_language_with_its_values() {
+        let mut checked = 0;
+        for lang in Language::ALL {
+            let tr = lang.tr();
+            for report in every_report() {
+                let text = aws_report_text(&tr, &report);
+                assert!(!text.contains("{0}") && !text.contains("{1}"), "{lang:?}: placeholder left in: {text}");
+                assert!(!text.trim().is_empty(), "{lang:?}: empty text for {report:?}");
+                let must: Vec<&str> = match &report {
+                    Report::ProgramMissing { .. } => vec!["uvx-prog"],
+                    Report::ProfileNotSignedIn { .. } => vec!["dev-prof"],
+                    Report::RouteMismatch { .. } => vec!["detail-route"],
+                    Report::AllGood { functions } if functions.is_empty() => vec![],
+                    Report::AllGood { .. } => vec!["fn-a", "fn-b"],
+                    Report::EndpointUnreachable { .. } => vec!["host.example", "detail-net"],
+                    Report::SessionRefused { .. } => vec!["403", "detail-denied"],
+                    Report::HostedGood { .. } => vec!["7"],
+                };
+                for m in must {
+                    assert!(text.contains(m), "{lang:?}: {m:?} missing from: {text}");
+                }
+                checked += 1;
+            }
+            // The two rows and the wait text exist, and the sign-in hint offers both commands.
+            for (name, s) in [("row hosted", tr.aws_test_row_hosted), ("row labs", tr.aws_test_row_labs), ("testing", tr.settings_aws_testing)] {
+                assert!(!s.trim().is_empty(), "{lang:?}: {name} is empty");
+            }
+            assert!(tr.aws_test_profile.contains("aws login") && tr.aws_test_profile.contains("aws sso login"), "{lang:?}");
+        }
+        println!("\n  103 R15 — {checked} outcome texts ({} outcomes × {} languages): no placeholder left, every value present", every_report().len(), Language::ALL.len());
+    }
+
+    /// A translation that is the English text is a missing translation.
+    #[test]
+    fn the_new_texts_are_translated_not_copied() {
+        let en = Language::ALL[0].tr();
+        let pick = |t: &Tr| [t.aws_test_endpoint, t.aws_test_session, t.aws_test_ok_hosted, t.aws_test_row_hosted, t.aws_test_row_labs, t.settings_aws_testing];
+        let english = pick(&en);
+        let mut differing = 0;
+        for lang in &Language::ALL[1..] {
+            for (i, text) in pick(&lang.tr()).iter().enumerate() {
+                assert_ne!(*text, english[i], "{lang:?}: string {i} is still English");
+                differing += 1;
+            }
+        }
+        println!("\n  103 i18n — {differing} new strings in five languages, none equal to the English");
+    }
+
+    #[test]
+    fn only_the_two_good_reports_are_good() {
+        let good: Vec<bool> = every_report().iter().map(aws_report_is_good).collect();
+        assert_eq!(good, [false, false, false, true, true, false, false, true]);
     }
 }

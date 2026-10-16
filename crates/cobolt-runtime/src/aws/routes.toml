@@ -13,9 +13,17 @@
 # server is an edit here and a fixture re-record, not a code change.
 #
 # [servers.<id>]
-#   command, args   how to start it. Versions are PINNED (`pkg@x.y.z`): a new
-#                   server release must not silently change a built
+#   transport       "stdio" (default: a child process spoken to over its
+#                   stdin and stdout) or "https" (MCP streamable HTTP, every
+#                   request signed with SigV4 by the runtime: no program).
+#   command, args   stdio: how to start it. Versions are PINNED (`pkg@x.y.z`):
+#                   a new server release must not silently change a built
 #                   application.
+#   url, service, signing_region, metadata
+#                   https: the endpoint (https:// only, or http:// to
+#                   localhost for a test), the SigV4 service name, the region
+#                   signed for, and the values sent in `_meta` (placeholders
+#                   allowed in url, service, signing_region and metadata).
 #   env             the server's own variables (placeholders allowed).
 #   readonly_args   added while no control on the connection allows writes.
 #   write_args      added when one does (the server restarts to take them).
@@ -260,9 +268,11 @@ mutating = false
 result   = { ResponseBody = "$text", ResultJson = "$json:" }
 rows     = { from = "$json:/storage_descriptor/Columns|/table_definition/StorageDescriptor/Columns", fields = { Name = "/Name", Type = "/Type", Comment = "/Comment" } }
 
-# ── The hosted AWS MCP Server — mcp-proxy-for-aws 1.7.0 ─────────────────────
-# (Python ≥ 3.10.) AWS's own MCP service, reached through AWS's proxy, which
-# signs every request with the connection's profile. Its one general tool is
+# ── The hosted AWS MCP Server — reached by the runtime itself (spec 103) ────
+# AWS's own MCP service. No program is started and nothing needs installing: the
+# runtime speaks MCP over HTTPS and signs every request with SigV4, with the keys
+# the program set for the connection (AWS-SET-CREDENTIALS) or the sign-in the
+# connection's profile names (`aws login`, SSO, the shared files). Its one general tool is
 # `aws___run_script`: a Python script run in AWS's sandbox, which reaches AWS
 # with `await call_boto3(service_name, operation_name, params, region_name)`
 # and answers the envelope {status, stdout, stderr, return_value} as text.
@@ -273,16 +283,20 @@ rows     = { from = "$json:/storage_descriptor/Columns|/table_definition/Storage
 # base64 (`|filebase64`, `|source`) — never as script text; a test checks
 # every placeholder of every template (R25, plan §4).
 #
-# Not `--read-only`: the proxy's read-only mode drops every tool not marked
-# read-only, `aws___run_script` among them. Writes are refused here, by each
-# operation's `mutating`, and by the profile's own IAM policy.
+# There is no server-side read-only mode to ask for: it would drop every tool not
+# marked read-only, `aws___run_script` among them. Writes are refused here, by
+# each operation's `mutating`, and by the profile's own IAM policy.
 #
 # The service is hosted in eight regions; the endpoint is us-east-1's, and
-# the connection's region goes in as the default and on every call.
+# the connection's region goes in as the default and on every call (`_meta`).
+# `service` and `signing_region` are what the requests are signed for.
 [servers.hosted]
-command  = "uvx"
-args     = ["mcp-proxy-for-aws@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp", "--metadata", "AWS_REGION={Connection.Region|or:us-east-1}"]
-protocol = "handshake"
+transport      = "https"
+url            = "https://aws-mcp.us-east-1.api.aws/mcp"
+service        = "aws-mcp"
+signing_region = "us-east-1"
+metadata       = { AWS_REGION = "{Connection.Region|or:us-east-1}" }
+protocol       = "handshake"
 
 # Product-shipped Python, pasted into a template by `{snippet:name}`. A
 # snippet holds no brace: it is pasted before placeholders are expanded.

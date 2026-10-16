@@ -19,6 +19,10 @@ use std::process::Command;
 
 use serde_json::{json, Value};
 
+/// Spec 103: the loopback stand-in for the hosted endpoint, shared with `cobolt-runtime`'s tests.
+#[path = "../../cobolt-runtime/tests/support/http_fake.rs"]
+mod http_fake;
+
 struct Project {
     root: PathBuf,
 }
@@ -52,6 +56,12 @@ fn fake_mcp() -> PathBuf {
 /// A project holding the three forms, their generated programs, and one AWS
 /// connection whose `lambda` and `fake` servers are the fake.
 fn project(tag: &str) -> Project {
+    project_with(tag, None)
+}
+
+/// [`project`], with the hosted server reached over HTTPS at `hosted_url` (spec 103) instead of
+/// being the fake program.
+fn project_with(tag: &str, hosted_url: Option<&str>) -> Project {
     let root = std::env::temp_dir().join(format!("prc-078-hosts-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     for d in ["forms", "generated", "src", "data"] {
@@ -103,6 +113,12 @@ fn project(tag: &str) -> Project {
     std::fs::write(root.join("fake-b.json"), script_b.to_string()).unwrap();
     let fake = fake_mcp();
     let server = |id: &str| {
+        if let (true, Some(url)) = (id == "hosted", hosted_url) {
+            return format!(
+                "[servers.hosted]\ntransport = 'https'\nurl = '{url}'\nservice = 'aws-mcp'\nsigning_region = 'us-east-1'\n\
+                 metadata = {{ AWS_REGION = \"{{Connection.Region|or:us-east-1}}\" }}\n"
+            );
+        }
         let script = if matches!(id, "lambda" | "fake") { "fake.json" } else { "fake-b.json" };
         format!("[servers.{id}]\ncommand = '{}'\nargs = ['{}']\n", fake.display(), root.join(script).display())
     };
@@ -241,9 +257,21 @@ fn outcome(stdout: &str) -> (String, Vec<String>) {
 }
 
 fn run_form(p: &Project, form: &str, program: &str, script: &Value) -> String {
+    run_form_env(p, form, program, script, &[])
+}
+
+/// [`run_form`] with these variables set for `rcrun`; the host's own AWS keys and profile are never passed on.
+fn run_form_env(p: &Project, form: &str, program: &str, script: &Value, env: &[(&str, String)]) -> String {
     let script_path = p.root.join(format!("steps-{}.json", form.replace('/', "-")));
     std::fs::write(&script_path, script.to_string()).unwrap();
-    let out = Command::new(rcrun())
+    let mut command = Command::new(rcrun());
+    for name in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE"] {
+        command.env_remove(name);
+    }
+    for (k, v) in env {
+        command.env(k, v);
+    }
+    let out = command
         .args([
             "run-form",
             form,
@@ -294,6 +322,168 @@ fn the_demos_pass_under_run_form_and_as_embedded_child_forms() {
         table.push(format!("{demo}: Run Form {} · embedded {}", direct.0, embedded.0));
     }
     println!("\n078 T-A16 — {}", table.join("; "));
+}
+
+/// The demos that reach the hosted AWS MCP Server (`AwsMcp.AwsCall` among them).
+const HOSTED_DEMOS: [&str; 10] = [
+    "aws-mcp-demo",
+    "aws-dynamodb-demo",
+    "aws-s3-demo",
+    "aws-s3-vectors-demo",
+    "aws-rekognition-demo",
+    "aws-polly-demo",
+    "aws-comprehend-demo",
+    "aws-textract-demo",
+    "aws-ec2-demo",
+    "aws-cognito-demo",
+];
+
+/// Spec 103 AC9/AC11: the hosted demos, reaching the hosted server over HTTPS — signed by the runtime
+/// itself, with nothing on the PATH to start and the sign-in coming from a credentials file — give the
+/// tallies they give against the fake program, under Run Form and as embedded child forms; and the
+/// requests the endpoint received prove what ran: every one signed correctly, every hosted operation of
+/// the route table asked for, every session ended.
+#[test]
+fn the_hosted_demos_pass_over_https_with_nothing_on_the_path() {
+    use http_fake::HttpFake;
+
+    let fake = HttpFake::start(json!({
+        "tools": [{"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}],
+        "answers_when": hosted_answers(),
+    }));
+    let p = project_with("https", Some(&fake.url));
+
+    // The sign-in: one profile, "demo", in a credentials file of its own. The keys are made up.
+    let home = p.root.join("home");
+    std::fs::create_dir_all(home.join(".aws")).unwrap();
+    std::fs::write(home.join(".aws/config"), "").unwrap();
+    const SECRET: &str = "demo-secret-EXAMPLE-not-real";
+    std::fs::write(
+        home.join(".aws/credentials"),
+        format!("[demo]\naws_access_key_id = AKIDDEMOEXAMPLE\naws_secret_access_key = {SECRET}\n"),
+    )
+    .unwrap();
+    let nothing = p.root.join("empty-path");
+    std::fs::create_dir_all(&nothing).unwrap();
+    let env = [
+        ("PATH", nothing.to_string_lossy().into_owned()),
+        ("HOME", home.to_string_lossy().into_owned()),
+        ("AWS_CONFIG_FILE", home.join(".aws/config").to_string_lossy().into_owned()),
+        ("AWS_SHARED_CREDENTIALS_FILE", home.join(".aws/credentials").to_string_lossy().into_owned()),
+        ("AWS_EC2_METADATA_DISABLED", "true".to_owned()),
+    ];
+
+    let started = std::time::Instant::now();
+    let mut table = Vec::new();
+    for demo in HOSTED_DEMOS {
+        let want = DEMOS.iter().find(|(d, _)| *d == demo).unwrap().1;
+        let go = |form: &str, program: &str, open: Option<&str>| outcome(&run_form_env(&p, form, program, &steps(open), &env)).0;
+        let direct = go(&format!("forms/{demo}.cfrm"), &format!("generated/{demo}.cbl"), None);
+        let embedded = go("forms/aws-shell.cfrm", "generated/aws-shell.cbl", Some(demo));
+        assert_eq!(direct, want, "{demo} under Run Form, over https");
+        assert_eq!(embedded, want, "{demo} as an embedded child form, over https");
+        table.push(format!("{demo}: {direct}"));
+    }
+    let took = started.elapsed();
+
+    // What the endpoint received.
+    let requests = fake.requests();
+    let posts: Vec<_> = requests.iter().filter(|r| r.method == "POST").collect();
+    assert!(!posts.is_empty(), "the demos reached the endpoint");
+    for r in &posts {
+        let auth = support_verify(r, SECRET);
+        assert_eq!(auth, "AKIDDEMOEXAMPLE");
+    }
+    // The route table's own hosted operations, each asked for at least once.
+    let scripts: Vec<String> = posts
+        .iter()
+        .filter_map(|r| r.json())
+        .filter(|m| m["method"] == "tools/call")
+        .map(|m| m["params"]["arguments"]["code"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    let routes = cobolt_runtime::aws::routes::Routes::shipped();
+    let (mut seen, mut missing, mut hosted_ops) = (0, Vec::new(), 0);
+    for (name, op) in &routes.ops {
+        if op.server != "hosted" {
+            continue;
+        }
+        hosted_ops += 1;
+        let template = format!("{:?}", op.input);
+        let names: Vec<&str> = template.split("operation_name='").skip(1).filter_map(|t| t.split('\'').next()).collect();
+        let asked = if names.is_empty() {
+            // `AwsMcp.AwsCall` names its operation from COBOL, as a quoted literal.
+            scripts.iter().any(|c| c.contains("operation_name=\""))
+        } else {
+            names.iter().any(|n| scripts.iter().any(|c| c.contains(&format!("operation_name='{n}'"))))
+        };
+        if asked {
+            seen += 1;
+        } else {
+            missing.push(name.clone());
+        }
+    }
+    let sessions = fake.sessions_opened();
+    fake.wait_for(|f| f.count_http("DELETE") as u64 == sessions, std::time::Duration::from_secs(3));
+    let ended = fake.count_http("DELETE");
+    println!(
+        "\n  103 AC9/AC11 — hosted demos over HTTPS, PATH empty, sign-in from a credentials file:\n    {}\n    {} s for {} runs; \
+         {} POSTs received, all {} verified with an independent SigV4 check; {seen} of {hosted_ops} hosted operations asked for (the other {} are writes the demos see refused); \
+         {sessions} sessions opened, {ended} ended with a DELETE",
+        table.join("\n    "),
+        took.as_secs(),
+        HOSTED_DEMOS.len() * 2,
+        posts.len(),
+        posts.len(),
+        hosted_ops - seen,
+    );
+    assert_eq!(hosted_ops, 33, "the route table sends 33 operations to the hosted server");
+    // The demos run with AllowWrite off, so eight write operations are refused before anything is sent;
+    // `cobolt-runtime`'s `aws_https` runs those eight with AllowWrite on. Any OTHER operation going
+    // unasked is a gap.
+    let refused_in_the_demos = [
+        "AwsCognito.Confirm",
+        "AwsCognito.SignUp",
+        "AwsDynamoDB.DeleteItem",
+        "AwsDynamoDB.UpdateItem",
+        "AwsEC2.Stop",
+        "AwsS3.DeleteObject",
+        "AwsS3.PutObject",
+        "AwsS3Vectors.PutVectors",
+    ];
+    missing.sort();
+    assert_eq!(missing, refused_in_the_demos, "hosted operations the demos did not ask for");
+    assert_eq!(ended as u64, sessions, "every session an application opened it also ended");
+}
+
+/// The access key id a logged request was signed with, after checking the signature with `secret`.
+fn support_verify(r: &http_fake::Logged, secret: &str) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::{Digest, Sha256};
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let mac = |key: &[u8], data: &[u8]| {
+        let mut m = Hmac::<Sha256>::new_from_slice(key).unwrap();
+        m.update(data);
+        m.finalize().into_bytes().to_vec()
+    };
+    let auth = r.header("authorization").expect("a signed request");
+    let rest = auth.strip_prefix("AWS4-HMAC-SHA256 ").expect("SigV4");
+    let field = |name: &str| rest.split(',').map(str::trim).find_map(|p| p.strip_prefix(name)).unwrap_or_else(|| panic!("no {name}")).to_owned();
+    let scope: Vec<String> = field("Credential=").split('/').map(str::to_owned).collect();
+    let signed: Vec<String> = field("SignedHeaders=").split(';').map(str::to_owned).collect();
+    let stamp = r.header("x-amz-date").unwrap().to_owned();
+    let headers: String = signed
+        .iter()
+        .map(|n| format!("{n}:{}\n", r.header(n).unwrap_or_else(|| panic!("signed header {n} missing")).split_whitespace().collect::<Vec<_>>().join(" ")))
+        .collect();
+    let (path, query) = r.path.split_once('?').unwrap_or((r.path.as_str(), ""));
+    let canonical = format!("{}\n{path}\n{query}\n{headers}\n{}\n{}", r.method, signed.join(";"), hex(&Sha256::digest(&r.body)));
+    let to_sign = format!("AWS4-HMAC-SHA256\n{stamp}\n{}/{}/{}/aws4_request\n{}", scope[1], scope[2], scope[3], hex(&Sha256::digest(canonical.as_bytes())));
+    let mut key = mac(format!("AWS4{secret}").as_bytes(), scope[1].as_bytes());
+    for part in [scope[2].as_str(), scope[3].as_str(), "aws4_request"] {
+        key = mac(&key, part.as_bytes());
+    }
+    assert_eq!(hex(&mac(&key, to_sign.as_bytes())), field("Signature="), "{} {} does not verify", r.method, r.path);
+    scope[0].clone()
 }
 
 /// AC6/AC16 — the built binary gives the same tallies, and leaves no AWS

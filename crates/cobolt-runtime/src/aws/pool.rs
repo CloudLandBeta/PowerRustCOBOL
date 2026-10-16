@@ -4,18 +4,23 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! The AWS server pool (spec 078 R5, R8).
+//! The AWS server pool (spec 078 R5, R8; spec 103).
 //!
-//! One server process per **(connection, server)** pair, shared by every
-//! control that uses it in this process — the root form, its child forms and
-//! a built application all run in one process, so they share the pool.
+//! One server per **(connection, server)** pair, shared by every control that
+//! uses it in this process — the root form, its child forms and a built
+//! application all run in one process, so they share the pool. A server is a
+//! child process spoken to over stdio, or (spec 103) an https link to a hosted
+//! server, which has no process: [`Link`] is the one place the two differ.
 //!
-//! - **Started on first use.** The first start downloads packages (`uvx`), so
-//!   the handshake is bounded by the control's `StartTimeoutMs`, separate from
-//!   the per-call `TimeoutMs` (amendment A3).
-//! - **One reader thread per server** runs the protocol: it hands each answer
-//!   to the call waiting on that id and serves the server's own traffic, so a
-//!   notification or a `ping` never stalls a call (R4).
+//! - **Started on first use.** A child process's first start may download
+//!   packages (`uvx`), so the handshake is bounded by the control's
+//!   `StartTimeoutMs`, separate from the per-call `TimeoutMs` (amendment A3).
+//! - **One reader thread per child process** runs the protocol: it hands each
+//!   answer to the call waiting on that id and serves the server's own traffic,
+//!   so a notification or a `ping` never stalls a call (R4). An https link needs
+//!   none — a request's answer is the body of the request that asked.
+//! - **An expired https session is renewed once** (spec 103 R5): the call is
+//!   repeated on a new session, and a second refusal is the call's error.
 //! - **Every call waits with a timeout** (R5): a server that never answers
 //!   yields [`CallError::Timeout`], and a late answer is dropped.
 //! - **A dead server fails its pending calls** and is replaced on the next
@@ -41,6 +46,7 @@ use cobolt_mcp::transport::{read_message, write_message};
 use cobolt_mcp::{ServerInfo, Tool, ToolResult};
 use serde_json::Value;
 
+use super::https;
 use super::process::{self, Launch, StderrRing};
 
 /// Which server: a connection's id and the route table's server id.
@@ -73,41 +79,197 @@ impl std::fmt::Display for CallError {
 
 type Reply = Result<Value, ClientError>;
 
-/// One running server.
-struct Handle {
-    launch: Launch,
-    mode: Mode,
+/// How a running server is reached.
+enum Link {
+    /// A child process spoken to over its stdin and stdout.
+    Stdio(Stdio),
+    /// A hosted server spoken to over HTTPS, every request signed (spec 103).
+    Https(https::Link),
+}
+
+/// A started child process and what serves it.
+struct Stdio {
     child: Mutex<Child>,
     /// `None` once input is closed (shutdown): the server sees EOF and ends.
     writer: Arc<Mutex<Option<ChildStdin>>>,
-    session: Mutex<Session>,
     pending: Arc<Mutex<HashMap<u64, mpsc::Sender<Reply>>>>,
     alive: Arc<AtomicBool>,
     stderr: StderrRing,
 }
 
+/// One running server.
+struct Handle {
+    launch: Launch,
+    mode: Mode,
+    session: Mutex<Session>,
+    link: Link,
+    /// One caller at a time opens a new https session when the old one has
+    /// expired; the others find it open (R5).
+    reopen: Mutex<()>,
+}
+
 impl Handle {
     fn start(launch: &Launch, mode: Mode, start_timeout: Duration) -> Result<Arc<Handle>, CallError> {
-        let spawned = process::spawn(launch).map_err(CallError::Start)?;
         let me = ServerInfo { name: "PowerRustCOBOL".into(), version: env!("CARGO_PKG_VERSION").into() };
         let session = match mode {
             Mode::Handshake => Session::handshake(me),
             Mode::Stateless => Session::stateless(me),
         };
-        let handle = Arc::new(Handle {
-            launch: launch.clone(),
-            mode,
-            child: Mutex::new(spawned.child),
-            writer: Arc::new(Mutex::new(Some(spawned.stdin))),
-            session: Mutex::new(session.clone()),
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            alive: Arc::new(AtomicBool::new(true)),
-            stderr: spawned.stderr,
-        });
+        let link = if launch.https.is_some() {
+            Link::Https(https::Link::open(launch, session.clone()).map_err(CallError::Start)?)
+        } else {
+            Link::Stdio(Stdio::spawn(launch, &session)?)
+        };
+        let handle = Arc::new(Handle { launch: launch.clone(), mode, session: Mutex::new(session), link, reopen: Mutex::new(()) });
+        if mode == Mode::Handshake {
+            handle.handshake(start_timeout)?;
+        }
+        Ok(handle)
+    }
+
+    /// `initialize`, the server's answer, `notifications/initialized` (R3) — the
+    /// same for a child process and for an https server.
+    fn handshake(&self, start_timeout: Duration) -> Result<(), CallError> {
+        // A server that fails to start usually says why on stderr — an
+        // AWS profile that is not signed in, above all — and that text is
+        // what turns "it stopped" into "sign in to this profile" (R23).
+        // It travels after the first line, which is the plain message;
+        // `ops::plain_error` reads the rest and never shows it raw.
+        let with_stderr = |message: String| {
+            let said = self.settled_stderr();
+            CallError::Start(if said.trim().is_empty() { message } else { format!("{message}\n{said}") })
+        };
+        let (id, bytes) = lock(&self.session).initialize_request();
+        let answer = self.round_trip(id, &bytes, start_timeout).map_err(|e| match e {
+            CallError::Timeout => with_stderr(match &self.link {
+                Link::Stdio(_) => format!(
+                    "the AWS service did not start within {} s (its first start downloads packages; \
+                     raise StartTimeoutMs if this machine is slow)",
+                    start_timeout.as_secs()
+                ),
+                Link::Https(_) => format!("the AWS service did not answer within {} s", start_timeout.as_secs()),
+            }),
+            CallError::Failed(e) | CallError::Start(e) => with_stderr(e),
+        })?;
+        lock(&self.session).accept_initialize(&answer).map_err(|e| with_stderr(e.to_string()))?;
+        if let Link::Https(link) = &self.link {
+            if let Some(revision) = lock(&self.session).revision() {
+                link.set_protocol_version(revision);
+            }
+        }
+        self.notify(&Session::initialized_notification(), start_timeout)
+    }
+
+    /// Send a frame that is owed no answer.
+    fn notify(&self, bytes: &[u8], timeout: Duration) -> Result<(), CallError> {
+        match &self.link {
+            Link::Stdio(s) => s.send(bytes),
+            Link::Https(l) => l.notify(bytes, timeout).map_err(link_error),
+        }
+    }
+
+    /// Send one request and wait for its answer.
+    fn round_trip(&self, id: u64, bytes: &[u8], timeout: Duration) -> Result<Value, CallError> {
+        match &self.link {
+            Link::Stdio(s) => s.round_trip(id, bytes, timeout),
+            Link::Https(l) => self.https_round_trip(l, id, bytes, timeout),
+        }
+    }
+
+    /// An https request. When the server no longer knows the session (it
+    /// expired between two calls) a new one is opened and the request repeated
+    /// once; a second refusal is an error (R5).
+    fn https_round_trip(&self, link: &https::Link, id: u64, bytes: &[u8], timeout: Duration) -> Result<Value, CallError> {
+        let before = link.generation();
+        let reply = match link.round_trip(id, bytes, timeout) {
+            Err(https::LinkError::SessionUnknown) => {
+                self.reopen(link, before, timeout)?;
+                link.round_trip(id, bytes, timeout)
+            }
+            other => other,
+        };
+        let response = reply.map_err(link_error)?;
+        into_result(response).map_err(|e| CallError::Failed(e.to_string()))
+    }
+
+    /// Open a new https session, unless another caller already has since
+    /// `seen` (the link's generation when this caller's request went out).
+    fn reopen(&self, link: &https::Link, seen: u64, timeout: Duration) -> Result<(), CallError> {
+        let _one_at_a_time = lock(&self.reopen);
+        if link.generation() != seen {
+            return Ok(());
+        }
+        link.forget_session();
+        self.handshake(timeout).map_err(|e| match e {
+            CallError::Start(m) => CallError::Failed(m),
+            other => other,
+        })
+    }
+
+    fn is_alive(&self) -> bool {
+        match &self.link {
+            Link::Stdio(s) => s.alive.load(Ordering::SeqCst) && matches!(lock(&s.child).try_wait(), Ok(None)),
+            Link::Https(l) => l.is_alive(),
+        }
+    }
+
+    /// What the child process has written to stderr, raw; an https server has none.
+    fn stderr_text(&self) -> String {
+        match &self.link {
+            Link::Stdio(s) => s.stderr.text(),
+            Link::Https(_) => String::new(),
+        }
+    }
+
+    /// [`stderr_text`](Self::stderr_text), after waiting a moment for a failing process to say why.
+    fn settled_stderr(&self) -> String {
+        match &self.link {
+            Link::Stdio(s) => settled_stderr(&s.stderr),
+            Link::Https(_) => String::new(),
+        }
+    }
+
+    /// Stop serving. A child process: close its input, give it two seconds to
+    /// leave, then kill it (R9). An https server: end the session on a thread
+    /// of its own, because the callers (a replaced handle, `AWS-SET-CREDENTIALS`)
+    /// must not wait on the network.
+    fn stop(&self) {
+        match &self.link {
+            Link::Stdio(s) => s.stop(),
+            Link::Https(l) => l.close_in_background(),
+        }
+    }
+
+    /// [`stop`](Self::stop) for the application's last moments: an https
+    /// session is ended before the process goes, for at most two seconds.
+    fn stop_and_wait(&self) {
+        match &self.link {
+            Link::Stdio(s) => s.stop(),
+            Link::Https(l) => l.close(Duration::from_secs(2)),
+        }
+    }
+}
+
+/// A link failure as the pool's error.
+fn link_error(e: https::LinkError) -> CallError {
+    match e {
+        https::LinkError::Timeout => CallError::Timeout,
+        https::LinkError::SessionUnknown => CallError::Failed("the AWS service session expired and could not be renewed".into()),
+        https::LinkError::Failed(m) => CallError::Failed(m),
+    }
+}
+
+impl Stdio {
+    /// Start the process and the thread that reads its answers.
+    fn spawn(launch: &Launch, session: &Session) -> Result<Stdio, CallError> {
+        let spawned = process::spawn(launch).map_err(CallError::Start)?;
+        let pending: Arc<Mutex<HashMap<u64, mpsc::Sender<Reply>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let alive = Arc::new(AtomicBool::new(true));
+        let writer = Arc::new(Mutex::new(Some(spawned.stdin)));
         // The reader: answers to their callers, the server's own requests
         // served, and on EOF every pending call failed.
-        let (pending, alive, writer) = (handle.pending.clone(), handle.alive.clone(), handle.writer.clone());
-        let router = session;
+        let (reader_pending, reader_alive, reader_writer) = (pending.clone(), alive.clone(), writer.clone());
+        let router = session.clone();
         let stdout = spawned.stdout;
         std::thread::Builder::new()
             .name("aws-mcp-reader".into())
@@ -116,51 +278,26 @@ impl Handle {
                 while let Ok(Some(raw)) = read_message(&mut r) {
                     match router.route(&raw) {
                         Inbound::Response(resp) => {
-                            let waiter = resp.id.as_u64().and_then(|id| lock(&pending).remove(&id));
+                            let waiter = resp.id.as_u64().and_then(|id| lock(&reader_pending).remove(&id));
                             if let Some(tx) = waiter {
                                 let _ = tx.send(into_result(resp));
                             }
                         }
                         Inbound::Reply(bytes) => {
-                            if let Some(w) = lock(&writer).as_mut() {
+                            if let Some(w) = lock(&reader_writer).as_mut() {
                                 let _ = write_message(w, &bytes);
                             }
                         }
                         Inbound::Ignored | Inbound::Malformed(_) => {}
                     }
                 }
-                alive.store(false, Ordering::SeqCst);
-                for (_, tx) in lock(&pending).drain() {
+                reader_alive.store(false, Ordering::SeqCst);
+                for (_, tx) in lock(&reader_pending).drain() {
                     let _ = tx.send(Err(ClientError::Io("the AWS service stopped".into())));
                 }
             })
             .map_err(|e| CallError::Start(format!("the AWS service could not be started: {e}")))?;
-
-        if mode == Mode::Handshake {
-            // A server that fails to start usually says why on stderr — an
-            // AWS profile that is not signed in, above all — and that text is
-            // what turns "it stopped" into "sign in to this profile" (R23).
-            // It travels after the first line, which is the plain message;
-            // `ops::plain_error` reads the rest and never shows it raw.
-            let with_stderr = |message: String| {
-                let said = settled_stderr(&handle.stderr);
-                CallError::Start(if said.trim().is_empty() { message } else { format!("{message}\n{said}") })
-            };
-            let (id, bytes) = lock(&handle.session).initialize_request();
-            let answer = handle.round_trip(id, &bytes, start_timeout).map_err(|e| match e {
-                CallError::Timeout => with_stderr(format!(
-                    "the AWS service did not start within {} s (its first start downloads packages; \
-                     raise StartTimeoutMs if this machine is slow)",
-                    start_timeout.as_secs()
-                )),
-                CallError::Failed(e) | CallError::Start(e) => with_stderr(e),
-            })?;
-            lock(&handle.session)
-                .accept_initialize(&answer)
-                .map_err(|e| with_stderr(e.to_string()))?;
-            handle.send(&Session::initialized_notification())?;
-        }
-        Ok(handle)
+        Ok(Stdio { child: Mutex::new(spawned.child), writer, pending, alive, stderr: spawned.stderr })
     }
 
     fn send(&self, bytes: &[u8]) -> Result<(), CallError> {
@@ -189,10 +326,6 @@ impl Handle {
                 Err(CallError::Timeout)
             }
         }
-    }
-
-    fn is_alive(&self) -> bool {
-        self.alive.load(Ordering::SeqCst) && matches!(lock(&self.child).try_wait(), Ok(None))
     }
 
     /// Close input, give the server two seconds to leave, then kill it
@@ -299,7 +432,7 @@ pub fn list_tools(key: &ServerKey, launch: &Launch, mode: Mode, budget: Budget) 
 pub fn stderr_of(key: &ServerKey) -> Option<String> {
     let slot = lock(pool()).get(key).cloned()?;
     let h = lock(&slot).clone()?;
-    Some(h.stderr.text())
+    Some(h.stderr_text())
 }
 
 /// Stop every server (R9). Each host calls this on its way out.
@@ -307,7 +440,7 @@ pub fn shutdown() {
     let slots: Vec<Slot> = lock(pool()).drain().map(|(_, s)| s).collect();
     for slot in slots {
         if let Some(h) = lock(&slot).take() {
-            h.stop();
+            h.stop_and_wait();
         }
     }
 }

@@ -107,6 +107,35 @@ Notes: Unmodified. MPL-2.0 is a file-level copyleft: its Source Code Form is
        (each crate of the family under its own name, version 0.5.5).
 ```
 
+```text
+Component: AWS SDK for Rust — credential and signing crates: aws-config 1.8, aws-sigv4 1.4,
+           aws-credential-types, aws-runtime, aws-types, aws-smithy-async, -http, -json,
+           -observability, -query, -runtime, -runtime-api, -runtime-api-macros, -schema, -types, -xml,
+           and the four sign-in clients aws-sdk-sso, aws-sdk-ssooidc, aws-sdk-sts, aws-sdk-signin
+Homepage: https://github.com/smithy-lang/smithy-rs — https://github.com/awslabs/aws-sdk-rust
+License: Apache-2.0
+Used by: cobolt-runtime, feature `aws` (signing the requests to the hosted AWS MCP Server and reading
+the AWS sign-in); in rcrun, the IDE and any built application that contains an AWS control
+Notes: Unmodified. Built with the SDK's default HTTPS client (hyper + rustls/aws-lc-rs) switched off; the
+       product supplies its own over ureq and the operating system's TLS. No AWS service client is linked.
+
+Component: RustCrypto elliptic-curve family — p256 0.13, ecdsa, elliptic-curve, primeorder, crypto-bigint,
+           rfc6979, sec1, signature, der, spki, pkcs8, pem-rfc7468, base16ct, base64ct, const-oid; and ff, group
+Homepage: https://github.com/RustCrypto — https://github.com/zkcrypto/ff
+License: Apache-2.0 OR MIT (ff and group: MIT/Apache-2.0)
+Used by: aws-config (the P-256 key of an `aws login` session); pure Rust
+
+Component: time 0.3 (time, time-core, time-macros), deranged, num-conv, powerfmt
+Homepage: https://github.com/time-rs/time
+License: MIT OR Apache-2.0
+Used by: the AWS crates (date and time handling in aws-smithy-types)
+
+Component: arc-swap, base64-simd, vsimd, outref, bytes-utils, regex-lite, xmlparser, http 0.2, http-body 0.4
+Homepage: https://crates.io (each under its own name)
+License: MIT, or MIT OR Apache-2.0, per crate
+Used by: the AWS crates
+```
+
 ## Template entry
 
 ```text

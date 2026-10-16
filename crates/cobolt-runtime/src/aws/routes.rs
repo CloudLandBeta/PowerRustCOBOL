@@ -20,7 +20,7 @@ use cobolt_mcp::{Content, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::process::Launch;
+use super::process::{HttpsEndpoint, Launch};
 
 /// The table as shipped with the product (R16).
 pub const SHIPPED: &str = include_str!("routes.toml");
@@ -34,9 +34,23 @@ pub enum Protocol {
     Stateless,
 }
 
-/// How to start one server.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+/// How a server is reached (spec 103 R1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Transport {
+    /// A child process spoken to over its stdin and stdout.
+    #[default]
+    Stdio,
+    /// MCP streamable HTTP over HTTPS, every request signed with SigV4 by the
+    /// runtime itself: no program is started.
+    Https,
+}
+
+/// How to reach one server.
+#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 pub struct ServerDef {
+    /// The program to start (`stdio`); an `https` server starts none.
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -48,6 +62,76 @@ pub struct ServerDef {
     pub write_args: Vec<String>,
     #[serde(default)]
     pub protocol: Protocol,
+    #[serde(default)]
+    pub transport: Transport,
+    /// `https`: the endpoint, a template. Plain `http://` is accepted only to a
+    /// loopback host (a test's fake), so signed traffic never goes out in clear.
+    #[serde(default)]
+    pub url: String,
+    /// `https`: the SigV4 service name the requests are signed for.
+    #[serde(default)]
+    pub service: String,
+    /// `https`: the region the requests are signed for — route data, so no code
+    /// reads it out of a host name.
+    #[serde(default)]
+    pub signing_region: String,
+    /// `https`: values sent in the `_meta` of every request (templates).
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
+}
+
+impl ServerDef {
+    /// Whether the definition says what its transport needs (spec 103 R1).
+    pub fn validate(&self, id: &str) -> Result<(), String> {
+        match self.transport {
+            Transport::Stdio => {
+                if self.command.trim().is_empty() {
+                    return Err(format!("server \"{id}\": a stdio server needs a `command`"));
+                }
+            }
+            Transport::Https => {
+                for (name, v) in [("url", &self.url), ("service", &self.service), ("signing_region", &self.signing_region)] {
+                    if v.trim().is_empty() {
+                        return Err(format!("server \"{id}\": an https server needs `{name}`"));
+                    }
+                }
+                if !self.command.trim().is_empty()
+                    || !self.args.is_empty()
+                    || !self.env.is_empty()
+                    || !self.readonly_args.is_empty()
+                    || !self.write_args.is_empty()
+                {
+                    return Err(format!(
+                        "server \"{id}\": an https server starts no program, so it takes no command, args, env, readonly_args or write_args"
+                    ));
+                }
+                if !endpoint_allowed(&self.url) {
+                    return Err(format!("server \"{id}\": `url` must be an https:// address (http:// only to localhost)"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Whether `url` may carry signed requests: https, or plain http to the
+/// machine itself.
+pub fn endpoint_allowed(url: &str) -> bool {
+    let u = url.trim();
+    if u.len() > "https://".len() && u[.."https://".len()].eq_ignore_ascii_case("https://") {
+        return true;
+    }
+    let Some(rest) = u.strip_prefix("http://") else { return false };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    // `http://localhost:80@elsewhere/` names `elsewhere`, whatever precedes the `@`.
+    if authority.contains('@') {
+        return false;
+    }
+    let host = match authority.find(']') {
+        Some(end) => &authority[..=end],
+        None => authority.split(':').next().unwrap_or_default(),
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "[::1]")
 }
 
 /// Whether an operation changes AWS state (R25, R26).
@@ -165,7 +249,11 @@ pub struct Routes {
 
 impl Routes {
     pub fn parse(text: &str) -> Result<Routes, String> {
-        toml::from_str(text).map_err(|e| format!("the AWS route table is not valid: {e}"))
+        let routes: Routes = toml::from_str(text).map_err(|e| format!("the AWS route table is not valid: {e}"))?;
+        for (id, server) in &routes.servers {
+            server.validate(id).map_err(|e| format!("the AWS route table is not valid: {e}"))?;
+        }
+        Ok(routes)
     }
 
     /// The shipped table, parsed once.
@@ -486,6 +574,29 @@ fn input_value(template: &toml::Value, ctx: &Context) -> Result<Option<Value>, E
 /// How to start `server` for a connection (R25: read-only unless a control
 /// on the connection allows writes).
 pub fn launch_for(server: &ServerDef, ctx: &Context, allow_write: bool, profile: &str, region: &str) -> Result<Launch, ExpandError> {
+    let opt = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_owned());
+    if server.transport == Transport::Https {
+        // No program: where to go, what to sign for, and what to say in `_meta` (spec 103).
+        let url = expand(&server.url, ctx)?;
+        if !endpoint_allowed(&url) {
+            return Err(ExpandError::Template(format!("the endpoint \"{url}\" must be https:// (http:// only to localhost)")));
+        }
+        let mut metadata = Vec::new();
+        for (k, v) in &server.metadata {
+            let v = expand(v, ctx)?;
+            // An empty value means "not set", as for a server's environment.
+            if !v.trim().is_empty() {
+                metadata.push((k.clone(), v));
+            }
+        }
+        let https = HttpsEndpoint {
+            url: url.trim().to_owned(),
+            service: expand(&server.service, ctx)?.trim().to_owned(),
+            signing_region: expand(&server.signing_region, ctx)?.trim().to_owned(),
+            metadata,
+        };
+        return Ok(Launch { profile: opt(profile), region: opt(region), https: Some(https), ..Launch::default() });
+    }
     let mut args = server.args.iter().map(|a| expand(a, ctx)).collect::<Result<Vec<_>, _>>()?;
     let extra = if allow_write { &server.write_args } else { &server.readonly_args };
     for a in extra {
@@ -499,8 +610,7 @@ pub fn launch_for(server: &ServerDef, ctx: &Context, allow_write: bool, profile:
             env.push((k.clone(), v));
         }
     }
-    let opt = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_owned());
-    Ok(Launch { command: expand(&server.command, ctx)?, args, env, profile: opt(profile), region: opt(region), credentials: None })
+    Ok(Launch { command: expand(&server.command, ctx)?, args, env, profile: opt(profile), region: opt(region), credentials: None, https: None })
 }
 
 /// Every text block of a result, joined.
@@ -831,6 +941,7 @@ args = ["script.json"]
             readonly_args: vec!["--read-only".into()],
             write_args: vec!["--allow-write".into()],
             protocol: Protocol::Handshake,
+            ..ServerDef::default()
         };
         let none = |_: &str| String::new();
         let conn = |f: &str| if f == "FunctionPrefix" { "app-".into() } else { String::new() };
@@ -911,6 +1022,95 @@ fields = { Name = "/name" }"#);
         assert_eq!(extract(&two, "$json:/job_run_id"), "jr_1");
     }
 
+    /// Spec 103 R1: an https server is an address and a signing identity, and
+    /// starts no program.
+    #[test]
+    fn an_https_server_is_an_address_and_starts_no_program() {
+        let table = Routes::parse(
+            r#"
+[servers.h]
+transport      = "https"
+url            = "https://hosted.example/mcp"
+service        = "svc"
+signing_region = "us-east-1"
+metadata       = { AWS_REGION = "{Connection.Region|or:us-east-1}", EMPTY = "{Connection.Nothing}" }
+"#,
+        )
+        .unwrap();
+        let none = |_: &str| String::new();
+        let eu = |f: &str| if f == "Region" { "eu-west-1".to_owned() } else { String::new() };
+        let with = |conn: &dyn Fn(&str) -> String| launch_for(&table.servers["h"], &ctx(&[], &none, conn), false, "dev", "").unwrap();
+
+        let l = with(&eu);
+        assert!(l.command.is_empty() && l.args.is_empty() && l.env.is_empty(), "no program: {l:?}");
+        let e = l.https.expect("an https launch");
+        assert_eq!((e.url.as_str(), e.service.as_str(), e.signing_region.as_str()), ("https://hosted.example/mcp", "svc", "us-east-1"));
+        assert_eq!(e.metadata, [("AWS_REGION".to_owned(), "eu-west-1".to_owned())], "the connection's region, and an empty value is not sent");
+        assert_eq!(with(&none).https.unwrap().metadata, [("AWS_REGION".to_owned(), "us-east-1".to_owned())], "the default region");
+    }
+
+    /// The shipped hosted server is the https one (spec 103 D4): no `uvx`.
+    #[test]
+    fn the_shipped_hosted_server_is_https_and_the_labs_servers_still_start_programs() {
+        let r = Routes::shipped();
+        let hosted = &r.servers["hosted"];
+        assert_eq!(hosted.transport, Transport::Https);
+        assert!(hosted.command.is_empty() && hosted.args.is_empty());
+        assert_eq!((hosted.service.as_str(), hosted.signing_region.as_str()), ("aws-mcp", "us-east-1"));
+        assert!(hosted.url.starts_with("https://"), "{}", hosted.url);
+        assert_eq!(hosted.metadata.keys().collect::<Vec<_>>(), ["AWS_REGION"]);
+        let stdio: Vec<&String> = r.servers.iter().filter(|(_, s)| s.transport == Transport::Stdio).map(|(id, _)| id).collect();
+        assert_eq!(stdio.len(), 5, "the five Labs servers: {stdio:?}");
+        for id in stdio {
+            assert_eq!(r.servers[id].command, "uvx", "{id}");
+        }
+    }
+
+    #[test]
+    fn a_server_definition_that_says_too_little_or_too_much_is_refused() {
+        let refused = |toml: &str| Routes::parse(toml).unwrap_err();
+        let https = |extra: &str| format!("[servers.h]\ntransport = \"https\"\nurl = \"https://x.example/mcp\"\nservice = \"s\"\nsigning_region = \"r\"\n{extra}");
+        assert!(Routes::parse(&https("")).is_ok());
+        assert!(refused("[servers.s]\nargs = [\"x\"]\n").contains("needs a `command`"), "a stdio server needs a command");
+        assert!(refused("[servers.h]\ntransport = \"https\"\nservice = \"s\"\nsigning_region = \"r\"\n").contains("needs `url`"));
+        assert!(refused("[servers.h]\ntransport = \"https\"\nurl = \"https://x.example\"\nsigning_region = \"r\"\n").contains("needs `service`"));
+        assert!(refused("[servers.h]\ntransport = \"https\"\nurl = \"https://x.example\"\nservice = \"s\"\n").contains("needs `signing_region`"));
+        for extra in ["command = \"uvx\"\n", "args = [\"x\"]\n", "env = { A = \"b\" }\n", "readonly_args = [\"--ro\"]\n", "write_args = [\"--rw\"]\n"] {
+            assert!(refused(&https(extra)).contains("starts no program"), "{extra}");
+        }
+        assert!(refused(&https("").replace("https://x.example/mcp", "http://x.example/mcp")).contains("https://"), "plain http to another host");
+    }
+
+    /// Signed requests go out over https, or to this machine; never in clear to
+    /// anywhere else, whatever tricks the address plays with `@` or ports.
+    #[test]
+    fn signed_traffic_goes_only_to_https_or_to_this_machine() {
+        for ok in [
+            "https://aws.example/mcp",
+            "HTTPS://aws.example/mcp",
+            "http://127.0.0.1:5000/mcp",
+            "http://localhost/mcp",
+            "http://localhost:8080",
+            "http://[::1]/mcp",
+            "http://[::1]:9000/mcp",
+        ] {
+            assert!(endpoint_allowed(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "https://",
+            "http://aws.example/mcp",
+            "http://127.0.0.1.example.com/mcp",
+            "http://localhost:80@evil.example/mcp",
+            "http://localhost@evil.example/",
+            "ftp://localhost/mcp",
+            "localhost:5000/mcp",
+            "http://localhostevil/mcp",
+        ] {
+            assert!(!endpoint_allowed(bad), "{bad}");
+        }
+    }
+
     /// R15: no Rust source names a server package or launcher; they live in
     /// the route table only.
     #[test]
@@ -925,7 +1125,7 @@ fields = { Name = "/name" }"#);
                     stack.push(p);
                 } else if p.extension().is_some_and(|x| x == "rs") {
                     let text = std::fs::read_to_string(&p).unwrap();
-                    for banned in ["awslabs.", "mcp-proxy-for-aws", "lambda-tool-mcp-server"] {
+                    for banned in ["awslabs.", "mcp-proxy-for-aws", "lambda-tool-mcp-server", "api.aws"] {
                         // This test names them to look for them.
                         if text.contains(banned) && !p.ends_with("routes.rs") {
                             offenders.push(format!("{} names {banned}", p.display()));

@@ -17,6 +17,97 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.187] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.186.)*
+
+### Changed: AWS without `uvx`, step 5 — the documentation says what is now true (spec 103)
+
+The Developer's Guide, the support matrix, the PowerCloud README, the System KB and the property help described every AWS control as needing `uvx`, Python and a downloaded server. For the hosted services that is no longer so; the texts now say which controls need nothing installed and which still need `uv`.
+
+- **Developer's Guide** (*Calling AWS*): the two routes and a new diagram; *What a machine needs* split into the hosted services (nothing to install), the server programs (`uv`), the IAM policy and the sign-in (`aws login`, or `aws sso login` for IAM Identity Center); *Test connection* described as two lines; the run-time keys section says the hosted services are signed by the application and only a server program receives them in its environment; the hosted-server paragraph no longer speaks of a proxy; `StartTimeoutMs` and the not-signed-in caveat updated.
+- **Support matrix** (two rows), **PowerCloud README** (`uvx` is needed only for the Lambda tab and the photo links), **`DEPENDENCIES-en.md`** (written in step 1), the **steering registry** (a row for the AWS chapter).
+- **System KB** (four passages of the control notes and the `StartTimeoutMs` reference) and the **property help** of the ten affected controls in all six languages (nine hosted controls: opening the first session takes a moment; `AwsMcp`: a server program downloads on its first start, the hosted service only opens a session). The six controls served by server programs keep the download wording. `assets/knowledge/chunked.data` was regenerated once (3415 records from 8 documents).
+- Comments in `lifetime.rs`, `interpreter/aws.rs`, `aws_catalog.rs`, `pool.rs` and the module documentation say that a hosted server has no process.
+
+*Tests.* `cobolt-compiler` lib: 184 passed (the KB documentation tables); the Guide's 26 AWS COBOL handlers compile (`the_guides_aws_examples_compile`); the whole IDE binary: the freshness test of the prebuilt KB, the property-help and i18n completeness tests and the document guards all pass, and the only failures are the four of the known-red list (`every_document_ships_in_every_language`, `every_completion_description_exists_in_six_languages`, and the two live-crates.io `egui` tests).
+
+*Docs:* English only (GOLDEN RULE #8); the Guide has no translations in the tree to delete. *Not done:* the built-binary run over HTTPS (the ignored `aws_hosts` test), the full secret scan of every surface of the native path (AC7: the wire and the error messages are scanned; logs, `Verbose` output and the login-cache write-back are not), and AC12 — a live run with no `uvx` on the machine, the operator's. **Merged to `main` at the operator's request before AC12** (the spec had made AC12 the gate): the hosted route's signing name (`aws-mcp`), its answer form and its `_meta` handling are encoded from AWS's documentation and have not met the real endpoint yet.
+
+## [PowerRustCOBOL 1.91.186] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.185.)*
+
+### Added: AWS without `uvx`, step 4 — Test connection for the hosted server (spec 103)
+
+**Settings ▸ Integrations ▸ AWS ▸ Test connection** now tests the hosted AWS services as well as the Lambda server, in two rows, each in the IDE's language. The hosted row needs nothing installed, answers in seconds, and says which step failed.
+
+- **What it finds** (hosted): the **address could not be reached** (the host and the cause); **no sign-in, or an expired one** (the profile, and the command — `aws login --profile …`, or `aws sso login --profile …` for IAM Identity Center); the **endpoint refused the session** (the HTTP status — a sign-in not allowed to use the service); the tools **do not match the route table**; or **connected** (how many tools). It starts no program, and ends the session it opened.
+- **The second row** is the AWS Labs servers (Lambda, Knowledge Bases, AgentCore, S3 Tables, Glue) and keeps its four outcomes — the program `uv` is missing, the profile is not signed in, the server does not match, connected with the functions found. The heading of each row says which services it is about, and that the second needs `uv`.
+- **In the code:** `diagnose::diagnose_hosted` beside the existing `diagnose`; `Report` gains `EndpointUnreachable`, `SessionRefused` and `HostedGood`; the IDE's `aws_report_text` handles them (it is an exhaustive match, so the IDE would not compile otherwise). Five new `Tr` fields and two reworded ones, **in all six languages**.
+
+*Tests.* `aws_credential_chain` gains one test that tells **6 hosted states apart** — all good, route mismatch, endpoint unreachable, sign-in expired, session refused, not signed in (nothing sent) — and that a diagnosis ends its session. In the IDE: **48 outcome texts** (8 outcomes × 6 languages) with no placeholder left and every value present; **30 new strings** in five languages, none equal to the English; only the two "connected" reports count as good. Whole IDE binary: 1727 passed, 4 failed — exactly four of the known-red list (`every_document_ships_in_every_language`, `every_completion_description_exists_in_six_languages`, and the two live-crates.io `egui` tests); the three External Crates flow tests of the handoff are green.
+
+*Docs:* spec 103 (T17–T19, AC10). The Developer's Guide, the System KB and the property help are the next step.
+
+*Not done.* The Guide, KB and help wording; the built-binary run over HTTPS; AC12.
+
+## [PowerRustCOBOL 1.91.185] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.184.)*
+
+### Added: AWS without `uvx`, step 3 — the sign-in a profile names, and the hosted demos over HTTPS (spec 103)
+
+The hosted AWS operations now sign with **what the AWS CLI is signed in with**, not only with keys a program sets. **`uvx` is no longer needed for the 33 hosted operations**, and the demos show it: all ten hosted demos pass over HTTPS with an empty `PATH`.
+
+- **The providers.** With no keys set, a request is signed with what the official `aws-config` crate finds: the shared credentials and config files (static keys, `credential_process`, IAM Identity Center, `aws login`, role assumption), the environment, an instance role. **A profile the connection names wins over keys in the environment** — as it did through the Python route — and with no profile the default chain runs, environment first. The program's own keys (`AWS-SET-CREDENTIALS`) still come first.
+- **One HTTP stack.** The AWS crates are built without an HTTP client; the product gives them one over `ureq` and the operating system's TLS (`aws/chain.rs`), so SSO, role-assumption and sign-in calls leave through the same stack as everything else. The lookups run on one private tokio runtime used for nothing else, entered by a channel so a call stays inside its own `TimeoutMs`.
+- **Refreshed when it matters.** A credential is kept until a minute before it expires and asked for again then; one that is refused (HTTP 401/403) is dropped, so a sign-in the user renews in a terminal is picked up by the next call without restarting anything.
+- **Said in words.** No credentials, or an expired sign-in, read as *The AWS profile "dev" is not signed in or has expired. Run: aws login --profile dev* — and *aws sso login --profile …* for an IAM Identity Center profile (the SDK's cause is read from the error's sources; the generic top-level text names nothing).
+- **The CLI fallback was not written.** Spec 103 had the AWS CLI (`aws configure export-credentials`) as a last source. The native chain reads every profile type the CLI can export; the one thing the CLI adds, a prompt for an MFA code in a terminal, no windowed program can use either. The decision and its evidence are in the spec (Q1, A4).
+
+*Tests.* New `aws_credential_chain` (8): a profile's static keys sign (3 of 3 requests); the environment signs when no profile is named; **a named profile beats environment keys**; keys the program set beat a profile; a `credential_process` that gives a 30-second credential is run **4 times for 4 requests, 4 distinct key ids**; a refused credential is not kept (the second request is signed with the renewed file); missing credentials and an Identity Center profile with no cached token each give the profile-and-fix sentence with **0 requests sent**. Two tests of the HTTP client the AWS crates are given (a 200 and a 400 carried unchanged; an unreachable address fails at once). `aws_https` gains the eight write operations the demos see refused: each refused with `AllowWrite` off (0 requests), then completed with it on, with its own event and its AWS operation in the script (10 signed requests verified, 60 ms). **`aws_hosts` runs the ten hosted demos over HTTPS** — `PATH` empty, sign-in from a credentials file of its own, under Run Form and as embedded child forms (20 runs, 81 s): every tally equals the one against the fake program (PASS 014, 009, 010, 006, 013, 006, 007, 007, 006, 009; FAIL 000); the endpoint received 106 requests and **all 106 verify** with an independent SigV4 check; the demos asked for 25 of the route table's 33 hosted operations (the other 8 are the writes above); **20 sessions opened, 20 ended with a DELETE**, so no process leaves one behind. Every pre-existing AWS suite passes unchanged.
+
+*Docs:* spec 103 (Q1, Q2 settled; AC6 narrowed to what a fixture can show; A4). The Developer's Guide, the System KB and the property help still describe the old route until the step that switches the wording over.
+
+*Not done.* Test connection for the hosted server, the Guide, KB and help text, the built-binary run over HTTPS, and AC12 — a live run with no `uvx` on the machine, the operator's. **The Identity Center token exchange, role assumption and the `aws login` refresh are the AWS crates' own code and have no fixture here; AC12 is where they are confirmed.**
+
+## [PowerRustCOBOL 1.91.184] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.183.)*
+
+### Added: AWS without `uvx`, step 2 — the hosted server over HTTPS, signed by the runtime (spec 103)
+
+The hosted AWS MCP Server (DynamoDB, S3, S3 Vectors, Rekognition, Polly, Comprehend, Textract, EC2, Cognito and `AwsMcp.AwsCall`: 33 operations) is no longer reached through `uvx mcp-proxy-for-aws`. The route table now names it by an address (`transport = "https"`), and the runtime speaks MCP streamable HTTP to it itself and signs every request with SigV4. **Not yet switched on for a developer:** this step signs with the keys a program set (`AWS-SET-CREDENTIALS`); the sign-in a profile names (`aws login`, SSO) is the next step, so until then a hosted operation with no keys set answers *not signed in*, in words.
+
+- **The route table.** A server is `stdio` (a program) or `https` (`url`, `service`, `signing_region`, `metadata`); a definition that says too little or too much is refused when the table is read, and plain `http://` is accepted only to this machine, so signed traffic never leaves in clear text. Only the `[servers.hosted]` block changed: **the 33 hosted templates and the snippets are byte-identical** to 1.91.179 (34 SHA-256 hashes recorded and compared).
+- **The pool.** A server is now a `Link`: a child process (the five AWS Labs servers, unchanged) or an https link. The pool's public interface did not change. An https link has no reader thread — an answer is the body of the request that asked, as JSON or as `text/event-stream` — and an expired session is renewed **once** and the call repeated.
+- **Every request** carries the region in `params._meta`, the session id and the negotiated protocol version, and is signed for the service and region the route names; the session is ended with a `DELETE` when the application stops, on a thread of its own so `AWS-SET-CREDENTIALS` never waits on the network. A refused sign-in, a timeout and an unreachable address are reported in the existing words.
+
+*Tests.* New `aws_https` (7 tests) against a loopback fake of the endpoint, with every signature checked by **independent SigV4 code** (not the AWS crates) that first reproduces AWS's published `get-vanilla` example: **7 of 7 logged requests verify**, and an altered body, a dropped signed header and a wrong secret are each refused; the handshake is identical in both answer forms; `_meta.AWS_REGION` is on 8 of 8 messages across two regions; an expired session costs one new session and one repeated call (2 sessions, 3 `tools/call`) and a server that never knows its session stops after exactly one renewal; a silent server times out at 401 ms for a 400 ms budget; an unreachable address, a 403 expired token and missing keys each read as a plain sentence naming the profile and `aws login`, with **zero requests sent** when there are no keys; and `AwsDynamoDB.PutItem` with `AllowWrite` off is refused with 0 requests, then runs the real template with 3 signed requests. Route table: 4 new tests (29 inline AWS tests in all). Every pre-existing AWS suite passes unchanged (44 integration tests).
+
+*Docs:* spec 103 (`plan.md`, `tasks.md`); module documentation of the AWS pool. The Developer's Guide and the System KB still describe the old route until the step that switches it on for sign-ins.
+
+*Not done.* The credential chain (profile, SSO, `aws login`), Test connection for the hosted server, the Guide and KB text, the demos over HTTPS under `rcrun` and in a built binary, and AC12 (a live run with no `uvx`, the operator's).
+
+## [PowerRustCOBOL 1.91.183] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.182, the highest number in any worktree. `features` is held by another session.)*
+
+### Added: AWS without `uvx`, step 1 — the spec, the plan, the dependencies and the guard (spec 103)
+
+Operator, 2026-10-16, on *"AWS access needs the program "uvx", which is not installed on this machine"*: *"definitivamente não gosto da abordagem"* (of reimplementing `uvx`); chose a native Rust route instead. This step writes the design down and brings the dependencies in; **no behaviour changes yet** — the transport itself is the next step, and every AWS control still starts `uvx` for the hosted services until then.
+
+- **The design.** Spec 103 replaces `uvx mcp-proxy-for-aws` — a Python program that only signs MCP requests with SigV4 and forwards them to AWS's hosted MCP endpoint — with the same job done inside the runtime. The Python templates in `routes.toml` run in AWS's sandbox and are not touched: 33 of the route table's 49 operations stop needing `uvx` once the transport lands; the 14 on the five AWS Labs servers keep it. Decisions of the operator: native proxy with the templates unchanged; the official AWS crates; the native credential chain (the AWS CLI as a fallback only if a profile type needs it); `uvx` removed outright for the hosted route.
+- **The dependencies.** `aws` now implies `http` and brings `aws-config` 1.8.18, `aws-sigv4` 1.4.5, `aws-credential-types`, two Smithy crates and `tokio`, with their default HTTPS client **off** (the product will supply one over `ureq` and the operating system's TLS). They are the **1.8.x line on purpose**: every `aws-*` release since July declares `rust-version` 1.94.1 and this workspace is 1.92, so the lock was made with `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback` and the MSRV is unchanged. `Cargo.lock` gained **52 packages** (47 new names, a second version of `const-oid`, `http`, `http-body`, `time`, `time-macros`) and no existing package moved; all are pure Rust under Apache-2.0 or MIT. `cargo tree --no-default-features --features aws` shows **83 packages (81 names) that the `http` feature alone does not reach** and none of `ring`, `rustls`, `hyper`, `h2`, `tower`, `reqwest`, `cc`, `cmake`, `aws-lc-*`.
+- **The guard.** Spec 063's rule "no package named `aws-*`" became an allow-list (the credential and signing crates and the four sign-in clients) plus a walk of the lock file **from the AWS crates**, which may not reach a second HTTP stack, a TLS stack or a C build. The lock file as a whole is not clean — it lists `ring`, `rustls` and `hyper-rustls` through a weak `reqwest` feature edge, though only `hyper` is compiled — so the old wording ("the lock contains none of these") was never true; the spec says what is true now.
+
+*Tests.* `dependency_guards_063`: 2 tests become 3. The real lock passes (**936 package names, 20 `aws-*`, all allowed; 217 reachable from the AWS roots, none a second HTTP stack**), and the guard is shown to fail on four doctored lock files — a service client (`aws-sdk-s3`), the rustls HTTP client, `aws-lc-rs`, and an edge from `aws-config` to `hyper-rustls` — 4 refused. `cargo check -p cobolt-runtime` is green. **Baseline before any change** (recorded in the spec folder): 22 inline + 44 integration runtime AWS tests, 9 in `cobolt-cli` (`aws_hosts` 2 + 1 ignored, `powercloud_hosts` 7), 25 feature-selection tests, 1 forms catalogue test — all passed.
+
+*Docs:* spec 103 (`spec.md`, `plan.md`, `tasks.md`, `baseline.md`); `docs/DEPENDENCIES-en.md` (an AWS section) and `THIRD_PARTY_NOTICES.md` (the new crates and licences); the doc comment of `RuntimeFeatures::aws`. English only (GOLDEN RULE #8); the Guide and the System KB say nothing new until the transport lands.
+
+*Not done.* Everything the spec's R1–R9 and R11–R16 ask for: the HTTPS transport, the credential chain, Test connection for the hosted server, the Guide, the KB text and property help. AC12 — a live run with no `uvx` on the machine — is the operator's and gates the merge to `main`.
+
 ## [PowerRustCOBOL 1.91.179] — 2026-10-16
 
 *(Written on `features`, after 1.91.178.)*

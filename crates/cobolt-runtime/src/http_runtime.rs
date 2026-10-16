@@ -193,6 +193,92 @@ fn agent_configured(timeout_ms: u64, follow_redirects: bool, verify_tls: bool) -
     builder.build()
 }
 
+// ── Byte-body requests, for the AWS transport (spec 103) ──────────────────────
+
+/// What came back from [`send_bytes`]: the status, the headers and the body as
+/// a stream the caller reads (a JSON document, or `text/event-stream` events).
+#[cfg(feature = "http")]
+pub(crate) struct RawReply {
+    pub status: u16,
+    /// Header names in lower case; the first value of each.
+    pub headers: Vec<(String, String)>,
+    pub body: Box<dyn std::io::Read + Send + Sync + 'static>,
+}
+
+#[cfg(feature = "http")]
+impl RawReply {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+/// Why a request got no reply at all (a 4xx or 5xx IS a reply).
+#[cfg(feature = "http")]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SendError {
+    /// The time allowed ran out — connecting, sending or waiting.
+    Timeout,
+    /// The server could not be reached: no such host, refused, TLS failed.
+    Unreachable(String),
+}
+
+/// An agent for signed requests that must not be redirected: it keeps its
+/// connections between calls, verifies the server's certificate with the
+/// operating system's TLS, and follows no redirect — a signature is for one
+/// address.
+#[cfg(feature = "http")]
+pub(crate) fn signed_agent() -> ureq::Agent {
+    agent_configured(0, false, true)
+}
+
+/// Send `body` (empty for none) with `method` to `url`. Any HTTP answer, whatever
+/// its status, is returned; only a request that got none is an error. `timeout`
+/// bounds the whole exchange, reading the body included.
+///
+/// `Accept-Encoding` is the caller's to set (`identity`): ureq adds `gzip` on its
+/// own when it is not, and a signature must cover what is really sent.
+#[cfg(feature = "http")]
+pub(crate) fn send_bytes(
+    agent: &ureq::Agent,
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+    timeout: std::time::Duration,
+) -> Result<RawReply, SendError> {
+    let mut req = agent.request(method, url).timeout(timeout);
+    for (k, v) in headers {
+        req = req.set(k, v);
+    }
+    let sent = if body.is_empty() { req.call() } else { req.send_bytes(body) };
+    let resp = match sent {
+        Ok(r) | Err(ureq::Error::Status(_, r)) => r,
+        Err(ureq::Error::Transport(t)) => return Err(classify_transport(&t)),
+    };
+    let status = resp.status();
+    let headers = resp
+        .headers_names()
+        .into_iter()
+        .filter_map(|n| resp.header(&n).map(|v| (n.to_ascii_lowercase(), v.to_owned())))
+        .collect();
+    Ok(RawReply { status, headers, body: resp.into_reader() })
+}
+
+/// A transport failure as a timeout or as "could not reach".
+#[cfg(feature = "http")]
+fn classify_transport(t: &ureq::Transport) -> SendError {
+    use std::error::Error;
+    let timed_out = t
+        .source()
+        .and_then(|s| s.downcast_ref::<std::io::Error>())
+        .is_some_and(|e| matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
+    if timed_out || t.to_string().to_ascii_lowercase().contains("timed out") {
+        SendError::Timeout
+    } else {
+        SendError::Unreachable(t.to_string())
+    }
+}
+
 // ── HttpClient ────────────────────────────────────────────────────────────────
 
 /// Per-interpreter HTTP client state.

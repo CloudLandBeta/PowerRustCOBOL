@@ -78,14 +78,25 @@ pdf = ["cobolt-forms/pdf"]
 # text. Pure Rust; on when a form has a Viewer, like `pdf`.
 office = ["cobolt-forms/office"]
 
-# The AWS controls (spec 078): an MCP client of AWS's own MCP servers, started
-# as child processes and spoken to over stdio. It pulls in NO dependency — no
-# AWS SDK, no HTTP stack, no TLS — because the servers do their own TLS and
-# signing; it gates code only, so an application without an AWS control does
-# not carry the process pool. The compiler turns it on when a form has one.
+# The AWS controls (spec 078, amended by spec 103): an MCP client of AWS's own
+# MCP servers. The five AWS Labs servers are child processes spoken to over
+# stdio; the hosted AWS MCP Server is reached by this crate itself, over HTTPS
+# signed with SigV4 (spec 103), so no `uvx` is needed for it. Therefore the
+# feature depends on `http` (ureq + the operating system's TLS — never rustls,
+# aws-lc-rs or ring) and on the official AWS crates below, which are built
+# WITHOUT their own HTTPS client (`default-features = false`): this product
+# supplies one over `ureq`. They are the 1.8.x line on purpose — every later
+# release declares rust-version 1.94.1 and this workspace is 1.92 — and the
+# lock is made with CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback.
+# It gates code and crates, so an application without an AWS control carries
+# none of them. The compiler turns it on when a form has one.
 # `toml` reads the route table; every form application already links it
 # through `cobolt-forms`, so it adds no crate to a build.
-aws = ["dep:toml"]
+aws = [
+    "dep:toml", "http", "dep:tokio",
+    "dep:aws-config", "dep:aws-sigv4", "dep:aws-credential-types",
+    "dep:aws-smithy-runtime-api", "dep:aws-smithy-types",
+]
 
 # `COBOL-IMAGE-FIT` and `COBOL-IMAGE-INFO` (spec 092 R10/R11): decode a
 # picture, turn it upright, crop it to fill and write it at an exact size; or
@@ -193,6 +204,16 @@ google_maps = { version = "3.10.0", default-features = false, features = [
   "distance_matrix",
 ], optional = true }
 tokio       = { workspace = true, optional = true }
+# Spec 103 — the hosted AWS MCP Server, signed natively (feature `aws`). Pinned to
+# the minor series whose rust-version is <= 1.92 (see the `aws` feature above).
+# `aws-config` supplies the credential providers (environment, shared files,
+# `credential_process`, SSO, `aws login`, role assumption); with its defaults off it
+# has no HTTP client, which `aws::https` provides over `ureq`.
+aws-config               = { version = "~1.8", default-features = false, features = ["rt-tokio", "credentials-process", "sso", "credentials-login", "behavior-version-latest"], optional = true }
+aws-sigv4                = { version = "~1.4", default-features = false, features = ["sign-http"], optional = true }
+aws-credential-types     = { version = "~1.2", optional = true }
+aws-smithy-runtime-api   = { version = "~1.12", features = ["client", "http-1x"], optional = true }
+aws-smithy-types         = { version = "~1.5", optional = true }
 # Pinned exactly: 0.26.0 is young and moves fast (spec 075 plan, Risks).
 smb2        = { version = "=0.26.0", default-features = false, features = ["tokio"], optional = true }
 # COBOL-85 `ACCEPT … FROM DATE/TIME/DAY/DAY-OF-WEEK` and `FUNCTION CURRENT-DATE`
@@ -222,6 +243,11 @@ pretty_assertions = { workspace = true }
 # Archive fixtures for the KnowledgeBase document-import test (spec 074).
 zip               = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 tempfile          = "3"
+# Spec 103: the tests verify every signed request with their OWN SigV4 code (not the
+# crate that signed it). The workspace's hmac 0.12 pairs with sha2 0.10, not with the
+# 0.11 this crate uses for itself, so the 0.10 line is named here for the tests only.
+hmac              = { workspace = true }
+sha2_010          = { package = "sha2", version = "0.10" }
 # test_accept_from_mnemonic.rs redirects the test binary's real stdin to
 # /dev/null so a Format 1 ACCEPT cannot block the suite forever — already in
 # the lockfile transitively, so this adds no new code to the build.
