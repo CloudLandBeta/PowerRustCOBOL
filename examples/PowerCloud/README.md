@@ -60,6 +60,14 @@ bucket first (CloudFormation will not delete a bucket that holds objects), then 
 
 ## Things worth knowing
 
+- **Six languages.** The list beside the close button (✕) switches the whole window, and the popups it opens,
+  between English, Português, Español, Français, 日本語 and 中文 at once. The program opens in English and keeps
+  the choice in memory for the run; nothing is written to a file. The texts are one table in the main form's
+  working storage — a row per text, a column per language — and a status line remembers *which* message it
+  showed and what went into it, so a line already on screen is written again in the new language. Three things
+  are not the program's to translate: the picture of the services wheel, the `Filter…` fields the DataGrid
+  draws under its headings, and the `Drop files here, or browse` line of the drop zones (the example's own hint
+  under it is translated). A new text goes into the table in all six columns, with the English one first.
 - **Regions.** The project has one AWS connection per region (`us-east-1`, `us-east-2`, `us-west-2`,
   `eu-west-1`, `eu-central-1`, `sa-east-1`). The Settings region picks the one the tabs use; the EC2 tab has
   a list of its own. Rekognition's celebrity recognition is not offered in every region.

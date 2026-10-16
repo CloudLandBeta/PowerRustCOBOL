@@ -15877,7 +15877,7 @@ than in a demo form.
 > **Connect** with a working AWS user, then capture the DynamoDB tab with two or
 > three pets, so that the 40 × 40 photos and the View, Edit and Delete icons show.
 
-Five ideas in it are worth copying.
+Six ideas in it are worth copying.
 
 **One connection per region.** A control's region belongs to its *connection*,
 and a program can move a control to another connection, so the example declares
@@ -15938,6 +15938,45 @@ leaves bands on one side, so the program reads the picture's size with
 `IMAGE-INFO`, works out where it really sits inside the control, and only then
 multiplies.
 
+**A window in six languages.** A list beside the close button picks the
+language of every text, and the popups follow. The texts are one table in
+working storage — a row per text, a column per language, in the order English,
+Portuguese, Spanish, French, Japanese, Chinese — and one procedure copies the
+picked column into named items and writes them into the captions, hints, tab
+titles and grid headings:
+
+```cobol
+           SET     LBL-DDBHEAD::Caption          TO    T-DDB-HEAD::Trim()
+           DG-PETS::SetColumnTitle( "Col-Name", T-COL-NAME::Trim() )
+```
+
+A message with something inside it keeps a placeholder, `&1` or `&2`, where
+the program puts the value. The status line that shows it remembers *which*
+message it showed and what went in, not the text, so that picking another
+language writes the line again instead of leaving the old words on the screen:
+
+```cobol
+           SET     WS-DDB-MSG                    TO    M-PETS-COUNT
+           SET     WS-DDB-A1                     TO    WS-NUM::Trim()
+           SET     LBL-DDBSTATE::Caption         TO    PC-TEXT-NOW(WS-DDB-MSG)::Trim()::Replace( "&1", WS-DDB-A1::Trim() )
+```
+
+Forms never share data items, so a popup cannot read the table. The main
+form publishes the language as a property of its own and each popup reads it
+when it opens and carries the few texts it needs in a small table of its own:
+
+```cobol
+      *> In the main form, whenever the language changes:
+           INVOKE    ME::SetProperty( "UiLanguage", WS-LANG-IX )
+
+      *> In a popup's onLoad handler:
+           INVOKE    super::GetProperty( "UiLanguage" ) RETURNING WS-TEXT
+           SET     WS-LANG-IX                    TO    FUNCTION NUMVAL( WS-TEXT )
+```
+
+The English column is exactly what the form was designed with, so the program
+opens in English with nothing translated and a test can compare the two.
+
 > ⚠️ **Caveats.**
 > - The example reaches a real AWS account. The cost is in the example's
 >   `README.md`: nothing while idle, except the demo server if you ask for one.
@@ -15947,6 +15986,9 @@ multiplies.
 >   conversation — the properties it sets and reads — for real.
 > - The *On / off* column is a Checkbox cell: a DataGrid has no cell that looks
 >   like the Switch control.
+> - Some words are a control's own and follow no program language: the `Filter…`
+>   field a DataGrid draws under each heading and the `Drop files here, or browse`
+>   line of a drop zone. The example's own hint beneath the latter is translated.
 
 > **Note — the events are the asynchronous controls' own.** Each AWS control
 > raises its own completion event (`onInvoked`, `onFunctionsListed`,

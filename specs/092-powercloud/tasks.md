@@ -59,6 +59,11 @@ the example (`examples/PowerCloud`: five forms, six region connections, the serv
 in six languages, `crates/cobolt-cli/tests/powercloud_hosts.rs` (three tests), the corpus snapshots, the Guide, the CHANGELOG.
 T27 needed no regeneration: `prebuilt_chunked_kb_matches_the_published_documentation` is green on this tree.
 
+## Amendment A1 — the six languages (1.91.179, `features`)
+- [x] T29  `Cmb-Language` in the title panel; the text table (108 messages and 2 long texts, six columns) and `PC-TEXTS` in the main form;
+  the status lines keep their message and values; `UiLanguage` for the popups, each with a small table of its own; the tests above;
+  the README and the Guide; `generated/*.cbl` regenerated.
+
 ## Done criteria
 All acceptance criteria of the spec checked; `cargo test` sweeps (per crate, `--no-fail-fast`) with every `test result:` read;
 `-p cobolt-forms --features render` green; the NIST gate unchanged; nothing merged into `main`.
