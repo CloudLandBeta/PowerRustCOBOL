@@ -47,6 +47,22 @@ pub struct Launch {
     /// [`Launch::with_credentials`]. A different set is a different launch,
     /// so the pool restarts the server.
     pub credentials: Option<Arc<Credentials>>,
+    /// Spec 103: where an `https` server is reached. When present there is no
+    /// program to start — `command`, `args` and `env` are empty — and the
+    /// requests are signed by [`super::https`].
+    pub https: Option<HttpsEndpoint>,
+}
+
+/// Where an `https` server is reached and what its requests are signed for
+/// (spec 103), out of the route table with its placeholders expanded.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HttpsEndpoint {
+    pub url: String,
+    /// The SigV4 service name.
+    pub service: String,
+    pub signing_region: String,
+    /// Sent in the `_meta` of every request (today `AWS_REGION`).
+    pub metadata: Vec<(String, String)>,
 }
 
 impl Launch {
@@ -74,9 +90,11 @@ impl Launch {
 
 /// AWS keys a program set for one connection at run time (spec 092 A6).
 ///
-/// Nothing can read them back. The fields are private to this module, whose
-/// [`built_env`] is their one reader; `Debug` and `Display` print a
-/// placeholder; and the text is overwritten when the last holder lets it go.
+/// Nothing can read them back. The fields are private to this module, which
+/// has two readers: [`built_env`], for a server process that signs for itself,
+/// and [`Credentials::with_keys`], for the runtime's own signer (spec 103) —
+/// which lends them for one call and keeps nothing. `Debug` and `Display` print
+/// a placeholder; and the text is overwritten when the last holder lets it go.
 /// Two sets are equal only when they are the same set — every
 /// `AWS-SET-CREDENTIALS` makes a new one — so a server started with other
 /// keys never matches the launch and is restarted.
@@ -102,6 +120,23 @@ impl Credentials {
             token: Secret::take_trimmed(token),
         }
     }
+
+    /// Lend the keys to `f` for the length of the call (spec 103): the one way
+    /// the runtime's own signer reads them. What `f` is given has no `Debug`,
+    /// `Clone` or `Copy`, so it cannot be formatted, stored or passed on by
+    /// accident; `f` must not keep what it borrows.
+    pub(crate) fn with_keys<R>(&self, f: impl FnOnce(KeyRef<'_>) -> R) -> R {
+        let token = (!self.token.0.is_empty()).then_some(self.token.0.as_str());
+        f(KeyRef { key_id: &self.key_id.0, secret: &self.secret.0, token })
+    }
+}
+
+/// The keys of one [`Credentials`], borrowed for the length of a signing call.
+/// Deliberately without `Debug`, `Clone` or `Copy`.
+pub(crate) struct KeyRef<'a> {
+    pub(crate) key_id: &'a str,
+    pub(crate) secret: &'a str,
+    pub(crate) token: Option<&'a str>,
 }
 
 impl PartialEq for Credentials {

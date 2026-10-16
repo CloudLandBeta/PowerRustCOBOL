@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.184] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.183.)*
+
+### Added: AWS without `uvx`, step 2 — the hosted server over HTTPS, signed by the runtime (spec 103)
+
+The hosted AWS MCP Server (DynamoDB, S3, S3 Vectors, Rekognition, Polly, Comprehend, Textract, EC2, Cognito and `AwsMcp.AwsCall`: 33 operations) is no longer reached through `uvx mcp-proxy-for-aws`. The route table now names it by an address (`transport = "https"`), and the runtime speaks MCP streamable HTTP to it itself and signs every request with SigV4. **Not yet switched on for a developer:** this step signs with the keys a program set (`AWS-SET-CREDENTIALS`); the sign-in a profile names (`aws login`, SSO) is the next step, so until then a hosted operation with no keys set answers *not signed in*, in words.
+
+- **The route table.** A server is `stdio` (a program) or `https` (`url`, `service`, `signing_region`, `metadata`); a definition that says too little or too much is refused when the table is read, and plain `http://` is accepted only to this machine, so signed traffic never leaves in clear text. Only the `[servers.hosted]` block changed: **the 33 hosted templates and the snippets are byte-identical** to 1.91.179 (34 SHA-256 hashes recorded and compared).
+- **The pool.** A server is now a `Link`: a child process (the five AWS Labs servers, unchanged) or an https link. The pool's public interface did not change. An https link has no reader thread — an answer is the body of the request that asked, as JSON or as `text/event-stream` — and an expired session is renewed **once** and the call repeated.
+- **Every request** carries the region in `params._meta`, the session id and the negotiated protocol version, and is signed for the service and region the route names; the session is ended with a `DELETE` when the application stops, on a thread of its own so `AWS-SET-CREDENTIALS` never waits on the network. A refused sign-in, a timeout and an unreachable address are reported in the existing words.
+
+*Tests.* New `aws_https` (7 tests) against a loopback fake of the endpoint, with every signature checked by **independent SigV4 code** (not the AWS crates) that first reproduces AWS's published `get-vanilla` example: **7 of 7 logged requests verify**, and an altered body, a dropped signed header and a wrong secret are each refused; the handshake is identical in both answer forms; `_meta.AWS_REGION` is on 8 of 8 messages across two regions; an expired session costs one new session and one repeated call (2 sessions, 3 `tools/call`) and a server that never knows its session stops after exactly one renewal; a silent server times out at 401 ms for a 400 ms budget; an unreachable address, a 403 expired token and missing keys each read as a plain sentence naming the profile and `aws login`, with **zero requests sent** when there are no keys; and `AwsDynamoDB.PutItem` with `AllowWrite` off is refused with 0 requests, then runs the real template with 3 signed requests. Route table: 4 new tests (29 inline AWS tests in all). Every pre-existing AWS suite passes unchanged (44 integration tests).
+
+*Docs:* spec 103 (`plan.md`, `tasks.md`); module documentation of the AWS pool. The Developer's Guide and the System KB still describe the old route until the step that switches it on for sign-ins.
+
+*Not done.* The credential chain (profile, SSO, `aws login`), Test connection for the hosted server, the Guide and KB text, the demos over HTTPS under `rcrun` and in a built binary, and AC12 (a live run with no `uvx`, the operator's).
+
 ## [PowerRustCOBOL 1.91.183] — 2026-10-16
 
 *(Written on `features-aws-native`, after 1.91.182, the highest number in any worktree. `features` is held by another session.)*

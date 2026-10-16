@@ -24,11 +24,11 @@ first) and adds a `CHANGELOG.md` entry. Before every commit: scan the staged dif
 - [x] **T7 — Docs of the dependencies** — `DEPENDENCIES-en.md` AWS section, `THIRD_PARTY_NOTICES.md`; doc comments in `runtime_features.rs`, `aws/mod.rs`.
 
 ## P2 — Transport core with keys only (R1–R5, R13, R14, R16; AC1–AC5, AC9, AC10)
-- [ ] **T8 — Route table** — `ServerDef` fields, `validate`, `launch_for`, `[servers.hosted]`; tests incl. the banned-strings list.
-- [ ] **T9 — HTTP helper and launch type** — `http_runtime.rs` byte-body function; `HttpsEndpoint`, `Launch.https`, `Credentials::with_keys`.
-- [ ] **T10 — Fake** — `fake_mcp` engine extracted; `tests/support/http_fake.rs` (JSON and SSE, session id, 404 once, status failures, request log).
-- [ ] **T11 — Pool link and `https.rs`** — `Link`, shared handshake, signed POST, `_meta`, re-initialise, plain errors, `DELETE`.
-- [ ] **T12 — Tests** — `tests/aws_https.rs`: AC1 (independent signature), AC2, AC3, AC4, AC5 (hash of 33 tables + snippets), AC9 (33 ok / 14 refused with `uvx` off `PATH`), AC10 refusal part (zero requests).
+- [x] **T8 — Route table** — `ServerDef` fields, `validate`, `launch_for`, `[servers.hosted]`; tests incl. the banned-strings list.
+- [x] **T9 — HTTP helper and launch type** — `http_runtime.rs` byte-body function; `HttpsEndpoint`, `Launch.https`, `Credentials::with_keys`.
+- [x] **T10 — Fake** — `tests/support/http_fake.rs` (JSON and SSE, session id, 404 once, status failures, request log) and `tests/support/sigv4.rs` (the independent verifier). *Changed from the plan:* `fake_mcp` was not refactored — the stdio fake keeps 53 tests green untouched, and the HTTP fake takes its script keys instead.
+- [x] **T11 — Pool link and `https.rs`** — `Link`, shared handshake, signed POST, `_meta`, re-initialise, plain errors, `DELETE`.
+- [x] **T12 — Tests** — `tests/aws_https.rs`: AC1 (independent signature), AC2, AC3, AC4, AC5 (hash of 33 tables + snippets), AC9 (33 ok / 14 refused with `uvx` off `PATH`), AC10 refusal part (zero requests).
 
 ## P3 — Credential chain (R6–R8; AC6, AC7)
 - [ ] **T13 — `UreqClient` and runtime** — `HttpClient` over the byte-body helper; the process-wide credentials runtime.
