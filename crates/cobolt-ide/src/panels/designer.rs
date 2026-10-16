@@ -3730,12 +3730,102 @@ impl DesignerPanel {
         (c.control_type == *ct).then(|| RedeployTarget::OnForm(c.id.clone()))
     }
 
+    /// Spec 082 — plan every `set_menu_items` of `cs` against the menus as they are on disk, chaining
+    /// two operations on one menu. Returns, per applicable operation, `(op index, the definition before,
+    /// the plan)`, and the ledger lines naming what each rewrite drops. An operation the project cannot
+    /// take — no folder to save in, a form its action may not load — gets its refusal in `status`.
+    fn plan_menu_item_ops(
+        &self,
+        cs: &crate::agent::AgentChangeSet,
+        status: &mut [Option<String>],
+    ) -> (Vec<(usize, Option<cobolt_forms::menu::MenuDefinition>, crate::agent::MenuPlan)>, Vec<String>) {
+        use crate::agent::AgentOp;
+        use cobolt_forms::menu::{load_menu, menu_yaml_path, validate_menu_targets, MenuTargetKind};
+        let mut plans = Vec::new();
+        let mut notes = Vec::new();
+        if !cs.operations.iter().any(|op| matches!(op, AgentOp::SetMenuItems { .. })) {
+            return (plans, notes);
+        }
+        let forms = Self::forms_under(self.cfrm_dir.as_deref());
+        let lookup = |name: &str| {
+            forms.iter().find(|(_, n, _, _)| n.eq_ignore_ascii_case(name)).map(|(_, _, embeddable, standalone)| {
+                match (*embeddable, *standalone) {
+                    (true, true) => cobolt_forms::model::FormFormat::Both,
+                    (true, false) => cobolt_forms::model::FormFormat::Embedded,
+                    _ => cobolt_forms::model::FormFormat::Standalone,
+                }
+            })
+        };
+        // The definition each menu has after the operations planned so far.
+        let mut simulated: std::collections::HashMap<String, Option<cobolt_forms::menu::MenuDefinition>> =
+            std::collections::HashMap::new();
+        for (op_index, op) in cs.operations.iter().enumerate() {
+            let AgentOp::SetMenuItems { control_id, items } = op else { continue };
+            if status.get(op_index).is_some_and(|s| s.is_some()) {
+                continue;
+            }
+            let Some(control) = self.form.find_control(control_id) else { continue };
+            let id = control.id.clone();
+            let Some(dir) = self.cfrm_dir.as_deref() else {
+                status[op_index] = Some("the form has no folder yet, so its menu cannot be saved.".to_owned());
+                continue;
+            };
+            let current = simulated.entry(id.clone()).or_insert_with(|| {
+                let path = menu_yaml_path(dir, &id);
+                if path.exists() { load_menu(&path).ok() } else { None }
+            });
+            let taken = super::item_ids::window_ids(&self.form, Some(dir), &id);
+            let plan = match crate::agent::plan_menu_items(current.as_ref(), &taken, items) {
+                Ok(plan) => plan,
+                Err(why) => {
+                    status[op_index] = Some(why);
+                    continue;
+                }
+            };
+            if let Some(v) = validate_menu_targets(&plan.def, &lookup).into_iter().next() {
+                status[op_index] = Some(match v.kind {
+                    MenuTargetKind::Embed => format!(
+                        "Item '{}': open-form:{} loads a form into the ContentPane, but {} is a Standalone form; \
+                         use open-standalone-sync:{} or open-standalone-async:{} instead.",
+                        v.item_label, v.form, v.form, v.form, v.form
+                    ),
+                    MenuTargetKind::Standalone => format!(
+                        "Item '{}': the action opens {} in its own window, but {} is an Embedded form; use open-form:{} instead.",
+                        v.item_label, v.form, v.form, v.form
+                    ),
+                });
+                continue;
+            }
+            for (item_id, label) in &plan.dropped {
+                let readers = crate::agent::code_naming_menu_id(&self.form, item_id);
+                notes.push(if readers.is_empty() {
+                    format!("- {id}: item '{label}' (id {item_id}) is no longer in the menu.")
+                } else {
+                    format!(
+                        "- {id}: item '{label}' (id {item_id}) is no longer in the menu; code still names that id and was left as it is: {}.",
+                        readers.join(", ")
+                    )
+                });
+            }
+            let before = current.replace(plan.def.clone());
+            plans.push((op_index, before, plan));
+        }
+        (plans, notes)
+    }
+
     pub fn apply_agent_change_set(&mut self, cs: &crate::agent::AgentChangeSet) -> usize {
         use crate::agent::AgentOp;
-        let (status, deletions) = crate::agent::validate_planned(cs, &self.form);
+        let (mut status, deletions) = crate::agent::validate_planned(cs, &self.form);
+        // Spec 082 — the menus a `set_menu_items` rewrites are planned against the files on disk,
+        // which no form-free check can see: a refusal found here is part of the verdicts below.
+        let (menu_plans, menu_notes) = self.plan_menu_item_ops(cs, &mut status);
         // The account is taken HERE, from the verdicts this function already
         // has, so every caller gets it without asking and none can skip it.
         self.last_change_outcome = crate::agent::outcome_ledger(cs, &status);
+        for note in &menu_notes {
+            self.last_change_outcome.push('\n');
+            self.last_change_outcome.push_str(note);
+        }
         // Agent-placed geometry goes on the grid the same way a dragged control
         // does, and a coordinate the change-set repeats stays one coordinate —
         // so a column the agent aligned is still aligned once snapped. Geometry
@@ -4075,6 +4165,15 @@ impl DesignerPanel {
                     }
                     if !existing.is_empty() {
                         cmds.extend(self.plan_move_to_layer(&existing, layer.trim(), &layers_sim));
+                    }
+                }
+                AgentOp::SetMenuItems { control_id, .. } => {
+                    if let Some((_, old, plan)) = menu_plans.iter().find(|(i, _, _)| *i == op_index) {
+                        let id = self
+                            .form
+                            .find_control(control_id)
+                            .map_or_else(|| control_id.clone(), |c| c.id.clone());
+                        cmds.push(Cmd::SetMenuDefinition { control_id: id, old: old.clone(), new: plan.def.clone() });
                     }
                 }
                 AgentOp::Message { .. } => {
@@ -27031,6 +27130,11 @@ mod value_method_tests {
 #[cfg(test)]
 #[path = "designer_layers_091_tests.rs"]
 mod layers_091;
+
+// Spec 082 — an agent edits a menu's designed items: `set_menu_items`.
+#[cfg(test)]
+#[path = "designer_menu_items_082_tests.rs"]
+mod menu_items_082;
 
 // Spec 094 — the DataGrid in the Form Designer: fake data of its own, edited
 // where it is drawn.

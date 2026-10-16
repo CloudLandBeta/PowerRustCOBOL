@@ -200,6 +200,7 @@ scratch working-storage item the standard forces you to declare.
 |---|:--:|:--:|:--:|:--:|---|
 | `MOVE <expression> TO target` | — | — | ● | ✅ | `MOVE WS-N * 2 TO WS-OUT`. The standard allows only an identifier or literal as the sending field |
 | `SET target TO <expression>` | — | — | ● | ✅ | Equivalent to the `COMPUTE` form; the target may be a data item or a control-property lvalue |
+| `A [ROUNDED] = <expression>` — `COMPUTE` without the verb | — | — | ● | ✅ | One receiver; `ON SIZE ERROR` and `END-COMPUTE` as in `COMPUTE`. Parsed into the same statement, so nothing downstream changes. Arithmetic only: a text receiver is the `COMPUTE` error. Beautify lays it out and the debugger stops on it; the standard flagging pass does not report it (it reads tokens) |
 | `STRING <expression> … INTO` | — | — | ● | ✅ | A sending item may be an arithmetic expression (`STRING WS-N * 2 …`) or a value-method call (`STRING WS-A::Upper() …`); `DELIMITED BY` and the rest stay standard |
 | **Type inference** — a `Ctrl::Property` read is a first-class typed value | — | — | ● | ✅ | The numeric/text type flows through the expression, so a property goes straight into arithmetic, a condition or a sending position with **no `PIC` item in between**: `IF Slider-1::Value > 50`, `COMPUTE Total-Lbl::Value = Qty-Box::Value * Price-Box::Value`. A numeric-looking property value is read back as numeric so comparisons and arithmetic stay algebraic rather than character-wise |
 

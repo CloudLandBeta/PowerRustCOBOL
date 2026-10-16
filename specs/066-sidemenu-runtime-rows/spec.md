@@ -1,6 +1,6 @@
 # Spec — SideMenu: run-time rows and hosted controls
 
-- **Status:** **implemented** — Phase A 1.70.161, Phases B and C 1.91.164 (2026-10-15). Every acceptance criterion is proven except **AC8**, which was checked by a source assertion and not by building and running a binary (see it below).
+- **Status:** **implemented** — Phase A 1.70.161, Phases B and C 1.91.164 (2026-10-15), AC8 proven 1.91.175 (2026-10-15): every acceptance criterion is proven.
 - **Folder:** specs/066-sidemenu-runtime-rows/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-22
 
@@ -158,9 +158,9 @@ in the rail — with identical behaviour on all four surfaces the renderer serve
       same row rectangles on `render_interactive` and on the shell's
       MenuPane (a test compares `sidebar::layout` inputs from both). *(R14)*
       *Proof: the engine/shell spacing parity test (1.70.161); hosted rectangles come from the one `sidebar::hosted_rows` on both paths (1.91.164).*
-- [ ] **AC8** — A compiled binary shows the same run-time rows as
+- [x] **AC8** — A compiled binary shows the same run-time rows as
       `rcrun run-form` for the same program. *(R15)*
-      *Not run: only the hand-over order in the compiled template was asserted (1.70.161); no binary was built and run for this. The compiled binary shares the form host with `rcrun run-form`, which the picture test did drive.*
+      *Proof (1.91.175): `side_menu_rows_hosts` in `cobolt-cli` — a main form with a SideMenu and three buttons; the program adds a section, two rows and a row under a designed one, relabels / badges / disables its own rows and overlays a designed one, removes a row (a designed row refused) and clears. After each click the test reads the host's `RuntimeRows` and the count the program wrote: the six readings under `rcrun run-form` and in a binary built by `cobolt_compiler::build_project` and run with `PRC_HEADLESS_SCRIPT` are identical (the build and run took 23.6 s). `--ignored` for the binary half.*
 - [x] **AC9** — `engine_reference_form_parity_static_vs_faces` still passes, and
       `cargo test -p cobolt-forms --features render` is green. *(R14, R16)*
 

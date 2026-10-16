@@ -1755,6 +1755,10 @@ fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, C
             format!("{} {}", tr.agent_op_layer, crate::agent::layer_op_label(op)),
             Color32::from_rgb(230, 170, 120),
         ),
+        AgentOp::SetMenuItems { control_id, items } => (
+            format!("{} {control_id} ({})", tr.agent_op_menu_items, items.len()),
+            Color32::from_rgb(210, 160, 200),
+        ),
         AgentOp::Message { message } => (message.clone(), Color32::from_rgb(150, 150, 150)),
     }
 }
@@ -1814,13 +1818,15 @@ impl Example {
 
 /// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
 /// one entry per example instead of a single one).
-pub const EXAMPLES: [Example; 4] = [
+pub const EXAMPLES: [Example; 5] = [
     Example { project: "PowerChat", manifest: "PowerChat.project.toml" },
     Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml" },
     // The Spatial theme, and a group of docked windows (operator, 2026-10-04).
     Example { project: "PowerSpatial", manifest: "PowerSpatial.project.toml" },
     // Fund analytics on the Spatial theme: glass panels, multi-series charts, filters (operator, 2026-10-08).
     Example { project: "PowerAnalytics", manifest: "PowerAnalytics.project.toml" },
+    // One AWS control of each kind in a Spatial-theme desktop application (spec 092).
+    Example { project: "PowerCloud", manifest: "PowerCloud.project.toml" },
 ];
 
 /// The folder the developer's own copies of the shipped examples live in.
@@ -4335,6 +4341,7 @@ impl CoboltApp {
         let source = src.to_owned();
         self.output.clear_run_output();
         self.output.push_status(crate::ui_text::idef("── Checking {} ──", &[&path.file_name().and_then(|n| n.to_str()).unwrap_or("?")]));
+        self.warn_agents_without_tools();
         self.editor.clear_diags();
 
         use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
@@ -4436,6 +4443,37 @@ impl CoboltApp {
                 ElementStatus::Tested
             },
         );
+    }
+
+    /// Spec 063 R65 — say, at design time, which forms hold two or more agents set to offer no
+    /// tools. Such an application still runs (it answers without tool calling, R66); the
+    /// developer is told so that it is not a surprise. The designers' live forms win over disk.
+    fn warn_agents_without_tools(&mut self) {
+        let mut forms: Vec<(PathBuf, Form)> =
+            self.designers.iter().map(|(p, d)| (p.clone(), d.form.clone())).collect();
+        if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_owned()) {
+            let closed: Vec<PathBuf> = self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.files.forms.iter().map(|rel| root.join(rel)).collect())
+                .unwrap_or_default();
+            for cfrm in closed {
+                if !forms.iter().any(|(p, _)| *p == cfrm) {
+                    if let Ok(form) = load_form(&cfrm) {
+                        forms.push((cfrm, form));
+                    }
+                }
+            }
+        }
+        for (_, form) in &forms {
+            let agents = form.agents_without_tools();
+            if !agents.is_empty() {
+                self.output.push_status(crate::ui_text::idef(
+                    "{}: {} are set not to call tools (ToolProtocol None). Let at least one agent call them, or the application will answer without tool calling.",
+                    &[&form.name, &agents.join(", ")],
+                ));
+            }
+        }
     }
 
     fn do_open(&mut self) {
@@ -12676,6 +12714,7 @@ impl CoboltApp {
                             "PowerChat" => Some(tr.examples_powerchat_about),
                             "PowerSpatial" => Some(tr.examples_powerspatial_about),
                             "PowerAnalytics" => Some(tr.examples_poweranalytics_about),
+                            "PowerCloud" => Some(tr.examples_powercloud_about),
                             _ => None,
                         };
                         let entry = match (&found, about) {

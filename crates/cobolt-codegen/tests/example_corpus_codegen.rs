@@ -8,7 +8,7 @@
 //!
 //! Responsive layout is host-side: no engine change made for it may alter what
 //! the generator writes. Every `.cfrm` of `examples/PowerDemo3/forms` and
-//! `examples/PowerChat/forms` is generated and compared byte-for-byte against
+//! `examples/PowerChat/forms` (and, since spec 092, `examples/PowerCloud/forms`) is generated and compared byte-for-byte against
 //! a tracked snapshot under `tests/golden/corpus/<project>/` — tracked here
 //! because `examples/*/generated/` is a gitignored build artefact.
 //!
@@ -47,7 +47,7 @@ fn every_example_form_generates_its_snapshot() {
     let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/corpus");
     let (mut forms, mut bytes, mut lines, mut written) = (0usize, 0usize, 0usize, 0usize);
     let mut differences = Vec::new();
-    for project in ["PowerDemo3", "PowerChat"] {
+    for project in ["PowerDemo3", "PowerChat", "PowerCloud"] {
         let forms_dir = repo().join("examples").join(project).join("forms");
         for path in forms_in(&forms_dir) {
             let rel = path.strip_prefix(&forms_dir).unwrap().display().to_string();
@@ -83,7 +83,7 @@ fn every_example_form_generates_its_snapshot() {
         }
     }
     println!("── 056 example-corpus generated COBOL ────────────────────");
-    println!("  projects   : PowerDemo3, PowerChat");
+    println!("  projects   : PowerDemo3, PowerChat, PowerCloud");
     println!("  forms      : {forms}");
     println!("  generated  : {lines} lines, {bytes} bytes");
     if update {

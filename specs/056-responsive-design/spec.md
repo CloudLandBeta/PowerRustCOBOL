@@ -782,20 +782,20 @@ into named tests. AC1–AC22 are revision 1's; revised ones are marked.
   form reads `::Width` after a resize and gets the laid-out width; writes
   `::Width` and the next layout composes with it; `onResize` fires once per
   size change, after layout and after the mirror.
-- [ ] **AC19 (i18n) *(rev. 2)*** — Every new label (`Responsive design`,
+- [x] **AC19 (i18n) *(rev. 2)*** — Every new label (`Responsive design`,
   the `Layout` section, `LayoutMode`, `Anchor`, `Dock`, `Locked`, `View at`, the four limits, the "off"
   hint, every §4.12 property and value, `Breakpoint`, the breakpoint editor,
   "reset to base", `FontScaling` and its limits, `ScaleFont`,
   `MinFontSize`/`MaxFontSize`, "New forms are responsive") exists in all six
   languages and the i18n completeness test is green.
-- [ ] **AC20 (KB) *(rev. 2)*** — The KB property tables carry every new control
+- [x] **AC20 (KB) *(rev. 2)*** — The KB property tables carry every new control
   property, the new form properties (`Responsive design`, `LayoutMode` and its
   container properties, the breakpoint table, `FontScaling`, `MinFontScale`,
   `MaxFontScale`, the read-only `Breakpoint` and `FontScale`) and the
   `onBreakpointChanged` event; the chunked store is rebuilt;
   `prebuilt_chunked_kb_matches_the_published_documentation` is green. (There is
   no form-level property table today — §9 F18 — so one is added.)
-- [ ] **AC21 (docs) *(rev. 2)*** — `docs/developers-guide-en.md` gains a
+- [x] **AC21 (docs) *(rev. 2)*** — `docs/developers-guide-en.md` gains a
   chapter "Responsive design" (anchoring and docking, flex, grid, flow,
   breakpoints, font scaling, the new-project default) written for a PowerCOBOL
   / isCOBOL developer, with mermaid diagrams where they fit; the support matrix

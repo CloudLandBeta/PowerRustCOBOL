@@ -686,4 +686,33 @@ mod tests {
             .collect();
         assert_eq!(ids.len(), BindingEditorSourceKind::ALL.len());
     }
+
+    /// Spec 024 R10 / T4: the property the binding editor preselects for a member control, by the
+    /// control's type. The mapping is what makes a bound card show a value without the developer
+    /// choosing a property for every member.
+    #[test]
+    fn the_property_preselected_for_a_member_control_suits_its_type() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let cases = [
+            (ControlType::Label, "Caption"),
+            (ControlType::Button, "Caption"),
+            (ControlType::TextBox, "Text"),
+            (ControlType::CheckBox, cobolt_forms::model::CHECKED_PROP),
+            (ControlType::RadioButton, cobolt_forms::model::SELECTED_PROP),
+            (ControlType::ComboBox, "Value"),
+            (ControlType::ListBox, "Value"),
+            (ControlType::PictureBox, "ImagePath"),
+            (ControlType::NumericUpDown, "Value"),
+            (ControlType::Slider, "Value"),
+            (ControlType::ProgressBar, "Value"),
+            (ControlType::DateTimePicker, "Value"),
+        ];
+        for (n, (ct, _)) in cases.iter().enumerate() {
+            form.controls.push(Control::new(&format!("M-{n}"), ct.clone(), 0, 0));
+        }
+        for (n, (ct, want)) in cases.iter().enumerate() {
+            assert_eq!(default_member_property(&form, &format!("M-{n}")), *want, "{ct:?}");
+        }
+        assert_eq!(default_member_property(&form, "NO-SUCH-CONTROL"), "Text", "an unknown member falls back to Text");
+    }
 }

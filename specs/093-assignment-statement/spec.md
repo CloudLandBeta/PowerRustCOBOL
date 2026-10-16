@@ -1,6 +1,6 @@
 # Spec — COMPUTE without its verb: `A = B * C`
 
-- **Status:** draft — feasibility proven by a spike; no decision taken on the open questions (§7)
+- **Status:** implemented in 1.91.173 (2026-10-15) except what Q4 and Q6 leave to the operator: the parser (the spike, now tested per verb), Beautify, the debugger, the reworded message, the Guide and the matrix. **Not done on purpose:** R15 (standard flagging), R16 and R18 (the style call) — see §7
 - **Folder:** specs/093-assignment-statement/
 - **Author:** operator request, written by Claude   **Date:** 2026-10-12
 - **Number:** the operator asked for 092; that number is spec 092 *PowerCloud*, so this is the next free one, 093.
@@ -130,37 +130,49 @@ parse tree (§8).
 ## 5. Acceptance criteria
 Baselines are measured on `main` at 1.91.14 with the spike applied.
 
-- [ ] AC1 — R1–R5: parser tests for a plain receiver, `ROUNDED`, the phrases and
+- [x] AC1 — R1–R5: parser tests for a plain receiver, `ROUNDED`, the phrases and
   `END-COMPUTE`, a qualified, a subscripted and a member receiver, and a run of
   consecutive assignments. *(Spike: 8 tests, `test_assignment_statement.rs` in
   `cobolt-parser`, passing.)*
-- [ ] AC2 — R6, R7, R9: a test per neighbouring verb that an operand list ends in
+- [x] AC2 — R6, R7, R9: a test per neighbouring verb that an operand list ends in
   front of an assignment, and that `ADD`/`MULTIPLY` receiver series and
   `COMPUTE`'s two receivers are unchanged.
-- [ ] AC3 — R8: `cobolt-parser` — its 190 existing tests pass, with the 8 new ones beside them; `cobolt-runtime`,
+- [x] AC3 — R8: `cobolt-parser` — its 190 existing tests pass, with the 8 new ones beside them; `cobolt-runtime`,
   `cobolt-semantic`, `cobolt-ast`, `cobolt-lexer`, `cobolt-codegen` 1,800 pass,
   0 fail, 12 ignored; **NIST `strict`: 459 programs analysed, 441 clean, 420 of
   420 in-scope pass, 18 failing — the same 18, with the same diagnostics** (a
   line-for-line diff of the summary against `main`). *(Spike: met.)*
-- [ ] AC4 — R10: a COBOL program run once with `COMPUTE ` and once without, over a
+- [x] AC4 — R10: a COBOL program run once with `COMPUTE ` and once without, over a
   template that differs only in that word, displays the same lines, and the
   lines are the right ones (the receiver, `ROUNDED`, a size error, a subscript,
   a qualified name, `IF`/`ELSE`, `PERFORM`, assignments after `DISPLAY`, `MOVE`
   and `ADD`). *(Spike: 10 lines, equal, passing, in
   `cobolt-runtime/tests/test_assignment_statement.rs`.)*
-- [ ] AC5 — R13: Beautify tests: a shorthand line indents as a statement; its
+- [x] AC5 — R13: Beautify tests: a shorthand line indents as a statement; its
   `ON SIZE ERROR` and `END-COMPUTE` align; a second pass changes nothing; the
   parse-tree gate still reports every block unchanged over PowerSpatial,
   PowerDemo3 and PowerChat after the new spelling is used in them.
-- [ ] AC6 — R14: a breakpoint set on a shorthand line shows its ring and the
+- [x] AC6 — R14: a breakpoint set on a shorthand line shows its ring and the
   debuggee stops there (a test beside `test_debug_breakpoints.rs`, and the
   line-rule unit test in `debugger.rs`).
-- [ ] AC7 — R15, R17, R18: flagging test; Guide and matrix updated (English
+- [ ] AC7 — R15, R17, R18 *(R17 done; R15 and R18 not done, see §7)*: flagging test; Guide and matrix updated (English
   canonical; its translations deleted, Golden Rule 8); the plugin text and its
   lint test, if Q4 says so.
-- [ ] AC8 — Golden Rule 7: any new `tests/cobol` program prints a quantified
+- [x] AC8 — Golden Rule 7: any new `tests/cobol` program prints a quantified
   result block — the cases it covers and `TESTS RUN` / `TESTS FAILED` /
   `OVERALL RESULT`.
+
+### Proofs (green on this tree, 2026-10-15)
+
+| AC | Where |
+|---|---|
+| AC1, AC2 | `cobolt-parser` `test_assignment_statement` — 10 tests: the shape, `ROUNDED`, the phrases and `END-COMPUTE`, qualified/subscripted/member receivers, a run of assignments, **an operand list ends in front of an assignment for each of twelve verbs** (ADD, SUBTRACT, MULTIPLY, DIVIDE, STRING, UNSTRING, CALL USING, INSPECT TALLYING, SET, MOVE, INITIALIZE, DISPLAY), the `ADD … ROUNDED … ROUNDED` and `MULTIPLY` receiver series, `COMPUTE A B = X` |
+| AC3 | `cobolt-parser` 24 and the other crates' suites green; **NIST `strict`: 459 programs analysed, 441 clean, 420 of 420 in-scope pass, 18 failing** — the same figures as the spike's baseline (the 18 are the CM/RW/DB programs that use ENABLE, INITIATE, DISABLE …, which are outside the language) |
+| AC4 | `cobolt-runtime` `test_assignment_statement` — the same program with and without `COMPUTE ` displays the same lines; and a control's member as the receiver stores as `COMPUTE` does (Q5, settled) |
+| AC5 | `cobolt-ide` Beautify: `style_lays_out_the_assignment_shorthand_like_a_compute` (the statement indents, its `ON SIZE ERROR` is one level in, `END-COMPUTE` is back under it, a second pass changes nothing), `style_does_not_mistake_the_second_line_of_a_condition_for_an_assignment`, `style_does_not_take_an_assignment_for_one_more_move_target`. The projects do not use the shorthand, so the parse-tree gate has nothing new to read over them |
+| AC6 | `cobolt-runtime` `test_debug_assignment_breakpoint` (a breakpoint on the shorthand stops on all ten passes, exactly where `COMPUTE` stops) and `cobolt-ide` `breakpoints_on_the_assignment_shorthand` (the gutter rule) |
+| AC7 | the Guide (*An assignment written without `COMPUTE`*) and the support matrix: done. R15 and R18: see §7 |
+| AC8 | no `tests/cobol` program was added; the tests above are Rust tests with their own tallies |
 
 ## 6. Constraints & steering check
 - **i18n:** no new IDE string unless Q3 adds a diagnostic with its own wording
@@ -213,6 +225,20 @@ Baselines are measured on `main` at 1.91.14 with the spike applied.
   an extension?
 - **Q7 — names.** "Assignment statement" (this spec's folder) or "implicit
   COMPUTE"? It only matters for the Guide's heading and the changelog.
+
+### Decisions taken when this was finished (2026-10-15)
+
+- **Q1, Q2** as recommended (the spike already did them). **Q3:** reworded only — a text receiver now reads *"'A' is not numeric; an
+  arithmetic assignment (COMPUTE, or `name = expression`) requires a numeric receiver"*, one message for both spellings.
+- **Q5** is answered: `Ctrl::Property = expr` stores to the property as `COMPUTE` does (a runtime test). The Guide mentions it; the
+  style still prefers `SET Ctrl::Property TO …`.
+- **Q4 is left to the operator.** Whether Beautify's style drops the verb (R16) and whether the plugin tells an agent to write the shorthand
+  (R18) are style calls like `MOVE` → `SET` was; neither was done, and nothing in the examples or the golden snapshots changed.
+- **Q6 / R15 is not done, and cannot be done as written.** The standard-flagging pass reads *tokens*, one at a time, and it cannot tell a
+  line that opens `A = B` from the second line of a condition (`IF X AND` / `A = B`), which the parser and — with the line above — Beautify and
+  the debugger can. The pass exists for the NIST suite, which never uses the shorthand. Reporting it would need the pass to read the parse
+  tree; left open.
+- **Q7:** "assignment statement" stays.
 
 ## 8. The surfaces that read text, not the tree
 

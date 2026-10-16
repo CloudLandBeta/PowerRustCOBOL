@@ -2882,7 +2882,14 @@ impl DebuggerPanel {
                         // section header, a paragraph name, a data item, a scope
                         // terminator or a comment; those show no ring and swallow
                         // no click, because the program never stops on them.
-                        let bp_allowed = line_allows_breakpoint(line_text);
+                        // Spec 093 R14: `A = B * C` is a COMPUTE and a statement the program stops on;
+                        // only the code line above can tell it from the second line of a condition.
+                        let prev_code = self.source_lines[..idx]
+                            .iter()
+                            .rev()
+                            .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('*'))
+                            .map_or("", |l| l.as_str());
+                        let bp_allowed = line_allows_breakpoint_after(line_text, prev_code);
                         let (gut_rect, gut_resp) =
                             ui.allocate_exact_size(
                                 Vec2::new(18.0, line_h),
@@ -4342,6 +4349,14 @@ fn line_allows_breakpoint(line: &str) -> bool {
     !first.is_empty() && trimmed[first.len()..].trim_start().starts_with("::")
 }
 
+/// [`line_allows_breakpoint`], and the assignment shorthand `A = B * C` (spec 093 R14): a `COMPUTE`
+/// written without its verb. `prev` is the code line above, which decides whether a line that begins
+/// `name = …` opens a statement or continues a condition.
+fn line_allows_breakpoint_after(line: &str, prev: &str) -> bool {
+    line_allows_breakpoint(line)
+        || (super::beautify_style::is_assignment_start(line.trim_start()) && !super::beautify_style::after_open_condition(prev))
+}
+
 fn build_cobol_layout_job(line: &str) -> egui::text::LayoutJob {
     build_cobol_layout_job_inked(line, DebugSkin::default().palette(), None, 12.0)
 }
@@ -4558,6 +4573,28 @@ mod tests {
             "           MOVE-FLAG", // a data name, not the MOVE verb
         ] {
             assert!(!line_allows_breakpoint(no), "should refuse: {no:?}");
+        }
+    }
+
+    /// Spec 093 R14: a breakpoint may be set on the assignment shorthand, which is a `COMPUTE`, and not on
+    /// the line that merely continues a condition.
+    #[test]
+    fn breakpoints_on_the_assignment_shorthand() {
+        for ok in [
+            "           A = B * C",
+            "           TOTAL ROUNDED = PRICE * QTY",
+            "           F OF G = 1",
+            "           T(I, J) = 0",
+            "           LBL-1::Caption = X",
+            "           A=B+1",
+        ] {
+            assert!(line_allows_breakpoint_after(ok, "           MOVE 1 TO X"), "should allow: {ok:?}");
+        }
+        // The second line of a condition begins the same way, and only the line above says so.
+        assert!(!line_allows_breakpoint_after("               B = 2", "           IF A > 1 AND"));
+        assert!(!line_allows_breakpoint_after("               B = 2", "           IF A > 1 OR NOT"));
+        for no in ["       01 A PIC 9 VALUE 5.", "           WHEN A = 1", "           UNTIL A = 3", "           A B = C", "           A + 1"] {
+            assert!(!line_allows_breakpoint_after(no, "           MOVE 1 TO X"), "should refuse: {no:?}");
         }
     }
 

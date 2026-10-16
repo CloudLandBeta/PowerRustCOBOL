@@ -1901,19 +1901,9 @@ fn repeating_instance_count(c: &Control) -> usize {
     }
 }
 
-/// Id of the `inst`-th (**1-based**) clone of repeating group `group_id`:
-/// `"<group>.<group>-<inst>"`. Every instance â including the first â is prefixed,
-/// so a member's runtime id can never collide with the designed base id or with a
-/// same-named member of a different group (task 1).
-pub fn group_instance_id(group_id: &str, inst: usize) -> String {
-    format!("{group_id}.{group_id}-{inst}")
-}
-
-/// Id of member `member_id` inside the `inst`-th clone of `group_id`:
-/// `"<group>.<group>-<inst>.<member>"`.
-pub fn member_instance_id(group_id: &str, member_id: &str, inst: usize) -> String {
-    format!("{group_id}.{group_id}-{inst}.{member_id}")
-}
+// The ids of a repeating group's cards and members live in `crate::instance_id`, where the runtime
+// can reach them too (spec 024 T1); the renderer's own paths keep working.
+pub use crate::instance_id::{group_instance_id, member_instance_id};
 
 /// How each card of a repeating group appears as its row binds (`PlacementEffect`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -136,6 +136,7 @@ pub fn apply_for_probe(form: &mut Form, cs: &AgentChangeSet) {
                 }
             }
             AgentOp::SetLayerProperty { .. } => {} // a background changes no generated COBOL
+            AgentOp::SetMenuItems { .. } => {} // a menu's items live in its .menu.yaml, not in generated COBOL
             AgentOp::MoveToLayer { control_ids, layer } => {
                 for id in control_ids {
                     let _ = form.set_control_layer(id.trim(), Some(layer.trim()));

@@ -120,6 +120,109 @@ pub(super) fn statement_verb(content: &str) -> Option<&'static str> {
     None
 }
 
+/// Spec 093 R13/R14: does `content` open the shorthand `receiver [ROUNDED] = expression` — a
+/// `COMPUTE` written without its verb?
+///
+/// It is read from the text of one line, the way the parser's own lookahead reads tokens: a name (with
+/// any `OF`/`IN` qualification, a subscript or a `::member`), then `=`, or `ROUNDED` and `=`. The `=`
+/// may be a word of its own or glued to the name or the expression (`A=B*C`). A line that opens with a
+/// verb, a level number, a string or a number is not one.
+///
+/// A line that begins with a name and an `=` may also be the second line of a condition (`IF A > 1 AND`
+/// / `B = 2`); only the line above can tell, which is what [`after_open_condition`] is for.
+pub(super) fn is_assignment_start(content: &str) -> bool {
+    let words = top_level_words(content);
+    let Some(&first) = words.first() else { return false };
+    let head = &content[first.0..first.1];
+    // Where the `=` is, if it is glued to the first word: outside parentheses and quotes.
+    let glued = {
+        let (mut depth, mut quote, mut at) = (0usize, None::<char>, None::<usize>);
+        for (i, c) in head.char_indices() {
+            if let Some(q) = quote {
+                if c == q {
+                    quote = None;
+                }
+                continue;
+            }
+            match c {
+                '"' | '\'' => quote = Some(c),
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                '=' if depth == 0 => {
+                    at = Some(i);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        at
+    };
+    let receiver = glued.map_or(head, |i| &head[..i]);
+    if !is_receiver(receiver) {
+        return false;
+    }
+    let is_equals = |w: (usize, usize)| {
+        let t = &content[w.0..w.1];
+        t.starts_with('=') && !t.starts_with("=>") && !t.starts_with("==")
+    };
+    if let Some(i) = glued {
+        // `A=B`, `A =B` — what follows the `=` must not be another operator character of a relation.
+        let rest = &head[i + 1..];
+        return !rest.starts_with('=') && !rest.starts_with('>') && !rest.starts_with('<');
+    }
+    let mut k = 1;
+    // `F OF G = 1`
+    while k + 1 < words.len()
+        && (is_word(content, words[k], "OF") || is_word(content, words[k], "IN"))
+        && is_receiver(&content[words[k + 1].0..words[k + 1].1])
+    {
+        k += 2;
+    }
+    match words.get(k) {
+        Some(&w) if is_equals(w) => true,
+        Some(&w) if is_word(content, w, "ROUNDED") => words.get(k + 1).is_some_and(|&n| is_equals(n)),
+        _ => false,
+    }
+}
+
+/// A name that can be a receiver: a letter first, then letters, digits, `-` and `_`, and optionally a
+/// subscript `( … )` and a `::member` chain; and not one of the words that open every other statement.
+fn is_receiver(word: &str) -> bool {
+    let word = word.trim_end_matches('.');
+    let name_end = word.find(['(', ':']).unwrap_or(word.len());
+    let name = &word[..name_end];
+    let valid_name = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    if !valid_name {
+        return false;
+    }
+    let upper = name.to_ascii_uppercase();
+    !STATEMENT_VERBS.contains(&upper.as_str())
+        && !matches!(upper.as_str(), "ELSE" | "WHEN" | "OTHER" | "NOT" | "AND" | "OR" | "UNTIL" | "THEN" | "ROUNDED" | "OF" | "IN")
+        && !upper.starts_with("END-")
+}
+
+/// Is the code line above unfinished in a way that makes a line starting `name = …` its continuation —
+/// the next operand of a condition (`… AND` / `B = 2`) or of an expression? Then that line is not a
+/// statement of its own.
+pub(super) fn after_open_condition(prev: &str) -> bool {
+    let t = prev.trim_end();
+    if t.ends_with('.') || t.is_empty() {
+        return false;
+    }
+    if t.ends_with(['=', '<', '>', '+', '-', '*', '/', '(', ',']) {
+        return true;
+    }
+    let words = top_level_words(t);
+    words.last().is_some_and(|&w| matches!(upper_word(t, w).as_str(), "AND" | "OR" | "NOT"))
+}
+
+/// [`statement_verb`] with the shorthand: `COMPUTE`, for a line that opens `A = B * C` and is not the
+/// continuation of the line above (`prev`, the code line before it, or empty).
+pub(super) fn statement_verb_after(content: &str, prev: &str) -> Option<&'static str> {
+    statement_verb(content).or_else(|| (is_assignment_start(content) && !after_open_condition(prev)).then_some("COMPUTE"))
+}
+
 /// Number of words that make up the verb: `EXIT PERFORM`, `STOP RUN` and
 /// `GO TO` are one verb of two words.
 fn verb_words(content: &str, words: &[(usize, usize)]) -> usize {
@@ -161,6 +264,8 @@ pub(super) fn continues_targets(prev: &str, next: &str) -> bool {
     let name_like = w.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'));
     !w.is_empty()
         && name_like
+        // `MOVE 1 TO A` / `B = 2`: the assignment is a statement of its own (spec 093).
+        && !is_assignment_start(next)
         && !STATEMENT_VERBS.contains(&w.as_str())
         && !matches!(w.as_str(), "ELSE" | "WHEN" | "CATCH" | "FINALLY" | "OTHER" | "NOT" | "AND" | "OR")
         && !w.starts_with("END-")

@@ -302,3 +302,41 @@ fn no_powerchat_file_carries_a_credential() {
         assert!(!text.contains("sk-"), "{} looks like it carries a key", f.display());
     }
 }
+
+/// 063 R46 (AC19, the half a program decides) — no window of the application changes its own size.
+/// A window's size is its designed size; the only thing that may change it is the operator's grip.
+/// So no PowerChat COBOL may assign a size to the form it runs in (`Form::` / `FORM::` / `ME::` /
+/// `me::` `Width`, `Height`, `Left`, `Top`, `X`, `Y`, `WindowState`), whatever the language it relabels itself in.
+#[test]
+fn no_powerchat_window_resizes_itself() {
+    let mut scanned = 0usize;
+    for rel in forms() {
+        let text = std::fs::read_to_string(project().join(&rel)).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("*>") {
+                continue;
+            }
+            let upper = code.to_ascii_uppercase();
+            for window in ["FORM::", "ME::"] {
+                for prop in ["WIDTH", "HEIGHT", "LEFT", "TOP", "X", "Y", "WINDOWSTATE"] {
+                    let needle = format!("{window}{prop}");
+                    let at = upper.find(&needle);
+                    if let Some(at) = at {
+                        // A longer name on either side (`SOME::X`, `FORM::WIDTH-2`) is another thing.
+                        let before = upper[..at].chars().next_back();
+                        let after = upper[at + needle.len()..].chars().next();
+                        let word = |c: char| c.is_ascii_alphanumeric() || c == '-';
+                        assert!(
+                            before.is_some_and(word) || after.is_some_and(word),
+                            "{rel}:{} sets the window's own {prop}: {code}",
+                            n + 1
+                        );
+                    }
+                }
+            }
+        }
+        scanned += 1;
+    }
+    println!("\n  063 R46 — {scanned} PowerChat forms scanned: none sets its own window's size or place");
+}

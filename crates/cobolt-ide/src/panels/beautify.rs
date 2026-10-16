@@ -1229,8 +1229,14 @@ fn beautify_once(text: &str, opts: &BeautifyOptions, rewrite: bool) -> Beautifie
                         let marker_like = matches!(first, "ELSE" | "WHEN" | "CATCH" | "FINALLY")
                             || first.starts_with("END-")
                             || phrase_line;
-                        let continuation =
-                            style && !marker_like && beautify_style::statement_verb(&content).is_none();
+                        let prev_code = units[..i]
+                            .iter()
+                            .rev()
+                            .find_map(|u| if let Unit::Code(c) = u { Some(c.as_str()) } else { None })
+                            .unwrap_or("");
+                        let continuation = style
+                            && !marker_like
+                            && beautify_style::statement_verb_after(&content, prev_code).is_none();
                         let condition_line = continuation && matches!(first, "AND" | "OR");
                         if continuation && !condition_line && !matches!(top_before, Some(Scope::Phrase(_))) {
                             depth += 1;
@@ -1269,6 +1275,16 @@ fn beautify_once(text: &str, opts: &BeautifyOptions, rewrite: bool) -> Beautifie
                                     && !upper.contains(&format!("END-{v}")) =>
                                 {
                                     scopes.push(Scope::Phrase(phrase_verb(v).unwrap_or("READ")))
+                                }
+                                // Spec 093 R13: `A = B * C` with an `END-COMPUTE` of its own is a scope too.
+                                _ if style
+                                    && scoped.get(i).copied().unwrap_or(false)
+                                    && beautify_style::statement_verb(&content).is_none()
+                                    && beautify_style::is_assignment_start(&content)
+                                    && !beautify_style::after_open_condition(prev_code)
+                                    && !upper.contains("END-COMPUTE") =>
+                                {
+                                    scopes.push(Scope::Phrase("COMPUTE"))
                                 }
                                 _ if phrase_line && phrase_marker(&upper) == Some(true) => {
                                     scopes.push(Scope::PhraseBody)
@@ -1328,7 +1344,7 @@ fn beautify_once(text: &str, opts: &BeautifyOptions, rewrite: bool) -> Beautifie
                             phrase_open = false;
                         }
 
-                        let stmt_verb = beautify_style::statement_verb(&text);
+                        let stmt_verb = beautify_style::statement_verb_after(&text, prev_code);
                         let marker = marker_like;
                         let kind = if marker {
                             Kind::Marker { depth }
@@ -1492,12 +1508,17 @@ fn phrase_scoped(units: &[Unit], reserved: &HashSet<&'static str>) -> Vec<bool> 
         }
         let up = c.to_ascii_uppercase();
         let first = up.split_whitespace().next().unwrap_or("").trim_end_matches('.');
+        // Spec 093 R13: `A = B * C` opens a `COMPUTE` scope, so its `ON SIZE ERROR` and `END-COMPUTE` align.
+        let prev_code = units[..i].iter().rev().find_map(|u| if let Unit::Code(p) = u { Some(p.as_str()) } else { None }).unwrap_or("");
+        let shorthand = beautify_style::statement_verb(c).is_none()
+            && beautify_style::is_assignment_start(c)
+            && !beautify_style::after_open_condition(prev_code);
         if let Some(v) = first.strip_prefix("END-").and_then(phrase_verb) {
             if let Some(pos) = stack.iter().rposition(|(_, sv)| *sv == v) {
                 scoped[stack[pos].0] = true;
                 stack.truncate(pos);
             }
-        } else if let Some(v) = phrase_verb(first) {
+        } else if let Some(v) = phrase_verb(first).or_else(|| shorthand.then_some("COMPUTE")) {
             if !up.contains(&format!("END-{v}")) {
                 stack.push((i, v));
             }
@@ -2310,6 +2331,45 @@ mod tests {
         assert_eq!(col("IF    WS-A"), 12, "{out}");
         assert_eq!(col("AND WS-B"), 20, "{out}");
         assert_eq!(col("DISPLAY"), 16, "{out}");
+    }
+
+    // Spec 093 R13 — `A = B * C` is a COMPUTE written without its verb. It is laid out as a statement of
+    // its own, its size-error phrases sit one level in, and `END-COMPUTE` comes back under it.
+    #[test]
+    fn style_lays_out_the_assignment_shorthand_like_a_compute() {
+        let src = "MAIN-P.\nIF A > 1\nA = B * C\nD ROUNDED = A / 3\nON SIZE ERROR\nDISPLAY \"X\"\nEND-COMPUTE\nCOMPUTE E = A + 1\nEND-IF.\nF = 1.\nDISPLAY \"Z\".\n";
+        let out = styled(src);
+        println!("{out}");
+        let col = |needle: &str| col_of(out.lines().find(|l| l.contains(needle)).unwrap_or_else(|| panic!("{needle} in\n{out}")));
+        assert_eq!(col("A = B * C"), 16, "a statement in the IF's body:\n{out}");
+        assert_eq!(col("D ROUNDED = A / 3"), 16, "{out}");
+        assert_eq!(col("ON SIZE ERROR"), 20, "the phrase sits one level in:\n{out}");
+        assert_eq!(col("DISPLAY"), 24, "{out}");
+        assert_eq!(col("END-COMPUTE"), 16, "END-COMPUTE comes back under its statement:\n{out}");
+        assert_eq!(col("COMPUTE    E"), 16, "{out}");
+        assert_eq!(col("F = 1"), 12, "a statement of its own after the IF closed:\n{out}");
+        assert_eq!(col("DISPLAY    \"Z\""), 12, "{out}");
+        assert_eq!(styled(&out), out, "a second pass changes nothing");
+    }
+
+    // The line above decides: the second line of a condition begins like an assignment and is not one.
+    #[test]
+    fn style_does_not_mistake_the_second_line_of_a_condition_for_an_assignment() {
+        let out = styled("MAIN-P.\nIF A > 1 AND\nB = 2\nDISPLAY \"BOTH\"\nEND-IF\n");
+        let col = |needle: &str| col_of(out.lines().find(|l| l.contains(needle)).unwrap());
+        assert_eq!(col("IF    A > 1 AND"), 12, "{out}");
+        assert!(col("B = 2") > 12, "the continuation sits in from its header:\n{out}");
+        assert_eq!(col("DISPLAY"), 16, "{out}");
+    }
+
+    // An operand list ends in front of an assignment: `MOVE 1 TO A` / `B = 2` are two statements, and the
+    // second is not one more target of the MOVE.
+    #[test]
+    fn style_does_not_take_an_assignment_for_one_more_move_target() {
+        let out = styled("MAIN-P.\nMOVE 1 TO WS-A\nWS-B = 2\nMOVE 3 TO WS-C\n   WS-D\nDISPLAY \"X\"\n");
+        assert!(out.contains("WS-B = 2"), "{out}");
+        assert!(!out.contains("WS-A WS-B"), "the assignment was joined to the MOVE:\n{out}");
+        assert!(out.contains("WS-C WS-D"), "a real extra target still joins:\n{out}");
     }
 
     // A RETURNING clause on the next line belongs to its INVOKE: with it the

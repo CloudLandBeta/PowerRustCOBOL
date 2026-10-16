@@ -65,3 +65,5 @@ pollster = "0.3"
 # Spec 078 T-A16 — the AWS demo forms' programs are generated in the test, as
 # the designer would generate them, rather than committed.
 cobolt-codegen = { path = "../cobolt-codegen" }
+# Spec 092 AC8 — the PowerCloud CloudFormation template is parsed as YAML in a test.
+serde_yaml = { workspace = true }

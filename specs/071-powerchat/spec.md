@@ -1,6 +1,6 @@
 # Spec — PowerChat, the RAG + transactional chatbot boilerplate
 
-- **Status:** draft → awaiting operator review
+- **Status:** built (PowerChat ships as `examples/PowerChat`) and **partly audited**: the criteria that 063's audit (2026-10-16, 1.91.177) proves are ticked, with the test named in 063 §9. The rest — AC1, AC3–AC5, AC6, AC6b, AC7–AC10, AC12, AC15–AC17 — were not looked at in that pass and stay unticked, which says *not audited*, not *not met*.
 - **Folder:** specs/071-powerchat/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-24
 - **Parent:** `specs/063-rag-chatbot-boilerplate/spec.md` (umbrella). Where this
@@ -284,7 +284,7 @@ Carried from 063 §4.8 unchanged in substance.
 
 - [ ] **AC1** — The project opens in the IDE, builds, and the built binary starts
       in shell mode with the topic picker. *(R1, R2, R4)*
-- [ ] **AC2** — `grep -rE "APIKey|Password|Token"` over `examples/PowerChat`
+- [x] **AC2** — `grep -rE "APIKey|Password|Token"` over `examples/PowerChat`
       finds no secret. *(R3)*
 - [ ] **AC3** — A topic created in the running application is selectable at once,
       has an empty document folder and KB, and is still there after a restart.
@@ -310,7 +310,7 @@ Carried from 063 §4.8 unchanged in substance.
       *(R16, R16a)*
 - [ ] **AC6** — A document dropped into a topic's folder becomes answerable
       without a restart; deleting the KB and restarting rebuilds it. *(R15, R16)*
-- [ ] **AC6a** — `cargo tree` for a built PowerChat shows neither `cobolt-ide`
+- [x] **AC6a** — `cargo tree` for a built PowerChat shows neither `cobolt-ide`
       nor `cobolt-agents`. *(R19a)*
 - [ ] **AC7** — Three application instances use one KB at once — two searching,
       one adding a document, then two adding at the same time; every search gets
@@ -323,15 +323,15 @@ Carried from 063 §4.8 unchanged in substance.
       queried from its `.cidx`, and nothing is ever written to it. *(R23, R24)*
 - [ ] **AC10** — A `.cidx` without purpose or field descriptions is refused with
       the reason. *(R25)*
-- [ ] **AC11** — The mesh ACs of 063 hold on PowerChat: one agent answers alone;
+- [x] **AC11** — The mesh ACs of 063 hold on PowerChat: one agent answers alone;
       several elect reproducibly; independent tasks overlap in time; only the
       orchestrator's request carries the topic prompt. *(R26–R32; 063 AC22–AC28)*
 - [ ] **AC12** — A model entered in the settings form is used by an agent that
       selects it; the key is stored through the key-store seam and never shown
       in clear or logged. *(R33–R35, R37)*
-- [ ] **AC13** — A conversation survives a restart and continues where it left
+- [x] **AC13** — A conversation survives a restart and continues where it left
       off; its turns reach the model with each new question. *(R38–R41)*
-- [ ] **AC14** — Monthly token totals on the home view equal the sum of what the
+- [x] **AC14** — Monthly token totals on the home view equal the sum of what the
       responses reported. *(R42)*
 - [ ] **AC15** — Switching language changes every visible text in all six
       languages, with no text from the IDE's `Tr`. *(R44–R46)*

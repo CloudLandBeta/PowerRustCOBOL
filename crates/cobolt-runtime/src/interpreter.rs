@@ -28,6 +28,7 @@ use indexmap::IndexMap;
 
 /// Spec 072 — the AgentObject tool loop.
 mod agent_loop;
+mod array_edit;
 mod aws;
 mod exec_sql;
 mod grid_dropdown;
@@ -2972,6 +2973,9 @@ impl Interpreter {
                     os_answers.push((upd.ctrl_id.clone(), action, upd.value.clone()));
                 }
             }
+            // Spec 024 R17–R19: a member of a bound repeating group, edited by the
+            // operator, is written back to the table the group is bound to.
+            self.note_array_member_edit(&upd.ctrl_id, &upd.prop, &upd.value);
             self.objects
                 .set_property(&upd.ctrl_id, &upd.prop, upd.value);
         }
@@ -13810,6 +13814,11 @@ impl Interpreter {
         } else {
             group_id
         };
+        // Re-reading the table drops what was waiting for repair (spec 024 R19).
+        self.array_edit_discard_all(group_id);
+        if !design_id.is_empty() {
+            self.array_edit_discard_all(&design_id);
+        }
 
         let fields: Vec<String> = self
             .obj_get(group_id, "_BindingFields")

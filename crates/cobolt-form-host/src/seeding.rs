@@ -498,6 +498,11 @@ pub fn append_data_binding_seed_props(
         cobolt_forms::BindingTargetDescriptor::ControlArray { .. }
     ) {
         props.push(("_BindingArray".into(), "1".into()));
+        // Spec 024 R17/R18: whether what the operator types into a card is written back.
+        props.push((
+            "_BindingWritable".into(),
+            if binding.mode == cobolt_forms::BindingMode::Writable && binding.source.is_writable() { "1" } else { "0" }.into(),
+        ));
         let maps: Vec<String> = binding
             .mappings
             .iter()
@@ -580,6 +585,53 @@ mod tests {
         form.controls.push(label);
         let flat = form.controls.clone();
         (form, flat)
+    }
+
+    /// Spec 024 R17/R18: a repeating group bound to a COBOL table is seeded with its fields, its
+    /// mappings and whether a card's edit is written back — the same values the generated COBOL
+    /// seeds for a compiled binary (`cobolt-codegen`'s `control_array_seed`).
+    #[test]
+    fn a_bound_repeating_group_is_seeded_to_write_back_only_when_both_binding_and_source_allow_it() {
+        use cobolt_forms::{
+            BindingDataType, BindingField, BindingMode, BindingSourceDescriptor, BindingTargetDescriptor,
+            BindingTargetPath, DataBindingDef, FieldMapping,
+        };
+        let seeds = |mode: BindingMode, source_writable: bool| {
+            let mut form = Form::new("F", "F", 400, 300);
+            let mut group = Control::new("ROWS", ControlType::GroupBox, 0, 0);
+            group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+            group.set_prop("ArrayName", PropValue::String("ACTORS".into()));
+            form.controls.push(group);
+            let mut binding = DataBindingDef::new(
+                "BIND-ROWS",
+                "rows",
+                BindingSourceDescriptor::CobolTable {
+                    table_name: "ACTORS".into(),
+                    occurs_item: "ACTORS".into(),
+                    fields: vec![BindingField::new("ACTOR-NAME", BindingDataType::Text)],
+                    key_fields: Vec::new(),
+                    writable: source_writable,
+                },
+                BindingTargetDescriptor::ControlArray { array_id: "ACTORS".into(), member_control_ids: Vec::new() },
+            )
+            .with_mappings(vec![FieldMapping::new(
+                "ACTOR-NAME",
+                BindingTargetPath::ControlProperty { array_id: "ACTORS".into(), control_id: "TXT-NAME".into(), property_name: "Text".into() },
+            )]);
+            binding.mode = mode;
+            form.data_bindings.push(binding);
+            let mut props = Vec::new();
+            append_data_binding_seed_props(&form, "ROWS", &mut props);
+            props
+        };
+        let value = |props: &[(String, String)], name: &str| props.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
+
+        let on = seeds(BindingMode::Writable, true);
+        assert_eq!(value(&on, "_BindingArray").as_deref(), Some("1"));
+        assert_eq!(value(&on, "_BindingWritable").as_deref(), Some("1"));
+        assert_eq!(value(&on, "_BindingMappings").as_deref(), Some("ACTOR-NAME\tTXT-NAME\tText"));
+        assert_eq!(value(&seeds(BindingMode::ReadOnly, true), "_BindingWritable").as_deref(), Some("0"));
+        assert_eq!(value(&seeds(BindingMode::Writable, false), "_BindingWritable").as_deref(), Some("0"));
     }
 
     /// Spec 094: what a bound grid needs to write an edit back — the same

@@ -78,6 +78,19 @@
        01 WS-B                                   GLOBAL    PIC 9.
        01 WS-BEST                                GLOBAL    PIC 9.
        01 WS-SAME-MODEL                          GLOBAL    PIC X.
+       *>   The election the agents hold (063 R70, R71): the agents it was held for, as
+       *>   a signature, and who won it. The next election is held only when that changes.
+
+       01 WS-ELECT-SIG                            GLOBAL    PIC X(400).
+       01 WS-ELECT-SIG-NEW                        GLOBAL    PIC X(400).
+       01 WS-ELECT-TMP                            GLOBAL    PIC X(400).
+       01 WS-ELECT-ORCH                           GLOBAL    PIC 9    VALUE 0.
+       01 WS-ELECT-WORKER                         GLOBAL    PIC 9    VALUE 0.
+       01 WS-ELECT-DONE                           GLOBAL    PIC X    VALUE "N".
+       01 WS-FIRST-AGENT                          GLOBAL    PIC 9.
+       01 WS-N-CAND                               GLOBAL    PIC 9.
+       01 WS-RAND-SEEDED                          GLOBAL    PIC X    VALUE "N".
+       01 WS-RAND-SEED                            GLOBAL    PIC 9(8).
        01 WS-STAGE                               GLOBAL    PIC X(8)    VALUE "IDLE".
        01 WS-PENDING                             GLOBAL    PIC 99    VALUE 0.
        01 WS-TOPIC-PROMPT                        GLOBAL    PIC X(1000).
@@ -1190,15 +1203,17 @@
 
        PROCEDURE DIVISION.
            *>   Who orchestrates and who does the tool work (063 R52-R57, R66).
-           *>   Run once per session, and again when a model changes (R70, R71).
+           *>   Held once per session, and again only when an agent's model, its tools flag or
+           *>   its rank has changed (R70, R71); every other call of this paragraph - a new
+           *>   topic, an edited prompt - applies the prompts to the agents already in office.
 
-           SET     WS-N-AGENTS WS-N-TOOLS WS-ORCH WS-WORKER
+           SET     WS-N-AGENTS WS-N-TOOLS WS-ORCH WS-WORKER WS-FIRST-AGENT
                                                  TO    0
 
            SET     WS-SAME-MODEL                 TO    "Y"
-           *> The best-ranked agent orchestrates, the first one on a tie. Also
-           *> counted: assigned agents, tool-capable ones, and whether all of them
-           *> share one model.
+           SET     WS-ELECT-SIG-NEW              TO    SPACES
+           *> Counted: assigned agents, tool-capable ones, whether all of them share one model;
+           *> and written down, what the election depends on.
 
            PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF    WS-AG-ENTRY(WS-A) NOT = SPACES
@@ -1206,39 +1221,81 @@
                    IF    WS-AG-TOOLS(WS-A) = "Y"
                        ADD    1 TO WS-N-TOOLS
                    END-IF
-                   IF    WS-ORCH = 0
-                       SET     WS-ORCH           TO    WS-A
+                   IF    WS-FIRST-AGENT = 0
+                       SET     WS-FIRST-AGENT    TO    WS-A
                    ELSE
-                       IF    WS-AG-MODEL(WS-A) NOT = WS-AG-MODEL(WS-ORCH)
+                       IF    WS-AG-MODEL(WS-A) NOT = WS-AG-MODEL(WS-FIRST-AGENT)
                            SET     WS-SAME-MODEL TO    "N"
                        END-IF
-                       IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
-                           SET     WS-ORCH       TO    WS-A
-                       END-IF
                    END-IF
+                   SET     WS-ELECT-TMP          TO    WS-ELECT-SIG-NEW
+                   SET     WS-ELECT-SIG-NEW      TO    SPACES
+
+                   STRING    WS-ELECT-TMP::Trim() "|" WS-A ":" WS-AG-ENTRY(WS-A)::Trim() "/"
+                             WS-AG-MODEL(WS-A)::Trim() "/" WS-AG-TOOLS(WS-A) WS-AG-RANK(WS-A)
+                             INTO WS-ELECT-SIG-NEW
                END-IF
            END-PERFORM
            EVALUATE    TRUE
                WHEN WS-N-AGENTS = 0
                    SET     Lbl-Status::Caption   TO    T-NO-MODEL::Trim()
+                   SET     WS-ELECT-DONE         TO    "N"
+               WHEN WS-ELECT-DONE = "Y" AND WS-ELECT-SIG-NEW = WS-ELECT-SIG
+                   *>           Nothing the election depends on has changed since it was held:
+                   *>           the same agents stay in office (R70).
+
+                   SET     WS-ORCH               TO    WS-ELECT-ORCH
+                   SET     WS-WORKER             TO    WS-ELECT-WORKER
                WHEN WS-N-AGENTS = 1
                    *>           One agent answers by itself (R52).
 
+                   SET     WS-ORCH               TO    WS-FIRST-AGENT
                    IF    WS-AG-TOOLS(WS-ORCH) = "Y"
                        SET     WS-WORKER         TO    WS-ORCH
                    END-IF
                WHEN OTHER
-                   *>           Every agent on the same model: any of them, at random (R57).
+                   *>           The orchestrator is one of the agents whose model cannot call
+                   *>           tools, when there is one (R55), and otherwise any of them (R54):
+                   *>           the best-ranked, the first on a tie.
+
+                   SET     WS-N-CAND             TO    0
+                   PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                       IF    WS-AG-ENTRY(WS-A) NOT = SPACES
+                               AND (WS-N-TOOLS = WS-N-AGENTS OR WS-AG-TOOLS(WS-A) NOT = "Y")
+                           ADD    1 TO WS-N-CAND
+                           IF    WS-ORCH = 0
+                               SET     WS-ORCH   TO    WS-A
+                           ELSE
+                               IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
+                                   SET     WS-ORCH
+                                                 TO    WS-A
+                               END-IF
+                           END-IF
+                       END-IF
+                   END-PERFORM
+                   *>           Every agent on the same model: any candidate, at random (R57).
+                   *>           RANDOM starts from the same number in every run, so it is seeded
+                   *>           from the clock - once - or every session would elect the same one.
 
                    IF    WS-SAME-MODEL = "Y"
-                       *> RANDOM is below 1, so WS-B runs from 1 to the number of agents: the
-                       *> WS-B-th assigned agent, counted in WS-A past any empty slot.
+                       IF    WS-RAND-SEEDED = "Y"
+                           SET     WS-RANDOM     TO    FUNCTION RANDOM
+                       ELSE
+                           SET     WS-NOW        TO    FUNCTION CURRENT-DATE
+                           COMPUTE    WS-RAND-SEED = FUNCTION NUMVAL(WS-NOW(9:8)) + 1
+                           SET     WS-RANDOM     TO    FUNCTION RANDOM(WS-RAND-SEED)
+                           SET     WS-RAND-SEEDED
+                                                 TO    "Y"
+                       END-IF
+                       *> RANDOM is below 1, so WS-B runs from 1 to the number of candidates: the
+                       *> WS-B-th candidate, counted in WS-A past any agent that is not one.
 
-                       SET     WS-RANDOM         TO    FUNCTION RANDOM
-                       COMPUTE    WS-B = WS-RANDOM * WS-N-AGENTS + 1
+                       COMPUTE    WS-B = WS-RANDOM * WS-N-CAND + 1
                        SET     WS-A              TO    0
+                       SET     WS-ORCH           TO    0
                        PERFORM    VARYING WS-BEST FROM 1 BY 1 UNTIL WS-BEST > 3
                            IF    WS-AG-ENTRY(WS-BEST) NOT = SPACES
+                                   AND (WS-N-TOOLS = WS-N-AGENTS OR WS-AG-TOOLS(WS-BEST) NOT = "Y")
                                ADD    1 TO WS-A
                                IF    WS-A = WS-B
                                    SET     WS-ORCH
@@ -1247,45 +1304,32 @@
                            END-IF
                        END-PERFORM
                    END-IF
-                   *>           The only tool-capable model does the tool work; the next
-                   *>           best orchestrates (R55, R56).
+                   *>           The tool work goes to the best-ranked tool-capable agent that is
+                   *>           not orchestrating (R55, R56); with none, the chat runs without
+                   *>           tools (R66).
 
-                   IF    WS-N-TOOLS = 1 AND WS-AG-TOOLS(WS-ORCH) = "Y"
-                       SET     WS-WORKER         TO    WS-ORCH
-                       SET     WS-ORCH           TO    0
-
-                       PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-                           IF    WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-WORKER
-                               IF    WS-ORCH = 0
-                                   SET     WS-ORCH
-                                                 TO    WS-A
-                               ELSE
-                                   IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
-                                       SET     WS-ORCH
-                                                 TO    WS-A
-                                   END-IF
-                               END-IF
-                           END-IF
-                       END-PERFORM
-                   ELSE
-                       *>               The best-ranked tool-capable agent that is not orchestrating.
-
-                       PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-                           IF    WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-ORCH
-                                   AND WS-AG-TOOLS(WS-A) = "Y"
-                               IF    WS-WORKER = 0
+                   PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                       IF    WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-ORCH
+                               AND WS-AG-TOOLS(WS-A) = "Y"
+                           IF    WS-WORKER = 0
+                               SET     WS-WORKER TO    WS-A
+                           ELSE
+                               IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-WORKER)
                                    SET     WS-WORKER
                                                  TO    WS-A
-                               ELSE
-                                   IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-WORKER)
-                                       SET     WS-WORKER
-                                                 TO    WS-A
-                                   END-IF
                                END-IF
                            END-IF
-                       END-PERFORM
-                   END-IF
+                       END-IF
+                   END-PERFORM
            END-EVALUATE
+           *>   What was elected, and for which agents, is kept until one of them changes.
+
+           IF    WS-N-AGENTS > 0
+               SET     WS-ELECT-SIG              TO    WS-ELECT-SIG-NEW
+               SET     WS-ELECT-ORCH             TO    WS-ORCH
+               SET     WS-ELECT-WORKER           TO    WS-WORKER
+               SET     WS-ELECT-DONE             TO    "Y"
+           END-IF
            *>   Prompts: the topic's to the orchestrator only (R63); the others
            *>   keep their role prompts (R64). The Knowledge Base goes to the tool
            *>   worker alone; with none, the chat runs without tools (R66).

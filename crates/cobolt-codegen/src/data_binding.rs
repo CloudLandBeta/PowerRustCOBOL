@@ -204,6 +204,11 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
         out.push_str(&format!(
             "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingArray\" BY CONTENT \"1\"\n"
         ));
+        // Spec 024 R17/R18: whether what the operator types into a card is written back.
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingWritable\" BY CONTENT \"{}\"\n",
+            if binding.mode == cobolt_forms::BindingMode::Writable && binding.source.is_writable() { "1" } else { "0" }
+        ));
         // Seed target mappings so REFRESHBINDING can hydrate per-instance member values
         // from the source table (format: sourceField\tmemberControlId\tpropName per line).
         let maps: Vec<String> = binding

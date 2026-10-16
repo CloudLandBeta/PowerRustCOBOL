@@ -1008,6 +1008,8 @@ pub struct Tr {
     pub agent_op_procedure: &'static str,
     pub agent_op_form_structure: &'static str,
     pub agent_op_layer: &'static str,
+    /// An agent's new designed tree for a SideMenu or MenuBar (spec 082).
+    pub agent_op_menu_items: &'static str,
     pub agent_no_ops: &'static str,
     pub agent_debug_title: &'static str,
     pub agent_details: &'static str,
@@ -2304,6 +2306,8 @@ pub struct Tr {
     pub examples_powerspatial_about: &'static str,
     /// Help → Examples → PowerAnalytics: what the example shows.
     pub examples_poweranalytics_about: &'static str,
+    /// Help → Examples → PowerCloud: what the example shows.
+    pub examples_powercloud_about: &'static str,
     /// Help → Examples: hover of an example this build does not ship.
     pub examples_not_installed: &'static str,
 }
@@ -2949,6 +2953,7 @@ const EN: Tr = Tr {
     agent_op_procedure: "Procedure",
     agent_op_form_structure: "Form structure",
     agent_op_layer: "Layer",
+    agent_op_menu_items: "Menu items",
     agent_no_ops: "The agent proposed no changes.",
     agent_debug_title: "Agent response (debug)",
     agent_details: "Details",
@@ -4018,6 +4023,7 @@ const EN: Tr = Tr {
     examples_powerchat_about: "PowerChat is an example chatbot that supports both RAG (Retrieval Augmented Generation) over your documents and real-time analysis of data in indexed files. It is built 100% in RustCOBOL, and it can easily be adapted and sold as a solution for bringing Generative AI to COBOL applications.",
     examples_powerspatial_about: "A smart-home dashboard in the Spatial theme: frameless glass windows, a toolbar, a rail and a room bar docked around the dashboard that move with it as one, a thermostat dial, a music player and six languages. Built 100% in RustCOBOL.",
     examples_poweranalytics_about: "A fund-analytics dashboard in the Spatial theme: 43,750 investment funds read from an ANBIMA spreadsheet, glass panels that zoom in one after another, charts that grow from zero (bar, line, donut and the new radar, up to three series each), search fields with a type-ahead list of ticks, range filters, a Dashboard / Data menu with a data grid and a strip of KPIs, and a layout that adapts down to a phone's width.",
+    examples_powercloud_about: "One AWS service on every tab, written in RustCOBOL: DynamoDB (pets with photos), S3, Lambda (a temporary link), Polly (text to speech with a player), EC2 (servers with an on / off switch) and Rekognition (faces framed on the photo). Type the keys of an AWS user in the Settings tab (they stay in memory), deploy the CloudFormation template the demo needs, or save it and run it yourself.",
     examples_not_installed: "No example project is installed with this build.",
 };
 
@@ -4643,6 +4649,7 @@ const ES: Tr = Tr {
     agent_op_procedure: "Procedimiento",
     agent_op_form_structure: "Estructura del formulario",
     agent_op_layer: "Capa",
+    agent_op_menu_items: "Elementos del menú",
     agent_no_ops: "El agente no propuso cambios.",
     agent_debug_title: "Respuesta del agente (depuración)",
     agent_details: "Detalles",
@@ -5712,6 +5719,7 @@ const ES: Tr = Tr {
     examples_powerchat_about: "PowerChat es un ejemplo de chatbot que admite tanto RAG (Retrieval Augmented Generation) sobre sus documentos como el análisis en tiempo real de datos en archivos indexados. Está hecho 100 % en RustCOBOL y puede modificarse fácilmente para venderse como una solución que lleva la IA generativa a las aplicaciones COBOL.",
     examples_powerspatial_about: "Un panel de hogar inteligente con el tema Spatial: ventanas de vidrio sin marco, una barra de herramientas, un riel y una barra de habitaciones acoplados al panel que se mueven con él como uno solo, un dial de termostato, un reproductor de música y seis idiomas. Hecho 100 % en RustCOBOL.",
     examples_poweranalytics_about: "Un panel de análisis de fondos de inversión con el tema Spatial: 43.750 fondos leídos de una hoja de cálculo de ANBIMA, paneles de cristal que aparecen uno tras otro, gráficos que crecen desde cero (barras, líneas, anillo y el nuevo radar, con hasta tres series cada uno), campos de búsqueda con una lista de casillas que se filtra al escribir, filtros por rango, un menú Dashboard / Datos con tabla y una franja de KPIs, y un diseño que se adapta hasta el ancho de un teléfono.",
+    examples_powercloud_about: "Un servicio de AWS en cada pestaña, escrito en RustCOBOL: DynamoDB (mascotas con fotos), S3, Lambda (un enlace temporal), Polly (texto a voz con reproductor), EC2 (servidores con interruptor de encendido) y Rekognition (rostros enmarcados sobre la foto). Escriba las claves de un usuario de AWS en la pestaña Ajustes (se quedan en memoria), despliegue la plantilla de CloudFormation que necesita la demo, o guárdela y ejecútela usted mismo.",
     examples_not_installed: "No hay ningún proyecto de ejemplo instalado con esta versión.",
 };
 
@@ -6337,6 +6345,7 @@ const PT: Tr = Tr {
     agent_op_procedure: "Procedimento",
     agent_op_form_structure: "Estrutura do formulário",
     agent_op_layer: "Camada",
+    agent_op_menu_items: "Itens do menu",
     agent_no_ops: "O agente não propôs alterações.",
     agent_debug_title: "Resposta do agente (depuração)",
     agent_details: "Detalhes",
@@ -7406,6 +7415,7 @@ const PT: Tr = Tr {
     examples_powerchat_about: "O PowerChat é um exemplo de chatbot que suporta tanto RAG (Retrieval Augmented Generation) sobre os seus documentos quanto análise em tempo real de dados em arquivos indexados. É feito 100% em RustCOBOL e pode ser facilmente modificado para ser vendido como uma solução para implementar IA Generativa em aplicações COBOL.",
     examples_powerspatial_about: "Um painel de casa inteligente no tema Spatial: janelas de vidro sem moldura, uma barra de ferramentas, um trilho e uma barra de cômodos acoplados ao painel que se movem com ele como um só, um mostrador de termostato, um player de música e seis idiomas. Feito 100% em RustCOBOL.",
     examples_poweranalytics_about: "Um painel de análise de fundos de investimento no tema Spatial: 43.750 fundos lidos de uma planilha da ANBIMA, painéis de vidro que entram um após o outro, gráficos que crescem do zero (barras, linhas, rosca e o novo radar, com até três séries cada), campos de busca com uma lista de caixas de seleção que filtra enquanto se digita, filtros por faixa, um menu Dashboard / Dados com tabela e uma faixa de KPIs, e um layout que se adapta até a largura de um celular.",
+    examples_powercloud_about: "Um serviço da AWS em cada aba, escrito em RustCOBOL: DynamoDB (bichinhos com fotos), S3, Lambda (um link temporário), Polly (texto em voz com player), EC2 (servidores com interruptor de ligar e desligar) e Rekognition (rostos enquadrados sobre a foto). Digite as chaves de um usuário da AWS na aba Configurações (ficam só na memória), implante o modelo do CloudFormation de que a demonstração precisa, ou salve-o e execute você mesmo.",
     examples_not_installed: "Nenhum projeto de exemplo foi instalado com esta versão.",
 };
 
@@ -8030,6 +8040,7 @@ const JA: Tr = Tr {
     agent_op_procedure: "手続き",
     agent_op_form_structure: "フォーム構造",
     agent_op_layer: "レイヤー",
+    agent_op_menu_items: "メニュー項目",
     agent_no_ops: "エージェントは変更を提案しませんでした。",
     agent_debug_title: "エージェント応答（デバッグ）",
     agent_details: "詳細",
@@ -9099,6 +9110,7 @@ const JA: Tr = Tr {
     examples_powerchat_about: "PowerChat は、ドキュメントに対する RAG（Retrieval Augmented Generation）と、索引ファイルのデータのリアルタイム分析の両方に対応したチャットボットのサンプルです。100% RustCOBOL で作られており、COBOL アプリケーションに生成 AI を導入するソリューションとして販売できるよう、簡単に改造できます。",
     examples_powerspatial_about: "Spatial テーマのスマートホーム用ダッシュボード。枠のないガラスのウィンドウ、ダッシュボードの周りにドッキングして一体で動くツールバー・レール・部屋バー、サーモスタットのダイヤル、音楽プレーヤー、6 言語に対応。100% RustCOBOL で作られています。",
     examples_poweranalytics_about: "Spatial テーマの投資ファンド分析ダッシュボード。ANBIMA のスプレッドシートから読み込んだ 43,750 本のファンド、順に拡大して現れるガラスのパネル、ゼロから伸びるグラフ（棒・折れ線・ドーナツ・新しいレーダー。それぞれ最大 3 系列）、入力に合わせて絞り込まれるチェック付きリストの検索フィールド、範囲フィルター、データグリッドと KPI 帯を備えた Dashboard / データ メニュー、スマートフォンの幅まで適応するレイアウト。",
+    examples_powercloud_about: "各タブに AWS のサービスを 1 つずつ、RustCOBOL で記述：DynamoDB（写真付きのペット）、S3、Lambda（一時リンク）、Polly（プレーヤー付きの音声合成）、EC2（オン・オフのスイッチ付きサーバー）、Rekognition（写真上に枠で示す顔）。設定タブで AWS ユーザーのキーを入力し（メモリ内にのみ保持）、デモに必要な CloudFormation テンプレートをデプロイするか、保存して自分で実行します。",
     examples_not_installed: "このビルドにはサンプルプロジェクトがインストールされていません。",
 };
 
@@ -9729,6 +9741,7 @@ const ZH: Tr = Tr {
     agent_op_procedure: "过程",
     agent_op_form_structure: "表单结构",
     agent_op_layer: "图层",
+    agent_op_menu_items: "菜单项",
     agent_no_ops: "代理未提出任何更改。",
     agent_debug_title: "代理响应（调试）",
     agent_details: "详情",
@@ -10799,6 +10812,7 @@ const ZH: Tr = Tr {
     examples_powerchat_about: "PowerChat 是一个聊天机器人示例，既支持基于文档的 RAG（Retrieval Augmented Generation），也支持对索引文件中的数据进行实时分析。它 100% 由 RustCOBOL 编写，可以轻松修改，作为为 COBOL 应用引入生成式 AI 的解决方案出售。",
     examples_powerspatial_about: "采用 Spatial 主题的智能家居仪表板：无边框的玻璃窗口，停靠在仪表板周围并随其一起移动的工具栏、导航栏和房间栏，恒温器旋钮，音乐播放器，支持六种语言。100% 使用 RustCOBOL 构建。",
     examples_poweranalytics_about: "采用 Spatial 主题的投资基金分析仪表板：从 ANBIMA 电子表格读取 43,750 只基金，玻璃面板依次放大出现，图表从零开始生长（柱状、折线、环形和新的雷达图，每种最多三个系列），带勾选列表且随输入即时筛选的搜索字段，区间筛选，含数据表格和 KPI 栏的 Dashboard / 数据菜单，以及可缩小到手机宽度的自适应布局。",
+    examples_powercloud_about: "每个标签页一项 AWS 服务，全部用 RustCOBOL 编写：DynamoDB（带照片的宠物）、S3、Lambda（临时链接）、Polly（带播放器的文字转语音）、EC2（带开关的服务器）和 Rekognition（在照片上框出人脸）。在“设置”标签页输入 AWS 用户的密钥（只保存在内存中），部署演示所需的 CloudFormation 模板，或保存后自行运行。",
     examples_not_installed: "此版本未安装示例项目。",
 };
 
@@ -11424,6 +11438,7 @@ const FR: Tr = Tr {
     agent_op_procedure: "Procédure",
     agent_op_form_structure: "Structure du formulaire",
     agent_op_layer: "Calque",
+    agent_op_menu_items: "Éléments du menu",
     agent_no_ops: "L'agent n'a proposé aucune modification.",
     agent_debug_title: "Réponse de l'agent (débogage)",
     agent_details: "Détails",
@@ -12493,6 +12508,7 @@ const FR: Tr = Tr {
     examples_powerchat_about: "PowerChat est un exemple de chatbot qui prend en charge à la fois le RAG (Retrieval Augmented Generation) sur vos documents et l'analyse en temps réel des données de fichiers indexés. Il est écrit à 100 % en RustCOBOL et peut facilement être adapté pour être vendu comme une solution d'IA générative pour les applications COBOL.",
     examples_powerspatial_about: "Un tableau de bord de maison connectée dans le thème Spatial : des fenêtres de verre sans cadre, une barre d'outils, un rail et une barre des pièces ancrés au tableau de bord qui se déplacent avec lui d'un seul bloc, un cadran de thermostat, un lecteur de musique et six langues. Réalisé à 100 % en RustCOBOL.",
     examples_poweranalytics_about: "Un tableau de bord d'analyse de fonds d'investissement dans le thème Spatial : 43 750 fonds lus dans un tableur ANBIMA, des panneaux de verre qui apparaissent l'un après l'autre, des graphiques qui partent de zéro (barres, lignes, anneau et le nouveau radar, jusqu'à trois séries chacun), des champs de recherche avec une liste à cocher qui se filtre à la frappe, des filtres par plage, un menu Dashboard / Données avec grille et bandeau d'indicateurs, et une mise en page qui s'adapte jusqu'à la largeur d'un téléphone.",
+    examples_powercloud_about: "Un service AWS par onglet, écrit en RustCOBOL : DynamoDB (des animaux avec photos), S3, Lambda (un lien temporaire), Polly (synthèse vocale avec lecteur), EC2 (des serveurs avec un interrupteur marche / arrêt) et Rekognition (des visages encadrés sur la photo). Saisissez les clés d'un utilisateur AWS dans l'onglet Réglages (elles restent en mémoire), déployez le modèle CloudFormation dont la démo a besoin, ou enregistrez-le et lancez-le vous-même.",
     examples_not_installed: "Aucun projet d'exemple n'est installé avec cette version.",
 };
 
