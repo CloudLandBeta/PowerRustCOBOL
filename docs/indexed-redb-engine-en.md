@@ -96,16 +96,21 @@ per file, deliberately.
 | A reader while another program writes | Refused, status **93** | Admitted |
 | Two plain `OPEN I-O` writers | Second refused, **93** | **Both succeed** — see the warning below |
 | Two writers `OPEN I-O … WITH LOCK` | Second refused, **93** | Second refused, **93** |
-| Crash before `COMMIT` | Back to the last `COMMIT` — nothing uncommitted survives | File intact, but writes since the last `COMMIT` may **partly** survive |
+| Crash before `COMMIT` | Back to the last `COMMIT` — nothing uncommitted survives | Back to the last `COMMIT` — nothing uncommitted survives (since 1.91.176; before it, writes beyond 1 MiB of changed pages **partly** survived) |
 | `COMMIT` / `ROLLBACK` | ACID; `COMMIT` survives power loss | `COMMIT` and `CLOSE` are durable; `ROLLBACK` works within the run |
 | `OPEN` cost | Meta page only, ~5 ms at 200 000 records | Directory read on demand; no slower at 200 000 records than at one |
 | A one-record file on disk | **1 056 768 bytes** (~1 MB) | 16 384 bytes |
 
-The crash row was measured by stopping a program with `kill -9` after 30 000
-`WRITE`s and no `COMMIT`, on a file holding one committed record. Reopened,
-the redb file held that one record. The PRCIDXD1 file opened cleanly and held
-26 131: besides `COMMIT` and `CLOSE`, the engine makes its own commit point
-each time 1 MiB of pages has changed, and those survive.
+The crash row is measured by stopping a program with `SIGKILL` after it has
+`WRITE`n 2 500 records of 1 020 bytes with no `COMMIT` — about 630 pages — on a
+file holding three committed records, and opening the file again. The redb file
+holds the three. The PRCIDXD1 file held **2 194** before 1.91.176: besides
+`COMMIT` and `CLOSE`, the engine made its own commit point each time 1 MiB of
+pages had changed, and those survived. Since 1.91.176 that checkpoint keeps the
+recovery journal until the program commits, and the file holds the three, like
+the redb one (`indexed_crash_recovery` in `cobolt-cli` runs both engines through
+the same program). PRCIDXD1 pays for it in a sidecar file, `<file>.jrn`, that
+exists while a transaction has changed the container; redb needs none.
 
 ### Why a redb writer has the file to itself
 

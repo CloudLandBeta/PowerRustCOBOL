@@ -330,17 +330,40 @@ last `COMMIT`/`OPEN`:
   and starts a new one; `ROLLBACK` replays the inverses in reverse order; `CLOSE`
   flushes (implicit commit). A `tx_replay` guard stops the inverse operations
   from re-logging themselves.
-- This is **program-level** rollback. Crash safety is separate and per
-  operation (since 1.70.32): the previous image of every page a `WRITE`,
-  `REWRITE` or `DELETE` is about to change is written to a sidecar journal,
-  `<container>.jrn`, and made durable *before* the container is touched; the
-  pages, then the header, are written; removing the journal is the commit point.
-  A crash anywhere before that is undone in full on the next `OPEN`, and an
-  incomplete journal is discarded without replaying anything. A commit point is taken at `COMMIT`,
-  at `CLOSE` and automatically each time 256 pages (1 MiB) have changed, so an
-  abend never leaves the container structurally wrong — but writes since the
-  last commit point may partly survive. See the COBOL `COMMIT`/`ROLLBACK` verbs
-  in the language reference; note those verbs act on **INDEXED files**, not SQL
+- This is **program-level** rollback. Crash safety is separate: the previous
+  image of every page a transaction is about to change is written to a sidecar
+  journal, `<container>.jrn`, and made durable *before* the container is
+  touched; the pages, then the header, are written; removing the journal is the
+  commit point. A crash anywhere before that is undone in full on the next
+  `OPEN`.
+- **The journal lasts as long as the transaction** (since 1.91.176). A
+  transaction that changes more than 256 pages (1 MiB) cannot be held in memory,
+  so at each 256 it is *spilled*: its pages are written to the container, still
+  behind their journal, and the journal **stays** until the program's `COMMIT`
+  or `CLOSE` removes it. Until then a crash — at any point, including part-way
+  through a spill — is undone on the next `OPEN` back to what the container held
+  when the transaction began, however many records the transaction had written.
+  (Until 1.91.176 a spill was a commit point: a crash kept every spill but the
+  last, though the program had never committed them.)
+- What the journal (`PRCJRN02`) holds is the image each page had *when the
+  transaction began*, once: a page the transaction adds, past the end of the
+  container as it was, needs none, because recovery cuts the file back to its
+  original length. A load that mostly appends therefore keeps a journal of a few
+  pages; one that rewrites existing records keeps about 4 KiB for every page it
+  changes. The header names that length and how many page images are *certified*
+  durable — advanced only after the images are on disk and before the container
+  is touched for them, in the older of two checksummed slots — and each image
+  carries its own checksum. Recovery puts back every valid image, newest first,
+  and cuts the file. A torn tail (appended, never certified, the container never
+  touched for it) is ignored; a journal with **fewer valid images than it
+  certified**, or a header that is neither readable nor blank, is damaged: the
+  `OPEN` answers `90` and leaves the container and the journal as they are.
+  A journal in the earlier form (`PRCJRN01`: a count and its images, written
+  whole before one commit point) is still recovered.
+- A commit point is `COMMIT`, `CLOSE` and the end of a spill; a journal that
+  outlives its first commit point is created and removed with the directory
+  entry made durable too. See the COBOL `COMMIT`/`ROLLBACK` verbs in the
+  language reference; note those verbs act on **INDEXED files**, not SQL
   connections.
 
 ---

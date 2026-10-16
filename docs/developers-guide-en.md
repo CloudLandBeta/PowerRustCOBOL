@@ -12341,6 +12341,45 @@ PERSISTENCE`** it is purely an in-RAM boundary (the file is written at `CLOSE`
 nothing to commit. (These are **file** transactions — for SQL transactions use
 `COBOL::"EXEC-SQL"` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
 
+**If the program stops without finishing** — the power fails, the process is
+killed, the machine crashes — a `STORAGE IS DISK` file is, the next time it is
+opened for writing, **exactly as it was at its last `COMMIT`** (or at the `OPEN`,
+if there was none). Every `WRITE`, `REWRITE` and `DELETE` since is gone, however
+many there were: a batch that wrote a hundred thousand records and was cut off
+before it committed leaves none of them behind, and what had been committed is
+all there. The `OPEN` does this by itself; the program needs no recovery code.
+A program that wants a safe restart point `COMMIT`s at its checkpoints — after
+every few hundred records of a long load, say — and starts again from the last
+one it reached.
+
+⚠️ **Notes.**
+
+- The default engine and `redb` give the same answer after a crash. They differ
+  in how: `redb` keeps committed and uncommitted work apart inside its own file;
+  the default engine writes a *recovery journal* beside the file,
+  `<file>.jrn`, for as long as a transaction has changed the file itself.
+  **After a crash you may find one**; the next `OPEN … I-O`, `OUTPUT` or
+  `EXTEND` uses it and removes it. If you back up or copy a data file, copy
+  the `.jrn` with it, and never delete one by hand.
+- The journal costs disk space while the transaction is open: a few kilobytes
+  for a load that adds records, about 4 KiB for each page of *existing* records
+  that a long transaction changes. A `COMMIT` or `CLOSE` removes it.
+- An `OPEN INPUT` never changes a file, so it does not recover it: it reads the
+  recovered data from a temporary copy and leaves the file and its journal as
+  they were, for the next opening that may write. The same goes for a program
+  that opens the file `INPUT` while another is in the middle of a long
+  transaction: it sees the last `COMMIT`, from a private copy — which, for a
+  very large file, takes time.
+- If more than one program updates a file, open it **`WITH LOCK`**, as this
+  guide already advises. The journal belongs to the program whose transaction
+  it describes; a second program that is *not* refused at the `OPEN` would find
+  it and undo that transaction under the first one's feet.
+- If the journal itself is damaged — truncated, or changed by something other
+  than a crash — the `OPEN` answers file status **`90`** and touches nothing.
+  Restore the file and its journal from a backup; do not delete the journal to
+  make the error go away, because it may be the only thing that can put a
+  half-written file right.
+
 ```mermaid
 flowchart LR
     OPEN["OPEN I-O CUSTOMER-FILE"] --> WORK["WRITE / REWRITE / DELETE …"]
@@ -12365,8 +12404,8 @@ exists always opens with the engine that wrote it.
 
 | Engine           | Use it for                                                                                                                                                      |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rust` (default) | The built-in B-tree store; in-memory and on-disk paged formats.                                                                                                 |
-| `redb`           | A **crash-safe, ACID** on-disk engine (copy-on-write B-tree, checksums, dual meta pages) — `COMMIT` survives power loss; instant `OPEN` on very large datasets. |
+| `rust` (default) | The built-in B-tree store; in-memory and on-disk paged formats. More than one program may open a file at once (use `WITH LOCK` to update). A crash returns it to the last `COMMIT`. |
+| `redb`           | A **crash-safe, ACID** on-disk engine (copy-on-write B-tree, checksums, dual meta pages) — `COMMIT` survives power loss; instant `OPEN` on very large datasets. Only one program may have a file open for writing at a time. |
 | `rm` / `fujitsu` | Reserved engine names that currently behave identically to the built-in store (native formats are future work).                                                 |
 
 ### Operations log (observability)

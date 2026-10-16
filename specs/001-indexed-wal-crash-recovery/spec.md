@@ -1,235 +1,224 @@
-# Spec — INDEXED file durable WAL & crash recovery
+# Spec — INDEXED file crash recovery to the last `COMMIT`
 
-- **Status:** draft (scope expanded 2026-06-15: redb becomes default + WAL for legacy `PRCIDXD1`)
+- **Status:** implemented in two parts. **Part 1** (the crash-safe `redb` engine) shipped
+  in 1.10.0–1.11.0; it was made the default in 1.62.73 and **returned to opt-in in 1.70.24**
+  (operator ruling 2026-09-14), so the default engine is `PRCIDXD1`. **Part 2** (the default
+  engine returns to the last `COMMIT` after a crash, however large the transaction) shipped in
+  **1.91.176**. This text was rewritten on 2026-10-15 to say what was built; the draft of
+  2026-06-15 proposed making redb the default and a logical write-ahead log for `PRCIDXD1`,
+  and neither is what the code does.
 - **Folder:** specs/001-indexed-wal-crash-recovery/
-- **Author:** Emerson Lopes   **Date:** 2026-06-15
+- **Author:** Emerson Lopes   **Date:** 2026-06-15   **Rewritten:** 2026-10-15
 
 ## 1. Overview
 
-PowerRustCOBOL INDEXED files support COBOL `COMMIT` and `ROLLBACK` verbs that
-bound program-controlled transactions over open keyed files. Today the **default
-`STORAGE IS DISK` engine** (`PRCIDXD1`, `indexed_disk.rs`) keeps an **in-memory
-undo log** so `ROLLBACK` works while the program runs, and `COMMIT` calls
-`sync_all()` to make the current state durable. If the process crashes or power
-is lost **after uncommitted `WRITE`/`REWRITE`/`DELETE` operations**, the on-disk
-file may contain a **partial transaction** and the undo log is gone — there is no
-crash recovery to the last committed boundary.
+PowerRustCOBOL INDEXED files support the COBOL `COMMIT` and `ROLLBACK` verbs, which bound
+program-controlled transactions over every open keyed file. A `STORAGE IS DISK` file is held by
+one of two engines:
 
-The **redb** engine (`STORAGE IS DISK` + `--indexed-engine redb`) is already
-ACID/crash-safe via redb's dual-meta-page commits. This feature delivers crash
-recovery in **two parts**:
+| Engine | Name | Container | Default |
+|---|---|---|---|
+| The built-in paged B+tree store | `rust` (`IndexedEngine::Rust`) | `PRCIDXD1` | **yes** — since 1.70.24 |
+| A copy-on-write ACID store on `redb` | `redb` (`IndexedEngine::Redb`) | a redb database | no — by name, `--indexed-engine redb`, or **Settings ▸ Default Indexed File Engine** |
 
-1. **Make redb the default** `STORAGE IS DISK` engine so new programs and
-   default `rcrun` runs get crash safety immediately.
-2. **Add a durable WAL** to the legacy bespoke engine (`PRCIDXD1`,
-   `--indexed-engine rust`) so users who opt into it (or open existing
-   `PRCIDXD1` files) get the same commit-boundary guarantee.
+The requirement of this spec is the same for both: **after an abnormal termination (`kill -9`,
+a panic, a power loss), reopening the file leaves it at the state of the last `COMMIT` — or of
+the `OPEN`, if there was none.** What the program wrote, rewrote or deleted since is gone, however
+much of it there was, and nothing that was committed is.
 
-> **Scope reminder:** COBOL `COMMIT`/`ROLLBACK` verbs act on **INDEXED files
-> only**, not SQL connections. SQL transactions continue to use
-> `COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK` strings
-> ([`docs/database-runtime.md`](../../docs/database-runtime.md) §4).
+- **Part 1 — `redb`.** redb is crash-safe by construction (dual meta pages, copy-on-write
+  commits). The draft proposed making it the default so that every new program had crash safety
+  immediately. It was, from 1.62.73. The operator reversed that on 2026-09-14 (1.70.24) for
+  **concurrency**: redb takes `flock(LOCK_EX)` on a container opened for writing, so exactly one
+  process may write one and nobody else may open it meanwhile (file status 93), where `PRCIDXD1`
+  admits concurrent readers and writers. The trade is the developer's, per file. This part's
+  requirements are therefore *the redb engine meets R1–R5*, not *redb is the default*.
+- **Part 2 — `PRCIDXD1`.** The default engine already held a transaction's changed pages in
+  memory and put them in the container only behind an undo journal (`<file>.jrn`), so a crash
+  *inside one commit* was undone completely. What it did **not** do was keep that promise for a
+  transaction too big for memory: every 256 changed pages (1 MiB) it took a commit point of its
+  own, and a crash found every such slice durable though the program had never committed it.
+  Measured on 1.91.175: 2 500 uncommitted `WRITE`s, `SIGKILL`, reopen — 2 194 records present,
+  where the redb engine held the three that were committed. Part 2 makes the journal last as long
+  as the transaction.
+
+> **Scope reminder:** COBOL `COMMIT`/`ROLLBACK` act on **INDEXED files only**, not SQL
+> connections. SQL transactions use `COBOL::"EXEC-SQL"` with `BEGIN`/`COMMIT`/`ROLLBACK`
+> ([`docs/database-runtime-en.md`](../../docs/database-runtime-en.md)).
 
 ## 2. Goals / Non-goals
 
 ### Goals
 
-- **Make redb the default** indexed engine for `STORAGE IS DISK` (replacing
-  `IndexedEngine::Rust` as `default()` / `COBOL_INDEXED_ENGINE` unset).
-- After an abnormal termination (kill -9, panic, power loss), reopening a
-  `STORAGE IS DISK` INDEXED file shall leave the file in the **last committed**
-  state — no torn indexes, no orphaned records visible to COBOL I/O — on **both**
-  the default redb engine and the legacy `PRCIDXD1` engine (`rust`).
-- Preserve existing **observable COBOL semantics** for in-run `COMMIT`,
-  `ROLLBACK`, `OPEN`, `CLOSE`, and `FILE STATUS` codes across all INDEXED
-  engines (`rust`, `redb`; behaviour-compatible aliases unchanged).
-- Recovery shall run automatically on `OPEN` (no new COBOL syntax, no operator
-  action).
-- Document the guarantee in the English developer guide and language reference;
-  remove the “future work” caveat in
-  [`docs/cobol85-supported-syntax.md`](../../docs/cobol85-supported-syntax.md)
-  and [`docs/indexed-file-internals.md`](../../docs/indexed-file-internals.md).
+- After an abnormal termination, a `STORAGE IS DISK` file opens at its last `COMMIT`, on **both**
+  engines, whatever the size of the uncommitted transaction.
+- Preserve the observable COBOL semantics of in-run `COMMIT`, `ROLLBACK`, `OPEN`, `CLOSE` and
+  `FILE STATUS` on every engine.
+- Recovery runs on `OPEN`, with no new COBOL syntax and no operator action.
+- A recovery journal that cannot be trusted fails the `OPEN` with status `90` and changes nothing.
+- Document the guarantee in the Developer's Guide and the language reference.
 
 ### Non-goals
 
-- **SQL** transaction durability or a unified WAL across SQL and INDEXED (out of
-  scope; separate runtimes).
-- **Cross-process** file locking or multi-writer crash coordination (still
-  single run-unit; see README §“Partial / in progress”).
-- **RELATIVE** or **SEQUENTIAL** file organisations (separate features).
-- Changing the on-disk **`PRCIDX1`/`PRCIDXD1` container layout** in a way that
-  breaks existing files without a migration path (if the container version must
-  bump, migration or backward-compatible recovery is required — see open
-  questions).
-- Automatic **in-place migration** of existing `PRCIDXD1` files to redb format
-  on first `OPEN` (users with legacy files use `--indexed-engine rust` or
-  recreate files; a standalone migration tool may follow later).
+- **Making `redb` the default.** It was, and was reversed (§1). Not a goal of this spec.
+- **A logical write-ahead log of records.** The default engine journals *page images* (an undo
+  log), which is what its page-oriented container needs; see §7, Q1.
+- SQL durability, or one log across SQL and INDEXED files (separate runtimes).
+- Multi-writer crash coordination across processes. (File locking across processes is its own
+  fix, 1.70.21; a crash with two writers open is not specified here.)
+- RELATIVE or SEQUENTIAL organisations.
+- Changing the `PRCIDXD1` container layout. The journal is a sidecar; the container is untouched.
+- Converting `PRCIDXD1` files to redb on open (a file always opens with the engine that wrote it).
 
 ## 3. User stories
 
-- As a **COBOL developer** running a batch job with `OPEN I-O` → many
-  `WRITE`/`REWRITE`/`DELETE` → `COMMIT` boundaries, I want a power failure after
-  `COMMIT` but before the next `COMMIT` to **not corrupt** my INDEXED file, so I
-  can restart the job from the last committed checkpoint.
-- As a **COBOL developer** who issued `WRITE`/`REWRITE`/`DELETE` since the last
-  `COMMIT`/`OPEN` and has **not** called `COMMIT`, I want a crash to **discard**
-  those uncommitted changes on reopen (equivalent to an implicit rollback to the
-  last commit boundary), so partial updates never appear in subsequent `READ`s.
-- As a **maintainer** comparing engines, I want the default disk engine and the
-  redb engine to present the **same COBOL-visible results** after crash +
-  reopen, so `--indexed-engine` remains a performance/safety trade-off, not a
-  semantic fork.
-- As a **technical writer**, I want the language reference to state clearly that
-  `COMMIT`/`ROLLBACK` are INDEXED-only (not SQL), with crash-recovery behaviour
-  documented, so users are not surprised by [`database-runtime.md`](../../docs/database-runtime.md).
+- As a **COBOL developer** running a batch job — `OPEN I-O`, many `WRITE`/`REWRITE`/`DELETE`,
+  `COMMIT` at checkpoints — I want a power failure to leave the file at the last `COMMIT`, so I
+  can restart the job from that checkpoint.
+- As a **COBOL developer** whose job wrote a hundred thousand records and had not yet committed,
+  I want the crash to discard *all* of them, not a megabyte-sized prefix of them, so the file is
+  never half a batch.
+- As a **maintainer** comparing engines, I want both to give the same COBOL-visible result after
+  a crash, so `--indexed-engine` stays a concurrency/footprint choice, not a semantic fork.
+- As a **technical writer**, I want the reference to say that `COMMIT`/`ROLLBACK` are INDEXED-only
+  and to describe what a crash leaves behind.
 
 ## 4. Requirements (EARS)
 
-### Crash recovery — default DISK engine
+### Crash recovery — both engines
 
-- **R1 (ubiquitous):** The system shall treat the last successful COBOL `COMMIT`
-  (or an implicit commit at `CLOSE` / end-of-run close) as the **durability
-  boundary** for `STORAGE IS DISK` files on the default Rust indexed engine.
-- **R2 (event):** When a `STORAGE IS DISK` INDEXED file is opened after the
-  hosting process terminated abnormally, the system shall **replay or discard**
-  durable log data so the file reflects only mutations at or before the last
-  durability boundary in R1.
-- **R3 (state):** While a transaction is open (after `OPEN` or `COMMIT`, before
-  the next `COMMIT`/`ROLLBACK`/`CLOSE`), the system shall record mutations in a
-  **durable write-ahead log** (or equivalent crash-safe journal) such that R2 is
-  satisfiable without relying on in-memory undo state alone.
-- **R4 (event):** When `COMMIT` executes on a `STORAGE IS DISK` default-engine
-  file, the system shall make all mutations since the previous durability
-  boundary crash-recoverable as committed and truncate or checkpoint the WAL for
-  that boundary.
-- **R5 (event):** When `ROLLBACK` executes, the system shall restore the file to
-  the state at the last durability boundary **without** requiring a process
-  restart (existing in-run behaviour preserved), and shall leave the durable log
-  consistent with that boundary.
+- **R1 (ubiquitous):** The last successful COBOL `COMMIT` — or an implicit commit at `CLOSE` or
+  end of run — is the **durability boundary** for `STORAGE IS DISK` files.
+- **R2 (event):** When a `STORAGE IS DISK` file is opened for writing after its hosting process
+  ended abnormally, the system shall leave it reflecting only the mutations at or before the
+  boundary in R1.
+- **R3 (state):** While a transaction is open (after `OPEN` or `COMMIT`, before the next
+  `COMMIT`/`ROLLBACK`/`CLOSE`), the system shall hold what is needed to satisfy R2 **on disk**,
+  not in memory alone, **for the whole life of the transaction** — including after the engine
+  has had to write part of the transaction into the container to bound its memory.
+- **R4 (event):** When `COMMIT` executes, the system shall make all mutations since the previous
+  boundary durable and discard what recovery would have needed.
+- **R5 (event):** When `ROLLBACK` executes, the system shall restore the state at the last
+  boundary without a restart, and leave the durable record consistent with it.
 
-### Default engine switch
+### Engines
 
-- **R6 (ubiquitous):** When no `--indexed-engine` flag or `COBOL_INDEXED_ENGINE`
-  env var is set, `STORAGE IS DISK` INDEXED files shall use the **redb** engine.
-- **R7 (ubiquitous):** `--indexed-engine rust` (and aliases `default` remapped or
-  documented) shall continue to open **`PRCIDXD1`** files via `DiskIndexedFile`.
-
-### Semantic preservation & engines
-
-- **R8 (ubiquitous):** The system shall preserve existing `FILE STATUS` codes and
-  INDEXED verb outcomes for programs that do not experience a crash (regression
-  suite green).
-- **R9 (ubiquitous):** The **redb** indexed engine shall satisfy R1–R5 without
-  regression; making it default is primarily a default-change plus verification.
-- **R10 (constraint):** The system shall not change the meaning of COBOL
-  `COMMIT`/`ROLLBACK` for **SQL** handles — those remain SQL-string driven per
-  `database-runtime.md`.
+- **R6 (ubiquitous):** The default engine for `STORAGE IS DISK` is `rust` (`PRCIDXD1`); `redb`
+  is selected by name (`--indexed-engine`, `COBOL_INDEXED_ENGINE`, or the project setting).
+- **R7 (ubiquitous):** The `redb` engine shall satisfy R1–R5. (It does by construction; this
+  spec holds it to the same test as the default engine.)
+- **R8 (ubiquitous):** The system shall preserve the `FILE STATUS` codes and verb outcomes of
+  programs that do not crash (regression suites green).
+- **R9 (constraint):** `COMMIT`/`ROLLBACK` keep their meaning for **SQL** handles: unchanged.
 
 ### MEMORY storage
 
-- **R11 (state):** For `STORAGE IS MEMORY` **without** `WITH PERSISTENCE`, the
-  system shall continue to treat the file as **ephemeral**: a crash shall **not**
-  trigger recovery of the in-memory image, and no durable WAL shall be written
-  for that file.
-- **R12 (event):** When a `STORAGE IS MEMORY WITH PERSISTENCE` file is opened
-  after an abnormal termination, the system shall **not** attempt to recover the
-  crashed in-RAM session. It shall **reload from disk** the last file image
-  persisted at the most recent `CLOSE` (if any exists on the `ASSIGN` path) and
-  continue as if the crash had not occurred — uncommitted in-RAM mutations from
-  the terminated run are discarded. No WAL or crash-replay machinery is required
-  for the MEMORY engine.
+- **R10 (state):** For `STORAGE IS MEMORY` without `WITH PERSISTENCE`, the file is ephemeral: a
+  crash triggers no recovery and no durable log is written.
+- **R11 (event):** When a `STORAGE IS MEMORY WITH PERSISTENCE` file is opened after an abnormal
+  termination, the system shall reload the image saved at the most recent `CLOSE`; the
+  uncommitted in-RAM work of the dead run is discarded.
 
-### Observability & failure modes
+### Failure modes
 
-- **R13 (event):** When recovery on `OPEN` discards uncommitted WAL entries, the
-  system may emit a **tracing** event at `INFO` or `WARN` (via `COBOLT_LOG`);
-  no new IDE UI is required.
-- **R14 (event):** When the WAL or data file is **unrecoverably corrupt**, `OPEN`
-  shall fail with FILE STATUS **`90`** (or existing corrupt-file status used by
-  the engine today), not silent data loss.
+- **R12 (event):** When recovery discards uncommitted work, the system may log it at `INFO`/`WARN`
+  (`COBOLT_LOG`); no UI is required.
+- **R13 (event):** When the recovery journal is damaged — it holds fewer valid page images than it
+  certified, or its header is neither readable nor blank — `OPEN` shall fail with `FILE STATUS`
+  **`90`** and leave the container and the journal as they are. A torn *tail* (never certified,
+  the container never touched for it) is not damage and is ignored.
+- **R14 (constraint):** A journal written by an earlier release (`PRCJRN01`) shall still be
+  recovered.
 
 ### Documentation
 
-- **R15 (ubiquitous):** The English docs shall state that COBOL `COMMIT`/`ROLLBACK`
-  verbs apply to **INDEXED** files, describe the crash-recovery guarantee for
-  `STORAGE IS DISK`, and cross-link SQL transaction docs.
-- **R16 (ubiquitous):** The docs shall remove or replace wording that crash
-  recovery via a durable WAL is “future work” once this feature ships.
+- **R15 (ubiquitous):** The Developer's Guide, the language reference and the indexed-file
+  internals shall state the guarantee, say that `COMMIT`/`ROLLBACK` are INDEXED-only, and no longer
+  call crash recovery future work.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1 — Committed survives crash:** Run a COBOL program that `OPEN I-O`s a
-  `STORAGE IS DISK` file, `WRITE`s record A, `COMMIT`s, `WRITE`s record B (no
-  `COMMIT`), then **kill the process** mid-run. Reopen the file in a fresh
-  process: record A is readable; record B is **absent**. FILE STATUS `00` on
-  successful reads.
-- [ ] **AC2 — Rollback boundary matches crash discard:** Same as AC1 but call
-  `ROLLBACK` instead of crash before reopen — observable file contents **match**
-  the post-crash reopen from AC1.
-- [ ] **AC3 — In-run ROLLBACK still works:** Without crash, existing
-  `test_transactions.rs` and `tests/cobol/fileio/idx_tx.cbl` (or successor)
-  continue to pass on the default disk engine.
-- [ ] **AC4 — No index corruption:** After AC1, `START`/`READ NEXT` walks keys in
-  ascending order with no duplicates, gaps, or FILE STATUS `90`/`30` anomalies
-  beyond the pre-crash committed set.
-- [ ] **AC5 — Default is redb:** With no engine flag, AC1 uses the **redb**
-  substrate (verify via log or engine introspection hook in tests).
-- [ ] **AC5b — Legacy rust engine:** Repeat AC1 with `--indexed-engine rust` after
-  WAL ships; post-reopen contents match AC1.
-- [ ] **AC6 — COMMIT fsync semantics:** After `COMMIT`, yanking power (simulated
-  by immediate `kill -9` before further I/O) shall not lose committed records
-  (AC1 committed half).
-- [ ] **AC7 — Corrupt WAL fails closed:** Deliberately truncate or corrupt the WAL
-  sidecar/container; `OPEN` returns status **`90`** (or documented corrupt
-  status), not partial reads of torn data.
-- [ ] **AC8 — Docs updated:** `developers-guide-en.md` §14, `cobol85-supported-syntax.md`
-  (COMMIT/ROLLBACK bullet), and `indexed-file-internals.md` §8 reflect durable
-  crash recovery; “future work” removed.
-- [ ] **AC9 — MEMORY WITH PERSISTENCE reload:** After `CLOSE` persists a MEMORY
-  file, start a new run that mutates the in-RAM image **without** `CLOSE`, kill
-  the process, then `OPEN` again: the file contents match the **last `CLOSE`
-  snapshot** on disk, not the uncommitted mutations from the killed run.
-- [ ] **AC10 — Full suite:** `cargo test -p cobolt-runtime` (indexed + transactions)
-  and relevant `tests/cobol/fileio/` programs pass with quantified results
-  reported.
+- [x] **AC1 — Committed survives, uncommitted does not (R1, R2).** A real `rcrun` process
+  `OPEN I-O`s a `STORAGE IS DISK` file, `WRITE`s a record, `COMMIT`s, then `WRITE`s, `REWRITE`s
+  and `DELETE`s without committing, and is killed with `SIGKILL`. A fresh process opens the file:
+  the committed record is there, the uncommitted `WRITE` is absent, the `REWRITE` and `DELETE`
+  are undone. *Proof: `indexed_crash_recovery::a_kill_leaves_the_file_at_its_last_commit`, on
+  `rust` and `redb`.*
+- [x] **AC2 — Rollback and crash leave the same file (R5).** *Proof: `a_rollback_and_a_kill_leave_the_same_file`.*
+- [x] **AC3 — In-run `ROLLBACK` still works (R8).** *Proof: `test_transactions`, `test_indexed`,
+  `test_fileio_storage` and the `indexed_disk` unit tests, green (§8).*
+- [x] **AC4 — No index corruption (R2).** After a kill, `START`/`READ NEXT` walks the keys in
+  ascending order with no repeat, gap or anomalous status. *Proof: the same harness reads every
+  record after recovery; the unit tests check strict ascent over 1 500 records.*
+- [x] **AC5 — The default is `PRCIDXD1`; `redb` is by name (R6).** *Proof: `IndexedEngine::default()`
+  is `Rust` (`cobolt-runtime/src/indexed.rs`); the harness runs both engines by name.*
+- [x] **AC5b — `PRCIDXD1` after a kill, however big the transaction (R3).** 2 500 uncommitted
+  `WRITE`s of 1 020 bytes (about 630 pages, against a spill every 256) and a kill leave the three
+  committed records, not 2 194. *Proof: `a_big_uncommitted_transaction_does_not_survive_a_kill`,
+  on both engines.*
+- [x] **AC6 — `COMMIT` is durable (R4).** A kill after `COMMIT` loses nothing committed. *Proof:
+  AC1's committed record; unit `a_spilled_transaction_that_commits_survives_a_crash`.*
+- [x] **AC7 — A damaged journal fails closed (R13).** A journal cut below the images it certified
+  makes `OPEN` answer `90` with both files byte-identical to before; restored, the same `OPEN`
+  recovers. A flipped bit inside a certified image, and a header that is neither readable nor
+  blank, answer `90`; a torn tail and a zero-filled header are not damage. *Proof:
+  `a_damaged_recovery_journal_fails_the_open_with_90_and_touches_nothing` (real processes) and
+  the six journal unit tests.*
+- [x] **AC8 — Docs (R15).** *Proof: Developer's Guide, *Crash-safe transactions* and the engine
+  table; `cobol85-supported-syntax-en.md`, COMMIT/ROLLBACK bullet (the "future work" sentence is
+  gone); `indexed-file-internals-en.md` §8; `indexed-redb-engine-en.md` (the comparison table).*
+- [x] **AC9 — `MEMORY WITH PERSISTENCE` reloads the last `CLOSE` (R11).** *Proof:
+  `a_memory_file_with_persistence_reloads_its_last_close_after_a_kill`.*
+- [x] **AC10 — Full suite (R8).** *See §8.*
 
 ## 6. Constraints & steering check
 
 | Steering constraint | Impact |
-|---------------------|--------|
-| **i18n (6 languages)** | None — no new IDE UI strings anticipated. Tracing/log messages are English diagnostic text. |
-| **Generated-code contract** | None — no form/codegen changes. |
-| **English docs only** | **Yes** — update `developers-guide-en.md`, `cobol85-supported-syntax.md`, `indexed-file-internals.md`, optionally `indexed-redb-engine.md` (clarify default vs redb). Do **not** edit translation guides. |
-| **Fix vs feature** | **Feature** — new durability guarantee for default engine. Bump minor version in `version.rs` + `CHANGELOG.md` entry. |
-| **Tests: verify-first** | Crash tests must **kill** a real child process and **reopen** the file; do not assert recovery without performing the crash step. |
-| **No "cobolt" in user-facing text** | Docs use PowerRustCOBOL / RustCOBOL only. |
-| **Code registry** (`specs/steering/docs.md`) | Rows for `cobol85-supported-syntax.md`, `indexed-file-internals.md`, `developers-guide-en.md` §14 — update in `/docsync` after implement. |
+|---|---|
+| **i18n (6 languages)** | None — no IDE strings. |
+| **Generated-code contract** | None. |
+| **English docs only** | Updated the English canonical of four documents; none has translations in the tree. |
+| **Fix vs feature** | **Fix** (operator, 2026-10-15), by the same reasoning as cross-process file locking (1.70.21): a verb doing half of what it says — `COMMIT` and a crash — is technical debt, not a capability. `fixes` branch, a `z` bump. Part 1 is history. |
+| **Tests: verify-first** | The crash tests kill a real child process and reopen the file; nothing is asserted about recovery without the kill. |
+| **No "cobolt" in user-facing text** | The documents say PowerRustCOBOL / RustCOBOL / `rcrun`. |
 
-## 7. Open questions
+## 7. Decisions (the draft's open questions, answered by the build)
 
-- **Q1 — WAL placement:** Should the durable log live in a **sidecar file**
-  (`<assign-path>.wal`), an **embedded region** in `PRCIDXD1`, or both (embedded
-  metadata + sidecar for IO efficiency)? Preference affects backup/copy semantics.
-- **Q2 — Container version bump:** Can recovery be added **without** bumping
-  `PRCIDXD1` magic/layout, or is a `PRCIDXD2` with automatic migration on first
-  `OPEN` required for existing deployments?
-- **Q3 — Uncommitted page writes today:** The current disk engine may write btree
-  pages before `COMMIT`. Does implementation require **write-ahead only** (no
-  in-place commit of data pages until WAL replay) or is **checkpoint + undo in
-  WAL** sufficient? (/plan must profile current flush points.)
-- ~~**Q4 — MEMORY WITH PERSISTENCE:**~~ **Resolved (R10):** no WAL for MEMORY;
-  reload last `CLOSE` snapshot on reopen after crash; ephemeral sessions are not
-  recovered.
-- **Q5 — Performance budget:** Is one `fsync` per COBOL `COMMIT` acceptable for
-  the default engine, or is batching/group-commit required for workloads with
-  frequent commits?
-- **Q6 — Compression interaction:** For `STORAGE IS DISK WITH COMPRESSION`, must
-  WAL entries store uncompressed record images (for replay), matching how undo
-  works today?
+- **Q1 — Where does the log live, and what is in it?** A **sidecar**, `<container>.jrn`, as the
+  default engine already had — but of **page images**, not logical operations. The container is
+  page-oriented and its operations touch a data page, a leaf per key, sometimes a split, a
+  directory leaf and the header; the undo of *all* of them is the earlier image of each page, which
+  is exactly what is needed to put a half-written container back and is independent of what
+  operation wrote it. A logical log would have to be replayed through the B+tree code in the
+  state of a half-written file.
+- **Q2 — Does the container version bump?** No. The container is unchanged; only the journal has a
+  new form, `PRCJRN02`, and the earlier one is still read (R14).
+- **Q3 — Does the engine write pages before `COMMIT`?** Not in the common case: a transaction's
+  pages are held in a write set and reach the container only behind their journal. Once the write
+  set reaches 256 pages it is *spilled* — journaled and written — and, since 1.91.176, the journal
+  stays. A page the transaction adds, past the end of the container as it was, needs no image
+  (recovery cuts the file back to its original length), so a load that mostly appends keeps a journal
+  of a few pages: 254 pages added, 3 images journaled.
+- ~~**Q4 — MEMORY WITH PERSISTENCE:**~~ R10/R11: no log; the last `CLOSE` snapshot is reloaded
+  (proved by AC9).
+- **Q5 — Performance.** A `COMMIT` that fits the write set costs what it cost: journal and `fsync`,
+  pages and `fsync`, remove the journal. A spill is paid once per 256 pages and costs two more
+  `fsync`s and the directory entry of a journal that is going to be long-lived. See §8 for the
+  measurement.
+- **Q6 — Compression.** Irrelevant to the journal: it holds page images, which are the bytes the
+  container holds (already compressed).
 
----
+## 8. Results
 
-**Next step:** Review this spec. When approved, run **`/plan`** to design WAL
-layout, engine changes in `indexed_disk.rs`, tests (including process-kill
-harness), and doc updates. Do **not** implement until `plan.md` and `tasks.md`
-are approved.
+*(measured 2026-10-16, on a clean build of the `fixes` tree)*
+
+- `cobolt-runtime`: 1 460 tests passed, 0 failed (28 ignored), among them the 54 of `indexed_disk` — the
+  40 earlier ones and 14 for the transaction journal: a crash with a spilled transaction is undone (the
+  container 8 → 262 pages while uncommitted, 3 page images journaled, back to 8 pages); an update
+  transaction that journaled 312 page images is undone **to the byte**; a crash part-way through a later
+  spill is undone; commit and rollback after a spill leave no journal.
+- `cobolt-cli`: 42 passed, 0 failed (3 ignored), among them `indexed_crash_recovery`, 6 tests with real
+  `rcrun` processes and `SIGKILL`, the same program on `rust` and `redb`. Before the change the
+  630-page uncommitted transaction left **2 194** records on `rust`; after it, 3, as on `redb`.
+- Commit cost (release builds, median of 5): 300 x (`WRITE`, `COMMIT`) 2.98 s before, 2.87 s after; one
+  transaction of 100 000 `WRITE`s (about a dozen spills) 3.94 s before, 3.78 s after. No regression.

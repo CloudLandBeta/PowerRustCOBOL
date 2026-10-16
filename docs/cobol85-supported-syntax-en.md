@@ -758,8 +758,11 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   keeps `COMMIT`/`ROLLBACK` purely in RAM (never writes to disk); a plain
   `STORAGE IS MEMORY` file is read-only (`OPEN INPUT` only; other modes return
   status 37), and `STORAGE IS MEMORY WITH PERSISTENCE` saves to disk on `CLOSE`
-  only. (Crash-recovery via a durable write-ahead log is
-  future work — this is in-run, program-level rollback.)
+  only. **Crash recovery:** if the process ends abnormally, a `STORAGE IS DISK`
+  file is back at its last `COMMIT` (or its `OPEN`) the next time it is opened
+  for writing — what was written, rewritten or deleted since is discarded, however
+  much of it there was — on both the default engine and `redb`; see the
+  Developer's Guide, *Crash-safe transactions*.
 - ✅ **`SELECT … STORAGE [MODE] IS MEMORY | DISK [WITH COMPRESSION] [WITH
   PERSISTENCE]`** (INDEXED files; PowerRustCOBOL extension). Default storage is
   `DISK`. `WITH COMPRESSION` compresses the stored record (keys evaluated on the

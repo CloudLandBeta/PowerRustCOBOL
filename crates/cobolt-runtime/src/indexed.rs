@@ -136,6 +136,13 @@ pub enum IndexedEngine {
     /// OTHER`); that is enforced across run units since 1.70.21 and reports
     /// file status 93. The trade is crash safety for concurrency, and it is the
     /// developer's to make per file — see the Indexed File editor.
+    ///
+    /// Crash safety is not what is traded away. Since 1.91.176 a crash returns
+    /// a `STORAGE IS DISK` file on this engine to its last `COMMIT` however big
+    /// the uncommitted transaction was (its recovery journal now lasts as long
+    /// as the transaction), which is the same answer [`Self::Redb`] gives. What
+    /// redb still has is O(1) `OPEN` and a copy-on-write ACID design; what this
+    /// engine has is concurrent access.
     #[default]
     Rust,
     /// RM/COBOL-85 indexed files (delegates to the Rust engine for now).

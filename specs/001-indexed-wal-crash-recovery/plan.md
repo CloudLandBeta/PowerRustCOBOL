@@ -1,139 +1,92 @@
-# Plan — INDEXED crash recovery + redb as default
+# Plan — INDEXED crash recovery to the last `COMMIT`
 
-- **Status:** draft
-- **Spec:** ./spec.md   **Date:** 2026-06-15
+- **Status:** implemented. Rewritten 2026-10-15 to the plan that was carried out; the draft of
+  2026-06-15 (a logical sidecar WAL, and `redb` as the default engine) is superseded — see §4.
+- **Spec:** ./spec.md   **Date:** 2026-06-15   **Rewritten:** 2026-10-15
 
 ## 1. Approach
 
-Deliver R1–R16 in **two tracks** that can land in one release but are independently
-testable:
+Two tracks, independently testable.
 
-### Track A — Make redb the default (closes #1 for the common case)
+### Track A — the `redb` engine (shipped 1.10.0–1.11.0; no work in this change)
 
-redb already provides durable `COMMIT`/`ROLLBACK` and crash recovery via its ACID
-write transactions ([`indexed_redb.rs`](../../crates/cobolt-runtime/src/indexed_redb.rs)).
-Change the runtime default so `STORAGE IS DISK` uses redb without flags.
+redb already provides durable `COMMIT`/`ROLLBACK` through its ACID write transactions
+([`indexed_redb.rs`](../../crates/cobolt-runtime/src/indexed_redb.rs)). Making it the default
+(1.62.73) was **reversed by the operator on 2026-09-14 (1.70.24)** because a redb container takes
+`flock(LOCK_EX)` for a writer: exactly one process may write one, where `PRCIDXD1` admits
+concurrent readers and writers. `IndexedEngine::default()` is `Rust`. This change's work for the
+track is a test that holds `redb` to the same crash requirement as the default engine
+(`indexed_crash_recovery`, §6) — it passed without a change to the engine.
 
-| Change | Detail |
-|--------|--------|
-| Default enum | `IndexedEngine::default()` → `Redb`; update `parse("default")` tests |
-| Interpreter | `Interpreter::indexed_engine` field default → `Redb` |
-| CLI | `rcrun` help text: redb is default; `rust` opens `PRCIDXD1` |
-| Docs | README, developers-guide §14, `indexed-redb-engine.md`, `cobol85-supported-syntax.md` |
+### Track B — `PRCIDXD1` returns to the last `COMMIT` after a crash (this change)
 
-**Compatibility:** redb and `PRCIDXD1` use **different on-disk formats** at the same
-`ASSIGN` path. Existing `PRCIDXD1` files **cannot** be opened by redb. Programs with
-legacy files must pass `--indexed-engine rust` until recreated or migrated. Document
-this prominently; detect `PRCIDXD1` magic on `OPEN` with redb selected and return
-status **`39`** (or **`90`**) with a clear tracing message.
+What the draft assumed, and what the code was. The draft proposed a sidecar *logical* WAL. The
+engine already had, since 1.70.32, a **physical undo journal**: a transaction's changed pages are
+held in a write set (`dirty`) in memory; at a commit point the *previous* image of every one of
+them is written to `<container>.jrn` and made durable, the pages and the header are written, and
+**removing the journal is the commit point**. A crash anywhere inside that sequence is undone in
+full on the next `OPEN`. Measured against the spec, that satisfies R1–R5 for any transaction that
+fits the write set — and fails them for one that does not: when the write set reached
+`CHECKPOINT_PAGES` (256 pages, 1 MiB) the engine took a **commit point of its own**, so a crash
+found every such slice durable though the program had never committed it. On 1.91.175, 2 500
+uncommitted `WRITE`s (630 pages) and a `SIGKILL` left **2 194** records; `redb` left the three
+that were committed.
 
-### Track B — Durable WAL for legacy `PRCIDXD1` (`--indexed-engine rust`)
+The change is to make a slice a **spill** instead of a commit point:
 
-For users who keep the bespoke engine, add a **write-ahead log** so R3–R5 hold
-without relying on the in-memory `undo` vec alone ([`indexed_disk.rs`](../../crates/cobolt-runtime/src/indexed_disk.rs)
-§undo).
+| Piece | Detail |
+|---|---|
+| `tx_spill()` / `tx_flush(spill)` | Journals the write set, writes it to the container, syncs — and **keeps** the journal. `tx_commit()` is the same call with `spill = false`: it finishes by removing the journal. |
+| Journal `PRCJRN02` | `magic · two checksummed slots (seq, pages, certified) · records (id, crc32, 4 KiB image)`. `pages` is the container's length when the transaction began; recovery cuts the file back to it. |
+| What is journaled | The image a page had *when the transaction began*, once. A page past the original end of the container needs none (a bulk load that adds 254 pages journals 3). A page already journaled is never journaled again from the intermediate state a spill left. |
+| Certification | After a batch of records is appended and `fsync`ed, `certified` is advanced in the slot the newer one is not, and `fsync`ed again — *before* the container is touched for the batch. A one-shot commit journal (the common case) is never certified and costs what it cost. |
+| Recovery | Replay every valid record newest-first, cut the file, sync, remove. A torn tail is ignored. Fewer valid records than `certified`, or a header that is neither readable nor all-zero → `OPEN` answers 90 and touches nothing. `PRCJRN01` journals are still read. |
+| Durability of the directory entry | A journal that outlives its first commit point is created, and later removed, with the directory entry synced too. |
 
-High-level WAL design (to detail in tasks):
+## 2. Affected files
 
-1. **Sidecar WAL** at `<assign-path>.wal` (keeps `PRCIDXD1` container unchanged;
-   resolves Q1; backup semantics are copy data + wal together).
-2. Log **logical operations** (insert/update/delete with record image + key) at
-   mutation time; mark **committed** on COBOL `COMMIT` / `CLOSE`.
-3. On `OPEN`, if WAL has uncommitted entries after crash, **discard** them
-   (rollback to last commit boundary — matches AC1).
-4. `ROLLBACK` in-process continues to use the in-memory undo log (fast path); WAL
-   tracks the same boundaries for crash recovery.
-5. `fsync` WAL + data header on `COMMIT` (Q5: one fsync per COBOL `COMMIT` v1).
-
-Profile Q3 during implementation: today btree/data pages may be written before
-`COMMIT`; WAL must make recovery correct regardless (redo only committed entries,
-or shadow writes until commit).
-
-### MEMORY (R11–R12)
-
-No WAL. Ephemeral MEMORY unchanged. `WITH PERSISTENCE`: reload last `CLOSE`
-snapshot on reopen after crash (verify / fix if gap).
-
-## 2. Affected crates / files
-
-| File | Track | Change |
-|------|-------|--------|
-| `crates/cobolt-runtime/src/indexed.rs` | A | `IndexedEngine::default()`, `#[default]` on `Redb` |
-| `crates/cobolt-runtime/src/interpreter.rs` | A,B | Default engine; optional format sniff on OPEN |
-| `crates/cobolt-runtime/src/indexed_disk.rs` | B | WAL module integration, recovery on OPEN, COMMIT fsync |
-| `crates/cobolt-runtime/src/indexed_redb.rs` | A | Module docs (no longer “opt-in”) |
-| `crates/cobolt-runtime/src/indexed_log.rs` | A | Unchanged; redb log already supported |
-| `crates/cobolt-cli/src/main.rs` | A | Help text, default engine resolution |
-| `crates/cobolt-runtime/tests/test_indexed_redb.rs` | A | Run fixtures **without** `--indexed-engine redb` |
-| `crates/cobolt-runtime/tests/test_transactions.rs` | A,B | Default + rust engine paths |
-| New `crates/cobolt-runtime/tests/test_indexed_wal_crash.rs` | B | kill -9 child process harness |
-| `tests/cobol/fileio/*.cbl` | A,B | Document engine flags where needed |
-| `docs/developers-guide-en.md` §14 | A,B | Default engine, engine table, crash guarantee |
-| `docs/indexed-redb-engine.md` | A | Default, not opt-in |
-| `docs/indexed-file-internals.md` §8 | B | WAL replaces “future work” for rust engine |
-| `docs/cobol85-supported-syntax.md` | A,B | COMMIT/ROLLBACK bullet |
-| `README.md` | A | Indexed engine default, `--indexed-engine rust` for legacy |
-| `CHANGELOG.md` + `version.rs` | A,B | Feature minor bump |
+| File | Change |
+|---|---|
+| `crates/cobolt-runtime/src/indexed_disk.rs` | The journal section, `op_finish`, `tx_commit`/`tx_spill`/`tx_flush`, recovery for both journal forms, `needs_undo_image`, 14 unit tests, two test-only crash helpers |
+| `crates/cobolt-runtime/src/indexed.rs` | Doc comment of `IndexedEngine::Rust` (crash safety is not what it trades away) |
+| `crates/cobolt-cli/tests/indexed_crash_recovery.rs` | New: real `rcrun` processes and `SIGKILL`, both engines |
+| `docs/developers-guide-en.md`, `docs/cobol85-supported-syntax-en.md`, `docs/indexed-file-internals-en.md`, `docs/indexed-redb-engine-en.md` | The guarantee, the notes, the engine table |
+| `CHANGELOG.md`, `crates/cobolt-ide/src/version.rs` | 1.91.176 |
 
 ## 3. Data / model changes
 
 | Artifact | Change |
-|----------|--------|
-| `PRCIDXD1` container | **Unchanged** (WAL is sidecar) |
-| `<assign>.wal` | **New** sidecar for rust engine; created on first mutating OPEN |
-| redb database file | Becomes default on-disk shape for new DISK INDEXED files |
-| `IndexedEngine` default | `Rust` → `Redb` |
-| `parse("default")` | Maps to `Redb` (keep `rust`/`native` aliases → `Rust`) |
+|---|---|
+| `PRCIDXD1` container | **Unchanged.** |
+| `<container>.jrn` | New form `PRCJRN02`; `PRCJRN01` still recovered. Exists for the life of a transaction that has changed the container, not for the length of one commit. |
+| redb file | Unchanged. |
+| `IndexedEngine` default | Unchanged: `Rust`. |
 
-No `.cfrm` / codegen changes. No `cobolt.toml` schema change.
-
-## 4. Key decisions & alternatives
+## 4. Decisions and alternatives
 
 | Decision | Why | Rejected |
-|----------|-----|----------|
-| **redb as default** | Already crash-safe, scales to large files; closes #1 immediately for new work | Building WAL first then switching default later (slower user benefit) |
-| **WAL sidecar for `PRCIDXD1`** | Avoids `PRCIDXD2` migration of data pages (Q2 deferred) | Embedded WAL region in page 0 (tight space, complex) |
-| **Keep `rust` engine** | Existing `PRCIDXD1` deployments + zero redb dependency path for debugging | Remove bespoke engine entirely (breaks legacy files) |
-| **No auto PRCIDXD1→redb migration** | Large scope; risk of silent data transform | Auto-convert on OPEN (follow-up feature) |
-| **Discard uncommitted WAL on crash** | Matches spec AC1 / user expectation | Replay uncommitted ops (would violate commit boundary) |
+|---|---|---|
+| Keep the physical undo journal and let it span the transaction | It is what the engine already had, it protects against a half-written container whatever operation wrote it, and it makes R3 true with a change of one function's meaning | A logical WAL of records: replaying it needs the B+tree code to run on a half-written file |
+| Certify with a second `fsync` only for journals that outlive a commit point | A one-shot commit journal cannot be truncated by a crash (the container is untouched until it is durable) | Certifying every journal: +1 `fsync` per `COMMIT` for no gain |
+| Two slots for the certified count | A torn in-place update of one slot leaves the other | One slot: a crash during the update could fail an `OPEN` of a sound file |
+| Do not hold the whole transaction in memory instead | Bounded memory is why the engine spills at all | Raising `CHECKPOINT_PAGES`: moves the cliff, does not remove it |
+| Leave `redb` opt-in | Operator ruling 2026-09-14 (concurrency) | Re-promoting it |
 
-## 5. Risks & mitigations
+## 5. Risks
 
 | Risk | Mitigation |
-|------|------------|
-| Legacy `PRCIDXD1` files break when default switches to redb | Docs + `--indexed-engine rust`; optional OPEN sniff with clear status `39`/`90` |
-| WAL + early page writes race (Q3) | Integration tests AC1–AC4; WAL records logical ops, recovery replays only committed epochs |
-| redb adds ~dependency surface | Already in workspace; default aligns with “safety paramount” product goal |
-| Performance regression on small files | redb OPEN is faster; WRITE ~44 µs/record documented; accept or tune cache |
-| Test flakiness on kill -9 | Dedicated child-process harness with tempdir; retry policy in test only |
+|---|---|
+| A long transaction's journal grows with the pages of *existing* data it changes (4 KiB each) | Documented in the Guide; appends are cheap by construction (3 images for 254 new pages) |
+| A journal removal that is not durable would undo a committed transaction after a power cut | The directory is synced after removing a journal that outlived a commit point |
+| An old release meeting a `PRCJRN02` journal deletes it as unknown | Only a crash leaves one, and only a downgrade after a crash meets it; the container format is unchanged, so no version gate is possible. Stated in the CHANGELOG |
+| Performance of a commit-heavy program | Unchanged path (§ spec 8) |
 
 ## 6. Test strategy
 
-### Track A (redb default)
-
-- `cargo test -p cobolt-runtime test_indexed_redb` — run with **no** engine flag.
-- `idx_crud.cbl`, `idx_tx.cbl`, `idx_persist.cbl` via `rcrun` default → identical DISPLAY.
-- AC1 crash test with **default** engine (committed survives, uncommitted discarded).
-- Assert `IndexedEngine::default() == Redb`.
-
-### Track B (PRCIDXD1 WAL)
-
-- AC1–AC4 with `--indexed-engine rust` + kill -9 between WRITE B and COMMIT.
-- AC7 corrupt/truncate `.wal` → OPEN status `90`.
-- Existing `test_transactions.rs` green on rust engine post-WAL.
-- `WITH COMPRESSION` file: WAL stores uncompressed images (R/Q6).
-
-### Manual
-
-- Open developers-guide §14; confirm engine table shows redb default.
-- Open existing `PRCIDXD1` sample with default engine → expect clean failure message;
-  repeat with `--indexed-engine rust` → succeeds.
-
-## 7. Steering compliance
-
-- [x] i18n: no new IDE UI strings
-- [x] Generated-code contract: unchanged
-- [x] English docs: developers-guide §14, indexed-* docs, cobol85-supported-syntax, README, CHANGELOG
-- [x] Fix vs feature: **feature** → minor version bump
-- [x] Verify-first: crash tests must actually kill child process
-- [x] No "cobolt" in user-facing text
+- Unit (`indexed_disk`): spill + crash undone; commit after a spill survives; rollback after a spill;
+  a bulk load keeps a small journal; an update transaction undone **to the byte**; a crash in the
+  middle of a later spill; the journal cut below its certified records, a flipped bit in a certified
+  image, a torn tail, a damaged header, a zero-filled header.
+- Real processes (`cobolt-cli/tests/indexed_crash_recovery.rs`): kill between `COMMIT`s; `ROLLBACK`
+  vs kill; a 630-page uncommitted transaction; new work after a kill; a damaged journal (`90`, files
+  byte-identical, then restored); `MEMORY WITH PERSISTENCE`. `rust` and `redb` run the same program.

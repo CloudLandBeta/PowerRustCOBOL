@@ -101,20 +101,44 @@ const DIR_IDX_FAN: u64 = 510; // 16 + 510 ×  8 = 4096
 /// the table, so 8 pages / 32 KiB at the very top of the `u64` RecordId space.
 const DIR_CACHE_MAX: usize = 8;
 
-/// How many changed pages may accumulate before a commit point is forced.
+/// How many changed pages may accumulate before the write set is **spilled** to the container.
 ///
-/// This is the whole durability/throughput dial, and it is set by measurement.
-/// A commit costs two `fsync`s, and an `fsync` on the machine this was tuned on
-/// costs about 3.4 ms — so committing after every `WRITE` turned 2000 records
-/// from 0.53 s into 20.63 s. Committing every 256 changed pages (1 MiB) puts it
-/// back, bounds what an abend can cost, and bounds the write set with it.
+/// This bounds the memory a transaction holds, and it is set by measurement. A
+/// checkpoint costs `fsync`s, and an `fsync` on the machine this was tuned on
+/// costs about 3.4 ms — so checkpointing after every `WRITE` turned 2000 records
+/// from 0.53 s into 20.63 s. Spilling every 256 changed pages (1 MiB) puts it
+/// back and bounds the write set.
 ///
-/// A program that wants a tighter guarantee already has the verb for it:
-/// `COMMIT` is a commit point, and so is `CLOSE`.
+/// A spill is *not* a commit point of the program's: the journal that can undo
+/// it stays until the program's `COMMIT` or `CLOSE`, so this number decides how
+/// much memory a long transaction uses and never how much of it a crash keeps.
 const CHECKPOINT_PAGES: usize = 256;
 
-/// Magic of the sidecar undo journal, `<container>.jrn`.
+/// Magic of the sidecar undo journal as it was written until 1.91.176, `<container>.jrn`: a count and
+/// that many page images, written whole before a commit point and removed after it. Still read, so a
+/// crash that left one is recovered by the release that replaces it; never written.
 const JRN_MAGIC: &[u8; 8] = b"PRCJRN01";
+
+/// Magic of the **transaction journal**, `<container>.jrn`, which records what the container held
+/// when the COBOL transaction began, for as long as the transaction lasts. See
+/// [`DiskIndexedFile::tx_spill`].
+///
+/// ```text
+/// magic    8   "PRCJRN02"
+/// slot A  32   seq u64 · pages u64 · certified u64 · crc32 u32 · pad u32
+/// slot B  32   (the same; the newer valid slot counts)
+/// records      id u64 · crc32 u32 · page image 4096          — as many as were appended
+/// ```
+///
+/// `pages` is the container's length, in pages, when the transaction began: recovery cuts the file
+/// back to it, so a transaction that spilled new pages leaves none behind. `certified` is how many
+/// records are known durable — it is advanced, in the slot the newer one is *not*, only after the
+/// records it counts have been `fsync`ed and before the container is touched for them.
+const JRN2_MAGIC: &[u8; 8] = b"PRCJRN02";
+const JRN2_SLOT: usize = 32;
+const JRN2_HEAD: usize = 8 + 2 * JRN2_SLOT;
+/// One journal record: page id, checksum of the image, the image.
+const JRN_REC: usize = 8 + 4 + PAGE_SIZE;
 
 /// The container version this engine writes. See [`DiskIndexedFile::migrate`]
 /// for what separates 3 from 2; version 4 adds the record definition.
@@ -292,9 +316,9 @@ pub struct DiskIndexedFile {
     /// **A write set, not a page cache.** It exists for one reason: these pages
     /// must not reach the container until the journal that can undo them is
     /// durable, and that ordering is impossible if every page write goes
-    /// straight through. It is emptied at every commit point, and a commit
-    /// point is forced once it reaches [`CHECKPOINT_PAGES`], so it is bounded
-    /// by that number and never by the size of the container.
+    /// straight through. It is emptied at every commit point and at every spill,
+    /// and a spill is forced once it reaches [`CHECKPOINT_PAGES`], so it is
+    /// bounded by that number and never by the size of the container.
     dirty: std::collections::BTreeMap<u64, Vec<u8>>,
     /// The image each page in `dirty` had on disk before it was first touched,
     /// in that order. This is the undo journal's payload.
@@ -312,6 +336,21 @@ pub struct DiskIndexedFile {
     /// operation that fails part-way can put memory back the way the rest of
     /// the transaction still has it.
     op_snapshot: Option<HeaderState>,
+
+    /// The transaction journal has been created and outlives one commit point: a spill has
+    /// happened since the last `COMMIT`/`OPEN`, and the container holds changes the program has not
+    /// committed. Cleared only when the journal is removed.
+    jrn_live: bool,
+    /// The journal, while it is live.
+    jrn_file: Option<File>,
+    /// The container's length in pages when the transaction began (journal slot `pages`).
+    jrn_orig_pages: u64,
+    /// Pages whose original image is already in the journal.
+    jrn_ids: std::collections::HashSet<u64>,
+    /// Records appended to the journal so far.
+    jrn_records: u64,
+    /// Sequence number of the newest slot written.
+    jrn_seq: u64,
 
     /// A durability step — `fsync`, or the header/directory write that precedes
     /// it — has failed since this file was opened.
@@ -541,6 +580,12 @@ impl DiskIndexedFile {
             in_tx: false,
             in_op: false,
             op_snapshot: None,
+            jrn_live: false,
+            jrn_file: None,
+            jrn_orig_pages: 0,
+            jrn_ids: std::collections::HashSet::new(),
+            jrn_records: 0,
+            jrn_seq: 0,
             dir_root: 0,
             dir_height: 0,
             dir_count: 0,
@@ -624,7 +669,7 @@ impl DiskIndexedFile {
             // The undo image is what the *container* holds, so it is taken
             // once, the first time a page is touched after a commit point —
             // not again by a later operation in the same transaction.
-            if !self.op_dirty.contains_key(&id) && !self.dirty.contains_key(&id) {
+            if !self.op_dirty.contains_key(&id) && !self.dirty.contains_key(&id) && self.needs_undo_image(id) {
                 let old = self.read_page_raw(id)?;
                 self.op_undo.push((id, old));
             }
@@ -632,7 +677,7 @@ impl DiskIndexedFile {
             return Ok(());
         }
         if self.in_tx {
-            if !self.dirty.contains_key(&id) {
+            if !self.dirty.contains_key(&id) && self.needs_undo_image(id) {
                 let old = self.read_page_raw(id)?;
                 self.undo_pages.push((id, old));
             }
@@ -680,7 +725,7 @@ impl DiskIndexedFile {
         Ok(())
     }
 
-    // ── The per-operation undo journal ───────────────────────────────────────
+    // ── The transaction journal ──────────────────────────────────────────────
     //
     // One `WRITE`, `REWRITE` or `DELETE` touches several pages — a data page,
     // one B+tree leaf per key, sometimes a split, a directory leaf, the header.
@@ -689,18 +734,29 @@ impl DiskIndexedFile {
     // the roots, the free list and the record count still described the file as
     // it had been.
     //
-    // So the operation's pages are held back until the **previous** image of
+    // So a transaction's pages are held back until the **previous** image of
     // every one of them is on disk in `<container>.jrn`, and only then written.
-    // The sequence is: journal + fsync, pages + fsync, header + fsync, remove
-    // the journal. Three fsyncs, whatever the operation touched.
-    //
-    // **Removing the journal is the commit point**, not the header write. A
+    // The journal is made durable first; the pages, then the header, follow; and
+    // **removing the journal is the commit point**, not the header write. A
     // crash anywhere before that removal is undone in full — header included —
-    // which is the only placement that never leaves the container in a state
-    // no header describes. The cost is a window of microseconds in which an
-    // operation already answered `00` can still be undone; the alternative is
-    // an old header pointing at pages an operation has already rewritten in
-    // place, which is corruption rather than a lost record.
+    // which is the only placement that never leaves the container in a state no
+    // header describes.
+    //
+    // For a transaction that fits the write set that is the whole story: one
+    // journal, written, used and removed inside one commit. A transaction that
+    // does *not* fit — a batch that writes thousands of records before the
+    // program's `COMMIT` — used to be committed in slices of
+    // [`CHECKPOINT_PAGES`], so a crash found every slice but the last durable
+    // though the program had never committed them. Now a slice is a **spill**
+    // ([`Self::tx_spill`]): the pages reach the container, still behind their
+    // journal, and the journal stays until the program commits. Whatever a
+    // crash finds in the container, recovery puts it back to what it held when
+    // the transaction began — which is the last `COMMIT`, or the `OPEN`.
+    //
+    // What the journal holds is the image each page had *when the transaction
+    // began*, once. A page the transaction added (past the end of the container
+    // as it was) needs none — recovery cuts the file back to its original
+    // length — so a bulk load, which mostly appends, keeps a small journal.
 
     fn journal_path(&self) -> PathBuf {
         let mut s = self.path.clone().into_os_string();
@@ -708,26 +764,132 @@ impl DiskIndexedFile {
         PathBuf::from(s)
     }
 
-    /// Write the undo journal and make it durable.
-    fn journal_write(&mut self, undo: &[(u64, Vec<u8>)]) -> R<()> {
-        let mut b = Vec::with_capacity(16 + undo.len() * (12 + PAGE_SIZE));
-        b.extend_from_slice(JRN_MAGIC);
-        b.extend_from_slice(&(undo.len() as u64).to_le_bytes());
-        for (id, img) in undo {
-            b.extend_from_slice(&id.to_le_bytes());
-            b.extend_from_slice(&crate::indexed::crc32(img).to_le_bytes());
-            b.extend_from_slice(img);
+    /// Whether the first change to page `id` in this transaction needs its
+    /// original image kept.
+    ///
+    /// Before the journal is live every page does (those past the end of the
+    /// container are dropped when it is created). Once it is, only a page that
+    /// was in the container when the transaction began and is not in the
+    /// journal yet: a page this transaction added needs none, and one it
+    /// already journaled must not be journaled again from the intermediate
+    /// state a spill left on disk.
+    fn needs_undo_image(&self, id: u64) -> bool {
+        !self.jrn_live || (id < self.jrn_orig_pages && !self.jrn_ids.contains(&id))
+    }
+
+    /// The container's length now, in pages.
+    fn disk_pages(&mut self) -> R<u64> {
+        Ok(self.file_mut().metadata()?.len().div_ceil(PAGE_SIZE as u64))
+    }
+
+    fn journal_slot(seq: u64, pages: u64, certified: u64) -> [u8; JRN2_SLOT] {
+        let mut b = [0u8; JRN2_SLOT];
+        b[0..8].copy_from_slice(&seq.to_le_bytes());
+        b[8..16].copy_from_slice(&pages.to_le_bytes());
+        b[16..24].copy_from_slice(&certified.to_le_bytes());
+        let sum = crate::indexed::crc32(&b[..24]);
+        b[24..28].copy_from_slice(&sum.to_le_bytes());
+        b
+    }
+
+    fn journal_record(buf: &mut Vec<u8>, id: u64, img: &[u8]) {
+        buf.extend_from_slice(&id.to_le_bytes());
+        buf.extend_from_slice(&crate::indexed::crc32(img).to_le_bytes());
+        buf.extend_from_slice(img);
+    }
+
+    /// Create the journal and make it durable: the images the container holds
+    /// now of the pages about to change, before any of them is written.
+    ///
+    /// With `long_lived` the journal is kept open and stays after this commit
+    /// point (a spill); otherwise it is the one-shot journal of a commit that
+    /// fits, removed by [`Self::journal_finish`].
+    fn journal_create(&mut self, undo: &[(u64, Vec<u8>)], long_lived: bool) -> R<()> {
+        let pages = self.disk_pages()?;
+        let kept: Vec<&(u64, Vec<u8>)> = undo.iter().filter(|(id, _)| *id < pages).collect();
+        let mut b = Vec::with_capacity(JRN2_HEAD + kept.len() * JRN_REC);
+        b.extend_from_slice(JRN2_MAGIC);
+        b.extend_from_slice(&Self::journal_slot(2, pages, 0));
+        b.extend_from_slice(&[0u8; JRN2_SLOT]);
+        for (id, img) in &kept {
+            Self::journal_record(&mut b, *id, img);
         }
-        let mut f = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(self.journal_path())?;
+        let jp = self.journal_path();
+        let mut f = OpenOptions::new().create(true).read(true).write(true).truncate(true).open(&jp)?;
         f.write_all(&b)?;
+        f.sync_all()?;
+        if long_lived {
+            // This journal must survive a crash long after the call that made it, so
+            // its directory entry has to be as durable as its contents.
+            sync_dir(&jp);
+            self.jrn_ids.extend(kept.iter().map(|(id, _)| *id));
+            self.jrn_records = kept.len() as u64;
+            self.jrn_orig_pages = pages;
+            self.jrn_seq = 2;
+            self.jrn_file = Some(f);
+            self.jrn_live = true;
+        }
+        Ok(())
+    }
+
+    /// Add the original images of pages first changed since the last spill.
+    fn journal_append(&mut self, undo: &[(u64, Vec<u8>)]) -> R<()> {
+        if undo.is_empty() {
+            return Ok(());
+        }
+        let mut b = Vec::with_capacity(undo.len() * JRN_REC);
+        for (id, img) in undo {
+            Self::journal_record(&mut b, *id, img);
+        }
+        let at = JRN2_HEAD as u64 + self.jrn_records * JRN_REC as u64;
+        let f = self.jrn_file.as_mut().ok_or_else(|| corrupt("the transaction journal is not open"))?;
+        f.seek(SeekFrom::Start(at))?;
+        f.write_all(&b)?;
+        f.sync_all()?;
+        self.jrn_records += undo.len() as u64;
+        self.jrn_ids.extend(undo.iter().map(|(id, _)| *id));
+        Ok(())
+    }
+
+    /// Declare every record appended so far to be durable. Written into the
+    /// slot the newer one is *not*, and only after the records are on disk and
+    /// before the container is touched for them — so a journal found later with
+    /// fewer valid records than it certified has been truncated or damaged, and
+    /// is refused rather than half-replayed.
+    fn journal_certify(&mut self) -> R<()> {
+        self.jrn_seq += 1;
+        let slot = Self::journal_slot(self.jrn_seq, self.jrn_orig_pages, self.jrn_records);
+        let at = 8 + (self.jrn_seq & 1) * JRN2_SLOT as u64;
+        let f = self.jrn_file.as_mut().ok_or_else(|| corrupt("the transaction journal is not open"))?;
+        f.seek(SeekFrom::Start(at))?;
+        f.write_all(&slot)?;
         f.sync_all()
     }
 
-    /// Remove the journal — the commit point of the operation it describes.
+    /// Remove the journal — the commit point of the transaction it describes.
+    fn journal_finish(&mut self) -> R<()> {
+        let was_long_lived = self.jrn_live;
+        self.jrn_reset();
+        self.journal_clear()?;
+        if was_long_lived {
+            // A long transaction's journal coming back after a power loss would
+            // undo all of it, so the removal is made durable too.
+            sync_dir(&self.journal_path());
+        }
+        Ok(())
+    }
+
+    /// Forget the journal in memory. The file, if there is one, is not touched.
+    fn jrn_reset(&mut self) {
+        self.jrn_live = false;
+        self.jrn_file = None;
+        self.jrn_orig_pages = 0;
+        self.jrn_ids.clear();
+        self.jrn_records = 0;
+        self.jrn_seq = 0;
+    }
+
+    /// Remove the journal file.
     fn journal_clear(&mut self) -> R<()> {
         match std::fs::remove_file(self.journal_path()) {
             Ok(()) => Ok(()),
@@ -736,10 +898,89 @@ impl DiskIndexedFile {
         }
     }
 
-    /// Undo an operation a crash interrupted, if there is one.
+    /// Undo a transaction a crash interrupted, if there is one.
     ///
     /// Runs before the header is read, because the header is one of the pages
     /// it may have to put back.
+    fn journal_recover(&mut self) -> R<()> {
+        let jp = self.journal_path();
+        let Ok(b) = std::fs::read(&jp) else {
+            return Ok(());
+        };
+        if b.len() >= 8 && &b[0..8] == JRN2_MAGIC {
+            return self.journal_recover_v2(&jp, &b);
+        }
+        self.journal_recover_v1(&jp, &b)
+    }
+
+    /// Recover from a transaction journal (`PRCJRN02`).
+    ///
+    /// Every valid record, from the first, is put back, newest first, and the
+    /// container is cut to the length it had. A record that is torn — short, or
+    /// failing its checksum — ends the list: the journal is made durable before
+    /// the container is touched for the records in it, so a torn tail only ever
+    /// describes pages that were never written. What may *not* happen is a
+    /// journal that holds fewer valid records than it certified: those were
+    /// durable, and the container may depend on them, so the open fails with 90
+    /// and leaves both files as they are.
+    fn journal_recover_v2(&mut self, jp: &Path, b: &[u8]) -> R<()> {
+        let slot = |i: usize| -> Option<(u64, u64, u64)> {
+            let o = 8 + i * JRN2_SLOT;
+            let s = b.get(o..o + JRN2_SLOT)?;
+            let sum = u32::from_le_bytes(s[24..28].try_into().unwrap());
+            (crate::indexed::crc32(&s[..24]) == sum).then(|| {
+                (
+                    u64::from_le_bytes(s[0..8].try_into().unwrap()),
+                    u64::from_le_bytes(s[8..16].try_into().unwrap()),
+                    u64::from_le_bytes(s[16..24].try_into().unwrap()),
+                )
+            })
+        };
+        let Some((_, pages, certified)) = [slot(0), slot(1)].into_iter().flatten().max_by_key(|s| s.0) else {
+            // No readable slot. A journal that stopped before its first slot
+            // reached the disk — cut short, or length without contents, as a
+            // file system leaves a file it had not yet written — proves the
+            // container was never touched. Anything else is damage.
+            if b.len() < JRN2_HEAD || b[8..JRN2_HEAD].iter().all(|&x| x == 0) {
+                let _ = std::fs::remove_file(jp);
+                return Ok(());
+            }
+            return Err(corrupt("the recovery journal's header is damaged"));
+        };
+        let mut images = Vec::new();
+        let mut o = JRN2_HEAD;
+        while o + JRN_REC <= b.len() {
+            let id = u64::from_le_bytes(b[o..o + 8].try_into().unwrap());
+            let sum = u32::from_le_bytes(b[o + 8..o + 12].try_into().unwrap());
+            let img = &b[o + 12..o + JRN_REC];
+            if crate::indexed::crc32(img) != sum {
+                break;
+            }
+            images.push((id, img.to_vec()));
+            o += JRN_REC;
+        }
+        if (images.len() as u64) < certified {
+            return Err(corrupt(&format!(
+                "the recovery journal holds {} valid page images but certified {certified}",
+                images.len()
+            )));
+        }
+        for (id, img) in images.iter().rev() {
+            self.write_page_raw(*id, img)?;
+        }
+        // Pages the transaction added are cut away with it.
+        if self.disk_pages()? > pages {
+            self.file_mut().set_len(pages * PAGE_SIZE as u64)?;
+        }
+        self.sync()?;
+        std::fs::remove_file(jp)?;
+        sync_dir(jp);
+        Ok(())
+    }
+
+    /// Recover from an undo journal in the form written until 1.91.176
+    /// (`PRCJRN01`): a count and that many page images, written whole before a
+    /// commit point.
     ///
     /// A journal that is short, or any of whose records fails its checksum, is
     /// **discarded without undoing anything** — and that is not a compromise
@@ -747,12 +988,8 @@ impl DiskIndexedFile {
     /// journal is on disk, so an incomplete journal proves the operation never
     /// began writing. A complete one is replayed whole; restoring a page that
     /// was never modified writes back the bytes already there.
-    fn journal_recover(&mut self) -> R<()> {
-        let jp = self.journal_path();
-        let Ok(b) = std::fs::read(&jp) else {
-            return Ok(());
-        };
-        const REC: usize = 8 + 4 + PAGE_SIZE;
+    fn journal_recover_v1(&mut self, jp: &Path, b: &[u8]) -> R<()> {
+        const REC: usize = JRN_REC;
         // The record count comes from a file a crash may have left in any
         // state, so it is not trusted before it is checked: computing the
         // expected length from a corrupt count overflows, and the wrapped
@@ -762,7 +999,7 @@ impl DiskIndexedFile {
         let count = if b.len() >= 16 && &b[0..8] == JRN_MAGIC {
             u64::from_le_bytes(b[8..16].try_into().unwrap())
         } else {
-            let _ = std::fs::remove_file(&jp);
+            let _ = std::fs::remove_file(jp);
             return Ok(());
         };
         let complete = count
@@ -770,7 +1007,7 @@ impl DiskIndexedFile {
             .and_then(|n| n.checked_add(16))
             .is_some_and(|need| b.len() as u64 >= need);
         if !complete {
-            let _ = std::fs::remove_file(&jp);
+            let _ = std::fs::remove_file(jp);
             return Ok(());
         }
         // Proven in range by `complete`: count * REC + 16 <= b.len().
@@ -784,7 +1021,7 @@ impl DiskIndexedFile {
             if crate::indexed::crc32(img) != sum {
                 // A torn record means the journal was still being written, so
                 // the container was never touched. Nothing to put back.
-                let _ = std::fs::remove_file(&jp);
+                let _ = std::fs::remove_file(jp);
                 return Ok(());
             }
             images.push((id, img.to_vec()));
@@ -793,7 +1030,7 @@ impl DiskIndexedFile {
             self.write_page_raw(*id, img)?;
         }
         self.sync()?;
-        std::fs::remove_file(&jp)?;
+        std::fs::remove_file(jp)?;
         Ok(())
     }
 
@@ -850,8 +1087,8 @@ impl DiskIndexedFile {
     /// End an operation according to the status it produced.
     ///
     /// A successful operation folds into the transaction; a failed one is
-    /// dropped. The transaction reaches the disk at the next commit point,
-    /// which this forces once the write set has grown to
+    /// dropped. The transaction reaches the disk at the next commit point, or
+    /// at a spill, which this forces once the write set has grown to
     /// [`CHECKPOINT_PAGES`].
     fn op_finish(&mut self, st: &'static str) -> &'static str {
         self.in_op = false;
@@ -867,12 +1104,23 @@ impl DiskIndexedFile {
             self.dirty.insert(id, page);
         }
         if self.dirty.len() >= CHECKPOINT_PAGES {
-            if self.tx_commit().is_err() {
+            if self.tx_spill().is_err() {
                 self.io_failed = true;
                 return status::IO_ERROR;
             }
         }
         st
+    }
+
+    /// A checkpoint inside a transaction the program has not committed.
+    ///
+    /// The write set is journaled and written to the container, so memory stays
+    /// bounded — but the journal is **kept**: from here to the program's
+    /// `COMMIT` a crash is undone back to what the container held when the
+    /// transaction began, not forward to the last slice that happened to reach
+    /// the disk. See the notes on the transaction journal.
+    fn tx_spill(&mut self) -> R<()> {
+        self.tx_flush(true)
     }
 
     /// A commit point: journal, pages, header, remove the journal.
@@ -881,30 +1129,54 @@ impl DiskIndexedFile {
     /// moment a crash undoes every page of it, header included, so the
     /// container is never left in a state no header describes.
     fn tx_commit(&mut self) -> R<()> {
-        if !self.in_tx {
+        self.tx_flush(false)
+    }
+
+    /// Put the write set into the container behind a journal that can undo it;
+    /// with `spill` leave the journal in place, otherwise remove it.
+    fn tx_flush(&mut self, spill: bool) -> R<()> {
+        if !self.in_tx && !self.jrn_live {
             return Ok(());
         }
         debug_assert!(!self.in_op, "a commit point cannot fall inside an operation");
-        // Written while the transaction is still collecting, so page 0's
-        // previous image joins the journal like any other page.
-        self.write_header()?;
-        self.in_tx = false;
+        if self.in_tx {
+            // Written while the transaction is still collecting, so page 0's
+            // previous image joins the journal like any other page.
+            self.write_header()?;
+            self.in_tx = false;
+        }
         let dirty = std::mem::take(&mut self.dirty);
         let undo = std::mem::take(&mut self.undo_pages);
-        if dirty.is_empty() {
+        if dirty.is_empty() && !self.jrn_live {
             return Ok(());
         }
-        self.journal_write(&undo)?;
-        for (id, page) in dirty.iter() {
-            if *id != 0 {
-                self.write_page_raw(*id, page)?;
+        if !dirty.is_empty() {
+            if self.jrn_live {
+                if !undo.is_empty() {
+                    self.journal_append(&undo)?;
+                    self.journal_certify()?;
+                }
+            } else if spill {
+                self.journal_create(&undo, true)?;
+                self.journal_certify()?;
+            } else {
+                self.journal_create(&undo, false)?;
             }
+            for (id, page) in dirty.iter() {
+                if *id != 0 {
+                    self.write_page_raw(*id, page)?;
+                }
+            }
+            if let Some(page) = dirty.get(&0) {
+                self.write_page_raw(0, page)?;
+            }
+            self.sync()?;
         }
-        if let Some(page) = dirty.get(&0) {
-            self.write_page_raw(0, page)?;
+        if spill {
+            Ok(())
+        } else {
+            self.journal_finish()
         }
-        self.sync()?;
-        self.journal_clear()
     }
 
     // ── The RecordId directory ───────────────────────────────────────────────
@@ -2021,6 +2293,7 @@ impl DiskIndexedFile {
 
     /// Drop every page and flag belonging to a transaction that is over.
     fn reset_pending_writes(&mut self) {
+        self.jrn_reset();
         self.dirty.clear();
         self.op_dirty.clear();
         self.undo_pages.clear();
@@ -3161,7 +3434,7 @@ impl DiskIndexedFile {
         self.in_tx = false;
         let dirty = std::mem::take(&mut self.dirty);
         let undo = std::mem::take(&mut self.undo_pages);
-        self.journal_write(&undo)?;
+        self.journal_create(&undo, false)?;
         for (id, page) in dirty.iter().take(pages) {
             self.write_page_raw(*id, page)?;
         }
@@ -3170,6 +3443,32 @@ impl DiskIndexedFile {
         // one from before the transaction, and the container is part-written.
         self.open = None;
         self.file = None;
+        Ok(())
+    }
+
+    /// Crash in the middle of a **spill**: the journal extended and certified, only the first `pages`
+    /// of the write set in the container, and no commit. Test-only; the state a power loss leaves
+    /// part-way through a checkpoint of a long transaction.
+    #[cfg(test)]
+    fn crash_mid_spill(&mut self, pages: usize) -> R<()> {
+        assert!(self.in_tx, "there must be a transaction to interrupt");
+        self.write_header()?;
+        self.in_tx = false;
+        let dirty = std::mem::take(&mut self.dirty);
+        let undo = std::mem::take(&mut self.undo_pages);
+        if self.jrn_live {
+            self.journal_append(&undo)?;
+        } else {
+            self.journal_create(&undo, true)?;
+        }
+        self.journal_certify()?;
+        for (id, page) in dirty.iter().take(pages) {
+            self.write_page_raw(*id, page)?;
+        }
+        self.sync()?;
+        self.open = None;
+        self.file = None;
+        self.jrn_file = None;
         Ok(())
     }
 
@@ -3405,6 +3704,24 @@ impl crate::indexed::IndexedStore for DiskIndexedFile {
 }
 
 // ── Free helpers ─────────────────────────────────────────────────────────────
+
+/// Make a file's directory entry durable: creating or removing a file is not,
+/// by an `fsync` of the file alone, on every file system. Best effort — a
+/// platform that cannot open a directory goes without.
+fn sync_dir(file: &Path) {
+    #[cfg(unix)]
+    {
+        let dir = match file.parent() {
+            Some(d) if !d.as_os_str().is_empty() => d,
+            _ => Path::new("."),
+        };
+        if let Ok(d) = File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = file;
+}
 
 fn corrupt(msg: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, msg.to_string())
@@ -3768,6 +4085,327 @@ mod tests {
         );
 
         assert_eq!(read_all(&p, false).len(), 25, "every committed record is there");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    // ── The transaction journal (PRCJRN02) ───────────────────────────────────
+
+    /// 1000-byte records, four to a page: a few hundred of them outgrow the write set.
+    fn bigfile(p: PathBuf) -> DiskIndexedFile {
+        DiskIndexedFile::new(
+            p,
+            1000,
+            KeySpec { parts: Vec::new(), offset: 0, len: 5, duplicates: false },
+            Vec::new(),
+        )
+    }
+
+    fn big(id: u32, tag: &str) -> Bytes {
+        let mut r = format!("{id:0>5}{tag}").into_bytes();
+        r.resize(1000, b'x');
+        r
+    }
+
+    /// Every record of a `bigfile` container in key order, checked to be strictly ascending.
+    fn big_all(p: &PathBuf) -> Vec<Bytes> {
+        let mut f = bigfile(p.clone());
+        assert_eq!(f.open(OpenMode::Input), status::OK);
+        let mut out: Vec<Bytes> = Vec::new();
+        while let (Some(r), st) = f.read_seq(ReadDir::Next) {
+            assert_eq!(st, status::OK);
+            if let Some(last) = out.last() {
+                assert!(last[..5] < r[..5], "keys ascend with no repeat");
+            }
+            out.push(r);
+        }
+        f.close();
+        out
+    }
+
+    /// A container with 20 records settled, and a transaction of 1500 more that has outgrown the
+    /// write set: spilled, uncommitted, its journal live. Returns the handle (still open), the
+    /// settled records and the settled length of the container.
+    fn spilled(p: &PathBuf) -> (DiskIndexedFile, Vec<Bytes>, u64) {
+        let _ = std::fs::remove_file(journal_of(p));
+        let _ = std::fs::remove_file(p);
+        let mut f = bigfile(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=20u32 {
+            assert_eq!(f.write(&big(i, "BEFORE")), status::OK);
+        }
+        f.close();
+        let settled = big_all(p);
+        let len = std::fs::metadata(p).unwrap().len();
+        let mut g = bigfile(p.clone());
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        for i in 21..=1520u32 {
+            assert_eq!(g.write(&big(i, "AFTER")), status::OK);
+        }
+        assert!(g.jrn_live, "the transaction outgrew {CHECKPOINT_PAGES} pages, so it spilled");
+        assert!(std::fs::metadata(journal_of(p)).is_ok(), "and the journal stays until the program commits");
+        (g, settled, len)
+    }
+
+    /// The process dies: no close, no destructor, the journal and the half-committed container stay.
+    fn die(mut g: DiskIndexedFile) {
+        g.open = None;
+        g.file = None;
+        g.jrn_file = None;
+        drop(g);
+    }
+
+    /// `(pages, certified, records)` of a transaction journal.
+    fn journal_facts(p: &PathBuf) -> (u64, u64, u64) {
+        let b = std::fs::read(journal_of(p)).unwrap();
+        assert_eq!(&b[..8], JRN2_MAGIC);
+        let slot = |i: usize| {
+            let o = 8 + i * JRN2_SLOT;
+            let s = &b[o..o + JRN2_SLOT];
+            let ok = crate::indexed::crc32(&s[..24]) == u32::from_le_bytes(s[24..28].try_into().unwrap());
+            ok.then(|| (
+                u64::from_le_bytes(s[0..8].try_into().unwrap()),
+                u64::from_le_bytes(s[8..16].try_into().unwrap()),
+                u64::from_le_bytes(s[16..24].try_into().unwrap()),
+            ))
+        };
+        let (_, pages, certified) = [slot(0), slot(1)].into_iter().flatten().max_by_key(|s| s.0).unwrap();
+        (pages, certified, ((b.len() - JRN2_HEAD) / JRN_REC) as u64)
+    }
+
+    /// Spec 001 R1–R3: a transaction too big for the write set is spilled to the container, and a
+    /// crash before the program's `COMMIT` still leaves the container as the transaction found it —
+    /// the 1500 uncommitted records are gone, the 20 settled ones are there, and the file is back to
+    /// its length.
+    #[test]
+    fn a_transaction_larger_than_the_write_set_is_undone_by_a_crash() {
+        let p = tmp("spill-crash");
+        let (g, settled, len) = spilled(&p);
+        let spilled_len = std::fs::metadata(&p).unwrap().len();
+        let (pages, certified, records) = journal_facts(&p);
+        assert!(spilled_len > len, "the spill put new pages in the container");
+        assert_eq!(pages * PAGE_SIZE as u64, len, "the journal remembers the length it must cut back to");
+        assert_eq!(certified, records, "every record on the journal is certified");
+        die(g);
+
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::OK);
+        assert!(std::fs::metadata(journal_of(&p)).is_err(), "recovery removes the journal it replayed");
+        h.close();
+        assert_eq!(big_all(&p), settled, "only what was committed is there");
+        assert_eq!(std::fs::metadata(&p).unwrap().len(), len, "and the pages the transaction added are cut away");
+        println!(
+            "\n  spill crash: container {} → {} pages while uncommitted; journal {} page images ({} KiB); \
+             recovered to {} records, {} pages",
+            len / PAGE_SIZE as u64,
+            spilled_len / PAGE_SIZE as u64,
+            records,
+            (records * JRN_REC as u64 + JRN2_HEAD as u64) / 1024,
+            settled.len(),
+            len / PAGE_SIZE as u64
+        );
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A transaction that spilled and was then committed is durable: nothing is undone by a crash that
+    /// follows, and no journal is left.
+    #[test]
+    fn a_spilled_transaction_that_commits_survives_a_crash() {
+        let p = tmp("spill-commit");
+        let (mut g, settled, _) = spilled(&p);
+        g.commit();
+        assert!(std::fs::metadata(journal_of(&p)).is_err(), "a commit removes the journal");
+        die(g);
+        let all = big_all(&p);
+        assert_eq!(all.len(), settled.len() + 1500);
+        assert_eq!(&all[..settled.len()], &settled[..]);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A transaction that changes pages the container already had — every record rewritten, some
+    /// deleted, more added — spills more than once, and a crash leaves the file identical, byte for
+    /// byte, to what it was before the transaction began. This is the case a journal of new pages
+    /// alone would not cover: the images of the old pages are what it holds.
+    #[test]
+    fn a_big_update_transaction_is_undone_to_the_byte() {
+        let p = tmp("spill-update");
+        let _ = std::fs::remove_file(journal_of(&p));
+        let _ = std::fs::remove_file(&p);
+        let mut f = bigfile(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=1200u32 {
+            assert_eq!(f.write(&big(i, "SETTLED")), status::OK);
+        }
+        f.close();
+        let mut g = bigfile(p.clone());
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        let before = std::fs::read(&p).unwrap();
+        let settled = big_all(&p);
+        for i in 1..=1200u32 {
+            assert_eq!(g.rewrite(&big(i, "CHANGED"), Some(format!("{i:0>5}").as_bytes())), status::OK);
+        }
+        for i in (3..=1200u32).step_by(3) {
+            assert_eq!(g.delete(Some(format!("{i:0>5}").as_bytes())), status::OK);
+        }
+        for i in 2001..=2100u32 {
+            assert_eq!(g.write(&big(i, "ADDED")), status::OK);
+        }
+        let (_, certified, records) = journal_facts(&p);
+        assert!(g.jrn_live && certified == records && records > 100, "it spilled, and journaled the pages it changed");
+        assert_ne!(std::fs::read(&p).unwrap(), before);
+        die(g);
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::OK);
+        h.close();
+        assert_eq!(std::fs::read(&p).unwrap(), before, "the container is what it was, byte for byte");
+        assert_eq!(big_all(&p), settled);
+        println!("\n  update transaction: {records} page images journaled; recovered byte-identical");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A crash part-way through a later spill, with the journal already holding earlier ones.
+    #[test]
+    fn a_crash_in_the_middle_of_a_later_spill_is_undone() {
+        let p = tmp("spill-mid");
+        let (mut g, settled, len) = spilled(&p);
+        // The natural spills have left the journal live; add pages to the write set and die while the
+        // next checkpoint is only partly in the container.
+        for i in 3001..=3040u32 {
+            assert_eq!(g.write(&big(i, "LATE")), status::OK);
+        }
+        assert!(g.in_tx);
+        g.crash_mid_spill(5).unwrap();
+        drop(g);
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::OK);
+        h.close();
+        assert_eq!(big_all(&p), settled);
+        assert_eq!(std::fs::metadata(&p).unwrap().len(), len);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// `ROLLBACK` after a spill puts the records back and leaves no journal.
+    #[test]
+    fn a_spilled_transaction_that_rolls_back_leaves_what_it_found() {
+        let p = tmp("spill-rollback");
+        let (mut g, settled, _) = spilled(&p);
+        g.rollback();
+        assert!(std::fs::metadata(journal_of(&p)).is_err());
+        g.close();
+        assert_eq!(big_all(&p), settled);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A load that mostly appends keeps a small journal: pages the transaction adds need no image,
+    /// because recovery cuts the file back past them.
+    #[test]
+    fn a_bulk_load_keeps_a_small_journal() {
+        let p = tmp("spill-small");
+        let (g, _, len) = spilled(&p);
+        let (_, _, records) = journal_facts(&p);
+        let added = (std::fs::metadata(&p).unwrap().len() - len) / PAGE_SIZE as u64;
+        assert!(added > 200, "the load added {added} pages");
+        assert!(records < 40, "and its journal holds {records} page images, not {added}");
+        println!("\n  bulk load: {added} pages added, {records} page images journaled");
+        die(g);
+        let _ = std::fs::remove_file(journal_of(&p));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// AC7: a journal cut below the records it certified is refused — the open answers 90 and
+    /// neither file is touched — and restoring it lets the same open succeed.
+    #[test]
+    fn a_journal_cut_below_what_it_certified_fails_the_open() {
+        let p = tmp("spill-cut");
+        let (g, settled, _) = spilled(&p);
+        let (_, certified, _) = journal_facts(&p);
+        assert!(certified > 2);
+        die(g);
+        let whole = std::fs::read(journal_of(&p)).unwrap();
+        let container = std::fs::read(&p).unwrap();
+        let cut = JRN2_HEAD + (certified as usize - 1) * JRN_REC + JRN_REC / 2;
+        std::fs::write(journal_of(&p), &whole[..cut]).unwrap();
+
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::IO_ERROR, "90, not a half-replayed file");
+        assert_eq!(std::fs::read(&p).unwrap(), container, "the container is untouched");
+        assert_eq!(std::fs::read(journal_of(&p)).unwrap(), &whole[..cut], "and so is the journal");
+
+        std::fs::write(journal_of(&p), &whole).unwrap();
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::OK);
+        h.close();
+        assert_eq!(big_all(&p), settled);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A page image that fails its checksum inside the certified records is damage, not a torn tail.
+    #[test]
+    fn a_certified_record_that_fails_its_checksum_fails_the_open() {
+        let p = tmp("spill-flip");
+        let (g, _, _) = spilled(&p);
+        die(g);
+        let mut j = std::fs::read(journal_of(&p)).unwrap();
+        j[JRN2_HEAD + 12 + 100] ^= 0xFF; // inside the first image
+        std::fs::write(journal_of(&p), &j).unwrap();
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::IO_ERROR);
+        let _ = std::fs::remove_file(journal_of(&p));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// What follows the certified records is a tail a crash may have torn — appended, never certified,
+    /// the container never touched for it — and is ignored.
+    #[test]
+    fn a_torn_tail_after_the_certified_records_is_ignored() {
+        let p = tmp("spill-tail");
+        let (g, settled, _) = spilled(&p);
+        die(g);
+        let mut j = std::fs::read(journal_of(&p)).unwrap();
+        j.extend_from_slice(&[0xAB; 1000]); // the start of a record that never finished
+        j.extend_from_slice(&[0u8; JRN_REC]); // and a file system's zero-filled block after it
+        std::fs::write(journal_of(&p), &j).unwrap();
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::OK);
+        h.close();
+        assert_eq!(big_all(&p), settled);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A journal with no readable slot. One that is zero-filled where its slots should be — length
+    /// without contents, as a crash leaves a file it had not yet written — proves its creation never
+    /// finished, and so that the container was never touched: it is discarded. One with something
+    /// else there is damaged, and is refused.
+    #[test]
+    fn an_unreadable_journal_header_is_discarded_only_when_it_was_never_written() {
+        let p = tmp("spill-header");
+        let (g, _, _) = spilled(&p);
+        die(g);
+        let whole = std::fs::read(journal_of(&p)).unwrap();
+        let mut damaged = whole.clone();
+        damaged[8..JRN2_HEAD].fill(0x5A);
+        std::fs::write(journal_of(&p), &damaged).unwrap();
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::IO_ERROR, "a damaged header is refused");
+        assert!(std::fs::metadata(journal_of(&p)).is_ok(), "and left for the operator");
+        let _ = std::fs::remove_file(journal_of(&p));
+        let _ = std::fs::remove_file(&p);
+
+        // A container nothing has touched, and a journal whose creation never finished.
+        let mut f = bigfile(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=20u32 {
+            assert_eq!(f.write(&big(i, "SETTLED")), status::OK);
+        }
+        f.close();
+        let before = std::fs::read(&p).unwrap();
+        let mut blank = JRN2_MAGIC.to_vec();
+        blank.resize(JRN2_HEAD + 3 * JRN_REC, 0);
+        std::fs::write(journal_of(&p), &blank).unwrap();
+        let mut h = bigfile(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::OK, "a header never written is thrown away");
+        h.close();
+        assert!(std::fs::metadata(journal_of(&p)).is_err());
+        assert_eq!(std::fs::read(&p).unwrap(), before, "and nothing was put back");
         let _ = std::fs::remove_file(&p);
     }
 
