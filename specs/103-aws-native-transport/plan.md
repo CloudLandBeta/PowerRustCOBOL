@@ -59,7 +59,7 @@ returns text); `tls_connector()` stays private.
    formatted — its `Debug` prints the key id);
 2. `aws_config::defaults(..).http_client(UreqClient).profile_name(..).load()` → the `SdkConfig`'s credentials provider
    (environment, shared files, `credential_process`, SSO, `aws login`, role assumption, instance role);
-3. `aws configure export-credentials` — kept only if the spike finds a profile type the native chain cannot read (Q1).
+3. *(Dropped — Q1: the native chain reads every profile type the CLI exports; the one thing it cannot do, an MFA prompt, no windowed program can either.)*
 
 `UreqClient` implements `aws_smithy_runtime_api::client::http::HttpClient` over the `http_runtime` helper, using
 `spawn_blocking`. One lazily created process-wide tokio runtime serves credential resolution and nothing else (Q6). The

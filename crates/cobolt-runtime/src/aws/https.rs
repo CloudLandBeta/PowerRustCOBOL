@@ -39,6 +39,7 @@ use cobolt_mcp::client::{Inbound, Session};
 use cobolt_mcp::Response;
 use serde_json::{json, Value};
 
+use super::chain::{Chain, ChainError};
 use super::process::{HttpsEndpoint, Launch};
 use crate::http_runtime::{self, RawReply, SendError};
 
@@ -76,6 +77,8 @@ struct Inner {
     /// Only reads frames (`route` needs no counters), so it is a copy.
     router: Session,
     keys: Option<Arc<super::process::Credentials>>,
+    /// The sign-in the connection's profile names; used when the program has set no keys.
+    chain: Option<Chain>,
     wire: Mutex<Wire>,
     /// Counts the sessions this link has forgotten, so that several callers
     /// whose request met the same expired session open one new session between
@@ -95,11 +98,15 @@ impl Link {
         let endpoint = launch.https.clone().ok_or("the AWS service has no address")?;
         let authority = authority_of(&endpoint.url)?;
         Ok(Link(Arc::new(Inner {
-            endpoint,
             authority,
             agent: http_runtime::signed_agent(),
             router,
             keys: launch.credentials.clone(),
+            chain: launch.credentials.is_none().then(|| {
+                let region = launch.region.as_deref().unwrap_or(endpoint.signing_region.as_str());
+                Chain::new(launch.profile.as_deref(), Some(region))
+            }),
+            endpoint,
             wire: Mutex::new(Wire::default()),
             generation: AtomicU64::new(0),
             closed: AtomicBool::new(false),
@@ -210,11 +217,19 @@ impl Link {
             return Err(LinkError::Failed("the AWS service connection was closed".into()));
         }
         let mut headers = self.base_headers(method, !body.is_empty());
-        self.sign(method, &mut headers, body)?;
-        http_runtime::send_bytes(&self.0.agent, method, &self.0.endpoint.url, &headers, body, timeout).map_err(|e| match e {
+        self.sign(method, &mut headers, body, timeout)?;
+        let reply = http_runtime::send_bytes(&self.0.agent, method, &self.0.endpoint.url, &headers, body, timeout).map_err(|e| match e {
             SendError::Timeout => LinkError::Timeout,
             SendError::Unreachable(why) => LinkError::Failed(format!("the AWS service could not be reached: {why}")),
-        })
+        })?;
+        // A refused sign-in is not kept: the next request asks the providers again,
+        // so a sign-in the user has since renewed in a terminal is found.
+        if matches!(reply.status, 401 | 403) {
+            if let Some(chain) = &self.0.chain {
+                chain.forget();
+            }
+        }
+        Ok(reply)
     }
 
     fn base_headers(&self, method: &str, has_body: bool) -> Vec<(String, String)> {
@@ -237,24 +252,29 @@ impl Link {
         h
     }
 
-    /// Add the SigV4 headers for `method`, the endpoint and `body`.
-    fn sign(&self, method: &str, headers: &mut Vec<(String, String)>, body: &[u8]) -> Result<(), LinkError> {
-        let Some(keys) = self.0.keys.as_deref() else {
-            return Err(LinkError::Failed(
-                "Unable to locate credentials: set the connection's keys with AWS-SET-CREDENTIALS or sign in with the AWS CLI".into(),
-            ));
-        };
-        keys.with_keys(|k| {
-            let credentials = aws_credential_types::Credentials::new(
-                k.key_id,
-                k.secret,
-                k.token.map(str::to_owned),
-                None,
-                "AWS-SET-CREDENTIALS",
-            );
-            let identity: Identity = credentials.into();
-            self.sign_with(&identity, method, headers, body)
-        })
+    /// Add the SigV4 headers for `method`, the endpoint and `body`: with the keys the
+    /// program set, or else with what the connection's sign-in provides now.
+    fn sign(&self, method: &str, headers: &mut Vec<(String, String)>, body: &[u8], timeout: Duration) -> Result<(), LinkError> {
+        if let Some(keys) = self.0.keys.as_deref() {
+            return keys.with_keys(|k| {
+                let credentials = aws_credential_types::Credentials::new(
+                    k.key_id,
+                    k.secret,
+                    k.token.map(str::to_owned),
+                    None,
+                    "AWS-SET-CREDENTIALS",
+                );
+                let identity: Identity = credentials.into();
+                self.sign_with(&identity, method, headers, body)
+            });
+        }
+        let chain = self.0.chain.as_ref().ok_or_else(|| LinkError::Failed("Unable to locate credentials".into()))?;
+        let credentials = chain.credentials(timeout).map_err(|e| match e {
+            ChainError::Timeout => LinkError::Timeout,
+            ChainError::Failed(why) => LinkError::Failed(why),
+        })?;
+        let identity: Identity = credentials.into();
+        self.sign_with(&identity, method, headers, body)
     }
 
     fn sign_with(&self, identity: &Identity, method: &str, headers: &mut Vec<(String, String)>, body: &[u8]) -> Result<(), LinkError> {

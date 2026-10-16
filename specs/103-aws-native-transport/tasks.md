@@ -31,10 +31,10 @@ first) and adds a `CHANGELOG.md` entry. Before every commit: scan the staged dif
 - [x] **T12 — Tests** — `tests/aws_https.rs`: AC1 (independent signature), AC2, AC3, AC4, AC5 (hash of 33 tables + snippets), AC9 (33 ok / 14 refused with `uvx` off `PATH`), AC10 refusal part (zero requests).
 
 ## P3 — Credential chain (R6–R8; AC6, AC7)
-- [ ] **T13 — `UreqClient` and runtime** — `HttpClient` over the byte-body helper; the process-wide credentials runtime.
-- [ ] **T14 — Provider chain and precedence** — keys set by the program first, then the `SdkConfig` provider; refresh at signing time.
-- [ ] **T15 — Errors and the CLI question** — plain messages naming the profile and the fix (R7); decide Q1 (keep or drop `export-credentials`); decide Q2 (write-back).
-- [ ] **T16 — Tests** — fixtures for static keys, `credential_process`, SSO, role assumption, `aws login`; secret scan over the native path (AC7).
+- [x] **T13 — `UreqClient` and runtime** — `HttpClient` over the byte-body helper; the process-wide credentials runtime.
+- [x] **T14 — Provider chain and precedence** — keys set by the program first, then the `SdkConfig` provider; refresh at signing time.
+- [x] **T15 — Errors and the CLI question** — plain messages naming the profile and the fix (R7; `aws sso login` for Identity Center); Q1 decided: the CLI fallback is dropped; Q2 decided: the SDK writes the login cache itself.
+- [x] **T16 — Tests** — `aws_credential_chain` (8) for precedence, static keys, environment, `credential_process` with refresh, a refused credential not kept, and the R7 messages; the HTTP client adapter's own tests; and the hosted demos over HTTPS under `rcrun` (`aws_hosts`). *Narrowed (A4):* Identity Center exchange, role assumption and `aws login` refresh have no fixture and are left to AC12.
 
 ## P4 — Test connection and IDE (R15; AC10)
 - [ ] **T17 — `diagnose` and `https::probe`** — per-server reports; new variants.

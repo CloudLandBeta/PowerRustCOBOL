@@ -23,7 +23,7 @@ mod support {
     pub mod sigv4;
 }
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cobolt_mcp::Mode;
@@ -34,6 +34,9 @@ use cobolt_runtime::aws::process::{Credentials, HttpsEndpoint, Launch};
 use serde_json::{json, Value};
 use support::http_fake::{HttpFake, Logged};
 use support::sigv4;
+
+/// The list of connections is process-wide: a test that publishes one holds this while it uses it.
+static CONNECTIONS: Mutex<()> = Mutex::new(());
 
 /// AWS's documented example credentials (their docs print this pair).
 const KEY_ID: &str = "AKIDEXAMPLE";
@@ -377,6 +380,7 @@ fn ac10_a_refused_operation_sends_nothing_and_an_allowed_one_runs_the_real_templ
         let text = json!({"status": "success", "stdout": "", "stderr": "", "return_value": v}).to_string();
         json!({"content": [{"type": "text", "text": text}], "isError": false})
     };
+    let _own = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     let f = fake(json!({"answers": {"aws___run_script": envelope(json!({"Done": "1"}))}}));
     let conn = connection_to(&f, "ac10");
     let prop = |p: &str| if p == "TableName" { "orders".to_owned() } else { String::new() };
@@ -416,4 +420,78 @@ fn ac10_a_refused_operation_sends_nothing_and_an_allowed_one_runs_the_real_templ
     for r in f.requests() {
         sigv4::verify(&r, SECRET, "aws-mcp", "us-east-1").unwrap();
     }
+}
+
+/// The write operations the demos only see refused (AllowWrite is off in them): with AllowWrite on, each
+/// runs its real template against the endpoint — so all 33 hosted operations are shown to complete
+/// (spec 103 AC9), the 25 the demos ask for being shown by the CLI suite.
+#[test]
+fn ac9_the_eight_write_operations_complete_when_allowed() {
+    let _own = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let envelope = |v: Value| {
+        let text = json!({"status": "success", "stdout": "", "stderr": "", "return_value": v}).to_string();
+        json!({"content": [{"type": "text", "text": text}], "isError": false})
+    };
+    let f = fake(json!({"answers": {"aws___run_script": envelope(json!({"Done": "1"}))}}));
+    let conn = connection_to(&f, "ac9w");
+    cobolt_runtime::aws::connections::publish(vec![conn.clone()]);
+    cobolt_runtime::aws::credentials::set("ac9w", KEY_ID.into(), SECRET.into(), String::new()).unwrap();
+
+    let source = std::env::temp_dir().join(format!("prc-103-put-{}.txt", std::process::id()));
+    std::fs::write(&source, b"hello").unwrap();
+    let source_path = source.to_string_lossy().into_owned();
+
+    // control, method, COBOL arguments, properties, the control's own event, the AWS operation it must send
+    #[allow(clippy::type_complexity)]
+    let cases: Vec<(&str, &str, Vec<String>, Vec<(&str, &str)>, &str, &str)> = vec![
+        ("AwsCognito", "SignUp", vec!["ana".into(), "pw-Example-1".into(), "ana@example.com".into()], vec![("ClientId", "client")], "onSignedUp", "SignUp"),
+        ("AwsCognito", "Confirm", vec!["ana".into(), "123456".into()], vec![("ClientId", "client")], "onConfirmed", "ConfirmSignUp"),
+        ("AwsDynamoDB", "UpdateItem", vec![r#"{"id":42}"#.into(), "SET #n = :n".into(), r#"{":n":"Bo"}"#.into()], vec![("TableName", "orders")], "onItemUpdated", "UpdateItem"),
+        ("AwsDynamoDB", "DeleteItem", vec![r#"{"id":42}"#.into()], vec![("TableName", "orders")], "onItemDeleted", "DeleteItem"),
+        ("AwsEC2", "Stop", vec!["i-0123456789abcdef0".into()], vec![], "onInstancesStopped", "StopInstances"),
+        ("AwsS3", "PutObject", vec!["a.txt".into(), "text/plain".into(), source_path], vec![("Bucket", "photos")], "onObjectPut", "PutObject"),
+        ("AwsS3", "DeleteObject", vec!["a.txt".into()], vec![("Bucket", "photos")], "onObjectDeleted", "DeleteObject"),
+        ("AwsS3Vectors", "PutVectors", vec![String::new(), r#"[{"key":"d1","data":[0.1,0.2]}]"#.into()], vec![("IndexName", "idx"), ("VectorBucketName", "vb")], "onVectorsPut", "PutVectors"),
+    ];
+    let started = Instant::now();
+    for (control_type, method, args, props, event, aws_operation) in &cases {
+        let prop = |p: &str| props.iter().find(|(k, _)| *k == p).map(|(_, v)| (*v).to_owned()).unwrap_or_default();
+        let view = |allow: bool| ControlView {
+            control_type,
+            method,
+            args,
+            prop: &prop,
+            control: "W-1",
+            allow_write: allow,
+            connection_allows_write: allow,
+        };
+        let before = f.requests().len();
+        assert!(ops::prepare(&view(false), &conn).is_err(), "{control_type}.{method} is refused with AllowWrite off");
+        assert_eq!(f.requests().len(), before, "{control_type}.{method}: a refused operation sends nothing");
+        let prepared = ops::prepare(&view(true), &conn).unwrap_or_else(|e| panic!("{control_type}.{method}: {e}"));
+        match ops::execute(&prepared, budget(10_000)) {
+            Outcome::Done { event: got, .. } => assert_eq!(&got, event, "{control_type}.{method}"),
+            other => panic!("{control_type}.{method}: {other:?}"),
+        }
+        let sent = f
+            .requests()
+            .iter()
+            .filter_map(Logged::json)
+            .filter(|m| m["method"] == "tools/call")
+            .map(|m| m["params"]["arguments"]["code"].as_str().unwrap_or_default().to_owned())
+            .last()
+            .expect("a script was sent");
+        assert!(sent.contains(&format!("operation_name='{aws_operation}'")), "{control_type}.{method} sent: {sent}");
+    }
+    cobolt_runtime::aws::credentials::clear("ac9w").unwrap();
+    let _ = std::fs::remove_file(&source);
+    for r in f.requests() {
+        sigv4::verify(&r, SECRET, "aws-mcp", "us-east-1").unwrap();
+    }
+    println!(
+        "\n  103 AC9 — the 8 write operations the demos see refused: each refused with AllowWrite off (0 requests), then completed with it on \
+         with its own event and its AWS operation in the script; {} signed requests verified, {} ms",
+        f.requests().len(),
+        started.elapsed().as_millis()
+    );
 }

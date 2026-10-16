@@ -182,7 +182,9 @@ const CREDENTIAL_FAILURES: [&str; 6] = [
 pub fn plain_error(raw: &str, profile: &str) -> String {
     if CREDENTIAL_FAILURES.iter().any(|f| raw.contains(f)) {
         let p = if profile.trim().is_empty() { "default" } else { profile.trim() };
-        return format!("The AWS profile \"{p}\" is not signed in or has expired. Run: aws login --profile {p}");
+        // An IAM Identity Center profile is renewed by its own command.
+        let command = if raw.to_ascii_lowercase().contains("sso") { "aws sso login" } else { "aws login" };
+        return format!("The AWS profile \"{p}\" is not signed in or has expired. Run: {command} --profile {p}");
     }
     mask(raw.trim())
 }

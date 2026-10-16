@@ -26,12 +26,14 @@
 //! - [`credentials`] — keys a program set for a connection, in memory only.
 //! - [`process`] — starting a server: the built environment, stderr, masking.
 //! - [`https`] — a hosted server over HTTPS: the signed link (spec 103).
+//! - [`chain`] — the sign-in a profile names, read by the official AWS crates.
 //! - [`pool`] — one shared server per connection and server, timeouts,
 //!   restarts; a child process or an https link behind one interface.
 //! - [`lifetime`] — making sure no server process outlives the application.
 //! - [`routes`] — which server and tool serve each operation, as data.
 
 pub mod b64;
+pub mod chain;
 pub mod connections;
 pub mod credentials;
 pub mod diagnose;

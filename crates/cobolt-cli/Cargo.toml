@@ -67,3 +67,7 @@ pollster = "0.3"
 cobolt-codegen = { path = "../cobolt-codegen" }
 # Spec 092 AC8 — the PowerCloud CloudFormation template is parsed as YAML in a test.
 serde_yaml = { workspace = true }
+# Spec 103 AC9 — the hosted demos' requests are verified with SigV4 code of the test's own (not the AWS
+# crates that signed them); the workspace's hmac 0.12 pairs with sha2 0.10.
+hmac = { workspace = true }
+sha2 = { workspace = true }

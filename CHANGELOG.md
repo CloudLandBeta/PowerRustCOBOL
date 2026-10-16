@@ -17,6 +17,26 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.185] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.184.)*
+
+### Added: AWS without `uvx`, step 3 — the sign-in a profile names, and the hosted demos over HTTPS (spec 103)
+
+The hosted AWS operations now sign with **what the AWS CLI is signed in with**, not only with keys a program sets. **`uvx` is no longer needed for the 33 hosted operations**, and the demos show it: all ten hosted demos pass over HTTPS with an empty `PATH`.
+
+- **The providers.** With no keys set, a request is signed with what the official `aws-config` crate finds: the shared credentials and config files (static keys, `credential_process`, IAM Identity Center, `aws login`, role assumption), the environment, an instance role. **A profile the connection names wins over keys in the environment** — as it did through the Python route — and with no profile the default chain runs, environment first. The program's own keys (`AWS-SET-CREDENTIALS`) still come first.
+- **One HTTP stack.** The AWS crates are built without an HTTP client; the product gives them one over `ureq` and the operating system's TLS (`aws/chain.rs`), so SSO, role-assumption and sign-in calls leave through the same stack as everything else. The lookups run on one private tokio runtime used for nothing else, entered by a channel so a call stays inside its own `TimeoutMs`.
+- **Refreshed when it matters.** A credential is kept until a minute before it expires and asked for again then; one that is refused (HTTP 401/403) is dropped, so a sign-in the user renews in a terminal is picked up by the next call without restarting anything.
+- **Said in words.** No credentials, or an expired sign-in, read as *The AWS profile "dev" is not signed in or has expired. Run: aws login --profile dev* — and *aws sso login --profile …* for an IAM Identity Center profile (the SDK's cause is read from the error's sources; the generic top-level text names nothing).
+- **The CLI fallback was not written.** Spec 103 had the AWS CLI (`aws configure export-credentials`) as a last source. The native chain reads every profile type the CLI can export; the one thing the CLI adds, a prompt for an MFA code in a terminal, no windowed program can use either. The decision and its evidence are in the spec (Q1, A4).
+
+*Tests.* New `aws_credential_chain` (8): a profile's static keys sign (3 of 3 requests); the environment signs when no profile is named; **a named profile beats environment keys**; keys the program set beat a profile; a `credential_process` that gives a 30-second credential is run **4 times for 4 requests, 4 distinct key ids**; a refused credential is not kept (the second request is signed with the renewed file); missing credentials and an Identity Center profile with no cached token each give the profile-and-fix sentence with **0 requests sent**. Two tests of the HTTP client the AWS crates are given (a 200 and a 400 carried unchanged; an unreachable address fails at once). `aws_https` gains the eight write operations the demos see refused: each refused with `AllowWrite` off (0 requests), then completed with it on, with its own event and its AWS operation in the script (10 signed requests verified, 60 ms). **`aws_hosts` runs the ten hosted demos over HTTPS** — `PATH` empty, sign-in from a credentials file of its own, under Run Form and as embedded child forms (20 runs, 81 s): every tally equals the one against the fake program (PASS 014, 009, 010, 006, 013, 006, 007, 007, 006, 009; FAIL 000); the endpoint received 106 requests and **all 106 verify** with an independent SigV4 check; the demos asked for 25 of the route table's 33 hosted operations (the other 8 are the writes above); **20 sessions opened, 20 ended with a DELETE**, so no process leaves one behind. Every pre-existing AWS suite passes unchanged.
+
+*Docs:* spec 103 (Q1, Q2 settled; AC6 narrowed to what a fixture can show; A4). The Developer's Guide, the System KB and the property help still describe the old route until the step that switches the wording over.
+
+*Not done.* Test connection for the hosted server, the Guide, KB and help text, the built-binary run over HTTPS, and AC12 — a live run with no `uvx` on the machine, the operator's. **The Identity Center token exchange, role assumption and the `aws login` refresh are the AWS crates' own code and have no fixture here; AC12 is where they are confirmed.**
+
 ## [PowerRustCOBOL 1.91.184] — 2026-10-16
 
 *(Written on `features-aws-native`, after 1.91.183.)*

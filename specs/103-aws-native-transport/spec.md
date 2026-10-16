@@ -24,7 +24,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 |---|---|---|
 | **D1** | **Native proxy, templates unchanged.** Rust replaces `uvx mcp-proxy-for-aws` (a SigV4 signer that forwards to AWS's hosted MCP endpoint). The Python templates in `routes.toml` keep running in AWS's sandbox. | 33 of the route table's 49 operations (`AwsMcp.AwsCall` among them) stop needing `uvx`. The other 16 are 14 on the five AWS Labs servers, which still need it (non-goal here), and 2 (`AwsMcp.Call`, `ListTools`) that name their server at run time. |
 | **D2** | **Official AWS crates** (`aws-sigv4`, `aws-credential-types`, `aws-config` with default features off), **not** hand-written signing. | The 063 AC8 guard ("no package named `aws-*`") is **changed on purpose**, into an allow-list (R17). A TLS backend that is not `aws-lc-rs` is mandatory (R10). |
-| **D3** | **Native credential chain, with the AWS CLI as a fallback.** | See R6–R8. Whether the fallback is still reachable once the native chain is in is Q1. |
+| **D3** | **Native credential chain, with the AWS CLI as a fallback.** | See R6–R8. *Settled by the build (Q1): the fallback was dropped* — the native chain reads every profile type the CLI exports, so it had nothing left to do. |
 | **D4** | **Replace `uvx` outright for the hosted server.** | No fallback to the old route in the table; the way back is `git revert`, not a setting. Mitigated by the live check (AC12) before this lands on `main`. |
 
 ## 1. Overview
@@ -168,8 +168,8 @@ credential chain the AWS CLI already set up.
      is named): environment variables, shared credentials and config files (static keys),
      `credential_process`, IAM Identity Center (SSO), `aws login` sessions, and role
      assumption (`role_arn` with `source_profile`);
-  3. **the AWS CLI** — `aws configure export-credentials --profile <p> --format process` — when
-     the chain cannot produce credentials for a profile and the CLI is installed (D3).
+  *(Amended 2026-10-16, A4: a third source, the AWS CLI's `aws configure export-credentials`, was
+  specified and then dropped — Q1.)*
 - **R7 (event):** When no source yields credentials, the control shall raise `onError` with a
   `LastError` that names the profile and the fix in plain words (*"sign in with `aws login`"*,
   *"run `aws sso login --profile <p>`"*), never the raw SDK text (078 R23).
@@ -255,12 +255,19 @@ server inside the test, which also verifies the signature) and report a quantifi
 - [ ] **AC5 (R13):** A test hashes the 33 `[ops."…"]` tables (with their `.input` sub-tables)
   routed to `hosted`, and the `[snippets]` table, against hashes recorded from `main` at
   2e57112f: all 34 hashes equal. Mutating one template byte fails it (demonstrated).
-- [ ] **AC6 (R6, R7):** Precedence — keys set by the program beat a profile; a profile beats the
-  default chain. Each provider is exercised through the fake HTTP stack and fixture files: static
-  keys, `credential_process` (a fixture script), SSO (a cached token plus a fake SSO endpoint),
-  role assumption (a fake STS), `aws login` (a cached session plus a fake Signin endpoint), and
-  the CLI fallback (a fake `aws` on `PATH`). Expired and missing credentials give the R7 message
-  naming the profile. A credential that expires between two calls is replaced before the second.
+- [x] **AC6 (R6, R7):** Precedence — keys set by the program beat a profile; a **named profile beats
+  keys in the environment**; with no profile the default chain signs with the environment. Exercised
+  with fixture files and a sandboxed `HOME`: static keys in the credentials file, the environment, and
+  `credential_process` (a fixture program that gives a different key and a 30-second credential each
+  time it runs: **4 runs for 4 requests, 4 distinct key ids**, so a credential about to expire is
+  replaced before every request). A refused credential (403) is not kept: the next request reads the
+  renewed credentials file. Missing credentials and an IAM Identity Center profile with no cached
+  token each give the R7 message — `aws login --profile <p>`, or `aws sso login --profile <p>` for
+  Identity Center — with **zero requests sent**. The HTTP client the AWS crates are given is tested on
+  its own (a 200 and a 400 carried unchanged; an unreachable address fails at once). *Not covered by a
+  fixture, and said so (A4):* the Identity Center token exchange, role assumption and the `aws login`
+  refresh are the AWS crates' own code behind that client; their fixtures would need AWS's endpoints
+  redirected, so they are confirmed by AC12 (the live run).
 - [ ] **AC7 (R8, R8a):** A test scans every argument, environment, log line, `Verbose` output,
   `Debug` rendering and error message produced in AC1–AC6 for a planted access key id, secret and
   session token: **zero** hits. After a refresh, the CLI's cache file parses with the CLI's
@@ -332,19 +339,25 @@ server inside the test, which also verifies the signature) and report a quantifi
   1.92** (A1).
 - **Amendments written after approval:** **A1** the MSRV pin (§1); **A2** R10/AC8/the TLS
   non-goal speak of what the `aws` feature reaches, because the lock file already lists packages
-  that are never compiled; **A3** AC13's translation clause (nothing to delete).
+  that are never compiled; **A3** AC13's translation clause (nothing to delete); **A4** the CLI
+  fallback dropped (Q1) and AC6 narrowed to what a fixture can show.
 - **Windows:** no window is opened by this feature.
 - **Process:** `/specify` → `/plan` → `/tasks` → implement. The operator likes quantified tests.
 
 ## 7. Open questions
 
-- **Q1 — Is the CLI fallback (R6.3) still reachable?** `aws-config` carries `aws login` and role
+- **Q1 — Settled 2026-10-16: the CLI fallback is dropped.** *(Original question follows.)* Is the CLI fallback (R6.3) still reachable? `aws-config` carries `aws login` and role
   assumption natively (`credentials-login`, `sso`, STS). If the plan's spike shows every profile
   type the CLI understands is also handled natively, R6.3 is dead code. *Suggested:* keep it only
   if the spike finds a profile type the native chain cannot read; otherwise drop R6.3 and say so in
   the plan. (The operator chose "native chain + CLI fallback"; this asks only whether the
-  fallback has anything to do.)
-- **Q2 — Token refresh write-back (R8a).** `aws login` and SSO refresh tokens rotate; a refresh
+  fallback has anything to do.) **Answer:** `aws-config` 1.8.18's profile provider reads static keys,
+  `credential_process`, IAM Identity Center (session and legacy), `aws login` sessions, role assumption
+  by `source_profile` or `credential_source`, web identity, and the default chain adds the
+  environment, container and instance roles — every source the CLI can export. The one thing the CLI
+  does that this cannot is prompt for an MFA code in a terminal, which a windowed application cannot
+  use either. A fallback would be code that never runs, so it is not written.
+- **Q2 — Settled 2026-10-16: follow the SDK.** `aws-config` 1.8.18 refreshes an `aws login` session and writes the new token back to the CLI's cache itself (`login/cache.rs`, `save_cached_token`), so the runtime adds no cache code. Whether the file it writes is accepted by the CLI afterwards is part of AC12. *(Original question follows.)* Token refresh write-back (R8a). `aws login` and SSO refresh tokens rotate; a refresh
   that is not written back can log the CLI out. *Suggested:* follow the SDK's own behaviour if it
   writes the CLI's cache in the CLI's format (verify in the plan); if it does not, read-only and
   say "sign in again" on expiry.
