@@ -282,7 +282,7 @@ server inside the test, which also verifies the signature) and report a quantifi
   operations (`AwsMcp.AwsCall` among them) completes against the fake, each raising its completion
   event then `onComplete`; the 14 Labs-server operations still answer with the *"needs the program
   uvx"* message. Counts reported: 33 succeeded / 14 correctly refused.
-- [ ] **AC10 (R15, R16):** Test connection reports each of: endpoint unreachable, credentials not
+- [x] **AC10 (R15, R16):** Test connection reports each of: endpoint unreachable, credentials not
   found, session refused, all good — for the hosted server. With `AllowWrite` off, every mutating
   hosted operation is refused and the fake records **zero** requests.
 - [ ] **AC11 (R19):** The AC9 programs pass under `rcrun run-form`, as an embedded child form and

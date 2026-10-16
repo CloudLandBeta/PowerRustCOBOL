@@ -37,9 +37,9 @@ first) and adds a `CHANGELOG.md` entry. Before every commit: scan the staged dif
 - [x] **T16 — Tests** — `aws_credential_chain` (8) for precedence, static keys, environment, `credential_process` with refresh, a refused credential not kept, and the R7 messages; the HTTP client adapter's own tests; and the hosted demos over HTTPS under `rcrun` (`aws_hosts`). *Narrowed (A4):* Identity Center exchange, role assumption and `aws login` refresh have no fixture and are left to AC12.
 
 ## P4 — Test connection and IDE (R15; AC10)
-- [ ] **T17 — `diagnose` and `https::probe`** — per-server reports; new variants.
-- [ ] **T18 — IDE** — `settings_form.rs`, `i18n.rs` ×6, completeness test, Report × language loop.
-- [ ] **T19 — Tests** — `aws_diagnose.rs` hosted cases: unreachable, no credentials, refused, all good.
+- [x] **T17 — `diagnose` and `https::probe`** — per-server reports; new variants.
+- [x] **T18 — IDE** — `settings_form.rs`, `i18n.rs` ×6, completeness test, Report × language loop.
+- [x] **T19 — Tests** — hosted cases in `aws_credential_chain.rs` (they need its sandboxed environment): all good, route mismatch, unreachable, sign-in expired, session refused, not signed in (nothing sent); `aws_diagnose.rs` is unchanged and green.
 
 ## P5 — Docs, KB, help (R20; AC13)
 - [ ] **T20 — Guide, matrix, README, steering registry** — hosted vs Labs; no "verified" before AC12.

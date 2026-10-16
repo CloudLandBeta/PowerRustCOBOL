@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.186] — 2026-10-16
+
+*(Written on `features-aws-native`, after 1.91.185.)*
+
+### Added: AWS without `uvx`, step 4 — Test connection for the hosted server (spec 103)
+
+**Settings ▸ Integrations ▸ AWS ▸ Test connection** now tests the hosted AWS services as well as the Lambda server, in two rows, each in the IDE's language. The hosted row needs nothing installed, answers in seconds, and says which step failed.
+
+- **What it finds** (hosted): the **address could not be reached** (the host and the cause); **no sign-in, or an expired one** (the profile, and the command — `aws login --profile …`, or `aws sso login --profile …` for IAM Identity Center); the **endpoint refused the session** (the HTTP status — a sign-in not allowed to use the service); the tools **do not match the route table**; or **connected** (how many tools). It starts no program, and ends the session it opened.
+- **The second row** is the AWS Labs servers (Lambda, Knowledge Bases, AgentCore, S3 Tables, Glue) and keeps its four outcomes — the program `uv` is missing, the profile is not signed in, the server does not match, connected with the functions found. The heading of each row says which services it is about, and that the second needs `uv`.
+- **In the code:** `diagnose::diagnose_hosted` beside the existing `diagnose`; `Report` gains `EndpointUnreachable`, `SessionRefused` and `HostedGood`; the IDE's `aws_report_text` handles them (it is an exhaustive match, so the IDE would not compile otherwise). Five new `Tr` fields and two reworded ones, **in all six languages**.
+
+*Tests.* `aws_credential_chain` gains one test that tells **6 hosted states apart** — all good, route mismatch, endpoint unreachable, sign-in expired, session refused, not signed in (nothing sent) — and that a diagnosis ends its session. In the IDE: **48 outcome texts** (8 outcomes × 6 languages) with no placeholder left and every value present; **30 new strings** in five languages, none equal to the English; only the two "connected" reports count as good. Whole IDE binary: 1727 passed, 4 failed — exactly four of the known-red list (`every_document_ships_in_every_language`, `every_completion_description_exists_in_six_languages`, and the two live-crates.io `egui` tests); the three External Crates flow tests of the handoff are green.
+
+*Docs:* spec 103 (T17–T19, AC10). The Developer's Guide, the System KB and the property help are the next step.
+
+*Not done.* The Guide, KB and help wording; the built-binary run over HTTPS; AC12.
+
 ## [PowerRustCOBOL 1.91.185] — 2026-10-16
 
 *(Written on `features-aws-native`, after 1.91.184.)*

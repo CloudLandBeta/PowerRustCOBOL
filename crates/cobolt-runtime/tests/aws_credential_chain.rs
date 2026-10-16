@@ -22,11 +22,13 @@ mod support {
     pub mod sigv4;
 }
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use cobolt_mcp::Mode;
+use cobolt_runtime::aws::connections::AwsConnection;
+use cobolt_runtime::aws::diagnose::{self, Report};
 use cobolt_runtime::aws::ops;
 use cobolt_runtime::aws::pool::{self, Budget, CallError, ServerKey};
 use cobolt_runtime::aws::process::{Credentials, HttpsEndpoint, Launch};
@@ -291,5 +293,79 @@ fn a_refused_credential_is_not_kept() {
         .collect();
     assert_eq!(ids, [FILE_KEY.0, ENV_KEY.0], "the second request was signed with the renewed credentials: {ids:?}");
     println!("\n  103 R3 — after a 403 the providers are asked again: {ids:?}");
-    let _ = Path::new("");
+}
+
+// ── Test connection, for the hosted server (spec 103 R15, AC10) ───────────────────────
+
+fn connection(url: &str) -> AwsConnection {
+    AwsConnection {
+        id: "diag".into(),
+        name: "diag".into(),
+        region: "eu-west-1".into(),
+        routes_override: format!(
+            "[servers.hosted]\ntransport = 'https'\nurl = '{url}'\nservice = 'aws-mcp'\nsigning_region = 'us-east-1'\n\
+             metadata = {{ AWS_REGION = \"{{Connection.Region|or:us-east-1}}\" }}\n"
+        ),
+        ..Default::default()
+    }
+}
+
+fn diagnose_hosted(url: &str) -> Report {
+    diagnose::diagnose_hosted(&connection(url), Duration::from_secs(10), Duration::from_secs(10))
+}
+
+fn script_tool() -> serde_json::Value {
+    json!({"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}})
+}
+
+/// The hosted server's Test connection says which step failed: the sign-in, the address, the session,
+/// the route table — or that all is well — and starts nothing.
+#[test]
+fn test_connection_tells_the_hosted_servers_states_apart() {
+    let _sb = Sandbox::new("diag", "", "");
+    std::env::set_var("AWS_ACCESS_KEY_ID", ENV_KEY.0);
+    std::env::set_var("AWS_SECRET_ACCESS_KEY", ENV_KEY.1);
+    let mut seen = Vec::new();
+
+    // All good: the sign-in is found, a session opens, the tool the routes need is offered.
+    let good = HttpFake::start(json!({"tools": [script_tool()]}));
+    let r = diagnose_hosted(&good.url);
+    assert_eq!(r, Report::HostedGood { tools: 1 }, "{r:?}");
+    assert_eq!(good.count_http("DELETE"), 0usize.max(good.count_http("DELETE")), "the session may still be closing");
+    assert!(good.wait_for(|f| f.count_http("DELETE") == 1, Duration::from_secs(3)), "a diagnosis ends its session");
+    seen.push("all good".to_owned());
+
+    // The tools do not match the route table.
+    let other = HttpFake::start(json!({"tools": [{"name": "something_else", "inputSchema": {"type": "object"}}]}));
+    assert!(matches!(diagnose_hosted(&other.url), Report::RouteMismatch { .. }));
+    seen.push("route mismatch".to_owned());
+
+    // Nothing is listening.
+    let port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    };
+    let r = diagnose_hosted(&format!("http://127.0.0.1:{port}/mcp"));
+    assert!(matches!(&r, Report::EndpointUnreachable { host, .. } if host == &format!("127.0.0.1:{port}")), "{r:?}");
+    seen.push("endpoint unreachable".to_owned());
+
+    // The endpoint refuses the session: a sign-in that has expired, and one that is not allowed.
+    let expired = HttpFake::start(json!({"http_error": {"status": 403, "body": "{\"__type\":\"ExpiredTokenException\"}"}}));
+    let r = diagnose_hosted(&expired.url);
+    assert!(matches!(&r, Report::ProfileNotSignedIn { profile, .. } if profile == "default"), "{r:?}");
+    seen.push("sign-in expired".to_owned());
+    let denied = HttpFake::start(json!({"http_error": {"status": 403, "body": "{\"__type\":\"AccessDeniedException\",\"message\":\"not authorized\"}"}}));
+    let r = diagnose_hosted(&denied.url);
+    assert!(matches!(&r, Report::SessionRefused { status, detail } if status == "403" && detail.contains("AccessDenied")), "{r:?}");
+    seen.push("session refused".to_owned());
+
+    // Nothing signed in at all: nothing is sent.
+    std::env::remove_var("AWS_ACCESS_KEY_ID");
+    std::env::remove_var("AWS_SECRET_ACCESS_KEY");
+    let silent = HttpFake::start(json!({"tools": [script_tool()]}));
+    let r = diagnose_hosted(&silent.url);
+    assert!(matches!(&r, Report::ProfileNotSignedIn { message, .. } if message.contains("aws login")), "{r:?}");
+    assert_eq!(silent.requests().len(), 0, "nothing is sent without a sign-in");
+    seen.push("not signed in".to_owned());
+    println!("\n  103 AC10 — Test connection for the hosted server told {} states apart: {}", seen.len(), seen.join(", "));
 }
