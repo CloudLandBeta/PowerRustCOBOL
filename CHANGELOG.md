@@ -17,6 +17,45 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.198] — 2026-10-17
+
+*(Written on `features-layout-grid-color`, off `main` at 1.91.197.)*
+
+### Feature: choose the color of the grid lines in the Form Designer
+
+Operator, 2026-10-17: "when editing the grid, in the popupmenu add a color selection button to change the color of the grid (only applied during the designer, never in the preview or the runtime)". Asked which grid and where, the operator answered: the grid-layout lines, in the floating edit toolbar.
+
+The floating grid toolbar (spec 088) now ends with a **swatch** of the line color, set apart from the seven tools by a thin line:
+- **click:** opens the IDE's color picker, the one the Properties pane uses. The lines take the color as it is picked.
+- **right-click:** goes back to the theme's accent.
+
+What the color touches:
+- every Grid container's lines and their size labels, in every Form Designer window;
+- nothing else: not the cell selection, not the toolbar.
+
+It is a setting of this machine, kept in `ui.toml` as `layout_grid_color`. It is written once, half a second after the last change, so a drag across the picker is one write.
+
+It never reaches the form:
+- not a byte of the `.cfrm`;
+- not an undo step;
+- not an unsaved change.
+
+Preview and Run Form draw no grid lines at all, so the color is never seen there. An older `ui.toml`, or a value edited by hand into nonsense, means the theme's accent.
+
+- **Spec 088 amendment A3** (R32–R35, AC17). The spec already had an A2, from `/plan`.
+- **Code:**
+  - `panels/layout_grid_edit.rs`: the swatch, `swatch_rect`, `LayoutGridView::color`;
+  - `panels/designer.rs`: the lines drawn in the color;
+  - `app.rs`: one color handed to every designer each frame, and the settled save;
+  - `ui_prefs.rs`;
+  - `panels/properties.rs`: the picker split out of `color_edit_button_closing` as `color_picker_popup`, so the IDE keeps one color picker;
+  - `ide_text_data.rs`: the tip, in six languages.
+
+  Also in `properties.rs`: a doc comment that 1.91.196 had detached from `property_row_keyed` is back above it. Comment only.
+- **Tests:**
+  - `the_toolbar_swatch_colours_the_grid_lines_and_never_the_form`. Mutation-checked: drawn in the accent again, it fails on "the chosen colour".
+  - `ui_prefs::the_grid_line_colour_is_the_themes_until_one_is_chosen`.
+
 ## [PowerRustCOBOL 1.91.197] — 2026-10-17
 
 *(Written on `fixes-task-wizard-arrow`, off `main` at 1.91.196.)*

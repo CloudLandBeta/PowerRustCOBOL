@@ -1022,6 +1022,15 @@ pub struct CoboltApp {
     /// Spec 104 — the Task Wizard: its switch, what it remembers, its engine and overlay.
     /// The behaviour lives in `app/task_wizard_glue.rs`.
     task_wizard: crate::panels::task_wizard::Wizard,
+    /// Spec 088 A3 — the colour every Form Designer draws grid lines in (`None`: the theme's
+    /// accent). Read from `ui.toml` once at startup and handed to each designer every frame,
+    /// so a colour picked in one designer window shows in all of them.
+    layout_grid_color: Option<egui::Color32>,
+    /// When the colour last changed, while it is not yet in `ui.toml`. It is written half a
+    /// second after the last change — once per pick, not on every frame of a drag across the
+    /// picker — by the IDE window, which runs even after the designer window it was picked
+    /// in has closed. A wall clock, not egui's input time: each OS window keeps its own.
+    layout_grid_color_changed_at: Option<std::time::Instant>,
     /// The machine flag, read once at startup like `rust_check_done`. Reading
     /// `ui.toml` on every frame the Settings menu is open would be a per-frame file
     /// read for a value that changes at most twice in a session.
@@ -2258,6 +2267,8 @@ impl CoboltApp {
             ai_setup_ready: None,
             walkthrough: Default::default(),
             task_wizard: crate::panels::task_wizard::Wizard::load(),
+            layout_grid_color: crate::ui_prefs::load_layout_grid_color(),
+            layout_grid_color_changed_at: None,
             walkthrough_shown: crate::ui_prefs::walkthrough_shown(),
             had_project_last_frame: false,
             toolchain_prompt: None,
@@ -13580,6 +13591,20 @@ impl CoboltApp {
         self.pending_open_in_editor = None;
     }
 
+    /// Spec 088 A3 — write the grid-line colour to `ui.toml` once it has settled: half a
+    /// second after the last change, so a drag across the picker is one write.
+    fn save_layout_grid_color(&mut self, ctx: &Context) {
+        const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
+        let Some(at) = self.layout_grid_color_changed_at else { return };
+        let waited = at.elapsed();
+        if waited >= SETTLE {
+            crate::ui_prefs::save_layout_grid_color(self.layout_grid_color);
+            self.layout_grid_color_changed_at = None;
+        } else {
+            ctx.request_repaint_after(SETTLE - waited);
+        }
+    }
+
     fn tick_walkthrough(&mut self, ctx: &Context) {
         use crate::panels::walkthrough::Anchor;
 
@@ -16639,7 +16664,18 @@ impl eframe::App for CoboltApp {
                             d.close_requested = true;
                         }
                     }
+                    // Spec 088 A3 — one grid-line colour for every designer window: handed
+                    // in before the window draws, taken back if its swatch changed it.
+                    if let Some((_, d)) = self.designers.get_mut(idx) {
+                        d.layout_grid.color = self.layout_grid_color;
+                    }
                     self.show_designer_window(vp_ctx, idx, &tr);
+                    if let Some((_, d)) = self.designers.get(idx) {
+                        if d.layout_grid.color != self.layout_grid_color {
+                            self.layout_grid_color = d.layout_grid.color;
+                            self.layout_grid_color_changed_at = Some(std::time::Instant::now());
+                        }
+                    }
                     let vp = vp_ctx.ctx().clone();
                     self.task_wizard_designer_end(&vp, idx, &tr);
                     // The build modal renders HERE when this designer's Run
@@ -17054,6 +17090,7 @@ impl eframe::App for CoboltApp {
         }
 
         self.tick_walkthrough(ctx);
+        self.save_layout_grid_color(ctx);
         // Spec 104 — last: the Task Wizard reads everything this frame painted.
         if !self.task_wizard.dismissed.is_empty() {
             self.task_wizard_prune_dismissals();

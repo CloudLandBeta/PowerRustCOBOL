@@ -29,6 +29,8 @@ struct Rig {
     t: f64,
     /// The cursor the last frame asked for.
     cursor: egui::CursorIcon,
+    /// What the last frame painted.
+    shapes: Vec<egui::epaint::ClippedShape>,
 }
 
 impl Rig {
@@ -39,6 +41,7 @@ impl Rig {
             d: DesignerPanel::new(form),
             t: 0.0,
             cursor: egui::CursorIcon::Default,
+            shapes: Vec::new(),
         };
         rig.settle();
         rig
@@ -61,6 +64,7 @@ impl Rig {
         });
         out.textures_delta.clear();
         self.cursor = out.platform_output.cursor_icon;
+        self.shapes = std::mem::take(&mut out.shapes);
     }
 
     /// A few quiet frames, so layout and the canvas origin are known.
@@ -1155,4 +1159,89 @@ fn every_gesture_is_one_undo_step_and_one_redo() {
         report.push(format!("{name} (+{} bytes of change)", after.len().abs_diff(before.len())));
     }
     println!("AC13: {} gestures, each one step, undone exactly and redone exactly: {}", table.len(), report.join("; "));
+}
+
+/// The stroke colours of every line segment a frame painted — the grid's dashed lines among
+/// them.
+fn segment_inks(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::Color32> {
+    fn walk(s: &egui::Shape, out: &mut Vec<egui::Color32>) {
+        match s {
+            egui::Shape::LineSegment { stroke, .. } => out.push(stroke.color),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+    out
+}
+
+/// Every text a frame painted.
+fn painted_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+    fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+        match s {
+            egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+    out
+}
+
+/// Spec 088 A3 (operator, 2026-10-17: "add a color selection button to change the color of
+/// the grid (only applied during the designer, never in the preview or the runtime)"). The
+/// toolbar's last cell is a swatch of the lines' colour:
+/// - the lines are drawn in the colour the IDE hands in, else the theme's accent;
+/// - a click opens the IDE's colour picker, and a right-click goes back to the theme's;
+/// - none of it touches the form: not a byte of the `.cfrm`, not an undo step.
+#[test]
+fn the_toolbar_swatch_colours_the_grid_lines_and_never_the_form() {
+    use crate::panels::layout_grid_edit as lg;
+    let mut rig = Rig::new(grid_form("1fr 1fr", "1fr 1fr", &[("A", 1, 1, 0, 0)]));
+    let saved = cobolt_forms::form_to_string(&rig.d.form).unwrap();
+    rig.click(rig.cell_centre("P", 1, 1));
+    let strip = rig.d.layout_grid.toolbar.expect("the toolbar is up");
+    let swatch = lg::swatch_rect(strip.min);
+    assert!(strip.contains_rect(swatch), "the swatch is inside the strip");
+    let last_tool = strip.min.x + lg::TOOL_PAD + 7.0 * lg::TOOL_SIZE + 6.0 * lg::TOOL_GAP;
+    assert!(swatch.min.x > last_tool, "after the seven tools, apart from them");
+
+    // The theme's accent until a colour is chosen; the IDE's colour once one is.
+    let dash = |c: egui::Color32| c.gamma_multiply(0.8);
+    let accent = crate::theme::active().accent;
+    rig.frame(vec![]);
+    assert!(segment_inks(&rig.shapes).contains(&dash(accent)), "the theme's accent by default");
+    let orange = egui::Color32::from_rgb(255, 136, 0);
+    rig.d.layout_grid.color = Some(orange);
+    rig.frame(vec![]);
+    let inks = segment_inks(&rig.shapes);
+    assert!(inks.contains(&dash(orange)), "the chosen colour");
+    assert!(!inks.contains(&dash(accent)), "and the accent no longer");
+
+    // A click opens the picker — its `#` hex field — and the form is untouched.
+    let hashes = |rig: &Rig| painted_texts(&rig.shapes).iter().filter(|t| t.as_str() == "#").count();
+    assert_eq!(hashes(&rig), 0, "no picker before the click");
+    rig.click(swatch.center());
+    rig.settle();
+    assert!(hashes(&rig) > 0, "the colour picker is open");
+    assert_eq!(rig.d.layout_grid.color, Some(orange), "opening it changes nothing");
+    rig.key(egui::Key::Escape);
+    assert_eq!(hashes(&rig), 0, "Esc closes it");
+
+    // A right-click on the swatch: back to the theme's accent.
+    let at = swatch.center();
+    let secondary = |pressed| Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE };
+    rig.frame(vec![Event::PointerMoved(at)]);
+    rig.frame(vec![secondary(true)]);
+    rig.frame(vec![secondary(false)]);
+    rig.settle();
+    assert_eq!(rig.d.layout_grid.color, None, "right-click: the theme's colour");
+    assert!(segment_inks(&rig.shapes).contains(&dash(accent)));
+
+    assert_eq!(cobolt_forms::form_to_string(&rig.d.form).unwrap(), saved, "the .cfrm is not touched");
+    assert!(rig.d.undo_stack.is_empty(), "a view colour is not an undo step");
+    assert!(!rig.d.dirty, "nor an unsaved change");
+    println!("A3: lines in the accent → orange → the accent again; picker opened and closed; form unchanged");
 }

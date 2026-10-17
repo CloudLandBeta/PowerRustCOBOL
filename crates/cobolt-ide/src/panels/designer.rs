@@ -5071,7 +5071,7 @@ impl DesignerPanel {
         let accent = crate::theme::active().accent;
         let toolbar_id = ui.id().with("layout-grid-toolbar");
         let pos = lg::toolbar_pos(container, canvas, lg::toolbar_size());
-        let (pressed, strip) = lg::show_toolbar(ui.ctx(), toolbar_id, pos, &state, accent);
+        let (pressed, strip) = lg::show_toolbar(ui.ctx(), toolbar_id, pos, &state, accent, &mut self.layout_grid.color);
         self.layout_grid.toolbar = Some(strip);
         let now = ui.ctx().input(|i| i.time);
         let notice = self.layout_grid.notice.clone().filter(|n| now - n.at < lg::NOTICE_SECONDS);
@@ -14844,8 +14844,10 @@ impl DesignerPanel {
             }
         }
         self.grid_overlay_cell = None;
+        // Spec 088 A3 — the lines in the colour the developer chose, else the theme's.
+        let lines = self.layout_grid.color.unwrap_or(accent);
         for g in &grids {
-            super::layout_grid_edit::paint_grid(painter, origin, g, accent);
+            super::layout_grid_edit::paint_grid(painter, origin, g, lines);
             self.grid_overlay_ids.push(g.id.clone());
         }
         if let Some((id, range)) = a1 {

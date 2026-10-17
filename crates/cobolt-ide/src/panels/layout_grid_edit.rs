@@ -36,6 +36,11 @@ pub(crate) struct LayoutGridView {
     pub toolbar: Option<egui::Rect>,
     /// What the last removal left auto-placed, shown beside the toolbar (R12).
     pub notice: Option<Notice>,
+    /// The colour the track lines are drawn in (A3); `None` is the theme's accent. Chosen
+    /// from the toolbar's swatch. The IDE keeps it in `ui.toml` and hands it to every
+    /// designer each frame, so it is never part of the form, and Preview and Run Form,
+    /// which draw no guides, never see it.
+    pub color: Option<egui::Color32>,
 }
 
 /// The controls a removal left auto-placed, and when the notice was raised.
@@ -50,7 +55,7 @@ pub(crate) const NOTICE_SECONDS: f64 = 8.0;
 
 impl Default for LayoutGridView {
     fn default() -> Self {
-        LayoutGridView { show: true, selection: None, history: Vec::new(), toolbar: None, notice: None }
+        LayoutGridView { show: true, selection: None, history: Vec::new(), toolbar: None, notice: None, color: None }
     }
 }
 
@@ -378,12 +383,25 @@ pub(crate) const TOOL_GAP: f32 = 4.0;
 pub(crate) const TOOL_PAD: f32 = 5.0;
 /// The space kept between the toolbar and the grid it belongs to.
 const TOOLBAR_MARGIN: f32 = 6.0;
+/// The space either side of the line between the seven tools and the colour swatch (A3).
+const SWATCH_GAP: f32 = 2.0 * TOOL_GAP + 1.0;
 
-/// The toolbar's size: a framed strip of seven buttons — fixed, never measured from the
-/// room there is (the no-self-resizing rule).
+/// The toolbar's size: a framed strip of seven buttons and the colour swatch — fixed, never
+/// measured from the room there is (the no-self-resizing rule).
 pub(crate) fn toolbar_size() -> egui::Vec2 {
     let n = TOOLS.len() as f32;
-    egui::vec2(TOOL_PAD * 2.0 + n * TOOL_SIZE + (n - 1.0) * TOOL_GAP, TOOL_PAD * 2.0 + TOOL_SIZE)
+    egui::vec2(
+        TOOL_PAD * 2.0 + n * TOOL_SIZE + (n - 1.0) * TOOL_GAP + SWATCH_GAP + TOOL_SIZE,
+        TOOL_PAD * 2.0 + TOOL_SIZE,
+    )
+}
+
+/// Where the colour swatch sits in a strip whose top-left corner is `strip_min` (A3): last,
+/// after the line that sets it apart from the seven tools.
+pub(crate) fn swatch_rect(strip_min: egui::Pos2) -> egui::Rect {
+    let n = TOOLS.len() as f32;
+    let x = strip_min.x + TOOL_PAD + n * TOOL_SIZE + (n - 1.0) * TOOL_GAP + SWATCH_GAP;
+    egui::Rect::from_min_size(egui::pos2(x, strip_min.y + TOOL_PAD), egui::vec2(TOOL_SIZE, TOOL_SIZE))
 }
 
 /// Where the toolbar goes, on screen: beside the container (`grid`, its whole rectangle),
@@ -483,14 +501,17 @@ fn paint_icon(p: &egui::Painter, r: egui::Rect, tool: Tool, ink: egui::Color32) 
 
 /// The floating toolbar: seven icon-only buttons in a framed strip, each with a translated
 /// tip — what it does, or why it does not — and disabled, never hidden, when it does not
-/// apply. A foreground `Area` at a fixed position and of a fixed size, so nothing it holds
-/// can resize it. Returns the tool pressed this frame and the strip's rectangle.
+/// apply; then the swatch of the grid lines' colour (A3), `line_color`, which a click
+/// changes through the IDE's colour picker and a right-click returns to the theme's accent
+/// (`None`). A foreground `Area` at a fixed position and of a fixed size, so nothing it
+/// holds can resize it. Returns the tool pressed this frame and the strip's rectangle.
 pub(crate) fn show_toolbar(
     ctx: &egui::Context,
     id: egui::Id,
     pos: egui::Pos2,
     state: &[(Tool, Result<(), Why>)],
     accent: egui::Color32,
+    line_color: &mut Option<egui::Color32>,
 ) -> (Option<Tool>, egui::Rect) {
     use egui::{pos2, vec2};
     let size = toolbar_size();
@@ -502,7 +523,8 @@ pub(crate) fn show_toolbar(
         .show(ctx, |ui| {
             let strip = egui::Rect::from_min_size(pos, size);
             ui.allocate_exact_size(size, egui::Sense::hover());
-            let p = ui.painter();
+            // A clone, so the colour picker below can borrow the `Ui` mutably.
+            let p = &ui.painter().clone();
             p.rect_filled(strip, 7.0, egui::Color32::from_rgba_unmultiplied(22, 26, 46, 238));
             p.rect_stroke(strip, 7.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Inside);
             for (i, (tool, avail)) in state.iter().enumerate() {
@@ -525,9 +547,37 @@ pub(crate) fn show_toolbar(
                     pressed = Some(*tool);
                 }
             }
+            // A3 — the lines' colour, set apart from the tools by a thin line.
+            let sw = swatch_rect(strip.min);
+            let x = sw.min.x - SWATCH_GAP / 2.0;
+            p.line_segment(
+                [pos2(x, sw.min.y + 3.0), pos2(x, sw.max.y - 3.0)],
+                egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+            );
+            let mut resp = ui.interact(sw, id.with("line-color"), egui::Sense::click());
+            if resp.hovered() {
+                p.rect_filled(sw, 5.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 34));
+                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            let mut color = line_color.unwrap_or(accent);
+            let chip = sw.shrink(6.0);
+            egui::color_picker::show_color_at(p, color, chip);
+            p.rect_stroke(chip, 2.0, egui::Stroke::new(1.0, egui::Color32::from_gray(220)), egui::StrokeKind::Outside);
+            resp = resp.on_hover_text(crate::ui_text::ide(SWATCH_TIP));
+            crate::panels::properties::color_picker_popup(ui, &mut resp, &mut color);
+            if resp.changed() {
+                *line_color = Some(color);
+            }
+            if resp.secondary_clicked() {
+                *line_color = None;
+            }
         });
     (pressed, egui::Rect::from_min_size(pos, size))
 }
+
+/// The swatch's tip (A3), in English — the key of its translation.
+pub(crate) const SWATCH_TIP: &str =
+    "Grid line color — seen only in the Form Designer, never in Preview or Run Form. Right-click: the theme's color";
 
 /// A line of small text under the toolbar: the notice of what a removal left auto-placed
 /// (R12), else the hint that the mode is on. A foreground `Area` at a fixed position.

@@ -189,6 +189,28 @@ This feature makes the grid directly editable on the canvas:
 - **R31 (ubiquitous):** For a control in a grid nested in another grid, R27
   shows the **innermost** grid — the one whose cell holds the control.
 
+### 4.5b The grid lines' colour (amendment A3)
+
+> *Operator, 2026-10-17:* "when editing the grid, in the popupmenu add a color
+> selection button to change the color of the grid (only applied during the
+> designer, never in the preview or the runtime)". Asked which grid and where:
+> the grid-layout lines, in the floating edit toolbar.
+
+- **R32 (ubiquitous):** The grid toolbar shall end with a **swatch** of the
+  colour the canvas draws track lines in, set apart from the seven tools, with
+  a translated tip.
+- **R33 (event):** When the developer clicks the swatch, the IDE's colour
+  picker (the Properties pane's) shall open under it; the colour picked shall
+  be the lines' colour at once. When they right-click it, the lines shall go
+  back to the theme's accent.
+- **R34 (ubiquitous):** The colour shall apply to every Grid container's lines
+  in every Form Designer window — R3's, R27's — and their size labels, and to
+  nothing else: not the cell selection, not the toolbar.
+- **R35 (constraint):** The colour is a setting of this machine, kept in the
+  IDE's preferences (`ui.toml`). It shall never be written to the `.cfrm`,
+  never be an undo step or mark the form unsaved, and never reach Preview or
+  Run Form, which draw no guides.
+
 ### 4.6 General
 - **R25 (ubiquitous):** Every edit this spec defines shall be an ordinary
   property change through the designer's command system: one undo step per
@@ -240,6 +262,12 @@ This feature makes the grid directly editable on the canvas:
   `Crd-AC`'s columns resizes those columns (units kept, per AC10) as one undo
   step, the label stays selected, and the label's own `w` in the `.cfrm` is
   unchanged; a press on the label away from the line still selects/moves it.
+- [x] **AC17 (R32–R35)** — The toolbar ends with the swatch, after the seven
+  tools. The lines are drawn in the theme's accent until a colour is handed
+  in, then in that colour only. A click on the swatch opens the colour picker
+  and `Esc` closes it; a right-click goes back to the accent. None of it changes
+  a byte of the `.cfrm`, pushes an undo step or marks the form unsaved, and an
+  older `ui.toml` (or a malformed value in it) means the accent.
 
 ## 6. Constraints & steering check
 - **i18n:** the Show Grid tooltip, every grid-toolbar tooltip, the disabled
@@ -305,3 +333,4 @@ the code it guards broken, the named test fails.
 | AC14 | forms engine: `the_canvas_and_run_form_place_an_edited_grid_the_same` — the designer's layout and the saved form's layout (what Run Form reads) agree after every operation. The run-form half is the shared layout engine, not a spawned window. |
 | AC15 | `selecting_a_control_shows_the_grid_it_sits_in_and_no_other` |
 | AC16 | `the_selected_controls_grid_can_be_dragged_and_the_control_keeps_its_own_gestures` |
+| AC17 | `the_toolbar_swatch_colours_the_grid_lines_and_never_the_form`; `ui_prefs::the_grid_line_colour_is_the_themes_until_one_is_chosen` |

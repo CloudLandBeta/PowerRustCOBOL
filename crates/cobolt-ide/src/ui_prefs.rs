@@ -89,6 +89,11 @@ pub struct UiPrefs {
     /// page is not shown again on this machine until it changes. Empty — the default, and
     /// what an older `ui.toml` reads as — means none was closed yet.
     pub announcement_dismissed: String,
+    /// The colour the Form Designer draws Grid containers' track lines in (spec 088 A3), as
+    /// `#RRGGBBAA`. Empty — the default, and what an older `ui.toml` reads as — means the
+    /// theme's accent. Machine-level and never in a `.cfrm`: it is how *this developer* sees
+    /// the guides, and Preview and Run Form draw no guides at all.
+    pub layout_grid_color: String,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -211,6 +216,28 @@ pub fn set_announcement_dismissed(id: &str) {
     prefs.save();
 }
 
+/// The colour chosen for the Form Designer's grid lines (spec 088 A3), or `None` for the
+/// theme's accent.
+pub fn load_layout_grid_color() -> Option<egui::Color32> {
+    layout_grid_color_of(&UiPrefs::load().layout_grid_color)
+}
+
+/// Remember the grid-line colour; `None` goes back to the theme's accent (load-then-save).
+pub fn save_layout_grid_color(color: Option<egui::Color32>) {
+    let mut prefs = UiPrefs::load();
+    prefs.layout_grid_color = color.map(crate::panels::properties::color32_to_hex).unwrap_or_default();
+    prefs.save();
+}
+
+/// A stored grid-line colour: six or eight hex digits, with or without `#`. Anything else —
+/// blank, or a value edited by hand into nonsense — is no setting, never a colour guessed
+/// from it.
+fn layout_grid_color_of(stored: &str) -> Option<egui::Color32> {
+    let hex = stored.trim().trim_start_matches('#');
+    let valid = matches!(hex.len(), 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit());
+    valid.then(|| crate::panels::properties::hex_to_color32(hex))
+}
+
 /// The configured platform SDK folder, or `None` to let the compiler search.
 ///
 /// A blank entry is `None` rather than an empty path: an empty string would
@@ -295,9 +322,25 @@ mod tests {
             .into(),
             task_wizard_dismissed: ["/home/dev/Inventory|Main|Grid1|datagrid".to_owned()].into(),
             announcement_dismissed: "cbf29ce484222325".into(),
+            layout_grid_color: "#FF8800FF".into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);
+    }
+
+    /// Spec 088 A3 — an older `ui.toml` has chosen no grid colour, so the lines keep the
+    /// theme's accent; a stored colour comes back as itself, and nonsense is no setting.
+    #[test]
+    fn the_grid_line_colour_is_the_themes_until_one_is_chosen() {
+        let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
+        assert_eq!(layout_grid_color_of(&older.layout_grid_color), None);
+        let orange = egui::Color32::from_rgb(255, 136, 0);
+        let stored = crate::panels::properties::color32_to_hex(orange);
+        assert_eq!(layout_grid_color_of(&stored), Some(orange));
+        assert_eq!(layout_grid_color_of("FF8800"), Some(orange), "six digits, no #");
+        for nonsense in ["", "   ", "#12345", "orange", "#GG8800FF"] {
+            assert_eq!(layout_grid_color_of(nonsense), None, "{nonsense:?} is no setting");
+        }
     }
 
     /// Spec 107 R8 — an older `ui.toml` has closed no announcement, so the first one

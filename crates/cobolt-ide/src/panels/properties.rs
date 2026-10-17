@@ -453,7 +453,7 @@ fn store_asset_path(p: &std::path::Path) -> String {
 
 pub(crate) fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
     use egui::color_picker::show_color_at;
-    use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
+    use egui::{Sense, Stroke, Vec2};
 
     // ── Colour swatch button ──────────────────────────────────────────────────
     let size = Vec2::new(35.0, ui.spacing().interact_size.y.max(16.0));
@@ -467,6 +467,18 @@ pub(crate) fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egu
             egui::StrokeKind::Middle,
         );
     }
+    color_picker_popup(ui, &mut resp, color);
+    resp
+}
+
+/// The IDE's colour picker, hanging under a swatch someone else drew: a click on `resp`
+/// opens or closes it, and it closes on a click outside it or on `Esc`. `resp` is marked
+/// changed when `color` changes. [`color_edit_button_closing`] is the swatch-and-picker the
+/// Properties pane uses; a swatch of another shape — the Form Designer grid toolbar's
+/// (spec 088 A3) — calls this with its own response, so the IDE has one colour picker.
+pub(crate) fn color_picker_popup(ui: &mut Ui, resp: &mut egui::Response, color: &mut Color32) {
+    use egui::color_picker::show_color_at;
+    use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
 
     let popup_id = resp.id.with("__closing_color_popup");
     let anchor_id = resp.id.with("__closing_color_anchor");
@@ -601,8 +613,6 @@ pub(crate) fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egu
         }
     }
     ui.memory_mut(|m| m.data.insert_temp(open_id, open));
-
-    resp
 }
 
 // ── Action ────────────────────────────────────────────────────────────────────
@@ -13014,8 +13024,6 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
     property_row_keyed(ui, label, None, value)
 }
 
-/// [`property_row`] for property `key` (when the label is not simply the
-/// property's name): hovering the name explains the property.
 thread_local! {
     /// Where each property row was drawn this frame, by property key — cleared as the pane
     /// begins a frame. The Task Wizard points at rows with it (spec 104: a map's centre,
@@ -13034,6 +13042,8 @@ fn rows_rect(keys: &[&str]) -> Option<Rect> {
     })
 }
 
+/// [`property_row`] for property `key` (when the label is not simply the
+/// property's name): hovering the name explains the property.
 fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl FnOnce(&mut Ui)) {
     match search_admits(label, key) {
         RowAdmission::Hidden => return,

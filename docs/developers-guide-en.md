@@ -2769,6 +2769,7 @@ out, and its tip says why.
 | **Restore** | Puts back the most recently removed column or row of this grid: the same size, in the same place, with the placement and spans of the controls it held. |
 | **Merge** | Makes the control in the selected cells cover all of them: it is placed in the top-left cell and given the range's size as `ColumnSpan` and `RowSpan`. |
 | **Split** | Gives a merged control `ColumnSpan` and `RowSpan` 1 again, in its top-left cell. |
+| **Line color** (the swatch, last, set apart) | The color the Form Designer draws grid lines in. Click it to choose one from the IDE's color picker; right-click to go back to the theme's. It applies to every grid in every Form Designer window and is remembered on this machine. It is how you see the grid, not part of it: it is not saved in the form, and Preview and Run Form show no grid lines at all. |
 
 > 📷 Screenshot needed — `grid-edit-toolbar.png`: select two neighbouring
 > cells of a grid and capture the grid with the floating toolbar beside it,
