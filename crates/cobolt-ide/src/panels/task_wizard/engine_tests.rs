@@ -390,6 +390,86 @@ fn the_subject_is_captured_on_leaving_and_recovered_on_resume() {
     assert_eq!(step_key(&e), Some("select"));
 }
 
+/// The operator's report (2026-10-17): start *Set up a DataGrid* (or the SideMenu or MenuBar
+/// task) with the control already selected, and the selection step said "already done",
+/// counted "step 1 of 1", offered **Finish**, and Finish ended the task. The app fills
+/// `facts.subject` from `engine.subject()` at the START of each frame, so a subject taken only
+/// when leaving the step was one frame too late for every step after it (`has_subject`).
+/// Here the facts are built the app's way, from what the engine knew the frame before.
+fn facts_as_the_app_builds_them(base: &Facts, e: &Engine) -> Facts {
+    let mut f = base.clone();
+    f.subject.exists = e.subject().is_some();
+    f.subject.selected = e.subject().is_some();
+    f
+}
+
+#[test]
+fn a_control_already_selected_is_the_subject_from_the_first_frame() {
+    let vp = ViewportId::from_hash_of("designer");
+    let grid = Selected {
+        form: "Main".into(),
+        control: "Grid1".into(),
+        kind: ControlKind::DataGrid,
+    };
+    let mut base = project();
+    base.designers.push(DesignerFacts {
+        viewport: vp,
+        form: "Main".into(),
+        focused: true,
+        selected: Some(grid.clone()),
+    });
+    let mut e = Engine::new(DESIGNER_FIXTURE);
+    let f = facts_as_the_app_builds_them(&base, &e);
+    e.start("grid", None, &f, &tr());
+    assert_eq!(e.subject(), Some(&grid), "taken as the step opens already done");
+    let f = facts_as_the_app_builds_them(&base, &e);
+    let out = frame(&mut e, &f, &Marks::default(), None);
+    let Some(Card::Step(card)) = out.plan.map(|p| p.card) else { panic!("a step card") };
+    assert!(card.already, "the grid was selected before the task began");
+    assert_eq!((card.n, card.m), (1, 2), "the settings step counts: not '1 of 1'");
+    assert!(!card.last, "Next, not Finish");
+    let f = facts_as_the_app_builds_them(&base, &e);
+    frame(&mut e, &f, &Marks::default(), Some(Nav::Next));
+    assert_eq!(step_key(&e), Some("settings"), "Next goes on; it does not end the task");
+}
+
+/// The same, on the real table: each designer task started with its control selected shows
+/// more than its selection step, and Next goes on.
+#[test]
+fn every_select_first_task_goes_on_past_an_already_selected_control() {
+    let vp = ViewportId::from_hash_of("designer");
+    for (task, kind) in [
+        ("datagrid", ControlKind::DataGrid),
+        ("sidemenu", ControlKind::SideMenu),
+        ("menubar", ControlKind::MenuBar),
+        ("treeview", ControlKind::TreeView),
+        ("animation", ControlKind::Other { bindable: false }),
+        ("binding", ControlKind::Other { bindable: true }),
+    ] {
+        let selected = Selected { form: "Main".into(), control: "C1".into(), kind };
+        let mut base = project();
+        base.designers.push(DesignerFacts {
+            viewport: vp,
+            form: "Main".into(),
+            focused: true,
+            selected: Some(selected),
+        });
+        let mut e = Engine::default();
+        let f = facts_as_the_app_builds_them(&base, &e);
+        e.start(task, None, &f, &tr());
+        let f = facts_as_the_app_builds_them(&base, &e);
+        let out = frame(&mut e, &f, &Marks::default(), None);
+        let Some(Card::Step(card)) = out.plan.map(|p| p.card) else { panic!("{task}: a step card") };
+        assert!(card.m > card.n, "{task}: step {} of {} — the steps after the selection must count", card.n, card.m);
+        assert!(!card.last, "{task}: Next, not Finish");
+        let before = step_key(&e);
+        let f = facts_as_the_app_builds_them(&base, &e);
+        frame(&mut e, &f, &Marks::default(), Some(Nav::Next));
+        assert!(e.is_running() && step_key(&e) != before, "{task}: Next went on to a later step, not to the summary");
+        println!("{task}: step {} of {} on start; Next -> {:?}", card.n, card.m, step_key(&e));
+    }
+}
+
 // ── The real table ──────────────────────────────────────────────────────────────────────
 
 #[test]

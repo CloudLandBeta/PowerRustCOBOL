@@ -476,6 +476,12 @@ impl Engine {
         let now = step.done.is_some_and(|d| d(&ctx(run, facts)));
         let rose = now && !run.prev;
         run.prev = now;
+        // While a selection step shows, its subject follows the selection, frame by frame:
+        // the steps after it count and come next (the app's facts follow `subject()` a frame
+        // later), and choosing another control of the kind makes it the subject instead.
+        if step.captures {
+            run.subject = if now { facts.selected().cloned() } else { None };
+        }
         if rose && nav.is_none() {
             nav = Some(Nav::Next);
         }
@@ -696,6 +702,13 @@ fn enter(run: &mut Run, def: &TaskDef, i: usize, dir: Dir, facts: &Facts) {
     let held = def.steps[i].done.is_some_and(|d| d(&ctx(run, facts)));
     run.prev = held;
     run.already = held;
+    // A selection step that opens already done has its subject NOW: every step after it
+    // asks for one (`has_subject`), and a subject taken only on leaving reached the app's
+    // facts a frame late — the card said "1 of 1", the button Finish, and Next ended the
+    // task (operator, 2026-10-17).
+    if def.steps[i].captures && held {
+        run.subject = facts.selected().cloned();
+    }
 }
 
 /// Record how the step was left going forward, and take the subject if it captures one.

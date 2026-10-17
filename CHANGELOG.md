@@ -17,6 +17,31 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.195] — 2026-10-17
+
+*(Written on `fixes-task-wizard-subject`, off `main` at 1.91.194.)*
+
+### Fixed: the Task Wizard ended at "Select the control" when the control was already selected
+
+Operator, 2026-10-17, with a screenshot of *Set up a DataGrid*: "The Task Wizard is not helping configure the datagrid or the databound. It says 'Already done' before doing anything". Then: "same for the sidemenu", "same for the menu bar", "same for Add an animation", "same for the treeview".
+
+*What was wrong.* Every designer task starts by selecting its control, and every step after that asks for the task's **subject** (`has_subject`). The subject was taken only when the developer left the selection step. The app builds the wizard's facts from the subject at the *start* of each frame, so the steps after the selection saw none:
+
+- while the step showed, the card counted **step 1 of 1** and offered **Finish**;
+- on the frame Finish was pressed, the facts still said there was no subject, so no step applied and the task jumped to its summary.
+
+"Already done" itself was right, since the control was selected. Everything after it was lost.
+
+*What changed* (`task_wizard/mod.rs`): a selection step takes its subject as soon as it holds: when it opens already done, and on every frame while it shows. Choosing another control of the kind makes that one the subject.
+
+*Tests:*
+
+- New: `a_control_already_selected_is_the_subject_from_the_first_frame`.
+- New: `every_select_first_task_goes_on_past_an_already_selected_control`. It covers DataGrid 1 of 6, SideMenu 1 of 5, MenuBar 1 of 6, TreeView 1 of 4, Animation 1 of 3 and Binding 1 of 5, each going on with Next.
+- Both build the facts as the app does. The existing subject test had set `subject.exists` by hand, which is why it never saw the bug.
+- Both failed before the fix. The wizard's 43 tests pass.
+- `cobolt-ide --bin`: 1800 passed, 4 failed. The 4 are the known failures unrelated to this change: GOLDEN RULE #8 translations, completion texts, and two live-network `external_crates` tests.
+
 ## [PowerRustCOBOL 1.91.194] — 2026-10-17
 
 *(Written on `features-announcements`, off `main` at 1.91.193.)*
