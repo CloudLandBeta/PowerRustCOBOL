@@ -38,6 +38,69 @@ fn every_route_names_a_real_tool_with_its_required_inputs() {
     println!("AC9: {checked} routed operations checked against their recorded servers");
 }
 
+/// What AWS's `aws___run_script` sandbox refuses in a script, as it reported it on
+/// 2026-10-17 to a connection with valid credentials: "Blocked import: base64",
+/// "Blocked function: getattr()", "Blocked attribute access: __name__". One such name
+/// anywhere refuses the WHOLE script, so every operation that pastes the prelude failed.
+/// `None` when `code` keeps to the rules, else the first offence and its line.
+fn sandbox_offence(code: &str) -> Option<String> {
+    for (n, line) in code.lines().enumerate() {
+        let t = line.trim();
+        if t.starts_with('#') {
+            continue;
+        }
+        let at = |what: &str| Some(format!("line {}: {what}: {t}", n + 1));
+        if let Some(rest) = t.strip_prefix("import ").or_else(|| t.strip_prefix("from ")) {
+            let modules: Vec<&str> = rest.split([',', ' ']).filter(|m| !m.is_empty()).collect();
+            if t.starts_with("from ") || modules.iter().any(|m| *m != "json") {
+                return at("an import other than json");
+            }
+        }
+        for banned in ["getattr(", "setattr(", "delattr(", "eval(", "exec(", "compile(", "globals(", "locals(", "vars(", "open(", "__import__"] {
+            if t.contains(banned) {
+                return at(banned);
+            }
+        }
+        // A dunder attribute: `.__name__`, `__class__`… (the tool's own name, written in
+        // no script, is the only `__` that is not one).
+        if t.split("aws___run_script").any(|piece| piece.contains("__")) {
+            return at("a __dunder__");
+        }
+    }
+    None
+}
+
+/// Every script the table sends to the hosted server, its snippets pasted, keeps to the
+/// sandbox's rules — and the rules are seen to bite on the scripts as they were.
+#[test]
+fn every_hosted_script_keeps_to_the_sandboxs_rules() {
+    let routes = Routes::shipped();
+    let mut checked = 0;
+    for (name, op) in &routes.ops {
+        if op.tool != "aws___run_script" {
+            continue;
+        }
+        let input = op.input.as_ref().unwrap_or_else(|| panic!("{name}: a script operation has an input"));
+        let pasted = routes.paste(input, &|_| Some("TOKEN".to_owned())).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let code = pasted.get("code").and_then(toml::Value::as_str).unwrap_or_else(|| panic!("{name}: no code"));
+        if let Some(offence) = sandbox_offence(code) {
+            panic!("{name} would be refused by AWS's sandbox — {offence}");
+        }
+        checked += 1;
+    }
+    assert!(checked >= 30, "only {checked} hosted scripts found");
+    // The guard guards: the three offences AWS reported, each alone, are caught.
+    for (bad, what) in [
+        ("import json, base64\nresult = 1", "import"),
+        ("d = getattr(x, 'response', None)", "getattr("),
+        ("c = type(x).__name__", "__dunder__"),
+    ] {
+        let found = sandbox_offence(bad).unwrap_or_else(|| panic!("{bad:?} passed the guard"));
+        assert!(found.contains(what), "{found}");
+    }
+    println!("{checked} hosted scripts keep to the sandbox's rules (json only, no getattr, no dunders)");
+}
+
 /// The check fails on drift: a renamed required input, and a renamed tool.
 #[test]
 fn a_drifted_fixture_fails_the_route_check() {

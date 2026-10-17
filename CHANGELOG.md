@@ -17,6 +17,30 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.191] — 2026-10-17
+
+*(Written on `fixes-aws-sandbox-rules`, off `main` at 1.91.189. 1.91.190 is the Task Wizard, committed on `features-guided-wizard` and not yet merged, so it will land after this number.)*
+
+### Fixed: every hosted AWS operation was refused by AWS's sandbox — "Code validation failed: Blocked import: base64"
+
+Operator, 2026-10-17: with valid credentials, the PowerCloud example's connection answered *Not connected: Code validation failed: Line 1: Blocked import: base64 / Line 24: Blocked function: getattr() / Line 36: Blocked attribute access: \_\_name\_\_*.
+
+*What was wrong.* The hosted operations — DynamoDB, S3, S3 Vectors, Rekognition, Polly, Comprehend, Textract, EC2, Cognito and `AwsMcp.AwsCall` — send AWS's MCP Server a Python script for its `aws___run_script` tool (`crates/cobolt-runtime/src/aws/routes.toml`). AWS now validates a script before running it, and one forbidden name refuses the whole script. The shared prelude every script starts with did `import json, base64`, so all 33 hosted operations were refused, not only the connection's check. `AwsCall`'s error helper also used `getattr(x, 'response', None)` and `type(x).__name__`. The line numbers AWS reported are exactly those of `AwsCall` with the prelude and the date snippet pasted in.
+
+*What changed* (`routes.toml` only; no Rust code):
+
+- **The prelude imports `json` and nothing else.** It carries its own base64, written with built-ins only: `_b64d` turns each character into its six bits with `str.translate` and reads them as one integer; `_b64e` maps each 12 bits of hex to two characters. Both work in 3 KB pieces, so a few-MB object costs a fraction of a second and needs no large temporary. `_bytes` and `_source` use it, and so do S3 `GetObject` and `PutObject` and Polly `Synthesize`, which used `base64.b64encode`/`b64decode` directly.
+- **`AwsCall`** reads a botocore error's `response` with a guarded attribute read (`try: x.response`) instead of `getattr`. A failure that is not an AWS error now reports `Error: <message>` instead of its Python class name. An AWS error still reads `<AWS error code>: <message>`, as the KB and the Guide say.
+
+*Tests.*
+
+- New: `every_hosted_script_keeps_to_the_sandboxs_rules` (`cobolt-runtime/tests/aws_routes.rs`) pastes the snippets into every `aws___run_script` template and refuses any import other than `json`, `getattr`/`setattr`/`eval`/`exec`/`open` and friends, and any `__dunder__`. It is shown to catch each of the three constructs AWS reported.
+- Changed: spec 103's byte-for-byte guard on the hosted templates (`ac5_…`) was re-recorded as a deliberate change, in `fixtures/aws-mcp/hosted-templates-1.91.191.sha256`. Exactly five entries moved: `[snippets]`, `AwsMcp.AwsCall`, `AwsPolly.Synthesize`, `AwsS3.GetObject` and `AwsS3.PutObject`. The other 29 are byte-identical to 1.91.179.
+- Runs: `cobolt-runtime` `aws_https` 8 passed (1 ignored, the fixture printer), `aws_routes` 5, `aws_delivery_c` 9, `aws_credential_chain` 9; `cobolt-cli` `aws_hosts` 3 passed (1 ignored), `powercloud_hosts` 7.
+- The new base64 was checked against Python's own: equal byte for byte on 309 lengths up to 1 MB, MIME-wrapped and URL-safe text included, and 5 MB in about 0.25 s each way. All 33 expanded scripts parse with top-level `await` and pass an AST check of the same rules. That check was a throwaway Python script kept outside the repository, per the prime directive; nothing of it is committed.
+
+*For the operator.* No run against the real service was possible here: the AWS keys are never opened. Please press Connect again in PowerCloud. If AWS refuses another name, its message lists every offending line, and the new test is where that rule goes.
+
 ## [PowerRustCOBOL 1.91.189] — 2026-10-17
 
 *(Written on `fixes-form-design-guidance`, after 1.91.188. 1.91.180 and 1.91.181 are still in flight, uncommitted, in the `fixes` and `report-quality` worktrees, so they will land after this number, as the notes above describe.)*

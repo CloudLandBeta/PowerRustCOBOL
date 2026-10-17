@@ -300,20 +300,56 @@ protocol       = "handshake"
 
 # Product-shipped Python, pasted into a template by `{snippet:name}`. A
 # snippet holds no brace: it is pasted before placeholders are expanded.
+#
+# AWS's sandbox validates a script before it runs it and refuses the whole
+# script for one forbidden name (operator's report, 2026-10-17): it imports
+# `json` and nothing else (`base64` is refused), and it refuses `getattr()` and
+# any `__dunder__` attribute. A test holds every template to that. So base64 is
+# done here with built-ins only: `_b64d`/`_b64e` turn each character into its
+# six bits (`str.translate`) and read them as one integer, and each 12 bits of
+# hex into two characters — C-speed steps, in 3 KB pieces, so an object of a
+# few MB costs a fraction of a second and no large temporary.
 [snippets]
 prelude = '''
-import json, base64
+import json
 def _j(o):
     return json.loads(json.dumps(o, default=str))
+_A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+_X = '0123456789abcdef'
+def _six(i):
+    return ''.join('1' if (i >> (5 - k)) & 1 else '0' for k in range(6))
+_D = dict((ord(c), _six(i)) for i, c in enumerate(_A))
+_D[ord('-')] = _D[ord('+')]
+_D[ord('_')] = _D[ord('/')]
+_E = dict((_X[i >> 8] + _X[(i >> 4) & 15] + _X[i & 15], _A[i >> 6] + _A[i & 63]) for i in range(4096))
+def _b64d(s):
+    s = ''.join(str(s).split()).rstrip('=')
+    out = []
+    for i in range(0, len(s), 4096):
+        c = s[i:i + 4096]
+        n = len(c) * 6 // 8
+        if n:
+            out.append(int(c.translate(_D)[:n * 8], 2).to_bytes(n, 'big'))
+    return b''.join(out)
+def _b64e(b):
+    b = bytes(b)
+    out = []
+    for i in range(0, len(b), 3072):
+        c = b[i:i + 3072]
+        r = len(c) % 3
+        h = (c + bytes(3 - r) if r else c).hex()
+        s = ''.join([_E[h[j:j + 3]] for j in range(0, len(h), 3)])
+        out.append(s[:len(s) - (3 - r)] + '=' * (3 - r) if r else s)
+    return ''.join(out)
 def _bytes(x):
     if hasattr(x, 'read'):
         x = x.read()
     if isinstance(x, str):
-        return base64.b64decode(x)
+        return _b64d(x)
     return bytes(x)
 def _source(s):
     if s.startswith('b64:'):
-        return dict(Bytes=base64.b64decode(s[4:]))
+        return dict(Bytes=_b64d(s[4:]))
     b, k = s[5:].split('/', 1)
     return dict(S3Object=dict(Bucket=b, Name=k))
 '''
@@ -481,7 +517,7 @@ fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/std
 code = '''{snippet:prelude}
 r = await call_boto3(service_name='s3', operation_name='GetObject', params=dict(Bucket={prop:Bucket|quote}, Key={arg:1|quote}), region_name={Connection.Region|or:us-east-1|quote})
 b = _bytes(r.get('Body', b''))
-result = _j(dict(Base64=base64.b64encode(b).decode(), Text=b.decode('utf-8', 'replace'), ContentType=r.get('ContentType', '')))
+result = _j(dict(Base64=_b64e(b), Text=b.decode('utf-8', 'replace'), ContentType=r.get('ContentType', '')))
 result'''
 
 [ops."AwsS3.PutObject"]
@@ -494,7 +530,7 @@ fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/std
 [ops."AwsS3.PutObject".input]
 code = '''{snippet:prelude}
 f = {arg:3|filebase64|quote}
-body = base64.b64decode(f) if f else {arg:2|quote}.encode('utf-8')
+body = _b64d(f) if f else {arg:2|quote}.encode('utf-8')
 r = await call_boto3(service_name='s3', operation_name='PutObject', params=dict(Bucket={prop:Bucket|quote}, Key={arg:1|quote}, Body=body), region_name={Connection.Region|or:us-east-1|quote})
 result = _j(dict(ETag=r.get('ETag', '')))
 result'''
@@ -632,7 +668,7 @@ fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/std
 code = '''{snippet:prelude}
 r = await call_boto3(service_name='polly', operation_name='SynthesizeSpeech', params=dict(Text={arg:1|quote}, VoiceId={arg:2|or:{prop:VoiceId}|or:Joanna|quote}, OutputFormat={arg:3|or:{prop:OutputFormat}|or:mp3|quote}, Engine={prop:Engine|or:neural|quote}), region_name={Connection.Region|or:us-east-1|quote})
 a = _bytes(r.get('AudioStream', b''))
-result = _j(dict(Base64=base64.b64encode(a).decode(), ContentType=r.get('ContentType', ''), Characters=r.get('RequestCharacters', 0)))
+result = _j(dict(Base64=_b64e(a), ContentType=r.get('ContentType', ''), Characters=r.get('RequestCharacters', 0)))
 result'''
 
 # ── AwsComprehend ── text analysis in the control's LanguageCode.
@@ -934,7 +970,12 @@ fail     = { when = "$json:/return_value/Status|/status", equals = "error", text
 [ops."AwsMcp.AwsCall".input]
 code = '''{snippet:prelude}{snippet:iso}
 def _code(x):
-    d = x if isinstance(x, dict) else getattr(x, 'response', None)
+    d = x
+    if not isinstance(d, dict):
+        try:
+            d = x.response
+        except Exception:
+            d = None
     if isinstance(d, dict) and isinstance(d.get('Error'), dict):
         return str(d['Error'].get('Code', '')), str(d['Error'].get('Message', ''))
     return '', ''
@@ -946,7 +987,7 @@ except Exception as x:
     c, m = _code(x)
     if not c:
         s = str(x)
-        c = s[s.find('(') + 1:s.find(')')] if s.startswith('An error occurred (') else type(x).__name__
+        c = s[s.find('(') + 1:s.find(')')] if s.startswith('An error occurred (') else 'Error'
         m = s
 if c:
     result = _j(dict(Status='error', Error=c + ': ' + (m or c)))

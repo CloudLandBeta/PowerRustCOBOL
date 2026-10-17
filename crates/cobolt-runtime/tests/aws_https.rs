@@ -317,7 +317,9 @@ fn hosted_hashes(table_text: &str) -> Vec<(String, String)> {
     out
 }
 
-const BASELINE: &str = include_str!("fixtures/aws-mcp/hosted-templates-1.91.179.sha256");
+/// Re-recorded at 1.91.191, when AWS's sandbox began refusing `base64`, `getattr()` and
+/// `__name__` (the fixture's header names the five entries that changed).
+const BASELINE: &str = include_str!("fixtures/aws-mcp/hosted-templates-1.91.191.sha256");
 
 /// Run with `HOSTED_TOML=<an older routes.toml>` and `--ignored --nocapture` to print the fixture.
 #[test]
@@ -345,7 +347,7 @@ fn ac5_the_33_hosted_templates_are_byte_identical_to_the_table_before_this_chang
     for (name, hash) in &want {
         match got.iter().find(|(n, _)| n == name) {
             Some((_, h)) if h == hash => same += 1,
-            Some(_) => panic!("{name} changed since 1.91.179"),
+            Some(_) => panic!("{name} changed since 1.91.191"),
             None => panic!("{name} is no longer in the table"),
         }
     }

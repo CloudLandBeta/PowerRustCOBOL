@@ -1,5 +1,8 @@
-# Spec 103 AC5 — SHA-256 of every [ops."…"] table the route table sends to the hosted server (with its .input), and of [snippets],
-# as they were in main 2e57112f (version 1.91.179), before the hosted server became an https server. Canonical form: compact JSON, keys sorted.
+# Spec 103 AC5 — SHA-256 of every [ops."…"] table the route table sends to the hosted server (with its .input), and of [snippets]. Canonical form: compact JSON, keys sorted.
+# First recorded at main 2e57112f (version 1.91.179), before the hosted server became an https server.
+# Re-recorded at 1.91.191, a DELIBERATE change: AWS's sandbox now refuses `import base64`, `getattr()` and `__name__`, so the prelude
+# carries its own base64 and AwsMcp.AwsCall reads an error without either — [snippets], AwsMcp.AwsCall, AwsPolly.Synthesize,
+# AwsS3.GetObject and AwsS3.PutObject changed; the other 29 are byte-identical to 1.91.179.
 # Regenerate only to RECORD A DELIBERATE CHANGE of a template: HOSTED_TOML=<routes.toml> cargo test -p cobolt-runtime --test aws_https print_the_hosted_template_hashes -- --ignored --nocapture
 AwsCognito.Confirm 9efb5a9f67974f9a6b30481b9aa4a7fa27bbd6d9040fe6c22059238c9adbcfdf
 AwsCognito.GetAttribute c9f1fea9e01de291f42c386b14640e4bcd3c8d68c7ca470eb4232f2b120f0555
@@ -19,19 +22,19 @@ AwsDynamoDB.UpdateItem 3f4000ebbfdf16f28b3d4fb2e6e1f246579766c41638a35e3719a71c6
 AwsEC2.Describe 2493804a4c5ae47790df8d2d46c4e43ef7ddc3a2b1a966655dc568de22a49503
 AwsEC2.Start fb6b4e9ac2a5fb6be7d933e9c2d5fe8c1bf8c79c429688e36562da04001ecf41
 AwsEC2.Stop fa9a2302996c62fe6a34cff0e1e3bc7abe6c3740d69f6e49a44401c468950401
-AwsMcp.AwsCall 42265400ec0dbd36b9b32b5dbe09959ce667c8f9cc956b2bf14fcc25d2611a8b
-AwsPolly.Synthesize 6c88fff2626f529afe9549aa6f0b5e1acf8f163bd77a4e4982281f82111caf09
+AwsMcp.AwsCall d2dad56c7fe4cd4d2a1f541b5bfdad3ae8f45f8e2415c53855f85480a5732f87
+AwsPolly.Synthesize e86f50a1b87d70bdb8e87a5b200fdabab490e6639362d6c8a63a0088f6fa56b0
 AwsRekognition.DetectFaces 17e2bac2fc647e76aab0156db774a7d357b1b8b1fef1f3c2f6647f72c09d2abd
 AwsRekognition.DetectLabels a1b76c160bd9f5dcd674a2d4bc586fab40007166859ad72a9be58b169d53e666
 AwsRekognition.DetectText 2809707b35206edb64e94722d89406ca5f6b03c3f51457e9099b56af07e71149
 AwsRekognition.RecognizeCelebrities 69e9cb6902139998b438f76c500e1e661aaec8fa604bb1e4177dacbaaf88dc36
 AwsS3.DeleteObject e689bbc40125ab6c35c05e281642b4217b6e6fa911d79b3dd10003cccb23bb30
-AwsS3.GetObject 37df5a8cea079bc20cd6acd7063cdf99e865714db13ef61385da38607617ee8b
+AwsS3.GetObject c0f518ee5d096b0960af110b2fa0ee9d8d305cf37476c347b8b65cc8cf8275c0
 AwsS3.List 55ac41ee97c97e132d5321f6404a47bf42b75f50f7b35785c1374fad18f1a64a
 AwsS3.ListBuckets 4813b53248b546b3193bae524d838fd01ba0dfd8d6e00d2bcc97bd4cd6de0067
-AwsS3.PutObject 4b362c71233619c9e2ab517d60141d3498a8d635b4f069c544fc09f3d25fa512
+AwsS3.PutObject 0bb6110976b66da3b38f3b9bc8c9fef4d5b1fe606d824ad132b1a628d9f6589f
 AwsS3Vectors.PutVectors f87a2b4257335537a29a0cc69283f58142919984c0be9acd52be3b33beaa725d
 AwsS3Vectors.QueryVectors 4fae014a158ebedbb77963c76a6c4acb876ffa2c9c57f3387b52d67cc37f2710
 AwsTextract.AnalyzeDocument 1b64d5d50871eba38f8f79701e96ee5847bf69f95a84572473ee0068b2838d11
 AwsTextract.DetectText 8ac2b73a869a7954efd8cccd1f390206a3c9c0137cbab34931a08d3f7abe3bda
-[snippets] 7a80ea62498f034548ef5264ce6277f46159a75c779a2c44e03a6f4d76648e67
+[snippets] b2c6d4bcadf9c2ea51b606fc0c0d543b30b6428d5734bc64711de81c981a867d
