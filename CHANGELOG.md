@@ -17,6 +17,33 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.188] — 2026-10-17
+
+*(Written on `fixes-evaluate-subscript-subject`, after 1.91.187. 1.91.180 is `fixes`' and 1.91.181 is `features`', both still in flight in their own worktrees and uncommitted, so they will land after this number, out of order, as the notes above describe. The fix was written and measured on the tree at 1.91.179 and numbered 1.91.182 there; `main` then moved to 1.91.187, and the branch was brought up to it before its first commit, which renumbered it.)*
+
+### Fixed: `EVALUATE` on a subscripted data item never matched a literal `WHEN`
+
+`EVALUATE CODE-X(N) WHEN "D" …` always took `WHEN OTHER`, whatever the occurrence held. COBOL-85 allows a subscripted identifier as an `EVALUATE` subject, and `IF CODE-X(N) = "D"` was already true; only the subject of an `EVALUATE` was wrong. All of these failed, for a one-level table and a two-level one, with a literal or a variable subscript:
+
+- `EVALUATE ST(N) WHEN "D"` — never matched;
+- `EVALUATE NUM-X(N) WHEN 1 THRU 5` — a `THRU` range on a subscripted subject never matched either;
+- `EVALUATE CODE-X(N) WHEN NOT "D"` — **matched when it should not have**, because `NOT` negated a comparison that was always false;
+- `EVALUATE CODE-X(N) ALSO NUM-X(N) WHEN "D" ALSO 7` — a subscripted subject in any column of an `ALSO` never matched, and a qualified one (`ST OF ROWX (N)`) failed the same way.
+
+*Cause.* The parser reads an `EVALUATE` subject as a condition first and rewinds only when the result is a bare condition-name. A reference that is not a bare word — a subscripted or qualified one — comes back as a `Condition::ConditionRef`, which stayed a *conditional* subject. At run time a `ConditionRef` that names no 88-level means "the item holds something other than zero", so the subject was the truth value TRUE and no literal could equal it. A `WHEN` clause whose **object** is a subscripted item (`WHEN CODE-X(1)`) had the same misreading on the other side: read as a condition it fell through to "non-zero", so every such `WHEN` whose object held anything matched, whatever the subject, and the first one won.
+
+*Fix.* `cobolt-runtime`, `interpreter.rs`: a new `data_reference_operand` says when a `ConditionRef` names no declared 88-level — it is then the data item it really is — and `exec_evaluate` (for the subject) and `when_value_matches` (for a `WHEN` object) use it. Only the declarations can tell a subscripted 88-level from a subscripted data item, so the runtime is the one place that can; it is the same rule the bare-name case already followed. The parser and the AST are untouched, so a serialized AST decodes as before. A subscripted **88-level** subject (`EVALUATE CODE-IS-D(N) WHEN TRUE`) stays a condition, and a reference-modified subject (`WS-STR(2:1)`) was never affected; both are pinned by the new test.
+
+*Hosts (interpreter-binary-parity).* No host wiring changed, and none needs to: `rcrun run` / `run-form`, embedded child forms (`cobolt-form-host`) and the compiled binary (`run_form_app` in `cobolt-compiler`) all construct the same `cobolt_runtime::Interpreter`, and the change is inside `exec_evaluate`, which has no host-specific branch. A compiled binary takes the fix at its next build. No compiled binary was built to show it.
+
+*Tests.* New: `tests/cobol/conditionals/test-evaluate-subscript.cbl`, a self-checking program of 29 cases (the four subscripted forms, a plain item and `EVALUATE TRUE` as controls, no-match, first and last occurrence, numeric and alphanumeric subjects, `THRU` on a subscripted subject, `WHEN NOT`, stacked `WHEN`, eight `ALSO` shapes with two subjects including `THRU` on the first, the second and both, a subscripted `WHEN` object, a qualified subject, the subscripted 88-level in both directions, and a reference-modified subject), driven by `crates/cobolt-runtime/tests/test_evaluate_subscript_subject.rs`, which also pins the bug report's reproduction verbatim (six `EVALUATE`s, all six must print "matched"). **Before the fix: 8 of 29 passed, 21 failed, and the reproduction printed OTHER in four of its six lines. After: 29 of 29, and six "matched".** The same program passes through the real CLI (`rcrun check`: 0 warnings; `rcrun run`: PASS 29/29).
+
+Gates, every `test result:` line read, measured on the tree at 1.91.179: `cobolt-runtime`, `--no-fail-fast`, in batches to fit the disk, **176 binaries (lib, 3 bins, 171 test targets, doctests): 1,472 passed, 0 failed, 28 ignored**. `cobolt-form-host` 201 passed; `cobolt-compiler` (lib and its four light integration tests) 189 passed, 1 ignored; `cobolt-cli` 51 passed, 5 ignored; none failed. NIST, on a release `rcrun` built from that tree: `nist_conformance strict` **PASS 420/420, FAIL 0, N-A 39/459**, and `run` leaves every finished module as the ledger has it — NC 95/95, SQ 85/85, IX 41/41, RL 34/34, IF 45/45, IC 25/25, ST 39/39, SM 16/16 executed clean — with total assertions PASS 8,418 (the ledger's 8,362 for those modules plus DB's recorded 56) and FAIL 50, all of them in DB (3 of 14 clean, `DB104A` timing out), exactly as recorded at 1.70.12. Nothing moved. After the branch was brought up to 1.91.187 (six commits of the AWS work, none of which touches `interpreter.rs`, the parser or the AST), the four targets that bear on this change were run again on the synced tree: `test_evaluate_subscript_subject` 2, `test_evaluate_selection` 9, `test_conditions` 12, `test_all_subscript` 5 — 28 passed, 0 failed. The wide sweep and the NIST figures above were *not* repeated on the synced tree.
+
+*Not run.* `cobolt-compiler`'s three tests that compile a native binary (`test_esql_build`, `test_external_crates_e2e`, `test_national_build`): from a worktree they resolve the *main* checkout's crates, so they would not have exercised this change, and they are heavy. `cobolt-ide`'s tests: only its version string changed.
+
+*Docs.* None changed. `cobol85-supported-syntax-en.md` and the verb-test matrix already promise `EVALUATE {expr | TRUE | FALSE} …` with a ✅; the claim is now true for a subscripted subject too, and nothing they say needed rewording, so no translation was touched (GOLDEN RULE #8). The System KB's doc tables make no claim about `EVALUATE` subjects, so `chunked.data` is unchanged.
+
 ## [PowerRustCOBOL 1.91.187] — 2026-10-16
 
 *(Written on `features-aws-native`, after 1.91.186.)*

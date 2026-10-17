@@ -7429,24 +7429,38 @@ impl Interpreter {
         // never matched. Rewriting it to `EvalSubject::Cond` hands it to the
         // arms that already compare truth values.
         //
+        // The mirror image is a **subscripted or qualified** subject
+        // (`EVALUATE CODE-X(N) WHEN "D"`). The parser reads a subject as a
+        // condition first, and a reference that is not a bare word comes back
+        // as `Condition::ConditionRef`. When it names no 88-level it is a plain
+        // data item, and left as a condition its truth value ("holds something
+        // non-zero") was the subject — so no literal WHEN could ever equal it
+        // and WHEN OTHER was always taken. It goes back to being an operand.
+        //
         // Only pay for the rewrite when one is actually present — this runs on
         // the generated event loop's `EVALUATE COBOL-CONTROL-ID` per event.
-        let rewritten: Option<Vec<EvalSubject>> = if subjects
-            .iter()
-            .any(|s| self.subject_condition_name(s).is_some())
-        {
-            Some(
-                subjects
-                    .iter()
-                    .map(|s| match self.subject_condition_name(s) {
-                        Some(c) => EvalSubject::Cond(c),
-                        None => s.clone(),
-                    })
-                    .collect(),
-            )
-        } else {
-            None
+        let reclassify = |s: &EvalSubject| -> Option<EvalSubject> {
+            if let Some(c) = self.subject_condition_name(s) {
+                return Some(EvalSubject::Cond(c));
+            }
+            match s {
+                EvalSubject::Cond(c) => self
+                    .data_reference_operand(c)
+                    .map(|e| EvalSubject::Expr(e.clone())),
+                _ => None,
+            }
         };
+        let rewritten: Option<Vec<EvalSubject>> =
+            if subjects.iter().any(|s| reclassify(s).is_some()) {
+                Some(
+                    subjects
+                        .iter()
+                        .map(|s| reclassify(s).unwrap_or_else(|| s.clone()))
+                        .collect(),
+                )
+            } else {
+                None
+            };
         let subjects: &[EvalSubject] = rewritten.as_deref().unwrap_or(subjects);
 
         let mut subject_values: Vec<Option<CobolValue>> = Vec::with_capacity(subjects.len());
@@ -7521,6 +7535,25 @@ impl Interpreter {
         }
     }
 
+    /// A condition the parser could only call a *reference* — subscripted
+    /// (`CODE-X (N)`) or qualified (`ST OF ROWX (N)`) — that names **no
+    /// declared 88-level**: the data item it really is, as an operand. `None`
+    /// for every other condition, and for a reference that does name an 88
+    /// (`CODE-IS-D (N)`), which stays a condition. The parser cannot tell the
+    /// two apart — only the declarations can — so this is the one place the
+    /// runtime does, for an EVALUATE subject and for a WHEN object alike.
+    fn data_reference_operand<'a>(&self, c: &'a Condition) -> Option<&'a Expr> {
+        let Condition::ConditionRef(expr, _) = c else {
+            return None;
+        };
+        let leaf = condition_ref_leaf(expr);
+        let quals = condition_ref_quals(expr);
+        match self.env.cond_name_qual(&leaf, &quals) {
+            Some(_) => None,
+            None => Some(expr),
+        }
+    }
+
     /// `pre` is the subject's value, evaluated once by [`Self::exec_evaluate`];
     /// `None` for a TRUE/FALSE subject, which has no value to compare.
     fn when_value_matches(
@@ -7586,6 +7619,19 @@ impl Interpreter {
                             .unwrap_or_else(|| CobolValue::from_i64(0));
                         return Ok(compare_values(&subj, &obj, CmpOp::Eq));
                     }
+                }
+                // The same holds for a **subscripted or qualified** object
+                // (`WHEN CODE-X (1)`) that names no 88-level: an operand to
+                // equal the subject, not a truth value. As a condition it fell
+                // through to "non-zero": every such WHEN whose object held
+                // anything matched, whatever the subject, so the first one won.
+                if let Some(obj) = self.data_reference_operand(c) {
+                    let subj = match pre {
+                        Some(v) => v.clone(),
+                        None => self.eval_expr(e, e.span())?,
+                    };
+                    let v = self.eval_expr(obj, obj.span())?;
+                    return Ok(compare_values(&subj, &v, CmpOp::Eq));
                 }
                 // A genuine condition — an 88-level, a relation, a class test —
                 // selects on its own truth value.
