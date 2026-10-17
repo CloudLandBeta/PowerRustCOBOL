@@ -1622,6 +1622,10 @@ pub struct Tr {
     pub dg_col_warn_clash: &'static str,
     pub dg_col_warn_duplicate: &'static str,
     pub dg_col_warn_button_too_long: &'static str,
+    // ── Spec 107: the announcement window ────────────────────────────────
+    /// The window's title (operator: "What's going on").
+    pub announcement_title: &'static str,
+    pub announcement_close: &'static str,
     pub bt_apply: &'static str,
     pub bt_ok: &'static str,
     pub bt_err_title: &'static str,
@@ -3689,6 +3693,8 @@ const EN: Tr = Tr {
     dg_col_warn_clash: "{} is also a data item of the form: rename the column or the data item.",
     dg_col_warn_duplicate: "Another column of this grid is also named {}.",
     dg_col_warn_button_too_long: "{} is longer than the 30 characters ROW-NAME holds: the handler sees it cut.",
+    announcement_title: "What's going on",
+    announcement_close: "Close",
     bt_apply:           "Beautify",
     bt_ok:              "OK",
     bt_err_title:       "Beautify blocked",
@@ -5558,6 +5564,8 @@ const ES: Tr = Tr {
     dg_col_warn_clash: "{} también es un dato del formulario: cambie el nombre de la columna o del dato.",
     dg_col_warn_duplicate: "Otra columna de esta cuadrícula también se llama {}.",
     dg_col_warn_button_too_long: "{} supera los 30 caracteres que caben en ROW-NAME: el manejador lo recibe cortado.",
+    announcement_title: "Novedades",
+    announcement_close: "Cerrar",
     bt_apply:           "Embellecer",
     bt_ok:              "Aceptar",
     bt_err_title:       "Embellecido bloqueado",
@@ -7427,6 +7435,8 @@ const PT: Tr = Tr {
     dg_col_warn_clash: "{} também é um dado do formulário: renomeie a coluna ou o dado.",
     dg_col_warn_duplicate: "Outra coluna desta grade também se chama {}.",
     dg_col_warn_button_too_long: "{} passa dos 30 caracteres que cabem em ROW-NAME: o manipulador o recebe cortado.",
+    announcement_title: "Novidades",
+    announcement_close: "Fechar",
     bt_apply:           "Embelezar",
     bt_ok:              "OK",
     bt_err_title:       "Embelezamento bloqueado",
@@ -9295,6 +9305,8 @@ const JA: Tr = Tr {
     dg_col_warn_clash: "{} はフォームのデータ項目と同じ名前です。列またはデータ項目の名前を変えてください。",
     dg_col_warn_duplicate: "このグリッドの別の列も {} という名前です。",
     dg_col_warn_button_too_long: "{} は ROW-NAME に入る 30 文字を超えています。ハンドラーには切り詰められて届きます。",
+    announcement_title: "お知らせ",
+    announcement_close: "閉じる",
     bt_apply:           "整形",
     bt_ok:              "OK",
     bt_err_title:       "整形できません",
@@ -11169,6 +11181,8 @@ const ZH: Tr = Tr {
     dg_col_warn_clash: "{} 也是窗体的数据项：请重命名该列或该数据项。",
     dg_col_warn_duplicate: "此表格的另一列也叫 {}。",
     dg_col_warn_button_too_long: "{} 超过了 ROW-NAME 能容纳的 30 个字符：处理程序收到的是截断后的名称。",
+    announcement_title: "最新动态",
+    announcement_close: "关闭",
     bt_apply: "美化",
     bt_ok: "确定",
     bt_err_title: "无法美化",
@@ -13039,6 +13053,8 @@ const FR: Tr = Tr {
     dg_col_warn_clash: "{} est aussi une donnée du formulaire : renommez la colonne ou la donnée.",
     dg_col_warn_duplicate: "Une autre colonne de cette grille s'appelle aussi {}.",
     dg_col_warn_button_too_long: "{} dépasse les 30 caractères que contient ROW-NAME : le gestionnaire le reçoit tronqué.",
+    announcement_title: "Quoi de neuf",
+    announcement_close: "Fermer",
     bt_apply:           "Embellir",
     bt_ok:              "OK",
     bt_err_title:       "Embellissement bloqué",
@@ -14472,6 +14488,30 @@ mod datagrid_columns_strings_106 {
             }
         }
         println!("i18n 106: {checked} strings checked (25 keys × {} languages)", Language::ALL.len());
+    }
+}
+
+#[cfg(test)]
+mod announcement_strings_107 {
+    use super::*;
+
+    /// Spec 107 R10 — the announcement window's title and its Close, in every language:
+    /// present, and translated (not a copy of English).
+    #[test]
+    fn the_announcement_strings_are_in_every_language() {
+        let en = Language::English.tr();
+        for &lang in Language::ALL {
+            let t = lang.tr();
+            for (name, text, english) in [
+                ("announcement_title", t.announcement_title, en.announcement_title),
+                ("announcement_close", t.announcement_close, en.announcement_close),
+            ] {
+                assert!(!text.trim().is_empty(), "{lang:?}/{name} is empty");
+                if lang != Language::English {
+                    assert_ne!(text, english, "{lang:?}/{name} is untranslated");
+                }
+            }
+        }
     }
 }
 

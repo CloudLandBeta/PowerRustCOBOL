@@ -1740,6 +1740,35 @@ dismissed. Nothing is written into your project.
 IDE, the lit Model Providers Manager, the ring round the endpoint field and the
 balloon with **★ Do this for me** are all visible in one frame.
 
+### What's going on — announcements
+
+Now and then the PowerRustCOBOL team publishes an announcement: a new release,
+a change worth knowing about, an event. The IDE shows it in a window titled
+**What's going on**, at 70 % of the screen.
+
+- **When.** The IDE looks for one when it starts and every six hours while it
+  runs. It waits until no first-run dialog, AI-setup invitation, agent wizard,
+  build window or Walkthrough is on the screen.
+- **Once per announcement.** Close the window (its **Close** button or its ×)
+  and that announcement is not shown again on this machine. A new or changed
+  announcement is shown once more. If you quit without closing it, it is shown
+  at the next start.
+- **No announcement, no window.** Nothing is shown when none is published, when
+  the network is not there, or when GitHub cannot be reached, and no message is
+  shown either.
+- **Where it comes from.** The page is `announcements/announcement.html` in the
+  PowerRustCOBOL repository on GitHub. The IDE reads it as it reads the latest
+  release for the update check, sending nothing but its version.
+- **How it is drawn.** The page is drawn by the same engine as a **Viewer**
+  control showing HTML, on a white page: headings, lists, tables, colours,
+  boxes and flex/grid layout. No script runs and nothing else is fetched. A
+  link is drawn as a link but does not open, and a picture shows its
+  alternative text.
+
+What the IDE remembers is on this machine, in the same file as its language:
+the identity of the last announcement you closed. Nothing is written into your
+project.
+
 ---
 
 ## 6. Projects and the project model

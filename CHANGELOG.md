@@ -17,6 +17,49 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.194] — 2026-10-17
+
+*(Written on `features-announcements`, off `main` at 1.91.193.)*
+
+### Added: *What's going on* — announcements the repository publishes, shown once (spec 107)
+
+The operator, 2026-10-17, asked for these:
+
+- a folder in the GitHub project to hold announcements;
+- a page, `announcement.html`, shown once to the user with a button to close it, until a new announcement is published;
+- the window titled *What's going on*, at 70 % of the screen's width and height;
+- no window when there is no file.
+
+**The repository.** It gets a new `announcements/` folder. Its `README.md` says what the IDE does with `announcement.html` and what a page may contain. The README itself is never shown.
+
+**The IDE** (`cobolt-ide`, new `announcement.rs`):
+
+- **Reading the page.** It reads `announcements/announcement.html` from `main` as a raw file (the repository is public), at start-up and every six hours. This runs on a thread of its own, with a 10 s timeout, as the update check does. Only HTTP 200 with a body that is not blank is an announcement. A 404, any other status, no network or a blank page means none, and nothing is shown or said.
+- **Identity.** A page is known by FNV-1a 64 over its bytes, the same in every build. Closing the window (Close or ×) records that identity in `ui.toml` as `announcement_dismissed`, so the page is not shown again until it changes. Quitting without closing shows it at the next start.
+- **When it opens.** It opens once no first-run dialog, AI-setup invitation, agent wizard, build window or Walkthrough is up.
+- **The window.** It is 70 % of the monitor, or of the IDE's window when the platform does not report the monitor, capped at 95 % of the IDE's window. Centred, and it never resizes itself.
+- **Updates while open.** A new page found while one is open replaces it. A failed check leaves an open window alone.
+
+**The page** is drawn by the Viewer control's own HTML engine, through a new `cobolt_forms::paint::paint_html_page`. That is the same subset and the same CSS cascade as a Viewer shows, black on a white page, with no script and nothing fetched. As in the Viewer today, a link does not open and a picture shows its alt text. The README says so, and the fix belongs in the Viewer, where every Viewer control would gain it.
+
+**Strings:** `announcement_title` (*What's going on* / *Novedades* / *Novidades* / *お知らせ* / *最新动态* / *Quoi de neuf*) and `announcement_close`, in six languages. **Guide:** a new *What's going on — announcements* section in chapter 5, in English only (GOLDEN RULE #8; the Guide has no translations to delete).
+
+*Tests:*
+
+- **`announcement`** (8 tests):
+  - what counts as a page;
+  - the FNV-1a vectors;
+  - the 70 % size and its caps;
+  - a new page replacing the old, a failed check leaving it, and a closed one staying away;
+  - through real frames: titled, the page's heading painted, and exactly 1120 × 700 on a 1600 × 1000 screen held over 120 frames; nothing while another dialog is up; Close dismisses the page;
+  - the window's size in all six languages.
+- **`paint_html_page`** (`cobolt-forms`): text painted in the document's ink, and a height that grows with the page.
+- **`ui_prefs`**: the round trip, and an older `ui.toml` has closed no announcement.
+- **i18n**: the two strings in six languages.
+- **Runs:** `cobolt-ide --bin` 1798 passed, 4 failed, 4 ignored. The 4 failures are the known ones, unrelated to this change: GOLDEN RULE #8 translations, completion texts, and two live-network `external_crates` tests. `cobolt-forms --features render --lib`: 1330 passed, 0 failed.
+
+*Found on the way, left as its own task:* the update offer (`show_update_offer`) is called only from inside `show_settings_pane`, so a newer release is offered only while Project Settings is on screen.
+
 ## [PowerRustCOBOL 1.91.193] — 2026-10-17
 
 *(The merge of `features-guided-wizard` (1.91.190, the Task Wizard) into `fixes-datagrid-columns` (1.91.192, which already holds 1.91.191), for `main`. Operator, 2026-10-17: "when you're done merge all into main".)*

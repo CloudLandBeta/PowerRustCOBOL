@@ -85,6 +85,10 @@ pub struct UiPrefs {
     /// Offers the developer dismissed (R30), keyed `project|form|control|task`, so dismissing
     /// one grid's offer never silences another's.
     pub task_wizard_dismissed: std::collections::BTreeSet<String>,
+    /// The identity of the announcement the developer last closed (spec 107 R8), so that
+    /// page is not shown again on this machine until it changes. Empty — the default, and
+    /// what an older `ui.toml` reads as — means none was closed yet.
+    pub announcement_dismissed: String,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -195,6 +199,18 @@ pub fn set_walkthrough_shown(shown: bool) {
     prefs.save();
 }
 
+/// The identity of the announcement last closed on this machine (spec 107 R8), or empty.
+pub fn announcement_dismissed() -> String {
+    UiPrefs::load().announcement_dismissed
+}
+
+/// Record that the announcement `id` was closed (load-then-save).
+pub fn set_announcement_dismissed(id: &str) {
+    let mut prefs = UiPrefs::load();
+    prefs.announcement_dismissed = id.to_owned();
+    prefs.save();
+}
+
 /// The configured platform SDK folder, or `None` to let the compiler search.
 ///
 /// A blank entry is `None` rather than an empty path: an empty string would
@@ -278,9 +294,18 @@ mod tests {
             )]
             .into(),
             task_wizard_dismissed: ["/home/dev/Inventory|Main|Grid1|datagrid".to_owned()].into(),
+            announcement_dismissed: "cbf29ce484222325".into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);
+    }
+
+    /// Spec 107 R8 — an older `ui.toml` has closed no announcement, so the first one
+    /// published is shown.
+    #[test]
+    fn an_older_prefs_file_has_closed_no_announcement() {
+        let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
+        assert!(older.announcement_dismissed.is_empty());
     }
 
     /// A blank entry must mean "search automatically", not "use the process's

@@ -29443,6 +29443,86 @@ pub fn paint_viewer_export(
     ExportPaint { shapes, textures, fonts, height }
 }
 
+/// Spec 107 — an HTML page (`viewer::parse_html`) painted with the Viewer's own engine at
+/// `origin`, `width` wide, in a document's colours (black text; the page's own CSS wins),
+/// with `font_size` as the base text size (16 CSS px). Nothing is searched or selectable.
+/// Returns the height painted, for the caller's scroll area — the IDE's *What's going on*
+/// window, which shows a page the repository publishes with the engine a Viewer control
+/// shows one with.
+pub fn paint_html_page(
+    painter: &egui::Painter,
+    doc: &crate::viewer::LayoutDocument,
+    origin: egui::Pos2,
+    width: f32,
+    font_size: f32,
+) -> f32 {
+    let ctx = BlockPaintCtx {
+        font_size,
+        text_ink: VIEWER_DOCUMENT_INK,
+        strong_ink: VIEWER_DOCUMENT_INK,
+        link_color: VIEWER_LINK_COLOR,
+        code_color: VIEWER_CODE_COLOR,
+        width: width.max(20.0),
+        css_scale: font_size / 16.0,
+        align: None,
+        bold: false,
+    };
+    let mut find = TextMarks {
+        query: "",
+        case_sensitive: false,
+        highlight: false,
+        current: 0,
+        seen: 0,
+        alpha: 255,
+        selection: None,
+        selection_fill: Color32::TRANSPARENT,
+        selection_ink: Color32::BLACK,
+        runs: Vec::new(),
+    };
+    paint_blocks(painter, &ctx, &doc.blocks, origin, &mut find)
+}
+
+#[cfg(test)]
+mod html_page_tests {
+    use super::*;
+
+    /// Spec 107 — the page is painted: its heading, its paragraph and its list, in the
+    /// document's ink unless the page's CSS says otherwise, and the height it reports
+    /// grows with the content.
+    #[test]
+    fn an_html_page_paints_its_text_and_reports_its_height() {
+        let ctx = egui::Context::default();
+        let page = |html: &str| {
+            let doc = crate::viewer::parse_html(html);
+            let mut height = 0.0;
+            let mut texts = Vec::new();
+            for _ in 0..2 {
+                let mut out = ctx.run_ui(Default::default(), |ui| {
+                    height = paint_html_page(ui.painter(), &doc, egui::pos2(10.0, 10.0), 500.0, 15.0);
+                });
+                out.textures_delta.clear();
+                texts.clear();
+                fn walk(s: &egui::Shape, out: &mut Vec<(String, Color32)>) {
+                    match s {
+                        egui::Shape::Text(t) => out.push((t.galley.text().to_owned(), t.fallback_color)),
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                        _ => {}
+                    }
+                }
+                for cs in &out.shapes {
+                    walk(&cs.shape, &mut texts);
+                }
+            }
+            (height, texts)
+        };
+        let (short, texts) = page("<h1>What's new</h1><p>Version 1.92 is out.</p>");
+        assert!(texts.iter().any(|(t, _)| t.contains("What's new")), "{texts:?}");
+        assert!(texts.iter().any(|(t, c)| t.contains("Version 1.92") && *c == VIEWER_DOCUMENT_INK), "{texts:?}");
+        let (long, _) = page("<h1>What's new</h1><p>Version 1.92 is out.</p><ul><li>One</li><li>Two</li><li>Three</li></ul>");
+        assert!(short > 0.0 && long > short, "{short} then {long}");
+    }
+}
+
 #[cfg(test)]
 mod spatial_shadow_tests {
     use super::*;

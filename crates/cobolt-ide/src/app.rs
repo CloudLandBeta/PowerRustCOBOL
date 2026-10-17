@@ -891,6 +891,8 @@ pub struct CoboltApp {
     /// so declining lasts for this run only and the question returns at the
     /// next start-up (operator, 2026-09-14).
     update_offer: Option<crate::update_check::ReleaseInfo>,
+    /// Spec 107 — *What's going on*: the announcement the repository publishes.
+    announcement: crate::announcement::AnnouncementWindow,
 
     /// A KB document add found the semantic model absent — the confirmation
     /// dialog is showing.
@@ -2194,6 +2196,7 @@ impl CoboltApp {
             indexed_engine_modal: None,
             update_rx: None,
             update_offer: None,
+            announcement: Default::default(),
 
             show_project_settings: false,
             show_grace_chat: false,
@@ -2346,6 +2349,9 @@ impl CoboltApp {
         // Once per run: there is no rechecking loop, and no persisted answer —
         // declining is good for this run and the question comes back next start.
         app.update_rx = Some(crate::update_check::spawn_check(crate::version::VERSION));
+        // Spec 107 — the repository's announcement: read now and every six hours, on a
+        // thread of its own, shown once per page.
+        app.announcement.start(crate::ui_prefs::announcement_dismissed());
 
         if !crate::ui_prefs::rust_check_done() {
             // Only here — never on a later start. Asking whether the machine
@@ -13278,6 +13284,25 @@ impl CoboltApp {
     /// The first-run model-provider question (see [`crate::ollama_setup`]):
     /// why a provider is needed, the recommended models, and Ollama one click
     /// away. Waits for the Rust question, so the two never stack.
+    /// Spec 107 — *What's going on*: show the repository's announcement once the screen is
+    /// free (R5) — no first-run dialog, AI-setup invitation, agent wizard, build window or
+    /// Walkthrough up — and record the page the developer closes (R8).
+    fn show_announcement(&mut self, ctx: &Context, tr: &Tr) {
+        self.announcement.poll();
+        if !self.announcement.has_announcement() {
+            return;
+        }
+        let blocked = self.toolchain_prompt.is_some()
+            || self.ollama_prompt.is_some()
+            || self.ai_setup_modal
+            || self.agent_wizard.open
+            || self.build_modal_visible()
+            || self.walkthrough.is_running();
+        if let Some(id) = self.announcement.show(ctx, tr, blocked) {
+            crate::ui_prefs::set_announcement_dismissed(&id);
+        }
+    }
+
     fn show_ollama_prompt(&mut self, ctx: &Context, tr: &Tr) {
         use crate::ollama_setup::{Install, Method, Outcome, CLOUD_MODEL, LOCAL_MODEL};
         if self.ollama_prompt.is_none() || self.toolchain_prompt.is_some() {
@@ -15989,6 +16014,7 @@ impl eframe::App for CoboltApp {
         self.show_toolchain_prompt(ctx, &tr);
         self.show_ollama_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
+        self.show_announcement(ctx, &tr);
         // External Crates (spec 044): the service mutates `cobolt.toml` on
         // disk; when an action finished, reload so the tree shows the pins
         // (the project was saved before the dialog opened — see the
