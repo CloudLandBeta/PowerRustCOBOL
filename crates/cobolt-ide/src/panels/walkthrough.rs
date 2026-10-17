@@ -31,7 +31,7 @@
 //! hole, so the dim is painted as the four bands *around* the target instead,
 //! and the component simply keeps its own pixels.
 
-use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, Vec2};
+use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Vec2};
 
 use crate::i18n::Tr;
 use crate::project_model::Category;
@@ -243,191 +243,12 @@ pub fn on_menu_toggle(now_checked: bool, has_project: bool) -> MenuAction {
     }
 }
 
-/// The four rectangles that dim everything except `hole`.
-///
-/// Returned rather than painted so the geometry can be asserted without a
-/// renderer. Together they cover `screen` minus `hole` exactly, and none of them
-/// overlaps `hole` — which is the whole claim a spotlight makes.
-pub fn scrim_bands(screen: Rect, hole: Rect) -> [Rect; 4] {
-    let hole = hole.intersect(screen);
-    [
-        // Above.
-        Rect::from_min_max(screen.min, Pos2::new(screen.max.x, hole.min.y)),
-        // Below.
-        Rect::from_min_max(Pos2::new(screen.min.x, hole.max.y), screen.max),
-        // Left of the hole, between its top and bottom.
-        Rect::from_min_max(
-            Pos2::new(screen.min.x, hole.min.y),
-            Pos2::new(hole.min.x, hole.max.y),
-        ),
-        // Right of it.
-        Rect::from_min_max(
-            Pos2::new(hole.max.x, hole.min.y),
-            Pos2::new(screen.max.x, hole.max.y),
-        ),
-    ]
-}
-
-/// Which edge of the balloon the tail leaves from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Side {
-    Right,
-    Left,
-    Below,
-    Above,
-}
-
-/// A placed balloon: its body, and the three points of its tail.
-#[derive(Debug, Clone, Copy)]
-pub struct Balloon {
-    pub body: Rect,
-    pub tail: [Pos2; 3],
-    pub side: Side,
-}
-
-/// Gap between the target and the balloon body.
-const GAP: f32 = 18.0;
-/// How far the balloon must stay from the window edge.
-const MARGIN: f32 = 12.0;
-/// Half-width of the tail where it meets the body.
-const TAIL_HALF: f32 = 9.0;
-/// How far the tail tip reaches *inside* the target, so it demonstrably touches.
-const TAIL_BITE: f32 = 6.0;
-
-/// Place a balloon of `size` so it points at `target` and stays on `screen`.
-///
-/// Sides are tried right, left, below, above. Right first is not arbitrary: five
-/// of the six targets live in the left-hand project tree, so the balloon lands
-/// over the central pane with its tail pointing back at the tree — the way the
-/// eye already travels. The sixth, the output pane, spans the full width, so
-/// right and left both fail on space and `Above` wins, which is also correct.
-pub fn place_balloon(screen: Rect, target: Rect, size: Vec2) -> Balloon {
-    let field = screen.shrink(MARGIN);
-    let need = |space: f32| space >= size.x + GAP;
-    let need_v = |space: f32| space >= size.y + GAP;
-
-    let side = if need(field.max.x - target.max.x) {
-        Side::Right
-    } else if need(target.min.x - field.min.x) {
-        Side::Left
-    } else if need_v(field.max.y - target.max.y) {
-        Side::Below
-    } else if need_v(target.min.y - field.min.y) {
-        Side::Above
-    } else {
-        // Nowhere fits. Centre it and keep aiming — a balloon that overlaps its
-        // target still points at the right thing; a tailless one does not.
-        Side::Right
-    };
-
-    let c = target.center();
-    let mut body = match side {
-        Side::Right => Rect::from_min_size(Pos2::new(target.max.x + GAP, c.y - size.y / 2.0), size),
-        Side::Left => Rect::from_min_size(
-            Pos2::new(target.min.x - GAP - size.x, c.y - size.y / 2.0),
-            size,
-        ),
-        Side::Below => Rect::from_min_size(Pos2::new(c.x - size.x / 2.0, target.max.y + GAP), size),
-        Side::Above => Rect::from_min_size(
-            Pos2::new(c.x - size.x / 2.0, target.min.y - GAP - size.y),
-            size,
-        ),
-    };
-
-    // Slide it back inside the window. This is what keeps a balloon on screen
-    // when its target is hard against an edge.
-    let dx = (field.min.x - body.min.x).max(0.0) - (body.max.x - field.max.x).max(0.0);
-    let dy = (field.min.y - body.min.y).max(0.0) - (body.max.y - field.max.y).max(0.0);
-    body = body.translate(Vec2::new(dx, dy));
-
-    // The tip sits *inside* the target, so "the tail touches it" is true by
-    // construction rather than by eye.
-    let tip = match side {
-        Side::Right => Pos2::new(target.max.x - TAIL_BITE, c.y.clamp(target.min.y, target.max.y)),
-        Side::Left => Pos2::new(target.min.x + TAIL_BITE, c.y.clamp(target.min.y, target.max.y)),
-        Side::Below => Pos2::new(c.x.clamp(target.min.x, target.max.x), target.max.y - TAIL_BITE),
-        Side::Above => Pos2::new(c.x.clamp(target.min.x, target.max.x), target.min.y + TAIL_BITE),
-    };
-
-    // The base sits on the body edge facing the target, centred on the tip and
-    // clamped clear of the rounded corners.
-    let r = 14.0;
-    let tail = match side {
-        Side::Right | Side::Left => {
-            let x = if side == Side::Right {
-                body.min.x
-            } else {
-                body.max.x
-            };
-            let y = tip.y.clamp(body.min.y + r + TAIL_HALF, body.max.y - r - TAIL_HALF);
-            [
-                Pos2::new(x, y - TAIL_HALF),
-                tip,
-                Pos2::new(x, y + TAIL_HALF),
-            ]
-        }
-        Side::Below | Side::Above => {
-            let y = if side == Side::Below {
-                body.min.y
-            } else {
-                body.max.y
-            };
-            let x = tip.x.clamp(body.min.x + r + TAIL_HALF, body.max.x - r - TAIL_HALF);
-            [
-                Pos2::new(x - TAIL_HALF, y),
-                tip,
-                Pos2::new(x + TAIL_HALF, y),
-            ]
-        }
-    };
-
-    Balloon { body, tail, side }
-}
-
-/// The balloon's colours.
-#[derive(Debug, Clone, Copy)]
-pub struct Palette {
-    pub fill: Color32,
-    pub text: Color32,
-    pub dim_text: Color32,
-    pub ring: Color32,
-    pub border: Color32,
-    pub button_fill: Color32,
-    pub button_text: Color32,
-}
-
-/// The dim laid over everything but the target — the same value the Building
-/// modal and the KB-reindex scrim use, so the tour looks like the IDE's other
-/// modals on every theme.
-const DIM: Color32 = Color32::from_black_alpha(150);
-
-/// Colours for the balloon on `theme`.
-///
-/// **The fill and the text are a fixed pair, deliberately.** The balloon always
-/// sits on the same `from_black_alpha(150)` field on all 32 themes, so there is
-/// nothing theme-dependent for its legibility to adapt to — and deriving ink
-/// from `ui.visuals()` is what renders dark-on-dark under the glass themes
-/// (CLAUDE.md). What *does* follow the theme is the decoration: the ring around
-/// the lit component and the balloon's border.
-pub fn balloon_palette(theme: &Theme) -> Palette {
-    let accent = theme.accent;
-    // The Next button borrows the accent only when white reads on it; otherwise
-    // the accent stays an outline and the button keeps the charcoal.
-    let accent_ok = crate::contrast::contrast_ratio(accent, Color32::WHITE) >= 4.5;
-    Palette {
-        fill: Color32::from_rgb(0x1E, 0x22, 0x2A),
-        text: Color32::WHITE,
-        dim_text: Color32::from_rgb(0xC2, 0xC9, 0xD4),
-        ring: accent,
-        border: accent,
-        button_fill: if accent_ok {
-            accent
-        } else {
-            Color32::from_rgb(0x2C, 0x33, 0x3E)
-        },
-        button_text: Color32::WHITE,
-    }
-}
+// The spotlight's geometry and paint live in `spotlight.rs` (spec 104), shared with
+// the Task Wizard; they were moved there unchanged and are re-exported here so
+// this module, and its tests, read exactly as before.
+// `tests::the_tour_paints_exactly_what_it_painted` pins what the tour paints.
+pub use crate::panels::spotlight::{balloon_palette, place_balloon, scrim_bands, Palette};
+use crate::panels::spotlight::{paint_balloon_frame, paint_ring, DIM};
 
 /// The tour.
 #[derive(Debug, Default)]
@@ -678,29 +499,8 @@ impl Walkthrough {
                         painter.rect_filled(band, 0.0, DIM);
                     }
                 }
-                painter.rect_stroke(
-                    target.expand(2.0),
-                    CornerRadius::same(6),
-                    Stroke::new(2.0, p.ring),
-                    egui::StrokeKind::Outside,
-                );
-
-                // Body, then tail, then the outline over both, so the join
-                // between them is never drawn as a seam.
-                painter.rect_filled(placed.body, CornerRadius::same(14), p.fill);
-                painter.add(egui::Shape::convex_polygon(
-                    placed.tail.to_vec(),
-                    p.fill,
-                    Stroke::NONE,
-                ));
-                painter.rect_stroke(
-                    placed.body,
-                    CornerRadius::same(14),
-                    Stroke::new(1.0, p.border),
-                    egui::StrokeKind::Inside,
-                );
-                painter.line_segment([placed.tail[0], placed.tail[1]], Stroke::new(1.0, p.border));
-                painter.line_segment([placed.tail[1], placed.tail[2]], Stroke::new(1.0, p.border));
+                paint_ring(&painter, target, p);
+                paint_balloon_frame(&painter, &placed, p);
 
                 let x = placed.body.min.x + PAD;
                 let y = placed.body.min.y + PAD;
@@ -979,5 +779,107 @@ mod tests {
                 t.id
             );
         }
+    }
+
+    // ── what the tour paints, frozen ────────────────────────────────────────
+
+    /// One painted shape as a line of text: a text by its string, place and ink,
+    /// anything else by its full description.
+    fn fingerprint(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| fingerprint(s, out)),
+            egui::Shape::Noop => {}
+            egui::Shape::Text(t) => out.push(format!(
+                "text {:?} at {:?} ink {:?}",
+                t.galley.text(),
+                t.galley.rect.translate(t.pos.to_vec2()),
+                t.galley
+                    .job
+                    .sections
+                    .first()
+                    .map(|s| s.format.color)
+                    .unwrap_or(t.fallback_color)
+            )),
+            other => out.push(format!("{other:?}")),
+        }
+    }
+
+    /// FNV-1a: a hash whose value does not change between Rust releases, which
+    /// `DefaultHasher` does not promise.
+    fn fnv1a(bytes: &[u8]) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in bytes {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    }
+
+    /// Spec 104 R38 / AC27 — the Task Wizard shares the spotlight's primitives with
+    /// this tour. This pins what the tour paints, step by step, so moving those
+    /// primitives, or changing them for the wizard, cannot change the tour unnoticed.
+    ///
+    /// If the tour's look is changed **on purpose**, run this test with
+    /// `--nocapture`, check the dump it prints, and update `EXPECTED`.
+    #[test]
+    fn the_tour_paints_exactly_what_it_painted() {
+        // Captured from the tour as spec 059 shipped it, before spec 104 moved its
+        // primitives into `spotlight.rs`.
+        const EXPECTED: u64 = 0x0d23_4522_28ee_5d98;
+        let ctx = egui::Context::default();
+        let tr = crate::i18n::Language::English.tr();
+        let theme = &crate::theme::THEMES[0];
+        let s = screen();
+        let mut anchors = Anchors {
+            root: Some(Rect::from_min_size(Pos2::new(8.0, 60.0), Vec2::new(260.0, 22.0))),
+            viewport: Some(Rect::from_min_size(Pos2::new(0.0, 50.0), Vec2::new(280.0, 640.0))),
+            output: Some(Rect::from_min_size(Pos2::new(0.0, 700.0), Vec2::new(1400.0, 200.0))),
+            ..Default::default()
+        };
+        for (i, c) in [
+            Category::Forms,
+            Category::IndexedFiles,
+            Category::Assets,
+            Category::Documentation,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            anchors.categories.push((
+                c,
+                Rect::from_min_size(Pos2::new(8.0, 100.0 + 40.0 * i as f32), Vec2::new(260.0, 22.0)),
+            ));
+        }
+        let mut w = Walkthrough::default();
+        w.start(&ctx);
+        let mut dump = Vec::new();
+        for step in 0..Step::ORDER.len() {
+            // Two frames per step: an Area's first frame is an invisible sizing
+            // pass, so the second is the one a developer sees.
+            let mut last = None;
+            for _ in 0..2 {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(s);
+                input.max_texture_side = Some(8192);
+                let mut frame = ctx.run_ui(input, |ui| {
+                    let _ = w.show(ui.ctx(), &anchors, &tr, theme);
+                });
+                // No renderer here to apply the font atlas; egui insists it is
+                // dealt with rather than dropped.
+                frame.textures_delta.clear();
+                last = Some(frame);
+            }
+            dump.push(format!("-- step {step} --"));
+            for c in &last.expect("a frame").shapes {
+                fingerprint(&c.shape, &mut dump);
+            }
+            let ended = w.navigate(Nav::Next);
+            assert_eq!(ended, step + 1 == Step::ORDER.len(), "the tour ended at the wrong step");
+        }
+        let text = dump.join("\n");
+        let got = fnv1a(text.as_bytes());
+        println!("walkthrough fingerprint {got:#018x} over {} lines", dump.len());
+        assert!(dump.len() > 6 * 8, "the tour painted almost nothing:\n{text}");
+        assert_eq!(got, EXPECTED, "the tour now paints something different:\n{text}");
     }
 }

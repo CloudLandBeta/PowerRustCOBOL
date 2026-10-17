@@ -48,9 +48,13 @@ pub mod project;
 pub mod prompt_review;
 pub mod properties;
 pub mod settings_form;
+/// The spotlight shared by the Walkthrough and the Task Wizard (spec 104).
+pub mod spotlight;
 pub mod sql_connections;
 pub mod tab_order;
 pub mod target_picker;
+/// The Task Wizard (spec 104).
+pub mod task_wizard;
 pub mod theme_defaults_modal;
 
 pub mod toolbar;
@@ -85,3 +89,7 @@ mod tests {
 // every language.
 #[cfg(test)]
 mod properties_perspective_096_tests;
+
+// Spec 104 — the Task Wizard where it touches the IDE's own surfaces.
+#[cfg(test)]
+mod task_wizard_104_tests;

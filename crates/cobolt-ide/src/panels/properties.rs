@@ -3921,6 +3921,25 @@ impl PropertiesPanel {
     /// be showing the events when the modal closes, or the developer lands back
     /// on the Visuals list with no sign of what they just edited (operator,
     /// 2026-09-06).
+    /// What the Task Wizard reads of the pane for control `id` (spec 104): which of its
+    /// editors are open for it and which tab is up — never a value typed into it.
+    pub(crate) fn task_wizard_view(&self, id: &str) -> crate::panels::task_wizard::facts::PaneView {
+        let editor = self
+            .binding_editor
+            .as_ref()
+            .filter(|e| e.target_control_id.eq_ignore_ascii_case(id));
+        crate::panels::task_wizard::facts::PaneView {
+            binding_editor_open: editor.is_some(),
+            binding_has_source: editor.is_some_and(|e| e.selected_source.is_some()),
+            grid_settings_open: self
+                .datagrid_editor
+                .as_deref()
+                .is_some_and(|g| g.eq_ignore_ascii_case(id)),
+            events_tab: self.active_tab == InspectorTab::Events,
+            anim_tab: self.active_tab == InspectorTab::Animations,
+        }
+    }
+
     pub fn show_events_tab(&mut self) {
         self.active_tab = InspectorTab::Events;
     }
@@ -4345,7 +4364,7 @@ impl PropertiesPanel {
                                 .color(Color32::GRAY)
                                 .small(),
                         );
-                        ui.horizontal_wrapped(|ui| {
+                        let sources = ui.horizontal_wrapped(|ui| {
                     for source_kind in DATA_BINDING_MODAL_SOURCES {
                         let enabled = source_kind != BindingEditorSourceKind::IndexedFile
                             || !indexed_files.is_empty();
@@ -4376,6 +4395,12 @@ impl PropertiesPanel {
                         }
                     }
                 });
+                        // Spec 104 — the source buttons are where a binding starts.
+                        crate::panels::task_wizard::anchors::mark(
+                            ui,
+                            crate::panels::task_wizard::AnchorId::PropertiesBinding,
+                            sources.response.rect,
+                        );
                         self.show_binding_editor(ui, form, ctrl, indexed_files, action, tr);
                         ui.add_space(4.0);
                         }
@@ -4750,6 +4775,14 @@ impl PropertiesPanel {
             .shrink2(egui::vec2(1.0, 0.0));
             let id = ui.id().with(("inspector_tab", i));
             let resp = ui.interact(rect, id, Sense::click());
+            // Spec 104 — the tabs a Task Wizard step points at, or reopens through.
+            use crate::panels::task_wizard::{anchors, AnchorId};
+            match tab {
+                InspectorTab::Visuals => anchors::mark(ui, AnchorId::PropsTabVisuals, rect),
+                InspectorTab::Events => anchors::mark(ui, AnchorId::PropsTabEvents, rect),
+                InspectorTab::Animations => anchors::mark(ui, AnchorId::AnimTab, rect),
+                InspectorTab::Procedures => {}
+            }
             let selected = self.active_tab == tab;
             // Aurora Pastel gives each idle tab its own pastel (Props sky,
             // Events blue, Procs mint, Anim lavender) under dark ink.
@@ -5721,7 +5754,7 @@ impl PropertiesPanel {
         }
 
         let mut open = true;
-        egui::Window::new(crate::ui_text::tx("Edit DataGrid settings"))
+        let window = egui::Window::new(crate::ui_text::tx("Edit DataGrid settings"))
             .id(egui::Id::new(("datagrid_settings", &ctrl.id)))
             .collapsible(false)
             .resizable(true)
@@ -5820,6 +5853,7 @@ impl PropertiesPanel {
                                 // modal so there is a single source of truth.
                             });
 
+                        let columns_top = ui.cursor().min.y;
                         section_header(ui, tr.sec_columns);
                         let mut advanced = DataGridAdvanced::from_control(ctrl);
                         let mut changed_advanced = false;
@@ -6146,6 +6180,15 @@ impl PropertiesPanel {
                             });
                             ui.add_space(6.0);
                         }
+                        // Spec 104 — the Columns section, as one target.
+                        crate::panels::task_wizard::anchors::mark(
+                            ui,
+                            crate::panels::task_wizard::AnchorId::GridSettingsColumns,
+                            Rect::from_min_max(
+                                egui::pos2(ui.min_rect().left(), columns_top),
+                                egui::pos2(ui.min_rect().right(), ui.cursor().min.y),
+                            ),
+                        );
 
                         if changed_advanced {
                             if let Ok(json) = advanced.to_json() {
@@ -6173,6 +6216,13 @@ impl PropertiesPanel {
                             });
                     });
             });
+        if let Some(w) = &window {
+            crate::panels::task_wizard::anchors::mark_window(
+                ctx,
+                crate::panels::task_wizard::AnchorId::GridSettingsWindow,
+                &w.response,
+            );
+        }
 
         if !open {
             self.datagrid_editor = None;
@@ -6213,7 +6263,8 @@ impl PropertiesPanel {
         let mut close_editor = false;
         let mut apply_binding = false;
         let mut remove_binding: Option<String> = None;
-        egui::Window::new(crate::ui_text::tx("Edit data binding settings"))
+        use crate::panels::task_wizard::{anchors, AnchorId};
+        let window = egui::Window::new(crate::ui_text::tx("Edit data binding settings"))
             .id(egui::Id::new((
                 "data_binding_settings",
                 &editor.target_control_id,
@@ -6230,7 +6281,16 @@ impl PropertiesPanel {
                 ui.add_space(6.0);
                 ui.label(crate::ui_text::tx("Create binding from:"));
                 ui.add_space(6.0);
+                let top = ui.cursor().min.y;
                 show_binding_source_selector(ui, editor, tr);
+                anchors::mark(
+                    ui,
+                    AnchorId::BindingSource,
+                    Rect::from_min_max(
+                        egui::pos2(ui.min_rect().left(), top),
+                        egui::pos2(ui.min_rect().right(), ui.min_rect().bottom()),
+                    ),
+                );
                 ui.add_space(10.0);
                 show_clear_selection_banner(ui, editor);
                 ui.add_space(10.0);
@@ -6238,7 +6298,7 @@ impl PropertiesPanel {
                 ui.add_space(10.0);
 
                 let scroll_height = (modal_size.y - 190.0).max(320.0);
-                egui::ScrollArea::vertical()
+                let body = egui::ScrollArea::vertical()
                     .id_salt(format!("data_binding_settings_scroll_{}", ctrl.id))
                     .max_height(scroll_height)
                     .auto_shrink([false, false])
@@ -6273,6 +6333,7 @@ impl PropertiesPanel {
                             );
                         }
                     });
+                anchors::mark(ui, AnchorId::BindingFields, body.inner_rect);
                 show_dropdown_config_modal(&ctx, editor);
 
                 if let Some(message) = &editor.validation_error {
@@ -6308,16 +6369,15 @@ impl PropertiesPanel {
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    RichText::new(crate::ui_text::tx("Apply")).color(Color32::WHITE).strong(),
-                                )
-                                .fill(Color32::from_rgb(45, 112, 230))
-                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(80, 145, 255))),
+                        let apply = ui.add(
+                            egui::Button::new(
+                                RichText::new(crate::ui_text::tx("Apply")).color(Color32::WHITE).strong(),
                             )
-                            .clicked()
-                        {
+                            .fill(Color32::from_rgb(45, 112, 230))
+                            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(80, 145, 255))),
+                        );
+                        anchors::mark(ui, AnchorId::BindingApply, apply.rect);
+                        if apply.clicked() {
                             // A cleared selection applied to a control that
                             // HAS a saved binding removes that binding. It used
                             // to fail validation ("a source must be selected"),
@@ -6348,6 +6408,9 @@ impl PropertiesPanel {
                     });
                 });
             });
+        if let Some(w) = &window {
+            anchors::mark_window(&ctx, AnchorId::BindingWindow, &w.response);
+        }
         if !open {
             close_editor = true;
         }
@@ -6508,6 +6571,8 @@ impl PropertiesPanel {
 
                 let cur_t = anim.trigger.as_str().to_owned();
                 property_row(ui, "Trigger", |ui| {
+                    // Spec 104 — Trigger, Effect and Repeat: one Task Wizard target.
+                    crate::panels::task_wizard::anchors::mark(ui, crate::panels::task_wizard::AnchorId::AnimFields, ui.max_rect());
                     egui::ComboBox::from_id_salt(format!("anim_trigger_{anim_id}"))
                         .selected_text(&cur_t)
                         .width(ui.available_width())
@@ -6526,6 +6591,7 @@ impl PropertiesPanel {
 
                 let cur_k = anim.kind.as_str().to_owned();
                 property_row(ui, "Effect", |ui| {
+                    crate::panels::task_wizard::anchors::mark(ui, crate::panels::task_wizard::AnchorId::AnimFields, ui.max_rect());
                     egui::ComboBox::from_id_salt(format!("anim_kind_{anim_id}"))
                         .selected_text(&cur_k)
                         .width(ui.available_width())
@@ -6590,6 +6656,7 @@ impl PropertiesPanel {
 
                 let cur_r = anim.repeat.as_str().to_owned();
                 property_row(ui, "Repeat", |ui| {
+                    crate::panels::task_wizard::anchors::mark(ui, crate::panels::task_wizard::AnchorId::AnimFields, ui.max_rect());
                     egui::ComboBox::from_id_salt(format!("anim_rep_{anim_id}"))
                         .selected_text(&cur_r)
                         .width(ui.available_width())
@@ -6663,7 +6730,9 @@ impl PropertiesPanel {
 
                 // Preview + Remove buttons
                 ui.horizontal(|ui| {
-                    if ui.button(crate::ui_text::tx("▶ Preview")).clicked() {
+                    let preview = ui.button(crate::ui_text::tx("▶ Preview"));
+                    crate::panels::task_wizard::anchors::mark(ui, crate::panels::task_wizard::AnchorId::AnimPreview, preview.rect);
+                    if preview.clicked() {
                         action.set_props.push((
                             id.to_owned(),
                             format!("_PreviewAnim{sel}"),
@@ -6691,7 +6760,7 @@ impl PropertiesPanel {
         let next_default = cobolt_forms::model::next_animation_name(&ctrl.animations);
         ui.add_space(4.0);
         ui.separator();
-        ui.horizontal(|ui| {
+        let add_row = ui.horizontal(|ui| {
             ui.label(crate::ui_text::tx("New animation name:"));
             ui.add(
                 egui::TextEdit::singleline(&mut self.new_anim_name)
@@ -6708,6 +6777,12 @@ impl PropertiesPanel {
                 ));
             }
         });
+        // Spec 104 — the name and ➕ Add, as one Task Wizard target.
+        crate::panels::task_wizard::anchors::mark(
+            ui,
+            crate::panels::task_wizard::AnchorId::AnimAdd,
+            add_row.response.rect,
+        );
 
         ui.add_space(4.0);
     }
@@ -7977,7 +8052,13 @@ impl PropertiesPanel {
                     .small()
                     .color(Color32::GRAY),
                 );
-                if ui.button(crate::ui_text::tx("Edit DataGrid settings...")).clicked() {
+                let settings = ui.button(crate::ui_text::tx("Edit DataGrid settings..."));
+                crate::panels::task_wizard::anchors::mark(
+                    ui,
+                    crate::panels::task_wizard::AnchorId::GridSettingsButton,
+                    settings.rect,
+                );
+                if settings.clicked() {
                     self.datagrid_editor = Some(id.to_owned());
                 }
                 }
@@ -8467,6 +8548,11 @@ impl PropertiesPanel {
                                 )
                             })
                             .inner;
+                        crate::panels::task_wizard::anchors::mark(
+                            ui,
+                            crate::panels::task_wizard::AnchorId::TreeItems,
+                            resp.rect,
+                        );
                         if resp.lost_focus() {
                             action.set_props.push((
                                 id.to_owned(),
@@ -9138,8 +9224,16 @@ impl PropertiesPanel {
             // separates them — a MenuBar is a horizontal strip.
             ControlType::MenuBar | ControlType::SideMenu if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
-                if search_shows(ui, tr.menu_edit_btn, Some("Items")) && ui.button(tr.menu_edit_btn).clicked() {
-                    action.open_menu_editor = Some(id.to_owned());
+                if search_shows(ui, tr.menu_edit_btn, Some("Items")) {
+                    let edit = ui.button(tr.menu_edit_btn);
+                    crate::panels::task_wizard::anchors::mark(
+                        ui,
+                        crate::panels::task_wizard::AnchorId::MenuEditButton,
+                        edit.rect,
+                    );
+                    if edit.clicked() {
+                        action.open_menu_editor = Some(id.to_owned());
+                    }
                 }
                 if ctrl.control_type == ControlType::MenuBar {
                     // The bar's own axis, the mirror of the sidebar's

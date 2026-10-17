@@ -26,6 +26,7 @@ use std::sync::mpsc::Receiver;
 
 use crate::i18n::Tr;
 use crate::llm::{provider_key_slot, LlmConfig, LlmResponse, Provider, PROVIDERS};
+use crate::panels::task_wizard::{self, AnchorId};
 
 /// `file_dialog` key for the credential-file Browse… picker.
 const CREDENTIAL_FILE_DIALOG: &str = "models:credential-file";
@@ -72,6 +73,10 @@ pub struct ModelsModal {
     store_refused: bool,
     /// Cached "semantic model on disk" probe — `None` re-probes next frame.
     semantic_ready: Option<bool>,
+    /// Whether the last connection test of the provider showing passed — `None` until one
+    /// ends. The Task Wizard's key step completes on it, so it never has to look at the key
+    /// (spec 104 R28).
+    test_passed: Option<bool>,
 }
 
 #[derive(Default)]
@@ -147,6 +152,7 @@ impl ModelsModal {
             store_msg: None,
             store_refused: false,
             semantic_ready: None,
+            test_passed: None,
         }
     }
 
@@ -300,6 +306,29 @@ impl ModelsModal {
         self.semantic_ready = None;
     }
 
+    /// What the Task Wizard reads of the manager (spec 104): the provider showing, whether
+    /// its endpoint field is empty, and how its last test went. Nothing about the key —
+    /// not its value, its length or whether it is empty (R28).
+    pub(crate) fn task_wizard_view(&self) -> (&'static str, bool, crate::panels::task_wizard::facts::TestOutcome) {
+        use crate::panels::task_wizard::facts::TestOutcome;
+        let test = match (self.test_rx.is_some(), self.test_passed) {
+            (true, _) => TestOutcome::Running,
+            (false, Some(true)) => TestOutcome::Passed,
+            (false, Some(false)) => TestOutcome::Failed,
+            (false, None) => TestOutcome::NotRun,
+        };
+        (self.selected_provider(), self.endpoint_buf.trim().is_empty(), test)
+    }
+
+    /// *Use the default*: the provider's default endpoint into the field, uncommitted — what
+    /// the button beside the field does, and what the Task Wizard's *Do this for me* does
+    /// (spec 104 R25).
+    pub(crate) fn use_default_endpoint(&mut self) {
+        self.endpoint_buf = Provider::from_id(self.selected_provider())
+            .map(|p| p.default_endpoint().to_string())
+            .unwrap_or_default();
+    }
+
     /// The provider id the selection points at.
     fn selected_provider(&self) -> &'static str {
         PROVIDERS
@@ -318,6 +347,7 @@ impl ModelsModal {
         self.clear_error();
         self.test_msg = None;
         self.test_model = None;
+        self.test_passed = None;
         self.models_rx = None;
         self.models_request_provider = None;
         self.test_rx = None;
@@ -411,6 +441,11 @@ impl ModelsModal {
         // Drain an in-flight test-connection request.
         if let Some(rx) = &self.test_rx {
             if let Ok(res) = rx.try_recv() {
+                // Pass or fail, and nothing else — what the Task Wizard reads (spec 104 R28).
+                self.test_passed = Some(match &res {
+                    LlmResponse::Ok(_) | LlmResponse::Chunk(_) => true,
+                    LlmResponse::Err(e) => is_payment_required(e),
+                });
                 let msg = match res {
                     LlmResponse::Ok(_) | LlmResponse::Chunk(_) => tr.ai_test_ok.to_string(),
                     // 402: the provider KNEW the key and the account — it is
@@ -455,7 +490,7 @@ impl ModelsModal {
         let mut storage_changed = false;
 
         // Seeded size only: after opening, egui window state owns user resizing.
-        egui::Window::new(tr.providers_title)
+        let window = egui::Window::new(tr.providers_title)
             .id(egui::Id::new("model_providers_manager_modal"))
             .open(&mut open)
             .collapsible(false)
@@ -475,7 +510,9 @@ impl ModelsModal {
                             ui.add_space(4.0);
                         }
                         ui.horizontal(|ui| {
-                            if ui.button(tr.btn_save).clicked() {
+                            let save = ui.button(tr.btn_save);
+                            task_wizard::anchors::mark(ui, AnchorId::ModelsSave, save.rect);
+                            if save.clicked() {
                                 do_save = true;
                             }
                             if ui.button(tr.inspect_close).clicked() {
@@ -610,7 +647,7 @@ impl ModelsModal {
                     });
 
                 // Left rail: every shipped provider, configured ones marked.
-                egui::Panel::left(ui.id().with("providers_left_rail"))
+                let rail = egui::Panel::left(ui.id().with("providers_left_rail"))
                     .resizable(true)
                     .default_size(240.0)
                     .min_size(200.0)
@@ -634,6 +671,7 @@ impl ModelsModal {
                                 }
                             });
                     });
+                task_wizard::anchors::mark(ui, AnchorId::ModelsProviderList, rail.response.rect);
 
                 // Central: the selected provider's configuration.
                 //
@@ -679,12 +717,13 @@ impl ModelsModal {
                                     ui.add_space(4.0);
                                 }
 
+                                let mut key_row: Option<egui::Rect> = None;
                                 egui::Grid::new("provider_grid")
                                     .num_columns(2)
                                     .spacing([14.0, 7.0])
                                     .show(ui, |ui| {
                                         ui.label(tr.providers_endpoint);
-                                        ui.horizontal(|ui| {
+                                        let row = ui.horizontal(|ui| {
                                             if ui
                                                 .add(
                                                     egui::TextEdit::singleline(
@@ -697,16 +736,15 @@ impl ModelsModal {
                                                 self.clear_error();
                                             }
                                             if ui.button(tr.providers_endpoint_reset).clicked() {
-                                                self.endpoint_buf = Provider::from_id(id)
-                                                    .map(|p| p.default_endpoint().to_string())
-                                                    .unwrap_or_default();
+                                                self.use_default_endpoint();
                                             }
                                         });
+                                        task_wizard::anchors::mark(ui, AnchorId::ModelsEndpoint, row.response.rect);
                                         ui.end_row();
 
                                         if needs_key {
                                             ui.label(tr.providers_key);
-                                            ui.horizontal(|ui| {
+                                            key_row = Some(ui.horizontal(|ui| {
                                                 if ui
                                                     .add(
                                                         egui::TextEdit::singleline(
@@ -725,7 +763,7 @@ impl ModelsModal {
                                                 if ui.button(tr.models_delete).clicked() {
                                                     self.confirm_delete = true;
                                                 }
-                                            });
+                                            }).response.rect);
                                             ui.end_row();
                                             ui.label("");
                                             ui.label(
@@ -751,9 +789,14 @@ impl ModelsModal {
                                             if ui.button(tr.providers_refresh_models).clicked() {
                                                 do_fetch = true;
                                             }
-                                            if ui.button(tr.settings_ai_test).clicked() {
+                                            let test = ui.button(tr.settings_ai_test);
+                                            if test.clicked() {
                                                 do_test = true;
                                             }
+                                            // The key's row and Test, as one target: the
+                                            // wizard rings them, never reads them (R28).
+                                            let both = key_row.map_or(test.rect, |k| k.union(test.rect));
+                                            task_wizard::anchors::mark(ui, AnchorId::ModelsKeyAndTest, both);
                                         });
                                         ui.end_row();
                                     });
@@ -802,6 +845,9 @@ impl ModelsModal {
                             });
                     });
             });
+        if let Some(w) = &window {
+            task_wizard::anchors::mark_window(ctx, AnchorId::ModelsWindow, &w.response);
+        }
 
         // A Browse… choice arrives on a later frame (a synchronous dialog nests
         // the OS event loop, which aborts winit).
@@ -943,6 +989,26 @@ mod tests {
             modal.error.is_none(),
             "the previous provider's failure must not follow the selection"
         );
+    }
+
+    /// Spec 104 R28 / AC20 — what the Task Wizard reads of the manager does not depend on
+    /// the key in any way: not its value, its length, or whether it is there at all. The
+    /// same manager with no key, a short key and a planted long one reads identically, and
+    /// no reading carries a byte of it.
+    #[test]
+    fn the_task_wizard_learns_nothing_about_the_key() {
+        let planted = "sk-TEST-0123456789abcdefPLANTED";
+        let mut modal = ModelsModal::new();
+        modal.sel = PROVIDERS.iter().position(|p| p.id == "openai").unwrap();
+        let mut seen = Vec::new();
+        for key in ["", "x", planted] {
+            modal.key_buf = key.to_owned();
+            let view = modal.task_wizard_view();
+            let text = format!("{view:?}");
+            assert!(!text.contains("sk-TEST"), "the key leaked into {text}");
+            seen.push(view);
+        }
+        assert!(seen.windows(2).all(|w| w[0] == w[1]), "the view changed with the key: {seen:?}");
     }
 
     /// Belt and braces: even if a failure somehow survives, it carries the

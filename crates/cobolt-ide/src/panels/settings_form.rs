@@ -905,10 +905,15 @@ impl SettingsForm {
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 ui.horizontal(|ui| {
-                                    if ui.button(tr.agents_manage).clicked() {
+                                    use crate::panels::task_wizard::{anchors, AnchorId};
+                                    let agents = ui.button(tr.agents_manage);
+                                    anchors::mark(ui, AnchorId::SettingsManageAgents, agents.rect);
+                                    if agents.clicked() {
                                         action.manage_agents = true;
                                     }
-                                    if ui.button(tr.models_manage).clicked() {
+                                    let models = ui.button(tr.models_manage);
+                                    anchors::mark(ui, AnchorId::SettingsModelProviders, models.rect);
+                                    if models.clicked() {
                                         action.manage_models = true;
                                     }
                                     // Spec 040: the ranked record of every
