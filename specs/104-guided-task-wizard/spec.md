@@ -138,9 +138,12 @@ the mechanism and the subjects.
   the Designer's other toggles do (Magnifier, Show Grid), in every IDE theme, including
   the pill buttons of Aurora Pastel.
 - **R3 (ubiquitous):** Each toggle shall be a **split button**: the toggle itself, and a
-  **▾** beside it that is live only while the Task Wizard is on. Turning the Task Wizard
-  on shall open the **catalogue** in a popup under the button that was pressed; the ▾
-  shall reopen it.
+  **▾** beside it that always works. Turning the Task Wizard on shall open the
+  **catalogue** in a popup under the button that was pressed; the ▾ shall reopen it, and
+  while the Task Wizard is off the ▾ shall turn it on, which opens the catalogue.
+  *Amended 2026-10-17 (1.91.197):* the ▾ was live only while on, so with the wizard off
+  it did nothing and read as broken (operator: "if the switch is not selected the arrow
+  does not work, but then it should select the switch and open the options").
 - **R4 (event):** When the toggle is pressed while the Task Wizard is on, it shall turn
   off: a running task shall stop, **keeping its progress**, and the catalogue and the
   offers shall go.
@@ -294,9 +297,10 @@ the mechanism and the subjects.
       changes both; the state survives an IDE restart and is **off** on a fresh `ui.toml`.
 - [ ] **AC2** — Engaged on both toolbars on all 32 themes, Aurora Pastel's pills included
       (asserted on the painted button, not on a predicted colour).
-- [ ] **AC3** — Turning it on opens the catalogue under the pressed button; ▾ reopens it; the
-      Help menu's item mirrors the state, changes it, and opens the catalogue when it turns
-      it on.
+- [ ] **AC3** — Turning it on opens the catalogue under the pressed button; ▾ reopens it,
+      and with the wizard off one click on ▾ turns it on and opens the catalogue, in the IDE
+      toolbar and in a Form Designer window; the Help menu's item mirrors the state, changes
+      it, and opens the catalogue when it turns it on.
 - [ ] **AC4** — With no project open the switch turns on, and every task is disabled with its
       reason and cannot start.
 - [ ] **AC5** — The catalogue lists the eight tasks of §3 with the right state, and each can be

@@ -17,6 +17,38 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.197] — 2026-10-17
+
+*(Written on `fixes-task-wizard-arrow`, off `main` at 1.91.196.)*
+
+### Fixed: the Task Wizard's ▾ did nothing while the wizard was off
+
+Operator, 2026-10-17: "the Task Wizard button has an arrow to open the options, but it does not work — you have to click the button a few times to show the options". Then, from the Form Designer: "if the switch is selected the arrow works; if it is not, the arrow does not work, but then it should select the switch and open the options".
+
+*What was wrong.* Spec 104 R3 made the ▾ live only while the wizard was on:
+- in the IDE toolbar it was a disabled button;
+- in the Form Designer it was a dimmed cell that ignored the click.
+
+With the wizard off, the arrow that promises "the options" did nothing. The only way in was the switch itself, and when that was already on, clicking it turned the wizard off. So it took several clicks.
+
+*Now.* The ▾ always works, in both toolbars:
+- **wizard off:** one click turns it on and opens the list of tasks under it — exactly what clicking the switch does;
+- **wizard on:** it opens the list, as before.
+
+The Designer's ▾ is drawn in the normal ink, no longer dimmed. R3 and AC3 are amended in spec 104, and the Developer's Guide says so.
+
+- **Code:**
+  - `panels/toolbar.rs`: `task_wizard_toggle`, and `arrow_action`, which picks what a click on the ▾ asks for;
+  - `panels/designer.rs`: the Designer toolbar's ▾ cell.
+- **Tests** (new, `panels/toolbar.rs`). Each one clicks the ▾ with real pointer events, then checks that the list is painted and stays open:
+  - the IDE toolbar, starting on and off, in both themes, at three points across the arrow;
+  - a resting, quick click;
+  - reopening after a click elsewhere closed the list;
+  - with a task step on screen;
+  - **a Form Designer window**, drawn as its own viewport through a renderer like eframe's, starting on and off.
+
+  Put back the old `task_wizard_on && more.clicked()` and the Designer test fails exactly as reported: the wizard stays off and the list never appears.
+
 ## [PowerRustCOBOL 1.91.196] — 2026-10-17
 
 *(Written on `features-maps-wizard`, off `main` at 1.91.195.)*

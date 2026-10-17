@@ -18631,14 +18631,16 @@ pub(crate) fn draw_icon_toolbar(
             action = DesignerToolbarAction::ToggleMagnifier;
         }
         // Spec 104 R1–R3 — the Task Wizard switch, after the Magnifier, and its ▾:
-        // a narrow cell, live only while the switch is on.
+        // a narrow cell that always works. While the switch is off it turns the wizard
+        // on, which opens the catalogue — it was dead then, and read as broken
+        // (operator, 2026-10-17).
         if icon_btn(ui, true, task_wizard_on, task_wizard_tip, &icon_task_wizard) {
             action = DesignerToolbarAction::ToggleTaskWizard;
         }
         let switch = last_btn.get();
         let (more, painter) =
             ui.allocate_painter(Vec2::new(14.0, btn_size), egui::Sense::click());
-        let ink = if task_wizard_on { col_normal } else { col_dim };
+        let ink = col_normal;
         let c = more.rect.center();
         painter.add(Shape::convex_polygon(
             vec![
@@ -18650,8 +18652,12 @@ pub(crate) fn draw_icon_toolbar(
             Stroke::NONE,
         ));
         let more = more.on_hover_text(task_wizard_more_tip);
-        if task_wizard_on && more.clicked() {
-            action = DesignerToolbarAction::OpenTaskCatalogue;
+        if more.clicked() {
+            action = if task_wizard_on {
+                DesignerToolbarAction::OpenTaskCatalogue
+            } else {
+                DesignerToolbarAction::ToggleTaskWizard
+            };
         }
         let both = switch.union(more.rect);
         crate::panels::task_wizard::anchors::mark(

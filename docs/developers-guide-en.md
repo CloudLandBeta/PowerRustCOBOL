@@ -1667,7 +1667,8 @@ Designer's toolbar, after the Magnifier, and in **Help ▸ 🗺 Task Wizard**. A
 three show the same state, and the IDE remembers it between sessions.
 
 - Turning the switch on opens the list of tasks under it.
-- The **▾** beside the switch opens the list again.
+- The **▾** beside the switch opens the list again. If the wizard is off, the ▾
+  turns it on and opens the list in one click.
 - Turning the switch off stops a task without losing your place.
 
 **The tasks:**
