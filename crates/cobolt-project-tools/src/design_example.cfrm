@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="CUSTOMER-FORM" title="Customer" width="640" height="424" form-format="Embedded" responsive="true" background="40404008" transparency="50" grid-size="8" snap-to-grid="true">
+  <Control id="LBL-TITLE" type="Label" x="24" y="24" w="592" h="32">
+    <Property name="Caption">Customer</Property>
+    <Property name="FontSize">24</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="LBL-SUBTITLE" type="Label" x="24" y="64" w="592" h="24">
+    <Property name="Caption">Name and contact details</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="ForegroundColor">#FFFFFFAA</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="CRD-FORM" type="Panel" x="24" y="96" w="592" h="304">
+    <Property name="Padding">24</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">24</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="LBL-NAME" type="Label" x="48" y="120" w="544" h="24" parent="CRD-FORM">
+    <Property name="Caption">Name</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="TXT-NAME" type="TextBox" x="48" y="152" w="544" h="40" parent="CRD-FORM">
+    <Property name="FontSize">14</Property>
+    <Property name="BackgroundColor">#12131CFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#FFFFFF33</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="LBL-EMAIL" type="Label" x="48" y="208" w="544" h="24" parent="CRD-FORM">
+    <Property name="Caption">Email</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="TXT-EMAIL" type="TextBox" x="48" y="240" w="544" h="40" parent="CRD-FORM">
+    <Property name="FontSize">14</Property>
+    <Property name="BackgroundColor">#12131CFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#FFFFFF33</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="LBL-HINT" type="Label" x="48" y="288" w="544" h="24" parent="CRD-FORM">
+    <Property name="Caption">We only use it to send receipts.</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="ForegroundColor">#FFFFFFAA</Property>
+    <Property name="Anchor">Top,Left,Right</Property>
+  </Control>
+  <Control id="BTN-CANCEL" type="Button" x="360" y="336" w="112" h="40" parent="CRD-FORM">
+    <Property name="Caption">Cancel</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="Anchor">Bottom,Right</Property>
+  </Control>
+  <Control id="BTN-SAVE" type="Button" x="480" y="336" w="112" h="40" parent="CRD-FORM">
+    <Property name="Caption">Save</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">12</Property>
+    <Property name="BackgroundColor">#0A84FFFF</Property>
+    <Property name="ForegroundColor">#050A26FF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="Anchor">Bottom,Right</Property>
+  </Control>
+</Form>
