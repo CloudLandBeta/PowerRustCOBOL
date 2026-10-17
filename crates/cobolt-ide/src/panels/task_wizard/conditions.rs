@@ -56,6 +56,10 @@ pub fn selected_menubar(x: &Ctx) -> bool {
     selected_kind(x, ControlKind::MenuBar)
 }
 
+pub fn selected_maps(x: &Ctx) -> bool {
+    selected_kind(x, ControlKind::Maps)
+}
+
 /// Exactly one control is selected, of any kind.
 pub fn selected_any(x: &Ctx) -> bool {
     x.now.selected().is_some()
@@ -175,6 +179,23 @@ pub fn grid_column_added(x: &Ctx) -> bool {
 
 pub fn tree_items_changed(x: &Ctx) -> bool {
     has_subject(x) && x.now.subject.tree_items_sig != x.entry.subject.tree_items_sig
+}
+
+// ── A map ────────────────────────────────────────────────────────────────────────────────
+
+/// Its centre was moved while the step showed.
+pub fn map_center_changed(x: &Ctx) -> bool {
+    has_subject(x) && x.now.subject.map_center_sig != x.entry.subject.map_center_sig
+}
+
+/// Its zoom was changed while the step showed.
+pub fn map_zoom_changed(x: &Ctx) -> bool {
+    has_subject(x) && x.now.subject.map_zoom_sig != x.entry.subject.map_zoom_sig
+}
+
+/// One of its colours was changed while the step showed.
+pub fn map_colors_changed(x: &Ctx) -> bool {
+    has_subject(x) && x.now.subject.map_colors_sig != x.entry.subject.map_colors_sig
 }
 
 pub fn events_tab(x: &Ctx) -> bool {

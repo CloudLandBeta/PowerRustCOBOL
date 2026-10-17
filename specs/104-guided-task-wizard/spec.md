@@ -103,6 +103,7 @@ code actually has:
 | 6 | **Build a SideMenu** | **Edit Menu…** → the menu editor, opened for a side menu (its items live in `<control id>.menu.yaml`) | A rail of items that open forms or run actions |
 | 7 | **Build a menu** | **Edit Menu…** → the menu editor, opened for a MenuBar | A MenuBar with items, shortcuts and handlers |
 | 8 | **Add an animation** | The **Anim** tab of the Properties pane (`show_animations`) | An animation with trigger, kind and repeat, previewed |
+| 9 | **Set up a map** *(added 2026-10-17, 1.91.196)* | The Maps section of the Properties pane — *Start latitude/longitude*, *Start zoom*, its **🎨 Colors** — its **Data Binding** for pins, and the **Events** tab | A Maps control that opens where and how close the developer chose, optionally with a pin per row of a table, and its events wired |
 
 The `data_grid_columns.rs` Column Editor is not a surface: it is not wired into the IDE.
 
@@ -162,7 +163,7 @@ the mechanism and the subjects.
 - **R9 (ubiquitous):** Any task shall be startable from the catalogue, restartable when
   done, and resumable when in progress in the open project.
 - **R10 (event):** While the Task Wizard is on, when the developer selects **exactly one**
-  DataGrid, TreeView, SideMenu or MenuBar in the Form Designer, the wizard shall show an
+  DataGrid, TreeView, SideMenu, MenuBar or Maps control in the Form Designer, the wizard shall show an
   **offer** beside it for the task about that control — unless that task is done, or the
   offer was dismissed for that control. An offer shall never start a task by itself, and
   no other control shall get one.
@@ -395,6 +396,9 @@ From `/clarify` (operator, 2026-10-17):
 - **The catalogue opens in a popup under the button**; the button sits at the right end of
   the IDE toolbar beside the language selector, and at the end of the Designer's view
   toggles; **offers only on DataGrid, TreeView, SideMenu and MenuBar** (R1, R3, R10).
+  *Amended 2026-10-17 (operator: "add a wizard for the map"):* the Maps control got a task
+  of its own (task 9), so it gets the offer too — the rule was always "the controls a task
+  is about", and the map is now one of them.
 - **In progress per project, done per machine**, both kept in the developer's preferences,
   nothing in the project folder (R29, R31).
 

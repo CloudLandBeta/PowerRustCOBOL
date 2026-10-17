@@ -443,6 +443,7 @@ fn every_select_first_task_goes_on_past_an_already_selected_control() {
         ("sidemenu", ControlKind::SideMenu),
         ("menubar", ControlKind::MenuBar),
         ("treeview", ControlKind::TreeView),
+        ("maps", ControlKind::Maps),
         ("animation", ControlKind::Other { bindable: false }),
         ("binding", ControlKind::Other { bindable: true }),
     ] {
@@ -483,7 +484,7 @@ fn every_task_and_step_key_is_unique() {
             assert!(steps.insert(s.key), "{}: duplicate step key {}", t.key, s.key);
         }
     }
-    assert_eq!(TASKS.len(), 8, "all eight tasks of §3 in the first delivery");
+    assert_eq!(TASKS.len(), 9, "the eight tasks of §3, and the map (2026-10-17)");
 }
 
 /// AC19 — no *Do this for me* on a step whose action would call the network, save with no

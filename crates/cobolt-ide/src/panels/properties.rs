@@ -4081,6 +4081,8 @@ impl PropertiesPanel {
         multi: Option<MultiSelection>,
     ) -> InspectorAction {
         let mut action = InspectorAction::default();
+        // This frame's rows, from scratch (`rows_rect`).
+        ROW_RECTS.with(|r| r.borrow_mut().clear());
         // The words that are not property names are drawn in the IDE's language (`ui_text`).
         crate::ui_text::begin(crate::i18n::current_language(ui.ctx()));
         self.hints.seen.clear();
@@ -7044,6 +7046,10 @@ impl PropertiesPanel {
                     None,
                     2,
                 );
+                // Its colours in their own section, as a MenuBar's are: sorted
+                // A–Z in one section with the start rows, "Start latitude" fell
+                // between "Route color" and "Tile loading" (spec 104, 2026-10-17).
+                section_header(ui, tr.sec_colors);
                 color_prop_row_default(
                     ui,
                     id,
@@ -7121,6 +7127,28 @@ impl PropertiesPanel {
                     action,
                     "#D2D2D2",
                 );
+                // Spec 104 — the rows the *Set up a map* task points at.
+                {
+                    use crate::panels::task_wizard::{anchors, AnchorId};
+                    if let Some(r) = rows_rect(&["CenterLat", "CenterLng"]) {
+                        anchors::mark(ui, AnchorId::MapCenter, r);
+                    }
+                    if let Some(r) = rows_rect(&["Zoom"]) {
+                        anchors::mark(ui, AnchorId::MapZoom, r);
+                    }
+                    if let Some(r) = rows_rect(&[
+                        "MarkerColor",
+                        "MarkerBorderColor",
+                        "RouteColor",
+                        "RouteCasingColor",
+                        "RegionFillColor",
+                        "RegionBorderColor",
+                        "TileBackgroundColor",
+                        "TileLoadingColor",
+                    ]) {
+                        anchors::mark(ui, AnchorId::MapColors, r);
+                    }
+                }
             }
 
             // ── Button ────────────────────────────────────────────────────────
@@ -12988,6 +13016,24 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
 
 /// [`property_row`] for property `key` (when the label is not simply the
 /// property's name): hovering the name explains the property.
+thread_local! {
+    /// Where each property row was drawn this frame, by property key — cleared as the pane
+    /// begins a frame. The Task Wizard points at rows with it (spec 104: a map's centre,
+    /// zoom and colours), since a section's rows are placed A–Z and need not be adjacent.
+    static ROW_RECTS: std::cell::RefCell<Vec<(String, Rect)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The rows of `keys` drawn so far this frame, as one rect; `None` when none was drawn.
+fn rows_rect(keys: &[&str]) -> Option<Rect> {
+    ROW_RECTS.with(|r| {
+        r.borrow()
+            .iter()
+            .filter(|(k, _)| keys.contains(&k.as_str()))
+            .map(|(_, rect)| *rect)
+            .reduce(|a, b| a.union(b))
+    })
+}
+
 fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl FnOnce(&mut Ui)) {
     match search_admits(label, key) {
         RowAdmission::Hidden => return,
@@ -13026,6 +13072,9 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
         base_height.max(ui.text_style_height(&egui::TextStyle::Body) * label_lines as f32 + 10.0);
     let row_height = content_height + 2.0 * V_PAD;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(full, row_height), Sense::hover());
+    if let Some(key) = key.filter(|_| crate::panels::task_wizard::anchors::is_open()) {
+        ROW_RECTS.with(|r| r.borrow_mut().push((key.to_owned(), rect)));
+    }
     let theme = crate::theme::active();
     let fill = if theme.dark {
         Color32::from_rgba_unmultiplied(255, 255, 255, 4)
@@ -15377,6 +15426,87 @@ mod tests {
             "\n  Maps — the pane now opens with Start latitude / Start longitude / \
              Start zoom, showing 40.7128, -74.0060, 12\n"
         );
+    }
+
+    /// Spec 104 — the *Set up a map* task rings the rows it names, and only those: where the
+    /// map opens, its zoom, and its colours. The pane sorts each section A–Z, so in one
+    /// section with the colours the start rows sorted between them and a ring around the
+    /// colours took them in too. Every language, because each sorts its own labels.
+    #[test]
+    fn the_map_task_rings_exactly_the_rows_it_names() {
+        use crate::panels::task_wizard::{anchors, AnchorId};
+        let form = Form::new("F", "F", 800, 600);
+        let map = Control::new("Maps-1", ControlType::Maps, 10, 10);
+        for &lang in crate::i18n::Language::ALL.iter() {
+            let tr = &lang.tr();
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            let mut texts: Vec<(String, egui::Rect)> = Vec::new();
+            let mut marks = anchors::Marks::default();
+            // The pane learns each section's A–Z order on one frame and places it on the next.
+            for _ in 0..3 {
+                texts.clear();
+                anchors::install(None);
+                let mut full = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 2400.0))),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        egui::CentralPanel::default().show_inside(ui, |ui| {
+                            let _ = panel.show(ui, &form, Some(&map), &[], tr);
+                        });
+                    },
+                );
+                marks = anchors::take();
+                fn walk(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+                    match shape {
+                        egui::Shape::Text(t) => out.push((t.galley.text().to_owned(), t.galley.rect.translate(t.pos.to_vec2()))),
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                        _ => {}
+                    }
+                }
+                for cs in &full.shapes {
+                    walk(&cs.shape, &mut texts);
+                }
+                full.textures_delta.clear();
+            }
+            let label_at = |label: &str| {
+                let want = label.trim_end_matches([':', ' ', '：']);
+                texts
+                    .iter()
+                    .find(|(t, _)| t.trim_end_matches([':', ' ', '：']) == want)
+                    .map(|(_, r)| r.center())
+                    .unwrap_or_else(|| panic!("{lang:?}: no `{label}` painted"))
+            };
+            let start = [tr.lbl_map_center_lat, tr.lbl_map_center_lng];
+            let zoom = [tr.lbl_map_zoom];
+            let colours = [
+                tr.lbl_map_marker_color,
+                tr.lbl_map_marker_border,
+                tr.lbl_map_route_color,
+                tr.lbl_map_route_casing,
+                tr.lbl_map_region_fill,
+                tr.lbl_map_region_border,
+                tr.lbl_map_tile_backdrop,
+                tr.lbl_map_tile_loading,
+            ];
+            for (id, inside) in [
+                (AnchorId::MapCenter, &start[..]),
+                (AnchorId::MapZoom, &zoom[..]),
+                (AnchorId::MapColors, &colours[..]),
+            ] {
+                let ring = marks.find(id, None).unwrap_or_else(|| panic!("{lang:?}: {id:?} not marked")).rect;
+                for label in start.iter().chain(&zoom).chain(&colours) {
+                    let p = label_at(label);
+                    assert_eq!(
+                        ring.contains(p),
+                        inside.contains(label),
+                        "{lang:?}: the {id:?} ring {ring:?} and the `{label}` row at {p:?}"
+                    );
+                }
+            }
+        }
     }
 
     /// The Basic-properties "default state" row hard-coded the property key

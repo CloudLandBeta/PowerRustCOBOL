@@ -52,6 +52,7 @@ fn kind_of(form: &cobolt_forms::Form, c: &cobolt_forms::model::Control) -> Contr
         ControlType::TreeView => ControlKind::TreeView,
         ControlType::SideMenu => ControlKind::SideMenu,
         ControlType::MenuBar => ControlKind::MenuBar,
+        ControlType::Maps => ControlKind::Maps,
         _ => ControlKind::Other {
             bindable: matches!(
                 crate::panels::data_binding::visibility_for_control(form, c),
@@ -400,6 +401,22 @@ impl CoboltApp {
             },
             grid_edit_mode: d.grid_edit.as_ref().is_some_and(|g| g.id == c.id),
             tree_items_sig: facts::signature(&format!("{:?}", c.get_prop("Items"))),
+            map_center_sig: facts::signature(&format!("{:?}{:?}", c.get_prop("CenterLat"), c.get_prop("CenterLng"))),
+            map_zoom_sig: facts::signature(&format!("{:?}", c.get_prop("Zoom"))),
+            map_colors_sig: facts::signature(&format!(
+                "{:?}",
+                [
+                    "MarkerColor",
+                    "MarkerBorderColor",
+                    "RouteColor",
+                    "RouteCasingColor",
+                    "RegionFillColor",
+                    "RegionBorderColor",
+                    "TileBackgroundColor",
+                    "TileLoadingColor",
+                ]
+                .map(|k| c.get_prop(k))
+            )),
             events_tab: pane.events_tab,
             menu_editor_open: menu.is_some(),
             menu_draft_items: menu.map_or(0, |m| count_items(&m.def.menu)),

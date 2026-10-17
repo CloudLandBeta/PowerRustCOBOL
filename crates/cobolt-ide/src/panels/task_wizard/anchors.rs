@@ -90,6 +90,12 @@ pub enum AnchorId {
     GridSettingsColumns,
     /// The TreeView's *Nodes* box in Properties.
     TreeItems,
+    /// A map's centre rows (latitude and longitude) in Properties.
+    MapCenter,
+    /// A map's Zoom row in Properties.
+    MapZoom,
+    /// A map's colour rows in Properties.
+    MapColors,
     /// The Properties pane's *Edit Menu…* button (MenuBar and SideMenu).
     MenuEditButton,
     /// The menu editor's window.
@@ -122,7 +128,8 @@ impl AnchorId {
             Canvas | SubjectOnCanvas | GridEditToolbar | PropertiesPane | PropertiesReopen
             | PropsTabVisuals | PropsTabEvents | AnimTab | PropertiesBinding | BindingWindow
             | BindingSource | BindingFields | BindingApply | GridSettingsButton
-            | GridSettingsWindow | GridSettingsColumns | TreeItems | MenuEditButton
+            | GridSettingsWindow | GridSettingsColumns | TreeItems | MapCenter | MapZoom
+            | MapColors | MenuEditButton
             | MenuEditorWindow | MenuAddItem | MenuItemTarget | MenuItemShortcut | MenuSave
             | AnimAdd | AnimFields | AnimPreview => true,
         }
@@ -229,8 +236,8 @@ pub fn snapshot() -> Marks {
     SINK.with(|s| s.borrow().as_ref().map(|s| s.marks.clone()).unwrap_or_default())
 }
 
-/// Is a sink open? `false` whenever the wizard is off.
-#[cfg(test)]
+/// Is a sink open? `false` whenever the wizard is off — so a pane that keeps rects for the
+/// wizard (the Properties rows) keeps none then.
 pub fn is_open() -> bool {
     SINK.with(|s| s.borrow().is_some())
 }

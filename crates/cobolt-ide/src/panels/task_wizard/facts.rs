@@ -25,6 +25,8 @@ pub enum ControlKind {
     TreeView,
     SideMenu,
     MenuBar,
+    /// A Maps control: its pins can be bound to a table, so it is bindable.
+    Maps,
     /// Any other control; `bindable` says whether the Data Binding section is offered.
     Other { bindable: bool },
 }
@@ -33,7 +35,7 @@ impl ControlKind {
     /// Does the Properties pane offer a Data Binding section for it?
     pub fn bindable(self) -> bool {
         match self {
-            ControlKind::DataGrid => true,
+            ControlKind::DataGrid | ControlKind::Maps => true,
             ControlKind::Other { bindable } => bindable,
             _ => false,
         }
@@ -98,6 +100,10 @@ pub struct SubjectFacts {
     pub grid_edit_mode: bool,
     /// Signature of the TreeView's committed `Items`.
     pub tree_items_sig: u64,
+    /// Signatures of a map's `CenterLat`/`CenterLng`, of its `Zoom`, and of its colours.
+    pub map_center_sig: u64,
+    pub map_zoom_sig: u64,
+    pub map_colors_sig: u64,
     /// The Properties pane shows the Events tab.
     pub events_tab: bool,
     /// The menu editor is open for it.

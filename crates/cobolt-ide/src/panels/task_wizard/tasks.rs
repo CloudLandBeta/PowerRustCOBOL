@@ -459,6 +459,46 @@ pub static TASKS: &[TaskDef] = &[
             MENU_SAVE,
         ],
     },
+    // Operator, 2026-10-17: "add a wizard for the map". Where it opens and how close, pins
+    // from a table, its colours, and its events — where pins, routes and the Google-backed
+    // lookups are written. No step does anything for the developer: a location is theirs.
+    TaskDef {
+        key: "maps",
+        title: |t| t.task_wizard_map_title,
+        blurb: |t| t.task_wizard_map_blurb,
+        result: |t| t.task_wizard_map_result,
+        offer_for: Some(ControlKind::Maps),
+        steps: &[
+            OPEN_FORM,
+            select(c::selected_maps, |t| t.task_wizard_select_map_body),
+            StepDef {
+                done: Some(c::map_center_changed),
+                ..in_props("center", A::MapCenter, |t| t.task_wizard_map_center_title, |t| t.task_wizard_map_center_body)
+            },
+            StepDef {
+                done: Some(c::map_zoom_changed),
+                ..in_props("zoom", A::MapZoom, |t| t.task_wizard_map_zoom_title, |t| t.task_wizard_map_zoom_body)
+            },
+            StepDef {
+                done: Some(c::binding_editor_open),
+                applies: c::subject_unbound,
+                ..in_props("pins", A::PropertiesBinding, |t| t.task_wizard_map_pins_title, |t| t.task_wizard_map_pins_body)
+            },
+            StepDef {
+                applies: c::binding_editor_open,
+                ..BINDING_APPLY
+            },
+            StepDef {
+                done: Some(c::map_colors_changed),
+                ..in_props("colours", A::MapColors, |t| t.task_wizard_map_colours_title, |t| t.task_wizard_map_colours_body)
+            },
+            StepDef {
+                done: Some(c::events_tab),
+                via: &[A::PropertiesReopen],
+                ..in_props("events", A::PropsTabEvents, |t| t.task_wizard_map_events_title, |t| t.task_wizard_map_events_body)
+            },
+        ],
+    },
     TaskDef {
         key: "animation",
         title: |t| t.task_wizard_anim_title,

@@ -17,6 +17,46 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.196] — 2026-10-17
+
+*(Written on `features-maps-wizard`, off `main` at 1.91.195.)*
+
+### Feature: the Task Wizard sets up a map
+
+Operator, 2026-10-17: "add a wizard for the map".
+
+**Set up a map** is the Task Wizard's ninth task. It runs on a selected Maps control:
+
+1. **Where it opens:** *Start latitude* and *Start longitude* (`CenterLat`, `CenterLng`).
+2. **How close:** *Start zoom*.
+3. **Pins from a table**, optional: the map's **Data Binding** puts one pin per row, from the row's latitude, longitude and label. The step is skipped when the map is already bound.
+4. **Its colours:** pins, routes, regions and tiles.
+5. **Its events:** `onMarkerClick` and `onMapClick`. The balloon also says what is done in code:
+   - `AddMarker`, `AddRoute` and `AddRegion` draw on the map;
+   - `Geocode`, `Directions` and `PlacesSearch` answer on `onComplete` and need a Google Maps API key in Settings → Integrations;
+   - the map itself needs no key.
+
+Each step ends by itself when its property changes while it shows. **Next** is always there. No step offers *Do this for me*: where a map opens and what it shows belong to the developer.
+
+Selecting a single Maps control while the wizard is on now shows the task's offer chip, as for a DataGrid, TreeView, SideMenu or MenuBar. The rule was always "the controls a task is about" (spec 104 R10, amended).
+
+**Properties pane — the map's colours get their own 🎨 Colors section**, under the start location, as a MenuBar's already do. Before, they shared **Basic properties** with the start rows. The pane sorts each section A–Z, so in English *Start latitude*, *Start longitude* and *Start zoom* fell between *Route color* and *Tile loading*. A ring around "the colours" took the start rows in too, and the pane read as one undivided list. No property, file or generated line changes.
+
+- **Code:**
+  - `panels/task_wizard/{facts,conditions,anchors,tasks,offers}.rs`: `ControlKind::Maps`, three map signatures, three conditions, three anchors and the task;
+  - `app/task_wizard_glue.rs`: the facts;
+  - `panels/properties.rs`: the row rects the anchors are measured from, and the section;
+  - `i18n.rs`: fourteen strings in all six languages.
+- **Tests:**
+  - `the_map_task_rings_exactly_the_rows_it_names` (every language): each ring holds its own rows and no other. Without the new section it fails, in English, on *Start latitude* inside the colours ring.
+  - `every_select_first_task_goes_on_past_an_already_selected_control` now includes the map: step 1 of 6 on start, and Next goes on.
+  - The offers test now includes the map; the task count is 9.
+- **Docs:**
+  - the Developer's Guide's Task Wizard table and offers paragraph;
+  - the Maps colour paragraph, which said **Basic properties**;
+  - the same sentence in the System KB (`cobolt-compiler`, `chunked.data` rebuilt);
+  - spec 104 §3 and R10.
+
 ## [PowerRustCOBOL 1.91.195] — 2026-10-17
 
 *(Written on `fixes-task-wizard-subject`, off `main` at 1.91.194.)*

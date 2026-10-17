@@ -1682,6 +1682,7 @@ three show the same state, and the IDE remembers it between sessions.
 | Build a SideMenu | **Edit Menu…** → add an item → what it does → **Save** |
 | Build a menu | the same for a MenuBar, plus a shortcut |
 | Add an animation | the **Anim** tab → **➕ Add** → trigger and effect → **▶ Preview** |
+| Set up a map | where it opens (*Start latitude*, *Start longitude*) → *Start zoom* → pins from a table (optional) → its **🎨 Colors** → the **Events** tab, which also says what to call from code and which lookups need a Google Maps key |
 
 Each task is listed as *new*, *in progress* (for the open project) or *done*.
 You can start it, resume it, or start it over. A task that needs a form starts
@@ -1723,7 +1724,8 @@ anything you wrote. It never does a step that would connect to a provider, save
 something with no undo, or type your own content for you.
 
 **Offers.** While the switch is on, selecting a single DataGrid, TreeView,
-SideMenu or MenuBar shows a small chip beside it offering that control's task.
+SideMenu, MenuBar or Maps control shows a small chip beside it offering that
+control's task.
 It only offers. Its **✕** hides it for that one control.
 
 **Your keys stay yours.** The wizard never reads, shows, stores or logs an API
@@ -13949,8 +13951,9 @@ independent halves with different credential needs:
   Re-using an id **replaces** that route or region. A map that redraws itself as
   its data changes would otherwise stack duplicates it could never move again.
 - **Every colour the map paints is a property** — nothing on a map is fixed by
-  the platform. They sit in the inspector's **Basic properties** section for the
-  Maps control, and each can be written from COBOL like any other property:
+  the platform. They sit in the inspector's **🎨 Colors** section for the Maps
+  control, under the start location, and each can be written from COBOL like any
+  other property:
 
 
   | Property              | What it colours                                                                                       |

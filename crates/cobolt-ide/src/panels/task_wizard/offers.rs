@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Offers: the chip beside a selected DataGrid, TreeView, SideMenu or MenuBar (spec 104 R10,
+//! Offers: the chip beside a selected DataGrid, TreeView, SideMenu, MenuBar or Maps (spec 104 R10,
 //! R30).
 //!
 //! An offer only offers. It starts nothing by itself, it is drawn only while the wizard is on
@@ -83,12 +83,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_four_kinds_get_an_offer_and_each_its_own_task() {
+    fn only_the_controls_a_task_is_about_get_an_offer_and_each_its_own_task() {
         for (kind, key) in [
             (ControlKind::DataGrid, "datagrid"),
             (ControlKind::TreeView, "treeview"),
             (ControlKind::SideMenu, "sidemenu"),
             (ControlKind::MenuBar, "menubar"),
+            (ControlKind::Maps, "maps"),
         ] {
             assert_eq!(task_for(TASKS, &sel(kind)).map(|t| t.key), Some(key));
         }
