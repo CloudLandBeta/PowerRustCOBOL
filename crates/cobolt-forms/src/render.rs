@@ -11295,10 +11295,12 @@ fn render_interactive(
                             "onColumnClick",
                             &col.index.to_string(),
                         ));
+                        // A Button column (spec 106) holds actions, not values: sorting
+                        // by it would sort by nothing and drop the sort the user chose.
                         let sortable = advanced_grid
                             .columns
                             .get(col.index)
-                            .map(|column| column.sort_enabled)
+                            .map(|column| column.sort_enabled && !column.is_button())
                             .unwrap_or(true);
                         if allow_sorting && sortable {
                             let next = match sort_state {
@@ -11413,10 +11415,12 @@ fn render_interactive(
             };
             // A column holds editable text unless it has no data behind it, shows its
             // value as an image, or (spec 095) is a Checkbox, which a click toggles, or a
-            // Dropdown with a list, which a click opens.
+            // Dropdown with a list, which a click opens — or (spec 106) is a Button,
+            // which a click presses: a double-click on one is two presses, never a text
+            // box over the button.
             let column_editable = |display_col: usize| -> bool {
                 display_cols.get(display_col).is_some_and(|(src, _, _)| *src != usize::MAX)
-                    && !matches!(column_kind(display_col).as_str(), "image" | "checkbox")
+                    && !matches!(column_kind(display_col).as_str(), "image" | "checkbox" | "button")
                     && !dropdown_cell(display_col)
             };
             // Spec 095: a cell the operator changes with a click rather than with the
@@ -11538,6 +11542,40 @@ fn render_interactive(
                                 fresh: false,
                             },
                         );
+                    }
+                }
+            }
+            // Spec 106 — Space or Enter on the selected Button cell presses it, as a click
+            // does: the same cell report, `onCellClick`, then `onRowButtonClick` — so a
+            // keyboard user reaches a row's actions too. Not while a text box has the keys.
+            if enabled && editing.is_none() && dropdown_open.is_none() && has_keyboard && !ui.ctx().egui_wants_keyboard_input() {
+                if let Some(sel) = ui.data(|d| d.get_temp::<DataGridCellSelection>(selection_id)) {
+                    if column_kind(sel.display_column_index) == "button"
+                        && rows.get(sel.row_index).is_some()
+                        && ui.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::Space)
+                                || i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                        })
+                    {
+                        let src = display_cols.get(sel.display_column_index).map_or(usize::MAX, |c| c.0);
+                        let data_col = if src == usize::MAX { 0 } else { src + 1 };
+                        out.prop_updates.push((id.to_owned(), "ClickedRow".to_owned(), (sel.row_index + 1).to_string()));
+                        out.prop_updates.push((id.to_owned(), "ClickedColumn".to_owned(), data_col.to_string()));
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onCellClick",
+                            &format!("{},{}", sel.row_index, sel.display_column_index),
+                        ));
+                        let name = advanced_grid
+                            .columns
+                            .get(sel.display_column_index)
+                            .map(|c| c.id.clone())
+                            .unwrap_or_default();
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            crate::row_content::EVENT,
+                            &format!("{}\t{name}", sel.row_index + 1),
+                        ));
                     }
                 }
             }
@@ -11930,7 +11968,9 @@ fn render_interactive(
                         header_fg.gamma_multiply(0.8),
                     );
                 }
-                if show_filters {
+                // A Button column (spec 106) holds actions, not values: it gets no
+                // filter box (typing into one hid every row).
+                if show_filters && !column_meta.is_some_and(|c| c.is_button()) {
                     let filter_key = column_meta
                         .map(|column| {
                             if !column.id.trim().is_empty() {
@@ -12334,15 +12374,26 @@ fn render_interactive(
                     // body's edge is another cell's — and whether or not text is
                     // selectable.
                     let click_cell = cell_click_kind(col.index) && !cell_locked(row_index, col.index);
-                    let hit_rect =
-                        if click_cell { cell_rect.intersect(body_painter.clip_rect()) } else { cell_rect };
-                    if prop_bool(ctrl, "SelectableText", true) || click_cell {
+                    // Spec 106 — a Button cell is an action: it takes its click whether
+                    // or not the grid's text is selectable (`SelectableText` used to
+                    // decide, so a grid with it off had buttons that did nothing) — but
+                    // never on a disabled grid, and, like a Checkbox (spec 095), only
+                    // where it can be SEEN: the part under the frozen band, the header or
+                    // past the body's edge is another cell's (a Delete button scrolled
+                    // under a frozen Name column must not take that cell's click).
+                    let button_cell = enabled && column_kind(col.index) == "button";
+                    let hit_rect = if click_cell || button_cell {
+                        cell_rect.intersect(body_painter.clip_rect())
+                    } else {
+                        cell_rect
+                    };
+                    if prop_bool(ctrl, "SelectableText", true) || click_cell || button_cell {
                         let cell_resp = ui.interact(
                             hit_rect,
                             ctrl_id.with(("dg-cell", row_index, col.index)),
                             Sense::click(),
                         );
-                        if click_cell && cell_resp.hovered() {
+                        if (click_cell || button_cell) && cell_resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
                         // Which cell, for the handler: the data row and data
@@ -12373,6 +12424,23 @@ fn render_interactive(
                                 "onCellClick",
                                 &format!("{row_index},{}", col.index),
                             ));
+                            // Spec 106 — a Button cell also says which row's button it
+                            // was: the data row (1-based, as `ClickedRow`, so sorting
+                            // does not move it) and the button column's id, TAB between.
+                            // The runtime builds DATAGRID-ROW-CONTENT from them, by the
+                            // layout the generated program seeded (`_RowContent`).
+                            if button_cell {
+                                let name = advanced_grid
+                                    .columns
+                                    .get(col.index)
+                                    .map(|c| c.id.clone())
+                                    .unwrap_or_default();
+                                out.events.push(UiEvent::with_value(
+                                    id,
+                                    crate::row_content::EVENT,
+                                    &format!("{}\t{name}", row_index + 1),
+                                ));
+                            }
                             // Spec 095: a click on a Dropdown cell opens its list, or closes it
                             // when it is the open one; a double-click leaves it open. Neither
                             // opens a text box (`column_editable` is false here).
@@ -12652,11 +12720,26 @@ fn render_interactive(
                         }
                         continue;
                     }
-                    // A button cell whose value is `icon:<name>` is an ICON
-                    // button — a row's pencil or trash can — drawn flat in the
-                    // grid's own ink from the icon catalogue.
-                    if edit_control.eq_ignore_ascii_case("button") && raw.trim().starts_with("icon:") {
-                        let name = raw.trim()["icon:".len()..].trim();
+                    // A Button cell shows the column's own caption and icon when it has
+                    // them (spec 106) — an action on every row — and otherwise the
+                    // cell's value: a caption, or `icon:<name>` for an icon.
+                    let (button_icon, button_caption) = if edit_control.eq_ignore_ascii_case("button") {
+                        match column_meta {
+                            Some(column) => column.button_face(&raw),
+                            None => match raw.trim().strip_prefix("icon:") {
+                                Some(name) => (name.trim(), ""),
+                                None => ("", &*raw),
+                            },
+                        }
+                    } else {
+                        ("", "")
+                    };
+                    // An icon and no caption is an ICON button — a row's pencil or
+                    // trash can — drawn flat in the grid's own ink from the catalogue.
+                    if edit_control.eq_ignore_ascii_case("button")
+                        && !button_icon.is_empty()
+                        && button_caption.trim().is_empty()
+                    {
                         let side = (cell_rect.height() - 8.0).clamp(10.0, 22.0);
                         let icon_rect = Rect::from_center_size(cell_rect.center(), vec2(side, side));
                         if ui.rect_contains_pointer(cell_rect) {
@@ -12666,26 +12749,62 @@ fn render_interactive(
                                 Color32::from_rgba_unmultiplied(cell_fg.r(), cell_fg.g(), cell_fg.b(), 28),
                             );
                         }
-                        crate::icons::draw_menu_icon(&body_painter, icon_rect, name, cell_fg);
+                        crate::icons::draw_menu_icon(&body_painter, icon_rect, button_icon, cell_fg);
+                        // The selected row's highlight runs through an icon cell too,
+                        // as through every other cell.
+                        if cell_selected {
+                            body_painter.rect_filled(
+                                cell_rect,
+                                0.0,
+                                Color32::from_rgba_unmultiplied(80, 145, 255, 55),
+                            );
+                        }
                         continue;
                     }
                     if edit_control.eq_ignore_ascii_case("button") {
                         let button_rect = cell_rect.shrink2(vec2(5.0, 4.0));
-                        body_painter.rect_filled(
-                            button_rect,
-                            4.0,
-                            Color32::from_rgba_unmultiplied(40, 92, 170, 210),
-                        );
+                        // Hovered and pressed, as every button is (on a grid that takes
+                        // the click: enabled, and where the cell can be seen).
+                        let live = enabled && ui.rect_contains_pointer(button_rect.intersect(body_painter.clip_rect()));
+                        let pressed = live && ui.input(|i| i.pointer.primary_down());
+                        // Nearly opaque, so the white caption keeps WCAG AA (4.5:1) on any
+                        // surface: at the old 210 alpha a light grid showed through to
+                        // 4.42:1. Rest 5.9:1 over white, hover 5.5:1, pressed 7.4:1.
+                        let face = if pressed {
+                            Color32::from_rgb(28, 74, 150)
+                        } else if live {
+                            Color32::from_rgb(52, 104, 182)
+                        } else {
+                            Color32::from_rgba_unmultiplied(40, 92, 170, 245)
+                        };
+                        body_painter.rect_filled(button_rect, 4.0, face);
                         body_painter.rect_stroke(
                             button_rect,
                             4.0,
                             Stroke::new(1.0, Color32::from_rgba_unmultiplied(130, 175, 255, 210)),
                             egui::StrokeKind::Middle,
                         );
-                        body_painter.with_clip_rect(button_rect.shrink(3.0)).text(
-                            button_rect.center(),
+                        // An icon AND a caption: the icon leads, the caption centres in
+                        // what is left.
+                        let mut text_rect = button_rect;
+                        if !button_icon.is_empty() {
+                            let side = (button_rect.height() - 6.0).clamp(10.0, 18.0);
+                            let icon_rect = Rect::from_center_size(
+                                pos2(button_rect.min.x + 5.0 + side / 2.0, button_rect.center().y),
+                                vec2(side, side),
+                            );
+                            crate::icons::draw_menu_icon(
+                                &body_painter.with_clip_rect(button_rect),
+                                icon_rect,
+                                button_icon,
+                                Color32::WHITE,
+                            );
+                            text_rect.min.x = icon_rect.max.x + 3.0;
+                        }
+                        body_painter.with_clip_rect(text_rect.shrink(3.0)).text(
+                            text_rect.center(),
                             Align2::CENTER_CENTER,
-                            raw,
+                            button_caption,
                             grid_font(
                                 column_meta
                                     .map(|column| column.font_size)
@@ -26752,6 +26871,295 @@ mod tests {
             "an icon cell draws its icon, not its value"
         );
         println!("\n  DataGrid -- clicking Bia's trash can reports ClickedRow 2 / ClickedColumn 3; icon: cells draw icons\n");
+    }
+
+    /// Spec 106 R10, R13 — a Button column with its OWN caption and icon (no data behind
+    /// it) draws them on every row, takes its click even with `SelectableText` off, and
+    /// raises `onRowButtonClick` naming the data row and the button.
+    #[test]
+    fn a_button_column_of_its_own_draws_its_caption_and_raises_on_row_button_click() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "Name".into(),
+            title: "Name".into(),
+            source_name: "Name".into(),
+            width: 120.0,
+            ..DataGridColumn::default()
+        });
+        advanced.columns.push(DataGridColumn {
+            id: "Edit".into(),
+            title: "Edit".into(),
+            width: 120.0,
+            edit_control: "Button".into(),
+            button_caption: "Change".into(),
+            button_icon: "pencil".into(),
+            ..DataGridColumn::default()
+        });
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("Columns", "Name:string"),
+                ("Rows", "Ana\nBia"),
+                ("ShowCSVExportButton", "false"),
+                ("SelectableText", "false"),
+                ("RowHeight", "22"),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        // Row 2 (Bia), the second column: the button.
+        let at = pos2(20.0 + 180.0, 42.0 + 22.0 + 11.0);
+        let (events, _) = drive(&[grid.clone()], click_at(at, 0.0));
+        let fired: Vec<_> = events.iter().map(|e| (e.event.as_str(), e.value.as_deref().unwrap_or(""))).collect();
+        assert!(
+            fired.contains(&("onRowButtonClick", "2\tEdit")),
+            "the button reports its row and its name: {fired:?}"
+        );
+        assert!(fired.iter().any(|(e, _)| *e == "onCellClick"), "onCellClick still fires (spec 095 R18)");
+        let painted = drive_painted(&[grid], vec![(0.0, vec![]), (0.05, vec![])]);
+        let captions = painted.texts.iter().filter(|t| t.text == "Change").count();
+        assert_eq!(captions, 2, "every row shows the column's own caption");
+    }
+
+    /// A grid at (20, 20) of three 100-pt columns — Name, an `Edit` Button column
+    /// captioned "Change" (`icon` given, it leads; caption "" makes it icon-only), and
+    /// Extra — over `rows` (TAB-separated Name, Edit, Extra). Rows are 22 high under a
+    /// 22-high header: row n's middle is at y = 42 + 22·(n−1) + 11; the button column's
+    /// middle at x = 170.
+    fn button_grid(w: i32, h: i32, frozen: usize, rows: &str, caption: &str, icon: &str, extra: &[(&str, &str)]) -> Control {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced { frozen_columns: frozen, ..DataGridAdvanced::default() };
+        for (id, kind) in [("Name", ""), ("Edit", "Button"), ("Extra", "")] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                edit_control: if kind.is_empty() { "Textbox".into() } else { kind.into() },
+                button_caption: if kind.is_empty() { String::new() } else { caption.into() },
+                button_icon: if kind.is_empty() { String::new() } else { icon.into() },
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let mut props = vec![
+            ("Columns", "Name:string\nEdit:string\nExtra:string"),
+            ("Rows", rows),
+            ("ShowCSVExportButton", "false"),
+            ("RowHeight", "22"),
+            (DATAGRID_ADVANCED_PROP, json.as_str()),
+        ];
+        props.extend_from_slice(extra);
+        ctrlp("DG", ControlType::DataGrid, 20, 20, w, h, &props)
+    }
+
+    fn row_button_clicks(events: &[UiEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter(|e| e.event == crate::row_content::EVENT)
+            .map(|e| e.value.clone().unwrap_or_default())
+            .collect()
+    }
+
+    const BUTTON_ROWS: &str = "Ana\tText 1\tx\nBia\tText 2\ty\nCid\tText 3\tz";
+
+    /// Spec 106 review, scenario 18 — a Button column scrolled under the frozen column
+    /// does not take a click on the frozen cell above its hidden part, with text
+    /// selectable or not (with it off the frozen cell has no widget at all, so the
+    /// hidden button used to win every time — and run a Delete handler).
+    #[test]
+    fn a_button_scrolled_under_the_frozen_band_does_not_take_the_frozen_cells_click() {
+        for selectable in ["true", "false"] {
+            let grid = button_grid(160, 200, 1, BUTTON_ROWS, "Change", "", &[("SelectableText", selectable)]);
+            let at = pos2(20.0 + 70.0, 75.0);
+            let mut frames = vec![(
+                0.0,
+                vec![
+                    Event::PointerMoved(at),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(-60.0, 0.0),
+                        modifiers: Default::default(),
+                        phase: egui::TouchPhase::Move,
+                    },
+                ],
+            )];
+            frames.push((0.05, vec![]));
+            frames.extend(click_at(at, 0.1));
+            let (events, props) = drive(&[grid], frames);
+            assert!(row_button_clicks(&events).is_empty(), "selectable {selectable}: the hidden button took the click: {events:?}");
+            if selectable == "true" {
+                let dg = props.get("DG").expect("the click reported its cell");
+                assert_eq!(dg.get("ClickedColumn").map(String::as_str), Some("1"), "it hit the Name column");
+            }
+        }
+    }
+
+    /// …nor does a row the body's edge cuts off take the click of a control below.
+    #[test]
+    fn a_clipped_button_row_does_not_steal_the_click_of_a_control_below() {
+        let mut below = ctrlp("B", ControlType::Button, 20, 80, 300, 40, &[("Caption", "Below")]);
+        below.events.push(crate::model::EventBinding { event: "onClick".into(), paragraph: "B--ONCLICK".into(), code: String::new() });
+        let grid = button_grid(300, 60, 0, BUTTON_ROWS, "Change", "", &[]);
+        let (events, _) = drive(&[below, grid], click_at(pos2(170.0, 83.0), 0.0));
+        assert!(events.iter().any(|e| e.ctrl_id == "B" && e.event == "onClick"), "the button below got its click: {events:?}");
+        assert!(row_button_clicks(&events).is_empty(), "the cut-off row's button did not: {events:?}");
+    }
+
+    /// A double-click on a Button cell is two presses, and — even with cell editing on —
+    /// opens no text box over the button: typing after it changes nothing.
+    #[test]
+    fn a_double_click_on_a_button_cell_is_two_presses_and_opens_no_text_box() {
+        let at = pos2(170.0, 75.0);
+        let mut frames = vec![(0.0, vec![Event::PointerMoved(at)])];
+        for t in [0.05, 0.15] {
+            frames.push((t, vec![press(at)]));
+            frames.push((t + 0.04, vec![release(at)]));
+        }
+        frames.push((0.4, vec![Event::Text("zzz".into())]));
+        frames.push((0.45, vec![key_ev(egui::Key::Enter)]));
+        let grid = button_grid(300, 200, 0, BUTTON_ROWS, "Change", "", &[("AllowCellEditing", "true")]);
+        let (events, props) = drive(&[grid], frames);
+        // Two clicks, two presses — and the Enter after them presses the selected
+        // button a third time, as Enter on it does.
+        assert_eq!(row_button_clicks(&events), ["2\tEdit", "2\tEdit", "2\tEdit"]);
+        let rows = props.get("DG").and_then(|p| p.get("Rows"));
+        assert!(rows.is_none_or(|r| !r.contains("zzz")), "no text box took the typing: {rows:?}");
+    }
+
+    /// A disabled grid's buttons do nothing.
+    #[test]
+    fn a_disabled_grid_raises_no_row_button_click() {
+        let grid = button_grid(300, 200, 0, BUTTON_ROWS, "Change", "", &[]);
+        let (events, _) = drive_disabling(&[grid], click_at(pos2(170.0, 75.0), 0.0), &["DG"]);
+        assert!(row_button_clicks(&events).is_empty(), "{events:?}");
+    }
+
+    /// The keyboard reaches a row's actions: Space or Enter on the selected Button cell
+    /// presses it, as a click does.
+    #[test]
+    fn space_or_enter_on_the_selected_button_cell_presses_it() {
+        let key = |t: f64, k: egui::Key| {
+            vec![
+                (t, vec![key_ev(k)]),
+                (t + 0.02, vec![Event::Key { key: k, physical_key: None, pressed: false, repeat: false, modifiers: Default::default() }]),
+            ]
+        };
+        // Select Bia's name, move right onto her button, press Space, then Enter.
+        let mut frames = click_at(pos2(70.0, 75.0), 0.0);
+        frames.extend(key(0.3, egui::Key::ArrowRight));
+        frames.extend(key(0.5, egui::Key::Space));
+        frames.extend(key(0.7, egui::Key::Enter));
+        let (events, props) = drive(&[button_grid(300, 200, 0, BUTTON_ROWS, "Change", "", &[])], frames);
+        assert_eq!(row_button_clicks(&events), ["2\tEdit", "2\tEdit"], "{events:?}");
+        assert_eq!(props["DG"].get("ClickedColumn").map(String::as_str), Some("2"));
+    }
+
+    /// R20 / AC6 — the row a button reports is its row in `Rows`, whatever the sort,
+    /// the filter or the scroll put on screen.
+    #[test]
+    fn a_sorted_filtered_or_scrolled_grid_reports_the_data_row() {
+        // `Rows` holds Cid, Ana, Bia: sorted by Name, Ana (data row 2) is first.
+        let unsorted = "Cid\tText 1\tz\nAna\tText 2\tx\nBia\tText 3\ty";
+        let mut frames = click_at(pos2(70.0, 31.0), 0.0); // the Name heading: sort
+        frames.extend(click_at(pos2(170.0, 53.0), 0.3)); // the first row's button
+        let (events, _) = drive(&[button_grid(300, 200, 0, unsorted, "Change", "", &[])], frames);
+        assert_eq!(row_button_clicks(&events), ["2\tEdit"], "sorted: Ana is data row 2");
+
+        // Filtered to Bia (the filter a grid keeps in AdvancedGrid): she is drawn first
+        // and is data row 3.
+        let mut grid = button_grid(300, 200, 0, unsorted, "Change", "", &[]);
+        let mut advanced = crate::model::DataGridAdvanced::from_control(&grid);
+        advanced.set_filter("Name", "Bia");
+        grid.set_prop(crate::model::DATAGRID_ADVANCED_PROP, advanced.to_json().unwrap());
+        let (events, _) = drive(&[grid], click_at(pos2(170.0, 53.0), 0.0));
+        assert_eq!(row_button_clicks(&events), ["3\tEdit"], "filtered: Bia is data row 3");
+
+        // Scrolled down ten rows: the first row drawn is data row 11.
+        let many: String = (1..=40).map(|n| format!("R{n}\tText {n}\tx")).collect::<Vec<_>>().join("\n");
+        let at = pos2(170.0, 53.0);
+        let mut frames = vec![(
+            0.0,
+            vec![
+                Event::PointerMoved(at),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -220.0),
+                    modifiers: Default::default(),
+                    phase: egui::TouchPhase::Move,
+                },
+            ],
+        )];
+        frames.push((0.05, vec![]));
+        frames.extend(click_at(at, 0.1));
+        let (events, props) = drive(&[button_grid(300, 200, 0, &many, "Change", "", &[])], frames);
+        let clicked = props["DG"].get("ClickedRow").cloned().unwrap_or_default();
+        assert_ne!(clicked, "1", "the wheel scrolled the grid");
+        assert_eq!(row_button_clicks(&events), [format!("{clicked}\tEdit")], "scrolled: the button names the row ClickedRow does");
+    }
+
+    /// No filter box on a Button column (typing in one hid every row), and a filter
+    /// already set on one is ignored rather than emptying the grid.
+    #[test]
+    fn a_button_column_has_no_filter_and_its_old_filter_hides_nothing() {
+        let mut grid = button_grid(300, 200, 0, BUTTON_ROWS, "Change", "", &[("ShowColumnFilters", "true")]);
+        let mut advanced = crate::model::DataGridAdvanced::from_control(&grid);
+        advanced.set_filter("Edit", "zzz");
+        grid.set_prop(crate::model::DATAGRID_ADVANCED_PROP, advanced.to_json().unwrap());
+        let painted = drive_painted(&[grid], vec![(0.0, vec![]), (0.05, vec![])]);
+        let names: Vec<&str> = painted.texts.iter().map(|t| t.text.as_str()).filter(|t| ["Ana", "Bia", "Cid"].contains(t)).collect();
+        assert_eq!(names, ["Ana", "Bia", "Cid"], "every row still shows");
+        assert!(!painted.texts.iter().any(|t| t.text == "zzz"), "the Button column draws no filter box holding the old filter");
+    }
+
+    /// The selected row's highlight runs through an icon-only button cell, as through
+    /// every other cell.
+    #[test]
+    fn the_row_highlight_covers_an_icon_only_button_cell() {
+        let grid = button_grid(300, 200, 0, BUTTON_ROWS, "", "trash", &[("SelectionMode", "Row")]);
+        let mut frames = click_at(pos2(70.0, 75.0), 0.0);
+        frames.push((0.3, vec![]));
+        let painted = drive_painted(&[grid], frames);
+        let overlay = Color32::from_rgba_unmultiplied(80, 145, 255, 55);
+        let icon_cell = Rect::from_min_size(pos2(120.0, 64.0), egui::vec2(100.0, 22.0));
+        assert!(
+            painted.fills.iter().any(|(r, c)| *c == overlay && r.contains(icon_cell.center())),
+            "no selection overlay over the icon cell"
+        );
+    }
+
+    /// WCAG AA for the caption: the painted button face, laid over a white grid, keeps
+    /// white text at 4.5:1 or better (it was 4.42:1 when the face was translucent).
+    #[test]
+    fn a_button_face_keeps_its_caption_readable_on_a_white_grid() {
+        let grid = button_grid(300, 200, 0, BUTTON_ROWS, "Change", "", &[("BackgroundColor", "#FFFFFF")]);
+        let painted = drive_painted(&[grid], vec![(0.0, vec![]), (0.05, vec![])]);
+        // The face: the bluish fill smaller than the cell, around the first row's
+        // button middle.
+        let face = painted
+            .fills
+            .iter()
+            .filter(|(r, c)| r.contains(pos2(170.0, 53.0)) && r.width() < 100.0 && r.height() < 22.0 && c.b() > c.r())
+            .map(|(_, c)| *c)
+            .last()
+            .unwrap_or_else(|| {
+                let near: Vec<_> = painted.fills.iter().filter(|(r, _)| r.contains(pos2(170.0, 53.0))).collect();
+                panic!("the button face is painted; fills there: {near:?}")
+            });
+        // Premultiplied over white.
+        let over = |ch: u8| ch as f32 / 255.0 + (1.0 - face.a() as f32 / 255.0);
+        let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+        let l = 0.2126 * lin(over(face.r())) + 0.7152 * lin(over(face.g())) + 0.0722 * lin(over(face.b()));
+        let ratio = 1.05 / (l + 0.05);
+        println!("button face {face:?} over white: white caption at {ratio:.2}:1");
+        assert!(ratio >= 4.5, "{ratio:.2}:1");
     }
 
     // ── DataGrid Image cells: a file that is not there yet (spec 092 R14) ───────

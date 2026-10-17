@@ -437,6 +437,15 @@ pub struct DataGridColumn {
     pub frame: Option<DataGridCellFrame>,
     pub gauge: Option<DataGridGauge>,
     pub value_style_rules: Vec<DataGridValueStyleRule>,
+    /// A Button column's own caption (spec 106) — the same on every row, for a button
+    /// that stands for an action rather than showing data. Empty: none. Never written
+    /// when empty, so a grid saved before spec 106 saves exactly as it did.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub button_caption: String,
+    /// A Button column's own icon: a name from the system icon catalogue
+    /// (`icons::menu_icon_names`). Empty: none. Written like `button_caption`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub button_icon: String,
 }
 
 impl Default for DataGridColumn {
@@ -474,6 +483,8 @@ impl Default for DataGridColumn {
             frame: None,
             gauge: None,
             value_style_rules: Vec::new(),
+            button_caption: String::new(),
+            button_icon: String::new(),
         }
     }
 }
@@ -481,6 +492,40 @@ impl Default for DataGridColumn {
 impl DataGridColumn {
     fn default_edit_control() -> String {
         "Textbox".into()
+    }
+
+    /// The cell kind the renderer draws: `control_kind` when set, else `edit_control`.
+    pub fn kind(&self) -> &str {
+        if self.control_kind.trim().is_empty() {
+            &self.edit_control
+        } else {
+            &self.control_kind
+        }
+    }
+
+    /// A Button column (spec 106).
+    pub fn is_button(&self) -> bool {
+        self.kind().eq_ignore_ascii_case("button")
+    }
+
+    /// A Button column that carries its own caption or icon — an action on every row, not
+    /// a picture of the row's data (spec 106 R9).
+    pub fn has_own_button(&self) -> bool {
+        self.is_button()
+            && (!self.button_caption.trim().is_empty() || !self.button_icon.trim().is_empty())
+    }
+
+    /// What a Button cell shows: the column's own icon and caption when it has them (spec
+    /// 106 R10); otherwise the cell's value, as before — `icon:<name>` for an icon, any
+    /// other text for a caption. Returns `(icon, caption)`; either may be empty.
+    pub fn button_face<'a>(&'a self, cell: &'a str) -> (&'a str, &'a str) {
+        if self.has_own_button() {
+            (self.button_icon.trim(), self.button_caption.trim())
+        } else if let Some(name) = cell.trim().strip_prefix("icon:") {
+            (name.trim(), "")
+        } else {
+            ("", cell)
+        }
     }
 
     fn default_header_font_size() -> u16 {
@@ -645,10 +690,20 @@ impl DataGridAdvanced {
         rows: &[Vec<String>],
         source_names: &[String],
     ) -> Vec<usize> {
+        // A filter on a Button column (spec 106) is ignored: the column holds actions,
+        // not values, so it would hide every row.
+        let on_button = |filter: &DataGridFilter| {
+            self.columns.iter().any(|c| {
+                c.is_button()
+                    && [&c.id, &c.source_name, &c.title]
+                        .iter()
+                        .any(|n| !n.trim().is_empty() && n.eq_ignore_ascii_case(&filter.column_id))
+            })
+        };
         let active_filters: Vec<&DataGridFilter> = self
             .filters
             .iter()
-            .filter(|filter| filter.active && !filter.value.trim().is_empty())
+            .filter(|filter| filter.active && !filter.value.trim().is_empty() && !on_button(filter))
             .collect();
         if active_filters.is_empty() {
             return (0..rows.len()).collect();
@@ -1652,6 +1707,17 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
 /// which the template renders as a LINKAGE SECTION block plus
 /// `PROCEDURE DIVISION USING COBOL-ARRAY-INDEX.`
 pub fn event_linkage(event: &str) -> (String, Vec<String>) {
+    // Spec 106 — a DataGrid's Button column hands over the row it was clicked on, as
+    // `DATAGRID-ROW-CONTENT`. The group's shape is the grid's columns, which change, so
+    // the handler names it with one line and codegen writes the group there from the
+    // grid's current columns on every generation (`row_content`): the developer's handler
+    // never holds a description that can go stale.
+    if event.trim() == crate::row_content::EVENT {
+        return (
+            format!("       {}\n", crate::row_content::COPY_LINE),
+            vec![crate::row_content::GROUP.to_string()],
+        );
+    }
     // A TreeView's node events hand the handler the NODE they fired on.
     // Without it, `onNodeCheck`, `onNodeCollapse` and `onNodeExpand` could not
     // say which node had moved — they write no `SelectedNode`, and nothing else
@@ -1795,7 +1861,7 @@ pub fn derive_paragraph_name(control_id: &str, event: &str) -> String {
 /// Letters and digits are kept and upper-cased; anything else becomes a hyphen,
 /// with runs collapsed and the ends trimmed, since a COBOL word may not begin
 /// or end with one.
-fn cobol_word_part(s: &str) -> String {
+pub(crate) fn cobol_word_part(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         if ch.is_ascii_alphanumeric() {
@@ -3770,6 +3836,8 @@ impl ControlType {
             ],
             ControlType::DataGrid => &[
                 "onCellClick",
+                // Spec 106 — a Button column's button, with the row as DATAGRID-ROW-CONTENT.
+                "onRowButtonClick",
                 "onCellDoubleClick",
                 "onCellEdited",
                 "onCommitError",

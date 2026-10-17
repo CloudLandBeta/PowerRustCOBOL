@@ -14,7 +14,7 @@
 use super::*;
 use crate::llm::LlmConfig;
 use crate::panels::grid_edit;
-use cobolt_forms::model::{DataGridAdvanced, DATAGRID_ADVANCED_PROP};
+use cobolt_forms::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
 use cobolt_forms::{
     BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor, DataBindingDef,
 };
@@ -220,6 +220,31 @@ fn grid_form() -> Form {
 
 /// Where the first data cell (Bob) is, in form coordinates.
 const BOB: (f32, f32) = (40.0 + 50.0, 40.0 + 22.0 + 11.0);
+
+/// Spec 106 (review) — the Designer's canvas draws a Button column's own caption on
+/// every row, as Run Form does: both go through the interactive renderer, and this
+/// pins the canvas half of that.
+#[test]
+fn the_canvas_draws_a_button_columns_own_caption_on_every_row() {
+    let mut form = grid_form();
+    let g = &mut form.controls[0];
+    let col = |id: &str, kind: &str, caption: &str| DataGridColumn {
+        id: id.into(),
+        title: id.into(),
+        source_name: id.into(),
+        edit_control: kind.into(),
+        button_caption: caption.into(),
+        ..DataGridColumn::default()
+    };
+    let advanced = DataGridAdvanced {
+        columns: vec![col("Name", "Textbox", ""), col("Age", "Textbox", ""), col("Edit", "Button", "Change")],
+        ..DataGridAdvanced::default()
+    };
+    g.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(advanced.to_json().unwrap()));
+    let rig = Rig::new(form);
+    let captions = rig.painted.iter().filter(|(t, _, _)| t == "Change").count();
+    assert_eq!(captions, 3, "one button per row on the canvas: {:?}", rig.painted);
+}
 
 #[test]
 fn spike_the_interactive_grid_is_hosted_on_the_canvas() {

@@ -7648,6 +7648,10 @@ impl CoboltApp {
                     st.designer.set_property(&cid, &key, value);
                     changed = true;
                 }
+                for (cid, edits) in action.set_props_in_one_step {
+                    st.designer.set_properties_in_one_step(&cid, edits);
+                    changed = true;
+                }
                 if !action.set_credentials.is_empty() {
                     pending_creds = std::mem::take(&mut action.set_credentials);
                     creds_form = st.designer.form.name.clone();
@@ -19697,6 +19701,11 @@ impl CoboltApp {
                 d.set_property(&ctrl_id, &key, value);
             }
         }
+        // A DataGrid column added, deleted or moved in its settings window: one control,
+        // several properties, one undo step (spec 106 R7).
+        for (ctrl_id, edits) in std::mem::take(&mut inspector_action.set_props_in_one_step) {
+            self.designers[idx].1.set_properties_in_one_step(&ctrl_id, edits);
+        }
         // The style-unit confirmation for the held background edits.
         if !self.designers[idx].1.style_break_pending.is_empty() {
             let mut confirm = false;
@@ -20461,8 +20470,10 @@ fn datagrid_advanced_for_binding(
 }
 
 /// The grid's column set after the binding is applied to it: the columns it has
-/// that match a bound field (keeping what the developer set on them), then a
-/// new column for every field that has none. `None` for a binding with no fields.
+/// that match a bound field (keeping what the developer set on them) and its
+/// Button columns, which stand for actions and need no field (spec 106 R11), each
+/// in its place; then a new column for every field that has none. `None` for a
+/// binding with no fields.
 fn datagrid_columns_for_binding(
     control: &cobolt_forms::Control,
     binding: &DataBindingDef,
@@ -20488,6 +20499,8 @@ fn datagrid_columns_for_binding(
                 binding,
                 field,
             ));
+        } else if existing.is_button() {
+            next_columns.push(existing.clone());
         }
     }
 
@@ -22692,6 +22705,57 @@ mod manifest_name_tests {
             "a field the binding editor made a Dropdown still decides"
         );
         assert_eq!(kind_of("ACTOR-NEW"), "Textbox", "a new column takes the field's control");
+    }
+
+    /// Spec 106 R11 (AC5): a Button column with no field behind it is an action, not
+    /// data, so re-applying the binding keeps it — with its caption, in its place —
+    /// where a data column with no field is dropped.
+    #[test]
+    fn re_applying_a_binding_keeps_a_button_column_that_has_no_field() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        let mut grid = Control::new("ActorGrid", ControlType::DataGrid, 0, 0);
+        let column = |id: &str, kind: &str, caption: &str| DataGridColumn {
+            id: id.into(),
+            title: id.into(),
+            source_name: id.into(),
+            edit_control: kind.into(),
+            button_caption: caption.into(),
+            ..DataGridColumn::default()
+        };
+        let advanced = DataGridAdvanced {
+            columns: vec![
+                column("ACTOR-ID", "Textbox", ""),
+                column("EDIT", "Button", "Edit"),
+                column("GONE", "Textbox", ""),
+                column("ACTOR-NAME", "Textbox", ""),
+            ],
+            ..DataGridAdvanced::default()
+        };
+        grid.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(advanced.to_json().unwrap()));
+        form.add_control(grid);
+        let binding = DataBindingDef::new(
+            "BIND-ACTORS",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields: vec![
+                    BindingField::new("ACTOR-ID", BindingDataType::Integer),
+                    BindingField::new("ACTOR-NAME", BindingDataType::Text),
+                ],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::DataGrid { control_id: "ActorGrid".to_owned() },
+        );
+        apply_data_binding_to_form(&mut form, binding.clone());
+        apply_data_binding_to_form(&mut form, binding);
+        let grid = form.find_control("ActorGrid").unwrap();
+        let after = DataGridAdvanced::from_control(grid);
+        let order: Vec<(&str, &str)> = after.columns.iter().map(|c| (c.title.as_str(), c.button_caption.as_str())).collect();
+        assert_eq!(order, [("ACTOR-ID", ""), ("EDIT", "Edit"), ("ACTOR-NAME", "")], "kept, in its place; GONE dropped");
+        let columns = grid.get_prop("Columns").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        assert!(!columns.contains("EDIT"), "the button is no data column: {columns:?}");
     }
 
     /// Spec 094 D1/R1: the per-frame refresh leaves a bound grid's own columns

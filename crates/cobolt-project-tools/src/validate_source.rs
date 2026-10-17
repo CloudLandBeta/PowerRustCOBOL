@@ -149,7 +149,111 @@ pub fn validate_form_source(
     let (src, map) = cobolt_codegen::generate_with_map(form);
     let mut diags = validate_text(&src, program, SourceFormat::Free, external_crates);
     diags.extend(unknown_sql_connections(form, program));
+    diags.extend(row_content_problems(form, &src));
     (diags, src, map)
+}
+
+/// Spec 106 R17 — what makes a grid's `DATAGRID-ROW-CONTENT` unsafe or useless, for every
+/// DataGrid that binds `onRowButtonClick`. The level-10 names are the columns' own names
+/// (operator, Q1), so a clash is refused here rather than renamed away:
+/// - a name that is also a data item of the form's program — the run unit keeps one store,
+///   so the handler's field and the form's item would be one and the same;
+/// - a reserved word, a name the group itself uses, two columns of one name, a name too long
+///   or not a word at all;
+/// - and, as a warning only, a Button column with neither caption nor icon (it shows each
+///   row's cell value, as Button columns always have).
+pub fn row_content_problems(form: &cobolt_forms::Form, generated: &str) -> Vec<Diag> {
+    use cobolt_forms::row_content;
+    fn walk<'a>(list: &'a [cobolt_forms::Control], out: &mut Vec<&'a cobolt_forms::Control>) {
+        for c in list {
+            out.push(c);
+            walk(&c.children, out);
+        }
+    }
+    let mut controls = Vec::new();
+    walk(&form.controls, &mut controls);
+    let grids: Vec<_> = controls
+        .into_iter()
+        .filter(|c| {
+            c.control_type == cobolt_forms::ControlType::DataGrid
+                && c.events.iter().any(|e| e.event == row_content::EVENT)
+        })
+        .collect();
+    if grids.is_empty() {
+        return Vec::new();
+    }
+    let names = main_program_data_names(generated);
+    grids
+        .into_iter()
+        .flat_map(|g| problems_of(g, &names))
+        .map(|p| Diag {
+            line: 0,
+            col: 0,
+            message: p.message,
+            severity: if p.is_error { Severity::Error } else { Severity::Warning },
+        })
+        .collect()
+}
+
+/// One grid's [`row_content_problems`], whether or not it binds the event yet — what the
+/// *Edit DataGrid settings* window warns about as a column is named (R17), from the same
+/// rules Check applies. `form_names` are [`form_data_names`] of the form's generated
+/// program: a window keeps them while the form's own data does not change, so a keystroke
+/// in a column title costs no generation.
+pub fn grid_row_content_problems(
+    grid: &cobolt_forms::Control,
+    form_names: &std::collections::HashSet<String>,
+) -> Vec<cobolt_forms::row_content::Problem> {
+    problems_of(grid, form_names)
+}
+
+/// The data names a form's generated program declares, which no DATAGRID-ROW-CONTENT
+/// item may also use (see [`row_content_problems`]).
+pub fn form_data_names(generated: &str) -> std::collections::HashSet<String> {
+    main_program_data_names(generated)
+}
+
+fn problems_of(
+    grid: &cobolt_forms::Control,
+    names: &std::collections::HashSet<String>,
+) -> Vec<cobolt_forms::row_content::Problem> {
+    let reserved = |w: &str| cobolt_lexer::keywords::lookup(&w.to_ascii_uppercase()).is_some();
+    let advanced = cobolt_forms::model::DataGridAdvanced::from_control(grid);
+    cobolt_forms::row_content::problems(&grid.id, &advanced, &reserved, names)
+}
+
+/// The data names the generated MAIN program declares — every entry between its first
+/// `DATA DIVISION` and its first `PROCEDURE DIVISION`, the buffer spec 106 adds left out
+/// (it is the group's own). Read from the text: the generator writes one entry per line, a
+/// level number then the name.
+fn main_program_data_names(generated: &str) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let mut in_data = false;
+    for line in generated.lines() {
+        let t = line.trim();
+        let upper = t.to_ascii_uppercase();
+        if upper.starts_with("DATA DIVISION") {
+            in_data = true;
+            continue;
+        }
+        if upper.starts_with("PROCEDURE DIVISION") {
+            break;
+        }
+        if !in_data || t.starts_with("*>") {
+            continue;
+        }
+        let mut words = t.split_whitespace();
+        let (Some(level), Some(name)) = (words.next(), words.next()) else {
+            continue;
+        };
+        if level.len() <= 2 && level.chars().all(|c| c.is_ascii_digit()) {
+            let name = name.trim_end_matches('.').to_ascii_uppercase();
+            if name != "FILLER" && name != cobolt_forms::row_content::BUFFER {
+                names.insert(name);
+            }
+        }
+    }
+    names
 }
 
 /// Spec 087 R40 — every `SqlDatabase` whose `SqlConnection` names none of
@@ -236,6 +340,71 @@ mod tests {
         assert!(errors(&form).is_empty(), "a known name is fine, in any case");
         let _ = std::fs::remove_dir_all(&dir);
         println!("unknown SqlConnection: '{}'", found[0]);
+    }
+
+    /// Spec 106 R17 — a grid that binds `onRowButtonClick` with a column whose name cannot
+    /// be a level-10 field of `DATAGRID-ROW-CONTENT` is a Check error, as is a Button
+    /// column with nothing on it; the same grid without the event is not checked at all.
+    #[test]
+    fn row_content_names_are_checked_when_the_event_is_bound() {
+        use cobolt_forms::model::{DataGridAdvanced, DataGridColumn, EventBinding, DATAGRID_ADVANCED_PROP};
+        fn column(name: &str, kind: &str, caption: &str) -> DataGridColumn {
+            DataGridColumn {
+                id: name.into(),
+                title: name.into(),
+                source_name: name.into(),
+                edit_control: kind.into(),
+                button_caption: caption.into(),
+                ..Default::default()
+            }
+        }
+        fn form(columns: Vec<DataGridColumn>, bound: bool) -> cobolt_forms::Form {
+            let mut form = cobolt_forms::Form::new("ACTORS", "Actors", 600, 400);
+            let mut grid = cobolt_forms::Control::new("DG", cobolt_forms::ControlType::DataGrid, 0, 0);
+            let advanced = DataGridAdvanced { columns, ..Default::default() };
+            grid.set_prop(DATAGRID_ADVANCED_PROP, cobolt_forms::PropValue::String(advanced.to_json().unwrap()));
+            if bound {
+                grid.events.push(EventBinding::for_control("DG", "onRowButtonClick"));
+            }
+            form.add_control(grid);
+            form
+        }
+        let errors = |f: &cobolt_forms::Form| -> Vec<String> {
+            let (src, _) = cobolt_codegen::generate_with_map(f);
+            row_content_problems(f, &src)
+                .into_iter()
+                .map(|d| format!("{:?}: {}", d.severity, d.message))
+                .collect()
+        };
+
+        let clean = vec![column("ACTOR-ID", "Textbox", ""), column("EDIT", "Button", "Edit")];
+        assert!(errors(&form(clean.clone(), true)).is_empty(), "{:?}", errors(&form(clean, true)));
+
+        let (src, _) = cobolt_codegen::generate_with_map(&form(Vec::new(), true));
+        let names = main_program_data_names(&src);
+        assert!(names.contains("FORM-NAME"), "{names:?}");
+        assert!(!names.contains(cobolt_forms::row_content::BUFFER), "the buffer is the group's own");
+
+        let bad = vec![
+            column("MOVE", "Textbox", ""),
+            column("FORM-NAME", "Textbox", ""),
+            column("ROW-NUMBER", "Textbox", ""),
+            column("GO", "Button", ""),
+        ];
+        let found = errors(&form(bad.clone(), true));
+        for word in ["Error: DataGrid DG: column name MOVE", "Error: DataGrid DG: column name FORM-NAME"] {
+            assert!(found.iter().any(|m| m.starts_with(word)), "{word} not reported: {found:?}");
+        }
+        assert!(found.iter().any(|m| m.starts_with("Error:") && m.contains("ROW-NUMBER")), "{found:?}");
+        assert!(
+            found.iter().any(|m| m.starts_with("Warning:") && m.contains("\"GO\"")),
+            "a Button column with nothing on it is a warning: {found:?}"
+        );
+        assert_eq!(found.len(), 4, "{found:?}");
+        assert!(errors(&form(bad, false)).is_empty(), "no event, no group, nothing to check");
+        for m in &found {
+            println!("row content: {m}");
+        }
     }
 
     #[test]

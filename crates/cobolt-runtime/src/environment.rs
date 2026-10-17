@@ -2999,17 +2999,36 @@ impl CobolEnvironment {
                 // verbatim, arithmetic read it as 64990: a record sent through
                 // a property and read back into its group priced every line a
                 // hundred times over (operator, 2026-09-28).
-                if let Some(v) = self.decode_overpunched_slice(&ck, &padded) {
-                    self.set(&ck, v);
-                } else if let Some(v) = self.decode_scaled_digits(&ck, &padded) {
-                    self.set(&ck, v);
-                } else {
+                if !self.decode_record_slice(&ck, &padded) {
                     self.set_verbatim_bytes(&ck, &padded);
                 }
             }
             pos += width;
         }
         self.odo_receiving -= 1;
+    }
+
+    /// Land a field's slice of a record image when the slice IS a value — digits with the
+    /// sign overpunched on the last byte, into a signed numeric field, or digits only, into
+    /// a numeric field with an implied decimal point (see [`Self::set_group_bytes`] for
+    /// why each exists). Returns whether it did; otherwise the caller stores the bytes as
+    /// they stand, each road in its own way.
+    ///
+    /// One rule for both roads a record's bytes take into its fields: a group MOVE, and a
+    /// parameter that describes the bytes of an elementary argument (a *record view*,
+    /// `CALL … USING` — spec 106's `DATAGRID-ROW-CONTENT`). The view used to skip it, so
+    /// its `PIC 9(5)V99` read `0012345` as 12345 and its `PIC S9(5)V99` lost the sign of
+    /// `001234N`, where a group MOVE of the same bytes read 123.45 and −123.45.
+    pub fn decode_record_slice(&mut self, key: &str, bytes: &[u8]) -> bool {
+        if let Some(v) = self.decode_overpunched_slice(key, bytes) {
+            self.set(key, v);
+            true
+        } else if let Some(v) = self.decode_scaled_digits(key, bytes) {
+            self.set(key, v);
+            true
+        } else {
+            false
+        }
     }
 
     /// The synthesized value of a RENAMES item: the concatenated display strings

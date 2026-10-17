@@ -2889,6 +2889,69 @@ impl Interpreter {
         }
     }
 
+    /// Spec 106 — write the row a Button column was clicked on into
+    /// `DATAGRID-ROW-BUFFER`, which the dispatcher hands the handler as
+    /// `DATAGRID-ROW-CONTENT`. `value` is `<data row>\t<button column id>`.
+    ///
+    /// Packed by the layout the generated program seeded on the grid
+    /// (`_RowContent`) — the one the handler's description was generated from —
+    /// each column found by its id, so a column the user reordered or retitled at
+    /// run time still lands in its own field. A program that declares no buffer
+    /// (it binds no such handler) is left alone: an undeclared name would be
+    /// created at its first value's width.
+    fn bind_row_content(&mut self, control_id: &str, value: &str) {
+        use cobolt_forms::row_content;
+        if self.env.get(row_content::BUFFER).is_none() {
+            return;
+        }
+        let (row, button_id) = value.split_once('\t').unwrap_or((value, ""));
+        let row_number: usize = row.trim().parse().unwrap_or(0);
+        let mut grid = cobolt_forms::Control::new(control_id, cobolt_forms::ControlType::DataGrid, 0, 0);
+        for prop in ["AdvancedGrid", "Columns"] {
+            grid.set_prop(prop, cobolt_forms::PropValue::String(self.obj_get(control_id, prop)));
+        }
+        let advanced = cobolt_forms::model::DataGridAdvanced::from_control(&grid);
+        let seed = self.obj_get(control_id, row_content::LAYOUT_PROP);
+        let (fields, buttons) = if seed.trim().is_empty() {
+            let buttons = advanced
+                .columns
+                .iter()
+                .filter(|c| c.is_button())
+                .map(|c| (c.id.clone(), row_content::column_name(c)))
+                .collect();
+            (row_content::fields(&advanced), buttons)
+        } else {
+            row_content::parse_layout_seed(&seed)
+        };
+        let specs = self.datagrid_column_specs(control_id);
+        let rows = self.datagrid_rows(control_id);
+        let cells = row_number.checked_sub(1).and_then(|i| rows.get(i));
+        let values: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                let Some(c) = advanced.columns.iter().find(|c| c.id == f.column_id) else {
+                    return String::new();
+                };
+                let source = specs.iter().position(|(name, _)| {
+                    [&c.source_name, &c.title, &c.id]
+                        .iter()
+                        .any(|n| !n.trim().is_empty() && name.eq_ignore_ascii_case(n.trim()))
+                });
+                source
+                    .and_then(|i| cells.and_then(|r| r.get(i)))
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect();
+        let name = buttons
+            .iter()
+            .find(|(id, _)| id == button_id)
+            .map(|(_, n)| n.clone())
+            .unwrap_or_else(|| button_id.to_owned());
+        let bytes = crate::datagrid_row::image(&fields, row_number, &name, &values, self.env.decimal_comma());
+        self.env.set_bytes(row_content::BUFFER, &bytes);
+    }
+
     /// The property the DataGrid's CSV button sets when it is pressed. Written
     /// by the renderer, read here and nowhere else.
     const DATAGRID_EXPORT_REQUEST: &'static str = "_ExportCSVRequested";
@@ -11311,6 +11374,11 @@ impl Interpreter {
                             // them, so a handler can never read the last node
                             // some other event happened to leave behind.
                             self.bind_node_payload(&ev.value);
+                            // Spec 106 — a Button column's row, into the buffer the
+                            // dispatcher hands its handler as DATAGRID-ROW-CONTENT.
+                            if ev.event_id == cobolt_forms::row_content::EVENT {
+                                self.bind_row_content(&ev.ctrl_id, &ev.value);
+                            }
                             // Populate COBOL-EVENT-ID and COBOL-CONTROL-ID (args 0 and 1).
                             if using.len() >= 1 {
                                 let n = self.expr_to_name(call_arg_expr(&using[0]));
@@ -12366,8 +12434,16 @@ impl Interpreter {
                                             (vk, *off, *len)
                                         })
                                         .collect();
+                                    // The same rule a group MOVE applies to the
+                                    // same bytes: a signed or scaled numeric
+                                    // field reads the value its image holds
+                                    // (spec 106). Anything else lands as it
+                                    // always has.
                                     for (n, off, len) in &mine {
-                                        self.env.set_bytes(n, &bytes[*off..*off + *len]);
+                                        let slice = &bytes[*off..*off + *len];
+                                        if !self.env.decode_record_slice(n, slice) {
+                                            self.env.set_bytes(n, slice);
+                                        }
                                     }
                                     // Named GROUPS join the view for reading —
                                     // diverted and sliced in — but stay out of
@@ -20621,6 +20697,68 @@ mod tests {
     // R18's byte-identical Save As, R19/R20's Print and Share handoffs, and
     // R3/R4/R6's load reporting. Each test prints what it measured — the
     // byte counts it compared, which events it saw, in which order.
+
+    /// Spec 106 (review, AC6) — from the event's value to the buffer's bytes: the
+    /// runtime packs the clicked row by the layout the program was generated with
+    /// (`_RowContent`), finding each column by id — so a column the user moved and
+    /// retitled at run time (the header's ‹ › rewrites `AdvancedGrid`) still lands in
+    /// its own item, and ROW-NAME is the button's name as generated.
+    #[test]
+    fn a_row_button_click_packs_the_row_by_the_generated_layout() {
+        use cobolt_forms::model::{DataGridAdvanced, DataGridColumn};
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. ROW-106.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 DATAGRID-ROW-BUFFER PIC X(63).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let program = parse(tokenize(source, SourceFormat::Free)).program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        let col = |id: &str, title: &str, mask: &str, kind: &str| DataGridColumn {
+            id: id.into(),
+            title: title.into(),
+            source_name: id.into(),
+            cobol_mask: mask.into(),
+            edit_control: kind.into(),
+            button_caption: if kind == "Button" { "Edit".into() } else { String::new() },
+            ..DataGridColumn::default()
+        };
+        // As generated: ACTOR-ID, NAME, SALARY, then the EDIT button.
+        let generated = DataGridAdvanced {
+            columns: vec![
+                col("ACTOR-ID", "Actor Id", "9(5)", "Textbox"),
+                col("NAME", "Name", "X(12)", "Textbox"),
+                col("SALARY", "Salary", "S9(5)V99", "Textbox"),
+                col("EDIT", "Edit", "", "Button"),
+            ],
+            ..DataGridAdvanced::default()
+        };
+        let seed = cobolt_forms::row_content::layout_seed(&generated);
+        // At run time the user moved SALARY first and retitled NAME.
+        let mut now = generated.clone();
+        now.columns.swap(0, 2);
+        now.columns.iter_mut().find(|c| c.id == "NAME").unwrap().title = "Full Name".into();
+        interp.seed_objects([(
+            "DG".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                ("Columns".to_owned(), "ACTOR-ID:number\nNAME:string\nSALARY:number".to_owned()),
+                ("Rows".to_owned(), "7\tBob\t10\n42\tAnn Smith\t-123.45".to_owned()),
+                ("AdvancedGrid".to_owned(), now.to_json().unwrap()),
+                (cobolt_forms::row_content::LAYOUT_PROP.to_owned(), seed),
+            ],
+        )]);
+        interp.bind_row_content("DG", "2\tEDIT");
+        let bytes = interp.env.display_bytes(cobolt_forms::row_content::BUFFER).expect("the buffer exists");
+        // 9 (ROW-NUMBER) + 30 (ROW-NAME) + 5 + 12 + 7 = 63 bytes.
+        let want = format!("000000002{:<30}00042{:<12}001234N", "EDIT", "Ann Smith");
+        assert_eq!(String::from_utf8_lossy(&bytes), want, "packed in the generated order");
+        println!("row 2 after a run-time reorder → {:?}", String::from_utf8_lossy(&bytes));
+    }
 
     /// An interpreter with one Viewer control carrying `props`.
     fn viewer_interp(props: &[(&str, &str)]) -> Interpreter {

@@ -17,6 +17,108 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.192] — 2026-10-17
+
+*(Written on `fixes-datagrid-columns`, after 1.91.191. 1.91.190 is the Task Wizard on `features-guided-wizard`, not yet merged. When the two meet, its DataGrid task's anchor on this window's COLUMNS section needs pointing at the new header.)*
+
+### Fixed: the DataGrid settings window — columns on the left, details on the right, add/delete/reorder, and Button columns that hand their handler the row (spec 106)
+
+Operator, 2026-10-17. The request, in four parts:
+
+1. Show the columns on the left and the selected column's details on the right, each scrolling so the window does not grow.
+2. Buttons to add and delete columns.
+3. A column whose content is a button — text and/or a system icon — raising a DataGrid event, `onRowButtonClick`, whose LINKAGE is a group with the row number, the clicked button's name, and a sub-group of the row's columns.
+4. Reorder columns by drag and drop as well as with up/down buttons.
+
+*Classification:* fix (the operator's word). The grid already had Button columns that could not carry a caption of their own, and a settings window that could not add, delete or order a column.
+
+**The window** (`cobolt-ide`: `properties.rs`, new `panels/datagrid_settings.rs`):
+
+- **Size.** It obeys CONVENTIONS' window rule now: a stored size, `.resizable(false).fixed_size`, and one corner grip as the only writer. Before, it was `resizable(true)` around a scroll area. Body and details scroll both ways, so nothing can widen it: the long hints in a Grid are not wrapped by egui and used to push the window wider. The hints now wrap.
+- **Columns section.** Two panes of a height taken from the stored size:
+  - **Left:** the list, "*n* — name", a Button column marked, a column with a naming problem flagged ⚠. Click selects; drag reorders, with an insertion line.
+  - **Right:** the selected column's details in their own scroll, or how to create a column when there is none.
+- **Header.** The COLUMNS band carries **+ − ▲ ▼** with tooltips, and with a reason when disabled.
+  - **+** adds after the selected column.
+  - **−** asks in the window, naming the column, and only its **Delete** deletes.
+  - **▲/▼** and the drag move the column.
+  - All four use the canvas edit mode's own edits (`grid_edit`), so `Columns`, `Rows` and `AdvancedGrid` stay in step exactly as on the canvas. Each reaches the Designer as **one Undo step**, through the new `InspectorAction::set_props_in_one_step`.
+- **Details** start with **Content**:
+  - **Data**, as before.
+  - **Button**: a caption, an icon from the system catalogue (the IDE's icon picker), or both, with a warning while neither is set.
+  - A Data column shows the name it has in `DATAGRID-ROW-CONTENT`, and under it, as typed, every reason that name cannot be used (worded as Check words it, in six languages).
+  - The Edit control list no longer offers Button (that is Content now); a Button column hides its mask and Edit control.
+
+**The grid** (`cobolt-forms`):
+
+- **Two new column fields.** `DataGridColumn` gains `button_caption` and `button_icon`, written only when set, so an older form loads and saves byte for byte.
+- **Drawing.** A Button column with its own face draws it on every row, the icon leading the caption. One with neither keeps the old behaviour: each cell's value, or `icon:<name>`.
+- **Clicks.** A Button cell now takes its click even with `SelectableText` off. That was a dead end before: the Guide warned that a Button column did nothing then. A click raises `onCellClick` as before and then **`onRowButtonClick`**, carrying the DATA row (1-based in `Rows`, so a sort or filter does not move it) and the column. The event is listed for the DataGrid everywhere events are listed.
+
+**The payload** (`cobolt-forms` new `row_content.rs`, `cobolt-codegen`, `cobolt-runtime`):
+
+- **The skeleton.** The handler's LINKAGE is the one line `COPY DATAGRID-ROW-CONTENT.`. Every generation replaces it with the group, from the grid's columns as they are then, so the description never goes stale and the developer's lines are never touched:
+  - `01 DATAGRID-ROW-CONTENT`
+  - `05 ROW-NUMBER PIC 9(9)`
+  - `05 ROW-NAME PIC X(30)`
+  - `05 ROW-COLUMNS`, with one `10` item per data column, named as the developer sees it (`Actor Name` → `ACTOR-NAME`, operator's decision Q1) and pictured by its mask or `X(30)`.
+- **The line map.** Each written line maps to itself, and the group's lines map to nothing.
+- **The generated program.** Only when a grid binds the event, it declares `DATAGRID-ROW-BUFFER` as wide as the row, seeds the grid with the layout it was generated with (`_RowContent`), and calls the handler `USING` the buffer.
+- **The runtime.** It packs the clicked row into the buffer by that seed, finding each cell by column id. So a column the user reorders or retitles at run time still lands in the right item.
+- **Hosts.** All three get this through the shared renderer and the interpreter, with no host edit.
+- **A real COBOL defect, found on the way.** A group laid BY REFERENCE over an elementary argument read its numeric items without their overpunched sign or implied decimals: −123.45 arrived as 12345. It now decodes them as a group MOVE does. The record-view path keeps its old fallback for anything else, and NIST IC stays 25/25.
+
+**Check** (`cobolt-project-tools`): for a grid that binds the event, Check refuses a column name that is not a COBOL word, longer than 30, a reserved word, one of the group's own names, a duplicate, or already a data item of the form's program. A Button column with neither caption nor icon is a warning. The settings window shows the same problems as the name is typed, from the same code.
+
+**Binding:** re-applying a data binding keeps a Button column with no field behind it, in its place. It used to drop it.
+
+**What the DataGrid Quality & Compatibility review found, and what changed.** It checked the 18 scenarios plus a Button column in a sorted, filtered and scrolled grid. What already held:
+
+- The face is drawn on the Designer canvas as in Run Form; both go through the same renderer.
+- The reported row is the data row through sort, filter and scroll.
+- A column moved at run time still packs into its own item.
+
+What it found, each now fixed with a test:
+
+1. A Button cell took the click of whatever covered its hidden part: the frozen column, the header, or a control below the grid's edge. So clicking a frozen Name cell could run the Delete handler of the button scrolled under it. Its hit area is now the part that can be seen, as spec 095 made it for Checkbox cells.
+2. A Button column got a filter box, and typing in it hid every row. It now gets none, and a filter already set on one is ignored. Its heading no longer sorts by nothing either.
+3. With cell editing on, a double-click opened a text box over the button. A Button column is no longer editable as text.
+4. A disabled grid's buttons still raised `onRowButtonClick`.
+5. The keyboard could not press a button. Space or Enter on the selected Button cell now does.
+6. An icon-only button cell left a hole in the selected row's highlight.
+7. The face had no hover or pressed state. It also let a light grid show through, putting the white caption at 4.42:1, under WCAG AA. It is now nearly opaque: 6.04:1 measured on the painted face over white.
+8. Content Data → Button → Data turned a Checkbox or Dropdown column into a Textbox. Button now goes in `control_kind`, so the data kind comes back.
+9. Check said nothing about Button columns. Two with one name, or a name longer than ROW-NAME's 30 characters, are now warnings.
+10. The settings window generated the whole form on every keystroke in a column title. The form's data names are now cached and the columns checked each frame.
+
+Left for its own task: the renderer drops an empty line of `Rows` and the runtime keeps it. This is older than this change and also moves `ClickedRow` and `GetCellValue`, so it was not mixed into it.
+
+**Docs:** the System KB (event payloads now three, `onRowButtonClick`, the DataGrid notes and a worked handler pinned by a codegen test; `chunked.data` rebuilt), the Event Handler agent's DEFAULT prompt, and the Developer's Guide (English; it has no translations to delete). The Guide's `SelectableText` caveat and its "second event payload" line were no longer true, and were corrected.
+
+*Tests:*
+
+- **New:**
+  - `cobolt-forms` `row_content` (6), including byte-for-byte save of an older grid.
+  - `render` test of a Button column of its own.
+  - Eight `render` tests for the review's findings: under the frozen band, with text selectable or not; a clipped row over a control below; a double-click; a disabled grid; Space and Enter; a sorted, a filtered and a scrolled grid; no filter box; the highlight through an icon cell; caption contrast measured on the paint. Undoing the hit-area, disabled and filter fixes makes their four tests fail.
+  - A runtime test from the event's value to the buffer's bytes after a run-time reorder and retitle.
+  - A Designer canvas test for the caption on every row.
+  - `cobolt-codegen` `datagrid_row_button_106` (6, including the KB's example handler, which parses and checks clean).
+  - `cobolt-runtime` `datagrid_row` (3) and `test_datagrid_row_content_106` (2: a negative salary and decimals reach the handler's own description, and the handler writes back).
+  - `cobolt-project-tools` row-content Check test.
+  - `cobolt-ide`:
+    - `datagrid_settings` (5): add after the selection, delete/move as the canvas does, drop target, selection by id, the Content switch.
+    - `datagrid_settings_106_tests` (5, through real frames of the pane): the window stays 820×620 over 120 frames in all six languages; + then − / Delete are one step each and the grid is back as it was; dragging column 3 above column 1 gives 3, 1, 2, then ▼; one Undo restores `Columns`, `Rows` and `AdvancedGrid`; the details and a live reserved-word warning.
+    - The binding keep-test.
+    - The 24 new strings in six languages.
+- **Runs** (final, after the review's fixes):
+  - `cobolt-ide --bin`: 1740 passed, 4 failed, 4 ignored. All four failures are known and not this change: `every_document_ships_in_every_language` (GOLDEN RULE #8), `every_completion_description_exists_in_six_languages`, and two live-network `external_crates` tests. The KB freshness test passes.
+  - `cobolt-forms --features render`: 91 binaries, 1663 passed, 0 failed.
+  - `cobolt-runtime`: 179 binaries, 1505 passed, 0 failed.
+  - `cobolt-codegen`: 93 passed, 1 failed. The failure is `example_corpus_codegen`, already failing on `main`: a missing Layers-demo snapshot since 1.91.20. Regenerating every snapshot showed none of its 28 drifted files mentions anything of this change, so AC9 holds. The snapshots were restored, and the refresh is flagged as its own task.
+  - `cobolt-project-tools`: 93 passed.
+  - NIST after the runtime fix: strict 420/420; NC 95/95 (4614/0), SQ 85/85 (624/0), IC 25/25, IX 41/41 (574/0).
+
 ## [PowerRustCOBOL 1.91.191] — 2026-10-17
 
 *(Written on `fixes-aws-sandbox-rules`, off `main` at 1.91.189. 1.91.190 is the Task Wizard, committed on `features-guided-wizard` and not yet merged, so it will land after this number.)*

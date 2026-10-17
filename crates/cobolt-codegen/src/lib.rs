@@ -483,6 +483,19 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
     {
         out.push_str("       01 CONTROL-ARRAY-INDEX     PIC S9(4) COMP-5 VALUE 0.\n");
     }
+    // Spec 106 — the buffer a Button column's row reaches its handler in: the runtime
+    // writes the clicked row's record image here, and the dispatcher passes it `USING`.
+    // As wide as the widest grid's row; only on a form that binds the event.
+    if let Some(width) = row_button_grids(&all_controls)
+        .iter()
+        .map(|(_, fields)| cobolt_forms::row_content::record_width(fields))
+        .max()
+    {
+        out.push_str(&format!(
+            "       01 {}     PIC X({width}).\n",
+            cobolt_forms::row_content::BUFFER
+        ));
+    }
 
     // ── REST / HTTP infrastructure (emitted when any RestClient OR WebSearch
     // exists — the WebSearch facade drives the same WS-REQUEST-URL /
@@ -1068,6 +1081,21 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
     // ── COBOL-MAIN ──────────────────────────────────────────────────────
     out.push_str("       COBOL-MAIN.\n");
     out.push_str("           COBOL::\"INIT-FORM\" ( FORM-NAME )\n");
+    // Spec 106 — each grid whose Button columns reach a handler carries the row layout
+    // that handler was generated with: the runtime packs DATAGRID-ROW-CONTENT by it, so a
+    // column the user reorders or retitles at run time cannot shift a byte.
+    for (grid, _) in row_button_grids(&all_controls) {
+        let seed = cobolt_forms::row_content::layout_seed(
+            &cobolt_forms::model::DataGridAdvanced::from_control(grid),
+        );
+        out.push_str(&format!(
+            "           INVOKE {} 'SetProperty' USING BY CONTENT \"{}\" BY CONTENT \"{}\"\n",
+            grid.id,
+            cobolt_forms::row_content::LAYOUT_PROP,
+            // A quoted literal: a `"` in an id is written twice.
+            cobol_lit_value(&seed).replace('"', "\"\"")
+        ));
+    }
     if !form.data_bindings.is_empty() {
         out.push_str("           PERFORM COBOL-DATA-BINDINGS-LOAD\n");
     }
@@ -2208,6 +2236,25 @@ fn write_indexed_file_fields(out: &mut String, all_controls: &[&Control]) {
 
 /// Emit one nested `PROGRAM-ID ... END PROGRAM` block per event handler.
 /// Form-level OnLoad / OnClose come first, then per-control events.
+/// Spec 106 — the DataGrids whose `onRowButtonClick` the form binds, each with its row.
+fn row_button_grids<'a>(
+    all_controls: &[&'a Control],
+) -> Vec<(&'a Control, Vec<cobolt_forms::row_content::Field>)> {
+    all_controls
+        .iter()
+        .filter(|c| {
+            c.control_type == ControlType::DataGrid
+                && c.events.iter().any(|e| e.event == cobolt_forms::row_content::EVENT)
+        })
+        .map(|c| {
+            (
+                *c,
+                cobolt_forms::row_content::fields(&cobolt_forms::model::DataGridAdvanced::from_control(c)),
+            )
+        })
+        .collect()
+}
+
 fn write_nested_programs(
     out: &mut String,
     form: &Form,
@@ -2254,6 +2301,7 @@ fn write_nested_programs(
             &format!("Form {} handler", ev.event),
             true,
             None,
+            None,
             CodeSite::FormEvent {
                 event: ev.event.clone(),
             },
@@ -2268,7 +2316,14 @@ fn write_nested_programs(
         let array_member = form
             .array_binding_context_for_member(&ctrl.id)
             .map(|_| ctrl.id.clone());
+        // Spec 106 — a DataGrid's row, for its `onRowButtonClick` handler.
+        let row_fields = (ctrl.control_type == ControlType::DataGrid).then(|| {
+            cobolt_forms::row_content::fields(&cobolt_forms::model::DataGridAdvanced::from_control(ctrl))
+        });
         for ev in &ctrl.events {
+            let row = row_fields
+                .as_deref()
+                .filter(|_| ev.event == cobolt_forms::row_content::EVENT);
             write_nested_program(
                 out,
                 &ev.paragraph,
@@ -2277,6 +2332,7 @@ fn write_nested_programs(
                 &format!("{} {} handler", ctrl.id, ev.event),
                 true,
                 array_member.as_deref(),
+                row,
                 CodeSite::ControlEvent {
                     control_id: ctrl.id.clone(),
                     event: ev.event.clone(),
@@ -2296,6 +2352,7 @@ fn write_nested_programs(
             code,
             &format!("toolbar button {origin} {event} handler"),
             true,
+            None,
             None,
             CodeSite::ControlEvent {
                 control_id: control_id.clone(),
@@ -2319,6 +2376,7 @@ fn write_nested_programs(
             &up.code,
             &format!("user procedure {}", up.name.trim()),
             true,
+            None,
             None,
             CodeSite::Procedure {
                 name: up.name.trim().to_string(),
@@ -2347,6 +2405,8 @@ fn write_nested_program(
     comment: &str,
     common: bool,
     array_member: Option<&str>,
+    // Spec 106 — the grid's row, for an `onRowButtonClick` handler.
+    row_fields: Option<&[cobolt_forms::row_content::Field]>,
     site: CodeSite,
     map: &mut SourceMap,
 ) {
@@ -2374,15 +2434,32 @@ fn write_nested_program(
     // counts — an empty handler emits a generated template stub, which maps to
     // no site. Handler bodies keep their leading blank lines, so the span
     // starts at site line 1.
-    let body_start = next_line_number(out);
-    for line in body.trim_end().lines() {
+    //
+    // Spec 106 — in an `onRowButtonClick` handler, the line `COPY
+    // DATAGRID-ROW-CONTENT.` becomes the group, from the grid's columns as they are
+    // NOW. The developer's text keeps its one line, so it never holds a description
+    // that can go stale; the span is split around the group, so every line the
+    // developer wrote still maps to itself and the group's lines map to nothing.
+    let mut seg_start = next_line_number(out);
+    let mut seg_site_line: u32 = 1;
+    for (n, line) in body.trim_end().lines().enumerate() {
+        if let Some(fields) = row_fields.filter(|_| cobolt_forms::row_content::is_copy_line(line)) {
+            let here = next_line_number(out);
+            if is_user_authored && here > seg_start {
+                map.record(site.clone(), seg_start, here - 1, seg_site_line);
+            }
+            out.push_str(&cobolt_forms::row_content::group_text(fields, "       "));
+            seg_start = next_line_number(out);
+            seg_site_line = n as u32 + 2;
+            continue;
+        }
         out.push_str(line);
         out.push('\n');
     }
     if is_user_authored {
         let body_end = out.matches('\n').count() as u32; // last line just written
-        if body_end >= body_start {
-            map.record(site, body_start, body_end, 1);
+        if body_end >= seg_start {
+            map.record(site, seg_start, body_end, seg_site_line);
         }
     }
     out.push('\n');
@@ -2665,15 +2742,28 @@ fn write_event_loop(out: &mut String, form: &Form) {
                 // Dispatch to nested program via CALL (not PERFORM).
                 // For repeating-group (array) member controls, pass the index
                 // so the handler's CONTROL-ARRAY-INDEX linkage item is populated.
+                // A Button column's row goes as DATAGRID-ROW-BUFFER (spec 106), after
+                // the index when the grid is an array member — the order the
+                // handler's USING declares them in.
+                let mut using: Vec<&str> = Vec::new();
                 if form.array_binding_context_for_member(&ctrl.id).is_some() {
+                    using.push("CONTROL-ARRAY-INDEX");
+                }
+                if ctrl.control_type == ControlType::DataGrid
+                    && ev.event == cobolt_forms::row_content::EVENT
+                {
+                    using.push(cobolt_forms::row_content::BUFFER);
+                }
+                if using.is_empty() {
                     out.push_str(&format!(
-                        "                               CALL \"{}\" USING CONTROL-ARRAY-INDEX\n",
+                        "                               CALL \"{}\"\n",
                         ev.paragraph
                     ));
                 } else {
                     out.push_str(&format!(
-                        "                               CALL \"{}\"\n",
-                        ev.paragraph
+                        "                               CALL \"{}\" USING {}\n",
+                        ev.paragraph,
+                        using.join(" ")
                     ));
                 }
             }

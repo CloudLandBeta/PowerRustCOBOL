@@ -48,6 +48,8 @@ pub mod numedit;
 /// lays the cards out from it, and a test reads it without a painter.
 pub mod nv_grid;
 pub mod picture;
+// Spec 106 — DATAGRID-ROW-CONTENT: a row of a DataGrid as onRowButtonClick receives it.
+pub mod row_content;
 /// The Snackbar's pure parts (spec 055) — size classes, category defaults,
 /// `Buttons` parsing, content layout and stack geometry. Deliberately NOT behind
 /// `render`, for the reason `splitter` is not: the host and the runtime read

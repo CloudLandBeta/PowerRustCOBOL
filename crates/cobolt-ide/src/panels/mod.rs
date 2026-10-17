@@ -18,6 +18,7 @@ pub mod connect_agent_wizard;
 pub mod containers;
 pub mod data_binding;
 pub mod data_grid_columns;
+pub(crate) mod datagrid_settings;
 pub mod debugger;
 pub mod designer;
 pub mod doc_viewer;

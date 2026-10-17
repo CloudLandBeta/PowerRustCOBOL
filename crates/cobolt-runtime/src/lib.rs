@@ -58,6 +58,8 @@ pub mod error;
 pub mod esql;
 pub mod exec_rust;
 pub mod files;
+// Spec 106 — the record image of a DataGrid row a Button column was clicked on.
+pub(crate) mod datagrid_row;
 pub mod form_host;
 pub mod http_runtime;
 pub mod image_runtime;

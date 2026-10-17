@@ -5257,7 +5257,7 @@ RustCOBOL built-ins — the `COBOL-…` CALLs (HTTP, SQL, files, dialogs, keys, 
 
 7. Event data (LINKAGE)
 
-Event payload items arrive in `LINKAGE SECTION` and are bound by `PROCEDURE DIVISION USING …`. Use ONLY the linkage items your context lists for that event. Most events deliver nothing — an empty `LINKAGE SECTION` and a plain `PROCEDURE DIVISION.` with no `USING`. Array handlers receive `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`, the 1-based index of the firing control.
+Event payload items arrive in `LINKAGE SECTION` and are bound by `PROCEDURE DIVISION USING …`. Use ONLY the linkage items your context lists for that event. Most events deliver nothing — an empty `LINKAGE SECTION` and a plain `PROCEDURE DIVISION.` with no `USING`. Array handlers receive `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`, the 1-based index of the firing control. A DataGrid's `onRowButtonClick` receives the clicked row as `DATAGRID-ROW-CONTENT`: its LINKAGE SECTION is the one line `COPY DATAGRID-ROW-CONTENT.` (generation writes the group there from the grid's columns — never write its items yourself), and the handler reads `ROW-NUMBER`, `ROW-NAME` (the clicked button column's name) and each data column by its own name, e.g. `ACTOR-NAME` for a column titled `Actor Name`.
 
 8. Shared state and procedures
 

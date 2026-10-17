@@ -4450,8 +4450,88 @@ stale row:
 - **A click while `SelectableText` is off.** The property is on by default and
   is what makes a cell clickable at all: with it off, the cells ignore the
   mouse — nothing is selected, `ClickedRow` and `ClickedColumn` are not
-  written, and neither `onCellClick` nor `onCellDoubleClick` fires, so a Button
-  or icon column does nothing. Headings still sort.
+  written, and neither `onCellClick` nor `onCellDoubleClick` fires. Headings
+  still sort. **A Button column is the exception:** its buttons are actions,
+  so they take their click either way.
+
+**A button that hands its handler the row — Content: Button.** Each column's
+details in **Edit DataGrid settings…** start with its **Content**:
+
+- **Data** is what the binding or `Columns` gives.
+- **Button** stands for an *action*. Give the button a **caption**, an
+  **icon** from the system catalogue (**…** opens the picker), or both. Every
+  row then shows that same button, whatever its data, and the column needs no
+  field behind it: re-applying the grid's data binding keeps it, in its
+  place. A Button column with neither caption nor icon keeps the old
+  behaviour: each row shows its own cell value.
+
+A click on the button fires `onCellClick` as above, then **`onRowButtonClick`**.
+Space or Enter on the selected button cell does the same, so the keyboard
+reaches a row's actions too. A disabled grid's buttons do nothing. A Button
+column holds actions, not values: it has no filter box, and its heading does
+not sort.
+
+The `onRowButtonClick` handler receives the whole row as
+`DATAGRID-ROW-CONTENT` (see *Event payloads*). So instead of fetching cells by
+row and column number, it reads them by name:
+
+```cobol
+      *> Columns: Actor Id (mask 9(5)) | Actor Name | Edit (Button) | Delete (Button)
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-OK PIC 9.
+       LINKAGE SECTION.
+       COPY DATAGRID-ROW-CONTENT.
+       PROCEDURE DIVISION USING DATAGRID-ROW-CONTENT.
+           EVALUATE ROW-NAME
+               WHEN "EDIT"   MOVE ACTOR-NAME TO TXT-NAME::Text
+               WHEN "DELETE" MOVE DG-1::DeleteRow(ROW-NUMBER) TO WS-OK
+           END-EVALUATE.
+```
+
+- **`ROW-NUMBER`** is the row's number in `Rows`, so it is right after a sort
+  or a filter.
+- **`ROW-NAME`** is the Button column's COBOL name, upper case.
+- **Each data column** arrives in its own COBOL mask, exactly as a record READ
+  into the same description would: a signed number keeps its sign, and an
+  implied decimal point takes no byte.
+
+The `COPY DATAGRID-ROW-CONTENT.` line is the whole description. Each
+generation writes the group there from the grid's columns as they are then.
+Renaming, adding or removing a column therefore changes what the handler sees
+at the next generation, and your own lines are never touched. If the handler
+still uses a name the grid no longer has, Check reports it.
+
+Because the group's names are the columns' own, **Check refuses** a column
+name that:
+
+- cannot be a COBOL data name, or is longer than 30 characters;
+- is a COBOL reserved word;
+- is one of the group's own names (`ROW-NUMBER`, `ROW-NAME`, …);
+- is used by two columns;
+- is already a data item of the form.
+
+The settings window shows the same warning under the column's name as you
+type it. A Button column's name reaches the handler only as `ROW-NAME`'s text,
+so what Check says about a Button column is only ever a warning: that it has
+neither caption nor icon, that two Button columns share a name (the handler
+cannot tell them apart), or that a name is longer than `ROW-NAME`'s 30
+characters (the handler sees it cut).
+
+**The settings window's columns.** In **Edit DataGrid settings…** the columns
+are listed on the left, and the selected column's details are on the right.
+Each side scrolls on its own, so the window keeps its size. The COLUMNS header
+has four buttons:
+
+- **+** adds a column after the selected one.
+- **−** deletes the selected column, after asking: its cell goes from every
+  row.
+- **▲** and **▼** move the selected column; dragging a column in the list does
+  the same, with a line showing where it will land.
+
+Each of these is one Undo step. Each changes `Columns`, `Rows` and the display
+order exactly as the same action on the canvas's edit mode does. The window is
+resized only by its corner grip.
 
 **Pictures in cells — the Image kind.** Set a column's **Edit control** to
 **Image** in **Edit DataGrid settings…** and each cell shows a picture instead
@@ -4915,8 +4995,8 @@ designer canvas, the preview, Run Form and the compiled binary.
 > **as you wrote it**, so `Sorted` can reorder the display without renumbering
 > your handler; `CONTROL-NODE-LEVEL` is its 1-based depth; `CONTROL-NODE-CHECKED`
 > is `1` when its box is ticked and `0` when it is not (or the tree has no
-> boxes). This is the platform's second event payload, alongside
-> `CONTROL-ARRAY-INDEX` — before 1.61.158 a handler for `onNodeCheck`,
+> boxes). This is one of the platform's three event payloads, with
+> `CONTROL-ARRAY-INDEX` and a DataGrid's `DATAGRID-ROW-CONTENT` — before 1.61.158 a handler for `onNodeCheck`,
 > `onNodeCollapse` or `onNodeExpand` had no way to tell which node had moved.
 >
 > **Walking the tree, since 1.61.159.** Knowing which node fired is half of it;
@@ -7915,7 +7995,8 @@ In words:
 >   TreeView `onNodeClick`/`onNodeSelect`/`onNodeDblClick`; Panel `onScroll`
 >   (AutoScroll); MenuBar `onMenuOpen`/`onMenuClose`; DataGrid
 >   `onCellClick`/`onCellDoubleClick`/`onRowDoubleClick`/`onColumnClick`/
->   `onScroll` plus its selection events, and — on a grid that edits and writes
+>   `onScroll` plus its selection events, `onRowButtonClick` for a column
+>   whose Content is Button, and — on a grid that edits and writes
 >   back — `onCellEdited`, `onSaved` and `onCommitError`.
 > - **Media & charts** — PictureBox `onImageLoaded`/`onImageError`; Animator
 >   `onStarted`/`onFrameChanged`/`onLooped`/`onEnded`; charts `onDataChanged`
@@ -8046,6 +8127,40 @@ and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
   cannot renumber it, `CONTROL-NODE-LEVEL` its 1-based depth, and
   `CONTROL-NODE-CHECKED` is `1` when its box is ticked and `0` when it is not,
   or when the tree has no boxes at all.
+
+  A DataGrid's **`onRowButtonClick`** — a click on the button of a column whose
+  **Content** is **Button** — receives the row the button is on. Its LINKAGE
+  SECTION is a single line, and the designer writes the header for you:
+
+  ```cobol
+       LINKAGE SECTION.
+       COPY DATAGRID-ROW-CONTENT.
+
+       PROCEDURE DIVISION USING DATAGRID-ROW-CONTENT.
+  ```
+
+  Every generation replaces that `COPY` line with the group, built from the
+  grid's columns as they are at that moment:
+
+  ```cobol
+       01 DATAGRID-ROW-CONTENT.
+          05 ROW-NUMBER   PIC 9(9).
+          05 ROW-NAME     PIC X(30).
+          05 ROW-COLUMNS.
+             10 ACTOR-ID     PIC 9(5).
+             10 ACTOR-NAME   PIC X(30).
+  ```
+
+  - `ROW-NUMBER` is the row's 1-based number in `Rows`, so sorting or
+    filtering the grid does not change it.
+  - `ROW-NAME` is the clicked Button column's name, so one handler can serve an
+    Edit and a Delete column.
+  - Under `ROW-COLUMNS` there is one item per **data** column, in display
+    order. Each is named as the column is: its title, else its source field,
+    else its id, made a COBOL word (`Actor Name` becomes `ACTOR-NAME`). Its
+    picture is the column's COBOL mask, or `X(30)` when it has none.
+
+  See the DataGrid section for the details.
 
   Every other event carries no data: an empty `LINKAGE SECTION` and a plain
   `PROCEDURE DIVISION.` with no `USING`.

@@ -640,6 +640,11 @@ fn cred_hint(on_file: bool) -> &'static str {
 #[derive(Default)]
 pub struct InspectorAction {
     pub set_props: Vec<(String, String, PropValue)>,
+    /// `(ctrl_id, edits)` — several properties of one control changed as ONE undo step:
+    /// a DataGrid column added, deleted or moved in its settings window rewrites
+    /// `Columns`, `Rows` and `AdvancedGrid` together (spec 106 R7), and one Undo must
+    /// put all three back.
+    pub set_props_in_one_step: Vec<(String, Vec<(String, PropValue)>)>,
     /// Spec 056 R65 — "reset to base" on an overridden row: the property whose
     /// override for the viewed breakpoint is removed.
     pub reset_override: Option<String>,
@@ -3842,6 +3847,9 @@ pub struct PropertiesPanel {
     new_anim_name: String,
     binding_editor: Option<BindingEditorState>,
     datagrid_editor: Option<String>,
+    /// The DataGrid settings window's own size, selected column, pending delete and icon
+    /// picker (spec 106).
+    datagrid_settings: super::datagrid_settings::SettingsState,
     active_tab: InspectorTab,
     property_split: f32,
     /// The icon catalogue, shared with the toolbar editor. One state for the
@@ -3937,6 +3945,7 @@ impl PropertiesPanel {
             new_anim_name: String::new(),
             binding_editor: None,
             datagrid_editor: None,
+            datagrid_settings: Default::default(),
             active_tab: InspectorTab::Visuals,
             property_split: 0.0,
             icon_picker: Default::default(),
@@ -4153,7 +4162,7 @@ impl PropertiesPanel {
         }
         if let Some(ctrl) = ctrl {
             if ctrl.control_type == ControlType::DataGrid {
-                self.show_datagrid_editor_modal(ui.ctx(), ctrl, &mut action, tr);
+                self.show_datagrid_editor_modal(ui.ctx(), form, ctrl, &mut action, tr);
             }
         }
         self.flush_orphaned_text_edits(&mut action);
@@ -5708,10 +5717,12 @@ impl PropertiesPanel {
     fn show_datagrid_editor_modal(
         &mut self,
         ctx: &egui::Context,
+        form: &Form,
         ctrl: &Control,
         action: &mut InspectorAction,
         tr: &Tr,
     ) {
+        use super::datagrid_settings as dgs;
         let Some(open_id) = self.datagrid_editor.clone() else {
             return;
         };
@@ -5719,19 +5730,30 @@ impl PropertiesPanel {
             self.datagrid_editor = None;
             return;
         }
+        self.datagrid_settings.for_grid(&ctrl.id);
 
         let mut open = true;
-        egui::Window::new(crate::ui_text::tx("Edit DataGrid settings"))
+        let size = self.datagrid_settings.size;
+        let window = egui::Window::new(crate::ui_text::tx("Edit DataGrid settings"))
             .id(egui::Id::new(("datagrid_settings", &ctrl.id)))
             .collapsible(false)
-            .resizable(true)
-            .default_size(egui::vec2(750.0, 550.0))
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            // Never `resizable(true)` (CONVENTIONS' window rule): the size is ours, and
+            // only the grip changes it. Centred on first open, movable after.
+            .resizable(false)
+            .fixed_size(size)
+            .default_pos(ctx.content_rect().center() - size / 2.0)
             .open(&mut open)
             .show(ctx, |ui| {
                 let id = ctrl.id.as_str();
-                ScrollArea::vertical()
+                let width = super::fixed_dialog::content_width(ui, size.x);
+                ui.set_width(width);
+                let body_h = (size.y - dgs::CHROME_H).max(120.0);
+                // Both ways: anything wider than the window scrolls sideways rather
+                // than widening it.
+                ScrollArea::both()
                     .id_salt(format!("datagrid_settings_scroll_{}", ctrl.id))
+                    .max_height(body_h)
+                    .min_scrolled_height(body_h)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         section_header(ui, tr.sec_grid_behavior);
@@ -5820,46 +5842,119 @@ impl PropertiesPanel {
                                 // modal so there is a single source of truth.
                             });
 
-                        section_header(ui, tr.sec_columns);
+                        // ── Columns (spec 106 R2–R6): the list on the left, the selected
+                        // column's details on the right, each pane scrolling on its own
+                        // inside a height taken from the window's stored size — so neither
+                        // a click in the list nor a long column changes the window.
+                        let header = section_header(ui, tr.sec_columns);
+                        let st = &mut self.datagrid_settings;
                         let mut advanced = DataGridAdvanced::from_control(ctrl);
                         let mut changed_advanced = false;
-                        if advanced.columns.is_empty() {
-                            ui.label(RichText::new(crate::ui_text::tx("No columns defined yet. Use data binding or the Columns property to create fields.")).small().color(Color32::GRAY));
+                        let mut columns_action: Option<dgs::ColumnsAction> = None;
+                        let problems = st.problems(form, ctrl);
+                        // The + − ▲ ▼ sit on the COLUMNS band itself, in a child that takes
+                        // no room from the section (a search defers the band: then a row).
+                        if let Some(band) = header {
+                            let mut bar = ui.new_child(
+                                egui::UiBuilder::new()
+                                    .max_rect(band.shrink2(egui::vec2(6.0, 2.0)))
+                                    .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                            );
+                            columns_action = st.header_buttons(&mut bar, &advanced.columns, tr);
+                        } else {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                columns_action = st.header_buttons(ui, &advanced.columns, tr);
+                            });
                         }
-                        for (index, column) in advanced.columns.iter_mut().enumerate() {
-                            egui::CollapsingHeader::new(format!(
-                                "{} — {}",
-                                index + 1,
-                                if column.title.trim().is_empty() { &column.source_name } else { &column.title }
-                            ))
-                            .id_salt(format!("dg_column_modal_{}_{}", ctrl.id, column.id))
-                            .default_open(index == 0)
-                            .show(ui, |ui| {
+                        let flagged: Vec<bool> =
+                            (0..advanced.columns.len()).map(|i| problems.iter().any(|p| p.column == i)).collect();
+                        let selected = st.selected_index(&advanced.columns);
+                        let panes_h = st.panes_height();
+                        let list_w = dgs::LIST_W;
+                        const PAD: f32 = 6.0;
+                        // Both panes, their frames and the gap between them, inside the body
+                        // width less the body's own scroll bar.
+                        let details_w = (width - list_w - 4.0 * PAD - ui.spacing().item_spacing.x - 22.0).max(220.0);
+                        ui.add_space(4.0);
+                        ui.horizontal_top(|ui| {
+                            egui::Frame::group(ui.style()).inner_margin(PAD).show(ui, |ui| {
+                                ui.set_width(list_w);
+                                ui.set_height(panes_h);
+                                ScrollArea::vertical()
+                                    .id_salt(("dg_columns_list", &ctrl.id))
+                                    .max_height(panes_h)
+                                    .min_scrolled_height(panes_h)
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        // Top-down: the row these panes sit in is left to right.
+                                        ui.vertical(|ui| {
+                                            if let Some(a) = st.list_ui(ui, &advanced.columns, &flagged, list_w - 12.0, tr) {
+                                                columns_action = Some(a);
+                                            }
+                                        });
+                                    });
+                            });
+                            egui::Frame::group(ui.style()).inner_margin(PAD).show(ui, |ui| {
+                                ui.set_width(details_w);
+                                ui.set_height(panes_h);
+                                ScrollArea::both()
+                                    .id_salt(("dg_columns_details", &ctrl.id))
+                                    .max_height(panes_h)
+                                    .min_scrolled_height(panes_h)
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| ui.vertical(|ui| {
+                                        ui.set_width(details_w - 14.0);
+                                        let Some(index) = selected else {
+                                            ui.label(RichText::new(tr.dg_col_none_yet).weak());
+                                            return;
+                                        };
+                                        let column = &mut advanced.columns[index];
+                                        // R5 — Delete asks first, here, naming the column.
+                                        if st.confirm_delete.as_deref() == Some(column.id.as_str()) {
+                                            egui::Frame::group(ui.style()).show(ui, |ui| {
+                                                ui.label(
+                                                    RichText::new(tr.dg_col_delete_ask.replace("{}", dgs::shown_name(column)))
+                                                        .color(ui.visuals().warn_fg_color),
+                                                );
+                                                ui.horizontal(|ui| {
+                                                    if ui.button(tr.dg_col_delete_yes).clicked() {
+                                                        columns_action = Some(dgs::ColumnsAction::Delete(index));
+                                                    }
+                                                    if ui.button(tr.btn_cancel).clicked() {
+                                                        st.confirm_delete = None;
+                                                    }
+                                                });
+                                            });
+                                            ui.add_space(6.0);
+                                        }
+                                        changed_advanced |= datagrid_column_content(ui, &ctrl.id, index, column, &problems, st, tr);
                                 egui::Grid::new(format!("dg_column_grid_{}_{}", ctrl.id, index))
                                     .num_columns(2)
                                     .spacing([8.0, 4.0])
                                     .show(ui, |ui| {
-                                        ui.label("Title");
-                                        changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.title).desired_width(180.0)).changed();
-                                        ui.end_row();
                                         ui.label(crate::ui_text::tx("Source field"));
                                         ui.label(RichText::new(&column.source_name).monospace().color(Color32::GRAY));
                                         ui.end_row();
-                                        ui.label(crate::ui_text::tx("COBOL mask"));
-                                        changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.cobol_mask).desired_width(120.0)).changed();
-                                        ui.end_row();
-                                        ui.label(crate::ui_text::tx("Edit control"));
-                                        let before_edit = column.edit_control.clone();
-                                        egui::ComboBox::from_id_salt(format!("dg_col_edit_{}_{}", ctrl.id, index))
-                                            .selected_text(if column.edit_control.trim().is_empty() { "Textbox" } else { &column.edit_control })
-                                            .width(140.0)
-                                            .show_ui(ui, |ui| {
-                                                for opt in ["Textbox", "Dropdown", "Checkbox", "Button", "Gauge", "Image"] {
-                                                    ui.selectable_value(&mut column.edit_control, opt.to_owned(), opt);
-                                                }
-                                            });
-                                        changed_advanced |= before_edit != column.edit_control;
-                                        ui.end_row();
+                                        // A Button column is an action, not data (R8): it has no
+                                        // mask (it is not in DATAGRID-ROW-CONTENT) and its kind is
+                                        // its Content.
+                                        if !column.is_button() {
+                                            ui.label(crate::ui_text::tx("COBOL mask"));
+                                            changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.cobol_mask).desired_width(120.0)).changed();
+                                            ui.end_row();
+                                            ui.label(crate::ui_text::tx("Edit control"));
+                                            let before_edit = column.edit_control.clone();
+                                            egui::ComboBox::from_id_salt(format!("dg_col_edit_{}_{}", ctrl.id, index))
+                                                .selected_text(if column.edit_control.trim().is_empty() { "Textbox" } else { &column.edit_control })
+                                                .width(140.0)
+                                                .show_ui(ui, |ui| {
+                                                    for opt in ["Textbox", "Dropdown", "Checkbox", "Gauge", "Image"] {
+                                                        ui.selectable_value(&mut column.edit_control, opt.to_owned(), opt);
+                                                    }
+                                                });
+                                            changed_advanced |= before_edit != column.edit_control;
+                                            ui.end_row();
+                                        }
                                         // Spec 095: what a Checkbox cell holds when it is checked and
                                         // when it is not. Empty: the pair the cell's data already uses.
                                         let kind = if column.control_kind.trim().is_empty() {
@@ -5879,7 +5974,7 @@ impl PropertiesPanel {
                                                 .changed();
                                             ui.end_row();
                                             ui.label("");
-                                            ui.label(RichText::new(tr.dg_col_checkbox_hint).small().weak());
+                                            ui.add(egui::Label::new(RichText::new(tr.dg_col_checkbox_hint).small().weak()).wrap());
                                             ui.end_row();
                                         }
                                         // Spec 095: a Dropdown cell's list. A grid with no binding gets
@@ -5893,7 +5988,7 @@ impl PropertiesPanel {
                                                 .filter(|d| d.origin != DataGridDropdownOrigin::Static)
                                                 .map(|d| format!("{:?} {}", d.origin, d.source));
                                             if let Some(from) = from {
-                                                ui.label(RichText::new(tr.dg_col_dropdown_from.replace("{}", &from)).small().weak());
+                                                ui.add(egui::Label::new(RichText::new(tr.dg_col_dropdown_from.replace("{}", &from)).small().weak()).wrap());
                                             } else {
                                                 let mut items = column.dropdown.as_ref().map(|d| d.items.clone()).unwrap_or_default();
                                                 if ui
@@ -5915,7 +6010,7 @@ impl PropertiesPanel {
                                             }
                                             ui.end_row();
                                             ui.label("");
-                                            ui.label(RichText::new(tr.dg_col_dropdown_hint).small().weak());
+                                            ui.add(egui::Label::new(RichText::new(tr.dg_col_dropdown_hint).small().weak()).wrap());
                                             ui.end_row();
                                         }
                                         if column.edit_control.eq_ignore_ascii_case("Image") {
@@ -6143,11 +6238,62 @@ impl PropertiesPanel {
                                             ui.end_row();
                                         }
                                     });
+                                    }));
                             });
-                            ui.add_space(6.0);
+                        });
+                        ui.add_space(6.0);
+
+                        // R4–R7 — add, delete and move are the canvas edit mode's own
+                        // edits, each sent as ONE undo step; the selection follows the
+                        // column the edit is about.
+                        let structural = matches!(
+                            columns_action,
+                            Some(dgs::ColumnsAction::Add | dgs::ColumnsAction::Delete(_) | dgs::ColumnsAction::Move { .. })
+                        );
+                        let shown = DataGridAdvanced::from_control(ctrl).columns;
+                        match columns_action {
+                            Some(dgs::ColumnsAction::Add) => {
+                                let (edits, at, new_id) = dgs::add_column_after(ctrl, selected);
+                                if !edits.is_empty() {
+                                    action.set_props_in_one_step.push((ctrl.id.clone(), edits));
+                                    st.select_pending(at, new_id);
+                                }
+                                st.confirm_delete = None;
+                            }
+                            Some(dgs::ColumnsAction::AskDelete) => {
+                                st.confirm_delete = selected.and_then(|i| shown.get(i)).map(|c| c.id.clone());
+                            }
+                            Some(dgs::ColumnsAction::Delete(i)) => {
+                                let edits = dgs::delete_column(ctrl, i);
+                                if !edits.is_empty() {
+                                    action.set_props_in_one_step.push((ctrl.id.clone(), edits));
+                                }
+                                st.confirm_delete = None;
+                                // The neighbour that takes its place is selected.
+                                let next = if i + 1 < shown.len() {
+                                    Some((i, &shown[i + 1]))
+                                } else {
+                                    i.checked_sub(1).map(|p| (p, &shown[p]))
+                                };
+                                if let Some((at, c)) = next {
+                                    st.select_pending(at, c.id.clone());
+                                }
+                            }
+                            Some(dgs::ColumnsAction::Move { from, to }) => {
+                                let edits = dgs::move_column(ctrl, from, to);
+                                if !edits.is_empty() {
+                                    action.set_props_in_one_step.push((ctrl.id.clone(), edits));
+                                    if let Some(c) = shown.get(from) {
+                                        st.select_pending(to, c.id.clone());
+                                    }
+                                }
+                            }
+                            None => {}
                         }
 
-                        if changed_advanced {
+                        // A field edited in the same frame as a structural edit is dropped:
+                        // the structural edit was made from the grid as it stood.
+                        if changed_advanced && !structural {
                             if let Ok(json) = advanced.to_json() {
                                 action.set_props.push((
                                     ctrl.id.clone(),
@@ -6173,9 +6319,27 @@ impl PropertiesPanel {
                             });
                     });
             });
+        if let Some(window) = window {
+            self.datagrid_settings.resize_grip(ctx, window.response.rect);
+        }
+        // A Button column's icon, chosen in the catalogue (R9).
+        if let Some((key, name)) = super::icon_picker::show(ctx, &mut self.datagrid_settings.icon_picker) {
+            if let Some(column_id) = key.strip_prefix(DG_BUTTON_ICON_KEY) {
+                let mut advanced = DataGridAdvanced::from_control(ctrl);
+                if let Some(c) = advanced.columns.iter_mut().find(|c| c.id == column_id) {
+                    c.button_icon = name;
+                    if let Ok(json) = advanced.to_json() {
+                        action
+                            .set_props
+                            .push((ctrl.id.clone(), DATAGRID_ADVANCED_PROP.to_owned(), PropValue::String(json)));
+                    }
+                }
+            }
+        }
 
         if !open {
             self.datagrid_editor = None;
+            self.datagrid_settings.confirm_delete = None;
         }
     }
 
@@ -12732,7 +12896,9 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
 fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl FnOnce(&mut Ui)) {
     match search_admits(label, key) {
         RowAdmission::Hidden => return,
-        RowAdmission::FirstInSection(title) => draw_section_header(ui, &title),
+        RowAdmission::FirstInSection(title) => {
+            draw_section_header(ui, &title);
+        }
         RowAdmission::Shown => {}
     }
     // The wording the row is drawn with (the key, below, comes from the English one).
@@ -13268,7 +13434,9 @@ fn glow_color_rows(ui: &mut Ui, ctrl_id: &str, ctrl: &Control, action: &mut Insp
     }
 }
 
-fn section_header(ui: &mut Ui, title: &str) {
+/// Where the band was drawn: `None` while a search defers it to the section's first
+/// shown row.
+fn section_header(ui: &mut Ui, title: &str) -> Option<Rect> {
     #[cfg(test)]
     ROW_LOG.with(|l| l.borrow_mut().push(RowLogEntry::Section(title.to_owned())));
     // The section before this one ends here: its rows go to their A–Z places.
@@ -13284,13 +13452,11 @@ fn section_header(ui: &mut Ui, title: &str) {
         }
         None => false,
     });
-    if !deferred {
-        draw_section_header(ui, title);
-    }
+    (!deferred).then(|| draw_section_header(ui, title))
 }
 
-/// Draw a section's header band.
-fn draw_section_header(ui: &mut Ui, title: &str) {
+/// Draw a section's header band; answers where.
+fn draw_section_header(ui: &mut Ui, title: &str) -> Rect {
     // Property rows zero their vertical spacing, so add an explicit gap here to keep
     // sections visually separated.
     ui.add_space(6.0);
@@ -13319,7 +13485,7 @@ fn draw_section_header(ui: &mut Ui, title: &str) {
         if !search_active() {
             sort_begin(ui, title);
         }
-        return;
+        return rect;
     }
     // Derived from the pane the header sits on, not a fixed colour: the old
     // dark constant was so near black that it read as a hole punched through
@@ -13351,6 +13517,7 @@ fn draw_section_header(ui: &mut Ui, title: &str) {
     if !search_active() {
         sort_begin(ui, title);
     }
+    rect
 }
 
 /// A small button showing a device outline — tall for portrait, wide for
@@ -13810,6 +13977,98 @@ fn datagrid_color_modal_row(
                 .color(Color32::GRAY),
         );
     });
+}
+
+/// The icon picker's key for a Button column's icon, before the column's id.
+const DG_BUTTON_ICON_KEY: &str = "dg-button-icon:";
+
+/// Spec 106 R8, R9, R17 — the top of a column's details: its **Content** (Data or
+/// Button), its title, and then a Button column's caption and icon, or the name a Data
+/// column has in DATAGRID-ROW-CONTENT — with, under it, every reason that name cannot be
+/// used, worded as Check words it. `true` when the column changed.
+fn datagrid_column_content(
+    ui: &mut Ui,
+    grid_id: &str,
+    index: usize,
+    column: &mut cobolt_forms::model::DataGridColumn,
+    problems: &[cobolt_forms::row_content::Problem],
+    st: &mut super::datagrid_settings::SettingsState,
+    tr: &Tr,
+) -> bool {
+    use super::icon_picker::IconRowAction;
+    let mut changed = false;
+    let warn = ui.visuals().warn_fg_color;
+    egui::Grid::new(format!("dg_column_content_{grid_id}_{index}"))
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            ui.label(tr.dg_col_content);
+            ui.horizontal(|ui| {
+                let button = column.is_button();
+                if ui.selectable_label(!button, tr.dg_col_content_data).clicked() && button {
+                    super::datagrid_settings::set_button_content(column, false);
+                    changed = true;
+                }
+                if ui.selectable_label(button, tr.dg_col_content_button).clicked() && !button {
+                    super::datagrid_settings::set_button_content(column, true);
+                    changed = true;
+                }
+            });
+            ui.end_row();
+            ui.label("Title");
+            changed |= ui.add(egui::TextEdit::singleline(&mut column.title).desired_width(180.0)).changed();
+            ui.end_row();
+            if column.is_button() {
+                ui.label(tr.dg_col_button_caption);
+                changed |= ui
+                    .add(egui::TextEdit::singleline(&mut column.button_caption).desired_width(180.0))
+                    .changed();
+                ui.end_row();
+                ui.label(tr.dg_col_button_icon);
+                let before = column.button_icon.clone();
+                let wid = egui::Id::new(("dg_button_icon", grid_id, index));
+                let (want, _) = super::icon_picker::name_row(ui, &mut column.button_icon, wid, "");
+                match want {
+                    IconRowAction::Pick => st.icon_picker.open(format!("{DG_BUTTON_ICON_KEY}{}", column.id)),
+                    IconRowAction::Clear => column.button_icon.clear(),
+                    IconRowAction::None => {}
+                }
+                changed |= before != column.button_icon;
+                ui.end_row();
+                // A Grid does not wrap a label on its own; these are sentences.
+                if !column.has_own_button() {
+                    ui.label("");
+                    ui.add(egui::Label::new(RichText::new(tr.dg_col_button_needs_face).small().color(warn)).wrap());
+                    ui.end_row();
+                }
+                ui.label("");
+                ui.add(egui::Label::new(RichText::new(tr.dg_col_button_hint).small().weak()).wrap());
+                ui.end_row();
+            } else {
+                ui.label(tr.dg_col_cobol_name);
+                ui.label(RichText::new(cobolt_forms::row_content::column_name(column)).monospace());
+                ui.end_row();
+            }
+            for p in problems.iter().filter(|p| p.column == index) {
+                use cobolt_forms::row_content::ProblemKind as K;
+                let text = match p.kind {
+                    // Said above, beside the caption and icon.
+                    K::SilentButton => continue,
+                    K::NotAWord => tr.dg_col_warn_not_a_word,
+                    K::TooLong => tr.dg_col_warn_too_long,
+                    K::Reserved => tr.dg_col_warn_reserved,
+                    K::GroupName => tr.dg_col_warn_group_name,
+                    K::ClashesWithForm => tr.dg_col_warn_clash,
+                    K::Duplicate => tr.dg_col_warn_duplicate,
+                    K::ButtonNameTooLong => tr.dg_col_warn_button_too_long,
+                };
+                ui.label("");
+                ui.add(egui::Label::new(RichText::new(format!("⚠ {}", text.replace("{}", &p.name))).small().color(warn)).wrap());
+                ui.end_row();
+            }
+        });
+    ui.add_space(4.0);
+    changed
 }
 
 fn datagrid_text_modal_row(
@@ -18401,3 +18660,7 @@ mod label_help_tests {
         assert!(missing.is_empty(), "{} row labels are not in the ui_text table", missing.len());
     }
 }
+
+#[cfg(test)]
+#[path = "datagrid_settings_106_tests.rs"]
+mod datagrid_settings_106_tests;

@@ -7852,7 +7852,7 @@ impl DesignerPanel {
     }
 
     /// Write several properties of one control as ONE undoable step.
-    fn set_properties_in_one_step(&mut self, id: &str, edits: Vec<(String, PropValue)>) {
+    pub(crate) fn set_properties_in_one_step(&mut self, id: &str, edits: Vec<(String, PropValue)>) {
         let before = self.undo_stack.len();
         for (key, value) in edits {
             self.set_property(id, &key, value);
