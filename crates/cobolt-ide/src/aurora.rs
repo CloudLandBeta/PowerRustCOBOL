@@ -620,6 +620,21 @@ impl Pill {
     pub const DISABLED: Pill = Pill { top: Color32::from_rgb(244, 246, 250), bottom: Color32::from_rgb(227, 232, 240), ink: Color32::from_rgb(79, 92, 118) };
 }
 
+/// The pill of a toolbar **toggle that is on** (the Task Wizard's, spec 104 R2): the
+/// palette's own selected-tab face, which every Aurora palette already keeps legible
+/// (`tests::selected_tab_reads`), lifted a touch at the top so it still reads as a pill.
+pub fn engaged_pill() -> Pill {
+    engaged_pill_of(palette().unwrap_or(&PASTEL))
+}
+
+fn engaged_pill_of(pal: &Palette) -> Pill {
+    Pill {
+        top: pal.tab_selected.lerp_to_gamma(Color32::WHITE, 0.08),
+        bottom: pal.tab_selected,
+        ink: pal.tab_selected_ink,
+    }
+}
+
 /// A toolbar button drawn as a raised gradient pill: a soft shadow under it,
 /// the gradient, a lit top edge and a shaded bottom edge. The label keeps the
 /// widget's own text and behaviour; only the face is painted.
@@ -705,6 +720,32 @@ mod tests {
                     assert!(r >= floor, "{theme} {name}: {r:.2}:1 on {face:?}");
                 }
             }
+        }
+    }
+
+    /// Spec 104 R2 — a toggle that is on (the Task Wizard's) reads in every palette.
+    #[test]
+    fn the_engaged_pill_reads_in_every_palette() {
+        for (theme, pal) in [
+            ("pastel", &PASTEL),
+            ("prime", &PRIME),
+            ("navy-teal", &SLICK_NAVY_TEAL),
+            ("graphite-indigo", &SLICK_GRAPHITE_INDIGO),
+            ("slate-coral", &SLICK_SLATE_CORAL),
+            ("charcoal-emerald", &SLICK_CHARCOAL_EMERALD),
+            ("piano-coral", &SLICK_PIANO_CORAL),
+            ("spatial", &SPATIAL),
+        ] {
+            let p = engaged_pill_of(pal);
+            for face in [p.top, p.bottom] {
+                let r = contrast_ratio(p.ink, face);
+                assert!(r >= 4.5, "{theme} engaged: {r:.2}:1 on {face:?}");
+            }
+            assert_ne!(
+                (p.top, p.bottom),
+                (pal.pills.open.top, pal.pills.open.bottom),
+                "{theme}: on must not look like off"
+            );
         }
     }
 

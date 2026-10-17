@@ -48,6 +48,12 @@ struct Rig {
     sequence: Vec<(String, Rect)>,
     /// The cursor the last frame asked for.
     cursor: egui::CursorIcon,
+    /// Spec 104 — a Task Wizard step showing over this window, and what its balloon or `Esc`
+    /// asked for.
+    wizard: Option<(crate::panels::task_wizard::Plan, crate::panels::task_wizard::overlay::Overlay)>,
+    nav: Option<crate::panels::task_wizard::Nav>,
+    /// Something drawn over the canvas, in a layer of its own (a popup, a balloon).
+    over: Option<Rect>,
 }
 
 impl Rig {
@@ -62,6 +68,9 @@ impl Rig {
             fills: Vec::new(),
             sequence: Vec::new(),
             cursor: egui::CursorIcon::Default,
+            wizard: None,
+            nav: None,
+            over: None,
         };
         rig.settle();
         rig
@@ -77,11 +86,42 @@ impl Rig {
         input.events = events;
         let d = &mut self.d;
         let llm = &self.llm;
+        let wizard = &mut self.wizard;
+        let nav = &mut self.nav;
+        let over = self.over;
+        use crate::panels::task_wizard::{anchors, input as wizard_input};
+        if wizard.is_some() {
+            anchors::install(None);
+        }
         let mut out = self.ctx.run_ui(input, |root| {
+            let vp = root.ctx().viewport_id();
+            if let Some((plan, overlay)) = wizard.as_ref() {
+                let in_mode = d.grid_edit.is_some();
+                if let Some(n) = wizard_input::filter(root.ctx(), Some(plan), overlay.live_rect(vp), overlay.field_focus(vp), in_mode) {
+                    *nav = Some(n);
+                }
+            }
             egui::CentralPanel::default().show_inside(root, |ui| {
                 let _ = d.show(ui, &mut None, &[], llm, None, None);
             });
+            if let Some(r) = over {
+                egui::Area::new(egui::Id::new("over_the_canvas"))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(r.min)
+                    .show(root.ctx(), |ui| {
+                        ui.allocate_rect(r, egui::Sense::click());
+                    });
+            }
+            if let Some((plan, overlay)) = wizard.as_mut() {
+                let marks = anchors::snapshot();
+                let tr = crate::i18n::Language::English.tr();
+                let p = crate::panels::spotlight::balloon_palette(&crate::theme::THEMES[0]);
+                if let Some(n) = overlay.paint(root.ctx(), Some(plan), &marks, &tr, &p, &|_| String::new()) {
+                    *nav = Some(n);
+                }
+            }
         });
+        let _ = anchors::take();
         out.textures_delta.clear();
         fn walk(
             shape: &egui::Shape,
@@ -1317,4 +1357,75 @@ fn a_click_on_the_canvas_selects_the_control_on_top_for_every_visual_control() {
     }
     println!("{checked} canvas clicks checked, {} failures", failures.len());
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+// ── Spec 104 — the Task Wizard over a grid in edit mode ──────────────────────────────
+
+/// A wizard step lit on the selected grid, keys to the whole window — the DataGrid task's
+/// canvas steps.
+fn wizard_on_the_grid(rig: &mut Rig) {
+    use crate::panels::task_wizard::{AnchorId, Card, KeyPolicy, Plan, StepCard};
+    let plan = Plan {
+        serial: 1,
+        viewport: rig.ctx.viewport_id(),
+        ring: Some(AnchorId::SubjectOnCanvas),
+        live: Some(AnchorId::Canvas),
+        dim_only: false,
+        keys: KeyPolicy::Viewport,
+        card: Card::Step(StepCard {
+            task: "T",
+            title: "S",
+            body: "B",
+            n: 1,
+            m: 2,
+            already: false,
+            did: None,
+            back: false,
+            do_for_me: false,
+            reopen: false,
+            last: false,
+        }),
+    };
+    rig.wizard = Some((plan, Default::default()));
+    rig.settle();
+}
+
+/// Spec 104 R22 — with a task showing, `Esc` still leaves the innermost thing first: it
+/// cancels the cell edit (not commits it), then leaves the grid's edit mode, and only then
+/// is the wizard's Exit. One press never does two of these.
+#[test]
+fn with_the_task_wizard_on_escape_still_cancels_then_leaves_the_mode_then_exits() {
+    let mut rig = Rig::new(grid_form());
+    enter(&mut rig, "DG");
+    wizard_on_the_grid(&mut rig);
+    rig.double_click(rig.at(BOB.0, BOB.1));
+    rig.type_replacing("Zed");
+    rig.press_key(Key::Escape);
+    assert_eq!(rig.prop("DG", "Rows"), "Bob\t30\nann\t9\nCid\t100", "Escape drops the edit, as without the wizard");
+    assert!(rig.d.grid_edit.is_some(), "…and stays in the mode");
+    assert_eq!(rig.nav, None, "…and does not leave the task");
+    rig.press_key(Key::Escape);
+    assert!(rig.d.grid_edit.is_none(), "the next Escape leaves the mode");
+    assert_eq!(rig.nav, None, "…and only the mode");
+    rig.press_key(Key::Escape);
+    assert_eq!(rig.nav, Some(crate::panels::task_wizard::Nav::Exit), "the third is the wizard's Exit");
+}
+
+/// Spec 104 review R3 — a press on something drawn over the canvas (a popup, the wizard's
+/// balloon) belongs to that thing: it does not end a grid's edit mode.
+#[test]
+fn a_press_on_a_layer_over_the_canvas_keeps_the_grid_edit_mode() {
+    let mut rig = Rig::new(grid_form());
+    enter(&mut rig, "DG");
+    let spot = Rect::from_min_size(rig.at(420.0, 260.0), Vec2::new(80.0, 40.0));
+    rig.over = Some(spot);
+    rig.settle();
+    rig.click(spot.center());
+    rig.settle();
+    assert!(rig.d.grid_edit.is_some(), "a press on the layer above the canvas is not a press on the canvas");
+    rig.over = None;
+    rig.settle();
+    rig.click(spot.center());
+    rig.settle();
+    assert!(rig.d.grid_edit.is_none(), "the same press on the bare canvas still ends the mode");
 }

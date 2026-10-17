@@ -71,6 +71,20 @@ pub struct UiPrefs {
     /// builds is a property of that machine (its disks, its policies), so a colleague opening the
     /// same project must not inherit a path that exists only on someone else's drive.
     pub build_dir: String,
+    /// The Task Wizard switch, on both toolbars (spec 104 R5). Off — the default, and what an
+    /// older `ui.toml` reads as — means the IDE behaves exactly as it did before the wizard.
+    pub task_wizard_on: bool,
+    /// The tasks finished on this machine, by task key (R29). Machine-level for the same reason
+    /// as `walkthrough_shown`: knowing how to bind a grid is learned once, not once per project.
+    pub task_wizard_done: std::collections::BTreeSet<String>,
+    /// Where an unfinished task stands, per project (R29): project key → task key → the key of
+    /// the step to resume at. Keyed by step *key*, never index, so a table that grows a step
+    /// still resumes in the right place; a key the table no longer has restarts the task.
+    pub task_wizard_progress:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    /// Offers the developer dismissed (R30), keyed `project|form|control|task`, so dismissing
+    /// one grid's offer never silences another's.
+    pub task_wizard_dismissed: std::collections::BTreeSet<String>,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -256,6 +270,14 @@ mod tests {
             walkthrough_shown: true,
             workspace_root: "/opt/powerrustcobol-sdk".into(),
             build_dir: "/data/builds".into(),
+            task_wizard_on: true,
+            task_wizard_done: ["models".to_owned(), "datagrid".to_owned()].into(),
+            task_wizard_progress: [(
+                "/home/dev/Inventory".to_owned(),
+                [("binding".to_owned(), "mappings".to_owned())].into(),
+            )]
+            .into(),
+            task_wizard_dismissed: ["/home/dev/Inventory|Main|Grid1|datagrid".to_owned()].into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
         assert_eq!(p, back);
@@ -302,5 +324,16 @@ mod tests {
              showing it gets"
         );
         assert_eq!(older.language, "fr");
+    }
+
+    /// Upgrading the IDE must not switch the Task Wizard on, and must find no task done, none in
+    /// progress and no offer dismissed (spec 104 R5, R29, R30).
+    #[test]
+    fn an_older_prefs_file_has_the_task_wizard_off_and_empty() {
+        let older: UiPrefs = toml::from_str("language = \"fr\"\nwalkthrough_shown = true\n").unwrap();
+        assert!(!older.task_wizard_on, "the Task Wizard must be off on a machine that never set it");
+        assert!(older.task_wizard_done.is_empty());
+        assert!(older.task_wizard_progress.is_empty());
+        assert!(older.task_wizard_dismissed.is_empty());
     }
 }

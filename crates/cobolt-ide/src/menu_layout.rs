@@ -50,12 +50,13 @@ pub enum Item {
     Documentation,
     Examples,
     IdeWalkthrough,
+    TaskWizard,
     About,
 }
 
 impl Item {
     /// Every item, so a test can say "each one is in exactly one menu".
-    pub const ALL: [Item; 17] = [
+    pub const ALL: [Item; 18] = [
         Item::NewProject,
         Item::OpenProject,
         Item::SaveProject,
@@ -72,6 +73,7 @@ impl Item {
         Item::Documentation,
         Item::Examples,
         Item::IdeWalkthrough,
+        Item::TaskWizard,
         Item::About,
     ];
 
@@ -98,6 +100,7 @@ impl Item {
             | Item::Documentation
             | Item::Examples
             | Item::IdeWalkthrough
+            | Item::TaskWizard
             | Item::About => false,
         }
     }
@@ -143,6 +146,7 @@ pub const HELP: &[Entry] = &[
     I(Item::Examples),
     S,
     I(Item::IdeWalkthrough),
+    I(Item::TaskWizard),
     S,
     I(Item::About),
 ];
@@ -264,5 +268,15 @@ mod tests {
         distinct.sort_unstable();
         distinct.dedup();
         assert_eq!(distinct.len(), 6, "the six names must differ: {names:?}");
+    }
+
+    /// Spec 104 R6 — the Task Wizard switch is in Help, right after the IDE Walkthrough, for
+    /// the same reason: it switches a way of working, it configures nothing.
+    #[test]
+    fn the_task_wizard_sits_in_help_right_after_the_walkthrough() {
+        let help = names(HELP);
+        let at = help.iter().position(|i| *i == Item::IdeWalkthrough).expect("the walkthrough");
+        assert_eq!(help.get(at + 1), Some(&Item::TaskWizard));
+        assert!(!Item::TaskWizard.is_configuration());
     }
 }

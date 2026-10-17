@@ -39,6 +39,8 @@ pub fn show(
     // wrecks the first — the File menu has always greyed its Build item out
     // while one runs, and this is the same rule on the button beside it.
     building: bool,
+    // `wizard_on`: the Task Wizard switch (spec 104), shown engaged while on.
+    wizard_on: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::None;
     let busy = runner.is_running();
@@ -213,6 +215,14 @@ pub fn show(
                 ui.label("🌐").on_hover_text(tr.lang_btn_tooltip);
                 ui.separator();
 
+                // ── Task Wizard: the switch, and its ▾ (spec 104 R1–R3) ─────────
+                // Right to left, so the ▾ is added first and lands right of the
+                // switch.
+                if let Some(a) = task_wizard_toggle(ui, tr, wizard_on, aurora) {
+                    action = a;
+                }
+                ui.separator();
+
                 if runner.is_running() {
                     ui.spinner();
                     ui.label(RichText::new(tr.tb_running).color(Color32::YELLOW));
@@ -221,6 +231,50 @@ pub fn show(
         });
     });
 
+    action
+}
+
+/// The Task Wizard's split button, in a right-to-left layout: the ▾, then the switch.
+///
+/// The switch reads as **engaged** while on (R2): egui's own selected face in every theme,
+/// the palette's selected-tab pill under Aurora. The ▾ is live only while on (R3). Both
+/// report their rect to the wizard, so they are always holes in its dim (R16), and the
+/// switch remembers its rect for the catalogue to hang under.
+fn task_wizard_toggle(
+    ui: &mut egui::Ui,
+    tr: &Tr,
+    on: bool,
+    aurora: bool,
+) -> Option<ToolbarAction> {
+    use crate::panels::task_wizard::{anchors, catalogue, AnchorId};
+    let mut action = None;
+    let more = ui
+        .add_enabled(on, Button::new("▾").min_size(egui::vec2(18.0, 0.0)))
+        .on_hover_text(tr.task_wizard_catalogue_tip);
+    if more.clicked() {
+        action = Some(ToolbarAction::OpenTaskCatalogue);
+    }
+    let switch = if aurora {
+        let look = if on {
+            crate::aurora::engaged_pill()
+        } else {
+            crate::aurora::pills().open
+        };
+        crate::aurora::pill(ui, true, tr.task_wizard_toggle, look)
+    } else {
+        ui.add(Button::new(tr.task_wizard_toggle).selected(on))
+    };
+    let switch = switch.on_hover_text(if on {
+        tr.task_wizard_tip_on
+    } else {
+        tr.task_wizard_tip_off
+    });
+    if switch.clicked() {
+        action = Some(ToolbarAction::ToggleTaskWizard);
+    }
+    crate::theme::flash_on_click(ui, &switch);
+    anchors::mark(ui, AnchorId::Toggle, switch.rect.union(more.rect));
+    catalogue::remember_toggle(ui.ctx(), switch.rect.union(more.rect));
     action
 }
 
@@ -237,4 +291,8 @@ pub enum ToolbarAction {
     Save,
     /// Open the project-wide code search window (spec 053).
     Search,
+    /// Turn the Task Wizard on or off (spec 104 R1).
+    ToggleTaskWizard,
+    /// Reopen the Task Wizard's catalogue (spec 104 R3).
+    OpenTaskCatalogue,
 }

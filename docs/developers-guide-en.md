@@ -1653,6 +1653,93 @@ where the tour has not run (or clear **Help ▸ IDE Walkthrough seen**), and
 capture step 2 — the one pointing at **Forms** — so the dimmed IDE, the lit
 tree row and the balloon's tail are all visible in one frame.
 
+### The Task Wizard
+
+The Walkthrough shows you *what is where*. The **Task Wizard** takes you through
+*doing* something, one step at a time, in the real IDE. It looks like the
+Walkthrough: the IDE dims, one part stays lit, and a balloon says what to do
+there. The difference is that the lit part is **live**. You do the step yourself,
+and the wizard moves on when the IDE shows it is done.
+
+**Turning it on.** The **🗺 Task Wizard** switch is at the right end of the IDE
+toolbar, beside the language selector. The same switch is in every Form
+Designer's toolbar, after the Magnifier, and in **Help ▸ 🗺 Task Wizard**. All
+three show the same state, and the IDE remembers it between sessions.
+
+- Turning the switch on opens the list of tasks under it.
+- The **▾** beside the switch opens the list again.
+- Turning the switch off stops a task without losing your place.
+
+**The tasks:**
+
+| Task | What it takes you through |
+|---|---|
+| Configure a model provider | Project settings → **Models Manager…** → the provider → its endpoint → its API key and **Test connection** → **Save** |
+| Connect an agent to a model | **Agents Manager…** → **Agent × Model** → the provider scope → a model on each agent's row → **Save** |
+| Bind a control to data | select the control → **Data Binding** in Properties → the source → its fields → **Apply** |
+| Set up a DataGrid | bind it (or skip) → **Edit DataGrid settings…** → columns and widths → close; an unbound grid continues on the canvas (double-click it, add a column) |
+| Fill a TreeView | its **Nodes** box → behaviour options → the **Events** tab |
+| Build a SideMenu | **Edit Menu…** → add an item → what it does → **Save** |
+| Build a menu | the same for a MenuBar, plus a shortcut |
+| Add an animation | the **Anim** tab → **➕ Add** → trigger and effect → **▶ Preview** |
+
+Each task is listed as *new*, *in progress* (for the open project) or *done*.
+You can start it, resume it, or start it over. A task that needs a form starts
+by asking you to open one.
+
+**Moving through a task.**
+
+- A step ends by itself when you have done it. **Next** is always there, to go
+  on without doing the step; the summary at the end lists what you skipped.
+- If the step is already done when you reach it, the balloon says so, and Next
+  is the button to press.
+- **Back** goes to the step before. **Exit**, or `Esc`, leaves the task where it
+  is, and **Resume** brings you back to that step. `Esc` always leaves the
+  innermost thing first: a text field (a grid cell's edit is cancelled, as
+  usual), then an open list, then a grid's edit mode on the canvas. Only when
+  there is nothing left to leave does `Esc` leave the task.
+- While a step is showing, only the lit part of the IDE takes clicks and typing.
+  The IDE's shortcuts wait until the task ends. A list or menu that opens from
+  the lit part works even where it hangs over the dimmed area. A window the IDE
+  opens during the step, such as an error or a confirmation, is never dimmed.
+- If you close the window a step is in, or switch to another tab, the wizard
+  lights what reopens it and says **Reopen…**. It never points at nothing.
+- When a step is in a Form Designer window, every other window is dimmed whole,
+  with a note saying where the task continues and a button to bring that
+  window forward.
+
+**Do this for me.** On a few steps the balloon offers ★ **Do this for me**. It
+does exactly what the button or menu would do, through the same code:
+
+- show Project Settings;
+- fill in an empty endpoint with the provider's default;
+- add a grid column (one Undo takes it back);
+- put a starter item into an empty menu: *Home* for a SideMenu, or *File*,
+  *Edit* and *Help* for a MenuBar, in the IDE's language;
+- add an animation (one Undo takes it back).
+
+It is offered only while the thing it fills is empty, so it never overwrites
+anything you wrote. It never does a step that would connect to a provider, save
+something with no undo, or type your own content for you.
+
+**Offers.** While the switch is on, selecting a single DataGrid, TreeView,
+SideMenu or MenuBar shows a small chip beside it offering that control's task.
+It only offers. Its **✕** hides it for that one control.
+
+**Your keys stay yours.** The wizard never reads, shows, stores or logs an API
+key. The key step is complete when **Test connection** passes, and the wizard
+knows nothing else about the key.
+
+**Where it keeps things.** Everything the wizard remembers is on this machine,
+in the same file as the IDE's language. That covers the switch, which tasks you
+have finished, where each project's unfinished task stands, and which offers you
+dismissed. Nothing is written into your project.
+
+📷 Screenshot needed — `task-wizard-step.png`. Turn the Task Wizard on, start
+**Configure a model provider**, and capture the endpoint step, so the dimmed
+IDE, the lit Model Providers Manager, the ring round the endpoint field and the
+balloon with **★ Do this for me** are all visible in one frame.
+
 ---
 
 ## 6. Projects and the project model

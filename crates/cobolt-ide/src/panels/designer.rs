@@ -262,10 +262,18 @@ fn props_chevron(ui: &mut egui::Ui, hidden: bool, tr: &crate::i18n::Tr) -> bool 
         } else {
             ("▶", tr.props_hide)
         };
-        clicked = ui
+        let chevron = ui
             .button(egui::RichText::new(glyph).size(COLLAPSE_CHEVRON_SIZE))
-            .on_hover_text(tip)
-            .clicked();
+            .on_hover_text(tip);
+        // Spec 104 — the ◀ is what reopens a hidden pane: a Task Wizard "via".
+        if hidden {
+            crate::panels::task_wizard::anchors::mark(
+                ui,
+                crate::panels::task_wizard::AnchorId::PropertiesReopen,
+                chevron.rect,
+            );
+        }
+        clicked = chevron.clicked();
     });
     clicked
 }
@@ -352,6 +360,11 @@ pub fn show_props_drawer<R>(
                 .frame(props_frame)
                 .show_inside(ui, content)
         });
+    crate::panels::task_wizard::anchors::mark(
+        ui,
+        crate::panels::task_wizard::AnchorId::PropertiesPane,
+        outer.response.rect,
+    );
 
     PropsDrawer {
         inner: Some(outer.inner.inner),
@@ -2152,6 +2165,46 @@ impl MenuEditorModal {
     pub fn for_side_menu(mut self, is_side_menu: bool) -> Self {
         self.is_side_menu = is_side_menu;
         self
+    }
+
+    /// Spec 104 — the Task Wizard's *Do this for me* on an **empty** menu: a SideMenu's
+    /// *Home*, or a MenuBar's *File* (with *Exit*), *Edit* (*Copy*, *Paste*) and *Help*
+    /// (*About*), named in the IDE's language. Into the editor's draft only, so Cancel
+    /// discards it; and never into a menu that has items (R26) — that returns `false`.
+    pub(crate) fn add_starter_items(&mut self, tr: &crate::i18n::Tr) -> bool {
+        use cobolt_forms::menu::MenuItem;
+        if !self.def.menu.is_empty() {
+            return false;
+        }
+        let make = |this: &mut Self, label: &str, action: Option<&str>| {
+            let mut item = MenuItem::new_action(this.next_id(), label);
+            item.action = action.map(str::to_owned);
+            item
+        };
+        if self.is_side_menu {
+            let home = make(self, tr.task_wizard_starter_home, Some("home"));
+            self.def.menu.push(home);
+        } else {
+            for (menu, items) in [
+                (tr.task_wizard_starter_file, vec![(tr.task_wizard_starter_exit, Some("close-application"))]),
+                (tr.task_wizard_starter_edit, vec![(tr.task_wizard_starter_copy, None), (tr.task_wizard_starter_paste, None)]),
+                (tr.task_wizard_starter_help, vec![(tr.task_wizard_starter_about, None)]),
+            ] {
+                // Each id is taken from what is already in the menu, so they are pushed
+                // one by one rather than built first.
+                let top = make(self, menu, None);
+                self.def.menu.push(top);
+                for (label, action) in items {
+                    let child = make(self, label, action);
+                    if let Some(top) = self.def.menu.last_mut() {
+                        top.items.push(child);
+                    }
+                }
+            }
+        }
+        self.selected = vec![0];
+        self.sync_bufs_from_selection();
+        true
     }
 
     fn selected_item(&self) -> Option<&cobolt_forms::menu::MenuItem> {
@@ -8046,8 +8099,16 @@ impl DesignerPanel {
             return true;
         }
         // A press anywhere else on the canvas ends the mode and goes on to act
-        // as an ordinary press.
-        if ctx.input(|i| i.pointer.primary_pressed()) && canvas.contains(p) && !in_band && !on_toolbar {
+        // as an ordinary press. ON the canvas: a press on something drawn over it
+        // — a popup, a window, the Task Wizard's balloon or dim — is that thing's,
+        // and leaves the mode alone.
+        let on_canvas = ctx.layer_id_at(p).is_none_or(|l| l == resp.layer_id);
+        if ctx.input(|i| i.pointer.primary_pressed())
+            && canvas.contains(p)
+            && on_canvas
+            && !in_band
+            && !on_toolbar
+        {
             state.begin_leaving();
             return false;
         }
@@ -10742,6 +10803,17 @@ impl DesignerPanel {
                 for f in &grid_frames {
                     control_rects.insert(f.grid.id.clone(), f.screen);
                 }
+                // Spec 104 — where the one selected control was painted, for the Task
+                // Wizard's ring and its offer. One check while the wizard is off.
+                if let [only] = self.selected_ids.as_slice() {
+                    if let Some(r) = control_rects.get(only) {
+                        crate::panels::task_wizard::anchors::mark(
+                            ui,
+                            crate::panels::task_wizard::AnchorId::SubjectOnCanvas,
+                            *r,
+                        );
+                    }
+                }
 
                 // ── Editor badges on top of the faces ───────────────────────────
                 //
@@ -12029,7 +12101,7 @@ impl DesignerPanel {
 
         let modal_id = egui::Id::new("menu_editor_modal");
 
-        egui::Window::new(tr.menu_editor_title)
+        let window = egui::Window::new(tr.menu_editor_title)
             .id(modal_id)
             .collapsible(false)
             .resizable(true)
@@ -12046,7 +12118,13 @@ impl DesignerPanel {
 
                 // ── Toolbar (full width, at top) ─────────────────────────
                 ui.horizontal_wrapped(|ui| {
-                    if ui.small_button(tr.menu_add_item).clicked() {
+                    let add = ui.small_button(tr.menu_add_item);
+                    crate::panels::task_wizard::anchors::mark(
+                        ui,
+                        crate::panels::task_wizard::AnchorId::MenuAddItem,
+                        add.rect,
+                    );
+                    if add.clicked() {
                         let id = modal.next_id();
                         let item = cobolt_forms::menu::MenuItem::new_action(&id, "New Item");
                         let list =
@@ -12382,6 +12460,11 @@ impl DesignerPanel {
 
                                     // Accelerator — key capture widget
                                     ui.horizontal(|ui| {
+                                        crate::panels::task_wizard::anchors::mark(
+                                            ui,
+                                            crate::panels::task_wizard::AnchorId::MenuItemShortcut,
+                                            ui.max_rect(),
+                                        );
                                         ui.label(tr.menu_lbl_accel);
                                         let accel_id = egui::Id::new("menu_accel_capture");
                                         let is_capturing = ui
@@ -12570,6 +12653,13 @@ impl DesignerPanel {
                                     // R16); a MenuBar's keeps the classic
                                     // three.
                                     ui.horizontal(|ui| {
+                                        // Spec 104 — the action row (and the form row
+                                        // under it): what the item does.
+                                        crate::panels::task_wizard::anchors::mark(
+                                            ui,
+                                            crate::panels::task_wizard::AnchorId::MenuItemTarget,
+                                            ui.max_rect(),
+                                        );
                                         ui.label(tr.menu_lbl_action);
                                         let mut action_sel = cur_action_type.clone();
                                         let label_of = |key: &str| match key {
@@ -12639,6 +12729,11 @@ impl DesignerPanel {
                                     {
                                         let want_embedded = cur_action_type == "open-form";
                                         ui.horizontal(|ui| {
+                                            crate::panels::task_wizard::anchors::mark(
+                                                ui,
+                                                crate::panels::task_wizard::AnchorId::MenuItemTarget,
+                                                ui.max_rect(),
+                                            );
                                             ui.label(tr.menu_lbl_target);
                                             let forms = Self::forms_under(self.cfrm_dir.as_deref());
                                             let cur_form = modal.target_buf.clone();
@@ -12733,11 +12828,24 @@ impl DesignerPanel {
                     if ui.button(tr.me_cancel).clicked() {
                         cancel_clicked = true;
                     }
-                    if ui.button(tr.me_save).clicked() {
+                    let save = ui.button(tr.me_save);
+                    crate::panels::task_wizard::anchors::mark(
+                        ui,
+                        crate::panels::task_wizard::AnchorId::MenuSave,
+                        save.rect,
+                    );
+                    if save.clicked() {
                         save_clicked = true;
                     }
                 });
             });
+        if let Some(w) = &window {
+            crate::panels::task_wizard::anchors::mark_window(
+                ui.ctx(),
+                crate::panels::task_wizard::AnchorId::MenuEditorWindow,
+                &w.response,
+            );
+        }
 
         // ── Icon picker modal ─────────────────────────────────────────────
         if let Some(modal) = self.menu_modal.as_mut() {
@@ -18217,6 +18325,9 @@ pub(crate) enum DesignerToolbarAction {
     ToggleGlass,
     /// Spec 089 — the toolbox's magnifier.
     ToggleMagnifier,
+    /// Spec 104 — the Task Wizard switch, and its ▾ (the catalogue).
+    ToggleTaskWizard,
+    OpenTaskCatalogue,
     // Run
     RunForm,
     StopForm,
@@ -18298,6 +18409,10 @@ pub(crate) fn draw_icon_toolbar(
     // 088 — Show Grid (the layout grids), engaged while on, and its tip.
     layout_grid_on: bool,
     layout_grid_tip: &str,
+    // 104 — the Task Wizard switch, engaged while on, its tip and the ▾'s tip.
+    task_wizard_on: bool,
+    task_wizard_tip: &str,
+    task_wizard_more_tip: &str,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -18373,6 +18488,9 @@ pub(crate) fn draw_icon_toolbar(
         theme.accent
     };
 
+    // The rect of the last button `icon_btn` drew — the Task Wizard switch reports
+    // its own to the wizard (spec 104 R16).
+    let last_btn = std::cell::Cell::new(Rect::NOTHING);
     // Closure: allocate a button rect, draw the icon (collected as shapes and
     // uniformly resized to the reference extent), return whether it was clicked.
     let icon_btn = |ui: &mut egui::Ui,
@@ -18382,6 +18500,7 @@ pub(crate) fn draw_icon_toolbar(
                     draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32)|
      -> bool {
         let (resp, painter) = ui.allocate_painter(Vec2::splat(btn_size), egui::Sense::click());
+        last_btn.set(resp.rect);
         let icon_rect = Rect::from_center_size(resp.rect.center(), Vec2::splat(icon_size));
         // Toggled wins over disabled: a button that is disabled *because* it is
         // currently engaged (e.g. Debug Form while a debug session is already
@@ -18511,6 +18630,36 @@ pub(crate) fn draw_icon_toolbar(
         if icon_btn(ui, true, magnifier_on, magnifier_tip, &icon_magnifier) {
             action = DesignerToolbarAction::ToggleMagnifier;
         }
+        // Spec 104 R1–R3 — the Task Wizard switch, after the Magnifier, and its ▾:
+        // a narrow cell, live only while the switch is on.
+        if icon_btn(ui, true, task_wizard_on, task_wizard_tip, &icon_task_wizard) {
+            action = DesignerToolbarAction::ToggleTaskWizard;
+        }
+        let switch = last_btn.get();
+        let (more, painter) =
+            ui.allocate_painter(Vec2::new(14.0, btn_size), egui::Sense::click());
+        let ink = if task_wizard_on { col_normal } else { col_dim };
+        let c = more.rect.center();
+        painter.add(Shape::convex_polygon(
+            vec![
+                egui::pos2(c.x - 4.0, c.y - 2.0),
+                egui::pos2(c.x + 4.0, c.y - 2.0),
+                egui::pos2(c.x, c.y + 3.0),
+            ],
+            ink,
+            Stroke::NONE,
+        ));
+        let more = more.on_hover_text(task_wizard_more_tip);
+        if task_wizard_on && more.clicked() {
+            action = DesignerToolbarAction::OpenTaskCatalogue;
+        }
+        let both = switch.union(more.rect);
+        crate::panels::task_wizard::anchors::mark(
+            ui,
+            crate::panels::task_wizard::AnchorId::Toggle,
+            both,
+        );
+        crate::panels::task_wizard::catalogue::remember_toggle(ui.ctx(), both);
 
         group_separator(ui, group_gap);
 
@@ -18933,6 +19082,27 @@ fn icon_layout_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 }
 
 /// A magnifying glass: the lens and its handle.
+/// Spec 104 — the Task Wizard: a folded map, the 🗺 the IDE toolbar's switch shows.
+fn icon_task_wizard(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.6, c);
+    let (l, t, w, h) = (r.left() + r.width() * 0.10, r.top() + r.height() * 0.18, r.width() * 0.80, r.height() * 0.64);
+    let dip = h * 0.10;
+    let x = |f: f32| l + w * f;
+    let outline = vec![
+        Pos2::new(x(0.0), t + dip),
+        Pos2::new(x(1.0 / 3.0), t),
+        Pos2::new(x(2.0 / 3.0), t + dip),
+        Pos2::new(x(1.0), t),
+        Pos2::new(x(1.0), t + h - dip),
+        Pos2::new(x(2.0 / 3.0), t + h),
+        Pos2::new(x(1.0 / 3.0), t + h - dip),
+        Pos2::new(x(0.0), t + h),
+    ];
+    out.push(Shape::closed_line(outline, s));
+    out.push(Shape::line_segment([Pos2::new(x(1.0 / 3.0), t), Pos2::new(x(1.0 / 3.0), t + h - dip)], s));
+    out.push(Shape::line_segment([Pos2::new(x(2.0 / 3.0), t + dip), Pos2::new(x(2.0 / 3.0), t + h)], s));
+}
+
 fn icon_magnifier(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let lens_r = r.width() * 0.30;
     let centre = r.center() - Vec2::splat(r.width() * 0.08);

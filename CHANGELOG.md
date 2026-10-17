@@ -17,6 +17,28 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.193] — 2026-10-17
+
+*(The merge of `features-guided-wizard` (1.91.190, the Task Wizard) into `fixes-datagrid-columns` (1.91.192, which already holds 1.91.191), for `main`. Operator, 2026-10-17: "when you're done merge all into main".)*
+
+### Merged: the Task Wizard with the new DataGrid settings window
+
+This is one version number for the three changes together, so the window title tells a build that has them all from one that has some.
+
+The wizard was written against the old *Edit DataGrid settings* window, which spec 106 rebuilt, so their one real meeting point was resolved by hand in `properties.rs`:
+
+- **The Columns-section anchor** (`GridSettingsColumns`, the DataGrid task's columns step) now spans the new COLUMNS band and both panes. It starts where the band is drawn and ends below the panes.
+- **The window anchor** (`GridSettingsWindow`) is marked beside the window's new resize grip.
+
+Two other conflicts were resolved by keeping both sides:
+
+- `i18n.rs`: the string-test modules `datagrid_columns_strings_106` and `task_wizard_strings_104`.
+- This file: each side's entry, in version order below.
+
+Everything else merged on its own.
+
+*Tests on the merged tree:* `cobolt-ide --bin` 1790 passed, 4 failed, 4 ignored. That includes the wizard's and the Walkthrough's 56 tests and the settings window's 10. The 4 failures are the same known, unrelated ones listed under 1.91.192.
+
 ## [PowerRustCOBOL 1.91.192] — 2026-10-17
 
 *(Written on `fixes-datagrid-columns`, after 1.91.191. 1.91.190 is the Task Wizard on `features-guided-wizard`, not yet merged. When the two meet, its DataGrid task's anchor on this window's COLUMNS section needs pointing at the new header.)*
@@ -142,6 +164,65 @@ Operator, 2026-10-17: with valid credentials, the PowerCloud example's connectio
 - The new base64 was checked against Python's own: equal byte for byte on 309 lengths up to 1 MB, MIME-wrapped and URL-safe text included, and 5 MB in about 0.25 s each way. All 33 expanded scripts parse with top-level `await` and pass an AST check of the same rules. That check was a throwaway Python script kept outside the repository, per the prime directive; nothing of it is committed.
 
 *For the operator.* No run against the real service was possible here: the AWS keys are never opened. Please press Connect again in PowerCloud. If AWS refuses another name, its message lists every offending line, and the new test is where that rule goes.
+
+## [PowerRustCOBOL 1.91.190] — 2026-10-17
+
+*(Written on `features-guided-wizard`, after 1.91.189.)*
+
+### Added: the Task Wizard — a guided, live walk through eight IDE tasks (spec 104)
+
+Operator, 2026-10-17: a wizard like the Tour to help with configuring models, agents, data-bound controls, DataGrids, TreeViews, SideMenus, menus and animations, switched on and off from the IDE toolbar and the Form Designer toolbar.
+
+*What it is.* A **🗺 Task Wizard** switch on the IDE toolbar (beside the language selector), on every Form Designer toolbar (after the Magnifier), and in **Help**. All three show one state, which is remembered in `ui.toml`. Turning it on opens a catalogue of eight tasks:
+- *Configure a model provider*
+- *Connect an agent to a model*
+- *Bind a control to data*
+- *Set up a DataGrid*
+- *Fill a TreeView*
+- *Build a SideMenu*
+- *Build a menu*
+- *Add an animation*
+
+Each step dims the IDE except the part to work in, rings the widget and points a balloon at it, in the Walkthrough's look. Unlike the Walkthrough, the lit part is **live**: the developer does the step there, and the wizard moves on when the IDE's state says it is done. A step only advances on the rising edge, while it shows. A step already complete says so. **Next** is always there; skipped steps are listed in the closing summary.
+
+*How it behaves.*
+- **Holes in the dim.** The dim is cut into interactable areas around the holes, so the lit window keeps its hover, wheel and focus. Lists and menus opened from it work over the dim, and windows that open during a step are never dimmed.
+- **Keyboard and `Esc`.** Keys reach only a field inside the lit part, and the IDE's shortcuts wait. `Esc` leaves the innermost thing first and only that: a field (whose own `Esc` still applies, so a grid cell's edit is cancelled), then a list, then a grid's edit mode on the canvas. Only then does it exit.
+- **The DataGrid review** (the guardrail) found four ways a running step disturbed grid editing, and all four are fixed with a test each:
+  - `Esc` in a cell editor saved the edit instead of cancelling it.
+  - The lit window, raised every frame, buried the Dropdown configuration window it opens.
+  - A press on the balloon over the canvas ended the grid's edit mode. A press on any layer drawn over the canvas no longer counts as a press on the canvas, which also closes the same gap for ordinary popups.
+  - The second `Esc` exited the task instead of leaving edit mode.
+- **Nothing pointed at nothing.** A closed window or another tab lights what reopens it, then falls back to an earlier step.
+- **Other windows.** A step in a Form Designer window dims the other windows with a "continue in…" chip.
+- **Do this for me**, on mechanical steps only, through the same code path as the button:
+  - Project Settings;
+  - the default endpoint;
+  - a grid column;
+  - starter items for an empty menu;
+  - an animation.
+
+  Each is offered only while what it fills is empty, and never on a step that would connect, save without undo, or write the developer's own content.
+- **Offers.** Selecting a DataGrid, TreeView, SideMenu or MenuBar offers its task in a chip, which can be dismissed for that one control.
+- **Secrets.** The wizard reads nothing about an API key. The key step completes on a passed connection test.
+- **What is remembered.** Progress is per project, by step key; *done* is per machine. Nothing is written into a project.
+
+*Built so it can be tested.*
+- The tasks are data (`panels/task_wizard/tasks.rs`). A pure engine runs them against a key-free snapshot of the IDE and the rects the frame painted, and never touches `CoboltApp` (`app/task_wizard_glue.rs` is the only bridge).
+- The Walkthrough's primitives moved to `panels/spotlight.rs`. A shape fingerprint proves the Walkthrough paints exactly what it painted before.
+- Strings: 143 new `Tr` fields in EN/ES/PT/JA/ZH/FR, checked by a table-reading test.
+- Glyphs: a font test caught that 🎯, ✨, ▶ and ◀ are not in the IDE's base fonts, so the wizard uses 🗺, ★, ⏵ and ⏴.
+
+New tests cover:
+- every engine route, on a fixture task;
+- clicks, the wheel, lists over the dim, keys, and `Esc` in a rendered frame;
+- the prefs round-trip;
+- the menu layout;
+- the engaged pill in every Aurora palette;
+- the starter menu never touching a menu that has items;
+- the Models Manager's view not changing with the key.
+
+The Developer's Guide has a new *Task Wizard* section in chapter 5.
 
 ## [PowerRustCOBOL 1.91.189] — 2026-10-17
 

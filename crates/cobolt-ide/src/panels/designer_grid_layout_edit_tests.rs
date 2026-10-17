@@ -379,6 +379,7 @@ fn toolbar_shapes(on: bool) -> String {
             let _ = draw_icon_toolbar(
                 ui, true, true, true, false, true, "Cut", "Copy", "Paste", "Duplicate", "Format painter", "Tab order", "Tab list",
                 false, false, true, true, false, false, false, false, false, false, false, "Magnifier", on, "Show Grid",
+                false, "Task Wizard", "Choose a task",
             );
         });
     });

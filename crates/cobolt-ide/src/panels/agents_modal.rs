@@ -19,6 +19,7 @@ use eframe::egui;
 use crate::agents_db::{AgentKind, AgentsDb};
 use crate::i18n::Tr;
 use crate::llm::{api_key_slot, LlmConfig};
+use crate::panels::task_wizard::{self, AnchorId};
 
 /// Agent lifecycle controls remain implemented for future maintenance, but the
 /// IDE currently provisions and repairs the complete built-in agent mesh.
@@ -201,6 +202,23 @@ impl AgentsModal {
         m
     }
 
+    /// What the Task Wizard reads of the manager (spec 104): whether it shows its
+    /// *Agent × Model* tab, the provider scope picked there, and a signature of every
+    /// agent's provider and model — never a key.
+    pub(crate) fn task_wizard_view(&self) -> (bool, String, u64) {
+        let pairs: Vec<(&str, &str, &str, bool)> = self
+            .db
+            .agents
+            .iter()
+            .map(|a| (a.name.as_str(), a.provider.as_str(), a.model.as_str(), a.no_model))
+            .collect();
+        (
+            self.tab == AgentsTab::AgentModel,
+            self.provider_scope.clone(),
+            crate::panels::task_wizard::facts::signature(&pairs),
+        )
+    }
+
     pub fn open_for(project_dir: &Path, llm: &mut LlmConfig) -> Self {
         let mut db = AgentsDb::load(project_dir);
         let mut seeded = db.ensure_fixed_agents(llm);
@@ -335,7 +353,7 @@ impl AgentsModal {
             return action;
         }
         let mut open = self.open;
-        egui::Window::new(format!("🤖 {}", tr.agents_title))
+        let window = egui::Window::new(format!("🤖 {}", tr.agents_title))
             .id(egui::Id::new("agents_manager_modal"))
             .collapsible(false)
             .resizable(true)
@@ -378,10 +396,9 @@ impl AgentsModal {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui
-                                        .add(egui::Button::new(tr.btn_save_raw))
-                                        .clicked()
-                                    {
+                                    let save = ui.add(egui::Button::new(tr.btn_save_raw));
+                                    task_wizard::anchors::mark(ui, AnchorId::AgentsSave, save.rect);
+                                    if save.clicked() {
                                         if self.apply(llm) {
                                             action.applied = true;
                                             close = true;
@@ -420,7 +437,11 @@ impl AgentsModal {
                                 (AgentsTab::Configuration, tr.agents_tab_configuration),
                                 (AgentsTab::UserGuide, tr.agents_tab_user_guide),
                             ] {
-                                if ui.selectable_label(self.tab == tab, label).clicked() {
+                                let t = ui.selectable_label(self.tab == tab, label);
+                                if tab == AgentsTab::AgentModel {
+                                    task_wizard::anchors::mark(ui, AnchorId::AgentsModelTab, t.rect);
+                                }
+                                if t.clicked() {
                                     self.tab = tab;
                                 }
                             }
@@ -474,6 +495,9 @@ impl AgentsModal {
                     self.open = false;
                 }
             });
+        if let Some(w) = &window {
+            task_wizard::anchors::mark_window(ctx, AnchorId::AgentsWindow, &w.response);
+        }
         self.open &= open;
         action
     }
@@ -698,7 +722,7 @@ impl AgentsModal {
                     .map(|p| p.label.to_string())
                     .unwrap_or_else(|| self.provider_scope.clone())
             };
-            egui::ComboBox::from_id_salt("agents_provider_scope")
+            let scope = egui::ComboBox::from_id_salt("agents_provider_scope")
                 .selected_text(current)
                 .show_ui(ui, |ui| {
                     for (id, configured) in &choices {
@@ -716,6 +740,7 @@ impl AgentsModal {
                         );
                     }
                 });
+            task_wizard::anchors::mark(ui, AnchorId::AgentsScope, scope.response.rect);
             // Scoped to a provider with nothing to offer: say why, rather than
             // leaving the Model column mysteriously empty.
             if !self.provider_scope.trim().is_empty()
@@ -742,6 +767,8 @@ impl AgentsModal {
             .cloned()
             .collect();
 
+        // The table fills what is left (it does not shrink), so that is its rect.
+        task_wizard::anchors::mark(ui, AnchorId::AgentsGrid, ui.available_rect_before_wrap());
         egui::ScrollArea::vertical()
             .id_salt("agents_runtime_table")
             .auto_shrink([false, false])

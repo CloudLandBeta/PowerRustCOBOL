@@ -68,6 +68,10 @@ use crate::version::VERSION;
 use cobolt_runtime::DebugCmd;
 use rand::Rng;
 
+// Spec 104 — the Task Wizard's ties to `CoboltApp`: its facts, its effects and the places
+// it paints. A child module, so it can read the app's private state without widening it.
+mod task_wizard_glue;
+
 use crate::data_binding_guardian::{
     validate_binding_action, BindingActionGate, BindingActionGateReport,
 };
@@ -1013,6 +1017,9 @@ pub struct CoboltApp {
     ai_setup_ready: Option<bool>,
     /// Spec 059 — the IDE Walkthrough.
     walkthrough: crate::panels::walkthrough::Walkthrough,
+    /// Spec 104 — the Task Wizard: its switch, what it remembers, its engine and overlay.
+    /// The behaviour lives in `app/task_wizard_glue.rs`.
+    task_wizard: crate::panels::task_wizard::Wizard,
     /// The machine flag, read once at startup like `rust_check_done`. Reading
     /// `ui.toml` on every frame the Settings menu is open would be a per-frame file
     /// read for a value that changes at most twice in a session.
@@ -2247,6 +2254,7 @@ impl CoboltApp {
             ai_setup_modal: false,
             ai_setup_ready: None,
             walkthrough: Default::default(),
+            task_wizard: crate::panels::task_wizard::Wizard::load(),
             walkthrough_shown: crate::ui_prefs::walkthrough_shown(),
             had_project_last_frame: false,
             toolchain_prompt: None,
@@ -10987,6 +10995,7 @@ impl CoboltApp {
                     self.ensure_project_agent_system(&root);
                 }
                 if act.save_requested {
+                    self.task_wizard.models_saves += 1;
                     self.output
                         .push_status(crate::ui_text::ide("Models Manager: project settings saved to disk."));
                 }
@@ -12765,6 +12774,16 @@ impl CoboltApp {
                     }
                 }
             }
+            Item::TaskWizard => {
+                // Spec 104 R6 — the same switch as both toolbars, as a checkable
+                // item. Turning it on here opens the catalogue under the IDE
+                // toolbar's switch (R3).
+                let mut on = self.task_wizard.on;
+                if ui.checkbox(&mut on, tr.task_wizard_menu_item).changed() {
+                    // Opening the catalogue closes this menu: egui keeps one popup open.
+                    self.toggle_task_wizard(ctx);
+                }
+            }
             Item::About => {
                 if ui
                     .button(crate::ui_text::idef("ℹ About {}", &[&crate::theme::brand_name()]))
@@ -13524,6 +13543,18 @@ impl CoboltApp {
     ///
     /// Called last in the frame so the anchors it reads are the rects this frame
     /// painted, not last frame's.
+    /// Show Project Settings in the Main Pane — what clicking the project's name in the tree
+    /// does, and what the Task Wizard's *Do this for me* does (spec 104 R25).
+    fn show_project_settings_pane(&mut self) {
+        self.show_grace_chat = false;
+        self.show_project_settings = true;
+        self.inspect = None;
+        self.indexed_inspect = None;
+        self.asset_preview = None;
+        // Any pending editor open should yield to the settings form.
+        self.pending_open_in_editor = None;
+    }
+
     fn tick_walkthrough(&mut self, ctx: &Context) {
         use crate::panels::walkthrough::Anchor;
 
@@ -13922,7 +13953,7 @@ impl CoboltApp {
         // The Walkthrough is modal too, and it has already emptied the event
         // queue — this is belt and braces, and it documents the intent where
         // someone looking for "what stops shortcuts" will find it.
-        if self.build_modal_visible() || self.walkthrough.is_running() {
+        if self.build_modal_visible() || self.walkthrough.is_running() || self.task_wizard_owns_keys() {
             return;
         }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
@@ -15520,6 +15551,9 @@ impl eframe::App for CoboltApp {
         // crate bottoms out in `InputState::events`, so emptying it here is what
         // stops all of them at once rather than a list of gates that rots.
         self.walkthrough.take_keys(ctx);
+        // Spec 104 R23 — the Task Wizard's keyboard policy, for the same reason and
+        // just as early; it also opens the frame's anchor sink (R35).
+        self.task_wizard_begin_frame(ctx);
 
         // Spec 058 T33 — publish this frame's language to the render engine's
         // Viewer tooltips. `cobolt-forms` has no `Tr` table of its own (a
@@ -16171,7 +16205,10 @@ impl eframe::App for CoboltApp {
             has_active,
             has_unsaved,
             self.pending_build_rx.is_some(),
+            self.task_wizard.on,
         ) {
+            ToolbarAction::ToggleTaskWizard => self.toggle_task_wizard(ctx),
+            ToolbarAction::OpenTaskCatalogue => crate::panels::task_wizard::catalogue::open(ctx),
             ToolbarAction::Run => self.do_run(),
             ToolbarAction::Stop => self.do_stop(),
             ToolbarAction::Debug => self.do_debug(),
@@ -16373,14 +16410,7 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::ConfirmRemoveIndexed(rel) => {
                         self.pending_indexed_delete = Some(rel);
                     }
-                    ProjectPanelEvent::ShowProjectSettings => {
-                        self.show_project_settings = true;
-                        self.inspect = None;
-                        self.indexed_inspect = None;
-                        self.asset_preview = None;
-                        // Any pending editor open should yield to the settings form.
-                        self.pending_open_in_editor = None;
-                    }
+                    ProjectPanelEvent::ShowProjectSettings => self.show_project_settings_pane(),
                     ProjectPanelEvent::CreateFolder {
                         parent_rel,
                         category_root,
@@ -16559,6 +16589,9 @@ impl eframe::App for CoboltApp {
                     .with_inner_size([1200.0, 800.0])
                     .with_transparent(crate::aurora::see_through().is_some()),
                 |vp_ctx, _class| {
+                    // Spec 104 R23 — the Task Wizard's keyboard policy, before this
+                    // window reads a key.
+                    self.task_wizard_designer_begin(&vp_ctx.ctx().clone(), idx);
                     // The window that took the shot draws the placement popup, so
                     // the operator stays in the window they were working in.
                     let shot_bg = self.current_theme().bg_panel.to_opaque();
@@ -16581,6 +16614,8 @@ impl eframe::App for CoboltApp {
                         }
                     }
                     self.show_designer_window(vp_ctx, idx, &tr);
+                    let vp = vp_ctx.ctx().clone();
+                    self.task_wizard_designer_end(&vp, idx, &tr);
                     // The build modal renders HERE when this designer's Run
                     // Form started the build — the operator is looking at this
                     // window, and a modal in the main window behind it goes
@@ -16993,6 +17028,12 @@ impl eframe::App for CoboltApp {
         }
 
         self.tick_walkthrough(ctx);
+        // Spec 104 — last: the Task Wizard reads everything this frame painted.
+        if !self.task_wizard.dismissed.is_empty() {
+            self.task_wizard_prune_dismissals();
+        }
+        let tr = self.lang.tr();
+        self.task_wizard_end_frame(ctx, &tr);
     }
 }
 
@@ -19217,6 +19258,13 @@ impl CoboltApp {
                         tr.tb_magnifier,
                         self.designers[idx].1.layout_grid.show,
                         crate::ui_text::ide("Show layout grids and edit their structure"),
+                        self.task_wizard.on,
+                        if self.task_wizard.on {
+                            tr.task_wizard_tip_on
+                        } else {
+                            tr.task_wizard_tip_off
+                        },
+                        tr.task_wizard_catalogue_tip,
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -19273,6 +19321,10 @@ impl CoboltApp {
                         let d = &mut self.designers[idx].1;
                         d.magnifier_on = !d.magnifier_on;
                         d.magnifier_feed = None;
+                    }
+                    DesignerToolbarAction::ToggleTaskWizard => self.toggle_task_wizard(ui.ctx()),
+                    DesignerToolbarAction::OpenTaskCatalogue => {
+                        crate::panels::task_wizard::catalogue::open(ui.ctx())
                     }
                     DesignerToolbarAction::RunForm => {
                         self.do_run_form(idx);
@@ -19672,6 +19724,7 @@ impl CoboltApp {
         for (ctrl_id, key, value) in inspector_action.set_props {
             if key.starts_with("_PreviewAnim") {
                 preview_triggered = true;
+                *self.task_wizard.anim_previews.entry(ctrl_id.clone()).or_default() += 1;
             }
             let d = &mut self.designers[idx].1;
             // A control background on a styled form (any GlassStyle other than
@@ -19998,6 +20051,11 @@ impl CoboltApp {
         let project_snapshot = self.cobolt_project.clone();
         let designer_result = egui::CentralPanel::default()
             .show(panel_ui, |ui| {
+                crate::panels::task_wizard::anchors::mark(
+                    ui,
+                    crate::panels::task_wizard::AnchorId::Canvas,
+                    ui.max_rect(),
+                );
                 self.designers[idx].1.show(
                     ui,
                     &mut self.clipboard,
