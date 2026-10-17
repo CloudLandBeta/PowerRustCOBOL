@@ -27,6 +27,11 @@ pub const GAP_REPORT_DIR: &str = "docs/compiler-requests";
 /// Where the reference pack goes, relative to the project folder (R2).
 pub const REFERENCE_DIR: &str = "docs/powerrustcobol";
 
+/// The worked example of the layout-and-themes skill: a small Spatial form that
+/// obeys, number for number, every design step the skill states. A test holds
+/// it to them, so the agent is never taught one thing and shown another.
+pub const DESIGN_EXAMPLE_CFRM: &str = include_str!("design_example.cfrm");
+
 /// Everything an external coding agent is told, independent of which agent.
 #[derive(Debug, Clone, Serialize)]
 pub struct KitContent {
@@ -315,7 +320,10 @@ pub const APPLICATION_RULES: [(&str, &str); 12] = [
         "Slick, lean design. Few controls per screen, each one earning its place; generous, even spacing \
          on the 8-point grid; aligned edges; consistent control sizes; one accent colour; short labels; \
          nothing decorative for its own sake. Look at every screen with `render_form` and remove what does \
-         not help the operator.",
+         not help the operator. Never overlap two controls that are on screen together, never set \
+         text under 12 points (body text is 14), and give depth with one soft shadow from one light, \
+         never an outline or a heavy shadow; the numbers are in the `powerrustcobol-layout-and-themes` \
+         skill.",
     ),
     (
         "built-in-controls",
@@ -663,12 +671,17 @@ fn skills(version: &str) -> Vec<Skill> {
                    uses them), its `<form-events>` (`onLoad`, `onClose`) and its `<Control>` \
                    elements. Leave `main-form` out unless the developer asked for a new main \
                    form — there is exactly one."),
+                s("Lay it out and dress it by the steps of `powerrustcobol-layout-and-themes`: form \
+                   coordinates in multiples of 8, no two controls overlapping or touching, \
+                   nothing under 12 points, gaps from the scale 4, 8, 12, 16, 24, 32, 40, the \
+                   Spatial faces with one soft shadow from the south-east, one accent. Look at \
+                   it with `render_form` and fix what the picture shows before the next step."),
                 s("Call `validate` with the path: the file must load."),
                 s("Call `add_to_project` with the path. Never add it to the manifest yourself."),
                 s("Call `regenerate` with the path, then `check` with the path, and fix every error \
                    in the `.cfrm` (never in `generated/`) until `check` reports none."),
             ],
-            uses_tools: tools(&["validate", "add_to_project", "regenerate", "check"]),
+            uses_tools: tools(&["validate", "add_to_project", "regenerate", "check", "render_form"]),
             example: None,
         },
         Skill {
@@ -682,9 +695,18 @@ fn skills(version: &str) -> Vec<Skill> {
                    properties, methods and events listed there."),
                 s("Add a `<Control id=\"…\" type=\"…\" x=\"…\" y=\"…\" w=\"…\" h=\"…\">` element to \
                    the form. The id is a COBOL word, unique in the form. Inside a container, set \
-                   `parent` to the container's id — position alone does not place it there."),
+                   `parent` to the container's id — position alone does not place it there. \
+                   `x`, `y`, `w` and `h` are FORM coordinates, counted from the form's top-left \
+                   corner even inside a container, in multiples of 8, inside its parent, and \
+                   clear of every other control: look at the controls already on the form first, \
+                   and never overlap or touch one."),
                 s("Write only the properties you need as `<Property name=\"…\">value</Property>`; a \
-                   property left out takes its default."),
+                   property left out takes its default. A control that shows text always sets \
+                   `FontSize` (14, never under 12) and an explicit `ForegroundColor`; a Button, \
+                   Panel or GroupBox that shows a face carries the Spatial face block, and a \
+                   TextBox the input well, both as the example of `powerrustcobol-layout-and-themes` \
+                   writes them. Copy the values of the controls of the same class already on the \
+                   form: a new Button is the height, radius, ink and shadow of the others."),
                 s("Bind the event: an `<Event name=\"onClick\" paragraph=\"<ID>--ONCLICK\">` \
                    element inside the control, holding the handler's source in CDATA — \
                    `ENVIRONMENT DIVISION.`, `DATA DIVISION.`, its own `WORKING-STORAGE SECTION.` if \
@@ -700,8 +722,9 @@ fn skills(version: &str) -> Vec<Skill> {
             uses_tools: tools(&["kb_lookup", "regenerate", "check"]),
             example: Some(
                 "```xml\n\
-                 <Control id=\"BTN-SAVE\" type=\"Button\" x=\"16\" y=\"200\" w=\"112\" h=\"32\">\n\
+                 <Control id=\"BTN-SAVE\" type=\"Button\" x=\"16\" y=\"200\" w=\"112\" h=\"40\">\n\
                  \x20 <Property name=\"Caption\">Save</Property>\n\
+                 \x20 <Property name=\"FontSize\">14</Property>\n\
                  \x20 <Event name=\"onClick\" paragraph=\"BTN-SAVE--ONCLICK\"><![CDATA[       ENVIRONMENT DIVISION.\n\
                  \n\
                  \x20      DATA DIVISION.\n\
@@ -869,7 +892,10 @@ fn skills(version: &str) -> Vec<Skill> {
                    the files they share. Design the data flow with that in mind."),
                 s("After each screen: `regenerate`, `check` until no error, `render_form` to look at \
                    it (with `in_shell` for a ContentPane screen, and with `width`/`height` for a \
-                   smaller and a bigger window, to see it hold on another screen), then `run_form` with a short \
+                   smaller and a bigger window, to see it hold on another screen) and check the \
+                   picture against the list at the end of `powerrustcobol-layout-and-themes` \
+                   (overlaps, text under 12 points, uneven gaps, a shadow that reads as a black \
+                   rim, a second accent), then `run_form` with a short \
                    script that types, clicks and reads back what the screen must do. Fix what the \
                    picture or the run shows before going on."),
                 s("Finish with `check` on the whole project and a `run_form` of the main path. \
@@ -935,7 +961,9 @@ fn skills(version: &str) -> Vec<Skill> {
         Skill {
             name: "powerrustcobol-layout-and-themes".into(),
             summary: "Lay a form out so it holds together at any window size, and give it a \
-                      consistent look with a theme; then look at it with render_form."
+                      consistent, modern look inside the Spatial theme — no overlaps, readable \
+                      type, an 8-point spacing scale, one accent, soft shadows; then look at it \
+                      with render_form."
                 .into(),
             steps: vec![
                 s("Read `powerrustcobol://reference/form-layout-and-events.md` and \
@@ -958,29 +986,108 @@ fn skills(version: &str) -> Vec<Skill> {
                    the Spatial look the golden rule spells out: dim glass on the `<Form>`, the dark \
                    gradient faces with their soft shadow on its Buttons, Panels and GroupBoxes, \
                    white text."),
-                s("Text must stay readable on its background: after a theme change, check every \
-                   label and button colour against the new background."),
+                s("Never leave the look to a default: the product's own defaults are the dated \
+                   look, and a control that sets nothing is drawn as a flat outline. `BorderStyle` \
+                   `Single`, a one-pixel outline, round a Button, Panel, GroupBox and ComboBox, \
+                   and `Fixed3D`, a bevel, on a TextBox; `CornerRadius` 0 (3 on a Button); text at \
+                   11 points, under the floor below; `BackgroundColor` `#F0F0F0`, the grey face; \
+                   `ForegroundColor` `#000000`, black ink on dark glass, on a TextBox, ComboBox, \
+                   CheckBox, ListBox and grid. So every control that shows a face or text sets, in \
+                   its own element, `BackgroundColor` (or the gradient), `ForegroundColor`, \
+                   `BorderStyle`, `CornerRadius` and `FontSize`, with colours of eight digits. \
+                   Copy the blocks of the example below."),
+                s("Place every control in FORM coordinates: `x`, `y`, `w` and `h` count from the \
+                   form's top-left corner, also for a control with a `parent` — written relative \
+                   to its card, a child piles up in the form's corner. A child lies inside its \
+                   parent's rectangle, clear of the parent's `Padding`, and every control lies \
+                   inside the form. Use whole multiples of 8 for `x`, `y`, `w` and `h` (the \
+                   form's `grid-size` is 8 and `snap-to-grid` is true). Two controls on screen \
+                   together never overlap and never touch: compare every pair that shares a \
+                   `parent` (and a `tab` page). The only overlaps that are right are a Shape, \
+                   PictureBox or Panel drawn on purpose behind the controls that sit on it, the \
+                   pages of one TabControl, and a surface hidden until it is shown (a drop-down, \
+                   a scrim). A Timer, Snackbar, IndexedFile, RestClient, SqlDatabase, \
+                   AgentObject, KnowledgeBase, WebSearch or AWS control is never drawn, so it \
+                   never counts."),
+                s("Space by role, from this scale only: 4, 8, 12, 16, 24, 32, 40. A label to the \
+                   field it names: 8 (4 for a tight caption), the same on every field. A title \
+                   to its subtitle, and a subtitle to the card under it: 8. Field to field in a \
+                   group: 16. Card to card, and group to group: 24, or 32 between large \
+                   sections. The `Padding` of a card and the margin between the window and its \
+                   content: 24, never under 16. Buttons side by side: 8 to 16 apart, one width \
+                   and one height, the primary action rightmost, a destructive one set apart. \
+                   Equal roles get equal gaps — an uneven gap is a defect. Align edges: a column \
+                   of controls shares one `x` and one width, a row shares one `y` and one \
+                   height. Rows or columns of many similar controls belong in a Flex or Grid \
+                   container with a `Gap`, not in positions you compute."),
+                s("Type. Leave `FontName` unset: every system draws the built-in UI font \
+                   identically, while a family that is not installed on the operator's machine \
+                   falls back to it silently with other metrics, and captions clip. Sizes in \
+                   points, as a scale: 12 for a hint or caption, 14 for body text — labels, \
+                   inputs, buttons, grid cells —, 16 for a section heading (`Bold`), 20 to 24 \
+                   for the form's title, 28 to 40 for one headline figure. Never below 12, and \
+                   no more than four sizes on a form. Hierarchy comes from size and weight \
+                   first, colour second: one `Bold` level, and `#FFFFFFAA` for secondary text — \
+                   never a grey hex, never an alpha below AA. Align text left and numbers right \
+                   (`TextAlignment`); never justify; write sentence case, no ALL-CAPS captions, \
+                   no underline or italics for emphasis. Fit: translations run up to 40% longer \
+                   than English, so give every caption width for 1.4 × 0.6 × `FontSize` points \
+                   per character, and a height of 24 for 14-point text, 40 for an input or a \
+                   Button."),
+                s("Colour. One palette: Spatial's neutrals and ONE accent, `#0A84FFFF`, for the \
+                   primary action and the active state, with `#050A26FF` ink on it (5.3:1 — white \
+                   on that blue is only 3.6:1). Status colours mean a state and nothing else: \
+                   success `#30D158FF`, warning `#FF9F0AFF`, danger `#FF453AFF`, each with the \
+                   same dark ink. An input is a well — `BackgroundColor` `#12131CFF`, \
+                   `BorderStyle` `Single`, `BorderColor` `#FFFFFF33`, ink `#FFFFFFFF`. Every ink \
+                   still meets the contrast rule: 4.5:1 for body text, 3:1 from 18 points; \
+                   never grey on grey, and never an ink the theme picked. After a theme change, \
+                   check every ink against its new surface. No second accent, no rainbow of \
+                   button colours, no gradient but the Spatial face's own."),
+                s("Depth is one soft shadow from one light, and nothing else: no outline to \
+                   separate cards (`BorderStyle` `None`), no bevel. Keep the Spatial values \
+                   inside these bands. `ShadowDirection` `SouthEast` on EVERY shadow of the \
+                   application — one light, never `NorthWest` or a mix. `ShadowColor` \
+                   `#000000FF`: a shadow is darker than the glass it falls on. `ShadowOpacity` 4 \
+                   to 8, 6 by default: on Spatial's glass 6 leaves a halo about 1.4 times darker \
+                   than the backdrop, 10 is already 1.8, and 15 or more is a black rim. \
+                   `ShadowDistance` 4 to 10, 7 by default: 12 or more detaches into an offset \
+                   plate. `ShadowBlur` `true` with `ShadowBlurStrength` 8 to 12 — a hard edge is \
+                   a 90s shadow, and a negative strength is only for a deliberate inset well. \
+                   Only a face that stands above its surface has a shadow: a Panel or card, a \
+                   GroupBox, a Button. A Label, a TextBox, a CheckBox and a Panel used only to \
+                   group have none. Same class, same values."),
+                s("Modern, not dated. The look is Spatial: borderless dark glass lifted by a soft \
+                   shadow, large radii, one accent, room to breathe, 14-point type. These are the \
+                   tells of an older style, and none belongs on a form. The 90s: `BorderStyle` \
+                   `Fixed3D`, `Raised` or `Sunken`; the default grey face `#F0F0F0` showing on a \
+                   Button, Panel or GroupBox; square corners; text of 8 to 10 points. The 2000s: \
+                   glossy or multi-colour gradients, a hard or heavy drop shadow, a `Glow` \
+                   border, candy-coloured buttons, icons of mixed styles. The 2010s: flat blocks \
+                   of solid colour, a one-pixel outline around every card and control, heavy \
+                   divider lines, a different accent on every button. `CornerRadius` 10 to 12 on \
+                   Buttons, TextBoxes and other inputs, 22 to 28 on a card, never 0 on a face \
+                   that shows, and an inner radius never above its outer one. Separate groups \
+                   with space and elevation, not with lines."),
+                s("Consistency is one value per role. Every control of a class — all Buttons, all \
+                   inputs, all cards — has the same height, `CornerRadius`, `FontSize`, ink and \
+                   shadow: write one property block per class and repeat it verbatim, varying \
+                   only what carries meaning (the accent action, a status). The same thing looks \
+                   the same on every form of the application: the title, the card, the button \
+                   row and the margins repeat from form to form."),
                 s("Look at it with `render_form` (scale 1) at the designed size, then with `width` \
-                   and `height` for a bigger window (a wide monitor) — a responsive form cannot \
-                   open smaller than its minimum, and the answer says when it was held there. \
-                   Fix overlaps, clipped text and controls past the edge in the `.cfrm`, then \
-                   `regenerate` and `check`."),
+                   and `height` for a smaller and a bigger window (a wide monitor) — a \
+                   responsive form cannot open smaller than its minimum, and the answer says \
+                   when it was held there. Check the picture against this list: no two controls \
+                   overlap or touch; every child inside its parent; no text under 12 points; no \
+                   caption cut off, and room for the longest language; every gap from the scale \
+                   and equal for equal roles; shadows a soft halo in one direction, never a \
+                   black rim; one accent; none of the older-style tells. Fix the `.cfrm`, \
+                   `regenerate`, `check`, and `render_form` again until the picture shows none \
+                   of them — and once more after `run_form` has put real data in the screen."),
             ],
             uses_tools: tools(&["kb_lookup", "render_form", "run_form", "regenerate", "check"]),
-            example: Some(
-                "```xml\n\
-                 <Form name=\"CUSTOMERS-FORM\" title=\"Customers\" width=\"1288\" height=\"908\" \
-                 form-format=\"Embedded\" responsive=\"true\">\n\
-                 \x20 <Control id=\"TXT-SEARCH\" type=\"TextBox\" x=\"24\" y=\"24\" w=\"400\" h=\"32\">\n\
-                 \x20   <Property name=\"Anchor\">Top,Left,Right</Property>\n\
-                 \x20 </Control>\n\
-                 \x20 <Control id=\"BTN-SAVE\" type=\"Button\" x=\"1160\" y=\"852\" w=\"104\" h=\"32\">\n\
-                 \x20   <Property name=\"Anchor\">Bottom,Right</Property>\n\
-                 \x20 </Control>\n\
-                 </Form>\n\
-                 ```"
-                    .into(),
-            ),
+            example: Some(format!("```xml\n{DESIGN_EXAMPLE_CFRM}```")),
         },
         Skill {
             name: "powerrustcobol-use-sql".into(),
@@ -1080,6 +1187,15 @@ fn reviewer() -> Reviewer {
                on the form), embedded in the side menu's ContentPane unless the developer asked \
                otherwise, lean, built-in controls where one fits, every visible text in all six \
                languages."),
+            s("Every changed form obeys the design steps of `powerrustcobol-layout-and-themes`: no two \
+               controls on screen together overlap or touch, every child is inside its parent, all \
+               `x`, `y`, `w`, `h` are in form coordinates and multiples of 8; no text under 12 \
+               points and `FontName` unset; gaps from the scale 4, 8, 12, 16, 24, 32, 40, equal for \
+               equal roles; one accent, ink that passes the contrast rule; every shadow \
+               `SouthEast`, black, `ShadowOpacity` 4 to 8, `ShadowDistance` 4 to 10, blurred, and \
+               only on a Panel, GroupBox or Button; controls of one class share height, radius and \
+               ink; none of the older-style tells (`Fixed3D`, `Raised` or `Sunken` borders, the \
+               grey `#F0F0F0` face, square corners, heavy shadows, outlines around cards)."),
             s("`check` reports no error for the changed files. A missing capability has a gap report \
                in `docs/compiler-requests/` instead of a workaround that pretends."),
         ],
