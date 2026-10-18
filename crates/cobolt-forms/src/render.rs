@@ -1035,13 +1035,15 @@ fn backdrop_gradient_color(color_hex: &str, transparency: u8) -> Color32 {
 /// to. A child draws its frame lifted to this arc, so any part that reaches a
 /// rounded corner is cut by the parent's shape, not by the child's own bounds
 /// (spec 017, the container-clip rule; spec 057: every type, one geometry).
-/// `None` when the parent isn't rounded.
+/// `None` when the parent isn't rounded. `scroll_above` is
+/// [`ancestor_clip_rect`]'s: the parent's border is placed where the parent is
+/// drawn, moved by the scroll of every scrolling container above it.
 fn picturebox_container_border(
     controls: &[Control],
     state: &dyn FormState,
     idx: usize,
     origin: egui::Pos2,
-    scroll: egui::Vec2,
+    scroll_above: &dyn Fn(usize) -> egui::Vec2,
 ) -> Option<(Rect, f32)> {
     // Use the caller's effective controls list (may be the expanded list from
     // live+expand_repeating_groups in render_form). This prevents OOB when
@@ -1066,19 +1068,12 @@ fn picturebox_container_border(
         return None;
     }
     let v = plive.rect; // visual (border) rect in form coords
-                        // If the immediate parent itself is the scroller (HScroll/VScroll), its
-                        // border rect stays fixed on screen; only subtract scroll for non-scroller
-                        // ancestors (e.g. a rounded GroupBox card that lives inside a scrolling
-                        // Panel). This keeps _ContainerClip correct for PictureBox children both
-                        // directly under a scroll panel and deep inside databound repeating cards.
-    let parent_has_scroll = scrolls_its_content(&controls[p].control_type)
-        && (plive.get_prop("HScroll").map_or(false, |vv| vv.as_bool())
-            || plive.get_prop("VScroll").map_or(false, |vv| vv.as_bool()));
-    let off = if parent_has_scroll {
-        egui::Vec2::ZERO
-    } else {
-        scroll
-    };
+    // A scrolling parent stays where it was laid out unless a scroller above it
+    // has moved; a rounded card inside a scrolling Panel moves with the Panel —
+    // whether or not the card scrolls its own content. It used to be placed
+    // unscrolled whenever it scrolled itself, so a scrolling rounded card in a
+    // scrolling Panel cut its children's frames as the Panel moved.
+    let off = scroll_above(p);
     let border = Rect::from_min_max(
         origin + Vec2::new(v.x as f32, v.y as f32) - off,
         origin + Vec2::new((v.x + v.w) as f32, (v.y + v.h) as f32) - off,
@@ -2337,14 +2332,6 @@ fn ancestor_auto_scroll_offset(
     off
 }
 
-/// Compute the ancestor content clip rect in *screen* coordinates for `idx`,
-/// honouring ancestor HScroll/VScroll. Container rects contributed by scrolling
-/// ancestors (e.g. the Panel) are placed at their fixed on-screen position.
-/// Container rects for non-scroller ancestors that live in the scrolled content
-/// space (e.g. a databound repeating GroupBox card inside a scrolling Panel) are
-/// shifted by the cumulative scroll so that children draw inside the moved card
-/// bounds. This fixes "frame transparency" / missing inners when scrolling
-/// repeating GroupBoxes (ControlArrays) that act as databound card lists.
 /// The control as it is THIS frame: the designed control with live overrides,
 /// plus the one piece of geometry no state map owns — a Splitter pane's rect.
 ///
@@ -2564,44 +2551,41 @@ fn splitter_pane_rect(
     Some(if n == 1 { g.pane1 } else { g.pane2 })
 }
 
+/// The ancestors' content areas around `controls[idx]`, intersected, in screen
+/// coordinates. `scroll_above(p)` is how far the scrolling containers ABOVE
+/// ancestor `p` have moved it ([`ancestor_auto_scroll_offset`] of `p`): each
+/// ancestor's rect is placed where it is on screen — the outermost scroller
+/// where it was laid out, a card inside it moved by its scroll.
+///
+/// It used to assume every scrolling container stays put: past the first one
+/// up the chain it stopped shifting. A container that scrolls INSIDE one that
+/// scrolls — a repeating GroupBox with VScroll on, in a scrolling Panel — moves
+/// with the outer scroll all the same, and its children were clipped to where
+/// it would have been unscrolled: the further the panel scrolled, the more of
+/// every card's contents was cut away (operator, 2026-10-18, PowerDemo1).
 fn ancestor_clip_rect(
     controls: &[Control],
     idx: usize,
     origin: egui::Pos2,
-    scroll: egui::Vec2,
+    scroll_above: &dyn Fn(usize) -> egui::Vec2,
     state: &dyn FormState,
 ) -> Option<Rect> {
     let mut clip: Option<Rect> = None;
     let mut cur = idx;
-    // Start assuming we are in "content space" under scroll; once we cross a
-    // scrolling container we stop shifting (higher clips are viewport-fixed).
-    let mut apply_scroll = true;
     while let Some(pid) = controls.get(cur).and_then(|c| c.parent.clone()) {
         if let Some(p) = controls.iter().position(|c| c.id == pid) {
-            let pctrl = &controls[p];
             // …through `live_control`, so a child of a Splitter pane is clipped
             // to where the pane IS after a drag, not where it was designed.
             let plive = live_control(controls, p, state);
             let cr = plive.content_rect();
-            let has_scroll = scrolls_its_content(&pctrl.control_type)
-                && (plive.get_prop("HScroll").map_or(false, |v| v.as_bool())
-                    || plive.get_prop("VScroll").map_or(false, |v| v.as_bool()));
-            let off = if apply_scroll && !has_scroll {
-                scroll
-            } else {
-                egui::Vec2::ZERO
-            };
             let r = Rect::from_min_size(
-                origin + Vec2::new(cr.x as f32, cr.y as f32) - off,
+                origin + Vec2::new(cr.x as f32, cr.y as f32) - scroll_above(p),
                 Vec2::new(cr.w as f32, cr.h as f32),
             );
             clip = Some(match clip {
                 Some(c) => c.intersect(r),
                 None => r,
             });
-            if has_scroll {
-                apply_scroll = false;
-            }
             cur = p;
         } else {
             break;
@@ -3124,10 +3108,10 @@ fn render_form_inner(
         // Clip to ancestor container content areas (rounded clipping is cosmetic;
         // egui clips to the axis-aligned rect â spec 012/016). Start from the whole
         // form so a top-level control is never clipped to its own bounds.
-        // Use scroll-aware placement so that clips contributed by non-scroller
-        // containers (the instanced cards) move with -scroll while scroller
-        // Panel clips stay fixed. Prevents the "growing transparent frame" over
-        // databound card content on scroll.
+        // Scroll-aware placement: each container's clip sits where that
+        // container is drawn, moved by the scrollers above it (`scroll_above`),
+        // so a card's clip moves with the Panel it scrolls in. Prevents the
+        // "growing transparent frame" over databound card content on scroll.
         // …and never past what the surface itself shows. `content_rect` is the
         // form's own area, which moves with the surface's scroll; a control
         // scrolled past the viewport's edge kept a clip reaching over whatever
@@ -3135,7 +3119,9 @@ fn render_form_inner(
         // Ui (a Label's selectable text, a TextBox's editor) painted there — a
         // form in a shell's ContentPane, scrolled right, showed through the
         // SideMenu (operator, 2026-09-29).
-        let clip = match ancestor_clip_rect(controls, idx, origin, scroll, input.state) {
+        let scroll_ctx = ui.ctx().clone();
+        let scroll_above = |p: usize| ancestor_auto_scroll_offset(scope, controls, p, &scroll_ctx);
+        let clip = match ancestor_clip_rect(controls, idx, origin, &scroll_above, input.state) {
             Some(c) => content_rect.intersect(c),
             None => content_rect,
         }
@@ -3168,8 +3154,7 @@ fn render_form_inner(
             };
             let pid = controls[pidx].id.as_str();
             let outer = shadow_room(out.control_rects.get(pid).copied()?, &input.state.live(&controls[pidx]));
-            let pscroll = ancestor_auto_scroll_offset(scope, controls, pidx, ui.ctx());
-            let pclip = match ancestor_clip_rect(controls, pidx, origin, pscroll, input.state) {
+            let pclip = match ancestor_clip_rect(controls, pidx, origin, &scroll_above, input.state) {
                 Some(c) => content_rect.intersect(c),
                 None => content_rect,
             };
@@ -3308,7 +3293,7 @@ fn render_form_inner(
         // type since spec 057 — the non-visual objects' canvas badge is a frame
         // like any other). The straight edges stay clipped to `clip`, the
         // parent's content rect, exactly as before.
-        let pic_border = picturebox_container_border(controls, input.state, idx, origin, scroll);
+        let pic_border = picturebox_container_border(controls, input.state, idx, origin, &scroll_above);
 
         let anc = containers::ancestor_opacity(controls, idx);
         let enabled = input.state.enabled(base)
@@ -4778,7 +4763,7 @@ pub fn render_faces_with(
         // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
         // BORDER path (spec 017) â see `render_form`.
         let pic_border =
-            picturebox_container_border(input.controls, input.state, idx, origin, egui::Vec2::ZERO);
+            picturebox_container_border(input.controls, input.state, idx, origin, &|_| egui::Vec2::ZERO);
 
         // Clip children to ancestor container content areas; top-level controls
         // draw to the painter's existing clip (the canvas), matching the designer.
@@ -19825,7 +19810,7 @@ mod tests {
                 &DesignedState,
                 1,
                 egui::pos2(0.0, 0.0),
-                egui::Vec2::ZERO,
+                &|_| egui::Vec2::ZERO,
             )
         };
         let (border, rad) = mk(&controls).expect("rounded parent â border clip");
@@ -19871,7 +19856,9 @@ mod tests {
         // For the inner label (inside card), clip should be intersection of:
         // - panel's content rect (fixed, because it is the scroller)
         // - card's content rect shifted by -scroll (card is non-scroller container in content space)
-        let clip = ancestor_clip_rect(&controls, 2, origin, scroll, &DesignedState).expect("clip");
+        // The panel (index 0) is the outermost scroller: nothing above it moves it.
+        let above = |p: usize| if p == 0 { egui::Vec2::ZERO } else { scroll };
+        let clip = ancestor_clip_rect(&controls, 2, origin, &above, &DesignedState).expect("clip");
 
         // Compute expected using same content_rects + rules.
         let p_cr = controls[0].content_rect();
@@ -19938,13 +19925,82 @@ mod tests {
         let scroll = egui::vec2(0.0, 30.0);
 
         let clip =
-            ancestor_clip_rect(&controls, lbl_idx, origin, scroll, &DesignedState).expect("clip");
+            ancestor_clip_rect(&controls, lbl_idx, origin, &|p| if controls[p].id == "Pnl" { egui::Vec2::ZERO } else { scroll }, &DesignedState).expect("clip");
 
         // Card height is 100, spacing is 10. Instance 2 is shifted down by dy = 110.
         // Scroll is 30.
         // Expected card content rect for instance 2 is (10 + 2, 20 + 110 + 2) = (12, 132).
         // Since scroll is 30, the card's clip rect should shift to 132 - 30 = 102.
         assert_eq!(clip.min.y, 102.0);
+    }
+
+    /// Operator, 2026-10-18 (PowerDemo1): a repeating GroupBox with VScroll ON, in a
+    /// scrolling Panel. The cards are scrollers themselves, and the clip used to stop
+    /// shifting at the first scroller up the chain: each card's children were clipped
+    /// to where the card would have been unscrolled, so the further the panel
+    /// scrolled, the more of every card's TextBox and Button was cut away.
+    #[test]
+    fn a_scrolling_card_inside_a_scrolling_panel_clips_where_it_is_drawn() {
+        use crate::model::PropValue;
+        let mut panel = ctrl("Panel-1", ControlType::Panel, 232, 88, 640, 392);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        let mut card = ctrl("GroupBox-1", ControlType::GroupBox, 248, 104, 608, 136);
+        card.set_prop("VScroll", PropValue::Bool(true));
+        card.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        card.set_prop("DataSource", PropValue::String("ITEMS / ITEMS".into()));
+        card.set_prop("ItemCount", PropValue::Int(4));
+        card.set_prop("ItemSpacing", PropValue::Int(8));
+        card.parent = Some("Panel-1".into());
+        let mut text = ctrl("TextBox-1", ControlType::TextBox, 264, 136, 252, 48);
+        text.parent = Some("GroupBox-1".into());
+        let controls = expand_repeating_groups(&[panel, card, text]).expect("expand");
+        let text2 = controls.iter().position(|c| c.id.ends_with("-2.TextBox-1")).expect("instance 2's TextBox");
+        let card2 = controls.iter().position(|c| c.id.ends_with("-2") && c.control_type == ControlType::GroupBox).expect("card 2");
+
+        // The panel has scrolled 64 down; card 2 itself has not scrolled.
+        let scroll = egui::vec2(0.0, 64.0);
+        let above = |p: usize| if controls[p].id == "Panel-1" { egui::Vec2::ZERO } else { scroll };
+        let clip = ancestor_clip_rect(&controls, text2, egui::Pos2::ZERO, &above, &DesignedState).expect("clip");
+
+        // Card 2 is drawn 64 higher than it was laid out, and so is its content area.
+        let cr = controls[card2].content_rect();
+        assert_eq!(clip.min.y, cr.y as f32 - 64.0, "card 2's clip did not move with the panel: {clip:?}");
+        // The TextBox, drawn 64 higher as well, lies wholly inside it.
+        let drawn = Rect::from_min_size(egui::pos2(controls[text2].rect.x as f32, controls[text2].rect.y as f32 - 64.0), egui::vec2(252.0, 48.0));
+        assert_eq!(clip.intersect(drawn), drawn, "part of the TextBox is clipped away: {clip:?} vs {drawn:?}");
+    }
+
+    /// The same layout with rounded cards: a child's frame is lifted to its card's
+    /// arc (`_ContainerClip`), and that arc has to move with the Panel too. It was
+    /// placed unscrolled whenever the card scrolled itself, so the top of every
+    /// child's frame and shadow was cut away as the Panel scrolled.
+    #[test]
+    fn a_rounded_scrolling_card_inside_a_scrolling_panel_lifts_its_children_where_it_is_drawn() {
+        use crate::model::PropValue;
+        let mut panel = ctrl("Panel-1", ControlType::Panel, 232, 88, 640, 392);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        let mut card = ctrl("GroupBox-1", ControlType::GroupBox, 248, 104, 608, 136);
+        card.set_prop("VScroll", PropValue::Bool(true));
+        card.set_prop("CornerRadius", PropValue::Int(12));
+        card.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        card.set_prop("DataSource", PropValue::String("ITEMS / ITEMS".into()));
+        card.set_prop("ItemCount", PropValue::Int(4));
+        card.set_prop("ItemSpacing", PropValue::Int(8));
+        card.parent = Some("Panel-1".into());
+        let mut text = ctrl("TextBox-1", ControlType::TextBox, 264, 136, 252, 48);
+        text.parent = Some("GroupBox-1".into());
+        let controls = expand_repeating_groups(&[panel, card, text]).expect("expand");
+        let text2 = controls.iter().position(|c| c.id.ends_with("-2.TextBox-1")).expect("instance 2's TextBox");
+        let card2 = controls.iter().position(|c| c.id.ends_with("-2") && c.control_type == ControlType::GroupBox).expect("card 2");
+
+        let scroll = egui::vec2(0.0, 64.0);
+        let above = |p: usize| if controls[p].id == "Panel-1" { egui::Vec2::ZERO } else { scroll };
+        let (arc, _rad) = picturebox_container_border(&controls, &DesignedState, text2, egui::Pos2::ZERO, &above).expect("a rounded card lifts its children");
+        let unscrolled = picturebox_container_border(&controls, &DesignedState, text2, egui::Pos2::ZERO, &|_| egui::Vec2::ZERO).expect("arc").0;
+        assert_eq!(arc, unscrolled.translate(-scroll), "card 2's arc did not move with the panel");
+        // The arc is card 2's content box where card 2 is drawn.
+        let cr = controls[card2].content_rect();
+        assert_eq!(arc.min.y, cr.y as f32 - 64.0, "{arc:?}");
     }
 
     #[test]
@@ -23974,7 +24030,7 @@ mod tests {
             &st,
             child_idx,
             egui::pos2(0.0, 0.0),
-            egui::Vec2::ZERO,
+            &|_| egui::Vec2::ZERO,
         )
         .expect("a child of a rounded pane carries a container clip");
 
@@ -24117,7 +24173,7 @@ mod tests {
         let cell = RefCell::new(overrides);
         let st = MapState(&cell);
 
-        let clip = ancestor_clip_rect(&controls, 3, pos2(0.0, 0.0), Vec2::ZERO, &st)
+        let clip = ancestor_clip_rect(&controls, 3, pos2(0.0, 0.0), &|_| Vec2::ZERO, &st)
             .expect("a pane child is clipped by its pane");
         assert!(
             clip.width() <= 1.0,

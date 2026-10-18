@@ -17,6 +17,26 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.212] — 2026-10-18
+
+*(Written on `fixes-nested-scroll-clip`, off `main` at 1.91.211.)*
+
+### Fixed: a scrolling container inside a scrolling panel clips its contents where it is drawn
+
+The operator, 2026-10-18, on PowerDemo1: *"a groupbox turned into an array has this old problem: the further the groupbox scrolls inside a panel, the more its elements are covered by some rogue frame."* The form has a repeating GroupBox with `VScroll` on, inside a Panel with `VScroll` on. Each card is therefore a scroller of its own, inside a scroller.
+
+A control is clipped to the content area of every container above it. That area moved with the scroll of the containers that do not scroll themselves, but stopped at the first one that does. A scrolling card was clipped where it would have been unscrolled, while it was drawn shifted by the Panel's scroll. So the further the Panel scrolled, the more of every card's TextBox and Button the clip cut away.
+
+`ancestor_clip_rect` (`crates/cobolt-forms/src/render.rs`) now places each container's clip area where that container is actually drawn: shifted by the scroll of all its own scrolling ancestors, at any depth. The shadow clip uses the same rule. A form that has not scrolled is clipped exactly as before, and so is a form with a single scrolling container.
+
+The GUI Border Validation review found the same fault one function over. `picturebox_container_border` places the rounded arc that a child of a rounded GroupBox or Panel is lifted to (`_ContainerClip`). It placed a scrolling parent unscrolled, so a rounded card with VScroll on, inside a scrolling Panel, would have cut the top of each child's frame and shadow as the Panel scrolled. It now takes the same scroll rule. PowerDemo1's cards are square, so the operator's form did not reach it. The review found no change to any border, corner, notch mask or stroke. Two comments that still described the old rule are corrected.
+
+New tests:
+- `a_scrolling_card_inside_a_scrolling_panel_clips_where_it_is_drawn` builds PowerDemo1's layout. It scrolls the Panel 64 px and checks that card 2's TextBox lies wholly inside its clip.
+- `a_rounded_scrolling_card_inside_a_scrolling_panel_lifts_its_children_where_it_is_drawn` uses the same layout with `CornerRadius 12`. It checks that card 2's arc moves with the Panel.
+
+The five existing tests of both functions take the new scroll closure.
+
 ## [PowerRustCOBOL 1.91.211] — 2026-10-18
 
 *(Written on `features-event-section-counts`, off `main` at 1.91.210.)*
