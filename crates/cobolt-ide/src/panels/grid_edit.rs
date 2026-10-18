@@ -251,13 +251,10 @@ pub(crate) fn columns_of(grid: &Control) -> Vec<(String, String)> {
         .collect()
 }
 
-/// `Rows` as the renderer reads it: one `Vec` of cells per non-empty line.
+/// `Rows` as the renderer and the runtime read it: one `Vec` of cells per line,
+/// an empty line included.
 pub(crate) fn rows_of(grid: &Control) -> Vec<Vec<String>> {
-    text_of(grid, "Rows")
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| l.split('\t').map(str::to_owned).collect())
-        .collect()
+    cobolt_forms::datagrid::parse_rows(&text_of(grid, "Rows"))
 }
 
 fn join_rows(rows: &[Vec<String>]) -> String {
@@ -427,6 +424,7 @@ pub(crate) fn remove_column(grid: &Control, display_index: usize) -> Edits {
                 .map(str::to_owned)
                 .collect()
         };
+        let columns_left = kept.iter().any(|l| !l.splitn(2, ':').next().unwrap_or("").trim().is_empty());
         set(&mut edits, grid, "Columns", kept.join("\n"));
         let mut rows = rows_of(grid);
         for row in &mut rows {
@@ -435,6 +433,11 @@ pub(crate) fn remove_column(grid: &Control, display_index: usize) -> Edits {
             }
         }
         if !rows.is_empty() {
+            // With the last data column gone a row has no cells left, and an
+            // empty line would still be a row: the rows go with the column.
+            if !columns_left {
+                rows.clear();
+            }
             set(&mut edits, grid, "Rows", join_rows(&rows));
         }
     }
@@ -1131,6 +1134,23 @@ mod tests {
         assert_eq!(rows(&g), "r1\nr3");
         assert_eq!(text_of(&g, "RowHeightOverrides"), "2=60", "row 3 is row 2 now, and kept its height");
         assert!(remove_row(&g, 9).is_empty(), "no such row, no change");
+    }
+
+    /// An empty line of `Rows` is a row here as it is to the renderer and the
+    /// runtime — a one-column row with an empty cell: removing the row after
+    /// it removes THAT row, and adding one keeps it.
+    #[test]
+    fn an_empty_line_is_a_row_the_designer_keeps() {
+        let mut g = grid("Name:string", "\nBia\nCid");
+        assert_eq!(rows_of(&g).len(), 3);
+        apply!(g, remove_row(&g, 1));
+        assert_eq!(rows(&g), "\nCid", "Bia is removed, the empty row stays");
+        apply!(g, add_row(&g));
+        assert_eq!(rows(&g), "\nCid\nText 3");
+        // Removing the only data column takes the rows with it, not N-1 empty lines.
+        apply!(g, remove_column(&g, 0));
+        assert_eq!(rows(&g), "");
+        assert!(rows_of(&g).is_empty());
     }
 
     #[test]
