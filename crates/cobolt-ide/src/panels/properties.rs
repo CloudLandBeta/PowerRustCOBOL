@@ -12533,11 +12533,14 @@ impl PropertiesPanel {
                 // All supported form events, grouped by category (collapsible). A group
                 // that has any handler-with-code starts expanded; others collapsed.
                 for &(group, events) in cobolt_forms::model::FORM_EVENT_GROUPS {
-                    let any_code = events.iter().any(|ev| {
-                        form.form_events
-                            .iter()
-                            .any(|e| e.event == *ev && e.has_code())
-                    });
+                    // How many of the group's events carry code: shown beside its name,
+                    // "Lifecycle (1)", so a closed group still says what is inside it
+                    // (operator, 2026-10-18).
+                    let with_code = events
+                        .iter()
+                        .filter(|ev| form.form_events.iter().any(|e| e.event == **ev && e.has_code()))
+                        .count();
+                    let any_code = with_code > 0;
                     // The rows of one group. While a search is in force they
                     // are drawn flat — a collapsed group would hide the very
                     // event being looked for — and the group's name is
@@ -12591,8 +12594,12 @@ impl PropertiesPanel {
                         search_subsection(group);
                         rows(ui);
                     } else {
+                        // The id is the group's, not its title's: the count changes, the
+                        // group stays open or closed as the user left it.
                         egui::CollapsingHeader::new(
-                            RichText::new(crate::ui_text::tx(group)).strong().color(crate::contrast::ink(Color32::from_gray(170))),
+                            RichText::new(format!("{} ({})", crate::ui_text::tx(group), with_code))
+                                .strong()
+                                .color(crate::contrast::ink(Color32::from_gray(170))),
                         )
                         .id_salt(format!("form-evgrp-{group}"))
                         .default_open(any_code)
@@ -12623,7 +12630,7 @@ impl PropertiesPanel {
                     .collect();
                 if !retired.is_empty() {
                     egui::CollapsingHeader::new(
-                        RichText::new(crate::ui_text::tx("Retired (no longer fired)"))
+                        RichText::new(format!("{} ({})", crate::ui_text::tx("Retired (no longer fired)"), retired.len()))
                             .strong()
                             .color(crate::contrast::ink(Color32::from_rgb(210, 170, 100))),
                     )
@@ -18599,6 +18606,32 @@ mod label_help_tests {
     /// developer types and stay as written, as do sample data and examples: the allow-list in
     /// `pane_words` is those, and nothing else.) The windows the pane opens are held to the same
     /// by `no_word_of_the_panes_windows_is_left_in_english_in_every_language`.
+    /// Each form-event group's title says how many of its events carry code — "Lifecycle (1)" —
+    /// so a closed group still tells what is inside it (operator, 2026-10-18).
+    #[test]
+    fn each_event_group_says_how_many_of_its_events_carry_code() {
+        let mut form = Form::new("F", "F", 640, 480);
+        for e in &mut form.form_events {
+            e.code.clear();
+        }
+        let load = form.form_events.iter_mut().find(|e| e.event == "onLoad").expect("Form::new stubs onLoad");
+        load.code = "           DISPLAY \"LOADED\"".to_owned();
+        let texts = crate::ui_text::probe::texts(
+            crate::i18n::Language::English,
+            &|| {
+                let mut panel = PropertiesPanel::new();
+                panel.active_tab = InspectorTab::Events;
+                panel
+            },
+            &|panel, ui, tr| {
+                let _ = panel.show(ui, &form, None, &[], tr);
+            },
+        );
+        assert!(texts.iter().any(|t| t == "Lifecycle (1)"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Mouse (0)"), "a group with no code says (0): {texts:?}");
+        assert!(!texts.iter().any(|t| t == "Lifecycle"), "the bare title is gone: {texts:?}");
+    }
+
     #[test]
     fn no_word_of_the_pane_is_left_in_english_in_every_language() {
         use std::collections::{BTreeMap, BTreeSet};

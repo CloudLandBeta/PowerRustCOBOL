@@ -17,6 +17,22 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.211] — 2026-10-18
+
+*(Written on `features-event-section-counts`, off `main` at 1.91.210.)*
+
+### Feature: each form-event group says how many of its events carry code — "Lifecycle (1)"
+
+The operator, 2026-10-18: *"put the number of events with code in parentheses beside each section, e.g. Lifecycle (1)."* In the Properties pane's **Events** tab, every group title of the form's events now ends with that count: `Lifecycle (1)`, `Mouse (0)`. A closed group therefore still says whether it holds code. The retired-events group shows its count too.
+
+The group's open or closed state is keyed by the group, not by its title, so it stays as the user left it when the count changes.
+
+The pane's "left in English in every language" probe (`ui_text::probe::is_word`) now judges a title without a trailing ` (n)` count, since a number is not a word to translate. `Clipboard`, the same in every language, was otherwise flagged once it read `Clipboard (0)`.
+
+**Tests:**
+- New: `each_event_group_says_how_many_of_its_events_carry_code`. It checks the painted texts for `Lifecycle (1)` and `Mouse (0)`, with no bare title left.
+- The pane's tests: 92 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.91.210] — 2026-10-18
 
 *(Written on `fixes-aws-labs-hosted`, off `main` at 1.91.209.)*

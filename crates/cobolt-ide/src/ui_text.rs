@@ -204,6 +204,12 @@ pub(crate) mod probe {
     /// A text that is a word of the IDE — not an identifier, a number or a sample.
     pub(crate) fn is_word(t: &str) -> bool {
         let t = t.trim();
+        // A count after a title — "Lifecycle (1)", the events with code in a group — is a
+        // number, not a word to translate: the title alone is judged.
+        let t = match t.strip_suffix(')').and_then(|s| s.rsplit_once(" (")) {
+            Some((title, n)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => title,
+            _ => t,
+        };
         let identifier = t.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
             && t.trim_end_matches(':').chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
         // A COBOL name or an acronym has no lower-case letter; a JSON or JSONPath sample starts with
