@@ -128,7 +128,7 @@ fn envelope(v: Value) -> Value {
 /// calls. The first rule whose text is in the script wins, so the specific ones come first.
 fn hosted_rules(photo: &[u8]) -> Value {
     let stack_ok = json!({"StackName": "powercloud", "StackStatus": "CREATE_COMPLETE", "Outputs": [
-        {"OutputKey": "BucketName", "OutputValue": "powercloud-photos-123456789012-us-east-1"},
+        {"OutputKey": "BucketName", "OutputValue": "powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0"},
         {"OutputKey": "FunctionName", "OutputValue": "powercloud-presign"},
         {"OutputKey": "TableName", "OutputValue": "PowerCloudPets"}]});
     let pets = json!([
@@ -387,7 +387,7 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
     phase("Settings", "stack created, polled until CREATE_COMPLETE, outputs read", &p, &|p| {
         let r = run_form(p, &json!([click("Btn-Deploy"), wait(4500), get("Lbl-StackState", "Caption"), get("Txt-Bucket", "Text")]), 60);
         assert_eq!(read(&r, "Lbl-StackState", "Caption"), "Stack powercloud: CREATE_COMPLETE", "{r}");
-        assert_eq!(read(&r, "Txt-Bucket", "Text"), "powercloud-photos-123456789012-us-east-1");
+        assert_eq!(read(&r, "Txt-Bucket", "Text"), "powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0");
     });
 
     phase("DynamoDB", "table created; two pets read; thumbnails fetched and fitted", &p, &|p| {
@@ -410,7 +410,7 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
         let log = hosted_log(p);
         let gets: Vec<_> = log.lines().filter(|l| l.contains("operation_name='GetObject'")).collect();
         for key in ["photos/20261001000001.jpg", "photos/20261001000002.jpg"] {
-            assert!(gets.iter().any(|l| l.contains(key) && l.contains("powercloud-photos-123456789012-us-east-1")), "no GetObject of {key} in the bucket");
+            assert!(gets.iter().any(|l| l.contains(key) && l.contains("powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0")), "no GetObject of {key} in the bucket");
         }
     });
 
@@ -465,10 +465,10 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
             60,
         );
         assert!(read(&r, "Lbl-Conn", "Caption").starts_with("Connected as arn:aws:iam::123456789012:user/demo"), "{r}");
-        assert_eq!(read(&r, "Txt-Bucket", "Text"), "powercloud-photos-123456789012-us-east-1", "Connect did not read the stack's outputs: {}", read(&r, "Lbl-Conn", "Caption"));
+        assert_eq!(read(&r, "Txt-Bucket", "Text"), "powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0", "Connect did not read the stack's outputs: {}", read(&r, "Lbl-Conn", "Caption"));
         let log = hosted_log(p);
         let put = log.lines().find(|l| l.contains("operation_name='PutObject'")).unwrap_or("");
-        assert!(put.contains("powercloud-photos-123456789012-us-east-1"), "PutObject did not name the bucket: {put}");
+        assert!(put.contains("powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0"), "PutObject did not name the bucket: {put}");
         assert!(log.contains("PutObject") && log.contains("photos/"), "no photo was put in S3");
         assert!(log.contains("Milo") && log.contains("Poodle"), "the item was not stored");
         let made: Vec<_> = std::fs::read_dir(p.root.join("data/cache")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with("-400.jpg")).collect();
@@ -806,6 +806,11 @@ fn the_cloudformation_template_has_what_the_example_needs_and_no_wildcard_admini
 
     // A private, encrypted bucket that clears abandoned uploads.
     let bucket = &resources["PhotoBucket"]["Properties"];
+    // Its name is public: no account id and no region in it (operator, 2026-10-18), but the
+    // stack's whole UUID, which only all of is sure to be unique.
+    let name = serde_yaml::to_string(&bucket["BucketName"]).unwrap();
+    assert!(!name.contains("AccountId") && !name.contains("AWS::Region"), "the bucket name carries the account or the region: {name}");
+    assert!(name.contains("AWS::StackId") && name.contains("Fn::Select") && name.contains("- 2"), "the bucket name is not the stack's UUID: {name}");
     for flag in ["BlockPublicAcls", "BlockPublicPolicy", "IgnorePublicAcls", "RestrictPublicBuckets"] {
         assert_eq!(bucket["PublicAccessBlockConfiguration"][flag].as_bool(), Some(true), "{flag}");
     }

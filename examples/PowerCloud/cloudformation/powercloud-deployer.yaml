@@ -45,7 +45,7 @@ Parameters:
   BucketPrefix:
     Type: String
     Default: powercloud-photos
-    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$"
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,24}[a-z0-9]$"
     Description: The BucketPrefix the PowerCloud stack is deployed with.
   TableName:
     Type: String
@@ -77,7 +77,7 @@ Resources:
               - Effect: Allow
                 Action: "s3:GetObject"
                 Resource:
-                  Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*/photos/*"
+                  Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-*/photos/*"
               - Effect: Allow
                 Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
                 Resource:
@@ -151,7 +151,7 @@ Resources:
               - "s3:PutEncryptionConfiguration"
               - "s3:PutLifecycleConfiguration"
             Resource:
-              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*"
+              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-*"
           - Sid: TheLinkFunction
             Effect: Allow
             Action:
@@ -214,12 +214,12 @@ Resources:
             Effect: Allow
             Action: ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
             Resource:
-              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*/photos/*"
+              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-*/photos/*"
           - Sid: ListTheBucket
             Effect: Allow
             Action: "s3:ListBucket"
             Resource:
-              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*"
+              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-*"
           - Sid: ChooseABucket
             Effect: Allow
             Action: "s3:ListAllMyBuckets"

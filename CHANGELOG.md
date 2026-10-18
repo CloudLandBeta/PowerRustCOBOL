@@ -17,6 +17,24 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.209] — 2026-10-18
+
+*(Written on `fixes-powercloud-bucket-name`, off `main` at 1.91.208.)*
+
+### Fixed: PowerCloud's photo bucket no longer carries the account id or the region in its name
+
+The operator, 2026-10-18: *"the bucket created in the cloud is carrying the account number, e.g. powercloud-photos-160391405503-us-east-1. This is not a good practice. The region in the bucket name is also not necessary."*
+
+A bucket name is public, and the account id is not for publishing. The name is now `<BucketPrefix>-<the stack's UUID>`, for example `powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0` (54 characters). The UUID is the one CloudFormation gives every stack, read from `AWS::StackId`.
+
+- **Why the whole UUID.** The operator asked for a YouTube-style random id. Asked where to make it, they chose the template, with no runtime change. CloudFormation's UUIDs are time-based, so only the whole one is sure to be unique: its last segment can repeat between stacks.
+- **`BucketPrefix`** is now limited to 26 characters, so that the name fits S3's 63.
+- **The deployer policies.** `powercloud-deployer.yaml`'s bucket and photo rights name `${BucketPrefix}-*` instead of `${BucketPrefix}-${AWS::AccountId}-*`, with the same 26-character `BucketPrefix`.
+- **Tests:**
+  - The template test refuses a bucket name with `AccountId` or `AWS::Region` in it, and requires the stack's UUID.
+  - The fake stack names a bucket in the new form.
+  - `powercloud_hosts`: 11 of 11 pass.
+
 ## [PowerRustCOBOL 1.91.208] — 2026-10-18
 
 *(Written on `fixes-tabcontrol-keyboard`, off `main` at 1.91.207.)*

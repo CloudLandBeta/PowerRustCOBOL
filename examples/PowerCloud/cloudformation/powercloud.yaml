@@ -38,11 +38,13 @@ Parameters:
   BucketPrefix:
     Type: String
     Default: powercloud-photos
-    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$"
-    ConstraintDescription: 3-32 characters, lower-case letters, digits and hyphens.
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,24}[a-z0-9]$"
+    ConstraintDescription: 3-26 characters, lower-case letters, digits and hyphens.
     Description: >-
-      Start of the bucket name. The account id and the region are appended, because a bucket
-      name is unique across all of AWS.
+      Start of the bucket name. The stack's own unique id is appended - the UUID CloudFormation
+      gives every stack - because a bucket name is unique across all of AWS. Neither the account
+      id nor the region is put in the name: a bucket name is public, and the account id is not
+      for publishing.
   FunctionName:
     Type: String
     Default: powercloud-presign
@@ -100,8 +102,13 @@ Resources:
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
+      # <BucketPrefix>-<the stack's UUID>, e.g. powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0.
+      # The whole UUID: CloudFormation's are time-based, so only all of it is sure to be unique.
       BucketName:
-        Fn::Sub: "${BucketPrefix}-${AWS::AccountId}-${AWS::Region}"
+        Fn::Sub:
+          - "${BucketPrefix}-${StackUuid}"
+          - StackUuid:
+              Fn::Select: [2, {Fn::Split: ["/", {Ref: "AWS::StackId"}]}]
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
