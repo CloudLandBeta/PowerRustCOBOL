@@ -604,7 +604,7 @@ fn selecting_a_cell_brings_up_the_toolbar_beside_the_grid_with_tips_in_six_langu
             }
             texts += 1;
         }
-        for w in [lg::Why::NoCell, lg::Why::SeveralTracks, lg::Why::Repeat, lg::Why::LastTrack, lg::Why::NothingToRestore, lg::Why::OneCell, lg::Why::NoControl, lg::Why::SeveralControls, lg::Why::NothingToSplit, lg::Why::Scaled] {
+        for w in lg::Why::ALL {
             let text = crate::ui_text::ide_localized(lang, w.text());
             if lang != crate::i18n::Language::English {
                 assert_ne!(text, w.text(), "{lang:?}: {:?} is translated", w.text());
@@ -687,8 +687,12 @@ fn a_repeat_axis_disables_its_buttons_and_pressing_them_does_nothing() {
     println!("AC8: `Repeat(3, 1fr)` — column add/remove disabled with the Repeat reason; pressing them changed 0 of {} bytes", saved.len());
 }
 
-/// AC9 (R15–R17) — a 2×1 range holding one control: Merge gives it `ColumnSpan = 2`; Split
-/// returns it to 1; a range holding two controls has Merge disabled.
+/// AC9 as amendment A4 has it (operator, 2026-10-17: "when I select two or more cells in
+/// the grid, I can't merge"). Through the real canvas and toolbar:
+/// - a range holding one control merges into an area it fills, and Split takes it out;
+/// - a range holding two controls merges too, and they sit side by side with no overlap;
+/// - so does a range of empty cells;
+/// - each is one undo step, and a click inside an area selects all of it.
 #[test]
 fn merge_and_split_through_the_toolbar() {
     use crate::panels::layout_grid_edit as lg;
@@ -697,21 +701,38 @@ fn merge_and_split_through_the_toolbar() {
     rig.drag(rig.cell_centre("P", 0, 0), rig.cell_centre("P", 0, 1));
     let r = rig.d.layout_grid.selection.as_ref().unwrap().range();
     assert_eq!((r.rows, r.columns), (1, 2));
+    let steps = rig.d.undo_stack.len();
     rig.tool(lg::Tool::Merge);
-    assert_eq!((rig.prop("A", "ColumnSpan"), rig.prop("A", "GridColumn")), ("2".into(), "1".into()));
-    // Split from a cell A covers.
+    assert_eq!(rig.prop("P", "GridMerges"), "R1C1:R1C2");
+    assert_eq!(rig.d.undo_stack.len(), steps + 1, "one undo step");
+    let cell = |rig: &Rig, id: &str| rig.d.canvas_layout.as_ref().unwrap().containers["P"].cells.iter().find(|(c, _)| c == id).unwrap().1;
+    assert_eq!((cell(&rig, "A").column_span, rig.prop("A", "ColumnSpan")), (2, "1".into()), "A fills the area; no span of its own");
+    // A click in the area's second cell selects the whole area.
     rig.click(rig.cell_centre("P", 0, 1));
+    let view = rig.d.grid_view("P").unwrap();
+    let sel = rig.d.layout_grid.selection.clone().unwrap();
+    assert_eq!(lg::expand_to_areas(sel.range(), &view.merges), cobolt_forms::layout::grid_edit::CellRange { row: 0, column: 0, rows: 1, columns: 2 });
     rig.tool(lg::Tool::Split);
-    assert_eq!(rig.prop("A", "ColumnSpan"), "1");
-    // A range holding two controls: Merge is disabled and does nothing.
+    assert_eq!(rig.prop("P", "GridMerges"), "");
+    assert_eq!(cell(&rig, "A").column_span, 1, "back in its own cell");
+
+    // Two controls: Merge is offered, and they lie side by side.
     rig.drag(rig.cell_centre("P", 0, 0), rig.cell_centre("P", 0, 2));
     let view = rig.d.grid_view("P").unwrap();
     let sel = rig.d.layout_grid.selection.clone();
-    assert_eq!(lg::availability(lg::Tool::Merge, &view, sel.as_ref(), None), Err(lg::Why::SeveralControls));
-    let steps = rig.d.undo_stack.len();
+    assert_eq!(lg::availability(lg::Tool::Merge, &view, sel.as_ref(), None), Ok(()), "two controls merge");
     rig.tool(lg::Tool::Merge);
-    assert_eq!(rig.d.undo_stack.len(), steps, "a disabled Merge makes no step");
-    println!("AC9: merge 2×1 → ColumnSpan 2; split → 1; a range with two controls has Merge disabled");
+    assert_eq!(rig.prop("P", "GridMerges"), "R1C1:R1C3");
+    let rects = &rig.d.canvas_layout.as_ref().unwrap().rects;
+    let (a, b) = (rects["A"], rects["B"]);
+    assert!(a.x + a.w <= b.x + 0.01, "side by side, no overlap: A {a:?}, B {b:?}");
+    assert!((a.w - b.w).abs() < 0.5, "each half of the area: {} and {}", a.w, b.w);
+
+    // Empty cells: row 2 holds nothing.
+    rig.drag(rig.cell_centre("P", 1, 0), rig.cell_centre("P", 1, 1));
+    rig.tool(lg::Tool::Merge);
+    assert_eq!(rig.prop("P", "GridMerges"), "R1C1:R1C3 R2C1:R2C2", "an empty area is reserved");
+    println!("A4: merge one → R1C1:R1C2, split; merge two → side by side A {a:?} B {b:?}; empty cells → R2C1:R2C2");
 }
 
 /// R11 — Remove acts on the selected cell's own row or column, not on the first: with the
@@ -1244,4 +1265,34 @@ fn the_toolbar_swatch_colours_the_grid_lines_and_never_the_form() {
     assert!(rig.d.undo_stack.is_empty(), "a view colour is not an undo step");
     assert!(!rig.d.dirty, "nor an unsaved change");
     println!("A3: lines in the accent → orange → the accent again; picker opened and closed; form unchanged");
+}
+
+/// A4 R42 — the canvas draws a merged area as one cell: the line between its columns is
+/// drawn along the row the area does not cover, and never across the area itself.
+#[test]
+fn a_merged_area_is_drawn_without_lines_inside_it() {
+    use crate::panels::layout_grid_edit as lg;
+    let mut f = grid_form("1fr 1fr 1fr", "1fr 1fr", &[]);
+    f.controls[0].set_prop("GridMerges", PropValue::String("R1C1:R1C2".into()));
+    let mut rig = Rig::new(f);
+    rig.frame(vec![]);
+    let g = lg::GridGeom::of(rig.d.canvas_layout.as_ref().unwrap(), "P").unwrap();
+    assert_eq!(g.merges.len(), 1, "the canvas knows the area");
+    let origin = rig.d.canvas_origin.unwrap();
+    let x = origin.x + g.column_x(1);
+    let row = |i: usize| (origin.y + g.row_y(i), origin.y + g.row_y(i) + g.rows[i]);
+    // Every vertical dash on the line between columns 1 and 2.
+    let mut ys = Vec::new();
+    fn walk(s: &egui::Shape, x: f32, ys: &mut Vec<f32>) {
+        match s {
+            egui::Shape::LineSegment { points: [a, b], .. } if (a.x - x).abs() < 0.5 && (b.x - x).abs() < 0.5 => ys.push((a.y + b.y) / 2.0),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, x, ys)),
+            _ => {}
+        }
+    }
+    rig.shapes.iter().for_each(|c| walk(&c.shape, x, &mut ys));
+    let (r0, r1) = (row(0), row(1));
+    assert!(ys.iter().any(|y| *y > r1.0 && *y < r1.1), "the line is drawn along row 2: {ys:?}");
+    assert!(!ys.iter().any(|y| *y > r0.0 + 1.0 && *y < r0.1 - 1.0), "and not across the area in row 1: {ys:?}");
+    println!("A4: {} dashes on the line inside the area's column, all in row 2", ys.len());
 }

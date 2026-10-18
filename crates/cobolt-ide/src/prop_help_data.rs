@@ -345,6 +345,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "网格容器：行轨道，写法同 GridColumns。为空（默认）则按需添加行，每行高度随内容。",
         "Conteneur de grille : les lignes, avec la même notation que GridColumns. Vide (par défaut) ajoute des lignes selon les besoins, chacune aussi haute que son contenu.",
     ] },
+    PropHelp { ty: "", prop: "GridMerges", text: [
+        "Grid container: merged cells, as ranges such as \"R1C1:R1C3 R2C2:R3C3\" (row and column from 1, top-left to bottom-right). Each range lays out as one cell: the controls placed in it sit side by side across it, and an empty one is kept for the next control placed there. The Merge and Split buttons of the grid toolbar write it.",
+        "Contenedor de cuadrícula: celdas combinadas, como rangos del tipo \"R1C1:R1C3 R2C2:R3C3\" (fila y columna desde 1, de arriba a la izquierda a abajo a la derecha). Cada rango se dispone como una sola celda: los controles colocados en él quedan uno al lado del otro a lo ancho, y uno vacío queda reservado para el próximo control que se coloque allí. Lo escriben los botones Combinar y Dividir de la barra de la cuadrícula.",
+        "Contêiner de grade: células mescladas, como intervalos do tipo \"R1C1:R1C3 R2C2:R3C3\" (linha e coluna a partir de 1, do canto superior esquerdo ao inferior direito). Cada intervalo é disposto como uma só célula: os controles colocados nele ficam lado a lado ao longo dele, e um vazio fica reservado para o próximo controle colocado ali. Os botões Mesclar e Dividir da barra da grade o escrevem.",
+        "グリッド コンテナー：結合セル。\"R1C1:R1C3 R2C2:R3C3\" のような範囲で書きます（行と列は 1 から、左上から右下まで）。各範囲は 1 つのセルとして配置され、そこに置いたコントロールは横に並び、空の範囲は次に置くコントロールのために確保されます。グリッド ツールバーの結合・分割ボタンが書き込みます。",
+        "网格容器：合并的单元格，写成 \"R1C1:R1C3 R2C2:R3C3\" 这样的范围（行和列从 1 开始，从左上到右下）。每个范围按一个单元格布局：放入其中的控件横向并排，空的范围留给下一个放到那里的控件。网格工具栏的合并和拆分按钮会写入它。",
+        "Conteneur de grille : les cellules fusionnées, sous forme de plages comme \"R1C1:R1C3 R2C2:R3C3\" (ligne et colonne à partir de 1, du coin supérieur gauche au coin inférieur droit). Chaque plage se dispose comme une seule cellule : les contrôles placés dedans s'y alignent côte à côte, et une plage vide est réservée au prochain contrôle placé là. Les boutons Fusionner et Scinder de la barre de la grille l'écrivent.",
+    ] },
     PropHelp { ty: "", prop: "JustifyItems", text: [
         "Grid container: how items sit across their cell horizontally — Stretch (default), Start, Center or End.",
         "Contenedor de cuadrícula: cómo se colocan los elementos horizontalmente en su celda — Stretch (predeterminado), Start, Center o End.",

@@ -211,6 +211,60 @@ This feature makes the grid directly editable on the canvas:
   never be an undo step or mark the form unsaved, and never reach Preview or
   Run Form, which draw no guides.
 
+### 4.5c Merging any cells (amendment A4)
+
+> *Operator, 2026-10-17:* "when I select two or more cells in the grid, I can't
+> merge". Asked what the cells held and what an empty merge should do: "all the
+> options. If one or more cells have controls, they must be placed side by side,
+> without overlapping each other"; and for empty cells, **reserve the area** — a
+> control placed in it takes all of its cells, in the Designer and in Run Form.
+> This replaces R16 and settles Q3 the other way: a merge is a property of the
+> **grid**, not of one control's span.
+
+- **R36 (ubiquitous):** A Grid container may hold **merged areas**, written in
+  its `GridMerges` property as spreadsheet ranges `R<row>C<column>:R<row>C<column>`
+  (1-based, top-left to bottom-right), separated by spaces. An entry that is
+  malformed, covers one cell, or overlaps an earlier entry is ignored. An area
+  beyond the template widens the implicit grid, as an explicitly placed control
+  does.
+- **R37 (ubiquitous):** The layout engine shall put every control whose
+  `GridRow`/`GridColumn` lies inside an area **in** that area, and lay out the
+  controls an area holds **side by side**, in reading order, over the area's
+  whole width and height. Each takes an equal share of the width, less the
+  column gap between neighbours, and is aligned within its share by its own
+  `JustifySelf`/`AlignSelf` (else the container's), as in a cell. No two
+  overlap. A control's own span is ignored inside an area.
+- **R38 (ubiquitous):** An empty area is **one cell** to automatic placement. A
+  control placed automatically (or locked only to a row) that reaches the area's
+  top-left cell takes the whole area, and the area's other cells are never
+  filled automatically. Once an area holds a control, automatic placement passes
+  it by.
+- **R39 (event):** **Merge** (replacing R15, R16). When pressed with two or more
+  cells selected, the system shall write the range into `GridMerges`, absorbing
+  any area wholly inside it, and write each control in the range at the cell it
+  now occupies (`GridRow`/`GridColumn`, spans 1), so that it stays in the area.
+  All of this is one undo step. Merge shall be enabled for any range of two or
+  more cells, empty or holding any number of controls, except when the range
+  **cuts through** an existing area or a control spanning out of it; the tooltip
+  shall say which.
+- **R40 (event):** **Split** (extending R17). When pressed with a cell of an area
+  selected, the system shall remove that area. The controls it held go back to
+  the cells written on them; where two were written in the same cell, the later
+  ones in reading order move to the area's free cells in reading order. A cell
+  of a control that spans by itself splits as R17 says.
+- **R41 (ubiquitous):** Add, Remove and Restore (R10–R13) shall move areas with
+  their cells. A track added inside an area widens it; a track removed inside an
+  area narrows it, and an area left with one cell is dropped. Restore puts back
+  exactly the areas the removal changed.
+- **R42 (state):** The canvas shall draw an area as one cell, with no track lines
+  inside it, and a click inside an area shall select the whole area.
+- **R43 (ubiquitous):** The Properties pane shall show `GridMerges` beside
+  `GridColumns`/`GridRows` for a Grid container, editable as text, with a
+  translated label and tip.
+- **R44 (ubiquitous):** Preview, Run Form and the compiled application place
+  areas exactly as the canvas does, because one layout engine places all of
+  them (R26).
+
 ### 4.6 General
 - **R25 (ubiquitous):** Every edit this spec defines shall be an ordinary
   property change through the designer's command system: one undo step per
@@ -240,9 +294,14 @@ This feature makes the grid directly editable on the canvas:
   unrelated edit remains.
 - [x] **AC8 (R14)** — On a grid whose `GridColumns` is `Repeat(3, 1fr)`, the
   column add/remove/restore buttons are disabled with the explanatory tooltip.
-- [x] **AC9 (R15, R16, R17)** — Selecting a 2×1 range holding one control and
-  pressing Merge gives it `ColumnSpan = 2`. Split returns it to 1. A range
-  holding two controls has Merge disabled.
+- [x] **AC9 (R17; A4 R39, R40, R42)** — *As amended by A4.* Selecting a 2×1 range
+  holding one control and pressing Merge writes `GridMerges = "R1C1:R1C2"` as one
+  undo step; the control fills the area and its own `ColumnSpan` stays 1. A
+  click in the area's second cell selects the whole area, and Split takes the
+  area out. A range holding two controls merges too, and they lie side by side
+  with no overlap; so does a range of empty cells. *(Originally: Merge gave the
+  one control `ColumnSpan = 2`, and a range holding two controls had Merge
+  disabled.)*
 - [x] **AC10 (R19, R20)** — Dragging the line between `1fr 1fr` to the 25 %
   mark yields `0.5fr 1.5fr` (total 2 kept). Between `100px 200px`, a 50 px
   drag yields `150px 150px`. An `Auto` track dragged becomes `Npx`.
@@ -268,6 +327,17 @@ This feature makes the grid directly editable on the canvas:
   and `Esc` closes it; a right-click goes back to the accent. None of it changes
   a byte of the `.cfrm`, pushes an undo step or marks the form unsaved, and an
   older `ui.toml` (or a malformed value in it) means the accent.
+- [x] **AC18 (A4 R36–R38, R41, R44)** — In the forms engine:
+  - `GridMerges` reads as ranges, and nonsense is left out;
+  - the controls of an area lie side by side without overlap, at equal shares,
+    `ColumnGap` apart; one control fills its area and keeps its alignment;
+  - an empty area is one cell to automatic placement, and is passed by once held;
+  - the minimum size counts an area's controls side by side;
+  - tracks added and removed move the areas, and Restore puts them back;
+  - two controls written in one cell split to free cells;
+  - each refusal is its own.
+- [x] **AC19 (A4 R42)** — The canvas draws a merged area with no line inside
+  it: the line between its columns runs only along the rows it does not cover.
 
 ## 6. Constraints & steering check
 - **i18n:** the Show Grid tooltip, every grid-toolbar tooltip, the disabled
@@ -334,3 +404,5 @@ the code it guards broken, the named test fails.
 | AC15 | `selecting_a_control_shows_the_grid_it_sits_in_and_no_other` |
 | AC16 | `the_selected_controls_grid_can_be_dragged_and_the_control_keeps_its_own_gestures` |
 | AC17 | `the_toolbar_swatch_colours_the_grid_lines_and_never_the_form`; `ui_prefs::the_grid_line_colour_is_the_themes_until_one_is_chosen` |
+| AC18 | forms engine, `layout::grid`: `grid_merges_are_read_as_ranges_and_nonsense_is_left_out`, `the_controls_of_an_area_lay_out_side_by_side_without_overlap`, `one_control_fills_its_area_and_keeps_its_alignment`, `an_empty_area_is_one_cell_to_automatic_placement`, `the_minimum_size_counts_an_areas_controls_side_by_side`; `layout::grid_edit`: `merge_writes_the_area_and_split_takes_it_out`, `empty_cells_merge_into_a_reserved_area`, `two_controls_merge_side_by_side_and_split_back_to_their_cells`, `merging_pins_an_automatic_control_and_brings_a_span_to_one_cell`, `controls_written_in_one_cell_split_to_free_cells`, `merge_and_split_say_why_they_are_refused`, `tracks_added_and_removed_move_the_areas_and_restore_puts_them_back` |
+| AC19 | `a_merged_area_is_drawn_without_lines_inside_it`; `layout_grid_edit::a_selection_takes_in_the_merged_areas_it_touches` |

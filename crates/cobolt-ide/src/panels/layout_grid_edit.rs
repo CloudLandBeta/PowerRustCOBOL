@@ -13,6 +13,7 @@
 //! hit-tested against, the painting, and the floating toolbar — and `designer.rs`
 //! hosts it.
 
+use cobolt_forms::layout::grid::Area;
 use cobolt_forms::layout::grid_edit::{Axis, CellRange, GridView, Refusal, RemovedTrack};
 use cobolt_forms::layout::{LRect, LayoutMode, LayoutOutput};
 
@@ -127,10 +128,29 @@ pub(crate) enum Why {
     LastTrack,
     NothingToRestore,
     OneCell,
-    NoControl,
-    SeveralControls,
+    CutsAnArea,
+    CutsAControl,
+    AlreadyMerged,
     NothingToSplit,
     Scaled,
+}
+
+impl Why {
+    /// Every reason, for the tests that hold each to a sentence in six languages.
+    #[cfg(test)]
+    pub const ALL: [Why; 11] = [
+        Why::NoCell,
+        Why::SeveralTracks,
+        Why::Repeat,
+        Why::LastTrack,
+        Why::NothingToRestore,
+        Why::OneCell,
+        Why::CutsAnArea,
+        Why::CutsAControl,
+        Why::AlreadyMerged,
+        Why::NothingToSplit,
+        Why::Scaled,
+    ];
 }
 
 impl Why {
@@ -142,9 +162,10 @@ impl Why {
             Why::LastTrack => "A grid keeps at least one row and one column",
             Why::NothingToRestore => "Nothing has been removed from this grid",
             Why::OneCell => "Select two or more cells to merge",
-            Why::NoControl => "There is no control in the selected cells to merge",
-            Why::SeveralControls => "More than one control is in the selected cells: a merge needs exactly one",
-            Why::NothingToSplit => "The selected cell holds no merged control",
+            Why::CutsAnArea => "The selection cuts through merged cells: take in all of them, or none",
+            Why::CutsAControl => "A control spans out of the selection: take in all of its cells",
+            Why::AlreadyMerged => "These cells are merged already",
+            Why::NothingToSplit => "The selected cell is not merged",
             Why::Scaled => "This grid is shown at a scale: edit it at its own size",
         }
     }
@@ -155,8 +176,9 @@ fn why_of(r: Refusal) -> Why {
         Refusal::Repeat(_) => Why::Repeat,
         Refusal::LastTrack(_) => Why::LastTrack,
         Refusal::NoSuchTrack => Why::NoCell,
-        Refusal::NoControlInRange => Why::NoControl,
-        Refusal::SeveralControlsInRange => Why::SeveralControls,
+        Refusal::CutsAnArea => Why::CutsAnArea,
+        Refusal::CutsAControl => Why::CutsAControl,
+        Refusal::AlreadyMerged => Why::AlreadyMerged,
         Refusal::OneCell => Why::OneCell,
         Refusal::NothingToSplit => Why::NothingToSplit,
         Refusal::FixedTrack => Why::Repeat,
@@ -174,7 +196,7 @@ pub(crate) fn availability(
     latest_removal: Option<&RemovedTrack>,
 ) -> Result<(), Why> {
     use cobolt_forms::layout::grid_edit as ge;
-    let range = sel.map(|s| s.clamped(view.row_sizes.len(), view.column_sizes.len()).range());
+    let range = sel.map(|s| expand_to_areas(s.clamped(view.row_sizes.len(), view.column_sizes.len()).range(), &view.merges));
     match tool {
         Tool::AddColumn => ge::insert_track(view, Axis::Column, None).map(|_| ()).map_err(why_of),
         Tool::AddRow => ge::insert_track(view, Axis::Row, None).map(|_| ()).map_err(why_of),
@@ -220,6 +242,22 @@ pub(crate) struct GridGeom {
     pub columns: Vec<f32>,
     pub rows: Vec<f32>,
     pub gaps: (f32, f32),
+    /// Its merged areas (A4): each drawn, and selected, as one cell.
+    pub merges: Vec<Area>,
+}
+
+/// `r` grown until it cuts no merged area — every area it touches it takes in whole
+/// (A4 R42), as a spreadsheet's selection takes in merged cells. A click inside an
+/// area so selects all of it.
+pub(crate) fn expand_to_areas(r: CellRange, merges: &[Area]) -> CellRange {
+    let mut a = r.area();
+    loop {
+        let Some(cut) = merges.iter().find(|m| m.overlaps(&a) && !a.covers(m)) else { break };
+        let (r0, c0) = (a.row.min(cut.row), a.column.min(cut.column));
+        let (r1, c1) = ((a.row + a.row_span).max(cut.row + cut.row_span), (a.column + a.column_span).max(cut.column + cut.column_span));
+        a = Area { row: r0, column: c0, row_span: r1 - r0, column_span: c1 - c0 };
+    }
+    CellRange { row: a.row, column: a.column, rows: a.row_span, columns: a.column_span }
 }
 
 impl GridGeom {
@@ -229,7 +267,14 @@ impl GridGeom {
             .containers
             .iter()
             .filter(|(_, g)| g.mode == LayoutMode::Grid && !g.columns.is_empty() && !g.rows.is_empty())
-            .map(|(id, g)| GridGeom { id: id.clone(), client: g.client, columns: g.columns.clone(), rows: g.rows.clone(), gaps: g.gaps })
+            .map(|(id, g)| GridGeom {
+                id: id.clone(),
+                client: g.client,
+                columns: g.columns.clone(),
+                rows: g.rows.clone(),
+                gaps: g.gaps,
+                merges: g.merges.clone(),
+            })
             .collect();
         out.sort_by(|a, b| a.id.cmp(&b.id));
         out
@@ -346,26 +391,53 @@ pub(crate) fn paint_grid(painter: &egui::Painter, origin: egui::Pos2, g: &GridGe
     let font = egui::FontId::proportional(9.0);
     let b = g.bounds();
     let line = |a: egui::Pos2, z: egui::Pos2| painter.extend(egui::Shape::dashed_line(&[a, z], dash, 4.0, 3.0));
+    // A4 R42 — a merged area is one cell: an inner line is broken where it would cross
+    // one, so it is drawn only along the tracks where its two sides are not one area.
+    let joined = |a: (usize, usize), z: (usize, usize)| g.merges.iter().any(|m| m.contains(a.0, a.1) && m.contains(z.0, z.1));
     for (i, w) in g.columns.iter().enumerate() {
         let x = g.column_x(i);
-        line(at(x, b.y), at(x, b.y + b.h));
+        for (first, last) in visible_runs(g.rows.len(), |j| i > 0 && joined((j, i - 1), (j, i))) {
+            line(at(x, g.row_y(first)), at(x, g.row_y(last) + g.rows[last]));
+        }
         painter.text(at(x + w / 2.0, b.y + 2.0), egui::Align2::CENTER_TOP, format!("{w:.0}"), font.clone(), accent);
     }
     let right = b.x + b.w;
     line(at(right, b.y), at(right, b.y + b.h));
     for (i, h) in g.rows.iter().enumerate() {
         let y = g.row_y(i);
-        line(at(b.x, y), at(b.x + b.w, y));
+        for (first, last) in visible_runs(g.columns.len(), |k| i > 0 && joined((i - 1, k), (i, k))) {
+            line(at(g.column_x(first), y), at(g.column_x(last) + g.columns[last], y));
+        }
         painter.text(at(b.x + 2.0, y + h / 2.0), egui::Align2::LEFT_CENTER, format!("{h:.0}"), font.clone(), accent);
     }
     let bottom = b.y + b.h;
     line(at(b.x, bottom), at(b.x + b.w, bottom));
 }
 
+/// The runs of tracks `0..count` a line is drawn along, first and last of each: every
+/// track but the `hidden` ones.
+fn visible_runs(count: usize, hidden: impl Fn(usize) -> bool) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for k in 0..count {
+        if hidden(k) {
+            if let Some(s) = start.take() {
+                out.push((s, k - 1));
+            }
+        } else if start.is_none() {
+            start = Some(k);
+        }
+    }
+    if let Some(s) = start {
+        out.push((s, count - 1));
+    }
+    out
+}
+
 /// Highlight the selected cells (R7): a tinted block with an outline.
 pub(crate) fn paint_selection(painter: &egui::Painter, origin: egui::Pos2, g: &GridGeom, sel: &CellSel, accent: egui::Color32) {
     let sel = sel.clamped(g.rows.len(), g.columns.len());
-    paint_range(painter, origin, g, sel.range(), accent);
+    paint_range(painter, origin, g, expand_to_areas(sel.range(), &g.merges), accent);
 }
 
 /// Highlight a range of cells: a tinted block with an outline.
@@ -784,12 +856,12 @@ mod tests {
         assert_eq!(at(Tool::Split, Some(&one)), Err(Why::NothingToSplit));
         // AC4 — Merge is disabled for a single empty cell.
         assert_eq!(at(Tool::Merge, Some(&empty)), Err(Why::OneCell));
-        // A range: one control merges (A alone in the first two columns of row 1); two do not;
-        // none do not; a range is not a single cell to remove.
+        // A range merges whatever it holds (A4): one control (A alone in the first two
+        // columns of row 1), or two; a range is not a single cell to remove.
         let a_only = CellSel { container: "G".into(), anchor: (0, 0), head: (0, 1) };
         assert_eq!(at(Tool::Merge, Some(&a_only)), Ok(()));
         let both = CellSel { container: "G".into(), anchor: (0, 0), head: (1, 1) };
-        assert_eq!(at(Tool::Merge, Some(&both)), Err(Why::SeveralControls));
+        assert_eq!(at(Tool::Merge, Some(&both)), Ok(()), "A4: two controls merge, side by side");
         let none = CellSel { container: "G".into(), anchor: (1, 0), head: (1, 0) };
         assert_eq!(at(Tool::Merge, Some(&none)), Err(Why::OneCell));
         assert_eq!(at(Tool::RemoveColumn, Some(&a_only)), Err(Why::SeveralTracks));
@@ -807,7 +879,7 @@ mod tests {
         assert_eq!(availability(Tool::AddRow, &rep, None, None), Ok(()), "the other axis is fine");
         // Every reason has words, and every tool a tip.
         assert!(TOOLS.iter().all(|t| !t.tip().is_empty()));
-        for w in [Why::NoCell, Why::SeveralTracks, Why::Repeat, Why::LastTrack, Why::NothingToRestore, Why::OneCell, Why::NoControl, Why::SeveralControls, Why::NothingToSplit, Why::Scaled] {
+        for w in Why::ALL {
             assert!(!w.text().is_empty());
         }
         println!("toolbar: 7 buttons; enabled exactly when the edit would be made; 10 reasons for 'no'; Merge disabled for one cell, none, or several controls");
@@ -844,5 +916,27 @@ mod tests {
         // No room anywhere: kept on the canvas.
         check("a grid that fills the canvas", canvas, "over");
         println!("toolbar position: {cases} grid placements — above, below, right, left, and on the canvas when there is no room");
+    }
+
+    /// A4 R42 — a selection takes in every merged area it touches, whole: a click inside
+    /// an area selects all of it, and a range reaching into two areas grows to hold both.
+    #[test]
+    fn a_selection_takes_in_the_merged_areas_it_touches() {
+        let a = |row, column, row_span, column_span| Area { row, column, row_span, column_span };
+        let merges = [a(0, 1, 2, 2), a(3, 0, 1, 3)];
+        assert_eq!(expand_to_areas(CellRange::single(1, 2), &merges), CellRange { row: 0, column: 1, rows: 2, columns: 2 }, "a click inside");
+        assert_eq!(expand_to_areas(CellRange::single(2, 0), &merges), CellRange::single(2, 0), "outside every area");
+        // From (1,0) down to (3,0): touches both areas, so takes in both.
+        let r = expand_to_areas(CellRange::between((1, 0), (3, 0)), &merges);
+        assert_eq!(r, CellRange { row: 0, column: 0, rows: 4, columns: 3 });
+    }
+
+    /// A broken line is drawn along every track but the hidden ones, in runs.
+    #[test]
+    fn a_line_is_drawn_in_runs_around_the_hidden_tracks() {
+        assert_eq!(visible_runs(4, |_| false), vec![(0, 3)]);
+        assert_eq!(visible_runs(4, |k| k == 1 || k == 2), vec![(0, 0), (3, 3)]);
+        assert_eq!(visible_runs(3, |k| k == 0), vec![(1, 2)]);
+        assert_eq!(visible_runs(2, |_| true), vec![]);
     }
 }

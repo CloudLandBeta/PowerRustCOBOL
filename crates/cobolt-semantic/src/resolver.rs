@@ -93,6 +93,7 @@ pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
     "ColumnGap",
     "GridColumns",
     "GridRows",
+    "GridMerges",
     "JustifyItems",
     "FlowDirection",
     "WrapContents",

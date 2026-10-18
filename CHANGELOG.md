@@ -17,6 +17,52 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.199] — 2026-10-17
+
+*(Written on `fixes-grid-merge`, off `main` at 1.91.198.)*
+
+### Fixed: Merge in the Form Designer's grid toolbar merges any cells
+
+Operator, 2026-10-17: "when I select two or more cells in the grid, I can't merge". The button was greyed out. Asked what the cells held, the operator answered "all the options. If one or more cells have controls, they must be placed side by side, without overlapping each other", and for empty cells: reserve the area.
+
+*What was wrong.* Spec 088 R16 made a merge a span on one control. Merge was enabled only when the selection held **exactly one** control: empty cells and cells holding two controls could not be merged. Every grid editor merges cells whatever they hold, and the spec's own open question (Q3) had only been answered by the author's proposal, never by the operator. The operator's answer settles it the other way.
+
+*Now.* A merged cell belongs to the **grid**. A Grid container keeps its merged cells in a new property, `GridMerges`, written as spreadsheet ranges: `R1C1:R1C3 R2C2:R3C3`.
+
+The layout engine places a merged cell as **one cell**, so the Designer, Preview, Run Form and the built application all agree:
+- every control written inside it is in it;
+- several lie **side by side**, in reading order, each an equal share of the width with `ColumnGap` between them, as tall as the merged cell, with no overlap;
+- one fills it;
+- an empty one is one cell to automatic placement, so the next control placed there takes all of it.
+
+The toolbar:
+- **Merge** is enabled for any two or more cells. It writes the range and pins each control in it where it is.
+- It is greyed out only for one cell, cells already merged, or a selection that would cut through a merged cell or a spanning control. Each has its own tip, in six languages.
+- **Split** takes the merged cell out. Two controls written in the same cell go to free cells.
+
+The canvas draws a merged cell with no lines inside it, and a click anywhere in it selects all of it. Adding, removing and restoring rows and columns move merged cells with their tracks; Restore puts back exactly what a removal changed. The Properties pane shows *Merged cells* beside the grid's columns and rows, with help in six languages.
+
+The forms format is backward compatible. `GridMerges` is a container default left out of the file while empty, so no existing `.cfrm` changes by a byte, and a span written by the old Merge (`ColumnSpan`/`RowSpan`) still lays out and splits as before.
+
+- **Spec 088 amendment A4** (R36–R44, AC18, AC19). It replaces R15–R16 and settles Q3; AC9 is rewritten.
+- **Code:**
+  - `cobolt-forms`:
+    - `layout/grid.rs`: `Area`, `parse_merges`/`format_merges`, area-aware placement, side-by-side rectangles, the minimum size;
+    - `layout/grid_edit.rs`: merge, split, and the track edits moving the areas;
+    - `layout/mod.rs`: `ContainerGeom::merges`;
+    - `layout/defaults.rs` and `collide.rs`: the default, and the layout key that invalidates the size cache;
+  - `cobolt-semantic`: the resolver knows `GridMerges`;
+  - `cobolt-ide`:
+    - `layout_grid_edit.rs`: reasons, selection growth, broken lines;
+    - `designer.rs`;
+    - `properties.rs`, `i18n.rs`, `prop_help_data.rs`, `ide_text_data.rs`;
+  - `cobolt-compiler`: the System KB, with `chunked.data` rebuilt.
+- **Tests:**
+  - 5 new in the engine and 7 in `grid_edit`; 3 rewritten for A4;
+  - 2 new in the designer, through the real canvas: merging one control, two, and empty cells; no lines inside an area;
+  - 2 unit tests in `layout_grid_edit`.
+- **Docs:** the Developer's Guide's Merge and Split rows and a *Merged cells* section, replacing "Merge needs exactly one control".
+
 ## [PowerRustCOBOL 1.91.198] — 2026-10-17
 
 *(Written on `features-layout-grid-color`, off `main` at 1.91.197.)*

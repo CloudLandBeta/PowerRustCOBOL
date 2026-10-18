@@ -61,6 +61,8 @@ pub const GAP: i64 = 0;
 /// `RowGap`/`ColumnGap` — empty means "use `Gap`".
 pub const AXIS_GAP: &str = "";
 pub const GRID_TRACKS: &str = "";
+/// `GridMerges` — no merged areas (spec 088 A4).
+pub const GRID_MERGES: &str = "";
 pub const JUSTIFY_ITEMS: &str = "Stretch";
 pub const FLOW_DIRECTION: &str = "LeftToRight";
 pub const WRAP_CONTENTS: bool = true;
@@ -203,6 +205,7 @@ pub fn container_defaults() -> Vec<(&'static str, PropValue)> {
         ("ColumnGap", s(AXIS_GAP)),
         ("GridColumns", s(GRID_TRACKS)),
         ("GridRows", s(GRID_TRACKS)),
+        ("GridMerges", s(GRID_MERGES)),
         ("JustifyItems", s(JUSTIFY_ITEMS)),
         ("FlowDirection", s(FLOW_DIRECTION)),
         ("WrapContents", PropValue::Bool(WRAP_CONTENTS)),

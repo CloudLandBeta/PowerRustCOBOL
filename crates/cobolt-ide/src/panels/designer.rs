@@ -5111,7 +5111,8 @@ impl DesignerPanel {
             .clone()
             .filter(|s| s.container == id)
             .map(|s| s.clamped(view.row_sizes.len(), view.column_sizes.len()));
-        let range = sel.as_ref().map(|s| s.range());
+        // The range as the toolbar judged it: grown to take in any merged area it touches.
+        let range = sel.as_ref().map(|s| super::layout_grid_edit::expand_to_areas(s.range(), &view.merges));
         match tool {
             Tool::AddColumn => {
                 let after = range.map(|r| r.column + r.columns - 1);

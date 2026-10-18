@@ -185,6 +185,9 @@ pub struct ContainerGeom {
     /// placed them — what the designer's grid editing reads (spec 088). Empty for
     /// any other mode.
     pub cells: Vec<(String, grid::Cell)>,
+    /// A grid's merged areas, 0-based — the `GridMerges` the engine read (spec 088
+    /// A4), so the designer draws each as one cell. Empty for any other mode.
+    pub merges: Vec<grid::Area>,
 }
 
 /// Everything the solver reads.
@@ -603,6 +606,7 @@ fn place_children(
                         rows: s.rows,
                         gaps: (g.column_gap, g.row_gap),
                         cells: Vec::new(),
+                        merges: g.merges.clone(),
                     },
                 );
             }
@@ -623,6 +627,7 @@ fn place_children(
                     rows: Vec::new(),
                     gaps: (0.0, 0.0),
                     cells: Vec::new(),
+                    merges: Vec::new(),
                 },
             );
             // Everything inside an expanded card grows with it — its contents,
@@ -840,6 +845,7 @@ fn place_items(
                 geom.rows = s.rows.clone();
                 geom.gaps = (g.column_gap, g.row_gap);
                 geom.cells = order.iter().zip(&s.cells).map(|(&i, c)| (input.controls[i].id.clone(), *c)).collect();
+                geom.merges = g.merges.clone();
             }
             (s.rects, s.content)
         }
@@ -916,6 +922,7 @@ fn carry_splitter(
                 rows: Vec::new(),
                 gaps: (0.0, 0.0),
                 cells: Vec::new(),
+                merges: Vec::new(),
             },
         );
         place_children(input, tree, Some(&pane.id), pane, mode, dclient, lclient, None, out);

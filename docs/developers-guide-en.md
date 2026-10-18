@@ -2767,8 +2767,8 @@ out, and its tip says why.
 | **Add column** / **Add row** | Inserts a track after the selected cell's column or row (at the end when no cell is selected), the same size as the track it follows. Every control after the new track is renumbered so that it keeps its cell, and a control that spans across it grows by one. |
 | **Remove column** / **Remove row** | With one cell selected, removes that cell's own column or row. The tracks that remain share the space by their usual rules, so `fr` tracks grow to fill the gap. Controls after it are renumbered, and a control that spans across it shrinks by one. |
 | **Restore** | Puts back the most recently removed column or row of this grid: the same size, in the same place, with the placement and spans of the controls it held. |
-| **Merge** | Makes the control in the selected cells cover all of them: it is placed in the top-left cell and given the range's size as `ColumnSpan` and `RowSpan`. |
-| **Split** | Gives a merged control `ColumnSpan` and `RowSpan` 1 again, in its top-left cell. |
+| **Merge** | Makes the selected cells **one cell**, whatever they hold. The range is written into the container's `GridMerges`. One control in it fills it. Several sit **side by side** across it, each an equal share of its width, without overlapping. Empty cells are kept for the next control you put there, which then takes all of them. Each control in the range is written at the cell it is in, so it stays in the merged cell. |
+| **Split** | From any cell of a merged cell, makes its cells separate again: each control goes back to the cell written on it, and two that were written in the same cell go to free cells of the former merged cell. On a control that spans cells by its own `ColumnSpan` or `RowSpan`, it gives it `ColumnSpan` and `RowSpan` 1 again, in its top-left cell. |
 | **Line color** (the swatch, last, set apart) | The color the Form Designer draws grid lines in. Click it to choose one from the IDE's color picker; right-click to go back to the theme's. It applies to every grid in every Form Designer window and is remembered on this machine. It is how you see the grid, not part of it: it is not saved in the form, and Preview and Run Form show no grid lines at all. |
 
 > 📷 Screenshot needed — `grid-edit-toolbar.png`: select two neighbouring
@@ -2787,9 +2787,35 @@ out, and its tip says why.
 > made after it where they are. Undoing a Restore removes the track again;
 > undoing a removal brings the track back and takes it off Restore's list.
 
-**Merge needs exactly one control.** A control counts as being in every cell
-it covers. A range holding no control, or more than one, can not be merged,
-and the button says which.
+**Merged cells.** A merged cell is a property of the grid, not of a control.
+The container keeps its merged cells in `GridMerges`, which you can also type
+in the Properties pane (*Merged cells*), as spreadsheet ranges:
+`R1C1:R1C3 R2C2:R3C3` — row and column counted from 1, top-left to
+bottom-right, separated by spaces.
+
+- **One cell, wherever it is laid out.** The canvas draws a merged cell with
+  no lines inside it, and a click anywhere in it selects all of it. A selection
+  that reaches into a merged cell takes in all of it. Preview, Run Form and
+  the built application lay merged cells out exactly as the canvas does.
+- **What sits in it.** Every control whose `GridRow` and `GridColumn` fall
+  inside a merged cell is placed in it. Several controls lie side by side in
+  reading order, each an equal share of the width with `ColumnGap` between
+  them, as tall as the merged cell. Each is aligned within its share by its own
+  `JustifySelf` and `AlignSelf`, as in an ordinary cell. A control's own
+  `ColumnSpan`/`RowSpan` does not apply inside a merged cell.
+- **An empty merged cell is kept.** A control placed automatically — with no
+  `GridRow` or `GridColumn` — that reaches it takes the whole merged cell. The
+  other cells of a merged cell are never filled automatically.
+- **It moves with its tracks.** Adding a column or row inside a merged cell
+  widens it, and adding one before it moves it over. Removing one inside it
+  narrows it; a merged cell left with a single cell is no longer merged, and
+  Restore puts it back as it was.
+- **When Merge is greyed out**, its tip says why:
+  - a single cell is selected;
+  - the cells are merged already;
+  - or the selection would cut through a merged cell, or through a control
+    spanning cells, taking in part of it and leaving the rest out. Select all of
+    it, or none.
 
 **Dragging a line.** With Show grid on, the lines between tracks are handles:
 the pointer turns into a resize arrow over one, and dragging it resizes the

@@ -14638,6 +14638,7 @@ fn container_row_specs(
         LayoutMode::Grid => vec![
             ("GridColumns", tr.lbl_grid_columns, Text("1fr 1fr")),
             ("GridRows", tr.lbl_grid_rows, Text("Auto")),
+            ("GridMerges", tr.lbl_grid_merges, Text("R1C1:R1C2")),
             ("JustifyItems", tr.lbl_justify_items, Combo(ALIGN, d::JUSTIFY_ITEMS)),
             ("AlignItems", tr.lbl_align_items, Combo(ALIGN, d::ALIGN_ITEMS)),
         ],
@@ -18397,7 +18398,7 @@ mod label_help_tests {
         ("font scaling", &["ScaleFont", "MinFontSize", "MaxFontSize"]),
         ("padding", &["Padding", "PaddingLeft", "PaddingTop", "PaddingRight", "PaddingBottom"]),
         ("flex container", &["FlexDirection", "FlexWrap", "JustifyContent", "AlignItems", "AlignContent"]),
-        ("grid container", &["GridColumns", "GridRows", "JustifyItems", "AlignItems"]),
+        ("grid container", &["GridColumns", "GridRows", "GridMerges", "JustifyItems", "AlignItems"]),
         ("gaps", &["Gap", "RowGap", "ColumnGap"]),
         ("3D tilt", &["RotateX", "RotateY", "PerspectiveDistance", "PerspectiveStrength"]),
         ("3D pins", &["PinTopLeftX", "PinTopLeftY", "PinTopRightX", "PinTopRightY", "PinBottomRightX", "PinBottomRightY", "PinBottomLeftX", "PinBottomLeftY"]),

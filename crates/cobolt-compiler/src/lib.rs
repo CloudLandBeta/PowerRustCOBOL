@@ -5641,7 +5641,8 @@ from COBOL.
   (anchors and docking, default), `Flex`, `Grid` or `Flow`, with the container
   properties `FlexDirection`, `FlexWrap`, `JustifyContent`, `AlignItems`,
   `AlignContent`, `Gap`, `RowGap`, `ColumnGap`, `GridColumns`, `GridRows`,
-  `JustifyItems`, `FlowDirection`, `WrapContents`, and `Padding` with
+  `GridMerges` (merged cells, which lay out as one), `JustifyItems`,
+  `FlowDirection`, `WrapContents`, and `Padding` with
   `PaddingLeft/Top/Right/Bottom`. Items of such a container use `FlexGrow`,
   `FlexShrink`, `FlexBasis`, `AlignSelf`, `Order`, `GridColumn`, `GridRow`,
   `ColumnSpan`, `RowSpan`, `JustifySelf` and `FlowBreak`.
@@ -6317,6 +6318,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Gap" => ("form pixels ≥ 0 (default 0)", "Flex, grid or flow container: the space between items."),
         "RowGap" | "ColumnGap" => ("form pixels, or empty (default) to use `Gap`", "Flex or grid container: the space between rows / between columns."),
         "GridColumns" | "GridRows" => ("track list: `Npx` `N%` `Nfr` `Auto` `MinMax(a, b)` `Repeat(n, tracks)` `Repeat(AutoFill, MinMax(min, b))`", "Grid container: the column / row tracks, e.g. `200px 1fr 2fr`. An empty `GridRows` adds `Auto` rows as needed."),
+        "GridMerges" => ("cell ranges `R<row>C<column>:R<row>C<column>`, 1-based, separated by spaces (default empty: none)", "Grid container: merged cells, e.g. `R1C1:R1C3 R2C2:R3C3`. Each range lays out as ONE cell: every control whose `GridRow`/`GridColumn` lies in it is placed in it, side by side across its whole width (equal shares, `ColumnGap` between them) and its whole height, its own span ignored; an empty range is one cell to automatic placement, so the next control placed there takes all of it. A range that overlaps an earlier one, covers one cell or is malformed is ignored. The Form Designer's grid toolbar writes it (Merge, Split); Preview, Run Form and the built application lay it out the same way."),
         "JustifyItems" => ("one of: `Stretch` | `Start` | `Center` | `End` (default `Stretch`)", "Grid container: how items sit horizontally in their cell."),
         "FlowDirection" => ("one of: `LeftToRight` | `TopDown` | `RightToLeft` | `BottomUp` (default `LeftToRight`)", "Flow container: the direction items run."),
         "WrapContents" => (BOOL_DOMAIN, "Flow container: start a new line when the next item does not fit (default 1)."),

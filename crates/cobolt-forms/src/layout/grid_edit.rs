@@ -19,7 +19,7 @@
 //! before an edit touches that axis; nothing moves, since that is what it was.
 
 use crate::layout::defaults;
-use crate::layout::grid::Cell;
+use crate::layout::grid::{format_merges, Area, Cell};
 use crate::layout::props::PropSource;
 use crate::layout::tracks::{self, TokenKind};
 use crate::layout::ContainerGeom;
@@ -70,15 +70,17 @@ pub enum Refusal {
     LastTrack(Axis),
     /// The track named is not there.
     NoSuchTrack,
-    /// A merge needs exactly one control in the range, and there is none (R16).
-    NoControlInRange,
-    /// …and there is more than one (R16).
-    SeveralControlsInRange,
+    /// The range takes in part of a merged area and leaves the rest out (A4 R39).
+    CutsAnArea,
+    /// A control spans out of the range: part of it is in, part out (A4 R39).
+    CutsAControl,
+    /// The range is a merged area already.
+    AlreadyMerged,
     /// The track cannot be dragged: it is `MinMax(…)` or `Repeat(…)` (R20).
     FixedTrack,
     /// A merge of a single cell has nothing to merge.
     OneCell,
-    /// Split needs a control that spans more than one cell.
+    /// Split needs a merged area, or a control that spans more than one cell.
     NothingToSplit,
     /// The container is shown at a scale (an expanded card), so laid-out pixels
     /// are not designed pixels (plan §5).
@@ -114,6 +116,9 @@ pub struct GridView {
     /// Whether the container is laid out at a scale other than its design's.
     pub scaled: bool,
     pub children: Vec<Child>,
+    /// Its merged areas as the engine read them (A4). A child in one has the area as
+    /// its `cell`.
+    pub merges: Vec<Area>,
 }
 
 impl GridView {
@@ -138,6 +143,24 @@ impl GridView {
                     Some(Child { id: c.id.clone(), cell, column: whole(c, "GridColumn"), row: whole(c, "GridRow") })
                 })
                 .collect(),
+            merges: geom.merges.clone(),
+        }
+    }
+
+    /// Whether child `c` sits in one of the merged areas.
+    fn in_area(&self, c: &Child) -> bool {
+        self.merges.contains(&c.cell)
+    }
+
+    /// A child's first track and span on `axis`, 0-based, as a track edit moves it: the
+    /// engine's cell — but a child in a merged area by its own written cell, one track,
+    /// since the area is moved on its own (A4 R41). Callers skip a child that is
+    /// auto-placed on the axis.
+    fn track_of(&self, c: &Child, axis: Axis) -> (usize, usize) {
+        if self.in_area(c) {
+            (written(c, axis).saturating_sub(1), 1)
+        } else {
+            first_and_span(c, axis)
         }
     }
 
@@ -167,6 +190,61 @@ fn first_and_span(c: &Child, axis: Axis) -> (usize, usize) {
         Axis::Column => (c.cell.column, c.cell.column_span),
         Axis::Row => (c.cell.row, c.cell.row_span),
     }
+}
+
+// ── Merged areas follow their cells (A4 R41) ─────────────────────────────────
+
+/// An area's first track and span on `axis`.
+fn area_on(a: &Area, axis: Axis) -> (usize, usize) {
+    match axis {
+        Axis::Column => (a.column, a.column_span),
+        Axis::Row => (a.row, a.row_span),
+    }
+}
+
+fn area_with(mut a: Area, axis: Axis, first: usize, span: usize) -> Area {
+    match axis {
+        Axis::Column => (a.column, a.column_span) = (first, span),
+        Axis::Row => (a.row, a.row_span) = (first, span),
+    }
+    a
+}
+
+/// An area once a track is put in at `at`: moved over when it starts there or after,
+/// one wider when the track goes inside it.
+fn grown(a: Area, axis: Axis, at: usize) -> Area {
+    let (first, span) = area_on(&a, axis);
+    if first >= at {
+        area_with(a, axis, first + 1, span)
+    } else if first + span > at {
+        area_with(a, axis, first, span + 1)
+    } else {
+        a
+    }
+}
+
+/// An area once track `index` is taken out: moved back when it starts after it, one
+/// narrower when the track was one of its own, and gone when a single cell is left.
+fn narrowed(a: Area, axis: Axis, index: usize) -> Option<Area> {
+    let (first, span) = area_on(&a, axis);
+    let a = if first > index {
+        area_with(a, axis, first - 1, span)
+    } else if first + span > index {
+        area_with(a, axis, first, span - 1)
+    } else {
+        a
+    };
+    (a.row_span * a.column_span >= 2).then_some(a)
+}
+
+/// The write that gives the grid the merged areas `areas` — none when they are the
+/// ones it has, so an edit that leaves the areas alone leaves `GridMerges` as typed.
+fn merges_edit(view: &GridView, areas: &[Area]) -> Option<Edit> {
+    let key = |a: &Area| (a.row, a.column, a.row_span, a.column_span);
+    let (mut now, mut then) = (areas.to_vec(), view.merges.clone());
+    now.sort_by_key(key);
+    then.sort_by_key(key);
+    (now != then).then(|| (view.id.clone(), "GridMerges".to_owned(), PropValue::String(format_merges(areas))))
 }
 
 /// What a child has written for its placement on `axis` (1-based; 0 is auto).
@@ -208,7 +286,7 @@ fn splice_in(view: &GridView, axis: Axis, mut tokens: Vec<String>, at: usize, at
         if w == 0 {
             continue;
         }
-        let (first, span) = first_and_span(c, axis);
+        let (first, span) = view.track_of(c, axis);
         if first >= at {
             edits.push(int(&c.id, axis.place_key(), w + 1));
         } else if first + span > at {
@@ -237,7 +315,10 @@ pub fn insert_track(view: &GridView, axis: Axis, after: Option<usize>) -> Result
     // Right after the track it follows (an unreadable token between the two stays
     // where it was typed); at the very end when nothing is selected.
     let at_token = after.map_or(tokens.len(), |t| track_to_token[t] + 1);
-    Ok(splice_in(view, axis, tokens, at, at_token, new))
+    let mut edits = splice_in(view, axis, tokens, at, at_token, new);
+    let areas: Vec<Area> = view.merges.iter().map(|a| grown(*a, axis, at)).collect();
+    edits.extend(merges_edit(view, &areas));
+    Ok(edits)
 }
 
 /// No track is dragged below this many pixels (R21).
@@ -405,33 +486,89 @@ pub fn controls_in<'v>(view: &'v GridView, range: CellRange) -> Vec<&'v Child> {
         .collect()
 }
 
-/// **Merge cells** (R15, R16): the one control in the range now spans it — placed
-/// at the range's top-left cell, spanning its rows and columns. Refused unless there
-/// are at least two cells and **exactly one** control in them, because the model has
-/// no span without a control.
+impl CellRange {
+    /// The range as the cells it covers.
+    pub fn area(&self) -> Area {
+        Area { row: self.row, column: self.column, row_span: self.rows, column_span: self.columns }
+    }
+}
+
+/// **Merge cells** (A4 R39, replacing R15–R16): the range becomes a merged area of the
+/// grid, written into `GridMerges` — empty, or holding any number of controls, which
+/// the engine then lays side by side in it. An area wholly inside the range is taken
+/// into it. Each control in the range is written at the cell it is in now — an
+/// automatically placed one pinned there, a spanning one brought to one cell — so that
+/// it stays in the area. Refused for a single cell, for a range that is a merged area
+/// already, and for one that would cut through an area or a control: part in, part out.
 pub fn merge(view: &GridView, range: CellRange) -> Result<Edits, Refusal> {
     if range.rows * range.columns < 2 {
         return Err(Refusal::OneCell);
     }
-    let inside = controls_in(view, range);
-    let c = match inside.as_slice() {
-        [] => return Err(Refusal::NoControlInRange),
-        [one] => *one,
-        _ => return Err(Refusal::SeveralControlsInRange),
-    };
-    let mut edits = vec![int(&c.id, "GridColumn", range.column + 1), int(&c.id, "GridRow", range.row + 1)];
-    if c.cell.column_span != range.columns {
-        edits.push(int(&c.id, "ColumnSpan", range.columns));
+    let r = range.area();
+    if view.merges.contains(&r) {
+        return Err(Refusal::AlreadyMerged);
     }
-    if c.cell.row_span != range.rows {
-        edits.push(int(&c.id, "RowSpan", range.rows));
+    if view.merges.iter().any(|a| a.overlaps(&r) && !r.covers(a)) {
+        return Err(Refusal::CutsAnArea);
     }
+    if view.children.iter().any(|c| c.cell.overlaps(&r) && !r.covers(&c.cell)) {
+        return Err(Refusal::CutsAControl);
+    }
+    let mut edits = Edits::new();
+    for c in view.children.iter().filter(|c| r.covers(&c.cell)) {
+        if c.column == 0 {
+            edits.push(int(&c.id, "GridColumn", c.cell.column + 1));
+        }
+        if c.row == 0 {
+            edits.push(int(&c.id, "GridRow", c.cell.row + 1));
+        }
+        // A span of its own means nothing in an area, and would come back on a split.
+        if !view.in_area(c) {
+            if c.cell.column_span > 1 {
+                edits.push(int(&c.id, "ColumnSpan", 1));
+            }
+            if c.cell.row_span > 1 {
+                edits.push(int(&c.id, "RowSpan", 1));
+            }
+        }
+    }
+    let mut areas: Vec<Area> = view.merges.iter().filter(|a| !r.covers(a)).copied().collect();
+    areas.push(r);
+    edits.extend(merges_edit(view, &areas));
     Ok(edits)
 }
 
-/// **Split cells** (R17): the control that covers cell `(row, column)` and spans more
-/// than one cell goes back to one cell — its top-left, which it is pinned to.
+/// **Split cells** (A4 R40, R17): from any cell of a merged area, the area is taken out
+/// of `GridMerges` and its controls go back to the cells written on them. Where two
+/// were written in the same cell — or one was placed automatically — the later ones,
+/// in reading order, are written in the area's free cells, in reading order. From a
+/// cell of a control that spans by itself, that control goes back to one cell — its
+/// top-left, which it is pinned to.
 pub fn split_cell(view: &GridView, row: usize, column: usize) -> Result<Edits, Refusal> {
+    if let Some(i) = view.merges.iter().position(|a| a.contains(row, column)) {
+        let area = view.merges[i];
+        let mut edits = Edits::new();
+        let mut used: std::collections::HashSet<(usize, usize)> = Default::default();
+        let mut homeless = Vec::new();
+        for c in view.children.iter().filter(|c| c.cell == area) {
+            let own = (c.row.checked_sub(1), c.column.checked_sub(1));
+            match own {
+                (Some(r), Some(k)) if area.contains(r, k) && used.insert((r, k)) => {}
+                _ => homeless.push(c),
+            }
+        }
+        let free: Vec<(usize, usize)> = (area.row..area.row + area.row_span)
+            .flat_map(|r| (area.column..area.column + area.column_span).map(move |k| (r, k)))
+            .filter(|p| !used.contains(p))
+            .collect();
+        for (c, (r, k)) in homeless.into_iter().zip(free) {
+            edits.push(int(&c.id, "GridRow", r + 1));
+            edits.push(int(&c.id, "GridColumn", k + 1));
+        }
+        let areas: Vec<Area> = view.merges.iter().filter(|a| **a != area).copied().collect();
+        edits.extend(merges_edit(view, &areas));
+        return Ok(edits);
+    }
     let c = controls_in(view, CellRange::single(row, column))
         .into_iter()
         .find(|c| c.cell.column_span > 1 || c.cell.row_span > 1)
@@ -465,6 +602,9 @@ pub struct RemovedTrack {
     pub token: String,
     /// The children that sat only in it.
     pub held: Vec<HeldChild>,
+    /// The merged areas it was a track of, as they were: the removal narrowed or
+    /// dropped each, and Restore puts each back as it was (A4 R41).
+    pub areas: Vec<Area>,
 }
 
 /// What a removal answers: the writes, what to remember, and the children whose
@@ -498,7 +638,7 @@ pub fn remove_track(view: &GridView, axis: Axis, index: usize) -> Result<Removal
         if w == 0 {
             continue;
         }
-        let (first, span) = first_and_span(c, axis);
+        let (first, span) = view.track_of(c, axis);
         if first > index {
             edits.push(int(&c.id, axis.place_key(), w - 1));
         } else if first + span > index {
@@ -511,7 +651,17 @@ pub fn remove_track(view: &GridView, axis: Axis, index: usize) -> Result<Removal
             }
         }
     }
-    Ok(Removal { edits, record: RemovedTrack { container: view.id.clone(), axis, index, token, held }, now_auto })
+    let (mut areas, mut taken) = (Vec::new(), Vec::new());
+    for a in &view.merges {
+        let (first, span) = area_on(a, axis);
+        if first <= index && index < first + span {
+            taken.push(*a);
+        }
+        areas.extend(narrowed(*a, axis, index));
+    }
+    edits.extend(merges_edit(view, &areas));
+    let record = RemovedTrack { container: view.id.clone(), axis, index, token, held, areas: taken };
+    Ok(Removal { edits, record, now_auto })
 }
 
 /// **Restore** a removed row or column (R13): the same track, at the same place
@@ -533,6 +683,18 @@ pub fn restore_track(view: &GridView, removed: &RemovedTrack) -> Result<Edits, R
             }
         }
     }
+    // The areas: every one moved over as an add would, then each the removal changed
+    // put back as it was — found by what the removal and this add made of it.
+    let mut areas: Vec<Area> = view.merges.iter().map(|a| grown(*a, axis, at)).collect();
+    for o in &removed.areas {
+        let now = narrowed(*o, axis, removed.index).map(|n| grown(n, axis, at));
+        match now.and_then(|n| areas.iter().position(|a| *a == n)) {
+            Some(p) => areas[p] = *o,
+            None if !areas.iter().any(|a| a.overlaps(o)) => areas.push(*o),
+            None => {}
+        }
+    }
+    edits.extend(merges_edit(view, &areas));
     Ok(edits)
 }
 
@@ -800,60 +962,139 @@ mod tests {
 
     // ── Merge and split (T6) ──────────────────────────────────────────────────
 
-    /// AC9 — a 2×1 range holding one control: Merge gives it `ColumnSpan = 2` at the
-    /// range's top-left; Split returns it to one cell. The engine agrees at each step.
+    /// AC9, as A4 has it — a 2×1 range holding one control: Merge writes the range into
+    /// `GridMerges` and the control fills it, its own placement untouched and no span of
+    /// its own; Split takes the area out and it is back in its one cell.
     #[test]
-    fn merge_makes_the_control_span_the_range_and_split_undoes_it() {
+    fn merge_writes_the_area_and_split_takes_it_out() {
         let mut g = grid("1fr 1fr 1fr", "1fr 1fr", &[("A", [2, 1, 0, 0])]);
         let range = CellRange::between((0, 1), (0, 2));
-        assert_eq!(controls_in(&view_of(&g), range).len(), 1);
-        run(&mut g, |v| merge(v, range)).expect("one control in a two-cell range merges");
-        assert_eq!((g[1].text("GridColumn"), g[1].text("GridRow"), g[1].text("ColumnSpan")), ("2".into(), "1".into(), "2".into()));
-        assert_eq!(cells_of(&g)["A"], (0, 1, 1, 2));
-        // The cell the range starts at, or any cell it now covers, splits it.
-        run(&mut g, |v| split_cell(v, 0, 2)).expect("a spanning control splits from any cell it covers");
-        assert_eq!(g[1].text("ColumnSpan"), "1");
-        assert_eq!(cells_of(&g)["A"], (0, 1, 1, 1), "back in its top-left cell");
-        println!("merge 2×1 → ColumnSpan {}; split → {}, still at column {}", 2, g[1].text("ColumnSpan"), g[1].text("GridColumn"));
+        run(&mut g, |v| merge(v, range)).expect("a two-cell range merges");
+        assert_eq!(text(&g, "GridMerges"), "R1C2:R1C3");
+        assert_eq!((g[1].text("GridColumn"), g[1].text("GridRow"), g[1].text("ColumnSpan")), ("2".into(), "1".into(), "1".into()), "its own placement untouched, its own span the default");
+        assert_eq!(cells_of(&g)["A"], (0, 1, 1, 2), "A fills the area");
+        // Any cell of the area splits it.
+        run(&mut g, |v| split_cell(v, 0, 2)).expect("an area splits from any of its cells");
+        assert_eq!(text(&g, "GridMerges"), "");
+        assert_eq!(cells_of(&g)["A"], (0, 1, 1, 1), "back in its own cell");
+        println!("merge R1C2:R1C3 → GridMerges `R1C2:R1C3`, A fills it; split → `` and A at (0,1) again");
     }
 
-    /// A block of cells: rows and columns both, the corners given either way round;
-    /// an auto-placed control is pinned to the block's top-left.
+    /// A4 R38–R39 — empty cells merge: the area is reserved, and an automatically
+    /// placed control elsewhere is not pulled into it. A block given corner-first
+    /// either way round; a range that would cut it is refused; Split takes it out.
     #[test]
-    fn a_block_merges_in_both_directions() {
+    fn empty_cells_merge_into_a_reserved_area() {
         let mut g = grid("1fr 1fr 1fr", "1fr 1fr 1fr", &[("A", [0, 0, 0, 0])]);
         let range = CellRange::between((2, 2), (1, 1));
         assert_eq!(range, CellRange { row: 1, column: 1, rows: 2, columns: 2 });
-        // A is auto-placed at (0, 0): it is not in a block elsewhere.
-        assert_eq!(merge(&view_of(&g), range), Err(Refusal::NoControlInRange));
-        run(&mut g, |v| merge(v, CellRange::between((0, 0), (1, 1)))).unwrap();
-        assert_eq!(cells_of(&g)["A"], (0, 0, 2, 2));
-        run(&mut g, |v| split_cell(v, 1, 1)).unwrap();
-        assert_eq!(cells_of(&g)["A"], (0, 0, 1, 1));
-        println!("block merge 2×2 → (0,0) spanning 2×2; split back to 1×1");
+        run(&mut g, |v| merge(v, range)).expect("an empty block merges");
+        assert_eq!(text(&g, "GridMerges"), "R2C2:R3C3");
+        assert_eq!(cells_of(&g)["A"], (0, 0, 1, 1), "A stays in the first cell");
+        assert_eq!(merge(&view_of(&g), CellRange::between((0, 0), (1, 1))), Err(Refusal::CutsAnArea));
+        run(&mut g, |v| split_cell(v, 2, 2)).unwrap();
+        assert_eq!(text(&g, "GridMerges"), "");
+        println!("an empty 2×2 block merges into `R2C2:R3C3`; a range that cuts it is refused; split empties GridMerges");
+    }
+
+    /// A4 R37 — two controls merge side by side, without overlap, each in half the area;
+    /// Split puts each back in its own cell.
+    #[test]
+    fn two_controls_merge_side_by_side_and_split_back_to_their_cells() {
+        let mut g = grid("200px 200px", "100px", &[("A", [1, 1, 0, 0]), ("B", [2, 1, 0, 0])]);
+        run(&mut g, |v| merge(v, CellRange::between((0, 0), (0, 1)))).expect("two controls merge");
+        assert_eq!(text(&g, "GridMerges"), "R1C1:R1C2");
+        let o = solve_at(&g, (400.0, 200.0), (400.0, 200.0));
+        let (a, b) = (o.rects["A"], o.rects["B"]);
+        assert!(a.x + a.w <= b.x, "side by side, no overlap: {a:?} {b:?}");
+        assert_eq!((a.w, b.w), (200.0, 200.0), "each half of the 400 of the area");
+        run(&mut g, |v| split_cell(v, 0, 0)).unwrap();
+        assert_eq!((cells_of(&g)["A"], cells_of(&g)["B"]), ((0, 0, 1, 1), (0, 1, 1, 1)));
+        println!("A and B merged: A {a:?}, B {b:?}; split → each in its own cell");
+    }
+
+    /// A4 R39 — a control in the range is written where it is, so it stays in the area:
+    /// one placed automatically is pinned to its cell, and one that spans by itself is
+    /// brought to one cell (its span means nothing in an area, and would come back on a
+    /// split).
+    #[test]
+    fn merging_pins_an_automatic_control_and_brings_a_span_to_one_cell() {
+        let mut g = grid("1fr 1fr 1fr", "1fr", &[("A", [0, 0, 0, 0])]);
+        run(&mut g, |v| merge(v, CellRange::between((0, 0), (0, 1)))).unwrap();
+        assert_eq!((g[1].text("GridColumn"), g[1].text("GridRow")), ("1".into(), "1".into()), "pinned");
+        let mut w = grid("1fr 1fr 1fr", "1fr", &[("W", [1, 1, 2, 0])]);
+        run(&mut w, |v| merge(v, CellRange::between((0, 0), (0, 2)))).unwrap();
+        assert_eq!(w[1].text("ColumnSpan"), "1");
+        assert_eq!(cells_of(&w)["W"], (0, 0, 1, 3), "W fills the three-cell area");
+    }
+
+    /// A4 R40 — two controls written in one cell of an area: on Split the first keeps the
+    /// cell and the second goes to the area's next free cell, so none lands on another.
+    #[test]
+    fn controls_written_in_one_cell_split_to_free_cells() {
+        let mut g = grid("1fr 1fr", "1fr", &[("A", [1, 1, 0, 0]), ("B", [1, 1, 0, 0])]);
+        run(&mut g, |v| merge(v, CellRange::between((0, 0), (0, 1)))).unwrap();
+        run(&mut g, |v| split_cell(v, 0, 1)).unwrap();
+        assert_eq!((g[1].text("GridColumn"), g[2].text("GridColumn")), ("1".into(), "2".into()));
+        assert_eq!((cells_of(&g)["A"], cells_of(&g)["B"]), ((0, 0, 1, 1), (0, 1, 1, 1)));
+    }
+
+    /// A span written by the old Merge (R15, before A4) still lays out and still splits:
+    /// a control with `ColumnSpan = 2` and no area goes back to one cell from either cell.
+    #[test]
+    fn a_span_written_by_the_old_merge_still_splits() {
+        let mut g = grid("1fr 1fr 1fr", "1fr", &[("W", [1, 1, 2, 0])]);
+        assert_eq!(cells_of(&g)["W"], (0, 0, 1, 2));
+        run(&mut g, |v| split_cell(v, 0, 1)).expect("from the second cell it covers");
+        assert_eq!((g[1].text("ColumnSpan"), text(&g, "GridMerges")), ("1".into(), String::new()), "no area was written");
+        assert_eq!(cells_of(&g)["W"], (0, 0, 1, 1));
     }
 
     /// The reasons a merge or a split is refused, each its own — the toolbar says why.
     #[test]
     fn merge_and_split_say_why_they_are_refused() {
-        let g = grid("1fr 1fr", "1fr", &[("A", [1, 1, 0, 0]), ("B", [2, 1, 0, 0])]);
+        let g = grid("1fr 1fr 1fr", "1fr", &[("W", [1, 1, 2, 0]), ("X", [3, 1, 0, 0])]);
         let v = view_of(&g);
-        assert_eq!(merge(&v, CellRange::between((0, 0), (0, 1))), Err(Refusal::SeveralControlsInRange), "two controls");
-        assert_eq!(merge(&v, CellRange::single(0, 0)), Err(Refusal::OneCell), "one cell has nothing to merge");
-        let empty = grid("1fr 1fr", "1fr", &[]);
-        assert_eq!(merge(&view_of(&empty), CellRange::between((0, 0), (0, 1))), Err(Refusal::NoControlInRange), "no control");
-        assert_eq!(split_cell(&v, 0, 0), Err(Refusal::NothingToSplit), "a one-cell control");
-        // A control that spans into the range counts in it, so it counts once.
-        let wide = grid("1fr 1fr 1fr", "1fr", &[("W", [1, 1, 2, 0]), ("X", [3, 1, 0, 0])]);
-        let r = CellRange::between((0, 1), (0, 2));
-        assert_eq!(controls_in(&view_of(&wide), r).len(), 2, "W spans into column 2, X is in column 3");
-        // A control that only TOUCHES the range — the row above, the column beside — is not in it.
-        let touching = grid("1fr 1fr", "1fr 1fr", &[("T", [1, 1, 0, 0])]);
-        let below = CellRange::between((1, 0), (1, 1));
-        let beside = CellRange::between((0, 1), (1, 1));
-        assert_eq!(merge(&view_of(&touching), below), Err(Refusal::NoControlInRange), "T is in the row above");
-        assert_eq!(merge(&view_of(&touching), beside), Err(Refusal::NoControlInRange), "T is in the column beside");
-        println!("refusals: several controls, one cell, no control, nothing to split; a spanning control counts in every cell it covers");
+        assert_eq!(merge(&v, CellRange::single(0, 2)), Err(Refusal::OneCell), "one cell has nothing to merge");
+        assert_eq!(merge(&v, CellRange::between((0, 1), (0, 2))), Err(Refusal::CutsAControl), "W spans out of it");
+        assert_eq!(split_cell(&v, 0, 2), Err(Refusal::NothingToSplit), "a one-cell control");
+        let mut m = grid("1fr 1fr 1fr", "1fr", &[]);
+        run(&mut m, |v| merge(v, CellRange::between((0, 0), (0, 1)))).unwrap();
+        let v = view_of(&m);
+        assert_eq!(merge(&v, CellRange::between((0, 0), (0, 1))), Err(Refusal::AlreadyMerged));
+        assert_eq!(merge(&v, CellRange::between((0, 1), (0, 2))), Err(Refusal::CutsAnArea));
+        // A range around the area takes it in.
+        run(&mut m, |v| merge(v, CellRange::between((0, 0), (0, 2)))).unwrap();
+        assert_eq!(text(&m, "GridMerges"), "R1C1:R1C3");
+        println!("refusals: one cell, a control cut, nothing to split, already merged, an area cut; a wider range absorbs an area");
+    }
+
+    /// A4 R41 — areas move with their cells: a column added inside an area widens it and
+    /// one added before it moves it over; a column removed inside it narrows it, and
+    /// one that leaves it a single cell drops it — which Restore puts back exactly. A
+    /// control in the area keeps its own cell throughout, with no span of its own.
+    #[test]
+    fn tracks_added_and_removed_move_the_areas_and_restore_puts_them_back() {
+        let mut g = grid("1fr 1fr 1fr", "1fr 1fr", &[("A", [1, 1, 0, 0]), ("X", [3, 1, 0, 0])]);
+        g[0].set_prop("GridMerges", PropValue::String("R1C1:R1C2".into()));
+        run(&mut g, |v| insert_track(v, Axis::Column, Some(0))).unwrap();
+        assert_eq!(text(&g, "GridMerges"), "R1C1:R1C3", "added inside: wider");
+        assert_eq!((g[1].text("GridColumn"), g[1].text("ColumnSpan"), g[2].text("GridColumn")), ("1".into(), "1".into(), "4".into()), "A keeps its cell and no span; X moves over");
+        let r = remove_track(&view_of(&g), Axis::Column, 1).unwrap();
+        apply(&mut g, &r.edits);
+        assert_eq!(text(&g, "GridMerges"), "R1C1:R1C2", "removed inside: narrower");
+        // Its first column out: one cell left, so it goes — and A with the column.
+        let r = remove_track(&view_of(&g), Axis::Column, 0).unwrap();
+        apply(&mut g, &r.edits);
+        assert_eq!(text(&g, "GridMerges"), "", "a single cell is no area");
+        assert_eq!(r.record.areas, vec![Area { row: 0, column: 0, row_span: 1, column_span: 2 }]);
+        run(&mut g, |v| restore_track(v, &r.record)).unwrap();
+        assert_eq!(text(&g, "GridMerges"), "R1C1:R1C2", "Restore puts the area back as it was");
+        assert_eq!(cells_of(&g)["A"], (0, 0, 1, 2), "and A in it");
+        // A row added above moves it down.
+        run(&mut g, |v| insert_track(v, Axis::Row, None)).unwrap();
+        assert_eq!(text(&g, "GridMerges"), "R1C1:R1C2", "a row after it moves nothing");
+        println!("areas: `R1C1:R1C2` → add col → `R1C1:R1C3` → remove col 2 → `R1C1:R1C2` → remove col 1 → `` → restore → `R1C1:R1C2`");
     }
 
     // ── Resize a pair of tracks (T7) ──────────────────────────────────────────

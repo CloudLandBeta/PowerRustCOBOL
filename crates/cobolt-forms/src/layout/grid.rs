@@ -38,6 +38,8 @@ pub struct Container {
     pub column_gap: f32,
     pub justify_items: Align,
     pub align_items: Align,
+    /// Its merged areas (spec 088 A4), from `GridMerges`.
+    pub merges: Vec<Area>,
 }
 
 /// One grid item.
@@ -68,6 +70,71 @@ pub struct Cell {
     pub column_span: usize,
 }
 
+impl Cell {
+    /// Whether cell `(row, column)` is one of these.
+    pub fn contains(&self, row: usize, column: usize) -> bool {
+        (self.row..self.row + self.row_span).contains(&row) && (self.column..self.column + self.column_span).contains(&column)
+    }
+
+    /// Whether the two share a cell.
+    pub fn overlaps(&self, o: &Cell) -> bool {
+        self.row < o.row + o.row_span
+            && o.row < self.row + self.row_span
+            && self.column < o.column + o.column_span
+            && o.column < self.column + self.column_span
+    }
+
+    /// Whether every cell of `o` is one of these.
+    pub fn covers(&self, o: &Cell) -> bool {
+        self.row <= o.row
+            && self.column <= o.column
+            && o.row + o.row_span <= self.row + self.row_span
+            && o.column + o.column_span <= self.column + self.column_span
+    }
+}
+
+/// A **merged area** of a grid (spec 088 A4): a rectangle of two or more cells that
+/// lays out as one. Held as the [`Cell`] it covers, 0-based.
+pub type Area = Cell;
+
+/// Read `GridMerges` (R36): spreadsheet ranges `R<row>C<column>:R<row>C<column>`,
+/// 1-based, top-left to bottom-right (either corner order is read), separated by
+/// spaces, commas or semicolons, in any case. An entry that is malformed, covers a
+/// single cell, or overlaps an earlier one is left out — never guessed at.
+pub fn parse_merges(text: &str) -> Vec<Area> {
+    fn corner(s: &str) -> Option<(usize, usize)> {
+        let s = s.trim().to_ascii_uppercase();
+        let rest = s.strip_prefix('R')?;
+        let (r, c) = rest.split_once('C')?;
+        let (r, c) = (r.parse::<usize>().ok()?, c.parse::<usize>().ok()?);
+        (r >= 1 && c >= 1).then(|| (r - 1, c - 1))
+    }
+    let mut out: Vec<Area> = Vec::new();
+    for token in text.split(|ch: char| ch.is_whitespace() || ch == ',' || ch == ';').filter(|t| !t.is_empty()) {
+        let Some((a, b)) = token.split_once(':') else { continue };
+        let (Some((r0, c0)), Some((r1, c1))) = (corner(a), corner(b)) else { continue };
+        let area = Area {
+            row: r0.min(r1),
+            column: c0.min(c1),
+            row_span: r0.abs_diff(r1) + 1,
+            column_span: c0.abs_diff(c1) + 1,
+        };
+        if area.row_span * area.column_span >= 2 && !out.iter().any(|o| o.overlaps(&area)) {
+            out.push(area);
+        }
+    }
+    out
+}
+
+/// Write areas as `GridMerges` reads them, in the order given.
+pub fn format_merges(areas: &[Area]) -> String {
+    areas
+        .iter()
+        .map(|a| format!("R{}C{}:R{}C{}", a.row + 1, a.column + 1, a.row + a.row_span, a.column + a.column_span))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// What [`solve`] returns.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Solved {
@@ -91,6 +158,7 @@ pub fn container(src: &dyn PropSource) -> Container {
         column_gap,
         justify_items: align_of(&src.text("JustifyItems")).unwrap_or(Align::Stretch),
         align_items: align_of(&src.text("AlignItems")).unwrap_or(Align::Stretch),
+        merges: parse_merges(&src.text("GridMerges")),
     }
 }
 
@@ -109,23 +177,96 @@ pub fn item(c: &Control, size: (f32, f32)) -> Item {
     }
 }
 
-/// Where each item sits: 0-based (row, column) of its first cell.
-fn place(items: &[Item], explicit_columns: usize) -> (Vec<(usize, usize)>, usize, usize) {
-    let n = items.len();
-    let mut cell: Vec<Option<(usize, usize)>> = vec![None; n];
-    let mut taken: HashSet<(usize, usize)> = HashSet::new();
-    let fits = |taken: &HashSet<(usize, usize)>, r: usize, c: usize, it: &Item| {
-        (r..r + it.row_span).all(|rr| (c..c + it.column_span).all(|cc| !taken.contains(&(rr, cc))))
-    };
-    let take = |taken: &mut HashSet<(usize, usize)>, r: usize, c: usize, it: &Item| {
-        for rr in r..r + it.row_span {
-            for cc in c..c + it.column_span {
-                taken.insert((rr, cc));
+/// Where the items sit (spec 056 R55; spec 088 A4).
+struct Placed {
+    /// Each item's first cell, 0-based (row, column) — an area's top-left for an item in it.
+    cells: Vec<(usize, usize)>,
+    /// The area each item is in, by index into the container's merges.
+    areas: Vec<Option<usize>>,
+    rows: usize,
+    columns: usize,
+}
+
+impl Placed {
+    /// The rows and columns item `i` covers: its area's, or its own span.
+    fn span(&self, i: usize, it: &Item, merges: &[Area]) -> (usize, usize) {
+        match self.areas[i] {
+            Some(a) => (merges[a].row_span, merges[a].column_span),
+            None => (it.row_span, it.column_span),
+        }
+    }
+}
+
+/// The placement as it is built: who is where, which cells are spoken for, and how
+/// many items each area holds.
+struct Board<'a> {
+    items: &'a [Item],
+    merges: &'a [Area],
+    cell: Vec<Option<(usize, usize)>>,
+    area_of: Vec<Option<usize>>,
+    held: Vec<usize>,
+    taken: HashSet<(usize, usize)>,
+}
+
+impl Board<'_> {
+    /// An item's own footprint at `(r, c)` is free — no item there, and no area (A4).
+    fn fits(&self, r: usize, c: usize, it: &Item) -> bool {
+        (r..r + it.row_span).all(|rr| (c..c + it.column_span).all(|cc| !self.taken.contains(&(rr, cc))))
+    }
+
+    /// The empty area whose top-left cell is `(r, c)`: one cell to automatic
+    /// placement (R38), so an item reaching it takes the whole area.
+    fn open_area(&self, r: usize, c: usize) -> Option<usize> {
+        self.merges.iter().position(|a| a.row == r && a.column == c).filter(|&a| self.held[a] == 0)
+    }
+
+    /// Put item `i` at `(r, c)` — or in area `a`, which it then fills. Answers how many
+    /// columns it took.
+    fn put(&mut self, i: usize, r: usize, c: usize, a: Option<usize>) -> usize {
+        match a {
+            Some(a) => {
+                let area = self.merges[a];
+                self.cell[i] = Some((area.row, area.column));
+                self.area_of[i] = Some(a);
+                self.held[a] += 1;
+                area.column_span
+            }
+            None => {
+                let it = self.items[i];
+                self.cell[i] = Some((r, c));
+                take(&mut self.taken, r, c, it.row_span, it.column_span);
+                it.column_span
             }
         }
-    };
+    }
+}
 
-    // The implicit grid's width: the template, widened by explicit columns.
+fn take(taken: &mut HashSet<(usize, usize)>, r: usize, c: usize, rows: usize, columns: usize) {
+    for rr in r..r + rows {
+        for cc in c..c + columns {
+            taken.insert((rr, cc));
+        }
+    }
+}
+
+/// Where each item sits. An item written inside an area is in that area (R37); an
+/// area's cells are never anyone else's; and an empty area is one cell to the
+/// automatic placement below (R38).
+fn place(items: &[Item], explicit_columns: usize, merges: &[Area]) -> Placed {
+    let n = items.len();
+    let mut b = Board {
+        items,
+        merges,
+        cell: vec![None; n],
+        area_of: vec![None; n],
+        held: vec![0; merges.len()],
+        taken: HashSet::new(),
+    };
+    for a in merges {
+        take(&mut b.taken, a.row, a.column, a.row_span, a.column_span);
+    }
+
+    // The implicit grid's width: the template, widened by explicit columns and areas.
     let mut columns = explicit_columns.max(1);
     for it in items {
         if it.column > 0 {
@@ -134,12 +275,16 @@ fn place(items: &[Item], explicit_columns: usize) -> (Vec<(usize, usize)>, usize
             columns = columns.max(it.column_span);
         }
     }
+    for a in merges {
+        columns = columns.max(a.column + a.column_span);
+    }
 
-    // 1. Items with both lines given.
+    // 1. Items with both lines given — in an area when the cell is one of its own.
     for (i, it) in items.iter().enumerate() {
         if it.column > 0 && it.row > 0 {
-            cell[i] = Some((it.row - 1, it.column - 1));
-            take(&mut taken, it.row - 1, it.column - 1, it);
+            let (r, c) = (it.row - 1, it.column - 1);
+            let a = merges.iter().position(|a| a.contains(r, c));
+            b.put(i, r, c, a);
         }
     }
     // 2. Items locked to a row: the first free column, a cursor per row.
@@ -148,22 +293,27 @@ fn place(items: &[Item], explicit_columns: usize) -> (Vec<(usize, usize)>, usize
         if it.row > 0 && it.column == 0 {
             let r = it.row - 1;
             let mut c = *row_cursor.get(&r).unwrap_or(&0);
-            while !(c + it.column_span <= columns && fits(&taken, r, c, it)) {
+            let a = loop {
+                if let Some(a) = b.open_area(r, c) {
+                    break Some(a);
+                }
+                if c + it.column_span <= columns && b.fits(r, c, it) {
+                    break None;
+                }
                 c += 1;
                 if c + it.column_span > columns {
                     // Past the last column: the row grows the grid.
                     columns = c + it.column_span;
                 }
-            }
-            cell[i] = Some((r, c));
-            take(&mut taken, r, c, it);
-            row_cursor.insert(r, c + it.column_span);
+            };
+            let width = b.put(i, r, c, a);
+            row_cursor.insert(r, c + width);
         }
     }
     // 3. Everything else, row-major from a cursor that never moves back.
     let (mut cr, mut cc) = (0usize, 0usize);
     for (i, it) in items.iter().enumerate() {
-        if cell[i].is_some() {
+        if b.cell[i].is_some() {
             continue;
         }
         if it.column > 0 {
@@ -171,38 +321,78 @@ fn place(items: &[Item], explicit_columns: usize) -> (Vec<(usize, usize)>, usize
             if c < cc {
                 cr += 1;
             }
-            while !fits(&taken, cr, c, it) {
+            let a = loop {
+                if let Some(a) = b.open_area(cr, c) {
+                    break Some(a);
+                }
+                if b.fits(cr, c, it) {
+                    break None;
+                }
                 cr += 1;
-            }
-            cell[i] = Some((cr, c));
-            take(&mut taken, cr, c, it);
-            cc = c + it.column_span;
+            };
+            cc = c + b.put(i, cr, c, a);
             continue;
         }
-        loop {
+        let a = loop {
+            if let Some(a) = b.open_area(cr, cc) {
+                break Some(a);
+            }
             if cc + it.column_span > columns {
                 cr += 1;
                 cc = 0;
                 continue;
             }
-            if fits(&taken, cr, cc, it) {
-                break;
+            if b.fits(cr, cc, it) {
+                break None;
             }
             cc += 1;
-        }
-        cell[i] = Some((cr, cc));
-        take(&mut taken, cr, cc, it);
-        cc += it.column_span;
+        };
+        cc += b.put(i, cr, cc, a);
     }
 
-    let cells: Vec<(usize, usize)> = cell.into_iter().map(|c| c.unwrap_or_default()).collect();
+    let area_of = b.area_of;
+    let cells: Vec<(usize, usize)> = b.cell.into_iter().map(|c| c.unwrap_or_default()).collect();
     let rows = items
         .iter()
-        .zip(&cells)
-        .map(|(it, (r, _))| r + it.row_span)
+        .enumerate()
+        .map(|(i, it)| cells[i].0 + area_of[i].map_or(it.row_span, |a| merges[a].row_span))
+        .chain(merges.iter().map(|a| a.row + a.row_span))
         .max()
         .unwrap_or(0);
-    (cells, rows, columns)
+    Placed { cells, areas: area_of, rows, columns }
+}
+
+/// What each item asks of one axis's tracks: (first track, span, size). The items an
+/// area holds ask once, together — side by side, so their widths and the gaps
+/// between them, and the tallest of them (A4).
+fn spans_on(items: &[Item], p: &Placed, merges: &[Area], gap: f32, columns: bool) -> Vec<(usize, usize, f32)> {
+    let own = |it: &Item| if columns { clamp(it.size.0, it.width) } else { clamp(it.size.1, it.height) };
+    let mut out: Vec<(usize, usize, f32)> = items
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| p.areas[*i].is_none())
+        .map(|(i, it)| {
+            let (row, column) = p.cells[i];
+            if columns {
+                (column, it.column_span, own(it))
+            } else {
+                (row, it.row_span, own(it))
+            }
+        })
+        .collect();
+    for (a, area) in merges.iter().enumerate() {
+        let sizes: Vec<f32> = items.iter().zip(&p.areas).filter(|(_, x)| **x == Some(a)).map(|(it, _)| own(it)).collect();
+        if sizes.is_empty() {
+            continue;
+        }
+        if columns {
+            let w = sizes.iter().sum::<f32>() + gap * (sizes.len() - 1) as f32;
+            out.push((area.column, area.column_span, w));
+        } else {
+            out.push((area.row, area.row_span, sizes.iter().copied().fold(0.0, f32::max)));
+        }
+    }
+    out
 }
 
 /// Size one axis. `spans` is each item's (first track, span, size, limits)
@@ -310,19 +500,17 @@ pub fn min_size(c: &Container, items: &[Item]) -> (f32, f32) {
 /// `items` must be in reading order, as [`solve`] is given them.
 pub fn min_size_at(c: &Container, items: &[Item], width: Option<f32>) -> (f32, f32) {
     let mut columns_t = c.columns.expand(None, c.column_gap);
-    let (cells, row_count, column_count) = place(items, columns_t.len());
+    let p = place(items, columns_t.len(), &c.merges);
     let implicit = Track { min: Breadth::Auto, max: Breadth::Auto };
-    columns_t.resize(column_count.max(columns_t.len()), implicit);
+    columns_t.resize(p.columns.max(columns_t.len()), implicit);
     // The rows the items form at the laid-out width.
-    let (row_cells, row_count) = match width {
-        Some(w) if c.columns.auto_fills() => {
-            let (cells, rows, _) = place(items, c.columns.expand(Some(w), c.column_gap).len());
-            (cells, rows)
-        }
-        _ => (cells.clone(), row_count),
+    let at_width = match width {
+        Some(w) if c.columns.auto_fills() => Some(place(items, c.columns.expand(Some(w), c.column_gap).len(), &c.merges)),
+        _ => None,
     };
+    let row_p = at_width.as_ref().unwrap_or(&p);
     let mut rows_t = c.rows.expand(None, c.row_gap);
-    rows_t.resize(row_count.max(rows_t.len()), implicit);
+    rows_t.resize(row_p.rows.max(rows_t.len()), implicit);
     let axis = |tracks: &[Track], gap: f32, spans: Vec<(usize, usize, f32)>| {
         let mut content = vec![0.0f32; tracks.len()];
         for (start, span, size) in spans {
@@ -341,38 +529,22 @@ pub fn min_size_at(c: &Container, items: &[Item], width: Option<f32>) -> (f32, f
             .sum::<f32>()
             + tracks.len().saturating_sub(1) as f32 * gap
     };
-    let w = axis(
-        &columns_t,
-        c.column_gap,
-        items.iter().zip(&cells).map(|(it, (_, col))| (*col, it.column_span, clamp(it.size.0, it.width))).collect(),
-    );
-    let h = axis(
-        &rows_t,
-        c.row_gap,
-        items.iter().zip(&row_cells).map(|(it, (row, _))| (*row, it.row_span, clamp(it.size.1, it.height))).collect(),
-    );
+    let w = axis(&columns_t, c.column_gap, spans_on(items, &p, &c.merges, c.column_gap, true));
+    let h = axis(&rows_t, c.row_gap, spans_on(items, row_p, &c.merges, c.column_gap, false));
     (w, h)
 }
 
 /// Lay `items` out in `client`.
 pub fn solve(c: &Container, items: &[Item], client: LRect) -> Solved {
     let mut columns_t = c.columns.expand(Some(client.w), c.column_gap);
-    let (cells, row_count, column_count) = place(items, columns_t.len());
+    let p = place(items, columns_t.len(), &c.merges);
     let implicit = Track { min: Breadth::Auto, max: Breadth::Auto };
-    columns_t.resize(column_count.max(columns_t.len()), implicit);
+    columns_t.resize(p.columns.max(columns_t.len()), implicit);
     let mut rows_t = c.rows.expand(Some(client.h), c.row_gap);
-    rows_t.resize(row_count.max(rows_t.len()), implicit);
+    rows_t.resize(p.rows.max(rows_t.len()), implicit);
 
-    let col_spans: Vec<(usize, usize, f32)> = items
-        .iter()
-        .zip(&cells)
-        .map(|(it, (_, col))| (*col, it.column_span, clamp(it.size.0, it.width)))
-        .collect();
-    let row_spans: Vec<(usize, usize, f32)> = items
-        .iter()
-        .zip(&cells)
-        .map(|(it, (row, _))| (*row, it.row_span, clamp(it.size.1, it.height)))
-        .collect();
+    let col_spans = spans_on(items, &p, &c.merges, c.column_gap, true);
+    let row_spans = spans_on(items, &p, &c.merges, c.column_gap, false);
     let columns = size_tracks(&columns_t, Some(client.w), c.column_gap, &col_spans);
     let rows = size_tracks(&rows_t, Some(client.h), c.row_gap, &row_spans);
 
@@ -401,12 +573,25 @@ pub fn solve(c: &Container, items: &[Item], client: LRect) -> Solved {
             Align::End => (pos + len - own, own),
         }
     };
+    // The items an area holds share it side by side, in the order given (R37): each an
+    // equal share of the width, less the gaps between neighbours.
+    let held: Vec<usize> = (0..c.merges.len()).map(|a| p.areas.iter().filter(|x| **x == Some(a)).count()).collect();
+    let mut nth = vec![0usize; c.merges.len()];
     let rects = items
         .iter()
-        .zip(&cells)
-        .map(|(it, &(row, col))| {
-            let (ax, aw) = area(&xs, &columns, c.column_gap, col, it.column_span);
-            let (ay, ah) = area(&ys, &rows, c.row_gap, row, it.row_span);
+        .enumerate()
+        .map(|(i, it)| {
+            let (row, col) = p.cells[i];
+            let (row_span, column_span) = p.span(i, it, &c.merges);
+            let (mut ax, mut aw) = area(&xs, &columns, c.column_gap, col, column_span);
+            let (ay, ah) = area(&ys, &rows, c.row_gap, row, row_span);
+            if let Some(a) = p.areas[i] {
+                let (n, k) = (held[a] as f32, nth[a] as f32);
+                nth[a] += 1;
+                let share = ((aw - c.column_gap * (n - 1.0)) / n).max(0.0);
+                ax += k * (share + c.column_gap);
+                aw = share;
+            }
             let (x, w) = fit(it.justify_self.unwrap_or(c.justify_items), ax, aw, clamp(it.size.0, it.width), it.width);
             let (y, h) = fit(it.align_self.unwrap_or(c.align_items), ay, ah, clamp(it.size.1, it.height), it.height);
             LRect::new(client.x + x, client.y + y, w, h)
@@ -418,8 +603,12 @@ pub fn solve(c: &Container, items: &[Item], client: LRect) -> Solved {
     let content_rows = size_tracks(&rows_t, None, c.row_gap, &row_spans);
     let cells: Vec<Cell> = items
         .iter()
-        .zip(&cells)
-        .map(|(it, &(row, column))| Cell { row, column, row_span: it.row_span, column_span: it.column_span })
+        .enumerate()
+        .map(|(i, it)| {
+            let (row, column) = p.cells[i];
+            let (row_span, column_span) = p.span(i, it, &c.merges);
+            Cell { row, column, row_span, column_span }
+        })
         .collect();
     Solved {
         rects,
@@ -456,6 +645,7 @@ mod tests {
             column_gap: 0.0,
             justify_items: Align::Stretch,
             align_items: Align::Stretch,
+            merges: Vec::new(),
         }
     }
 
@@ -607,5 +797,114 @@ mod tests {
         e.justify_self = Some(Align::End);
         let s = solve(&g, &[e], CLIENT);
         assert_eq!(s.rects[0].x, 10.0 + 150.0);
+    }
+
+    // ── Spec 088 A4 — merged areas ──────────────────────────────────────────
+
+    fn area(row: usize, column: usize, row_span: usize, column_span: usize) -> Area {
+        Area { row, column, row_span, column_span }
+    }
+
+    fn placed(column: usize, row: usize) -> Item {
+        Item { column, row, ..it(40.0, 20.0) }
+    }
+
+    /// R36 — `GridMerges` is read as spreadsheet ranges, either corner first, in any
+    /// case and with any separator; a single cell, an overlap and nonsense are left
+    /// out; and what is written reads back as itself.
+    #[test]
+    fn grid_merges_are_read_as_ranges_and_nonsense_is_left_out() {
+        assert_eq!(parse_merges("R1C1:R1C2"), vec![area(0, 0, 1, 2)]);
+        assert_eq!(parse_merges("r3c3:r2c1"), vec![area(1, 0, 2, 3)], "the other corner first, lower case");
+        assert_eq!(parse_merges("R1C1:R2C1; R1C2:R1C3,R5C5:R6C6"), vec![area(0, 0, 2, 1), area(0, 1, 1, 2), area(4, 4, 2, 2)]);
+        assert_eq!(parse_merges("R2C2:R2C2"), vec![], "one cell is no merge");
+        assert_eq!(parse_merges("R1C1:R2C2 R2C2:R3C3"), vec![area(0, 0, 2, 2)], "an overlap with an earlier one is left out");
+        for junk in ["", "   ", "R0C1:R1C2", "A1:B2", "R1C1", "R1:C2", "RxC1:R2C2"] {
+            assert_eq!(parse_merges(junk), vec![], "{junk:?}");
+        }
+        let areas = vec![area(0, 0, 1, 2), area(2, 1, 3, 2)];
+        assert_eq!(format_merges(&areas), "R1C1:R1C2 R3C2:R5C3");
+        assert_eq!(parse_merges(&format_merges(&areas)), areas);
+    }
+
+    /// R37 — the controls written in an area share it side by side, each an equal share
+    /// of its width less the gap between them, as tall as the area; no two overlap,
+    /// and each reports the area as its cell.
+    #[test]
+    fn the_controls_of_an_area_lay_out_side_by_side_without_overlap() {
+        let mut g = grid("100px 100px 100px", "50px 50px");
+        g.merges = vec![area(0, 0, 1, 2)];
+        let s = solve(&g, &[placed(1, 1), placed(2, 1)], CLIENT);
+        let r = |i: usize| (s.rects[i].x, s.rects[i].y, s.rects[i].w, s.rects[i].h);
+        assert_eq!((r(0), r(1)), ((10.0, 20.0, 100.0, 50.0), (110.0, 20.0, 100.0, 50.0)));
+        assert_eq!(s.cells, vec![area(0, 0, 1, 2), area(0, 0, 1, 2)], "both are in the area");
+
+        // Three in a 2 × 2 area with a 10 px gap: (210 − 20) / 3 each, 10 apart.
+        g.column_gap = 10.0;
+        g.row_gap = 10.0;
+        g.merges = vec![area(0, 0, 2, 2)];
+        let s = solve(&g, &[placed(1, 1), placed(2, 2), placed(1, 2)], CLIENT);
+        let share = (210.0 - 20.0) / 3.0;
+        for (k, rect) in s.rects.iter().enumerate() {
+            assert!((rect.x - (10.0 + k as f32 * (share + 10.0))).abs() < 0.01, "item {k} at {rect:?}");
+            assert!((rect.w - share).abs() < 0.01 && (rect.h - 110.0).abs() < 0.01, "item {k} is {rect:?}");
+        }
+        for pair in s.rects.windows(2) {
+            assert!(pair[0].x + pair[0].w <= pair[1].x, "no overlap: {pair:?}");
+        }
+        println!("A4: two controls in a 1×2 area at x 10 and 110; three in a 2×2 area, {share:.2} wide, 10 apart");
+    }
+
+    /// One control in an area fills it, its own span ignored; its own alignment still
+    /// holds inside it.
+    #[test]
+    fn one_control_fills_its_area_and_keeps_its_alignment() {
+        let mut g = grid("100px 100px 100px", "50px 50px");
+        g.merges = vec![area(0, 1, 2, 2)];
+        let mut a = placed(3, 2);
+        a.column_span = 3;
+        let s = solve(&g, &[a], CLIENT);
+        assert_eq!((s.rects[0].x, s.rects[0].y, s.rects[0].w, s.rects[0].h), (110.0, 20.0, 200.0, 100.0));
+        a.justify_self = Some(Align::Center);
+        let s = solve(&g, &[a], CLIENT);
+        assert_eq!((s.rects[0].x, s.rects[0].w), (110.0 + 80.0, 40.0), "centred in the 200 of the area");
+    }
+
+    /// R38 — an empty area is one cell to automatic placement: the item that reaches
+    /// its top-left cell takes it all, no item is placed in its other cells, and once
+    /// it holds a control the cursor passes it by.
+    #[test]
+    fn an_empty_area_is_one_cell_to_automatic_placement() {
+        let mut g = grid("100px 100px 100px", "50px 50px 50px");
+        g.merges = vec![area(0, 1, 2, 2)];
+        let auto = it(40.0, 20.0);
+        let s = solve(&g, &[auto, auto, auto, auto], CLIENT);
+        assert_eq!(
+            s.cells,
+            vec![area(0, 0, 1, 1), area(0, 1, 2, 2), area(1, 0, 1, 1), area(2, 0, 1, 1)],
+            "A at R1C1, B takes the area, C and D never land in it"
+        );
+        assert_eq!((s.rects[1].x, s.rects[1].w, s.rects[1].h), (110.0, 200.0, 100.0));
+
+        // Held by an explicit control: the automatic ones pass it by.
+        let s = solve(&g, &[placed(3, 2), auto, auto], CLIENT);
+        assert_eq!(s.cells, vec![area(0, 1, 2, 2), area(0, 0, 1, 1), area(1, 0, 1, 1)]);
+        // An area beyond the template widens the implicit grid.
+        g.merges = vec![area(3, 3, 1, 2)];
+        let s = solve(&g, &[], CLIENT);
+        assert_eq!((s.columns.len(), s.rows.len()), (5, 4));
+    }
+
+    /// The minimum size counts an area's controls side by side: two 60-wide controls
+    /// in a one-column area of an `Auto` column need 60 + 10 + 60.
+    #[test]
+    fn the_minimum_size_counts_an_areas_controls_side_by_side() {
+        let mut g = grid("Auto", "Auto Auto");
+        g.column_gap = 10.0;
+        g.merges = vec![area(0, 0, 2, 1)];
+        let wide = |row| Item { column: 1, row, ..it(60.0, 20.0) };
+        assert_eq!(min_size(&g, &[wide(1), wide(2)]).0, 130.0);
+        g.merges.clear();
+        assert_eq!(min_size(&g, &[wide(1), wide(2)]).0, 60.0, "without the area, one above the other");
     }
 }

@@ -176,7 +176,7 @@ const LAYOUT_KEYS: &[&str] = &[
     "Anchor", "Dock", "MinWidth", "MinHeight", "MaxWidth", "MaxHeight", "LayoutMode", "FlexDirection",
     "FlexWrap", "FlexGrow", "FlexShrink", "FlexBasis", "Order", "AlignSelf", "AlignItems", "AlignContent",
     "JustifyContent", "JustifyItems", "JustifySelf", "Gap", "RowGap", "ColumnGap", "GridColumns", "GridRows",
-    "GridColumn", "GridRow", "ColumnSpan", "RowSpan", "FlowDirection", "FlowBreak", "WrapContents", "Padding",
+    "GridMerges", "GridColumn", "GridRow", "ColumnSpan", "RowSpan", "FlowDirection", "FlowBreak", "WrapContents", "Padding",
     "PaddingLeft", "PaddingTop", "PaddingRight", "PaddingBottom", "AutoSize", "TabPosition",
 ];
 
