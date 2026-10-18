@@ -149,7 +149,7 @@
 
        01 WS-LANG-IX     PIC 9       GLOBAL VALUE 1.
        01 WS-TX-I        PIC 999     GLOBAL.
-       01 WS-TEXT-ROWS   PIC 999     GLOBAL VALUE 109.
+       01 WS-TEXT-ROWS   PIC 999     GLOBAL VALUE 110.
        01 WS-WORKING-TEXT PIC X(300) GLOBAL.
        01 WS-MATCH       PIC X(120)  GLOBAL.
        01 WS-MATCH-VAL   PIC X(30)   GLOBAL.
@@ -948,8 +948,15 @@
            05 FILLER PIC X(120) VALUE "Pas encore de bucket des photos : déployez la pile dans Paramètres, ou tapez-y le nom du bucket.".
            05 FILLER PIC X(120) VALUE "写真バケットがありません。設定タブでデプロイするか名前を入力してください。".
            05 FILLER PIC X(120) VALUE "尚无照片存储桶：请在“设置”中部署堆栈或输入存储桶名称。".
+           *>   CF-NO-RIGHTS
+           05 FILLER PIC X(120) VALUE "These keys cannot deploy the stack: deploy with an administrator's keys, or Save template… and run it; then Connect.".
+           05 FILLER PIC X(120) VALUE "Estas chaves não implantam a pilha: implante com chaves de administrador ou Salvar modelo…; depois Conectar.".
+           05 FILLER PIC X(120) VALUE "Estas claves no implementan la pila: hágalo con claves de administrador o Guardar plantilla…; luego Conectar.".
+           05 FILLER PIC X(120) VALUE "Ces clés ne déploient pas : prenez des clés d'administrateur ou Enregistrer le modèle…, puis Se connecter.".
+           05 FILLER PIC X(120) VALUE "このキーではデプロイ不可。管理者キーか「テンプレートを保存」で行い、接続。".
+           05 FILLER PIC X(120) VALUE "这些密钥无法部署：请用管理员密钥，或“保存模板…”后自行部署，再连接。".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-           05 PC-TEXT-ROW OCCURS 109.
+           05 PC-TEXT-ROW OCCURS 110.
                10 PC-TEXT PIC X(120) OCCURS 6.
        *>   The same texts in the language picked, by name.
 
@@ -1063,8 +1070,9 @@
            05 T-REK-NONE PIC X(120).
            05 T-REK-PRESS PIC X(120).
            05 T-NO-BUCKET PIC X(120).
+           05 T-CF-NO-RIGHTS PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-           05 PC-TEXT-NOW PIC X(120) OCCURS 109.
+           05 PC-TEXT-NOW PIC X(120) OCCURS 110.
        *>   The two paragraphs that do not fit the short texts.
 
        01 PC-LONG-DATA GLOBAL.
@@ -1110,6 +1118,7 @@
        01 M-PETS-COUNT            PIC 999     GLOBAL VALUE 81.
        01 M-PHOTO-NOT-STORED      PIC 999     GLOBAL VALUE 82.
        01 M-NO-BUCKET             PIC 999     GLOBAL VALUE 109.
+       01 M-CF-NO-RIGHTS          PIC 999     GLOBAL VALUE 110.
        01 M-PET-NOT-STORED        PIC 999     GLOBAL VALUE 83.
        01 M-PET-GONE              PIC 999     GLOBAL VALUE 84.
        01 M-PET-NOT-DELETED       PIC 999     GLOBAL VALUE 85.
@@ -3765,6 +3774,14 @@ sa-east-1</Property>
            IF AWS-MCP::LastError NOT = SPACES
                SET     WS-STK-MSG                    TO    M-CF-REFUSED
                SET     WS-STK-A1                     TO    AWS-MCP::LastError::Trim()
+
+               *> Keys made to run the demo are not allowed to deploy it (creating the stack
+               *> creates an IAM role and a policy): say what to do. The whole refusal is in
+               *> the Output panel.
+
+               IF WS-STK-A1(1:12) = "AccessDenied"
+                   SET     WS-STK-MSG                    TO    M-CF-NO-RIGHTS
+               END-IF
                SET     LBL-STACKSTATE::Caption       TO    PC-TEXT-NOW(WS-STK-MSG)::Trim()::Replace( "&1", WS-STK-A1::Trim() )
            ELSE
                SET     PGB-STACK::Value              TO    5

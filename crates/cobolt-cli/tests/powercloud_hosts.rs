@@ -490,6 +490,24 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
     println!("\nspec 092 — PowerCloud, tab by tab, against the fake servers\n{}\n  total hosted calls: {}   (no secret reached any output: {KEY_ID}, the secret and the token were planted)", summary.join("\n"), calls_to(&p));
 }
 
+/// Keys made to run the demo are not allowed to deploy it: the Settings tab says what to do,
+/// rather than only AWS's refusal (operator, 2026-10-18).
+#[test]
+fn keys_that_cannot_deploy_are_told_how_to_deploy() {
+    let p = project("no-deploy");
+    let path = p.root.join("fake-hosted.json");
+    let mut hosted: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let refused = envelope(json!({"Status": "error", "Error": "AccessDenied: User: arn:aws:iam::123456789012:user/demo is not authorized to perform: cloudformation:CreateStack"}));
+    hosted["answers_when"].as_array_mut().unwrap().insert(0, json!({"tool": "aws___run_script", "contains": r#"operation_name=\"CreateStack\""#, "answer": refused}));
+    std::fs::write(&path, hosted.to_string()).unwrap();
+    let r = run_form(&p, &json!([click("Btn-Deploy"), wait(2500), get("Lbl-StackState", "Caption")]), 60);
+    assert_eq!(
+        read(&r, "Lbl-StackState", "Caption"),
+        "These keys cannot deploy the stack: deploy with an administrator's keys, or Save template… and run it; then Connect.",
+        "{r}"
+    );
+}
+
 // ---- spec 092, amendment A1: the six languages ----------------------------------------------------
 
 /// Picking a language in CMB-LANGUAGE, as the user does: the position, then the event.

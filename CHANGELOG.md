@@ -17,6 +17,18 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.204] — 2026-10-18
+
+*(Written on `fixes-powercloud-deploy-rights`, off `main` at 1.91.203.)*
+
+### Fixed: PowerCloud says what to do when the keys may not deploy the stack
+
+The operator, 2026-10-18, pressed **Deploy CloudFormation** with the keys of a user made to *run* the demo, and got *CloudFormation refused it: AccessDenied: … not authorized to perform: cloudformation:CreateStack …*. The refusal is right. That user's policy allows only what the demo uses. Creating the stack creates an IAM role and a policy, and a test user should never hold those rights. But the message gave no way forward.
+
+When CloudFormation answers `AccessDenied`, the Settings tab now says, in all six languages: *These keys cannot deploy the stack: deploy with an administrator's keys, or Save template… and run it; then Connect.* AWS's whole answer is still in the Output panel. Any other refusal is shown as before.
+
+The README says which keys may deploy. A new `powercloud_hosts` test answers `CreateStack` with `AccessDenied` and expects the new message.
+
 ## [PowerRustCOBOL 1.91.203] — 2026-10-18
 
 *(Written on `fixes-powercloud-bucket`, off `main` at 1.91.202.)*

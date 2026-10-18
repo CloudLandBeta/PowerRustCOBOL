@@ -40,8 +40,9 @@ with the services wheel on the left and the cloud-access fields on the right.
 `powercloud-presign` that signs a short-lived link to one photo, the policy above, and — only if you ask —
 the DynamoDB table and a small demo server. Two ways to deploy it:
 
-1. **From the application.** Settings ▸ Connect, then **Deploy CloudFormation**. The tab shows the stack's
-   progress and fills in the bucket and function names when it is done.
+1. **From the application**, with keys allowed to create it (an administrator's): Settings ▸ Connect, then
+   **Deploy CloudFormation**. The tab shows the stack's progress and fills in the bucket and function names
+   when it is done. Keys made only to run the demo are refused, and the tab says so.
 2. **By yourself.** Press **Save template…** (or the link beside it) and run it with the AWS CLI or the
    console:
 
