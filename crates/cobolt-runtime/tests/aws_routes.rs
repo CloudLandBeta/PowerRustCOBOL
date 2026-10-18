@@ -104,9 +104,10 @@ fn every_hosted_script_keeps_to_the_sandboxs_rules() {
 /// The check fails on drift: a renamed required input, and a renamed tool.
 #[test]
 fn a_drifted_fixture_fails_the_route_check() {
+    // A shipped route against its server's tool, whose required input was renamed.
     let routes = Routes::shipped();
     let invoke = routes.op("AwsLambda", "Invoke").unwrap();
-    let mut tools = fixture("lambda").unwrap();
+    let mut tools = fixture("hosted").unwrap();
     for t in &mut tools {
         t.input_schema["required"] = serde_json::json!(["payload"]);
     }

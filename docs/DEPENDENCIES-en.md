@@ -173,8 +173,10 @@ because one family is not MIT/Apache:
 
 Added with spec 103 on **2026-10-16**, after the reconciliation stamped above (the totals at the top do not count it
 yet). The AWS controls reach AWS's hosted MCP Server over HTTPS, signed with SigV4 by the runtime itself, so a machine
-needs no `uv` or Python for those services. The five **AWS Labs servers** (Lambda, Bedrock Knowledge Bases, AgentCore,
-S3 Tables, Glue) are still child processes started with `uvx`; nothing here changes them.
+needs no `uv` or Python for those services. Since 1.91.210 (2026-10-18) that is every AWS control: the Lambda, Bedrock
+Knowledge Bases, AgentCore, Agent Memory, S3 Tables (through Amazon Athena) and Glue operations moved from the five
+**AWS Labs servers**, child processes started with `uvx`, to the hosted server. Those servers are started only by an
+`AwsMcp` whose `ServerId` names one; no crate was added for the move.
 
 | Crate | Version | Used by | What it does |
 |---|---|---|---|

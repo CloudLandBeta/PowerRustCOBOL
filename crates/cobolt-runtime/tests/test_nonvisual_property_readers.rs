@@ -195,7 +195,7 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
         (ControlType::AwsKnowledgeBase, aws_readers(&[("KnowledgeBaseId", Runtime), ("MaxResults", Runtime)])),
         (ControlType::AwsAgentCore, aws_readers(&[("RuntimeArn", Runtime), ("SessionId", Runtime)])),
         (ControlType::AwsAgentMemory, aws_readers(&[("MemoryId", Runtime), ("ActorId", Runtime), ("SessionId", Runtime), ("Namespace", Runtime), ("TopK", Runtime)])),
-        (ControlType::AwsS3Tables, aws_readers(&[("TableBucketArn", Runtime), ("Namespace", Runtime), ("TableName", Runtime)])),
+        (ControlType::AwsS3Tables, aws_readers(&[("TableBucketArn", Runtime), ("Namespace", Runtime), ("TableName", Runtime), ("WorkGroup", Runtime), ("QueryResultsLocation", Runtime)])),
         (ControlType::AwsDynamoDB, aws_readers(&[("TableName", Runtime), ("IndexName", Runtime), ("Limit", Runtime)])),
         (ControlType::AwsS3, aws_readers(&[("Bucket", Runtime), ("MaxKeys", Runtime)])),
         (ControlType::AwsS3Vectors, aws_readers(&[("VectorBucketName", Runtime), ("IndexName", Runtime), ("TopK", Runtime)])),

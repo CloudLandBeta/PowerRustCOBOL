@@ -173,6 +173,43 @@ fn hosted_answers() -> Value {
         json!({"content": [{"type": "text", "text": text}], "isError": false})
     };
     let rules = [
+        // 1.91.210: the operations the AWS Labs servers (uvx) used to answer, each by its exact
+        // AWS operation, ahead of the looser rules below (AppendRows' GetTableMetadata
+        // before Query's StartQueryExecution, both before Glue's GetTable).
+        ("operation_name='Invoke'", json!({"Payload": r#"[{"id":1,"name":"Ana"},{"id":2,"name":"Bo"}]"#, "FunctionError": ""})),
+        (
+            "operation_name='ListFunctions'",
+            json!({"Functions": [{"Name": "app_f", "Description": "", "ReadOnly": "0"}, {"Name": "read_thing", "Description": "", "ReadOnly": "0"}, {"Name": "write_thing", "Description": "", "ReadOnly": "0"}], "Names": "app_f\nread_thing\nwrite_thing"}),
+        ),
+        (
+            "operation_name='Retrieve'",
+            json!({"Passages": [
+                {"content": {"type": "TEXT", "text": "Refunds take 14 days."}, "location": {"type": "S3", "s3Location": {"uri": "s3://docs/refunds.pdf"}}, "score": 0.82},
+                {"content": {"type": "TEXT", "text": "Keep the receipt."}, "location": {"type": "WEB", "webLocation": {"url": "https://example.com/faq"}}, "score": 0.41}], "Text": "two passages"}),
+        ),
+        ("operation_name='ListKnowledgeBases'", json!({"KnowledgeBases": {"KB12345678": {"name": "Support docs", "description": "FAQ", "type": "VECTOR"}}})),
+        (
+            "operation_name='InvokeAgentRuntime'",
+            json!({"response_body": "Hi! How can I help?", "runtime_session_id": "sess-0123456789abcdef0123456789abcdef", "content_type": "application/json"}),
+        ),
+        ("operation_name='CreateEvent'", json!({"event": {"eventId": "ev-77"}})),
+        (
+            "operation_name='RetrieveMemoryRecords'",
+            json!({"memory_records": [{"memoryRecordId": "r1", "content": {"text": "Likes tea"}, "score": 0.91}, {"memoryRecordId": "r2", "content": {"text": "Lives in Porto"}, "score": 0.33}]}),
+        ),
+        (
+            "operation_name='ListTableBuckets'",
+            json!({"tables": [{"namespace": ["sales"], "name": "orders", "table_arn": "arn:t/1"}, {"namespace": ["ops"], "name": "events", "table_arn": "arn:t/2"}, {"namespace": ["sales"], "name": "refunds", "table_arn": "arn:t/3"}]}),
+        ),
+        ("operation_name='GetTableMetadata'", json!({"rows_appended": 2})),
+        ("operation_name='StartQueryExecution'", json!({"columns": ["order_id", "total"], "rows": [["1", "19.9"], ["2", "5.0"]]})),
+        ("operation_name='StartJobRun'", json!({"job_name": "nightly-etl", "job_run_id": "jr_abc"})),
+        ("operation_name='GetJobRun'", json!({"job_name": "nightly-etl", "job_run_id": "jr_abc", "job_run_details": {"Id": "jr_abc", "JobRunState": "SUCCEEDED"}})),
+        ("operation_name='StartCrawler'", json!({"crawler_name": "raw-crawler", "started": "1"})),
+        (
+            "operation_name='GetTable'",
+            json!({"database_name": "sales", "table_name": "orders", "table_definition": {"StorageDescriptor": {"Columns": [{"Name": "order_id", "Type": "bigint"}, {"Name": "total", "Type": "double"}]}}}),
+        ),
         ("GetItem", json!({"Items": [{"id": 42, "customer": "Ana"}], "Found": "1"})),
         ("Scan", json!({"Items": [{"id": 1}, {"id": 2}], "Count": 2})),
         ("'Query'", json!({"Items": [{"id": 1}, {"id": 2}], "Count": 2})),
@@ -324,8 +361,15 @@ fn the_demos_pass_under_run_form_and_as_embedded_child_forms() {
     println!("\n078 T-A16 — {}", table.join("; "));
 }
 
-/// The demos that reach the hosted AWS MCP Server (`AwsMcp.AwsCall` among them).
-const HOSTED_DEMOS: [&str; 10] = [
+/// The demos that reach the hosted AWS MCP Server — every one since 1.91.210, when the six that
+/// used the AWS Labs servers (uvx) moved there too.
+const HOSTED_DEMOS: [&str; 16] = [
+    "aws-lambda-demo",
+    "aws-knowledge-base-demo",
+    "aws-agent-core-demo",
+    "aws-agent-memory-demo",
+    "aws-s3-tables-demo",
+    "aws-glue-demo",
     "aws-mcp-demo",
     "aws-dynamodb-demo",
     "aws-s3-demo",
@@ -436,7 +480,7 @@ fn the_hosted_demos_pass_over_https_with_nothing_on_the_path() {
         posts.len(),
         hosted_ops - seen,
     );
-    assert_eq!(hosted_ops, 33, "the route table sends 33 operations to the hosted server");
+    assert_eq!(hosted_ops, 47, "the route table sends 47 operations to the hosted server");
     // The demos run with AllowWrite off, so eight write operations are refused before anything is sent;
     // `cobolt-runtime`'s `aws_https` runs those eight with AllowWrite on. Any OTHER operation going
     // unasked is a gap.

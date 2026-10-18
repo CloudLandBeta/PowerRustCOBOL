@@ -6,9 +6,10 @@
 
 //! Spec 092 R30 / AC7 — the PowerCloud example, tab by tab, under `rcrun run-form
 //! --headless`. The example's own forms are copied into a temporary project whose six
-//! AWS connections route the hosted server and the Lambda server to the fake MCP server
-//! (`cobolt-runtime`'s test binary), a local web server stands in for S3's temporary
-//! link, and each tab's flow is driven by a script of steps. Nothing reaches AWS.
+//! AWS connections route the hosted server — every AWS call, the Lambda tab's included,
+//! since 1.91.210 — to the fake MCP server (`cobolt-runtime`'s test binary), a local web
+//! server stands in for S3's temporary link, and each tab's flow is driven by a script of
+//! steps. Nothing reaches AWS.
 //!
 //! Every scenario reports what it exercised and how long it took; one summary block is
 //! printed at the end (GOLDEN RULE #7).
@@ -249,28 +250,23 @@ fn project(tag: &str) -> Project {
 
     let photo = picture(1200, 800);
     let (port, photo_hits) = photo_server(photo.clone());
-    let presign = format!(r#"Function powercloud-presign returned: {{"url": "http://127.0.0.1:{port}/photo.jpg?X-Amz-Signature=SECRETSIG", "expires": 900}}"#);
-    let lambda = json!({
-        "tools": [{"name": "powercloud_presign", "inputSchema": {"type": "object", "properties": {"parameters": {"type": "object"}}}}],
-        "answers": {"powercloud_presign": {"content": [{"type": "text", "text": presign}], "isError": false}},
-        "call_log": root.join("lambda-calls.jsonl").to_string_lossy(),
-        "pid_file": root.join("pids.txt").to_string_lossy(),
-    });
-    std::fs::write(root.join("fake-lambda.json"), lambda.to_string()).unwrap();
+    // The presign function's answer, as Lambda's Invoke returns it to the hosted server's
+    // script (since 1.91.210 the Lambda tab needs no uvx either).
+    let presign = format!(r#"{{"url": "http://127.0.0.1:{port}/photo.jpg?X-Amz-Signature=SECRETSIG", "expires": 900}}"#);
+    let mut rules = hosted_rules(&photo);
+    rules.as_array_mut().unwrap().insert(
+        0,
+        json!({"tool": "aws___run_script", "contains": "operation_name='Invoke'", "answer": envelope(json!({"Payload": presign, "FunctionError": ""}))}),
+    );
     let hosted = json!({
         "tools": [{"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}],
-        "answers_when": hosted_rules(&photo),
+        "answers_when": rules,
         "call_log": root.join("hosted-calls.jsonl").to_string_lossy(),
         "pid_file": root.join("pids.txt").to_string_lossy(),
     });
     std::fs::write(root.join("fake-hosted.json"), hosted.to_string()).unwrap();
     let fake = fake_mcp();
-    let routes = format!(
-        "[servers.lambda]\ncommand = '{0}'\nargs = ['{1}']\n[servers.hosted]\ncommand = '{0}'\nargs = ['{2}']\n",
-        fake.display(),
-        root.join("fake-lambda.json").display(),
-        root.join("fake-hosted.json").display()
-    );
+    let routes = format!("[servers.hosted]\ncommand = '{0}'\nargs = ['{1}']\n", fake.display(), root.join("fake-hosted.json").display());
 
     // The example's manifest, with its own connections swapped for the test's.
     let manifest_path = root.join("PowerCloud.project.toml");

@@ -23,11 +23,9 @@ with the services wheel on the left and the cloud-access fields on the right.
 
 ## What you need
 
-- **Nothing to install for most of it.** Every AWS call goes through MCP, AWS's official way for programs to reach
-  it. The DynamoDB, S3, Polly, EC2, Rekognition and CloudFormation parts — the pets' photos included — reach
-  AWS's hosted MCP service directly, over the internet. **`uvx`** (from [uv](https://docs.astral.sh/uv/)) is needed
-  only for the Lambda tab, which calls a Lambda function through the MCP server program AWS publishes for it;
-  its first start takes a minute because it downloads it.
+- **Nothing to install.** Every AWS call goes through MCP, AWS's official way for programs to reach it: every
+  tab — DynamoDB, S3, Lambda, Polly, EC2, Rekognition and the CloudFormation deploy, the pets' photos included —
+  reaches AWS's hosted MCP service directly, over the internet. No `uvx`, no Python.
 - **An AWS account and an AWS user** whose keys you type into the Settings tab. Nothing is written to a
   file: the keys are kept in memory for this run and the boxes are emptied as soon as you press **Connect**.
   Leave them empty to use the machine's own AWS sign-in instead (`aws configure`, IAM Identity Center, the

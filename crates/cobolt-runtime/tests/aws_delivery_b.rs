@@ -6,14 +6,17 @@
 
 //! The Delivery B AWS controls — `AwsKnowledgeBase`, `AwsAgentCore`,
 //! `AwsAgentMemory`, `AwsS3Tables`, `AwsGlue` — driven from COBOL against the
-//! fake MCP server (spec 078 T-B2…T-B6; AC11, AC15).
+//! fake MCP server standing in for the hosted AWS MCP Server (spec 078
+//! T-B2…T-B6; AC11, AC15). Until 1.91.210 they went to four AWS Labs servers
+//! started with uvx; now, like every AWS control, they send one script to
+//! `aws___run_script` (operator, 2026-10-18: no uvx).
 //!
-//! Each case checks what reaches the server (the tool and its exact
-//! arguments), what the program reads back (properties, rows, fields), the
-//! event order, and — for an operation that changes AWS — that `AllowWrite`
-//! off refuses it before the server even starts. The answers the fake gives
-//! are the shapes each real server's source produces (see the fixtures'
-//! provenance).
+//! Each case checks what reaches the server (the AWS operation the script calls
+//! and the values in it, each a quoted literal), what the program reads back
+//! (properties, rows, fields), the event order, and — for an operation that
+//! changes AWS — that `AllowWrite` off refuses it before the server even
+//! starts. The fake answers with AWS's `run_script` envelope around what each
+//! script returns.
 //!
 //! A summary of every case and its measured time prints at the end of each
 //! test (run with `--nocapture`).
@@ -58,21 +61,48 @@ impl Fake {
             .map(|c| c["params"].clone())
             .collect()
     }
+    /// The one script sent, after checking it went to `aws___run_script`.
+    fn script(&self) -> String {
+        let sent = self.sent();
+        assert_eq!(sent.len(), 1, "one call: {sent:?}");
+        assert_eq!(sent[0]["name"], "aws___run_script");
+        sent[0]["arguments"]["code"].as_str().unwrap_or_default().to_owned()
+    }
     fn started(&self) -> bool {
         self.dir.join("pids.txt").exists()
     }
 }
 
-/// A connection whose route-table `server` is the fake, answering `tool`
-/// with `answer`.
-fn fake(tag: &str, server: &'static str, tool: &str, answer: Value) -> Fake {
+/// `run_script`'s answer: what the script returned, in AWS's envelope.
+fn returned(v: Value) -> Value {
+    let text = json!({"status": "success", "stdout": "", "stderr": "", "return_value": v}).to_string();
+    json!({"content": [{"type": "text", "text": text}], "isError": false})
+}
+
+/// `run_script`'s answer when the script raised: AWS's error, as its envelope carries it.
+fn raised(error: &str) -> Value {
+    let text = json!({"status": "error", "stdout": "", "stderr": "", "error": error}).to_string();
+    json!({"content": [{"type": "text", "text": text}], "isError": false})
+}
+
+/// Each needle is in the script, else the script is shown.
+fn assert_sends(code: &str, needles: &[&str]) {
+    for n in needles {
+        assert!(code.contains(n), "the script lacks {n}:\n{code}");
+    }
+}
+
+/// A connection whose hosted server is the fake, answering every script with
+/// `answer`.
+fn fake(tag: &str, answer: Value) -> Fake {
+    let (server, tool) = ("hosted", "aws___run_script");
     let dir = std::env::temp_dir().join(format!("prc-078b-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let script = json!({
         "pid_file": dir.join("pids.txt").to_string_lossy(),
         "call_log": dir.join("calls.jsonl").to_string_lossy(),
-        "tools": [{"name": tool, "inputSchema": {"type": "object"}}],
+        "tools": [{"name": tool, "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}],
         "answers": { tool: answer },
     });
     let script_path = dir.join("script.json");
@@ -92,10 +122,6 @@ fn fake(tag: &str, server: &'static str, tool: &str, answer: Value) -> Fake {
     };
     connections::publish(vec![conn.clone()]);
     Fake { dir, conn, server }
-}
-
-fn text(t: &str) -> Value {
-    json!({"content": [{"type": "text", "text": t}], "isError": false})
 }
 
 /// A program that runs `setup`, then on the control's own event runs
@@ -231,8 +257,8 @@ fn report(test: &str, cases: &[(String, String, u128)]) {
 
 /// `method` on `class`, mutating, with AllowWrite off: refused, nothing sent,
 /// the server never started.
-fn refused(tag: &str, server: &'static str, tool: &str, class: &str, own: &[(&str, &str)], setup: &str) -> (String, String, u128) {
-    let f = fake(tag, server, tool, text("{}"));
+fn refused(tag: &str, class: &str, own: &[(&str, &str)], setup: &str) -> (String, String, u128) {
+    let f = fake(tag, returned(json!({})));
     let r = run(program(setup, ""), class, &props(&f, "false", own));
     assert_eq!(r.events(), ["onError"], "{class} {tag}: {:?}", r.lines);
     assert!(r.line("ERROR").contains("AllowWrite is off"), "{}", r.line("ERROR"));
@@ -245,13 +271,12 @@ fn knowledge_base_query_and_list() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let mut cases = Vec::new();
 
-    // Query: passages arrive as JSON objects one after another, not an array.
-    let passages = concat!(
-        r#"{"content": {"type": "TEXT", "text": "Refunds take 14 days."}, "location": {"type": "S3", "s3Location": {"uri": "s3://docs/refunds.pdf"}}, "score": 0.82}"#,
-        "\n\n",
-        r#"{"content": {"type": "TEXT", "text": "Keep the receipt."}, "location": {"type": "WEB", "webLocation": {"url": "https://example.com/faq"}}, "score": 0.41}"#
-    );
-    let f = fake("kbq", "bedrock-kb", "QueryKnowledgeBases", text(passages));
+    // Query: Bedrock's Retrieve, its passages a row each (image passages left out by the script).
+    let passages = json!([
+        {"content": {"type": "TEXT", "text": "Refunds take 14 days."}, "location": {"type": "S3", "s3Location": {"uri": "s3://docs/refunds.pdf"}}, "score": 0.82},
+        {"content": {"type": "TEXT", "text": "Keep the receipt."}, "location": {"type": "WEB", "webLocation": {"url": "https://example.com/faq"}}, "score": 0.41}
+    ]);
+    let f = fake("kbq", returned(json!({"Passages": passages, "Text": "two passages"})));
     let own = format!("{}{}{}", field("TEXT1", 1, "Text"), field("SOURCE2", 2, "Source"), field("SCORE1", 1, "Score"));
     let r = run(
         program(&invoke("Query", &["", "refund policy"]), &own),
@@ -263,21 +288,22 @@ fn knowledge_base_query_and_list() {
     assert_eq!(r.line("TEXT1"), "Refunds take 14 days.");
     assert_eq!(r.line("SOURCE2"), "https://example.com/faq");
     assert_eq!(r.line("SCORE1"), "0.82");
-    let sent = f.sent();
-    assert_eq!(sent[0]["name"], "QueryKnowledgeBases");
-    assert_eq!(sent[0]["arguments"], json!({"knowledge_base_id": "KB12345678", "query": "refund policy", "number_of_results": 5}));
+    assert_sends(
+        &f.script(),
+        &["service_name='bedrock-agent-runtime', operation_name='Retrieve'", r#"knowledgeBaseId="KB12345678""#, r#"retrievalQuery=dict(text="refund policy")"#, "n = 5"],
+    );
     cases.push(("AwsKnowledgeBase.Query(\"\", text)".to_string(), "2 passages: Text, Source (S3 and web), Score".to_string(), r.millis));
     drop(f);
 
     // ListKnowledgeBases: an object keyed by id becomes a row per entry.
-    let listed = r#"{"KB12345678": {"name": "Support docs", "description": "FAQ and policies", "type": "VECTOR", "data_sources": []}}"#;
-    let f = fake("kbl", "bedrock-kb", "ListKnowledgeBases", text(listed));
-    let own = format!("{}{}", field("ID", 1, "Id"), field("NAME", 1, "Name"));
+    let listed = json!({"KnowledgeBases": {"KB12345678": {"name": "Support docs", "description": "FAQ and policies", "type": "VECTOR"}}});
+    let f = fake("kbl", returned(listed));
+    let own = format!("{}{}{}", field("ID", 1, "Id"), field("NAME", 1, "Name"), field("TYPE", 1, "Type"));
     let r = run(program(&invoke("ListKnowledgeBases", &[]), &own), "AwsKnowledgeBase", &props(&f, "false", &[]));
     assert_eq!(r.events(), ["onKnowledgeBasesListed", "onComplete"], "{:?}", r.lines);
-    assert_eq!((r.line("ROWS"), r.line("ID"), r.line("NAME")), ("1".into(), "KB12345678".into(), "Support docs".into()));
-    assert_eq!(f.sent()[0]["arguments"], json!({}));
-    cases.push(("AwsKnowledgeBase.ListKnowledgeBases()".to_string(), "1 row: Id, Name".to_string(), r.millis));
+    assert_eq!((r.line("ROWS"), r.line("ID"), r.line("NAME"), r.line("TYPE")), ("1".into(), "KB12345678".into(), "Support docs".into(), "VECTOR".into()));
+    assert_sends(&f.script(), &["operation_name='ListKnowledgeBases'", "operation_name='GetKnowledgeBase'"]);
+    cases.push(("AwsKnowledgeBase.ListKnowledgeBases()".to_string(), "1 row: Id, Name, Type".to_string(), r.millis));
     report("AwsKnowledgeBase", &cases);
 }
 
@@ -286,30 +312,36 @@ fn agentcore_invoke_keeps_the_session_and_reports_failures() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let mut cases = Vec::new();
     let arn = [("RuntimeArn", "arn:aws:bedrock-agentcore:eu-west-1:111122223333:runtime/helper-abc")];
-    cases.push(refused("invoke", "agentcore", "invoke_agent_runtime", "AwsAgentCore", &arn, &invoke("Invoke", &["", "Hello"])));
+    cases.push(refused("invoke", "AwsAgentCore", &arn, &invoke("Invoke", &["", "Hello"])));
 
-    let ok = r#"{"status": "success", "runtime_session_id": "sess-0123456789abcdef0123456789abcdef", "content_type": "application/json", "response_body": "Hi! How can I help?", "message": "Agent runtime invoked"}"#;
-    let f = fake("invoke-ok", "agentcore", "invoke_agent_runtime", text(ok));
+    let ok = json!({"response_body": "Hi! How can I help?", "runtime_session_id": "sess-0123456789abcdef0123456789abcdef", "content_type": "application/json"});
+    let f = fake("invoke-ok", returned(ok));
     let own = format!("{}{}", prop("BODY", "ResponseBody"), prop("SESSION", "SessionId"));
     let r = run(program(&invoke("Invoke", &["", "Hello \"there\""]), &own), "AwsAgentCore", &props(&f, "true", &arn));
     assert_eq!(r.events(), ["onInvoked", "onComplete"], "{:?}", r.lines);
     assert_eq!(r.line("BODY"), "Hi! How can I help?");
     assert_eq!(r.line("SESSION"), "sess-0123456789abcdef0123456789abcdef");
-    let a = &f.sent()[0]["arguments"];
-    assert_eq!(a["agent_runtime_arn"], arn[0].1);
-    assert_eq!(a["payload"], r#"{"prompt":"Hello \"there\""}"#, "the prompt goes as JSON inside a string");
-    assert!(a.get("runtime_session_id").is_none(), "no session yet: the key is left out");
+    // The prompt goes as JSON {"prompt": …} made by the script from a quoted literal; no
+    // session yet, so none is sent.
+    assert_sends(
+        &f.script(),
+        &[
+            "service_name='bedrock-agentcore', operation_name='InvokeAgentRuntime'",
+            &format!("agentRuntimeArn={:?}", arn[0].1),
+            r#"dict(prompt="Hello \"there\"")"#,
+            "s = \"\"",
+        ],
+    );
     cases.push(("AwsAgentCore.Invoke(\"\", prompt)".to_string(), "reply in ResponseBody, SessionId captured".to_string(), r.millis));
     drop(f);
 
-    // A failure the server reports as data, not as a tool error.
-    let failed = r#"{"status": "error", "message": "Agent runtime not found", "error_type": "ResourceNotFoundException", "error_code": "404"}"#;
-    let f = fake("invoke-err", "agentcore", "invoke_agent_runtime", text(failed));
+    // A failure AWS reports: the script raised, the envelope says error.
+    let f = fake("invoke-err", raised("ResourceNotFoundException: Agent runtime not found"));
     let r = run(program(&invoke("Invoke", &["", "Hello", "sess-0123456789abcdef0123456789abcdef"]), ""), "AwsAgentCore", &props(&f, "true", &arn));
     assert_eq!(r.events(), ["onError"], "{:?}", r.lines);
-    assert_eq!(r.line("ERROR"), "Agent runtime not found");
-    assert_eq!(f.sent()[0]["arguments"]["runtime_session_id"], "sess-0123456789abcdef0123456789abcdef");
-    cases.push(("AwsAgentCore.Invoke, {status: error}".to_string(), "onError with the server's message".to_string(), r.millis));
+    assert!(r.line("ERROR").contains("Agent runtime not found"), "{}", r.line("ERROR"));
+    assert_sends(&f.script(), &[r#"s = "sess-0123456789abcdef0123456789abcdef""#]);
+    cases.push(("AwsAgentCore.Invoke, AWS refuses".to_string(), "onError with AWS's message".to_string(), r.millis));
     report("AwsAgentCore", &cases);
 }
 
@@ -318,10 +350,10 @@ fn agent_memory_records_and_retrieves() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let mut cases = Vec::new();
     let own_props = [("MemoryId", "mem-1"), ("ActorId", "user-42"), ("Namespace", "/facts/user-42"), ("TopK", "3")];
-    cases.push(refused("record", "agentcore", "memory_create_event", "AwsAgentMemory", &own_props, &invoke("RecordEvent", &["", "", "", "I like tea"])));
+    cases.push(refused("record", "AwsAgentMemory", &own_props, &invoke("RecordEvent", &["", "", "", "I like tea"])));
 
-    let created = r#"{"status": "success", "message": "Event created", "event": {"eventId": "ev-77", "memoryId": "mem-1"}}"#;
-    let f = fake("record-ok", "agentcore", "memory_create_event", text(created));
+    let f = fake("record-ok", returned(json!({"event": {"eventId": "ev-77", "memoryId": "mem-1"}})));
+    let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     let r = run(
         program(&invoke("RecordEvent", &["", "", "", "I like tea"]), &prop("EVENT-ID", "EventId")),
         "AwsAgentMemory",
@@ -329,15 +361,19 @@ fn agent_memory_records_and_retrieves() {
     );
     assert_eq!(r.events(), ["onEventRecorded", "onComplete"], "{:?}", r.lines);
     assert_eq!(r.line("EVENT-ID"), "ev-77");
-    assert_eq!(
-        f.sent()[0]["arguments"],
-        json!({"memory_id": "mem-1", "actor_id": "user-42", "payload": [{"conversational": {"content": {"text": "I like tea"}, "role": "USER"}}]})
+    let code = f.script();
+    assert_sends(
+        &code,
+        &["operation_name='CreateEvent'", r#"memoryId="mem-1""#, r#"actorId="user-42""#, r#"content=dict(text="I like tea")"#, r#"role="USER""#],
     );
-    cases.push(("AwsAgentMemory.RecordEvent(…, text)".to_string(), "EventId ev-77; role USER by default".to_string(), r.millis));
+    // The moment of the call, which the sandbox cannot read itself, handed in by the runtime.
+    let stamp: u64 = code.split("eventTimestamp=").nth(1).and_then(|s| s.split(',').next()).and_then(|s| s.trim().parse().ok()).expect("a timestamp");
+    assert!(stamp >= before && stamp <= before + 60, "eventTimestamp {stamp} is not now ({before})");
+    cases.push(("AwsAgentMemory.RecordEvent(…, text)".to_string(), "EventId ev-77; role USER by default; stamped now".to_string(), r.millis));
     drop(f);
 
-    let records = r#"{"status": "success", "message": "2 records", "memory_records": [{"memoryRecordId": "r1", "content": {"text": "Likes tea"}, "score": 0.91}, {"memoryRecordId": "r2", "content": {"text": "Lives in Porto"}, "score": 0.33}], "next_token": null}"#;
-    let f = fake("retrieve", "agentcore", "memory_retrieve_records", text(records));
+    let records = json!({"memory_records": [{"memoryRecordId": "r1", "content": {"text": "Likes tea"}, "score": 0.91}, {"memoryRecordId": "r2", "content": {"text": "Lives in Porto"}, "score": 0.33}]});
+    let f = fake("retrieve", returned(records));
     let r = run(
         program(&invoke("Retrieve", &["", "", "drinks"]), &format!("{}{}", field("TEXT1", 1, "Text"), field("ID2", 2, "Id"))),
         "AwsAgentMemory",
@@ -345,10 +381,7 @@ fn agent_memory_records_and_retrieves() {
     );
     assert_eq!(r.events(), ["onRetrieved", "onComplete"], "{:?}", r.lines);
     assert_eq!((r.line("ROWS"), r.line("TEXT1"), r.line("ID2")), ("2".into(), "Likes tea".into(), "r2".into()));
-    assert_eq!(
-        f.sent()[0]["arguments"],
-        json!({"memory_id": "mem-1", "namespace": "/facts/user-42", "search_query": "drinks", "top_k": 3})
-    );
+    assert_sends(&f.script(), &["operation_name='RetrieveMemoryRecords'", r#"namespace="/facts/user-42""#, r#"searchQuery="drinks""#, "k = 3"]);
     cases.push(("AwsAgentMemory.Retrieve(\"\", \"\", query)".to_string(), "2 rows: Id, Text, Score".to_string(), r.millis));
     report("AwsAgentMemory", &cases);
 }
@@ -359,44 +392,72 @@ fn s3_tables_list_query_and_append() {
     let mut cases = Vec::new();
     let bucket = "arn:aws:s3tables:eu-west-1:111122223333:bucket/analytics";
     let own_props = [("TableBucketArn", bucket), ("Namespace", "sales"), ("TableName", "orders")];
-    cases.push(refused("append", "s3tables", "append_rows_to_table", "AwsS3Tables", &own_props, &invoke("AppendRows", &["", r#"[{"id": 3}]"#])));
+    cases.push(refused("append", "AwsS3Tables", &own_props, &invoke("AppendRows", &["", r#"[{"id": 3}]"#])));
 
-    let listed = r#"{"tables": [{"namespace": ["sales"], "name": "orders", "type": "customer", "table_arn": "arn:t/1"}, {"namespace": ["ops"], "name": "events", "type": "customer", "table_arn": "arn:t/2"}, {"namespace": ["sales"], "name": "refunds", "type": "customer", "table_arn": "arn:t/3"}], "total_count": 3}"#;
-    let f = fake("list", "s3tables", "list_tables", text(listed));
+    let listed = json!({"tables": [
+        {"namespace": ["sales"], "name": "orders", "type": "customer", "table_arn": "arn:t/1"},
+        {"namespace": ["ops"], "name": "events", "type": "customer", "table_arn": "arn:t/2"},
+        {"namespace": ["sales"], "name": "refunds", "type": "customer", "table_arn": "arn:t/3"}]});
+    let f = fake("list", returned(listed));
     let r = run(program(&invoke("ListTables", &[]), &field("NAME2", 2, "Name")), "AwsS3Tables", &props(&f, "false", &own_props));
     assert_eq!(r.events(), ["onTablesListed", "onComplete"], "{:?}", r.lines);
     assert_eq!((r.line("ROWS"), r.line("NAME2")), ("2".into(), "refunds".into()), "the Namespace property keeps sales only");
-    assert_eq!(f.sent()[0]["arguments"], json!({"region_name": "eu-west-1"}));
+    assert_sends(&f.script(), &["operation_name='ListTableBuckets'", "operation_name='ListTables'", r#"reg = "eu-west-1""#]);
     cases.push(("AwsS3Tables.ListTables() with Namespace sales".to_string(), "2 of 3 tables kept".to_string(), r.millis));
     drop(f);
 
-    let result = r#"{"columns": ["order_id", "total"], "rows": [[1, 19.9], [2, 5.0]]}"#;
-    let f = fake("query", "s3tables", "query_database", text(result));
+    // Query: through Athena, the bucket its catalog, the Namespace its database.
+    let f = fake("query", returned(json!({"columns": ["order_id", "total"], "rows": [["1", "19.9"], ["2", "5.0"]]})));
     let r = run(
         program(&invoke("Query", &["SELECT order_id, total FROM orders"]), &format!("{}{}", field("ID2", 2, "order_id"), field("TOTAL1", 1, "total"))),
         "AwsS3Tables",
-        &props(&f, "false", &own_props),
+        &props(&f, "false", &[("TableBucketArn", bucket), ("Namespace", "sales"), ("QueryResultsLocation", "s3://athena-results/pc/")]),
     );
     assert_eq!(r.events(), ["onQueried", "onComplete"], "{:?}", r.lines);
     assert_eq!((r.line("ROWS"), r.line("ID2"), r.line("TOTAL1")), ("2".into(), "2".into(), "19.9".into()));
-    assert_eq!(
-        f.sent()[0]["arguments"],
-        json!({"warehouse": bucket, "region": "eu-west-1", "namespace": "sales", "uri": "https://s3tables.eu-west-1.amazonaws.com/iceberg", "query": "SELECT order_id, total FROM orders"})
+    assert_sends(
+        &f.script(),
+        &[
+            "service_name='athena', operation_name='StartQueryExecution'",
+            "operation_name='GetQueryResults'",
+            r#"sql = "SELECT order_id, total FROM orders""#,
+            &format!("_catalog({bucket:?})"),
+            r#"Database="sales""#,
+            r#"WorkGroup="primary""#,
+            r#"o = "s3://athena-results/pc/""#,
+        ],
     );
-    cases.push(("AwsS3Tables.Query(sql)".to_string(), "2 rows named by the columns".to_string(), r.millis));
+    cases.push(("AwsS3Tables.Query(sql) via Athena".to_string(), "2 rows named by the columns".to_string(), r.millis));
     drop(f);
 
-    let f = fake("append-ok", "s3tables", "append_rows_to_table", text(r#"{"status": "success", "rows_appended": 2}"#));
+    // A statement that writes is refused before anything is sent.
+    let f = fake("query-write", returned(json!({})));
+    let r = run(program(&invoke("Query", &["DELETE FROM orders"]), ""), "AwsS3Tables", &props(&f, "true", &own_props));
+    assert_eq!(r.events(), ["onError"], "{:?}", r.lines);
+    assert!(r.line("ERROR").contains("only a statement that reads"), "{}", r.line("ERROR"));
+    assert!(!f.started(), "a refused statement must not start the server");
+    cases.push(("AwsS3Tables.Query(DELETE …)".to_string(), "refused, nothing sent".to_string(), r.millis));
+    drop(f);
+
+    let f = fake("append-ok", returned(json!({"rows_appended": 2})));
     let r = run(
         program(&invoke("AppendRows", &["", r#"[{"order_id": 3}, {"order_id": 4}]"#]), &prop("APPENDED", "RowsAppended")),
         "AwsS3Tables",
-        &props(&f, "true", &own_props),
+        &props(&f, "true", &[("TableBucketArn", bucket), ("Namespace", "sales"), ("TableName", "orders"), ("WorkGroup", "analysts")]),
     );
     assert_eq!(r.events(), ["onRowsAppended", "onComplete"], "{:?}", r.lines);
     assert_eq!(r.line("APPENDED"), "2");
-    assert_eq!(f.sent()[0]["arguments"]["rows"], json!([{"order_id": 3}, {"order_id": 4}]));
-    assert_eq!(f.sent()[0]["arguments"]["table_name"], "orders");
-    cases.push(("AwsS3Tables.AppendRows(\"\", rowsJson)".to_string(), "RowsAppended 2".to_string(), r.millis));
+    assert_sends(
+        &f.script(),
+        &[
+            "operation_name='GetTableMetadata'",
+            "operation_name='StartQueryExecution'",
+            r#"tb = "orders""#,
+            r#"json.loads("[{\"order_id\":3},{\"order_id\":4}]")"#,
+            r#"WorkGroup="analysts""#,
+        ],
+    );
+    cases.push(("AwsS3Tables.AppendRows(\"\", rowsJson) via Athena".to_string(), "RowsAppended 2".to_string(), r.millis));
     report("AwsS3Tables", &cases);
 }
 
@@ -405,29 +466,27 @@ fn glue_jobs_crawlers_and_schemas() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let mut cases = Vec::new();
     let own_props = [("JobName", "nightly-etl"), ("DatabaseName", "sales"), ("TableName", "orders"), ("CrawlerName", "raw-crawler")];
-    cases.push(refused("start", "dataprocessing", "manage_aws_glue_jobs", "AwsGlue", &own_props, &invoke("StartJobRun", &[])));
-    cases.push(refused("crawler", "dataprocessing", "manage_aws_glue_crawlers", "AwsGlue", &own_props, &invoke("StartCrawler", &[])));
+    cases.push(refused("start", "AwsGlue", &own_props, &invoke("StartJobRun", &[])));
+    cases.push(refused("crawler", "AwsGlue", &own_props, &invoke("StartCrawler", &[])));
 
-    // Each answer is two text blocks: a message, then the data.
-    let two = |msg: &str, data: &str| json!({"content": [{"type": "text", "text": msg}, {"type": "text", "text": data}], "isError": false});
-    let f = fake("start-ok", "dataprocessing", "manage_aws_glue_jobs", two("Successfully started job run", r#"{"job_name": "nightly-etl", "job_run_id": "jr_abc", "operation": "start-job-run"}"#));
+    let f = fake("start-ok", returned(json!({"job_name": "nightly-etl", "job_run_id": "jr_abc"})));
     let r = run(program(&invoke("StartJobRun", &["", r#"{"--day": "2026-10-07"}"#]), &prop("RUN", "JobRunId")), "AwsGlue", &props(&f, "true", &own_props));
     assert_eq!(r.events(), ["onJobStarted", "onComplete"], "{:?}", r.lines);
     assert_eq!(r.line("RUN"), "jr_abc");
-    assert_eq!(f.sent()[0]["arguments"], json!({"operation": "start-job-run", "job_name": "nightly-etl", "job_arguments": {"--day": "2026-10-07"}}));
+    assert_sends(&f.script(), &["service_name='glue', operation_name='StartJobRun'", r#"j = "nightly-etl""#, r#"json.loads("{\"--day\":\"2026-10-07\"}")"#]);
     cases.push(("AwsGlue.StartJobRun(\"\", argsJson)".to_string(), "JobRunId jr_abc".to_string(), r.millis));
     drop(f);
 
-    let f = fake("get-run", "dataprocessing", "manage_aws_glue_jobs", two("Successfully retrieved job run", r#"{"job_name": "nightly-etl", "job_run_id": "jr_abc", "job_run_details": {"Id": "jr_abc", "JobRunState": "SUCCEEDED"}, "operation": "get-job-run"}"#));
+    let f = fake("get-run", returned(json!({"job_name": "nightly-etl", "job_run_id": "jr_abc", "job_run_details": {"Id": "jr_abc", "JobRunState": "SUCCEEDED"}})));
     let r = run(program(&invoke("GetJobRun", &["", "jr_abc"]), &prop("STATE", "State")), "AwsGlue", &props(&f, "false", &own_props));
     assert_eq!(r.events(), ["onJobRun", "onComplete"], "{:?}", r.lines);
     assert_eq!(r.line("STATE"), "SUCCEEDED");
-    assert_eq!(f.sent()[0]["arguments"], json!({"operation": "get-job-run", "job_name": "nightly-etl", "job_run_id": "jr_abc"}));
-    cases.push(("AwsGlue.GetJobRun(\"\", runId)".to_string(), "State SUCCEEDED".to_string(), r.millis));
+    assert_sends(&f.script(), &["operation_name='GetJobRun'", r#"i = "jr_abc""#, "d.pop('Arguments', None)"]);
+    cases.push(("AwsGlue.GetJobRun(\"\", runId)".to_string(), "State SUCCEEDED; Arguments left out".to_string(), r.millis));
     drop(f);
 
-    let table = r#"{"database_name": "sales", "table_name": "orders", "storage_descriptor": {"Columns": [{"Name": "order_id", "Type": "bigint"}, {"Name": "total", "Type": "double", "Comment": "EUR"}]}, "operation": "get"}"#;
-    let f = fake("schema", "dataprocessing", "manage_aws_glue_tables", two("Successfully retrieved table", table));
+    let table = json!({"database_name": "sales", "table_name": "orders", "table_definition": {"StorageDescriptor": {"Columns": [{"Name": "order_id", "Type": "bigint"}, {"Name": "total", "Type": "double", "Comment": "EUR"}]}}});
+    let f = fake("schema", returned(table));
     let r = run(
         program(&invoke("GetTableSchema", &[]), &format!("{}{}", field("NAME2", 2, "Name"), field("TYPE1", 1, "Type"))),
         "AwsGlue",
@@ -435,22 +494,22 @@ fn glue_jobs_crawlers_and_schemas() {
     );
     assert_eq!(r.events(), ["onTableSchema", "onComplete"], "{:?}", r.lines);
     assert_eq!((r.line("ROWS"), r.line("NAME2"), r.line("TYPE1")), ("2".into(), "total".into(), "bigint".into()));
-    assert_eq!(f.sent()[0]["arguments"], json!({"operation": "get-table", "database_name": "sales", "table_name": "orders"}));
+    assert_sends(&f.script(), &["operation_name='GetTable'", r#"d = "sales""#, r#"t = "orders""#]);
     cases.push(("AwsGlue.GetTableSchema()".to_string(), "2 columns: Name, Type, Comment".to_string(), r.millis));
     drop(f);
 
-    // The server's own read-only refusal is a tool error.
-    let denied = json!({"content": [{"type": "text", "text": "Operation start-crawler is not allowed without write access"}], "isError": true});
-    let f = fake("server-ro", "dataprocessing", "manage_aws_glue_crawlers", denied);
+    // AWS refuses the call: the script raised, the envelope says error.
+    let f = fake("aws-refuses", raised("AccessDeniedException: User is not authorized to perform: glue:StartCrawler"));
     let r = run(program(&invoke("StartCrawler", &[]), ""), "AwsGlue", &props(&f, "true", &own_props));
     assert_eq!(r.events(), ["onError"], "{:?}", r.lines);
-    assert!(r.line("ERROR").contains("not allowed without write access"), "{}", r.line("ERROR"));
-    cases.push(("AwsGlue.StartCrawler, server refuses".to_string(), "onError with its message".to_string(), r.millis));
+    assert!(r.line("ERROR").contains("not authorized"), "{}", r.line("ERROR"));
+    cases.push(("AwsGlue.StartCrawler, AWS refuses".to_string(), "onError with AWS's message".to_string(), r.millis));
     report("AwsGlue", &cases);
 }
 
 /// The servers that gate writes start read-only unless a control allows them
-/// (R25), and S3 Tables asks uvx for the Python it needs.
+/// (R25), and S3 Tables asks uvx for the Python it needs. No control operation
+/// reaches them since 1.91.210; `AwsMcp` may, by its `ServerId`.
 #[test]
 fn the_shipped_servers_start_read_only_unless_writes_are_allowed() {
     let routes = Routes::shipped();

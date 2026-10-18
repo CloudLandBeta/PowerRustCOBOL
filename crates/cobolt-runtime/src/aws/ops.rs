@@ -425,8 +425,14 @@ mod tests {
         let bad = vec!["app-f".to_string(), "{nope".to_string()];
         let e = prepare(&view("AwsLambda", "Invoke", &bad, &none, true), &conn).unwrap_err();
         assert!(e.contains("argument 2") && e.contains("not valid JSON"), "{e}");
+        // Through the hosted server since 1.91.210 (no uvx): one script, the function and
+        // its payload in it as quoted literals.
         let p = prepare(&view("AwsLambda", "Invoke", &args, &none, true), &conn).unwrap();
-        assert_eq!(p.action, Action::Call { tool: "app_f".into(), input: json!({"parameters": {"id": 1}}) });
+        let Action::Call { tool, input } = &p.action else { panic!("{:?}", p.action) };
+        assert_eq!(tool, "aws___run_script");
+        let code = input["code"].as_str().unwrap();
+        assert!(code.contains("operation_name='Invoke'") && code.contains(r#"_offered("app-f""#), "{code}");
+        assert!(code.contains(r#""{\"id\":1}".encode('utf-8')"#), "the payload is a quoted literal: {code}");
         assert_eq!(p.event, "onInvoked");
         assert_eq!(p.launch.profile.as_deref(), Some("dev"));
     }

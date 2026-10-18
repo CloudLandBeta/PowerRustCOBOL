@@ -133,6 +133,9 @@ pub const CONTROLS: &[AwsControl] = &[
             ("TableBucketArn", Seed::Str("")),
             ("Namespace", Seed::Str("")),
             ("TableName", Seed::Str("")),
+            // Amazon Athena runs Query and AppendRows (1.91.210: no uvx).
+            ("WorkGroup", Seed::Str("primary")),
+            ("QueryResultsLocation", Seed::Str("")),
         ],
         runtime: &["ResponseBody", "ResultJson", "RowCount", "Busy", "LastError", "RowsAppended"],
         caption: ("Namespace", "S3 Tables"),

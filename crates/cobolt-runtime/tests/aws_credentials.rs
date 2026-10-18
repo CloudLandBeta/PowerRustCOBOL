@@ -14,6 +14,11 @@
 //! appear on no other surface. `AWS-CLEAR-CREDENTIALS` forgets them and ends
 //! the server that held them; `AWS-CREDENTIALS-SET` answers Y or N.
 //!
+//! The controls are `AwsMcp` ones whose `ServerId` names the Lambda server, a
+//! program: since 1.91.210 every other AWS control reaches the hosted server,
+//! which the keys SIGN for instead (`aws_https`, AC1), so a server started as
+//! a program is where the environment hand-over is still to be seen.
+//!
 //! The planted values are assembled at run time and look like no real AWS
 //! key, so the masking real keys get cannot hide a leak: every surface below
 //! must simply never contain them. Everything runs against the fake MCP
@@ -178,7 +183,7 @@ fn fake(tag: &str, profile: &str, extra: serde_json::Value, command: Option<&str
     let dir = std::env::temp_dir().join(format!("prc-092-a6-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let reply = r#"Function app-f returned: [{"id":1,"name":"Ana"}]"#;
+    let reply = r#"[{"id":1,"name":"Ana"}]"#;
     let mut script = json!({
         "tools": [{"name": "app_f", "inputSchema": {"type": "object", "properties": {"parameters": {"type": "object"}}}}],
         "answers": {"app_f": {"content": [{"type": "text", "text": reply}], "isError": false}},
@@ -240,7 +245,7 @@ fn program(body: &str) -> cobolt_ast::program::Program {
        01 COBOL-QUIT        PIC 9 VALUE 0.
        01 WS-STATUS         PIC X(200).
        01 WS-FLAG           PIC X.
-       01 WS-NAME           PIC X(30) VALUE "app-f".
+       01 WS-NAME           PIC X(30) VALUE "app_f".
        01 WS-PAY            PIC X(200) VALUE '{{"id": 7}}'.
        01 WS-RC             PIC X(400).
        01 WS-I              PIC 9 VALUE 1.
@@ -277,16 +282,16 @@ fn flag(conn: &str) -> String {
     format!("           COBOL::\"AWS-CREDENTIALS-SET\" ( \"{conn}\" WS-FLAG )\n           DISPLAY \"FLAG {conn} \" WS-FLAG\n")
 }
 
-/// A synchronous `Invoke` on `ctrl`: what it returned and its `LastError`.
+/// A synchronous `Call` on `ctrl`: what it returned and its `LastError`.
 fn invoke(ctrl: &str) -> String {
     format!(
-        "           INVOKE {ctrl} \"Invoke\" USING WS-NAME WS-PAY RETURNING WS-RC\n           DISPLAY \"BODY {ctrl} \" WS-RC\n           MOVE {ctrl}::LastError TO WS-RC\n           DISPLAY \"ERROR {ctrl} \" WS-RC\n"
+        "           INVOKE {ctrl} \"Call\" USING WS-NAME WS-PAY RETURNING WS-RC\n           DISPLAY \"BODY {ctrl} \" WS-RC\n           MOVE {ctrl}::LastError TO WS-RC\n           DISPLAY \"ERROR {ctrl} \" WS-RC\n"
     )
 }
 
 /// Every property of the control, and its first row, displayed.
 fn every_property(ctrl: &str) -> String {
-    let c = cobolt_forms::aws_catalog::by_name("AwsLambda").unwrap();
+    let c = cobolt_forms::aws_catalog::by_name("AwsMcp").unwrap();
     let mut names: Vec<&str> = cobolt_forms::aws_catalog::SHARED_SEEDS.iter().map(|(n, _)| *n).collect();
     names.extend(c.seeds.iter().map(|(n, _)| *n));
     names.extend(c.runtime.iter().copied());
@@ -313,7 +318,7 @@ impl Run {
 }
 
 /// Run `prog` with `controls` (id, connection, extra properties) seeded as
-/// AwsLambda controls; the program ends by itself, or at the `onClick` sent
+/// AwsMcp controls on the Lambda server; the program ends by itself, or at the `onClick` sent
 /// after `quit_after`.
 fn run(prog: cobolt_ast::program::Program, controls: &[(&str, &str, &[(&str, &str)])], quit_after: Option<Duration>) -> Run {
     run_with(prog, controls, Vec::new(), quit_after)
@@ -340,7 +345,8 @@ fn run_with(
                 ("AllowWrite", "true"),
                 ("TimeoutMs", "5000"),
                 ("StartTimeoutMs", "10000"),
-                ("FunctionName", ""),
+                ("ServerId", "lambda"),
+                ("ToolName", ""),
                 ("Verbose", "true"),
             ]
             .iter()
@@ -350,7 +356,7 @@ fn run_with(
                 props.retain(|(n, _)| n != k);
                 props.push((k.to_string(), v.to_string()));
             }
-            (id.to_string(), "AwsLambda".to_string(), props)
+            (id.to_string(), "AwsMcp".to_string(), props)
         })
         .chain(others)
         .collect();
@@ -442,7 +448,7 @@ fn the_keys_reach_their_server_and_no_other_surface() {
     body.push_str(&every_property("AWS-A"));
     // One asynchronous call too: Verbose prints its response.
     body.push_str(
-        "           INVOKE AWS-ASYNC \"Invoke\" USING WS-NAME WS-PAY RETURNING WS-RC\n\
+        "           INVOKE AWS-ASYNC \"Call\" USING WS-NAME WS-PAY RETURNING WS-RC\n\
                     PERFORM UNTIL COBOL-QUIT = 1\n\
                         COBOL::\"WAIT-EVENT\" ( COBOL-EVENT-ID COBOL-CONTROL-ID )\n\
                         DISPLAY \"EVENT \" COBOL-EVENT-ID\n\
@@ -530,11 +536,11 @@ fn the_keys_reach_their_server_and_no_other_surface() {
     let _ = std::fs::remove_dir_all(&other);
 
     // Debug renderings of everything that holds them.
-    let prop = |name: &str| if name == "AllowWrite" { "true".to_string() } else { String::new() };
-    let args = vec!["app-f".to_string(), "{}".to_string()];
+    let prop = |name: &str| match name { "AllowWrite" => "true".to_string(), "ServerId" => "lambda".to_string(), _ => String::new() };
+    let args = vec!["app_f".to_string(), "{}".to_string()];
     let view = ops::ControlView {
-        control_type: "AwsLambda",
-        method: "Invoke",
+        control_type: "AwsMcp",
+        method: "Call",
         args: &args,
         prop: &prop,
         control: "AWS-A",
@@ -563,7 +569,7 @@ fn the_keys_reach_their_server_and_no_other_surface() {
     let record_path = a.dir.join("catalogue.json");
     std::fs::write(&record_path, record.to_json()).unwrap();
     let mut form = cobolt_forms::Form::new("KEYS-FORM", "Keys", 400, 300);
-    let mut ctl = cobolt_forms::Control::new("AWS-A", cobolt_forms::ControlType::AwsLambda, 0, 0);
+    let mut ctl = cobolt_forms::Control::new("AWS-A", cobolt_forms::ControlType::AwsMcp, 0, 0);
     for l in r.lines.iter().filter_map(|l| l.strip_prefix("PROP AWS-A.")) {
         let (name, value) = l.split_once(' ').unwrap_or((l, ""));
         ctl.set_prop(name.to_string(), value.trim().to_string());

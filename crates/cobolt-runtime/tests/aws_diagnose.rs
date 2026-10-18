@@ -29,6 +29,11 @@ impl Drop for Fake {
 
 /// A connection whose `lambda` server is `command` run with `script`.
 fn connection(tag: &str, command: &str, script: Value) -> Fake {
+    connection_on("lambda", tag, command, script)
+}
+
+/// A connection whose `server` is `command` run with `script`.
+fn connection_on(server: &str, tag: &str, command: &str, script: Value) -> Fake {
     let dir = std::env::temp_dir().join(format!("prc-078-diag-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -39,7 +44,7 @@ fn connection(tag: &str, command: &str, script: Value) -> Fake {
         name: format!("diag-{tag}"),
         profile: "sales-prod".into(),
         region: "eu-west-1".into(),
-        routes_override: format!("[servers.lambda]\ncommand = '{command}'\nargs = ['{}']\n", path.display()),
+        routes_override: format!("[servers.{server}]\ncommand = '{command}'\nargs = ['{}']\n", path.display()),
         ..Default::default()
     };
     Fake { dir, conn }
@@ -95,12 +100,26 @@ fn diagnose_reports_each_outcome() {
     println!("  all good -> {r:?}");
     assert_eq!(r, Report::AllGood { functions: vec!["sales_report".into(), "sales_close".into()] });
 
-    let drifted = connection(
+    // Since 1.91.210 the routes are on the hosted server: one whose run_script tool
+    // takes something else than `code` does not match them.
+    let drifted = connection_on(
+        "hosted",
         "drift",
         fake(),
-        json!({"tools": [{"name": "sales_report", "inputSchema": {"type": "object", "properties": {"payload": {"type": "object"}}}}]}),
+        json!({"tools": [{"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"script": {"type": "string"}}, "required": ["script"]}}]}),
     );
-    let r = run(&drifted);
+    let r = cobolt_runtime::aws::diagnose::diagnose_hosted(&drifted.conn, Duration::from_secs(10), Duration::from_secs(5));
     println!("  route mismatch -> {r:?}");
     assert!(matches!(r, Report::RouteMismatch { .. }), "{r:?}");
+}
+
+/// Operator, 2026-10-18: no example needs uvx. No control operation reaches an AWS
+/// Labs server, so Test connection does not start one.
+#[test]
+fn no_control_operation_needs_an_aws_labs_server() {
+    let plain = AwsConnection { id: "labs-none".into(), name: "labs-none".into(), ..Default::default() };
+    assert!(!cobolt_runtime::aws::diagnose::labs_in_use(&plain), "an operation still reaches a program started with uvx");
+    // A connection that points the hosted server at a program for a test is one.
+    let local = connection_on("hosted", "labs-local", fake(), json!({}));
+    assert!(cobolt_runtime::aws::diagnose::labs_in_use(&local.conn));
 }

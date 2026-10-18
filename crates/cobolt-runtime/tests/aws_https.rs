@@ -318,8 +318,9 @@ fn hosted_hashes(table_text: &str) -> Vec<(String, String)> {
 }
 
 /// Re-recorded at 1.91.191, when AWS's sandbox began refusing `base64`, `getattr()` and
-/// `__name__` (the fixture's header names the five entries that changed).
-const BASELINE: &str = include_str!("fixtures/aws-mcp/hosted-templates-1.91.191.sha256");
+/// `__name__`, and at 1.91.210, when the fourteen operations of the AWS Labs servers moved
+/// here (the fixture's header names what changed each time).
+const BASELINE: &str = include_str!("fixtures/aws-mcp/hosted-templates-1.91.210.sha256");
 
 /// Run with `HOSTED_TOML=<an older routes.toml>` and `--ignored --nocapture` to print the fixture.
 #[test]
@@ -332,7 +333,7 @@ fn print_the_hosted_template_hashes() {
 }
 
 #[test]
-fn ac5_the_33_hosted_templates_are_byte_identical_to_the_table_before_this_change() {
+fn ac5_the_47_hosted_templates_are_byte_identical_to_the_recorded_table() {
     let want: Vec<(String, String)> = BASELINE
         .lines()
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
@@ -342,17 +343,17 @@ fn ac5_the_33_hosted_templates_are_byte_identical_to_the_table_before_this_chang
         })
         .collect();
     let got = hosted_hashes(cobolt_runtime::aws::routes::SHIPPED);
-    assert_eq!(want.len(), 34, "33 hosted operations and the snippets in the baseline");
+    assert_eq!(want.len(), 48, "47 hosted operations and the snippets in the baseline");
     let mut same = 0;
     for (name, hash) in &want {
         match got.iter().find(|(n, _)| n == name) {
             Some((_, h)) if h == hash => same += 1,
-            Some(_) => panic!("{name} changed since 1.91.191"),
+            Some(_) => panic!("{name} changed since 1.91.210"),
             None => panic!("{name} is no longer in the table"),
         }
     }
     assert_eq!(got.len(), want.len(), "no hosted operation was added or moved either");
-    println!("\n  103 AC5 — {same} of {} hashes equal main's (33 hosted operations + [snippets])", want.len());
+    println!("\n  103 AC5 — {same} of {} hashes equal main's (47 hosted operations + [snippets])", want.len());
     // The guard guards: one changed byte is a different hash.
     let shipped = cobolt_runtime::aws::routes::SHIPPED;
     let doctored = shipped.replacen("operation_name='GetItem'", "operation_name='GetItem '", 1);
@@ -425,10 +426,11 @@ fn ac10_a_refused_operation_sends_nothing_and_an_allowed_one_runs_the_real_templ
 }
 
 /// The write operations the demos only see refused (AllowWrite is off in them): with AllowWrite on, each
-/// runs its real template against the endpoint — so all 33 hosted operations are shown to complete
-/// (spec 103 AC9), the 25 the demos ask for being shown by the CLI suite.
+/// runs its real template against the endpoint — so all 47 hosted operations are shown to complete
+/// (spec 103 AC9), the 25 the demos ask for being shown by the CLI suite and the reads of the former
+/// AWS Labs servers by `aws_delivery_b`.
 #[test]
-fn ac9_the_eight_write_operations_complete_when_allowed() {
+fn ac9_the_fourteen_write_operations_complete_when_allowed() {
     let _own = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
     let envelope = |v: Value| {
         let text = json!({"status": "success", "stdout": "", "stderr": "", "return_value": v}).to_string();
@@ -454,6 +456,13 @@ fn ac9_the_eight_write_operations_complete_when_allowed() {
         ("AwsS3", "PutObject", vec!["a.txt".into(), "text/plain".into(), source_path], vec![("Bucket", "photos")], "onObjectPut", "PutObject"),
         ("AwsS3", "DeleteObject", vec!["a.txt".into()], vec![("Bucket", "photos")], "onObjectDeleted", "DeleteObject"),
         ("AwsS3Vectors", "PutVectors", vec![String::new(), r#"[{"key":"d1","data":[0.1,0.2]}]"#.into()], vec![("IndexName", "idx"), ("VectorBucketName", "vb")], "onVectorsPut", "PutVectors"),
+        // 1.91.210: the AWS Labs servers' writes, moved here (no uvx).
+        ("AwsLambda", "Invoke", vec!["powercloud-presign".into(), r#"{"key":"photos/a.jpg"}"#.into()], vec![], "onInvoked", "Invoke"),
+        ("AwsAgentCore", "Invoke", vec![String::new(), "Hello".into()], vec![("RuntimeArn", "arn:aws:bedrock-agentcore:eu-west-1:111122223333:runtime/helper-abc")], "onInvoked", "InvokeAgentRuntime"),
+        ("AwsAgentMemory", "RecordEvent", vec![String::new(), String::new(), String::new(), "I like tea".into()], vec![("MemoryId", "mem-1"), ("ActorId", "user-42")], "onEventRecorded", "CreateEvent"),
+        ("AwsS3Tables", "AppendRows", vec![String::new(), r#"[{"order_id": 3}]"#.into()], vec![("TableBucketArn", "arn:aws:s3tables:eu-west-1:111122223333:bucket/analytics"), ("Namespace", "sales"), ("TableName", "orders")], "onRowsAppended", "StartQueryExecution"),
+        ("AwsGlue", "StartJobRun", vec![String::new(), r#"{"--day":"2026-10-07"}"#.into()], vec![("JobName", "nightly-etl")], "onJobStarted", "StartJobRun"),
+        ("AwsGlue", "StartCrawler", vec![], vec![("CrawlerName", "raw-crawler")], "onCrawlerStarted", "StartCrawler"),
     ];
     let started = Instant::now();
     for (control_type, method, args, props, event, aws_operation) in &cases {
@@ -491,7 +500,7 @@ fn ac9_the_eight_write_operations_complete_when_allowed() {
         sigv4::verify(&r, SECRET, "aws-mcp", "us-east-1").unwrap();
     }
     println!(
-        "\n  103 AC9 — the 8 write operations the demos see refused: each refused with AllowWrite off (0 requests), then completed with it on \
+        "\n  103 AC9 — the 14 write operations the demos see refused: each refused with AllowWrite off (0 requests), then completed with it on \
          with its own event and its AWS operation in the script; {} signed requests verified, {} ms",
         f.requests().len(),
         started.elapsed().as_millis()

@@ -493,7 +493,8 @@ pub(crate) fn aws_report_is_good(report: &Report) -> bool {
 }
 
 /// Run Test connection on a thread; the receiver gets a report for the hosted
-/// server, then one for the AWS Labs servers (the last one ends the run).
+/// server, then — only when an operation still reaches one — one for the AWS
+/// Labs servers. The run ends when the thread does (the channel disconnects).
 fn spawn_aws_test(
     conn: cobolt_forms::connections::AwsConnection,
     ctx: egui::Context,
@@ -504,10 +505,14 @@ fn spawn_aws_test(
         let hosted = diagnose::diagnose_hosted(&conn, std::time::Duration::from_secs(30), std::time::Duration::from_secs(30));
         let _ = tx.send((Server::Hosted, hosted));
         ctx.request_repaint();
-        // A first start of an AWS Labs server may download it: give it two
-        // minutes, then half a minute to list the functions.
-        let labs = diagnose::diagnose(&conn, std::time::Duration::from_secs(120), std::time::Duration::from_secs(30));
-        let _ = tx.send((Server::Labs, labs));
+        // Since 1.91.210 no control operation starts an AWS Labs server (no uvx):
+        // a machine without uvx is not told about a program nothing needs.
+        if diagnose::labs_in_use(&conn) {
+            // A first start of an AWS Labs server may download it: give it two
+            // minutes, then half a minute to list the functions.
+            let labs = diagnose::diagnose(&conn, std::time::Duration::from_secs(120), std::time::Duration::from_secs(30));
+            let _ = tx.send((Server::Labs, labs));
+        }
         ctx.request_repaint();
     });
     rx
@@ -617,17 +622,25 @@ impl SettingsForm {
         self.cobol_proficiency_prompt_editor.known_controls = known_controls.to_vec();
         // Spec 078 — collect finished Test connection runs.
         let mut arrived: Vec<(String, (Server, Report))> = Vec::new();
+        let mut finished: Vec<String> = Vec::new();
         for (id, rx) in &self.aws_tests {
-            while let Ok(report) = rx.try_recv() {
-                arrived.push((id.clone(), report));
+            loop {
+                match rx.try_recv() {
+                    Ok(report) => arrived.push((id.clone(), report)),
+                    // The thread is done: every report it had to send has arrived.
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        finished.push(id.clone());
+                        break;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                }
             }
         }
         for (id, report) in arrived {
-            let last = report.0 == Server::Labs;
-            self.aws_results.entry(id.clone()).or_default().push(report);
-            if last {
-                self.aws_tests.remove(&id);
-            }
+            self.aws_results.entry(id).or_default().push(report);
+        }
+        for id in finished {
+            self.aws_tests.remove(&id);
         }
         let theme = crate::theme::active();
 

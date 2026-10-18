@@ -56,7 +56,7 @@ impl Fake {
     }
 }
 
-/// A connection whose `server` (`lambda`, or `fake` for `AwsMcp`) is the fake
+/// A connection whose `server` (`hosted`, or `fake` for `AwsMcp`) is the fake
 /// server, run with `script` merged into the defaults.
 fn fake(tag: &str, server: &'static str, script: Value) -> Fake {
     let dir = std::env::temp_dir().join(format!("prc-078-ctl-{tag}-{}", std::process::id()));
@@ -171,12 +171,15 @@ fn run(prog: cobolt_ast::program::Program, class: &str, props: &[(&str, &str)], 
     Run { lines, millis }
 }
 
+/// The hosted server (AwsLambda goes there since 1.91.210 — no uvx), answering the
+/// Invoke script with the function's payload, as AWS's `aws___run_script` envelopes it.
 fn lambda_script(delay_ms: u64) -> Value {
-    let reply = r#"Function app-f returned: [{"id":1,"name":"Ana"},{"id":2,"name":"Bo"}]"#;
+    let payload = r#"[{"id":1,"name":"Ana"},{"id":2,"name":"Bo"}]"#;
+    let envelope = json!({"status": "success", "stdout": "", "stderr": "", "return_value": {"Payload": payload, "FunctionError": ""}}).to_string();
     json!({
-        "tools": [{"name": "app_f", "inputSchema": {"type": "object", "properties": {"parameters": {"type": "object"}}}}],
-        "answers": {"app_f": {"content": [{"type": "text", "text": reply}], "isError": false}},
-        "delay_ms": {"app_f": delay_ms},
+        "tools": [{"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}],
+        "answers": {"aws___run_script": {"content": [{"type": "text", "text": envelope}], "isError": false}},
+        "delay_ms": {"aws___run_script": delay_ms},
     })
 }
 
@@ -218,7 +221,7 @@ fn events(r: &Run) -> Vec<&str> {
 #[test]
 fn invoke_raises_oninvoked_then_oncomplete() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-    let f = fake("invoke", "lambda", lambda_script(0));
+    let f = fake("invoke", "hosted", lambda_script(0));
     let r = run(program(INVOKE, READ_ROWS), "AwsLambda", &lambda_props(&f.conn.name, "true", "Async"), None);
     let ev = events(&r);
     report(
@@ -235,14 +238,16 @@ fn invoke_raises_oninvoked_then_oncomplete() {
     assert!(r.lines.iter().any(|l| l == "ROWS 2"), "{:?}", r.lines);
     assert!(r.lines.iter().any(|l| l == "FIELD Bo"), "{:?}", r.lines);
     let call = f.calls().into_iter().find(|c| c["method"] == "tools/call").expect("no tools/call");
-    assert_eq!(call["params"]["name"], "app_f");
-    assert_eq!(call["params"]["arguments"], json!({"parameters": {"id": 7}}));
+    assert_eq!(call["params"]["name"], "aws___run_script");
+    let code = call["params"]["arguments"]["code"].as_str().unwrap_or_default();
+    assert!(code.contains("operation_name='Invoke'") && code.contains(r#"_offered("app-f""#), "{code}");
+    assert!(code.contains(r#""{\"id\":7}".encode('utf-8')"#), "the payload, as a quoted literal: {code}");
 }
 
 #[test]
 fn invalid_json_names_the_argument_and_sends_nothing() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-    let f = fake("badjson", "lambda", lambda_script(0));
+    let f = fake("badjson", "hosted", lambda_script(0));
     let setup = INVOKE.replace(r#"'{"id": 7}'"#, r#"'{nope'"#);
     let r = run(program(&setup, READ_ROWS), "AwsLambda", &lambda_props(&f.conn.name, "true", "Async"), None);
     let err = r.lines.iter().find(|l| l.starts_with("ERROR ")).cloned().unwrap_or_default();
@@ -256,7 +261,7 @@ fn invalid_json_names_the_argument_and_sends_nothing() {
 fn allowwrite_off_refuses_before_sending() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     // Invoke is mutating: refused before the pool is touched.
-    let f = fake("nowrite", "lambda", lambda_script(0));
+    let f = fake("nowrite", "hosted", lambda_script(0));
     let r = run(program(INVOKE, READ_ROWS), "AwsLambda", &lambda_props(&f.conn.name, "false", "Async"), None);
     let err = r.lines.iter().find(|l| l.starts_with("ERROR ")).cloned().unwrap_or_default();
     assert_eq!(events(&r), ["onError"]);
@@ -313,7 +318,7 @@ fn allowwrite_off_refuses_before_sending() {
 #[test]
 fn a_stale_result_after_cancel_is_discarded() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-    let f = fake("cancel", "lambda", lambda_script(600));
+    let f = fake("cancel", "hosted", lambda_script(600));
     let setup = format!("{INVOKE}\n           INVOKE AWS-1 \"Cancel\"");
     // Wait well past the server's answer, then end the loop.
     let r = run(program(&setup, READ_ROWS), "AwsLambda", &lambda_props(&f.conn.name, "true", "Async"), Some(Duration::from_millis(1500)));
@@ -326,7 +331,7 @@ fn a_stale_result_after_cancel_is_discarded() {
 #[test]
 fn sync_mode_returns_the_body() {
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
-    let f = fake("sync", "lambda", lambda_script(0));
+    let f = fake("sync", "hosted", lambda_script(0));
     let setup = format!(
         "{INVOKE}\n           DISPLAY \"BODY \" WS-RC\n           MOVE AWS-1::RowCount TO WS-N\n           DISPLAY \"ROWS \" WS-N\n           MOVE 1 TO COBOL-QUIT"
     );

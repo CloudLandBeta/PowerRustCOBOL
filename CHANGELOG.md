@@ -17,6 +17,56 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.210] — 2026-10-18
+
+*(Written on `fixes-aws-labs-hosted`, off `main` at 1.91.209.)*
+
+### Fixed: no AWS control needs `uvx` any more — Lambda, Knowledge Bases, AgentCore, Agent Memory, S3 Tables (through Athena) and Glue reach the hosted AWS MCP Server
+
+The operator, 2026-10-18, on PowerCloud's Lambda tab: *"The function could not be called: AWS access needs the program "uvx" … I thought we had removed the uvx dependency."* Then: *"go ahead with all the examples without uvx"*, and *"implement S3Tables Query/AppendRows (via Athena) too"*.
+
+**Why `uvx` was still needed.** Spec 103 (1.91.183–1.91.187) moved the hosted services to AWS's hosted MCP Server, signed by the runtime itself. It left the five AWS Labs servers on `uvx` as a separate job: `lambda`, `bedrock-kb`, `agentcore`, `s3tables` and `dataprocessing`, 14 operations in all. So any application with `AwsLambda`, `AwsKnowledgeBase`, `AwsAgentCore`, `AwsAgentMemory`, `AwsS3Tables` or `AwsGlue` needed `uv` and Python on every machine, PowerCloud's Lambda tab among them.
+
+**What changed — `crates/cobolt-runtime/src/aws/routes.toml`.** All 14 operations now send one script to the hosted server's `aws___run_script`, calling AWS through `call_boto3` like every other hosted operation. Each COBOL value enters the script as a quoted literal, and each operation keeps its event, its properties and its row fields:
+
+| Operation | What the script calls, and what changes |
+|---|---|
+| `AwsLambda.Invoke` | `lambda:Invoke`. The connection still decides which functions are offered: its `FunctionPrefix` or its `FunctionList`. A name may still be given with or without the prefix. |
+| `AwsLambda.ListFunctions` | `lambda:ListFunctions`, filtered the same way. Rows name each function without the prefix, as before. |
+| `AwsKnowledgeBase.Query` | `bedrock-agent-runtime:Retrieve`. Image passages are still left out. |
+| `AwsKnowledgeBase.ListKnowledgeBases` | `bedrock-agent:ListKnowledgeBases` and `GetKnowledgeBase`. **It lists every knowledge base the sign-in may see**: the old server listed only those tagged `mcp-multirag-kb = true`, which was its own convention. |
+| `AwsAgentCore.Invoke` | `bedrock-agentcore:InvokeAgentRuntime`, with the session kept. |
+| `AwsAgentMemory.RecordEvent` | `bedrock-agentcore:CreateEvent`, stamped with a new `{now}` placeholder (the sandbox imports nothing that tells the time). |
+| `AwsAgentMemory.Retrieve` | `bedrock-agentcore:RetrieveMemoryRecords`. |
+| `AwsS3Tables.ListTables` | `s3tables:ListTableBuckets` and `ListTables`. |
+| `AwsS3Tables.Query` | **Amazon Athena** (`StartQueryExecution`, `GetQueryExecution` until it is done, `GetQueryResults`), over the catalog `s3tablescatalog/<bucket>` and the namespace as its database. A new `\|sql_read` filter refuses, **before any request**, any statement that is not SELECT, WITH, SHOW, DESCRIBE, EXPLAIN or VALUES. The old server refused such statements itself. |
+| `AwsS3Tables.AppendRows` | Athena's `GetTableMetadata`, then an `INSERT INTO`. Every name is a quoted identifier, and every value a quoted literal cast to its column's type. |
+| `AwsGlue` (4 operations) | `StartJobRun`, `GetJobRun`, `StartCrawler` and `GetTable`. A run's `Arguments` stay out of what `GetJobRun` reads, as before, since they can hold a job's credentials. |
+
+- **New snippets.** `lambda` holds the offered-function rule. `athena` holds the catalog, the wait, and the safe `INSERT`. Snippets hold no brace, so they use `dict()`.
+- **The five servers stay defined** for `AwsMcp`, whose `ServerId` may name one. No control operation reaches them now.
+- **New `AwsS3Tables` properties.** `WorkGroup` (default `primary`) is where Athena runs. `QueryResultsLocation` is an `s3://` folder for Athena's results, or empty for the workgroup's own location. Their help is in six languages, and the System KB describes them.
+- **Test connection** (`settings_form.rs`) no longer starts the Lambda server program. A new `diagnose::labs_in_use` tells it whether any operation still reaches one. A machine without `uvx` is no longer told about a program nothing needs. The run now ends when its thread does.
+
+**Help, System KB and docs.** The six controls' `StartTimeoutMs` help no longer says a first start downloads packages; it now reads, in six languages, like the other hosted controls'. The Knowledge Base help drops the tag rule. The KB's "Usage — AWS controls", the Developer's Guide (*What a machine needs*, *Test connection*, the keys hand-over, the S3 Tables example), `DEPENDENCIES-en.md`, the support matrix and the PowerCloud README all say that no AWS control needs `uvx`. All of these documents exist in English only, so there is no translation to delete. `chunked.data` was rebuilt.
+
+**Tests:**
+- **Rewritten for the hosted server:**
+  - `aws_delivery_b` (6), covering the Athena query, the write refused with nothing sent, the Athena `INSERT`, the event's timestamp, and the errors AWS reports;
+  - `aws_controls`' Lambda cases (5);
+  - the `ops` unit test;
+  - `aws_routes`' drift case.
+- **`aws_credentials` (7)** proves the keys reach a server program's environment and nothing else. It now uses an `AwsMcp` on the Lambda server, which is where that hand-over still happens.
+- **`aws_diagnose` (4)** checks route drift on the hosted server, and proves that no control operation needs an AWS Labs server.
+- **`aws_https` (8):**
+  - AC9 shows all 14 write operations completing with `AllowWrite` on;
+  - the AC5 baseline was re-recorded as `hosted-templates-1.91.210.sha256`, a deliberate change: the 33 operations already hosted are byte-identical to 1.91.191, `[snippets]` changed, and 14 operations were added.
+- **`cobolt-cli`:**
+  - `aws_hosts` runs all 16 demos over signed HTTPS with an empty `PATH` (until now 10), and counts 47 hosted operations;
+  - `powercloud_hosts` (11) answers the Lambda tab from the hosted server.
+
+*Not verified against AWS:* nothing here was run against the real services, since the keys are never opened. These run in AWS's sandbox, unproven: `call_boto3` with these services, especially `bedrock-agentcore`, which is recent; Lambda's `Payload` read with `_bytes`; and Athena over S3 Tables. If the sandbox refuses a name, its message lists the offending lines, and `every_hosted_script_keeps_to_the_sandboxs_rules` is where that rule goes.
+
 ## [PowerRustCOBOL 1.91.209] — 2026-10-18
 
 *(Written on `fixes-powercloud-bucket-name`, off `main` at 1.91.208.)*

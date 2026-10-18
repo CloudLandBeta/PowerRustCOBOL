@@ -69,6 +69,18 @@ const DIAGNOSED_SERVER: &str = "lambda";
 /// The route table's id of the hosted server.
 const HOSTED_SERVER: &str = "hosted";
 
+/// Whether any control operation on `conn` reaches an AWS Labs server — a program
+/// started with `uvx`. Since 1.91.210 none does (operator, 2026-10-18: no uvx), so
+/// Test connection starts none: a machine without uvx would be told about a
+/// program nothing needs. `AwsMcp`, which names its server at run time, does not
+/// count.
+pub fn labs_in_use(conn: &AwsConnection) -> bool {
+    let Ok(table) = Routes::shipped().with_override(&conn.routes_override) else {
+        return true;
+    };
+    table.ops.values().any(|op| table.servers.get(&op.server).is_some_and(|s| s.transport != routes::Transport::Https))
+}
+
 /// Test `conn`'s Labs servers: start the Lambda one, list its tools, check the routes.
 ///
 /// `start` bounds the first start (which may download the server) and `call`

@@ -59,6 +59,7 @@
 # Placeholders:  {arg:N}  the N-th COBOL argument (1-based)
 #                {prop:Name}  a property of the control
 #                {Connection.Field}  a field of the control's AWS connection
+#                {now}   the moment of the call, whole seconds since 1970 (UTC)
 #   followed by filters, applied left to right:
 #                |json   parse as JSON (an invalid one is an error naming the
 #                        argument, R21); `|json:<literal>` parses <literal>
@@ -68,6 +69,9 @@
 #                |opt    an empty value leaves its input key out altogether
 #                |int    a whole number
 #                |quote  a JSON string literal, quotes included
+#                |sql_read  refused, nothing sent, unless the text is one SQL
+#                        statement that only reads (SELECT, WITH, SHOW, DESCRIBE,
+#                        EXPLAIN, VALUES)
 #                |obj:<key>  the JSON object {"<key>": value}
 #                |text   a JSON value as its text (a tool that takes JSON
 #                        inside a string)
@@ -84,11 +88,15 @@
 #                             array
 #                $after:m1|m2 the text after the first marker found; "" if none
 
-# ── Lambda — awslabs.lambda-tool-mcp-server 2.1.1 (Python ≥ 3.10) ───────────
-# Each selected function is a tool named after it: the connection's prefix
-# removed, then sanitised. The payload is the tool's `parameters` argument.
-# The server reports a function error in TEXT ("Function <f> returned with
-# error: Unhandled"), not as a tool error, so FunctionError reads it there.
+# ── The AWS Labs servers — started with uvx, used by NO control operation ───
+# Until 1.91.210 the Lambda, Knowledge Base, AgentCore, Agent Memory, S3 Tables
+# and Glue operations went to these five programs, so an application needed
+# `uvx` (and Python) on every machine it ran on. They now go to the hosted AWS
+# MCP Server below, like every other AWS control (operator, 2026-10-18: "all
+# the examples without uvx"). The servers stay defined for `AwsMcp`, whose
+# `ServerId` may name one of them on purpose.
+#
+# Lambda — awslabs.lambda-tool-mcp-server 2.1.1 (Python ≥ 3.10).
 [servers.lambda]
 command       = "uvx"
 args          = ["awslabs.lambda-tool-mcp-server@2.1.1"]
@@ -97,97 +105,20 @@ readonly_args = []
 write_args    = []
 protocol      = "handshake"
 
-[ops."AwsLambda.Invoke"]
-event    = "onInvoked"
-server   = "lambda"
-tool     = "{arg:1|or:{prop:FunctionName}|strip:{Connection.FunctionPrefix}|ident}"
-input    = { parameters = "{arg:2|json:{}}" }
-mutating = true
-result   = { ResponseBody = "$after:returned: |returned payload: ", FunctionError = "$after:returned with error: " }
-
-[ops."AwsLambda.ListFunctions"]
-event    = "onFunctionsListed"
-server   = "lambda"
-tool     = "$list"
-mutating = false
-
-# ── Bedrock Knowledge Bases — awslabs.bedrock-kb-retrieval-mcp-server 1.1.2 ─
-# (Python ≥ 3.10.) Lists only the knowledge bases tagged
-# `mcp-multirag-kb = true` (the server's KB_INCLUSION_TAG_KEY default). A
-# query answers one JSON object per passage, one after another — not an
-# array — and leaves image passages out.
+# Bedrock Knowledge Bases — awslabs.bedrock-kb-retrieval-mcp-server 1.1.2.
 [servers.bedrock-kb]
 command  = "uvx"
 args     = ["awslabs.bedrock-kb-retrieval-mcp-server@1.1.2"]
 protocol = "handshake"
 
-[ops."AwsKnowledgeBase.Query"]
-event    = "onQueried"
-server   = "bedrock-kb"
-tool     = "QueryKnowledgeBases"
-input    = { knowledge_base_id = "{arg:1|or:{prop:KnowledgeBaseId}}", query = "{arg:2}", number_of_results = "{prop:MaxResults|opt|int}" }
-mutating = false
-result   = { ResponseBody = "$text" }
-rows     = { from = "$jsonseq:", fields = { Text = "/content/text", Source = "/location/s3Location/uri|/location/webLocation/url|/location/confluenceLocation/url|/location/salesforceLocation/url|/location/sharePointLocation/url|/location/customDocumentLocation/id|/location/type", Score = "/score" } }
-
-[ops."AwsKnowledgeBase.ListKnowledgeBases"]
-event    = "onKnowledgeBasesListed"
-server   = "bedrock-kb"
-tool     = "ListKnowledgeBases"
-input    = {}
-mutating = false
-result   = { ResultJson = "$json:" }
-rows     = { from = "$json:", fields = { Id = "$key", Name = "/name", Description = "/description", Type = "/type" } }
-
-# ── Bedrock AgentCore — awslabs.amazon-bedrock-agentcore-mcp-server 0.2.1 ───
-# (Python ≥ 3.10.) The server has no write switch, and enables its tools by
-# SERVICE, not one by one: `runtime,memory` is the narrowest set holding the
-# three tools routed here, and it also registers their lifecycle tools
-# (create, delete …). AwsMcp reaches those only with AllowWrite on, since
-# none is marked read-only. Failures come back as data: {"status": "error"}.
+# Bedrock AgentCore — awslabs.amazon-bedrock-agentcore-mcp-server 0.2.1.
 [servers.agentcore]
 command  = "uvx"
 args     = ["awslabs.amazon-bedrock-agentcore-mcp-server@0.2.1"]
 env      = { AGENTCORE_ENABLE_TOOLS = "runtime,memory" }
 protocol = "handshake"
 
-# The payload is JSON inside a string: {"prompt": "<text>"}, the shape an
-# AgentCore agent built from the starter toolkit reads. A session id, when
-# given, is 33–256 characters; without one the runtime starts a session and
-# SessionId receives it, so the next Invoke continues it.
-[ops."AwsAgentCore.Invoke"]
-event    = "onInvoked"
-server   = "agentcore"
-tool     = "invoke_agent_runtime"
-input    = { agent_runtime_arn = "{arg:1|or:{prop:RuntimeArn}}", payload = "{arg:2|obj:prompt|text}", runtime_session_id = "{arg:3|or:{prop:SessionId}|opt}" }
-mutating = true
-result   = { ResponseBody = "$json:/response_body", SessionId = "$json:/runtime_session_id", ResultJson = "$json:" }
-fail     = { when = "$json:/status", equals = "error", text = "$json:/message" }
-
-[ops."AwsAgentMemory.RecordEvent"]
-event    = "onEventRecorded"
-server   = "agentcore"
-tool     = "memory_create_event"
-input    = { memory_id = "{arg:1|or:{prop:MemoryId}}", actor_id = "{arg:2|or:{prop:ActorId}}", session_id = "{arg:3|or:{prop:SessionId}|opt}", payload = [{ conversational = { content = { text = "{arg:4}" }, role = "{arg:5|or:USER}" } }] }
-mutating = true
-result   = { EventId = "$json:/event/eventId", ResultJson = "$json:" }
-fail     = { when = "$json:/status", equals = "error", text = "$json:/message" }
-
-[ops."AwsAgentMemory.Retrieve"]
-event    = "onRetrieved"
-server   = "agentcore"
-tool     = "memory_retrieve_records"
-input    = { memory_id = "{arg:1|or:{prop:MemoryId}}", namespace = "{arg:2|or:{prop:Namespace}}", search_query = "{arg:3}", top_k = "{prop:TopK|opt|int}" }
-mutating = false
-result   = { ResultJson = "$json:" }
-rows     = { from = "$json:/memory_records", fields = { Id = "/memoryRecordId", Text = "/content/text", Score = "/score", CreatedAt = "/createdAt" } }
-fail     = { when = "$json:/status", equals = "error", text = "$json:/message" }
-
-# ── S3 Tables — awslabs.s3-tables-mcp-server 0.1.1 ──────────────────────────
-# Needs Python ≥ 3.11 (its pyproject says so; its README's 3.10 is wrong), so
-# uvx is told. Write tools stay LISTED in read-only mode and refuse when
-# called. `query_database` itself refuses any statement that writes. The
-# Iceberg REST endpoint is the region's.
+# S3 Tables — awslabs.s3-tables-mcp-server 0.1.1 (Python ≥ 3.11).
 [servers.s3tables]
 command       = "uvx"
 args          = ["--python", ">=3.11", "awslabs.s3-tables-mcp-server@0.1.1"]
@@ -195,78 +126,13 @@ readonly_args = []
 write_args    = ["--allow-write"]
 protocol      = "handshake"
 
-# Every table in the region; `where` keeps one namespace when one is named.
-[ops."AwsS3Tables.ListTables"]
-event    = "onTablesListed"
-server   = "s3tables"
-tool     = "list_tables"
-input    = { region_name = "{Connection.Region|opt}" }
-mutating = false
-result   = { ResultJson = "$json:" }
-rows     = { from = "$json:/tables", fields = { Namespace = "/namespace/0", Name = "/name", TableArn = "/table_arn", Type = "/type", ModifiedAt = "/modified_at" }, where = { "/namespace/0" = "{arg:1|or:{prop:Namespace}}" } }
-fail     = { when = "$json:/error", text = "$json:/error" }
-
-[ops."AwsS3Tables.Query"]
-event    = "onQueried"
-server   = "s3tables"
-tool     = "query_database"
-input    = { warehouse = "{prop:TableBucketArn}", region = "{Connection.Region}", namespace = "{prop:Namespace}", uri = "https://s3tables.{Connection.Region}.amazonaws.com/iceberg", query = "{arg:1}" }
-mutating = false
-result   = { ResultJson = "$json:" }
-rows     = { from = "$json:/rows", columns = "/columns" }
-
-[ops."AwsS3Tables.AppendRows"]
-event    = "onRowsAppended"
-server   = "s3tables"
-tool     = "append_rows_to_table"
-input    = { warehouse = "{prop:TableBucketArn}", region = "{Connection.Region}", namespace = "{prop:Namespace}", uri = "https://s3tables.{Connection.Region}.amazonaws.com/iceberg", table_name = "{arg:1|or:{prop:TableName}}", rows = "{arg:2|json}" }
-mutating = true
-result   = { RowsAppended = "$json:/rows_appended", ResultJson = "$json:" }
-
-# ── Glue — awslabs.aws-dataprocessing-mcp-server 0.2.2 ──────────────────────
-# (Python ≥ 3.10.) One tool per resource, the operation an argument. Each
-# answer is two text blocks — a message, then the data as JSON. Without
-# --allow-sensitive-data-access the server leaves a run's Arguments,
-# ErrorMessage and StateDetail out; its state is always there.
+# Glue — awslabs.aws-dataprocessing-mcp-server 0.2.2.
 [servers.dataprocessing]
 command       = "uvx"
 args          = ["awslabs.aws-dataprocessing-mcp-server@0.2.2"]
 readonly_args = []
 write_args    = ["--allow-write"]
 protocol      = "handshake"
-
-[ops."AwsGlue.StartJobRun"]
-event    = "onJobStarted"
-server   = "dataprocessing"
-tool     = "manage_aws_glue_jobs"
-input    = { operation = "start-job-run", job_name = "{arg:1|or:{prop:JobName}}", job_arguments = "{arg:2|opt|json}" }
-mutating = true
-result   = { JobRunId = "$json:/job_run_id", ResponseBody = "$text", ResultJson = "$json:" }
-
-[ops."AwsGlue.GetJobRun"]
-event    = "onJobRun"
-server   = "dataprocessing"
-tool     = "manage_aws_glue_jobs"
-input    = { operation = "get-job-run", job_name = "{arg:1|or:{prop:JobName}}", job_run_id = "{arg:2|or:{prop:JobRunId}}" }
-mutating = false
-result   = { State = "$json:/job_run_details/JobRunState", ResponseBody = "$text", ResultJson = "$json:" }
-
-[ops."AwsGlue.StartCrawler"]
-event    = "onCrawlerStarted"
-server   = "dataprocessing"
-tool     = "manage_aws_glue_crawlers"
-input    = { operation = "start-crawler", crawler_name = "{arg:1|or:{prop:CrawlerName}}" }
-mutating = true
-result   = { ResponseBody = "$text", ResultJson = "$json:" }
-
-[ops."AwsGlue.GetTableSchema"]
-event    = "onTableSchema"
-server   = "dataprocessing"
-tool     = "manage_aws_glue_tables"
-input    = { operation = "get-table", database_name = "{arg:1|or:{prop:DatabaseName}}", table_name = "{arg:2|or:{prop:TableName}}" }
-mutating = false
-result   = { ResponseBody = "$text", ResultJson = "$json:" }
-rows     = { from = "$json:/storage_descriptor/Columns|/table_definition/StorageDescriptor/Columns", fields = { Name = "/Name", Type = "/Type", Comment = "/Comment" } }
 
 # ── The hosted AWS MCP Server — reached by the runtime itself (spec 103) ────
 # AWS's own MCP service. No program is started and nothing needs installing: the
@@ -400,6 +266,53 @@ def _iso(x):
     if len(s) > 10 and s[4] == '-' and s[10] == ' ':
         return s[:10] + 'T' + s[11:]
     return s
+'''
+# The functions an AwsLambda connection offers (its FunctionPrefix and
+# FunctionList), and a name given with or without the prefix.
+lambda = '''
+def _names(s):
+    return [x for x in str(s).replace(',', ' ').split() if x]
+def _offered(n, p, listed):
+    n = str(n).strip()
+    p = str(p).strip()
+    allow = _names(listed)
+    if not n:
+        raise ValueError('no function to invoke: name one, or set FunctionName')
+    if p and not n.startswith(p) and n not in allow:
+        n = p + n
+    if (p or allow) and not (p and n.startswith(p)) and n not in allow:
+        raise ValueError('the function "' + n + '" is not one this connection offers (its FunctionPrefix and FunctionList)')
+    return n
+'''
+# Amazon Athena over an S3 table bucket (AwsS3Tables.Query, AppendRows). A
+# statement is waited for by asking after it, since the sandbox has no sleep;
+# the control's TimeoutMs bounds the wait. Every value an INSERT writes is a
+# quoted literal cast to its column's type, every name a quoted identifier.
+athena = '''
+_DONE = ('SUCCEEDED', 'FAILED', 'CANCELLED')
+_POLLS = 3000
+def _catalog(arn):
+    return 's3tablescatalog/' + str(arn).split('/')[-1]
+def _finished(st):
+    s = st.get('State', '')
+    if s != 'SUCCEEDED':
+        raise ValueError('Athena: the statement ' + (s.lower() if s else 'did not finish') + '. ' + str(st.get('StateChangeReason', '') or ''))
+def _ident(name):
+    return '"' + str(name).replace('"', '""') + '"'
+def _literal(v, ty):
+    if v is None:
+        return 'NULL'
+    if isinstance(v, bool):
+        s = 'TRUE' if v else 'FALSE'
+    elif isinstance(v, (int, float)):
+        s = repr(v)
+    else:
+        s = "'" + (v if isinstance(v, str) else json.dumps(v)).replace("'", "''") + "'"
+    return 'CAST(' + s + ' AS ' + ty + ')' if ty else s
+def _insert(table, names, rows, types):
+    cols = ', '.join([_ident(k) for k in names])
+    vals = ', '.join(['(' + ', '.join([_literal(x.get(k), types.get(str(k).lower(), '')) for k in names]) + ')' for x in rows])
+    return 'INSERT INTO ' + _ident(table) + ' (' + cols + ') VALUES ' + vals
 '''
 
 # ── AwsDynamoDB ── items in and out as PLAIN JSON: {"id": 42, "name": "Ana"},
@@ -922,6 +835,369 @@ fail           = { when = "$json:/status", equals = "error", text = "$json:/erro
 code = '''{snippet:prelude}
 r = await call_boto3(service_name='cognito-idp', operation_name='GlobalSignOut', params=dict(AccessToken={secret:AccessToken}), region_name={Connection.Region|or:us-east-1|quote})
 result = _j(dict(SignedIn='0', UserName=''))
+result'''
+
+# ── AwsLambda ── a function's payload in and its answer out (operator, 2026-10-18:
+# no uvx). The connection still decides which functions are offered: one whose
+# name starts with its FunctionPrefix, or one named in its FunctionList (commas or
+# spaces between names); with neither set, any the sign-in may call. A name may
+# be given with the prefix or without it. Rows name a function without the
+# prefix, as the uvx server named its tools, so a listed Name invokes as it is.
+[ops."AwsLambda.Invoke"]
+event    = "onInvoked"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResponseBody = "$json:/return_value/Payload", FunctionError = "$json:/return_value/FunctionError" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsLambda.Invoke".input]
+code = '''{snippet:prelude}{snippet:lambda}
+fn = _offered({arg:1|or:{prop:FunctionName}|quote}, {Connection.FunctionPrefix|quote}, {Connection.FunctionList|quote})
+r = await call_boto3(service_name='lambda', operation_name='Invoke', params=dict(FunctionName=fn, Payload={arg:2|json:{}|text|quote}.encode('utf-8')), region_name={Connection.Region|or:us-east-1|quote})
+b = _bytes(r.get('Payload', b''))
+result = _j(dict(Payload=b.decode('utf-8', 'replace'), FunctionError=r.get('FunctionError', '') or ''))
+result'''
+
+[ops."AwsLambda.ListFunctions"]
+event    = "onFunctionsListed"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResponseBody = "$json:/return_value/Names" }
+rows     = { from = "$json:/return_value/Functions", fields = { Name = "/Name", Description = "/Description", ReadOnly = "/ReadOnly" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsLambda.ListFunctions".input]
+code = '''{snippet:prelude}{snippet:lambda}
+p = {Connection.FunctionPrefix|quote}.strip()
+allow = _names({Connection.FunctionList|quote})
+out = []
+m = ''
+while True:
+    params = dict(MaxItems=50)
+    if m:
+        params['Marker'] = m
+    r = await call_boto3(service_name='lambda', operation_name='ListFunctions', params=params, region_name={Connection.Region|or:us-east-1|quote})
+    for f in r.get('Functions', []):
+        n = f.get('FunctionName', '')
+        if (not p and not allow) or (p and n.startswith(p)) or n in allow:
+            out.append(dict(Name=n[len(p):] if p and n.startswith(p) else n, Description=f.get('Description', '') or '', ReadOnly='0'))
+    m = r.get('NextMarker', '') or ''
+    if not m:
+        break
+result = _j(dict(Functions=out, Names='\n'.join([x['Name'] for x in out])))
+result'''
+
+# ── AwsKnowledgeBase ── Bedrock Knowledge Bases: passages for a question, and
+# the knowledge bases there are. Every knowledge base is listed — the uvx server
+# listed only those tagged `mcp-multirag-kb = true`, its own convention. Image
+# passages are left out, as they were.
+[ops."AwsKnowledgeBase.Query"]
+event    = "onQueried"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResponseBody = "$json:/return_value/Text" }
+rows     = { from = "$json:/return_value/Passages", fields = { Text = "/content/text", Source = "/location/s3Location/uri|/location/webLocation/url|/location/confluenceLocation/url|/location/salesforceLocation/url|/location/sharePointLocation/url|/location/customDocumentLocation/id|/location/type", Score = "/score" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsKnowledgeBase.Query".input]
+code = '''{snippet:prelude}
+params = dict(knowledgeBaseId={arg:1|or:{prop:KnowledgeBaseId}|quote}, retrievalQuery=dict(text={arg:2|quote}))
+n = {prop:MaxResults|or:0|int}
+if n > 0:
+    params['retrievalConfiguration'] = dict(vectorSearchConfiguration=dict(numberOfResults=n))
+r = await call_boto3(service_name='bedrock-agent-runtime', operation_name='Retrieve', params=params, region_name={Connection.Region|or:us-east-1|quote})
+out = [x for x in _j(r.get('retrievalResults', [])) if (x.get('content') or dict()).get('type', 'TEXT') != 'IMAGE']
+result = _j(dict(Passages=out, Text='\n\n'.join([json.dumps(x) for x in out])))
+result'''
+
+[ops."AwsKnowledgeBase.ListKnowledgeBases"]
+event    = "onKnowledgeBasesListed"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value/KnowledgeBases" }
+rows     = { from = "$json:/return_value/KnowledgeBases", fields = { Id = "$key", Name = "/name", Description = "/description", Type = "/type" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsKnowledgeBase.ListKnowledgeBases".input]
+code = '''{snippet:prelude}
+reg = {Connection.Region|or:us-east-1|quote}
+out = dict()
+t = ''
+while True:
+    params = dict(maxResults=100)
+    if t:
+        params['nextToken'] = t
+    r = await call_boto3(service_name='bedrock-agent', operation_name='ListKnowledgeBases', params=params, region_name=reg)
+    for k in r.get('knowledgeBaseSummaries', []):
+        i = k.get('knowledgeBaseId', '')
+        g = await call_boto3(service_name='bedrock-agent', operation_name='GetKnowledgeBase', params=dict(knowledgeBaseId=i), region_name=reg)
+        c = (g.get('knowledgeBase') or dict()).get('knowledgeBaseConfiguration') or dict()
+        out[i] = dict(name=k.get('name', ''), description=k.get('description', '') or '', type=c.get('type', ''))
+    t = r.get('nextToken', '') or ''
+    if not t:
+        break
+result = _j(dict(KnowledgeBases=out))
+result'''
+
+# ── AwsAgentCore ── one turn with an AgentCore agent. The payload is the JSON
+# {"prompt": "<text>"}, the shape an agent from the starter toolkit reads. A
+# session id, when given, is 33–256 characters; without one AgentCore starts a
+# session and SessionId receives it, so the next Invoke continues it.
+[ops."AwsAgentCore.Invoke"]
+event    = "onInvoked"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResponseBody = "$json:/return_value/response_body", SessionId = "$json:/return_value/runtime_session_id", ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsAgentCore.Invoke".input]
+code = '''{snippet:prelude}
+params = dict(agentRuntimeArn={arg:1|or:{prop:RuntimeArn}|quote}, payload=json.dumps(dict(prompt={arg:2|quote})).encode('utf-8'))
+s = {arg:3|or:{prop:SessionId}|quote}
+if s:
+    params['runtimeSessionId'] = s
+r = await call_boto3(service_name='bedrock-agentcore', operation_name='InvokeAgentRuntime', params=params, region_name={Connection.Region|or:us-east-1|quote})
+b = _bytes(r.get('response', b''))
+result = _j(dict(response_body=b.decode('utf-8', 'replace'), runtime_session_id=r.get('runtimeSessionId', '') or s, content_type=r.get('contentType', '') or ''))
+result'''
+
+# ── AwsAgentMemory ── short-term events in, long-term records out. The sandbox
+# imports nothing that tells the time, so `{now}` hands the script the moment of
+# the call.
+[ops."AwsAgentMemory.RecordEvent"]
+event    = "onEventRecorded"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { EventId = "$json:/return_value/event/eventId", ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsAgentMemory.RecordEvent".input]
+code = '''{snippet:prelude}
+params = dict(memoryId={arg:1|or:{prop:MemoryId}|quote}, actorId={arg:2|or:{prop:ActorId}|quote}, eventTimestamp={now|int}, payload=[dict(conversational=dict(content=dict(text={arg:4|quote}), role={arg:5|or:USER|quote}))])
+s = {arg:3|or:{prop:SessionId}|quote}
+if s:
+    params['sessionId'] = s
+r = await call_boto3(service_name='bedrock-agentcore', operation_name='CreateEvent', params=params, region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(event=r.get('event') or dict()))
+result'''
+
+[ops."AwsAgentMemory.Retrieve"]
+event    = "onRetrieved"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/memory_records", fields = { Id = "/memoryRecordId", Text = "/content/text", Score = "/score", CreatedAt = "/createdAt" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsAgentMemory.Retrieve".input]
+code = '''{snippet:prelude}
+c = dict(searchQuery={arg:3|quote})
+k = {prop:TopK|or:0|int}
+if k > 0:
+    c['topK'] = k
+r = await call_boto3(service_name='bedrock-agentcore', operation_name='RetrieveMemoryRecords', params=dict(memoryId={arg:1|or:{prop:MemoryId}|quote}, namespace={arg:2|or:{prop:Namespace}|quote}, searchCriteria=c), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(memory_records=r.get('memoryRecordSummaries', [])))
+result'''
+
+# ── AwsS3Tables ── the tables of the region's table buckets, and SQL over one
+# bucket through Amazon Athena. Athena reads the bucket as the catalog
+# `s3tablescatalog/<bucket name>` (the table bucket integrated with the AWS
+# analytics services, once, in the console), the Namespace as its database. It
+# writes each result to the workgroup's own result location, or to
+# QueryResultsLocation when that is set. `Query` sends only a statement that
+# reads (`|sql_read` refuses any other before a request is made); `AppendRows`
+# writes an INSERT whose every value is a quoted literal cast to its column's
+# type, which Athena itself reports.
+[ops."AwsS3Tables.ListTables"]
+event    = "onTablesListed"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/tables", fields = { Namespace = "/namespace/0", Name = "/name", TableArn = "/table_arn", Type = "/type", ModifiedAt = "/modified_at" }, where = { "/namespace/0" = "{arg:1|or:{prop:Namespace}}" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3Tables.ListTables".input]
+code = '''{snippet:prelude}
+reg = {Connection.Region|or:us-east-1|quote}
+out = []
+t = ''
+while True:
+    params = dict(maxBuckets=100)
+    if t:
+        params['continuationToken'] = t
+    r = await call_boto3(service_name='s3tables', operation_name='ListTableBuckets', params=params, region_name=reg)
+    for b in r.get('tableBuckets', []):
+        u = ''
+        while True:
+            q = dict(tableBucketARN=b.get('arn', ''), maxTables=1000)
+            if u:
+                q['continuationToken'] = u
+            s = await call_boto3(service_name='s3tables', operation_name='ListTables', params=q, region_name=reg)
+            for x in s.get('tables', []):
+                out.append(dict(namespace=x.get('namespace', []), name=x.get('name', ''), table_arn=x.get('tableARN', ''), type=x.get('type', ''), modified_at=x.get('modifiedAt', '')))
+            u = s.get('continuationToken', '') or ''
+            if not u:
+                break
+    t = r.get('continuationToken', '') or ''
+    if not t:
+        break
+result = _j(dict(tables=out))
+result'''
+
+[ops."AwsS3Tables.Query"]
+event    = "onQueried"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/rows", columns = "/return_value/columns" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3Tables.Query".input]
+code = '''{snippet:prelude}{snippet:athena}
+sql = {arg:1|sql_read|quote}
+reg = {Connection.Region|or:us-east-1|quote}
+params = dict(QueryString=sql, QueryExecutionContext=dict(Catalog=_catalog({prop:TableBucketArn|quote}), Database={prop:Namespace|quote}), WorkGroup={prop:WorkGroup|or:primary|quote})
+o = {prop:QueryResultsLocation|quote}
+if o:
+    params['ResultConfiguration'] = dict(OutputLocation=o)
+q = await call_boto3(service_name='athena', operation_name='StartQueryExecution', params=params, region_name=reg)
+i = q.get('QueryExecutionId', '')
+st = dict()
+for n in range(_POLLS):
+    e = await call_boto3(service_name='athena', operation_name='GetQueryExecution', params=dict(QueryExecutionId=i), region_name=reg)
+    st = (e.get('QueryExecution') or dict()).get('Status') or dict()
+    if st.get('State', '') in _DONE:
+        break
+_finished(st)
+cols = []
+rows = []
+t = ''
+while True:
+    params = dict(QueryExecutionId=i, MaxResults=1000)
+    if t:
+        params['NextToken'] = t
+    g = await call_boto3(service_name='athena', operation_name='GetQueryResults', params=params, region_name=reg)
+    rs = g.get('ResultSet') or dict()
+    data = [[d.get('VarCharValue') for d in x.get('Data', [])] for x in rs.get('Rows', [])]
+    if not cols:
+        cols = [c.get('Name', '') for c in (rs.get('ResultSetMetadata') or dict()).get('ColumnInfo', [])]
+        if data and data[0] == cols:
+            data = data[1:]
+    rows.extend(data)
+    t = g.get('NextToken', '') or ''
+    if not t:
+        break
+result = _j(dict(columns=cols, rows=rows))
+result'''
+
+[ops."AwsS3Tables.AppendRows"]
+event    = "onRowsAppended"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { RowsAppended = "$json:/return_value/rows_appended", ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsS3Tables.AppendRows".input]
+code = '''{snippet:prelude}{snippet:athena}
+reg = {Connection.Region|or:us-east-1|quote}
+cat = _catalog({prop:TableBucketArn|quote})
+ns = {prop:Namespace|quote}
+tb = {arg:1|or:{prop:TableName}|quote}
+data = json.loads({arg:2|json|text|quote})
+if isinstance(data, dict):
+    data = [data]
+names = []
+for x in data:
+    for k in x:
+        if k not in names:
+            names.append(k)
+m = await call_boto3(service_name='athena', operation_name='GetTableMetadata', params=dict(CatalogName=cat, DatabaseName=ns, TableName=tb), region_name=reg)
+types = dict()
+for c in (m.get('TableMetadata') or dict()).get('Columns', []):
+    types[c.get('Name', '').lower()] = c.get('Type', '')
+sql = _insert(tb, names, data, types)
+params = dict(QueryString=sql, QueryExecutionContext=dict(Catalog=cat, Database=ns), WorkGroup={prop:WorkGroup|or:primary|quote})
+o = {prop:QueryResultsLocation|quote}
+if o:
+    params['ResultConfiguration'] = dict(OutputLocation=o)
+q = await call_boto3(service_name='athena', operation_name='StartQueryExecution', params=params, region_name=reg)
+i = q.get('QueryExecutionId', '')
+st = dict()
+for n in range(_POLLS):
+    e = await call_boto3(service_name='athena', operation_name='GetQueryExecution', params=dict(QueryExecutionId=i), region_name=reg)
+    st = (e.get('QueryExecution') or dict()).get('Status') or dict()
+    if st.get('State', '') in _DONE:
+        break
+_finished(st)
+result = _j(dict(rows_appended=len(data)))
+result'''
+
+# ── AwsGlue ── jobs, crawlers and Data Catalog tables. A run's Arguments are left
+# out of what GetJobRun reads, as the uvx server left them out: they can hold
+# what a job is given to sign in with.
+[ops."AwsGlue.StartJobRun"]
+event    = "onJobStarted"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { JobRunId = "$json:/return_value/job_run_id", ResponseBody = "$json:/return_value", ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsGlue.StartJobRun".input]
+code = '''{snippet:prelude}
+j = {arg:1|or:{prop:JobName}|quote}
+params = dict(JobName=j)
+a = json.loads({arg:2|json:{}|text|quote})
+if a:
+    params['Arguments'] = dict([(str(k), str(v)) for k, v in a.items()])
+r = await call_boto3(service_name='glue', operation_name='StartJobRun', params=params, region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(job_name=j, job_run_id=r.get('JobRunId', '')))
+result'''
+
+[ops."AwsGlue.GetJobRun"]
+event    = "onJobRun"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { State = "$json:/return_value/job_run_details/JobRunState", ResponseBody = "$json:/return_value", ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsGlue.GetJobRun".input]
+code = '''{snippet:prelude}
+j = {arg:1|or:{prop:JobName}|quote}
+i = {arg:2|or:{prop:JobRunId}|quote}
+r = await call_boto3(service_name='glue', operation_name='GetJobRun', params=dict(JobName=j, RunId=i), region_name={Connection.Region|or:us-east-1|quote})
+d = _j(r.get('JobRun') or dict())
+d.pop('Arguments', None)
+result = _j(dict(job_name=j, job_run_id=i, job_run_details=d))
+result'''
+
+[ops."AwsGlue.StartCrawler"]
+event    = "onCrawlerStarted"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = true
+result   = { ResponseBody = "$json:/return_value", ResultJson = "$json:/return_value" }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsGlue.StartCrawler".input]
+code = '''{snippet:prelude}
+c = {arg:1|or:{prop:CrawlerName}|quote}
+r = await call_boto3(service_name='glue', operation_name='StartCrawler', params=dict(Name=c), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(crawler_name=c, started='1'))
+result'''
+
+[ops."AwsGlue.GetTableSchema"]
+event    = "onTableSchema"
+server   = "hosted"
+tool     = "aws___run_script"
+mutating = false
+result   = { ResponseBody = "$json:/return_value", ResultJson = "$json:/return_value" }
+rows     = { from = "$json:/return_value/table_definition/StorageDescriptor/Columns", fields = { Name = "/Name", Type = "/Type", Comment = "/Comment" } }
+fail     = { when = "$json:/status", equals = "error", text = "$json:/error|/stderr" }
+[ops."AwsGlue.GetTableSchema".input]
+code = '''{snippet:prelude}
+d = {arg:1|or:{prop:DatabaseName}|quote}
+t = {arg:2|or:{prop:TableName}|quote}
+r = await call_boto3(service_name='glue', operation_name='GetTable', params=dict(DatabaseName=d, Name=t), region_name={Connection.Region|or:us-east-1|quote})
+result = _j(dict(database_name=d, table_name=t, table_definition=r.get('Table') or dict()))
 result'''
 
 # ── The escape hatch: any tool of any routed server ─────────────────────────

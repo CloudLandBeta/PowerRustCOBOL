@@ -15513,15 +15513,21 @@ flowchart LR
 
 #### What a machine needs
 
-- **For the hosted services** (`AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`,
-  `AwsRekognition`, `AwsPolly`, `AwsComprehend`, `AwsTextract`, `AwsEC2`,
-  `AwsCognito` and `AwsMcp`'s `AwsCall`): **nothing to install** — no Python,
-  no `uv`. The machine only needs a **sign-in**, below.
-- **For `AwsLambda`, `AwsKnowledgeBase`, `AwsAgentCore`, `AwsAgentMemory`,
-  `AwsS3Tables` and `AwsGlue`: uv** (`uvx` starts AWS's server programs) —
-  `brew install uv`, `pip install uv` or `winget install astral-sh.uv`. uv
-  brings the Python they run on (3.10 or later; 3.11 or later for
-  `AwsS3Tables`, which uv fetches by itself).
+- **For every AWS control** (`AwsLambda`, `AwsKnowledgeBase`, `AwsAgentCore`,
+  `AwsAgentMemory`, `AwsS3Tables`, `AwsGlue`, `AwsDynamoDB`, `AwsS3`,
+  `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`, `AwsComprehend`,
+  `AwsTextract`, `AwsEC2`, `AwsCognito` and `AwsMcp`'s `AwsCall`): **nothing
+  to install** — no Python, no `uv`. Each reaches the hosted AWS MCP Server,
+  and the machine only needs a **sign-in**, below. (Until 1.91.210 the first
+  six started AWS Labs server programs with `uvx`.)
+- **Only for an `AwsMcp` whose `ServerId` names an AWS Labs server program**
+  (`lambda`, `bedrock-kb`, `agentcore`, `s3tables`, `dataprocessing`): uv,
+  which starts it — `brew install uv`, `pip install uv` or `winget install
+  astral-sh.uv`. uv brings the Python it runs on.
+- **For `AwsS3Tables`' `Query` and `AppendRows`**, which run through Amazon
+  Athena: the table bucket integrated with the AWS analytics services (once,
+  in the S3 console), and a place for Athena's results — the workgroup's own,
+  or `QueryResultsLocation`.
 - A profile whose IAM policy allows the AWS MCP Server itself (AWS's setup
   page for it lists the permissions) and the services you call.
 - **A sign-in.** The AWS CLI (2.32 or later) and a profile that is signed in:
@@ -15536,8 +15542,9 @@ flowchart LR
 That is the whole list, on your machine **and on your users'**: a built
 application carries no AWS key and no AWS library of its own to configure.
 The first hosted call on a machine opens a session with AWS's service, which
-takes a second or two; the first call to a server program downloads it, which
-can take a minute, and every call after that starts in about a second. One
+takes a second or two; the first call to a server program (`AwsMcp` only)
+downloads it, which can take a minute, and every call after that starts in
+about a second. One
 session or server program serves every AWS control on its connection until the
 application ends.
 
@@ -15550,21 +15557,20 @@ list**), and an optional route override for advanced cases. Nothing secret is
 stored — the profile signs every call on the machine that runs it, unless the
 running program hands the connection keys of its own.
 
-**Test connection** checks the two kinds of server separately and shows one
-line for each, in your language. For the **hosted services** it says whether
-the address could not be reached, the profile is not signed in or has expired
-(and the `aws login` or `aws sso login` command to run), AWS refused the
-session (the sign-in may not be allowed to use the service), the service does
-not answer as expected, or **connected**. For **Lambda and the other server
-programs** it says whether the program `uv` is not installed (and how to install
-it), the profile is not signed in, the server does not answer as expected, or
-**connected** — with the Lambda functions it found.
+**Test connection** checks the hosted AWS MCP Server, which every AWS control
+uses, and shows the result in your language: whether the address could not be
+reached, the profile is not signed in or has expired (and the `aws login` or
+`aws sso login` command to run), AWS refused the session (the sign-in may not
+be allowed to use the service), the service does not answer as expected, or
+**connected**. It starts no server program, so a machine without `uv` is not
+told about one: since 1.91.210 no control needs it. (A connection whose route
+override still sends an operation to a server program gets a second line for
+it.)
 
 > 📷 **Screenshot needed — `aws-connections.png`.** Open Settings ▸
 > Integrations, add an AWS connection with a profile and region, press **Test
-> connection**, and capture the AWS section showing the connection and the two
-> result lines — the hosted services' "Connected to the hosted AWS service …"
-> and the server programs' "Connected. Lambda functions offered: …".
+> connection**, and capture the AWS section showing the connection and its
+> result line — "Connected to the hosted AWS service …".
 
 Each AWS control's **Connection** property names the connection by name. A
 control dropped in a project with exactly one AWS connection takes it, and
@@ -15608,7 +15614,7 @@ flowchart LR
     U["Your user types the keys"] --> P["COBOL::&quot;AWS-SET-CREDENTIALS&quot;<br/>( connection key-id secret token status )"]
     P --> M["The runtime's memory<br/>(this run only)"]
     M --> W["Hosted services:<br/>the application signs with them"]
-    M --> S["A server program (Lambda …):<br/>receives them in its environment,<br/>no profile"]
+    M --> S["A server program (AwsMcp only):<br/>receives them in its environment,<br/>no profile"]
     W --> A["AWS"]
     S --> A
 ```
@@ -15627,10 +15633,10 @@ What the runtime does with the keys, and what it never does:
 - They stay **in memory**, for this run of the application only. They are
   not a property, so no form, no project file, no `Verbose` line, no error
   message and no log ever holds them, and no built-in hands them back.
-- For the hosted services the application signs with them itself, and they go
-  nowhere else. A server program the connection starts (Lambda and the other
-  programs) receives them in its environment — never on its command line,
-  never in another program.
+- For the hosted AWS MCP Server — every AWS control — the application signs
+  with them itself, and they go nowhere else. A server program an `AwsMcp`
+  starts through its `ServerId` receives them in its environment — never on
+  its command line, never in another program.
 - Setting new keys, or clearing them, ends the connection's running servers
   and hosted session at once; the next call opens or starts one with what is
   set now. A server program takes a second longer to start.
@@ -15786,11 +15792,10 @@ how well it matched.
 
 - Each row has `Text`, `Source` (the document's S3 address, web page or other
   location) and `Score`. Image passages are left out.
-- `ListKnowledgeBases` lists the knowledge bases you can reach — `Id`, `Name`,
-  `Description`, `Type` — in `onKnowledgeBasesListed`.
-- ⚠️ Only knowledge bases **tagged `mcp-multirag-kb` = `true`** in AWS can be
-  reached. An untagged one is simply not there: tag it in the Bedrock console
-  first.
+- `ListKnowledgeBases` lists every knowledge base your sign-in may see —
+  `Id`, `Name`, `Description`, `Type` — in `onKnowledgeBasesListed`. (Until
+  1.91.210 only those tagged `mcp-multirag-kb` = `true` were reached: that was
+  the convention of the server program the control then started.)
 - Every `AwsKnowledgeBase` operation only reads, so it never needs
   `AllowWrite`.
 
@@ -15836,8 +15841,15 @@ can recall what the user said.
 #### Example: read S3 Tables with SQL
 
 `AwsS3Tables` works on one table bucket (`TableBucketArn`) and one namespace
-(`Namespace`). `Query` runs one read-only SQL statement, and each result row
-becomes a row whose fields are named after the columns:
+(`Namespace`). `Query` runs one read-only SQL statement through **Amazon
+Athena**, and each result row becomes a row whose fields are named after the
+columns, every value as text. Athena reads the bucket as the catalog
+`s3tablescatalog/<bucket name>` and the namespace as its database, so integrate
+the table bucket with the AWS analytics services once, in the S3 console. It
+runs in the workgroup `WorkGroup` (default `primary`) and writes its results
+to that workgroup's result location, or to `QueryResultsLocation` (an `s3://`
+folder) when you set one. The sign-in needs Athena's rights on the workgroup,
+read rights on the catalog, and write rights on the results folder:
 
 ```cobol
        PROGRAM-ID. BTN-SALES--ONCLICK.
@@ -15874,12 +15886,13 @@ becomes a row whose fields are named after the columns:
   `Name`, `TableArn`, `Type`, `ModifiedAt`. With `Namespace` set (or a
   namespace passed), only that namespace's tables are kept.
 - `AppendRows(table, rows)` appends a JSON array of objects, one per row, to
-  `table` (`TableName` when empty); `onRowsAppended` gives `RowsAppended`. It
-  needs `AllowWrite`, and rows that are not valid JSON are refused before
-  anything is sent.
-- ⚠️ `Query` only reads: a statement that writes (`INSERT`, `UPDATE`,
-  `DELETE`, `CREATE` …) is refused by AWS's server and arrives as `onError`.
-  Use `AppendRows` to add data.
+  `table` (`TableName` when empty), with an Athena `INSERT INTO` in which
+  every value is cast to its column's type; `onRowsAppended` gives
+  `RowsAppended`. It needs `AllowWrite`, and rows that are not valid JSON are
+  refused before anything is sent.
+- ⚠️ `Query` only reads: a statement that is not `SELECT`, `WITH`, `SHOW`,
+  `DESCRIBE`, `EXPLAIN` or `VALUES` is refused before anything is sent, with
+  `onError`. Use `AppendRows` to add data.
 
 #### Example: run a Glue job and follow it
 

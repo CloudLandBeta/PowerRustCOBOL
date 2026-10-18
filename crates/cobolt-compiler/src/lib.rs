@@ -7123,7 +7123,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "KnowledgeBaseId" => (
             "an Amazon Bedrock knowledge base id, e.g. `KB12345678`",
-            "AwsKnowledgeBase: the knowledge base `Query` asks when it is given no id. Only knowledge bases tagged `mcp-multirag-kb = true` in AWS can be reached — `ListKnowledgeBases` lists exactly those.",
+            "AwsKnowledgeBase: the knowledge base `Query` asks when it is given no id. `ListKnowledgeBases` lists every knowledge base the sign-in may see (until 1.91.210, only those tagged `mcp-multirag-kb = true`).",
         ),
         "MaxResults" => (
             "integer (default 10)",
@@ -7155,7 +7155,15 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "TableBucketArn" => (
             "the ARN of an S3 table bucket",
-            "AwsS3Tables: the table bucket — the Iceberg warehouse — `Query` and `AppendRows` work in. The connection's region decides the endpoint.",
+            "AwsS3Tables: the table bucket `Query` and `AppendRows` work in. Amazon Athena reads it as the catalog `s3tablescatalog/<bucket name>`, so the bucket must be integrated with the AWS analytics services (once, in the S3 console). The connection's region decides the endpoint.",
+        ),
+        "WorkGroup" => (
+            "an Athena workgroup name (default `primary`)",
+            "AwsS3Tables: the Amazon Athena workgroup `Query` and `AppendRows` run in. Its settings decide where results go when `QueryResultsLocation` is empty.",
+        ),
+        "QueryResultsLocation" => (
+            "an `s3://` folder, or empty",
+            "AwsS3Tables: where Amazon Athena writes the results of `Query` and `AppendRows`, e.g. `s3://my-athena-results/powercloud/`. Empty: the workgroup's own result location (or its managed results).",
         ),
         "TableName" => (
             "a table name",
@@ -7987,8 +7995,8 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ],
         "AwsS3Tables" => vec![
             ("ListTables(namespace: String?) → 1/0", "List the region's tables as rows (`Namespace`, `Name`, `TableArn`, `Type`, `ModifiedAt`) — only the named namespace's, or `Namespace`'s, when one is given; `onTablesListed`."),
-            ("Query(sql: String) → 1/0", "Run one read-only SQL statement against `TableBucketArn` / `Namespace`; each result row becomes a row whose fields are named after the columns; `onQueried`. A statement that writes is refused by the server."),
-            ("AppendRows(table: String?, rows: String) → 1/0", "Append a JSON array of objects to `table` — `TableName` when empty; `onRowsAppended` gives `RowsAppended`. Needs `AllowWrite`; invalid JSON is refused before anything is sent."),
+            ("Query(sql: String) → 1/0", "Run one read-only SQL statement against `TableBucketArn` / `Namespace` through Amazon Athena (`WorkGroup`, `QueryResultsLocation`); each result row becomes a row whose fields are named after the columns, every value as text; `onQueried`. A statement that is not SELECT, WITH, SHOW, DESCRIBE, EXPLAIN or VALUES is refused before anything is sent."),
+            ("AppendRows(table: String?, rows: String) → 1/0", "Append a JSON array of objects to `table` — `TableName` when empty — with an Athena `INSERT INTO`, each value cast to its column's type; `onRowsAppended` gives `RowsAppended`. Needs `AllowWrite`; invalid JSON is refused before anything is sent."),
             ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
             ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),
@@ -8321,7 +8329,7 @@ Colour carried by the DATA still wins: `AddRoute` USING id colour width geometry
         | "AwsDynamoDB" | "AwsS3" | "AwsS3Vectors" | "AwsRekognition" | "AwsPolly" | "AwsComprehend" | "AwsTextract"
         | "AwsEC2" | "AwsCognito" => "\
 ### Usage — AWS controls\n\
-An AWS control works through one of the project's AWS connections (Settings → Integrations → AWS), which names an AWS profile and a region. The application signs in with that profile on the machine it runs on — run `aws login --profile <name>` once there — and no key is ever kept in a form, a project or a built application. The hosted AWS services (`AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`, `AwsComprehend`, `AwsTextract`, `AwsEC2`, `AwsCognito` and `AwsMcp`'s `AwsCall`) are reached by the application itself over HTTPS, every request signed with that sign-in, and need nothing installed. `AwsLambda`, `AwsKnowledgeBase`, `AwsAgentCore`, `AwsAgentMemory`, `AwsS3Tables` and `AwsGlue` start a server program with `uvx` on their first call, which must be installed (`LastError` says so, with the fix, when it is not). Every AWS control on the connection then shares that one session or server, and it ends with the application.\n\
+An AWS control works through one of the project's AWS connections (Settings → Integrations → AWS), which names an AWS profile and a region. The application signs in with that profile on the machine it runs on — run `aws login --profile <name>` once there — and no key is ever kept in a form, a project or a built application. Every AWS control is reached through the hosted AWS MCP Server, by the application itself over HTTPS, every request signed with that sign-in, and needs nothing installed — no `uvx`, no Python: `AwsLambda`, `AwsKnowledgeBase`, `AwsAgentCore`, `AwsAgentMemory`, `AwsS3Tables` (its `Query` and `AppendRows` through Amazon Athena), `AwsGlue`, `AwsDynamoDB`, `AwsS3`, `AwsS3Vectors`, `AwsRekognition`, `AwsPolly`, `AwsComprehend`, `AwsTextract`, `AwsEC2`, `AwsCognito` and `AwsMcp`'s `AwsCall`. Only an `AwsMcp` whose `ServerId` names one of the AWS Labs server programs starts that program with `uvx`, which must then be installed (`LastError` says so, with the fix, when it is not). Every AWS control on the connection shares that one session or server, and it ends with the application.\n\
 \n\
 An application whose user types in AWS keys hands them to a connection with `COBOL::\"AWS-SET-CREDENTIALS\" ( connection key-id secret token [status] )` — the token may be spaces; `status` is `OK` or why nothing was stored (an unknown connection, a missing key id or secret). The runtime keeps them in memory for that run only; it signs the hosted services with them itself and gives them to a server program the connection starts in its environment, instead of the profile; they are never a property, never written to a file or a log, never in `Verbose` output or an error, and no call returns them. `COBOL::\"AWS-CREDENTIALS-SET\" ( connection flag )` answers `Y` or `N`; `COBOL::\"AWS-CLEAR-CREDENTIALS\" ( connection [status] )` forgets them. Setting or clearing them ends the connection's running servers and hosted session, so the next call starts one with what is set now. Clear the fields the user typed the keys into straight after the call. A developer's own machine should keep using a profile.\n\
 \n\

@@ -434,6 +434,11 @@ fn placeholder(body: &str, ctx: &Context) -> Result<Piece, ExpandError> {
         Piece::Text((ctx.prop)(name.trim()))
     } else if let Some(field) = source.strip_prefix("Connection.") {
         Piece::Text((ctx.connection)(field.trim()))
+    } else if source == "now" {
+        // The moment of the call, in whole seconds since 1970 (UTC): what a hosted
+        // script, which may import nothing but `json`, cannot read for itself.
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        Piece::Text(secs.to_string())
     } else {
         return Err(ExpandError::Template(format!("unknown placeholder {{{body}}}")));
     };
@@ -469,6 +474,17 @@ fn placeholder(body: &str, ctx: &Context) -> Result<Piece, ExpandError> {
             }
         } else if filter == "quote" {
             Piece::Text(Value::String(piece.into_text()).to_string())
+        } else if filter == "sql_read" {
+            // A statement that only reads, or nothing is sent: what the uvx S3 Tables
+            // server refused itself, refused here before any request (1.91.210).
+            let text = piece.into_text();
+            let first = text.trim_start().trim_start_matches('(').split_whitespace().next().unwrap_or("").to_ascii_uppercase();
+            if !["SELECT", "WITH", "SHOW", "DESCRIBE", "EXPLAIN", "VALUES"].contains(&first.as_str()) {
+                return Err(ExpandError::BadValue(
+                    "Query runs only a statement that reads (SELECT, WITH, SHOW, DESCRIBE, EXPLAIN or VALUES): nothing was sent".into(),
+                ));
+            }
+            Piece::Text(text)
         } else if let Some(key) = filter.strip_prefix("obj:") {
             let mut map = serde_json::Map::new();
             map.insert(key.trim().to_owned(), piece.into_json());
