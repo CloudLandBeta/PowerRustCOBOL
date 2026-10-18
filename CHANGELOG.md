@@ -23,7 +23,7 @@
 
 ### Fixed: PowerCloud's photo bucket no longer carries the account id or the region in its name
 
-The operator, 2026-10-18: *"the bucket created in the cloud is carrying the account number, e.g. powercloud-photos-160391405503-us-east-1. This is not a good practice. The region in the bucket name is also not necessary."*
+The operator, 2026-10-18: *"the bucket created in the cloud is carrying the account number, e.g. powercloud-photos-<account id>-<region>. This is not a good practice. The region in the bucket name is also not necessary."*
 
 A bucket name is public, and the account id is not for publishing. The name is now `<BucketPrefix>-<the stack's UUID>`, for example `powercloud-photos-1c2fa620-982a-11e3-aff7-50e2416294e0` (54 characters). The UUID is the one CloudFormation gives every stack, read from `AWS::StackId`.
 
