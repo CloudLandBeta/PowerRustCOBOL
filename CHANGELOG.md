@@ -17,6 +17,28 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.214] — 2026-10-18
+
+*(Written on `fixes-nested-scroll-clip`, off `main` at 1.91.211, after 1.91.213.)*
+
+### Fixed: six autocomplete descriptions were shown in English in every language
+
+The IDE's `every_completion_description_exists_in_six_languages` test was red. Six method descriptions that the editor's autocomplete shows had changed in English (in the compiler's reference table, `crates/cobolt-compiler/src/lib.rs`). Their translations, in `crates/cobolt-ide/src/ide_text_data.rs`, were never updated, so the popup fell back to English in Spanish, Portuguese, Japanese, Chinese and French.
+
+The six descriptions, and the version that changed each:
+- Amazon S3 `GetObject`: a relative path starts at the application's folder, and a missing folder is made (1.91.206).
+- Amazon Polly `Speak`: the same note (1.91.206).
+- S3 Tables `Query`, which now runs through Athena (1.91.210).
+- S3 Tables `AppendRows`, which now runs through Athena (1.91.210).
+- SideMenu `Collapse()` (1.91.163). It had no row at all.
+- SideMenu `Open()` (1.91.163). It had no row at all.
+
+All six now exist in the six languages, and every code name they quote is kept. The test passes.
+
+The same IDE run, `cargo test -p cobolt-ide --bin cobolt-ide`, gave 1815 passed and 4 failed. This fix closes one of the four. The other three are known and not caused by this change:
+- `docs_embed::every_document_ships_in_every_language` is the intended signal until the next minor regenerates the translations.
+- The two `external_crates_service` live-resolver tests expect crates.io to refuse egui. crates.io now publishes egui 0.37.0, so the resolver offers an alias instead.
+
 ## [PowerRustCOBOL 1.91.213] — 2026-10-18
 
 *(Written on `fixes-nested-scroll-clip`, off `main` at 1.91.211, after 1.91.212.)*
