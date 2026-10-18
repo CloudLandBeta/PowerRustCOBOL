@@ -14019,7 +14019,7 @@ impl Interpreter {
         // RefreshBinding, exactly as they would after initial POPULATE.
         let maps = self.obj_get(group_id, "_BindingMappings");
         if !maps.trim().is_empty() && row_count > 0 {
-            for line in maps.lines() {
+            for line in array_edit::binding_mapping_rows(&maps) {
                 let parts: Vec<&str> = line.split('\t').collect();
                 if parts.len() != 3 {
                     continue;

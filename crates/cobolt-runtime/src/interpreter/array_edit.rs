@@ -34,6 +34,13 @@ use super::Interpreter;
 
 use cobolt_forms::instance_id::parse_member_instance_id;
 
+/// The rows of a group's `_BindingMappings` (`field\tmember\tproperty` each). The host
+/// seeds them one per line; generated COBOL cannot put a line break inside a literal,
+/// so it separates them with `;` — a character no field, control or property name holds.
+pub(super) fn binding_mapping_rows(maps: &str) -> impl Iterator<Item = &str> {
+    maps.split(['\n', ';'])
+}
+
 impl Interpreter {
     /// An edit reported under the drawn id of a member of a repeating group: write it
     /// back when that group is bound to a table. `true` when the edit was one of
@@ -47,7 +54,7 @@ impl Interpreter {
         }
         // The field this member's property is mapped to.
         let mappings = self.obj_get(edit.group, "_BindingMappings");
-        let Some(field) = mappings.lines().find_map(|line| {
+        let Some(field) = binding_mapping_rows(&mappings).find_map(|line| {
             let mut cells = line.split('\t');
             let (field, member, property) = (cells.next()?, cells.next()?, cells.next()?);
             (member.trim().eq_ignore_ascii_case(edit.member) && property.trim().eq_ignore_ascii_case(prop))

@@ -17150,6 +17150,42 @@ pub(crate) fn preview_keeps_extra_update(key: &str) -> bool {
     )
 }
 
+/// The preview-map key one reported value is kept under, or `None` to drop it.
+///
+/// A control's own value is kept under its id, a second value under `id::Prop`.
+/// A member of a repeating group's card reports under its drawn id
+/// (`group.group-n.member`), which no designed control carries, so its update
+/// used to be judged as a Caption and dropped: nothing typed into a card stuck.
+/// The member's own type says which value it reports, and the value is kept
+/// under `id::Prop` — beside the one the binding seeds under `id` every frame
+/// ([`seed_control_array_binding_preview_values`]), so the next seed does not
+/// overwrite what was typed.
+pub(crate) fn preview_update_slot(
+    controls: &[cobolt_forms::Control],
+    id: &str,
+    key: &str,
+) -> Option<String> {
+    let card = cobolt_forms::instance_id::parse_member_instance_id(id);
+    let designed = card.map_or(id, |m| m.member);
+    let expected = controls
+        .iter()
+        .find(|c| c.id == designed)
+        .map(|c| preview_value_key(&c.control_type))
+        .unwrap_or("Caption");
+    if preview_accepts_update(expected, key) {
+        Some(match card {
+            Some(_) => format!("{id}::{expected}"),
+            None => id.to_owned(),
+        })
+    } else if preview_keeps_extra_update(key) {
+        // A second value from the same control — merged back onto it by
+        // `PreviewState::live`.
+        Some(format!("{id}::{key}"))
+    } else {
+        None
+    }
+}
+
 /// What Preview does with one toolbar-button press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PreviewPress {
@@ -17187,20 +17223,6 @@ struct PreviewState<'a> {
 impl cobolt_forms::render::FormState for PreviewState<'_> {
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
         let mut c = base.clone();
-        // Values a control writes BESIDES its primary one — a ListBox's
-        // SelectedItems and CheckedItems, say — are keyed `id::Prop`. The map
-        // holds one value per control by design, and anything that did not fit
-        // that shape used to be dropped on the way back, so a second selection
-        // could never survive a frame in the preview.
-        let prefix = format!("{}::", base.id);
-        for (key, value) in self.values {
-            if let Some(prop) = key.strip_prefix(&prefix) {
-                c.set_prop(
-                    prop.to_owned(),
-                    cobolt_forms::PropValue::String(value.clone()),
-                );
-            }
-        }
         if let Some(v) = self.values.get(&base.id) {
             let key = preview_value_key(&base.control_type).to_owned();
             c.set_prop(key, cobolt_forms::PropValue::String(v.clone()));
@@ -17214,6 +17236,22 @@ impl cobolt_forms::render::FormState for PreviewState<'_> {
                 "Checked".to_string(),
                 cobolt_forms::PropValue::String(v.clone()),
             );
+        }
+        // Values a control writes BESIDES its primary one — a ListBox's
+        // SelectedItems and CheckedItems, say — are keyed `id::Prop`. The map
+        // holds one value per control by design, and anything that did not fit
+        // that shape used to be dropped on the way back, so a second selection
+        // could never survive a frame in the preview. What was typed into a
+        // card's member is kept the same way (`preview_update_slot`), and is
+        // laid over the value the binding seeds, so it comes last.
+        let prefix = format!("{}::", base.id);
+        for (key, value) in self.values {
+            if let Some(prop) = key.strip_prefix(&prefix) {
+                c.set_prop(
+                    prop.to_owned(),
+                    cobolt_forms::PropValue::String(value.clone()),
+                );
+            }
         }
         c
     }
@@ -17778,20 +17816,8 @@ impl CoboltApp {
         // next frame renders the edited state (text typed, slider moved, combo
         // selected, checkbox toggled).
         for (id, key, val) in updates {
-            let expected = controls
-                .iter()
-                .find(|c| c.id == id)
-                .map(|c| preview_value_key(&c.control_type))
-                .unwrap_or("Caption");
-            if preview_accepts_update(expected, &key) {
-                self.designers[idx].1.preview_state.insert(id, val);
-            } else if preview_keeps_extra_update(&key) {
-                // A second value from the same control — kept under `id::Prop`,
-                // which `PreviewState::live` merges back onto the control.
-                self.designers[idx]
-                    .1
-                    .preview_state
-                    .insert(format!("{id}::{key}"), val);
+            if let Some(slot) = preview_update_slot(&controls, &id, &key) {
+                self.designers[idx].1.preview_state.insert(slot, val);
             }
         }
 
@@ -21881,6 +21907,44 @@ mod preview_alpha_tests {
             "\n  preview values — a ListBox's active row, its Ctrl-click selection and its \
              ticked set all survive the trip back\n"
         );
+    }
+
+    /// Operator, 2026-10-18 (PowerDemo1): a TextBox inside a repeating GroupBox bound
+    /// to a COBOL table could not be edited in the preview. The card reports what was
+    /// typed under its member's drawn id, which no designed control carries, so the
+    /// update was judged as a Caption and dropped — and the binding re-seeds every
+    /// card's value each frame, which would have overwritten it anyway.
+    #[test]
+    fn what_is_typed_into_a_cards_textbox_survives_the_next_seed() {
+        let group = Control::new("GroupBox-1", ControlType::GroupBox, 0, 0);
+        let mut text = Control::new("TextBox-1", ControlType::TextBox, 10, 10);
+        text.parent = Some("GroupBox-1".into());
+        let designed = [group, text];
+        let card_text = cobolt_forms::render::member_instance_id("GroupBox-1", "TextBox-1", 2);
+
+        let slot = preview_update_slot(&designed, &card_text, "Text").expect("a card's typed text is kept");
+        assert_eq!(slot, format!("{card_text}::Text"));
+        // A plain control's value still goes where it always went, and a value the
+        // control does not report is still dropped.
+        assert_eq!(preview_update_slot(&designed, "TextBox-1", "Text").as_deref(), Some("TextBox-1"));
+        assert_eq!(preview_update_slot(&designed, &card_text, "Caption"), None);
+
+        // The frame after: the binding seeds the card's value again, and what was
+        // typed is what the card shows.
+        let mut values = std::collections::HashMap::new();
+        values.insert(slot, "ZZ".to_owned());
+        values.insert(card_text.clone(), "01".to_owned());
+        let anim = std::collections::HashMap::new();
+        let card_member = Control::new(&card_text, ControlType::TextBox, 10, 10);
+        let live = PreviewState { values: &values, anim: &anim, form_w: 400.0, form_h: 300.0 }.live(&card_member);
+        assert_eq!(live.get_prop("Text").map(|v| v.as_str().to_owned()), Some("ZZ".to_owned()));
+
+        // An untouched card shows the table's value.
+        let first = cobolt_forms::render::member_instance_id("GroupBox-1", "TextBox-1", 1);
+        values.insert(first.clone(), "02".to_owned());
+        let live = PreviewState { values: &values, anim: &anim, form_w: 400.0, form_h: 300.0 }
+            .live(&Control::new(&first, ControlType::TextBox, 10, 10));
+        assert_eq!(live.get_prop("Text").map(|v| v.as_str().to_owned()), Some("02".to_owned()));
     }
 }
 

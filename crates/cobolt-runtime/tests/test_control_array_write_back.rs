@@ -64,14 +64,21 @@ const PROGRAM: &str = r#"
            STOP RUN.
 "#;
 
+/// The mappings the way the host seeds them, one per line.
+const HOST_MAPPINGS: &str = "ACTOR-NAME\ttxt-name\tText\nACTOR-FEE\tnud-fee\tValue";
+
 fn seed(writable: &str) -> Vec<(String, String)> {
+    seed_mapped(writable, HOST_MAPPINGS)
+}
+
+fn seed_mapped(writable: &str, mappings: &str) -> Vec<(String, String)> {
     [
         ("IsRepeatingGroup", "true"),
         ("_BindingArray", "1"),
         ("_BindingKind", "CobolTable"),
         ("_BindingFields", "ACTOR-ID\nACTOR-NAME\nACTOR-FEE"),
         // member control \t property, per source field: the name on a TextBox, the fee on a NumericUpDown.
-        ("_BindingMappings", "ACTOR-NAME\ttxt-name\tText\nACTOR-FEE\tnud-fee\tValue"),
+        ("_BindingMappings", mappings),
         ("_BindingWritable", writable),
     ]
     .into_iter()
@@ -86,6 +93,10 @@ fn run(writable: &str, edits: &[(&str, &str, &str)]) -> Vec<String> {
 
 /// The same, with events sent before the click that shows the result.
 fn run_with(writable: &str, edits: &[(&str, &str, &str)], events: &[&str]) -> Vec<String> {
+    run_seeded(seed(writable), edits, events)
+}
+
+fn run_seeded(seed: Vec<(String, String)>, edits: &[(&str, &str, &str)], events: &[&str]) -> Vec<String> {
     let parsed = parse(tokenize(PROGRAM, SourceFormat::Free));
     assert!(parsed.diagnostics.iter().all(|d| d.severity != Severity::Error), "parse errors: {:?}", parsed.diagnostics);
     let (event_tx, event_rx) = mpsc::channel();
@@ -94,7 +105,7 @@ fn run_with(writable: &str, edits: &[(&str, &str, &str)], events: &[&str]) -> Ve
     let (input_tx, input_rx) = mpsc::channel();
     let mut interp = Interpreter::new_with_channels(parsed.program.expect("program"), event_rx, state_tx, display_tx);
     interp.set_input_channel(input_rx);
-    interp.seed_objects([("Cards".to_owned(), "GroupBox".to_owned(), seed(writable))]);
+    interp.seed_objects([("Cards".to_owned(), "GroupBox".to_owned(), seed)]);
     for (id, prop, value) in edits {
         input_tx.send(StateUpdate::new((*id).to_owned(), (*prop).to_owned(), (*value).to_owned())).unwrap();
     }
@@ -183,4 +194,18 @@ fn re_reading_the_table_drops_what_was_waiting_for_repair() {
     let shown = run_with("1", &[("Cards.Cards-2.nud-fee", "Value", "lots")], &["onRefresh"]);
     assert_eq!(line(&shown, "PENDING ").trim(), "", "{shown:?}");
     assert_eq!(rows(&shown)[1], "0002|Bo          |0200");
+}
+
+/// Generated COBOL cannot break a line inside a literal, so it seeds the mappings
+/// separated by `;`: every row of them is honoured — the second one too.
+#[test]
+fn mappings_seeded_by_generated_cobol_are_all_honoured() {
+    let mappings = HOST_MAPPINGS.replace('\n', ";");
+    let shown = run_seeded(
+        seed_mapped("1", &mappings),
+        &[("Cards.Cards-1.txt-name", "Text", "Alma"), ("Cards.Cards-3.nud-fee", "Value", "450")],
+        &[],
+    );
+    assert_eq!(rows(&shown), ["0001|Alma        |0100", "0002|Bo          |0200", "0003|Cy          |0450"], "{shown:?}");
+    assert_eq!(status(&shown), 0, "{shown:?}");
 }

@@ -67,11 +67,39 @@ fn a_writable_group_is_seeded_to_write_back_and_a_read_only_one_is_not() {
     assert_eq!(seeds(&read_only, "_BindingWritable"), ["0"]);
 }
 
+/// The form with a second member mapped, the way PowerDEMO maps `ITEM1 -> TextBox-1.Text`
+/// and `ITEM2 -> Button-1.Caption`.
+fn two_mapping_form(mode: BindingMode) -> Form {
+    let mut form = form(mode);
+    let mut fee = Control::new("BTN-ID", ControlType::Button, 10, 40);
+    fee.parent = Some("ROWS".into());
+    form.add_control(fee);
+    let binding = &mut form.data_bindings[0];
+    if let BindingTargetDescriptor::ControlArray { member_control_ids, .. } = &mut binding.target {
+        member_control_ids.push("BTN-ID".into());
+    }
+    binding.mappings.push(FieldMapping::new(
+        "ACTOR-ID",
+        BindingTargetPath::ControlProperty { array_id: "ACTORS".into(), control_id: "BTN-ID".into(), property_name: "Caption".into() },
+    ));
+    form
+}
+
+/// A group mapping two members used to emit its mappings one per line inside a single
+/// literal: the line break ended the literal and the whole generated program failed to
+/// parse ("unterminated alphanumeric literal"), so the form could not run at all.
+#[test]
+fn two_mappings_stay_on_one_line_of_the_literal() {
+    let src = generate(&two_mapping_form(BindingMode::Writable));
+    assert_eq!(seeds(&src, "_BindingMappings"), ["ACTOR-NAME\tTXT-NAME\tText;ACTOR-ID\tBTN-ID\tCaption"]);
+}
+
 #[test]
 fn the_generation_is_byte_stable_and_the_program_parses_and_checks() {
-    for mode in [BindingMode::Writable, BindingMode::ReadOnly] {
-        let first = generate(&form(mode.clone()));
-        assert_eq!(first, generate(&form(mode)), "not deterministic");
+    let builds: [fn(BindingMode) -> Form; 2] = [form, two_mapping_form];
+    for (build, mode) in builds.into_iter().flat_map(|b| [(b, BindingMode::Writable), (b, BindingMode::ReadOnly)]) {
+        let first = generate(&build(mode.clone()));
+        assert_eq!(first, generate(&build(mode)), "not deterministic");
         assert!(first.contains("RefreshBinding"), "the group is loaded as the form opens");
         let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&first, cobolt_lexer::SourceFormat::Free));
         let errors: Vec<String> = parsed.diagnostics.iter().filter(|d| d.is_error()).map(|d| format!("line {}: {}", d.span.line, d.message)).collect();

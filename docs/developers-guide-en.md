@@ -4007,7 +4007,10 @@ each source field goes into one control of the card.
    your own code changes the table, call `RefreshBinding()` on the group.
 
 At design time the cards show sample values from the field definitions, so you
-can lay the card out before there is any data.
+can lay the card out before there is any data. In **Preview** you can type into
+a card's members to try the card out: what you type stays on that card until
+Preview closes, and nothing is written anywhere — Preview runs none of your
+COBOL, so the write-back below happens only when the form runs.
 
 ```cobol
       *> The group CUSTOMER-CARDS is bound to the table CUSTOMER-ROW; the table has changed.

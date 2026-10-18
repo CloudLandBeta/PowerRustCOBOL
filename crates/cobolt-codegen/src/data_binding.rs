@@ -210,7 +210,8 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             if binding.mode == cobolt_forms::BindingMode::Writable && binding.source.is_writable() { "1" } else { "0" }
         ));
         // Seed target mappings so REFRESHBINDING can hydrate per-instance member values
-        // from the source table (format: sourceField\tmemberControlId\tpropName per line).
+        // from the source table (format: sourceField\tmemberControlId\tpropName, the rows
+        // separated by `;` — a line break would end the COBOL literal).
         let maps: Vec<String> = binding
             .mappings
             .iter()
@@ -228,7 +229,7 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             })
             .collect();
         if !maps.is_empty() {
-            let joined = maps.join("\n");
+            let joined = maps.join(";");
             out.push_str(&format!(
                 "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingMappings\" BY CONTENT \"{}\"\n",
                 joined

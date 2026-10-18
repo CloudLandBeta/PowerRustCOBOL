@@ -23561,6 +23561,44 @@ mod tests {
         (all, overrides.into_inner(), copied)
     }
 
+    /// Operator, 2026-10-18 (PowerDemo1): a TextBox inside a repeating GroupBox, the
+    /// group in a scrolling Panel. Clicking a card's TextBox and typing reports the text
+    /// under that card's member id, which is what the host hands the runtime to write
+    /// back. Each card is its own field: the other card keeps its text.
+    #[test]
+    fn typing_into_a_cards_textbox_reports_it_under_that_cards_member_id() {
+        use crate::model::PropValue;
+        let mut panel = ctrl("Panel-1", ControlType::Panel, 10, 10, 380, 280);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        let mut card = ctrl("GroupBox-1", ControlType::GroupBox, 20, 20, 340, 80);
+        card.set_prop("VScroll", PropValue::Bool(true));
+        card.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        card.set_prop("DataSource", PropValue::String("ITEMS / ITEMS".into()));
+        card.set_prop("ItemCount", PropValue::Int(2));
+        card.set_prop("ItemSpacing", PropValue::Int(8));
+        card.parent = Some("Panel-1".into());
+        let mut text = ctrl("TextBox-1", ControlType::TextBox, 30, 44, 150, 28);
+        text.parent = Some("GroupBox-1".into());
+        let designed = [panel, card, text];
+        let expanded = expand_repeating_groups(&designed).expect("expand");
+        let second = expanded.iter().find(|c| c.id == "GroupBox-1.GroupBox-1-2.TextBox-1").expect("card 2's TextBox");
+        let at = pos2((second.rect.x + 20) as f32, (second.rect.y + second.rect.h / 2) as f32);
+
+        let (_, props) = drive(
+            &designed,
+            vec![
+                (0.0, vec![Event::PointerMoved(at)]),
+                (0.05, vec![press(at)]),
+                (0.10, vec![release(at)]),
+                (0.15, vec![Event::Text("ZZ".to_owned())]),
+                (0.20, vec![]),
+            ],
+        );
+        let typed = props.get("GroupBox-1.GroupBox-1-2.TextBox-1").and_then(|p| p.get("Text"));
+        assert_eq!(typed.map(String::as_str), Some("ZZ"), "{props:?}");
+        assert!(props.get("GroupBox-1.GroupBox-1-1.TextBox-1").and_then(|p| p.get("Text")).is_none(), "card 1 untouched: {props:?}");
+    }
+
 
     // ── DateTimePicker: the clock ────────────────────────────────────────────
 

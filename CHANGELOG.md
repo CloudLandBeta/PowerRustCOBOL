@@ -17,6 +17,37 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.213] — 2026-10-18
+
+*(Written on `fixes-nested-scroll-clip`, off `main` at 1.91.211, after 1.91.212.)*
+
+### Fixed: a repeating group bound to a COBOL table runs, and its cards can be typed into in Preview
+
+The operator, 2026-10-18, on PowerDemo1: *"binding a table element to a data-entry TextBox does not let the value be edited in the preview (check the runtime too)."* The form binds the table `ITEMS` to a repeating GroupBox, with `ITEM1` mapped to the card's TextBox and `ITEM2` to its Button. Two things were wrong, and a third works as designed.
+
+**The generated program did not parse.** A group's field-to-member mappings were seeded into a single COBOL literal, one mapping per line. A line break ends a literal, so any group that mapped two or more members generated code that failed with *"unterminated alphanumeric literal"*, and the form could not run at all. This had been the case since 1.27.87; the only test mapped a single member.
+
+Codegen (`crates/cobolt-codegen/src/data_binding.rs`) now separates the mappings with `;`, which no field, control or property name can hold. The runtime reads the mappings in two places: the card hydration in `RefreshBinding`, and the write-back of an edited member. Both now accept `;` as well as the host's line breaks, through one helper (`binding_mapping_rows`, `crates/cobolt-runtime/src/interpreter/array_edit.rs`).
+
+**Preview dropped what was typed into a card.** A card's member reports its value under its drawn id (`GroupBox-1.GroupBox-1-2.TextBox-1`), and no designed control carries that id. So Preview judged the update as a Caption and threw it away. The binding also re-seeds every card's value on every frame, which would have overwritten it anyway.
+
+Preview now uses the member's own type to know which value it reports (`preview_update_slot`, `crates/cobolt-ide/src/app.rs`). It keeps what was typed beside the seeded value, and lays it over that value when the card is drawn. A typed card keeps its text until Preview closes; an untouched card still shows the table's value.
+
+**The runtime was right; the binding is read-only.** The program, once fixed, was run headless. A value typed into card 1 stays on the card. PowerDemo1's binding is read-only (the default since spec 095), so `CommitStatus` reports `91` and nothing reaches `ITEM1`. With the binding writable, the same edit reports `00` and is written to the table. The binding editor's **Writable** switch turns it on.
+
+The Developer's Guide (English) now says what Preview does with typing on a card.
+
+New tests:
+- `two_mappings_stay_on_one_line_of_the_literal` (cobolt-codegen). The parse-and-check test now also covers a group with two mappings, in both modes.
+- `mappings_seeded_by_generated_cobol_are_all_honoured` (cobolt-runtime). It writes back through both mappings, `;`-separated.
+- `typing_into_a_cards_textbox_reports_it_under_that_cards_member_id` (cobolt-forms). It types into card 2 of a group in a scrolling Panel.
+- `what_is_typed_into_a_cards_textbox_survives_the_next_seed` (cobolt-ide).
+
+Test results:
+- cobolt-codegen and cobolt-form-host: 13 binaries, 296 passed, 0 failed.
+- cobolt-runtime (the library, plus the write-back and both data-binding suites): 4 binaries, 518 passed, 0 failed.
+- cobolt-forms --features render: 91 binaries, 1681 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.91.212] — 2026-10-18
 
 *(Written on `fixes-nested-scroll-clip`, off `main` at 1.91.211.)*
