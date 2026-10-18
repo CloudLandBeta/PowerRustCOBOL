@@ -5398,12 +5398,19 @@ impl DesignerPanel {
     }
 
     /// Whether the canvas may treat the pointer as editing a layout grid at all: the
-    /// form lays out (spec 056), and no other designer mode owns the pointer — the
-    /// Non-Visuals tab, DataGrid edit mode, the Format Painter, Visual Tab Order, a
-    /// control being placed. (Spec 088 plan §1.)
+    /// form lays out (spec 056), the **Form** tab is the active one, and no other
+    /// designer mode owns the pointer — DataGrid edit mode, the Format Painter, Visual
+    /// Tab Order, a control being placed. (Spec 088 plan §1, R45.)
+    ///
+    /// Only the Form tab (operator, 2026-10-17: "responsive grid editing is done only on
+    /// the Form tab; ignore grid selection on any other layer"). On a layer's tab the
+    /// base's grids still show beneath it, and a press over one picked a cell of the base
+    /// instead of acting on the layer being edited; Non-Visuals was already excluded.
+    /// This gates every grid gesture at once: the mode, its toolbar and its cell
+    /// selection, and a selected control's grid with its draggable lines (A1).
     pub(crate) fn layout_grid_available(&self) -> bool {
         self.form.lays_out()
-            && self.controls_movable()
+            && self.tabs.is_form()
             && self.grid_edit.is_none()
             && matches!(self.format_painter, FormatPainter::Idle)
             && self.tab_order_modal.is_none()

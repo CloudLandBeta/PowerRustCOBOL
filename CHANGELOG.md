@@ -17,6 +17,31 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.200] — 2026-10-17
+
+*(Written on `fixes-grid-edit-form-tab`, off `main` at 1.91.199.)*
+
+### Fixed: responsive grids are edited on the Form tab only
+
+Operator, 2026-10-17: "responsive grid editing is done only on the Form tab. Ignore the attempt to select a grid on any other layer."
+
+*What was wrong.* Grid editing (spec 088) checked only that the active tab was not Non-Visuals. On a layer's tab (spec 091) the base's grids still show beneath the layer. A press over one of them picked one of its cells and brought up the grid toolbar, instead of acting on the layer being edited. The grab band of its track lines still took the pointer too.
+
+*Now.* Every grid gesture applies only while the **Form** tab is active:
+- grid-editing mode, with its toolbar and cell selection;
+- dragging track lines;
+- the grid a selected control sits in (A1).
+
+On a layer's tab or Non-Visuals, a press over a Grid container is not the grid's. One condition in `layout_grid_available()` gates them all. Selecting the Form tab brings grid editing back as it was.
+
+- **Spec 088 amendment A5** (R45, AC20); the Developer's Guide says so under *Editing a grid on the canvas*.
+- **Code:** `panels/designer.rs`, `layout_grid_available`.
+- **Tests:**
+  - `grid_cells_are_selected_on_the_form_tab_only`: through the real canvas, a click and a line drag on a layer's tab do nothing to the base's grid, and the Form tab selects the cell;
+  - `grid_editing_mode_is_on_only_where_it_can_be`: now also checks a layer's tab.
+
+  Both fail with the old `controls_movable()` condition.
+
 ## [PowerRustCOBOL 1.91.199] — 2026-10-17
 
 *(Written on `fixes-grid-merge`, off `main` at 1.91.198.)*

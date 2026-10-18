@@ -352,12 +352,28 @@ fn grid_editing_mode_is_on_only_where_it_can_be() {
         &|d| d.drag = DragState::None,
     );
     check("the Non-Visuals tab", &|d| d.tabs.select_non_visuals(), &|d| d.tabs.select_form());
+    // Operator, 2026-10-17: grid editing is the Form tab's alone.
+    check(
+        "a layer's tab",
+        &|d| {
+            if d.form.layers.is_empty() {
+                d.form.layers.push(cobolt_forms::model::Layer::new("L1"));
+            }
+            d.tabs.select_layer("L1");
+        },
+        &|d| d.tabs.select_form(),
+    );
     check(
         "Visual Tab Order open",
         &|d| d.tab_order_modal = Some(super::super::tab_order::TabOrderModal::new(&d.form, None)),
         &|d| d.tab_order_modal = None,
     );
     check("DataGrid edit mode", &|d| d.grid_edit = Some(super::super::grid_edit::GridEditState::new("P")), &|d| d.grid_edit = None);
+    // On a layer's tab grid editing is not even available, so a selected control's grid
+    // (A1) is not offered either.
+    d.tabs.select_layer("L1");
+    assert!(!d.layout_grid_available(), "a layer's tab: no grid gesture at all");
+    d.tabs.select_form();
 
     // No grid to edit: nothing to act on.
     let mut plain = DesignerPanel::new({
@@ -1295,4 +1311,35 @@ fn a_merged_area_is_drawn_without_lines_inside_it() {
     assert!(ys.iter().any(|y| *y > r1.0 && *y < r1.1), "the line is drawn along row 2: {ys:?}");
     assert!(!ys.iter().any(|y| *y > r0.0 + 1.0 && *y < r0.1 - 1.0), "and not across the area in row 1: {ys:?}");
     println!("A4: {} dashes on the line inside the area's column, all in row 2", ys.len());
+}
+
+/// Operator, 2026-10-17: "responsive grid editing is done only on the Form tab; ignore the
+/// attempt to select a grid on any other layer". On a layer's tab the base's grid still
+/// shows beneath, and a click on one of its cells picked that cell and raised the grid
+/// toolbar. Now the click is not the grid's, and no line of it can be taken. Back on the
+/// Form tab, the same click selects the cell as before.
+#[test]
+fn grid_cells_are_selected_on_the_form_tab_only() {
+    let mut f = grid_form("1fr 1fr", "1fr 1fr", &[("A", 1, 1, 0, 0)]);
+    f.layers.push(cobolt_forms::model::Layer::new("L1"));
+    let mut rig = Rig::new(f);
+    rig.d.tabs.select_layer("L1");
+    rig.settle();
+    rig.click(rig.cell_centre("P", 1, 1));
+    assert!(rig.d.layout_grid.selection.is_none(), "a layer's tab: no cell of the base's grid is selected");
+    assert!(rig.d.layout_grid.toolbar.is_none(), "and no grid toolbar comes up");
+    let line = rig.line_point("P", Axis::Column, 0);
+    rig.frame(vec![Event::PointerMoved(line)]);
+    assert_ne!(rig.cursor, egui::CursorIcon::ResizeHorizontal, "no line of it can be taken");
+    let before = rig.prop("P", "GridColumns");
+    rig.drag(line, line + Vec2::new(40.0, 0.0));
+    assert_eq!(rig.prop("P", "GridColumns"), before, "dragging where its line is changes nothing");
+
+    rig.d.tabs.select_form();
+    rig.settle();
+    rig.click(rig.cell_centre("P", 1, 1));
+    let sel = rig.d.layout_grid.selection.clone().expect("the Form tab: the cell is selected");
+    assert_eq!((sel.container.as_str(), sel.anchor), ("P", (1, 1)));
+    assert!(rig.d.layout_grid.toolbar.is_some(), "and the toolbar is up");
+    println!("layer tab: click and drag over the base's grid do nothing to it; Form tab: cell (1,1) selected, toolbar up");
 }

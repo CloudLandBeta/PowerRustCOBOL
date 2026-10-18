@@ -2750,6 +2750,12 @@ as it was. Each designer window starts with Show grid on.
 The button is a setting of the designer window, not of the form: it writes
 nothing to the form.
 
+**Grids are edited on the Form tab only.** On a layer's tab the form's grids
+still show beneath the layer, but they are not edited there. A press over one
+is not the grid's: it selects no cell, brings up no grid toolbar and takes no
+track line. The same goes for the Non-Visuals tab. Select the **Form** tab to
+edit a grid.
+
 > 📷 Screenshot needed — `grid-edit-mode.png`: open PowerSpatial's
 > `main-form` in the Form Designer with Show grid on and nothing selected,
 > so the track lines of every Grid container are drawn. Capture the toolbar

@@ -265,6 +265,18 @@ This feature makes the grid directly editable on the canvas:
   areas exactly as the canvas does, because one layout engine places all of
   them (R26).
 
+### 4.5d Grid editing is the Form tab's (amendment A5)
+
+> *Operator, 2026-10-17:* "responsive grid editing is done only on the Form tab.
+> Ignore the attempt to select a grid on any other layer."
+
+- **R45 (state):** Grid editing shall apply only while the designer's **Form**
+  tab (spec 091) is the active tab. That covers grid-editing mode (R6–R9), its
+  toolbar and cell selection, dragging track lines (R18–R21), and a selected
+  control's grid (A1, R27–R28). On a layer's tab, where the base's grids still
+  show beneath, and on Non-Visuals, a press over a Grid container is not the
+  grid's: it selects no cell, raises no toolbar and takes no line.
+
 ### 4.6 General
 - **R25 (ubiquitous):** Every edit this spec defines shall be an ordinary
   property change through the designer's command system: one undo step per
@@ -338,6 +350,14 @@ This feature makes the grid directly editable on the canvas:
   - each refusal is its own.
 - [x] **AC19 (A4 R42)** — The canvas draws a merged area with no line inside
   it: the line between its columns runs only along the rows it does not cover.
+- [x] **AC20 (A5 R45)** — Each of these states turns grid editing off, and
+  selecting the Form tab turns it back on: a layer's tab and Non-Visuals.
+  On a layer's tab:
+  - a click on a cell of the base's grid selects no cell and raises no toolbar;
+  - its line shows no resize cursor;
+  - a drag where the line is changes no track.
+
+  On the Form tab, the same click selects the cell and raises the toolbar.
 
 ## 6. Constraints & steering check
 - **i18n:** the Show Grid tooltip, every grid-toolbar tooltip, the disabled
@@ -406,3 +426,4 @@ the code it guards broken, the named test fails.
 | AC17 | `the_toolbar_swatch_colours_the_grid_lines_and_never_the_form`; `ui_prefs::the_grid_line_colour_is_the_themes_until_one_is_chosen` |
 | AC18 | forms engine, `layout::grid`: `grid_merges_are_read_as_ranges_and_nonsense_is_left_out`, `the_controls_of_an_area_lay_out_side_by_side_without_overlap`, `one_control_fills_its_area_and_keeps_its_alignment`, `an_empty_area_is_one_cell_to_automatic_placement`, `the_minimum_size_counts_an_areas_controls_side_by_side`; `layout::grid_edit`: `merge_writes_the_area_and_split_takes_it_out`, `empty_cells_merge_into_a_reserved_area`, `two_controls_merge_side_by_side_and_split_back_to_their_cells`, `merging_pins_an_automatic_control_and_brings_a_span_to_one_cell`, `controls_written_in_one_cell_split_to_free_cells`, `merge_and_split_say_why_they_are_refused`, `tracks_added_and_removed_move_the_areas_and_restore_puts_them_back` |
 | AC19 | `a_merged_area_is_drawn_without_lines_inside_it`; `layout_grid_edit::a_selection_takes_in_the_merged_areas_it_touches` |
+| AC20 | `grid_cells_are_selected_on_the_form_tab_only`; `grid_editing_mode_is_on_only_where_it_can_be` (a layer's tab) |
