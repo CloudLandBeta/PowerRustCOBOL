@@ -427,9 +427,25 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
         assert_eq!(read(&r, "Shp-Box1", "Width"), "240");
     });
 
-    phase("DynamoDB", "a new pet: photo fitted to 400 x 400, put in S3, item stored", &p, &|p| {
+    // Operator, 2026-10-18: a run after the one that deployed the stack sent PutObject with
+    // an empty bucket name. Every run_form is such a run.
+    phase("DynamoDB", "no bucket known: a pet with a photo is refused, nothing sent", &p, &|p| {
+        let before = hosted_log(p).matches("operation_name='PutObject'").count();
         let r = run_form(p, &json!([click("Btn-NewPet"), wait(3500), get("Lbl-DdbState", "Caption")]), 60);
+        assert!(read(&r, "Lbl-DdbState", "Caption").starts_with("No photo bucket yet"), "{r}");
+        assert_eq!(hosted_log(p).matches("operation_name='PutObject'").count(), before, "a PutObject went out without a bucket");
+    });
+
+    phase("DynamoDB", "a new pet: Connect finds the bucket; photo fitted, put in S3, item stored", &p, &|p| {
+        let r = run_form(
+            p,
+            &json!([set("Txt-KeyId", "Text", KEY_ID), set("Txt-Secret", "Text", SECRET), click("Btn-Connect"), wait(2500), get("Lbl-Conn", "Caption"), get("Txt-Bucket", "Text"), click("Btn-NewPet"), wait(3500), get("Lbl-DdbState", "Caption")]),
+            60,
+        );
+        assert_eq!(read(&r, "Txt-Bucket", "Text"), "powercloud-photos-123456789012-us-east-1", "Connect did not read the stack's outputs: {}", read(&r, "Lbl-Conn", "Caption"));
         let log = hosted_log(p);
+        let put = log.lines().find(|l| l.contains("operation_name='PutObject'")).unwrap_or("");
+        assert!(put.contains("powercloud-photos-123456789012-us-east-1"), "PutObject did not name the bucket: {put}");
         assert!(log.contains("PutObject") && log.contains("photos/"), "no photo was put in S3");
         assert!(log.contains("Milo") && log.contains("Poodle"), "the item was not stored");
         let made: Vec<_> = std::fs::read_dir(p.root.join("data/cache")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with("-400.jpg")).collect();

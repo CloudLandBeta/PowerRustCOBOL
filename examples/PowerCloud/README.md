@@ -49,7 +49,9 @@ the DynamoDB table and a small demo server. Two ways to deploy it:
    aws cloudformation deploy --template-file powercloud.yaml --stack-name powercloud --capabilities CAPABILITY_IAM
    ```
 
-Then type the bucket name into the **Photo bucket** box on the Settings tab.
+Either way, **Connect** finds the stack named in **Stack name** — deployed now or on an earlier run — and
+fills in the bucket and function names from its outputs. A bucket of your own can be typed into the
+**Photo bucket** box instead; without a bucket, saving a pet with a photo says so rather than trying.
 
 📷 Screenshot needed — `powercloud-pets.png`: the DynamoDB tab with a few pets, their 40 × 40 photos and the
 View, Edit and Delete icons.

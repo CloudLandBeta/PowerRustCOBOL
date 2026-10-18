@@ -149,7 +149,7 @@
 
        01 WS-LANG-IX     PIC 9       GLOBAL VALUE 1.
        01 WS-TX-I        PIC 999     GLOBAL.
-       01 WS-TEXT-ROWS   PIC 999     GLOBAL VALUE 108.
+       01 WS-TEXT-ROWS   PIC 999     GLOBAL VALUE 109.
        01 WS-WORKING-TEXT PIC X(300) GLOBAL.
        01 WS-MATCH       PIC X(120)  GLOBAL.
        01 WS-MATCH-VAL   PIC X(30)   GLOBAL.
@@ -941,8 +941,15 @@
            05 FILLER PIC X(120) VALUE "Appuyez sur Reconnaître.".
            05 FILLER PIC X(120) VALUE "「認識」を押してください。".
            05 FILLER PIC X(120) VALUE "请按“识别”。".
+           *>   NO-BUCKET
+           05 FILLER PIC X(120) VALUE "No photo bucket yet: deploy the stack on the Settings tab, or type the bucket's name there.".
+           05 FILLER PIC X(120) VALUE "Ainda não há bucket das fotos: implante a pilha em Configurações ou digite ali o nome do bucket.".
+           05 FILLER PIC X(120) VALUE "Aún no hay bucket de fotos: implemente la pila en Configuración o escriba allí el nombre del bucket.".
+           05 FILLER PIC X(120) VALUE "Pas encore de bucket des photos : déployez la pile dans Paramètres, ou tapez-y le nom du bucket.".
+           05 FILLER PIC X(120) VALUE "写真バケットがありません。設定タブでデプロイするか名前を入力してください。".
+           05 FILLER PIC X(120) VALUE "尚无照片存储桶：请在“设置”中部署堆栈或输入存储桶名称。".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-           05 PC-TEXT-ROW OCCURS 108.
+           05 PC-TEXT-ROW OCCURS 109.
                10 PC-TEXT PIC X(120) OCCURS 6.
        *>   The same texts in the language picked, by name.
 
@@ -1055,8 +1062,9 @@
            05 T-REK-SAID PIC X(120).
            05 T-REK-NONE PIC X(120).
            05 T-REK-PRESS PIC X(120).
+           05 T-NO-BUCKET PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-           05 PC-TEXT-NOW PIC X(120) OCCURS 108.
+           05 PC-TEXT-NOW PIC X(120) OCCURS 109.
        *>   The two paragraphs that do not fit the short texts.
 
        01 PC-LONG-DATA GLOBAL.
@@ -1101,6 +1109,7 @@
        01 M-TABLE-NOT-READ        PIC 999     GLOBAL VALUE 80.
        01 M-PETS-COUNT            PIC 999     GLOBAL VALUE 81.
        01 M-PHOTO-NOT-STORED      PIC 999     GLOBAL VALUE 82.
+       01 M-NO-BUCKET             PIC 999     GLOBAL VALUE 109.
        01 M-PET-NOT-STORED        PIC 999     GLOBAL VALUE 83.
        01 M-PET-GONE              PIC 999     GLOBAL VALUE 84.
        01 M-PET-NOT-DELETED       PIC 999     GLOBAL VALUE 85.
@@ -1271,7 +1280,7 @@
 
            *> Called by TMR-STACK every three seconds while a stack is being created.
 
-           SET     WS-OUT                        TO    AWS-MCP::AwsCall( "cloudformation" "DescribeStacks" '{"StackName":"powercloud"}' )
+           SET     WS-OUT                        TO    AWS-MCP::AwsCall( "cloudformation" "DescribeStacks" '{"StackName":"' & TXT-STACK::Text::Trim() & '"}' )
            IF AWS-MCP::LastError NOT = SPACES
                SET     WS-STK-MSG                    TO    M-STACK-WAIT
                SET     WS-STK-A1                     TO    AWS-MCP::LastError::Trim()
@@ -1287,15 +1296,42 @@
            IF WS-STACK-STATE = "CREATE_COMPLETE"
                SET     TMR-STACK::Enabled            TO    FALSE
                SET     PGB-STACK::Value              TO    100
-               SET     WS-OUTPUTS                    TO    AWS-MCP::GetField( 1 "Outputs" )::Replace( '": "', '":"' )
-               SET     TXT-BUCKET::Text              TO    WS-OUTPUTS::Split( '"OutputKey":"BucketName","OutputValue":"' )(2)::Split( '"' )(1)
-               SET     TXT-FUNCTION::Text            TO    WS-OUTPUTS::Split( '"OutputKey":"FunctionName","OutputValue":"' )(2)::Split( '"' )(1)
-               SET     AWS-S3::Bucket                TO    TXT-BUCKET::Text
-               SET     AWS-LAMBDA::FunctionName      TO    TXT-FUNCTION::Text
+
+               *> PC-STACK-OUTPUTS: the stack's outputs into the boxes and the controls.
+               *> Uses:   AWS-MCP (DescribeStacks of the stack named in TXT-STACK).
+               *> Result: TXT-BUCKET, TXT-FUNCTION, AWS-S3::Bucket and AWS-LAMBDA::FunctionName.
+
+               CALL    "PC-STACK-OUTPUTS"
            END-IF
            IF WS-STACK-STATE(1:6) = "ROLLBA" OR WS-STACK-STATE(1:6) = "CREATE" AND WS-STACK-STATE(8:6) = "FAILED"
                SET     TMR-STACK::Enabled            TO    FALSE
            END-IF
+]]></Event>
+    <Event name="PC-STACK-OUTPUTS" paragraph="PC-STACK-OUTPUTS"><![CDATA[       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+
+           *> The stack's outputs, wherever the stack was deployed - this session or an earlier one:
+           *> the photo bucket into TXT-BUCKET and AWS-S3, the link function into TXT-FUNCTION and
+           *> AWS-LAMBDA. Called when a deployment completes and when the keys are connected; a
+           *> stack that is not there, or not finished, leaves the boxes as they are, so a name
+           *> typed in them is kept.
+
+           SET     WS-OUT                        TO    AWS-MCP::AwsCall( "cloudformation" "DescribeStacks" '{"StackName":"' & TXT-STACK::Text::Trim() & '"}' )
+           IF AWS-MCP::LastError NOT = SPACES
+               GOBACK
+           END-IF
+           SET     WS-STACK-STATE                TO    AWS-MCP::GetField( 1 "StackStatus" )
+           IF WS-STACK-STATE NOT = "CREATE_COMPLETE" AND WS-STACK-STATE NOT = "UPDATE_COMPLETE"
+               GOBACK
+           END-IF
+           SET     WS-OUTPUTS                    TO    AWS-MCP::GetField( 1 "Outputs" )::Replace( '": "', '":"' )
+           SET     TXT-BUCKET::Text              TO    WS-OUTPUTS::Split( '"OutputKey":"BucketName","OutputValue":"' )(2)::Split( '"' )(1)
+           SET     TXT-FUNCTION::Text            TO    WS-OUTPUTS::Split( '"OutputKey":"FunctionName","OutputValue":"' )(2)::Split( '"' )(1)
+           SET     AWS-S3::Bucket                TO    TXT-BUCKET::Text
+           SET     AWS-LAMBDA::FunctionName      TO    TXT-FUNCTION::Text
 ]]></Event>
     <Event name="PC-PETS-LOAD" paragraph="PC-PETS-LOAD"><![CDATA[       ENVIRONMENT DIVISION.
 
@@ -1431,6 +1467,18 @@
            SET     WS-PHOTO-KEY                  TO    SPACES
            SET     WS-OK                         TO    "OK"
            IF WS-PET-PHOTO NOT = SPACES
+
+               *> The bucket is the one the Settings tab shows - found from the stack, or typed
+               *> there. Without one, say what to do rather than ask S3 for a bucket named "".
+
+               IF TXT-BUCKET::Text NOT = SPACES
+                   SET     AWS-S3::Bucket                TO    TXT-BUCKET::Text
+               END-IF
+               IF AWS-S3::Bucket = SPACES
+                   SET     WS-DDB-MSG                    TO    M-NO-BUCKET
+                   SET     LBL-DDBSTATE::Caption         TO    PC-TEXT-NOW(WS-DDB-MSG)::Trim()
+                   GOBACK
+               END-IF
 
                *> The photo is cropped and resized to 400 x 400, then kept in the bucket as
                *> photos/<id>.jpg.
@@ -1582,6 +1630,12 @@
                GOBACK
            END-IF
            STRING "photos/" WS-ID::Trim() ".jpg" INTO WS-PHOTO-KEY
+
+           *> The bucket the Settings tab shows, as the store uses (a name typed there included).
+
+           IF TXT-BUCKET::Text NOT = SPACES
+               SET     AWS-S3::Bucket                TO    TXT-BUCKET::Text
+           END-IF
            SET     WS-OUT                        TO    AWS-S3::DeleteObject( WS-PHOTO-KEY::Trim() )
            SET     WS-OUT                        TO    AWS-DDB::DeleteItem( '{"id":"' & WS-ID::Trim() & '"}' )
            IF AWS-DDB::LastError NOT = SPACES
@@ -3260,6 +3314,15 @@ sa-east-1</Property>
                SET     WS-CONN-MSG                   TO    M-CONNECTED-AS
                SET     WS-CONN-A1                    TO    AWS-MCP::GetField( 1 "Arn" )::Trim()
                SET     LBL-CONN::Caption             TO    PC-TEXT-NOW(WS-CONN-MSG)::Trim()::Replace( "&1", WS-CONN-A1::Trim() )
+
+               *> A stack deployed on an earlier run is found now: without this the photo bucket
+               *> and the link function stayed empty until a deployment finished in this session,
+               *> and every photo was refused (operator, 2026-10-18).
+               *> PC-STACK-OUTPUTS: the stack's outputs into the boxes and the controls.
+               *> Uses:   AWS-MCP (DescribeStacks of the stack named in TXT-STACK).
+               *> Result: TXT-BUCKET, TXT-FUNCTION, AWS-S3::Bucket and AWS-LAMBDA::FunctionName.
+
+               CALL    "PC-STACK-OUTPUTS"
            END-IF
 ]]></Event>
   </Control>

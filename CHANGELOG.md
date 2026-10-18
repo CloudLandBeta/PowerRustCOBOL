@@ -17,6 +17,35 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.203] — 2026-10-18
+
+*(Written on `fixes-powercloud-bucket`, off `main` at 1.91.202.)*
+
+### Fixed: PowerCloud knows its photo bucket on every run, not only the one that deployed the stack
+
+The operator, 2026-10-18, saving a pet with a photo, got this in the Output panel:
+
+```
+[aws AWS-S3] PutObject failed:
+  Exception: ParamValidationError: Parameter validation failed:
+  Invalid bucket name "": …
+```
+
+It was the failure log added in 1.91.201. The cause was in the example. `AWS-S3::Bucket` was set in one place only: when a deployment reached `CREATE_COMPLETE` in the same session. A stack deployed on an earlier run left the bucket empty for good. A name typed into **Photo bucket** was never handed to `AWS-S3` either.
+
+What changed in `examples/PowerCloud/forms/main-form.cfrm`:
+
+- **A new procedure, `PC-STACK-OUTPUTS`.** It asks CloudFormation for the stack named in **Stack name** and copies its `BucketName` and `FunctionName` outputs into the boxes and into `AWS-S3` / `AWS-LAMBDA`. It changes nothing when the stack is missing or not complete, so a name typed in the boxes is kept.
+- **Who calls it.**
+  - **Connect** calls it after a successful connection.
+  - The stack poll calls it when the deployment completes.
+  - The poll now asks about the stack in **Stack name**, not a fixed `powercloud`.
+- **Saving and deleting a pet.**
+  - Both take a bucket typed into **Photo bucket**.
+  - With no bucket at all, saving a pet with a photo now says *No photo bucket yet: deploy the stack on the Settings tab, or type the bucket's name there.* (all six languages), and sends nothing.
+
+The README says how the bucket is found. In `powercloud_hosts`, a fresh run without a bucket is now refused and sends no `PutObject`. After **Connect**, the `PutObject` names the stack's bucket.
+
 ## [PowerRustCOBOL 1.91.202] — 2026-10-18
 
 *(Written on `housekeeping-snapshots`, off `main` at 1.91.201.)*
