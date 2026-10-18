@@ -17,6 +17,34 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.205] — 2026-10-18
+
+*(Written on `fixes-powercloud-default-signin`, off `main` at 1.91.204.)*
+
+### Fixed: PowerCloud connects with the machine's own AWS sign-in, and a `::` member can start a relation after `AND` / `OR`
+
+The operator, 2026-10-18: *"the example must be able to run the stack on other machines with other AWS accounts."* The template, the manifest and the build were checked for anything tied to this machine or account:
+
+- **Template.** The bucket name carries the account and region. The IAM role and policy are named by CloudFormation. The defaults launch no server and create no table.
+- **Manifest.** It names no profile and no account.
+- **Built application.** It ships the template beside the executable.
+- **Size.** The template is 11 KB, against a 24 KB field and CloudFormation's 51 KB inline limit.
+
+One thing failed.
+
+- **Connect with the key boxes empty.** The hint promises *"Leave them empty to use the default AWS profile of this machine"*, but **Connect** handed the empty boxes to `AWS-SET-CREDENTIALS`, which rightly refuses (*both keys are needed*). Connect then stopped before reaching AWS. A developer signed in with `aws configure`, IAM Identity Center or the environment could therefore never connect, and since 1.91.203 Connect is also where the photo bucket is found. Now, when both boxes are empty, nothing is handed over: keys typed earlier in the run stay, and with none the runtime's default credential chain signs the calls. The boxes are still emptied. A key id typed without its secret is still refused.
+- **The parser (`cobolt-parser`).** The natural way to write that test, `IF TXT-KEYID::Text NOT = SPACES OR TXT-SECRET::Text NOT = SPACES`, did not parse. This was a known gap, recorded in 1.90.55 and never fixed. After `AND` / `OR`, a name followed by `::` was taken as the object of an abbreviated relation (`a = b OR c`), and the rest of the term was left over. The abbreviation tests now look past the whole `::` chain (member, arguments, subscript or reference modification):
+  - followed by a relational operator, the term is a new relation;
+  - otherwise, the whole member is the abbreviation object: `WS-A = "a" OR TXT-B::Text` is `WS-A = TXT-B::Text`.
+
+  A member is never a condition-name. COBOL-85 is not affected, since two consecutive `:` never occur in it.
+
+Tests:
+- 4 new parser tests: `test_statements`, `*member*`;
+- `cobolt-parser`: 204 passed, 0 failed;
+- `powercloud_hosts`: Connect with empty boxes fills in the bucket; 8 of 8 pass;
+- codegen goldens regenerated.
+
 ## [PowerRustCOBOL 1.91.204] — 2026-10-18
 
 *(Written on `fixes-powercloud-deploy-rights`, off `main` at 1.91.203.)*

@@ -200,6 +200,75 @@ fn if_else() {
     }
 }
 
+/// The condition of the first statement, an IF.
+fn if_condition(cond_src: &str) -> cobolt_ast::expr::Condition {
+    let code = prog(&format!("    IF {cond_src}\n       CONTINUE\n    END-IF.\n    STOP RUN.\n"));
+    match parse_stmts(&code).remove(0) {
+        Stmt::If { condition, .. } => condition,
+        other => panic!("expected IF, got {other:?}"),
+    }
+}
+
+/// `(receiver, member)` of a `RECV::Member` operand, upper-cased.
+fn member(e: &cobolt_ast::expr::Expr) -> (String, String) {
+    use cobolt_ast::expr::Expr;
+    match e {
+        Expr::Member { recv, member, .. } => match recv.as_ref() {
+            Expr::Identifier(name, _) => (name.to_ascii_uppercase(), member.to_ascii_uppercase()),
+            other => panic!("expected an identifier receiver, got {other:?}"),
+        },
+        other => panic!("expected a member, got {other:?}"),
+    }
+}
+
+// Operator, 2026-10-18: `IF TXT-KEYID::Text NOT = SPACES OR TXT-SECRET::Text NOT = SPACES`
+// failed on the second `::` - after AND/OR a name followed by `::` was taken as the
+// object of an abbreviated relation, and the rest of the term was left over.
+
+#[test]
+fn a_member_starts_a_relation_after_or() {
+    use cobolt_ast::expr::{CmpOp, Condition};
+    let c = if_condition("TXT-KEYID::Text NOT = SPACES OR TXT-SECRET::Text NOT = SPACES");
+    let Condition::Or(l, r, _) = c else { panic!("expected OR, got {c:?}") };
+    for (side, name) in [(l, "TXT-KEYID"), (r, "TXT-SECRET")] {
+        let Condition::Comparison { lhs, op, .. } = *side else { panic!("expected a comparison") };
+        assert_eq!(member(&lhs), (name.to_owned(), "TEXT".to_owned()));
+        assert_eq!(op, CmpOp::Ne);
+    }
+}
+
+#[test]
+fn a_member_with_arguments_starts_a_relation_after_and() {
+    use cobolt_ast::expr::{CmpOp, Condition};
+    let c = if_condition(r#"WS-A::Trim() = "x" AND WS-B::Split(",")(2)::Trim() > "y""#);
+    let Condition::And(_, r, _) = c else { panic!("expected AND, got {c:?}") };
+    let Condition::Comparison { lhs, op, .. } = *r else { panic!("expected a comparison") };
+    assert!(matches!(lhs, cobolt_ast::expr::Expr::Member { .. }), "{lhs:?}");
+    assert_eq!(op, CmpOp::Gt);
+}
+
+#[test]
+fn a_negated_member_relation_after_or() {
+    use cobolt_ast::expr::Condition;
+    let c = if_condition(r#"WS-A = "a" OR NOT TXT-B::Text = "b""#);
+    let Condition::Or(_, r, _) = c else { panic!("expected OR, got {c:?}") };
+    let Condition::Not(inner, _) = *r else { panic!("expected NOT") };
+    let Condition::Comparison { lhs, .. } = *inner else { panic!("expected a comparison") };
+    assert_eq!(member(&lhs), ("TXT-B".to_owned(), "TEXT".to_owned()));
+}
+
+#[test]
+fn a_member_is_the_object_of_an_abbreviated_relation() {
+    use cobolt_ast::expr::{CmpOp, Condition, Expr};
+    // `WS-A = "a" OR TXT-B::Text` is `WS-A = "a" OR WS-A = TXT-B::Text`.
+    let c = if_condition(r#"WS-A = "a" OR TXT-B::Text"#);
+    let Condition::Or(_, r, _) = c else { panic!("expected OR, got {c:?}") };
+    let Condition::Comparison { lhs, op, rhs, .. } = *r else { panic!("expected a comparison") };
+    assert!(matches!(&lhs, Expr::Identifier(n, _) if n.eq_ignore_ascii_case("WS-A")), "{lhs:?}");
+    assert_eq!(op, CmpOp::Eq);
+    assert_eq!(member(&rhs), ("TXT-B".to_owned(), "TEXT".to_owned()));
+}
+
 // ── PERFORM ───────────────────────────────────────────────────────────────────
 
 #[test]

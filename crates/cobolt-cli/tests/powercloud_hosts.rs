@@ -436,12 +436,16 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
         assert_eq!(hosted_log(p).matches("operation_name='PutObject'").count(), before, "a PutObject went out without a bucket");
     });
 
-    phase("DynamoDB", "a new pet: Connect finds the bucket; photo fitted, put in S3, item stored", &p, &|p| {
+    // Operator, 2026-10-18: the example runs on any machine, with any account. Boxes left
+    // empty mean the machine's own AWS sign-in (`aws configure`, IAM Identity Center ...);
+    // Connect used to stop at "both keys are needed" and never reached AWS.
+    phase("DynamoDB", "a new pet: Connect (machine sign-in) finds the bucket; photo put, item stored", &p, &|p| {
         let r = run_form(
             p,
-            &json!([set("Txt-KeyId", "Text", KEY_ID), set("Txt-Secret", "Text", SECRET), click("Btn-Connect"), wait(2500), get("Lbl-Conn", "Caption"), get("Txt-Bucket", "Text"), click("Btn-NewPet"), wait(3500), get("Lbl-DdbState", "Caption")]),
+            &json!([click("Btn-Connect"), wait(2500), get("Lbl-Conn", "Caption"), get("Txt-Bucket", "Text"), click("Btn-NewPet"), wait(3500), get("Lbl-DdbState", "Caption")]),
             60,
         );
+        assert!(read(&r, "Lbl-Conn", "Caption").starts_with("Connected as arn:aws:iam::123456789012:user/demo"), "{r}");
         assert_eq!(read(&r, "Txt-Bucket", "Text"), "powercloud-photos-123456789012-us-east-1", "Connect did not read the stack's outputs: {}", read(&r, "Lbl-Conn", "Caption"));
         let log = hosted_log(p);
         let put = log.lines().find(|l| l.contains("operation_name='PutObject'")).unwrap_or("");

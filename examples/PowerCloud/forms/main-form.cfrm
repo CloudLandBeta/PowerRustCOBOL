@@ -3294,11 +3294,17 @@ sa-east-1</Property>
        PROCEDURE DIVISION.
 
            *> Hand the keys to the runtime: one call per region's connection. They are kept in
-           *> memory only, and the boxes are emptied at once.
+           *> memory only, and the boxes are emptied at once. Both boxes empty: nothing is
+           *> handed over - keys typed earlier in this run stay, and without any the machine's
+           *> own AWS sign-in is used (its default profile, IAM Identity Center, the
+           *> environment), as the hint above the boxes says. Any machine, any account.
 
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
-               COBOL::"AWS-SET-CREDENTIALS" ( WS-REGION(WS-I) TXT-KEYID::Text TXT-SECRET::Text TXT-TOKEN::Text WS-STATUS )
-           END-PERFORM
+           SET     WS-STATUS                     TO    SPACES
+           IF TXT-KEYID::Text NOT = SPACES OR TXT-SECRET::Text NOT = SPACES
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
+                   COBOL::"AWS-SET-CREDENTIALS" ( WS-REGION(WS-I) TXT-KEYID::Text TXT-SECRET::Text TXT-TOKEN::Text WS-STATUS )
+               END-PERFORM
+           END-IF
            SET     TXT-KEYID::Text               TO    SPACES
            SET     TXT-SECRET::Text              TO    SPACES
            SET     TXT-TOKEN::Text               TO    SPACES

@@ -1360,11 +1360,12 @@ fn at_negated_object(p: &Parser) -> bool {
     // `NOT SIGN-1 ZERO` is a negated sign condition on a new subject, and
     // anything followed by a relational operator, a qualifier or another `NOT`
     // is the subject of a full relation.
-    if at_class_or_sign_word(p, 2) {
+    let next = past_member_chain(p, 2);
+    if at_class_or_sign_word(p, next) {
         return false;
     }
     !matches!(
-        p.peek_at(2),
+        p.peek_at(next),
         Token::Eq
             | Token::NotEq
             | Token::Lt
@@ -1382,6 +1383,40 @@ fn at_negated_object(p: &Parser) -> bool {
     )
 }
 
+/// The offset just past the `::member` chain that starts `at` tokens ahead —
+/// `::Text`, `::Trim()`, `::Split(",")(2)::Trim()` — or `at` itself when none
+/// starts there. Mirrors [`parse_member_chain`]: the member name, its argument
+/// list, then one subscript or reference modification.
+///
+/// The abbreviation tests below look at the token after an operand to tell a
+/// new relation (`… OR B::Text NOT = SPACES`) from an abbreviation object.
+/// Looking at the token after the bare name saw the `::` and took `B` alone as
+/// the object, leaving `::Text NOT = SPACES` unread (operator, 2026-10-18).
+fn past_member_chain(p: &Parser, mut at: usize) -> usize {
+    while matches!(p.peek_at(at), Token::Colon) && matches!(p.peek_at(at + 1), Token::Colon) {
+        at += 3; // `:` `:` and the member name, whatever token spells it
+        for _ in 0..2 {
+            if !matches!(p.peek_at(at), Token::LParen) {
+                break;
+            }
+            let mut depth = 0usize;
+            loop {
+                match p.peek_at(at) {
+                    Token::LParen => depth += 1,
+                    Token::RParen => depth -= 1,
+                    Token::Eof => return at,
+                    _ => {}
+                }
+                at += 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+        }
+    }
+    at
+}
+
 /// True if the current token is a *bare* identifier object of an abbreviated
 /// relation: an identifier not followed by a relational operator, qualifier, or
 /// `AND` (so OR/term-end). Used to route `a = b OR c` to the continuation parser
@@ -1392,11 +1427,12 @@ fn at_bare_object(p: &Parser) -> bool {
     }
     // `… AND SIGN-1 ZERO` is a full sign condition on a new subject, not an
     // abbreviation object: the class/sign word after the name belongs to it.
-    if at_class_or_sign_word(p, 1) {
+    let next = past_member_chain(p, 1);
+    if at_class_or_sign_word(p, next) {
         return false;
     }
     !matches!(
-        p.peek_at(1),
+        p.peek_at(next),
         Token::Eq
             | Token::NotEq
             | Token::Lt
@@ -1606,8 +1642,9 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
     // condition-name or the object of the reused subject/operator. Emit a
     // NameOrAbbrev node and let the runtime decide via its 88-level metadata.
     if let Token::Identifier(name) = p.peek().clone() {
-        let next = p.peek_at(1);
-        let bare = !at_class_or_sign_word(p, 1)
+        let after = past_member_chain(p, 1);
+        let next = p.peek_at(after);
+        let bare = !at_class_or_sign_word(p, after)
             && !matches!(
             next,
             Token::Eq
@@ -1628,6 +1665,18 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
         if bare {
             if let Some((subject, op)) = rightmost_comparison(prev) {
                 let span = p.peek_span();
+                // `… OR B::Text`: a member is never a condition-name, so the whole
+                // operand is the object of the reused subject and operator.
+                if after > 1 {
+                    let rhs = parse_expr(p);
+                    let sp = span.merge(rhs.span());
+                    return Condition::Comparison {
+                        lhs: subject,
+                        op,
+                        rhs,
+                        span: sp,
+                    };
+                }
                 p.advance();
                 return Condition::NameOrAbbrev {
                     subject: Box::new(subject),
