@@ -274,7 +274,23 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PATHS: sets the path of the settings file.
+           *> Uses:   The environment variable POWERCHAT_DATA.
+           *> Result: WS-DATA-DIR = $POWERCHAT_DATA, or "data" when that is empty; WS-SETTINGS-PATH
+           *>         = <WS-DATA-DIR>/settings.idx. No file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the welcome texts in the language the user picked and sets the five
+           *> captions that show them.
+           *> Uses:   The LANG setting in the settings file whose path PC-PATHS just set
+           *>         (WS-SETTINGS-PATH), and PC-TEXT (5 texts x 6 languages en pt es fr jp cn).
+           *> Result: WS-LANG = the saved code ("en" when unset or unknown), WS-LANG-IX = its column
+           *>         1-6, PC-TEXT-NOW(1..5) = T-WELCOME and T-STEP-1..T-STEP-4 in that language;
+           *>         Lbl-Welcome::Caption and Lbl-Step-1..4::Caption show them. WS-SET-NAME =
+           *>         "LANG" and WS-SET-VALUE hold the lookup. WS-TX-I and WS-FS are overwritten.
+
            CALL    "PC-TEXTS"
 
            GOBACK.
@@ -290,6 +306,16 @@
 
        PROCEDURE DIVISION.
            *>   Back on the pane: the language may have changed meanwhile (R46).
+
+           *> PC-TEXTS: loads the welcome texts in the language the user picked and sets the five
+           *> captions that show them (here: the form is back on the pane, so the language may have
+           *> changed).
+           *> Uses:   The LANG setting in the settings file (WS-SETTINGS-PATH, set when the form
+           *>         loaded), and PC-TEXT (5 texts x 6 languages en pt es fr jp cn).
+           *> Result: WS-LANG = the saved code ("en" when unset or unknown), WS-LANG-IX = its column
+           *>         1-6, PC-TEXT-NOW(1..5) = T-WELCOME and T-STEP-1..T-STEP-4 in that language;
+           *>         Lbl-Welcome::Caption and Lbl-Step-1..4::Caption show them. WS-SET-NAME =
+           *>         "LANG" and WS-SET-VALUE hold the lookup. WS-TX-I and WS-FS are overwritten.
 
            CALL    "PC-TEXTS"
 
@@ -325,9 +351,31 @@
            *>   is on the pane; nothing tells a pane occupant, so it looks (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the language code saved now, or SPACES; the next lines compare
+           *>         its first two characters with WS-LANG, the language of the texts on screen.
+           *>         WS-SET-NAME is unchanged; WS-FS and the record area SETTINGS-REC are
+           *>         overwritten.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE(1:2) NOT = SPACES
                    AND WS-SET-VALUE(1:2) NOT = WS-LANG
+
+               *> PC-TEXTS: loads the welcome texts in the language the user picked and sets the
+               *> five captions that show them (here: the language saved now differs from WS-LANG,
+               *> the language of the texts on screen).
+               *> Uses:   The LANG setting in the settings file (WS-SETTINGS-PATH, set when the form
+               *>         loaded), and PC-TEXT (5 texts x 6 languages en pt es fr jp cn).
+               *> Result: WS-LANG = the saved code ("en" when unset or unknown), WS-LANG-IX = its
+               *>         column 1-6, PC-TEXT-NOW(1..5) = T-WELCOME and T-STEP-1..T-STEP-4 in that
+               *>         language; Lbl-Welcome::Caption and Lbl-Step-1..4::Caption show them.
+               *>         WS-SET-NAME = "LANG" and WS-SET-VALUE hold the lookup. WS-TX-I and WS-FS
+               *>         are overwritten.
+
                CALL    "PC-TEXTS"
            END-IF
 
@@ -400,6 +448,15 @@
            *>   designed caption that shows one (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the saved language code (PC-TEXTS reads its first two
+           *>         characters), or SPACES when it was never saved. WS-SET-NAME is unchanged;
+           *>         WS-FS and the record area SETTINGS-REC are overwritten.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            EVALUATE    WS-LANG

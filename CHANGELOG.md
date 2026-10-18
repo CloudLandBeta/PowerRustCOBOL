@@ -17,6 +17,26 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.202] — 2026-10-18
+
+*(Written on `housekeeping-snapshots`, off `main` at 1.91.201.)*
+
+### Housekeeping: the codegen snapshots compare every example form again, and two leftovers are gone
+
+The operator asked, 2026-10-18, to "merge all into main". The eight `wip/main-*` branches were reviewed one by one; none was merged as it stood:
+- one was already wholly in `main`;
+- two held older versions of files `main` has since moved on from;
+- four held only `actors.idx`, data the running PowerDemo3 writes;
+- the largest held snapshots from 2026-10-14.
+
+The operator chose to carry over two of their intentions, done fresh from today's `main`.
+
+- **The codegen snapshots.** `every_example_form_generates_its_snapshot` stopped at the first missing snapshot, `PowerDemo3/General__layers-form.cbl`, so no other form was being compared at all. Regenerated from the forms as committed:
+  - 28 updated and 1 added;
+  - checked for credentials;
+  - the test passes again, along with the rest of `cobolt-codegen` (94 tests).
+- **`poweranalytics-post-cobolforo.bbcode.txt`**, a forum-post draft committed at the repository root, is removed.
+
 ## [PowerRustCOBOL 1.91.201] — 2026-10-18
 
 *(Written on `fixes-powercloud-upload`, off `main` at 1.91.200.)*

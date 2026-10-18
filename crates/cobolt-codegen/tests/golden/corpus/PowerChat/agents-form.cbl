@@ -344,9 +344,46 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PATHS: works out where PowerChat keeps its own indexed files.
+           *> Uses:   the environment variable POWERCHAT_DATA.
+           *> Result: WS-DATA-DIR = POWERCHAT_DATA, or "data" when empty; WS-SETTINGS-PATH =
+           *>         <WS-DATA-DIR>/settings.idx and WS-MODELS-PATH = <WS-DATA-DIR>/models.idx. No
+           *>         file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: puts the form in the user's language: it reads the LANG setting, loads the
+           *> matching texts and sets every designed caption and tooltip.
+           *> Uses:   the LANG setting (read through PC-SETTING-GET) and the PC-TEXT table of 8
+           *>         texts in 6 languages.
+           *> Result: WS-LANG = "en", "pt", "es", "fr", "jp" or "cn" ("en" when unknown) and
+           *>         WS-LANG-IX = 1 to 6, its column; PC-TEXT-NOW(1..8) = the texts in that
+           *>         language, which the T-... names read. Captions are set on Lbl-Title, Btn-Save,
+           *>         Btn-Cancel, Btn-SaveTop, Btn-CancelTop, Lbl-Status and Lbl-Agent-1 to
+           *>         Lbl-Agent-3 ("Agent n"); tooltips on Cmb-Agent-1 to Cmb-Agent-3. WS-SET-NAME =
+           *>         "LANG", WS-SET-VALUE, WS-A, WS-FMT, WS-ARG1 and WS-FMT-OUT are work areas.
+
            CALL    "PC-TEXTS"
+
+           *> PC-LOAD-CONNS: lists the saved connections (the application's models, mirrored into
+           *> MODELS-FILE first) for the agent pickers.
+           *> Uses:   MODELS-FILE (<WS-DATA-DIR>/models.idx = WS-MODELS-PATH, set by PC-PATHS above;
+           *>         created empty when missing) and, through PC-SYNC-MODELS, the application's
+           *>         model list.
+           *> Result: WS-CONN-COUNT = the number of models, up to 200; WS-CONN-NAME(n) = the name of
+           *>         the n-th one, in key order. MODELS-FILE is brought up to date by
+           *>         PC-SYNC-MODELS first.
+
            CALL    "PC-LOAD-CONNS"
+
+           *> PC-LOAD-AGENTS: reads which connection each of the chat's three agents uses.
+           *> Uses:   the settings AGENT-1-ENTRY, AGENT-2-ENTRY and AGENT-3-ENTRY and, when agent 1
+           *>         has none, MODEL-ENTRY.
+           *> Result: WS-AGENT-ENTRY(1..3) = the connection name saved for each agent, SPACES = the
+           *>         agent is off (agent 1 falls back to MODEL-ENTRY). The lines below select it in
+           *>         each picker.
+
            CALL    "PC-LOAD-AGENTS"
 
            *>   Each agent's picker: "(off)" first (item 1), then every saved
@@ -423,6 +460,11 @@
        PROCEDURE DIVISION.
            *>   The same code as the Cancel button at the top.
 
+           *> PC-CANCEL: closes the dialog without saving. Here from the Cancel button at the
+           *> bottom.
+           *> Uses:   No data item is read.
+           *> Result: the form is closed. No data item, setting or file changes.
+
            CALL    "PC-CANCEL"
 
            GOBACK.
@@ -439,6 +481,17 @@
        PROCEDURE DIVISION.
            *>   The same code as the Save button at the top.
 
+           *> PC-SAVE: saves which saved connection each of the three agents uses, or none, then
+           *> closes the dialog. Here from the Save button at the bottom.
+           *> Uses:   the selection of Cmb-Agent-1, Cmb-Agent-2 and Cmb-Agent-3 (item 1 = "(off)",
+           *>         item n + 1 = connection n) and WS-CONN-NAME(1..WS-CONN-COUNT) loaded when the
+           *>         form opened.
+           *> Result: settings AGENT-1-ENTRY, AGENT-2-ENTRY and AGENT-3-ENTRY = the connection name
+           *>         picked for each agent, SPACES for "(off)"; MODEL-ENTRY = agent 1's value, so
+           *>         "(off)" for agent 1 does not fall back to the old single setting. Each is
+           *>         written and committed. Lbl-Status::Caption = the "agents saved" text, and the
+           *>         form is closed. WS-INDEX, WS-SET-NAME and WS-SET-VALUE are work areas.
+
            CALL    "PC-SAVE"
 
            GOBACK.
@@ -453,6 +506,11 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-CANCEL: closes the dialog without saving. Here from the Cancel button at the top.
+           *> Uses:   No data item is read.
+           *> Result: the form is closed. No data item, setting or file changes.
+
            CALL    "PC-CANCEL"
 
            GOBACK.
@@ -467,6 +525,18 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE: saves which saved connection each of the three agents uses, or none, then
+           *> closes the dialog. Here from the Save button at the top.
+           *> Uses:   the selection of Cmb-Agent-1, Cmb-Agent-2 and Cmb-Agent-3 (item 1 = "(off)",
+           *>         item n + 1 = connection n) and WS-CONN-NAME(1..WS-CONN-COUNT) loaded when the
+           *>         form opened.
+           *> Result: settings AGENT-1-ENTRY, AGENT-2-ENTRY and AGENT-3-ENTRY = the connection name
+           *>         picked for each agent, SPACES for "(off)"; MODEL-ENTRY = agent 1's value, so
+           *>         "(off)" for agent 1 does not fall back to the old single setting. Each is
+           *>         written and committed. Lbl-Status::Caption = the "agents saved" text, and the
+           *>         form is closed. WS-INDEX, WS-SET-NAME and WS-SET-VALUE are work areas.
+
            CALL    "PC-SAVE"
 
            GOBACK.
@@ -532,6 +602,15 @@
                OPEN    I-O MODELS-FILE
            END-IF
            SET     WS-SET-NAME                   TO    "MODELS-ADOPTED"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = "Y" once the models PowerChat kept before were handed to the
+           *>         application's list, otherwise SPACES; the IF below runs that one-time
+           *>         hand-over unless it is "Y".
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE NOT = "Y"
                SET     MDL-NAME                  TO    LOW-VALUES
@@ -550,6 +629,14 @@
 
                SET     WS-SET-NAME               TO    "MODELS-ADOPTED"
                SET     WS-SET-VALUE              TO    "Y"
+
+               *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+               *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and
+               *> committed at once. The file is created empty when missing.
+               *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" and WS-SET-VALUE = "Y" (set just above).
+               *> Result: the MODELS-ADOPTED setting is "Y", so the hand-over of the old models is
+               *>         not done again. Only WS-FS and the settings record area (SET-NAME,
+               *>         SET-VALUE) change.
 
                CALL    "PC-SETTING-PUT"
            END-IF
@@ -708,6 +795,19 @@
            *>   Every saved connection's name, in key order, into WS-CONN-NAME -
            *>   the application's models, mirrored first (spec 085).
 
+           *> PC-SYNC-MODELS: makes MODELS-FILE mirror the application's model list (kept by the
+           *> runtime) and adds what only PowerChat knows of each model: tool support and rank.
+           *> Uses:   the application's model list (COBOL::"MODEL-COUNT" and "MODEL-GET"),
+           *>         MODELS-FILE (<WS-DATA-DIR>/models.idx = WS-MODELS-PATH; created empty when
+           *>         missing) and the MODELS-ADOPTED setting.
+           *> Result: the first time only (MODELS-ADOPTED not "Y"): every MODELS-FILE record is
+           *>         handed to the application's list with COBOL::"MODEL-SET" and MODELS-ADOPTED =
+           *>         "Y". Every time: MODELS-FILE gets a record for each model of the list (a new
+           *>         one starts with MDL-TOOLS = "N" and MDL-RANK = 5), a record whose api, url or
+           *>         model differs is rewritten, and a record for a model no longer in the list is
+           *>         deleted; committed. WS-SET-NAME and WS-SET-VALUE hold the MODELS-ADOPTED
+           *>         setting.
+
            CALL    "PC-SYNC-MODELS"
            SET     WS-CONN-COUNT                 TO    0
            OPEN    I-O MODELS-FILE
@@ -754,11 +854,29 @@
            PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                SET     WS-SET-NAME               TO    SPACES
                STRING    "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+
+               *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+               *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+               *> missing; nothing is written.
+               *> Uses:   WS-SET-NAME = "AGENT-<WS-A>-ENTRY" (built just above: AGENT-1-ENTRY,
+               *>         AGENT-2-ENTRY, then AGENT-3-ENTRY, one per pass of the loop).
+               *> Result: WS-SET-VALUE = the name of the connection saved for that agent, or SPACES
+               *>         when none; the next line copies it to WS-AGENT-ENTRY(WS-A).
+
                CALL    "PC-SETTING-GET"
                SET     WS-AGENT-ENTRY(WS-A)      TO    WS-SET-VALUE
            END-PERFORM
            IF    WS-AGENT-ENTRY(1) = SPACES
                SET     WS-SET-NAME               TO    "MODEL-ENTRY"
+
+               *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+               *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+               *> missing; nothing is written. Reached only when WS-AGENT-ENTRY(1) is SPACES.
+               *> Uses:   WS-SET-NAME = "MODEL-ENTRY" (set just above), the single setting PowerChat
+               *>         1 kept.
+               *> Result: WS-SET-VALUE = that connection name, or SPACES when none; the next line
+               *>         copies it to WS-AGENT-ENTRY(1).
+
                CALL    "PC-SETTING-GET"
                SET     WS-AGENT-ENTRY(1)         TO    WS-SET-VALUE
            END-IF
@@ -779,6 +897,14 @@
            *>   designed caption and hint that shows one (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = the language code saved under LANG ("en", "pt", "es", "fr",
+           *>         "jp" or "cn"), or SPACES when none was saved. Used right below to set WS-LANG.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            *> WS-LANG-IX is the language's column in PC-TEXT; an unset or unknown
@@ -808,6 +934,13 @@
            SET     WS-A                          TO    1
            SET     WS-ARG1                       TO    WS-A
 
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-AGENT-N (the "Agent &1" text in the current language); WS-ARG1 =
+           *>         WS-A = 1, set just above.
+           *> Result: WS-FMT-OUT = "Agent 1" in that language; the next line puts it on Lbl-Agent-1.
+           *>         Nothing else changes.
+
            CALL    "PC-FMT"
 
            SET     Lbl-Agent-1::Caption          TO    WS-FMT-OUT::Trim()
@@ -816,6 +949,13 @@
            SET     WS-A                          TO    2
            SET     WS-ARG1                       TO    WS-A
 
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-AGENT-N (the "Agent &1" text in the current language); WS-ARG1 =
+           *>         WS-A = 2, set just above.
+           *> Result: WS-FMT-OUT = "Agent 2" in that language; the next line puts it on Lbl-Agent-2.
+           *>         Nothing else changes.
+
            CALL    "PC-FMT"
 
            SET     Lbl-Agent-2::Caption          TO    WS-FMT-OUT::Trim()
@@ -823,6 +963,13 @@
            SET     WS-FMT                        TO    T-AGENT-N
            SET     WS-A                          TO    3
            SET     WS-ARG1                       TO    WS-A
+
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-AGENT-N (the "Agent &1" text in the current language); WS-ARG1 =
+           *>         WS-A = 3, set just above.
+           *> Result: WS-FMT-OUT = "Agent 3" in that language; the next line puts it on Lbl-Agent-3.
+           *>         Nothing else changes.
 
            CALL    "PC-FMT"
 
@@ -906,8 +1053,27 @@
                SET     WS-SET-VALUE              TO    WS-CONN-NAME(WS-INDEX)
            END-IF
            SET     WS-SET-NAME                   TO    "AGENT-1-ENTRY"
+
+           *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+           *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and committed
+           *> at once. The file is created empty when missing.
+           *> Uses:   WS-SET-NAME = "AGENT-1-ENTRY" (set just above) and WS-SET-VALUE = the name of
+           *>         the connection picked in Cmb-Agent-1, or SPACES when "(off)" is picked
+           *>         (WS-CONN-NAME(WS-INDEX), set above).
+           *> Result: the AGENT-1-ENTRY setting holds that connection name (or SPACES = the agent is
+           *>         off). Only WS-FS and the settings record area (SET-NAME, SET-VALUE) change.
+
            CALL    "PC-SETTING-PUT"
            SET     WS-SET-NAME                   TO    "MODEL-ENTRY"
+
+           *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+           *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and committed
+           *> at once. The file is created empty when missing.
+           *> Uses:   WS-SET-NAME = "MODEL-ENTRY" (set just above) and WS-SET-VALUE = agent 1's
+           *>         connection name, or SPACES for "(off)" (unchanged since the call above).
+           *> Result: the MODEL-ENTRY setting, the single one PowerChat 1 kept, follows agent 1.
+           *>         Only WS-FS and the settings record area (SET-NAME, SET-VALUE) change.
+
            CALL    "PC-SETTING-PUT"
            SET     WS-INDEX                      TO    Cmb-Agent-2::GetSelectedIndex()
            *>   Item 1 is "(off)"; connection N is item N + 1.
@@ -918,6 +1084,16 @@
                SET     WS-SET-VALUE              TO    WS-CONN-NAME(WS-INDEX)
            END-IF
            SET     WS-SET-NAME                   TO    "AGENT-2-ENTRY"
+
+           *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+           *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and committed
+           *> at once. The file is created empty when missing.
+           *> Uses:   WS-SET-NAME = "AGENT-2-ENTRY" (set just above) and WS-SET-VALUE = the name of
+           *>         the connection picked in Cmb-Agent-2, or SPACES when "(off)" is picked
+           *>         (WS-CONN-NAME(WS-INDEX), set above).
+           *> Result: the AGENT-2-ENTRY setting holds that connection name (or SPACES = the agent is
+           *>         off). Only WS-FS and the settings record area (SET-NAME, SET-VALUE) change.
+
            CALL    "PC-SETTING-PUT"
            SET     WS-INDEX                      TO    Cmb-Agent-3::GetSelectedIndex()
            *>   Item 1 is "(off)"; connection N is item N + 1.
@@ -928,6 +1104,16 @@
                SET     WS-SET-VALUE              TO    WS-CONN-NAME(WS-INDEX)
            END-IF
            SET     WS-SET-NAME                   TO    "AGENT-3-ENTRY"
+
+           *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+           *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and committed
+           *> at once. The file is created empty when missing.
+           *> Uses:   WS-SET-NAME = "AGENT-3-ENTRY" (set just above) and WS-SET-VALUE = the name of
+           *>         the connection picked in Cmb-Agent-3, or SPACES when "(off)" is picked
+           *>         (WS-CONN-NAME(WS-INDEX), set above).
+           *> Result: the AGENT-3-ENTRY setting holds that connection name (or SPACES = the agent is
+           *>         off). Only WS-FS and the settings record area (SET-NAME, SET-VALUE) change.
+
            CALL    "PC-SETTING-PUT"
            SET     Lbl-Status::Caption           TO    T-AGENTS-SAVED::Trim()
            INVOKE    ME::Close()

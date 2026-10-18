@@ -221,6 +221,16 @@
            *> that Txt-Log::AppendText(WS-NL) adds after each logged line.
 
            SET     WS-NL                         TO    FUNCTION CHAR(11)
+
+           *> SEED-TREE: builds the sample tree of sites in Trv-Sites, level by level, with AddNode.
+           *> Uses:   Trv-Sites::Items, empty at load (the tree has no designed Items); the levels,
+           *>         labels and icons are literals in the procedure.
+           *> Result: Trv-Sites::Items gets 8 nodes, in this order (level, icon): Brazil (1, globe),
+           *>         Rio de Janeiro (2, folder), Terminal 1 (3, doc-text), Terminal 2 (3,
+           *>         doc-text), Santos (2, folder), Berth 7 (3, anchor), Portugal (1, globe),
+           *>         Lisboa (2, folder). Trv-Sites::NodeCount() = 8 when the tree started empty. No
+           *>         data item changes.
+
            CALL    "SEED-TREE"
            *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
            *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
@@ -517,6 +527,16 @@
            *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
 
            Trv-Sites::Clear()
+
+           *> SEED-TREE: builds the sample tree of sites in Trv-Sites, level by level, with AddNode.
+           *> Uses:   Trv-Sites::Items, emptied by Trv-Sites::Clear() on the line above; the levels,
+           *>         labels and icons are literals in the procedure.
+           *> Result: Trv-Sites::Items gets 8 nodes, in this order (level, icon): Brazil (1, globe),
+           *>         Rio de Janeiro (2, folder), Terminal 1 (3, doc-text), Terminal 2 (3,
+           *>         doc-text), Santos (2, folder), Berth 7 (3, anchor), Portugal (1, globe),
+           *>         Lisboa (2, folder). Trv-Sites::NodeCount() = 8 since the tree was emptied just
+           *>         before. No data item changes.
+
            CALL    "SEED-TREE".
 
            GOBACK.

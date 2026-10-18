@@ -317,6 +317,19 @@
        01 WS-B                                   GLOBAL    PIC 9.
        01 WS-BEST                                GLOBAL    PIC 9.
        01 WS-SAME-MODEL                          GLOBAL    PIC X.
+       *>   The election the agents hold (063 R70, R71): the agents it was held for, as
+       *>   a signature, and who won it. The next election is held only when that changes.
+
+       01 WS-ELECT-SIG                            GLOBAL    PIC X(400).
+       01 WS-ELECT-SIG-NEW                        GLOBAL    PIC X(400).
+       01 WS-ELECT-TMP                            GLOBAL    PIC X(400).
+       01 WS-ELECT-ORCH                           GLOBAL    PIC 9    VALUE 0.
+       01 WS-ELECT-WORKER                         GLOBAL    PIC 9    VALUE 0.
+       01 WS-ELECT-DONE                           GLOBAL    PIC X    VALUE "N".
+       01 WS-FIRST-AGENT                          GLOBAL    PIC 9.
+       01 WS-N-CAND                               GLOBAL    PIC 9.
+       01 WS-RAND-SEEDED                          GLOBAL    PIC X    VALUE "N".
+       01 WS-RAND-SEED                            GLOBAL    PIC 9(8).
        01 WS-STAGE                               GLOBAL    PIC X(8)    VALUE "IDLE".
        01 WS-PENDING                             GLOBAL    PIC 99    VALUE 0.
        01 WS-TOPIC-PROMPT                        GLOBAL    PIC X(1000).
@@ -1115,25 +1128,140 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PATHS: sets where PowerChat keeps its files: the data folder (POWERCHAT_DATA, else
+           *> data), the samples folder (POWERCHAT_SAMPLES, else samples), and the path of each file
+           *> inside them.
+           *> Uses:   The environment variables POWERCHAT_DATA and POWERCHAT_SAMPLES.
+           *> Result: WS-DATA-DIR and WS-SAMPLES-DIR are set (data / samples by default).
+           *>         WS-SETTINGS-PATH, WS-TOPICS-PATH, WS-CONVS-PATH, WS-TURNS-PATH, WS-TR-PATH,
+           *>         WS-MODELS-PATH, WS-TFILES-PATH, WS-RTPL-PATH and WS-MAINP-PATH point into the
+           *>         data folder; WS-RTSEED-PATH (= WS-RTNEW-PATH), WS-RTPREV-PATH and
+           *>         WS-MPSEED-PATH into the samples folder. No file can be opened before this.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the interface language: reads the LANG setting, copies that language's
+           *> column of PC-TEXT into the T-... items and sets the captions and hints of Txt-Input,
+           *> Btn-Send, Btn-Pdf and Lbl-Status. An unset or unknown code means English.
+           *> Uses:   The LANG setting in the settings file (the paths were set just above).
+           *> Result: WS-LANG and WS-LANG-IX are set, the 36 T-... texts are loaded in that language
+           *>         (English when unset), and Txt-Input::HintText, Btn-Send::Caption,
+           *>         Btn-Pdf::Caption and Lbl-Status::Caption are set from them.
+
            CALL    "PC-TEXTS"
+
+           *> PC-READ-ROLES: keeps the role prompt designed on each AgentObject before PC-ELECT
+           *> replaces it with the election's instructions; only the first call reads them.
+           *> Uses:   AGENT-1::SystemPrompt, AGENT-2::SystemPrompt and AGENT-3::SystemPrompt as
+           *>         designed on the controls; WS-ROLES-SEEN ("N" until the first call).
+           *> Result: WS-AG-ROLE(1 to 3) = those role prompts and WS-ROLES-SEEN = "Y". Later calls
+           *>         do nothing, because the election replaces the agents' prompts.
+
            CALL    "PC-READ-ROLES"
+
+           *> PC-HAND-MODELS: hands the models to the three agents: it syncs MODELS-FILE with the
+           *> application's model list (PC-SYNC-MODELS), then for each agent reads the entry
+           *> assigned in the settings, looks it up in MODELS-FILE and gives it to the AgentObject;
+           *> it also applies the Knowledge Base folder setting.
+           *> Uses:   Settings AGENT-1-ENTRY to AGENT-3-ENTRY (MODEL-ENTRY, KB-LOCATION), the
+           *>         application's model list (MODEL-COUNT / MODEL-GET) and MODELS-FILE.
+           *> Result: MODELS-FILE is written to match the model list (records added, updated or
+           *>         deleted; the first run ever also calls COBOL::"MODEL-SET" for the old records
+           *>         and saves MODELS-ADOPTED). WS-AG-ENTRY / -MODEL / -TOOLS / -RANK (1 to 3) are
+           *>         reloaded (an entry no longer in MODELS is blanked), AGENT-n::ModelEntry is
+           *>         set, and KB-1::Location follows KB-LOCATION if saved (WS-SET-NAME /
+           *>         WS-SET-VALUE end on it).
+
            CALL    "PC-HAND-MODELS"
 
            SET     WS-ALLOWED-TOPIC              TO    SPACES
+
+           *> PC-LOAD-TOPIC: loads the selected topic, which decides everything the agents may use:
+           *> it reads the CUR-TOPIC setting, shows the topic's name, takes its prompt and Knowledge
+           *> Base collection, registers its data files, counts its sources and elects the agents
+           *> (PC-ELECT).
+           *> Uses:   WS-ALLOWED-TOPIC = SPACES (set just above): no topic is allowed to the agents
+           *>         yet; the CUR-TOPIC setting, TOPICS-FILE, TFILES-FILE and the documents of
+           *>         KB-1.
+           *> Result: WS-CUR-TOPIC = the saved topic (SPACES if none, or if it was deleted). When it
+           *>         exists: Lbl-Topic::Caption = its name, WS-TOPIC-PROMPT, KB-1::Collection, the
+           *>         registered data files (WS-REG-COUNT, WS-FAILED, WS-FILE-NOTE), WS-SOURCES and
+           *>         the election. Otherwise Lbl-Topic::Caption holds T-NO-TOPIC or T-TOPIC-GONE,
+           *>         nothing else is loaded and nothing is elected.
+
            CALL    "PC-LOAD-TOPIC"
            IF    WS-CUR-TOPIC NOT = SPACES
+
+               *> PC-NEW-CONV: starts an empty conversation: no current conversation id (the first
+               *> question creates it), the turn counter at 0, and Vwr-Chat cleared (an open
+               *> conversation is filed into history, which keeps the last 10 entries; an empty pane
+               *> is left alone).
+               *> Uses:   Vwr-Chat. Reached only when WS-CUR-TOPIC is not SPACES (a topic was
+               *>         loaded).
+               *> Result: The chat starts with no current conversation: WS-CUR-CONV = SPACES, WS-SEQ
+               *>         = 0. At load Vwr-Chat is still empty, so NewConversation changes nothing
+               *>         on screen. WS-OK ends SPACES.
+
                CALL    "PC-NEW-CONV"
            END-IF
            *>   No topic is forced open any more: with no model yet the menu is
            *>   shut and the welcome form explains; with one, Topics is a click.
 
            IF    WS-CUR-TOPIC = SPACES
+
+               *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then
+               *> gives every agent its instructions from the main prompt: the SYSTEM section (with
+               *> the topic's prompt) for the orchestrator, the ASSISTANT section for the others.
+               *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+               *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN
+               *>         (loaded again) and RTPL-FILE (through PC-TEMPLATES); WS-CUR-TOPIC = SPACES
+               *>         here (no topic is open, so PC-LOAD-TOPIC did not elect) and no topic
+               *>         prompt has been loaded in this run.
+               *> Result: WS-N-AGENTS, WS-N-TOOLS, WS-ORCH and WS-WORKER are set (0 = none);
+               *>         Lbl-Status::Caption = T-NO-MODEL if no agent has a model. With an
+               *>         orchestrator, WS-CATALOG is rebuilt (PC-TEMPLATES also upgrades unchanged
+               *>         old templates in RTPL-FILE once per run, and seeds an empty file). Each
+               *>         AGENT-n gets its SystemPrompt and ToolProtocol ("Native" for the tool
+               *>         worker, else "None"). WS-CUR-TOPIC is SPACES: no NO SOURCES note, no
+               *>         collection granted; the former topic's grant (WS-ALLOWED-TOPIC), if any,
+               *>         is withdrawn from every agent. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC
+               *>         = SPACES, WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
                CALL    "PC-ELECT"
            END-IF
 
+           *> PC-LIST-CONVS: rebuilds the sidebar's conversation list: the newest 50 conversations
+           *> of the current topic, read from CONVS-FILE, become run-time rows of SideMenu-1, while
+           *> the designed rows are relabelled in the current language and the Getting started row
+           *> is restored.
+           *> Uses:   WS-CUR-TOPIC and CONVS-FILE; the T-MENU-... texts loaded above.
+           *> Result: WS-CONV-COUNT and WS-CONV-ROW are filled with the topic's newest 50
+           *>         conversations and the SideMenu-1 rows are built: labels in the current
+           *>         language, the Getting started row and, when the topic has conversations, one
+           *>         row each, newest first.
+
            CALL    "PC-LIST-CONVS"
+
+           *> PC-MENU-STATE: enables or disables the menu rows: Topics, Documents, Data files and
+           *> Prompt need an agent with a model; Chat needs a topic; New conversation needs both.
+           *> RAG settings and Getting started are not touched.
+           *> Uses:   WS-AG-ENTRY(1 to 3) and TOPICS-FILE.
+           *> Result: WS-CONFIGURED = "Y" if some agent has a model, WS-HAS-TOPIC = "Y" if some
+           *>         topic exists; the menu rows are enabled accordingly (Topics, Documents, Data
+           *>         files, Prompt need a model; Chat needs a topic; New conversation both). The IF
+           *>         below tests WS-CONFIGURED.
+
            CALL    "PC-MENU-STATE"
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE and today's year and month, WS-FAILED / WS-FILE-NOTE, WS-N-AGENTS,
+           *>         WS-ORCH and WS-WORKER.
+           *> Result: Lbl-Status::Caption = this month's conversations and tokens, plus the
+           *>         unusable-files note and the orchestrator line when they apply.
+
            CALL    "PC-STATUS"
 
            *>   Nothing configured yet: the ContentPane opens on the welcome form
@@ -1160,6 +1288,24 @@
 
        PROCEDURE DIVISION.
            *>   Home again (the Chat row): pick up what the other forms changed.
+
+           *> PC-REFRESH: refreshes what other forms may have changed while the chat was out of
+           *> sight: the models and agents, the topic and its files, the conversation list, the menu
+           *> state and the status line.
+           *> Uses:   The settings (agent models, CUR-TOPIC, KB-LOCATION), the application's model
+           *>         list, MODELS-FILE, TOPICS-FILE, TFILES-FILE, the documents of KB-1 and
+           *>         CONVS-FILE, which other forms may have changed while the chat was out of
+           *>         sight.
+           *> Result: PC-HAND-MODELS re-syncs MODELS-FILE and sets AGENT-n::ModelEntry and, when
+           *>         KB-LOCATION is saved, KB-1::Location. If the saved topic exists its heading,
+           *>         prompt, KB collection, registered data files and WS-SOURCES are refreshed;
+           *>         otherwise WS-CUR-TOPIC = SPACES, Lbl-Topic::Caption = T-NO-TOPIC /
+           *>         T-TOPIC-GONE, and the old prompt, collection and registered files are left as
+           *>         they were. The agents are elected again whatever the topic (PC-ELECT leaves
+           *>         WS-STAGE = "IDLE", even if a question is in flight). The conversation list,
+           *>         the menu state and the Lbl-Status line are refreshed. A blank conversation
+           *>         starts (the one on screen is filed into history) only if the topic changed to
+           *>         a topic that exists; it stays if the topic was deleted or cleared.
 
            CALL    "PC-REFRESH"
 
@@ -1213,14 +1359,69 @@
                WHEN "chat"
                    CONTINUE
                WHEN "newc"
+
+                   *> PC-PICK-TOPIC: New conversation: lets the user choose its topic in PICK-FORM
+                   *> (the topics by name, the current one preselected). The chosen topic becomes
+                   *> the current one and a fresh conversation starts in it; Cancel changes nothing.
+                   *> Uses:   WS-ITEM = "newc", the New conversation row
+                   *>         (SideMenu-1::SelectedItemId); TOPICS-FILE; WS-CUR-TOPIC, preselected.
+                   *> Result: PICK-FORM opens modally with the topic names (PickItems), the current
+                   *>         topic preselected, and its answer comes back in PickAnswer
+                   *>         (WS-PICK-ANSWER, WS-PICK-N). If the user picks a topic: the CUR-TOPIC
+                   *>         setting is saved, WS-CUR-TOPIC is loaded, a blank conversation starts
+                   *>         (the one on screen is filed into Vwr-Chat's history), the list is
+                   *>         rebuilt and the Chat row is activated. Cancel changes nothing. With no
+                   *>         topic yet, Vwr-Chat shows T-OPEN-TOPIC-MENU and nothing opens.
+
                    CALL    "PC-PICK-TOPIC"
+
+                   *> PC-SHOW-CHAT: brings the chat into view, as a click on the Chat row does,
+                   *> wherever the user was.
+                   *> Uses:   SideMenu-1, whatever pane the ContentPane was showing.
+                   *> Result: WS-OK = "1" when the Chat row exists and its activation is requested
+                   *>         ("0" if not); the shell then brings the chat into view, as after a
+                   *>         click on the Chat row, whether a topic was picked or Cancel was
+                   *>         pressed.
+
                    CALL    "PC-SHOW-CHAT"
                WHEN OTHER
                    IF    WS-ITEM(1:1) = "c"
+
+                       *> PC-OPEN-CONV: opens a saved conversation: the sidebar row id in WS-ITEM
+                       *> ("c" + conversation id) becomes the current conversation, the conversation
+                       *> on screen, if any, is first filed into Vwr-Chat's history, Vwr-Chat is
+                       *> cleared and all its turns are shown again, so the next question continues
+                       *> it.
+                       *> Uses:   WS-ITEM = the id of the clicked conversation row, "c" + the
+                       *>         conversation id (SideMenu-1::SelectedItemId, tested just above).
+                       *> Result: WS-CUR-CONV = WS-ITEM(2:16), WS-SEQ = the number of its last
+                       *>         record. The conversation on screen, if any, is first filed into
+                       *>         Vwr-Chat's history (NewConversation); Vwr-Chat is then cleared and
+                       *>         filled with the saved turns. The next question continues this
+                       *>         conversation.
+
                        CALL    "PC-OPEN-CONV"
+
+                       *> PC-SHOW-CHAT: brings the chat into view, as a click on the Chat row does,
+                       *> wherever the user was.
+                       *> Uses:   SideMenu-1, whatever pane the ContentPane was showing.
+                       *> Result: WS-OK = "1" when the Chat row exists and its activation is
+                       *>         requested ("0" if not); the shell then brings the chat into view
+                       *>         with the conversation just opened, as after a click on the Chat
+                       *>         row.
+
                        CALL    "PC-SHOW-CHAT"
                    END-IF
            END-EVALUATE
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE and today's year and month, WS-FAILED / WS-FILE-NOTE, WS-N-AGENTS,
+           *>         WS-ORCH and WS-WORKER; runs after every menu click, whatever the row.
+           *> Result: Lbl-Status::Caption = this month's conversations and tokens, plus the
+           *>         unusable-files note and the orchestrator line when they apply.
+
            CALL    "PC-STATUS"
 
            GOBACK.
@@ -1292,19 +1493,76 @@
            *>   The main prompt as it stands now: an edit in the Prompt screen
            *>   reaches the next question, the agents' instructions included.
 
+           *> PC-MAIN-LOAD: loads the main prompt: the active version the Prompt screen keeps under
+           *> topic id *MAIN in data/prompt-versions.idx, or, before it has one, the shipped
+           *> samples/main-prompt.md.
+           *> Uses:   MAINP-FILE (the Prompt screen's saved versions) and, when it has none,
+           *>         samples/main-prompt.md.
+           *> Result: WS-MAIN = the main prompt as it stands now, so an edit made in the Prompt
+           *>         screen reaches this question. The IF below compares it with WS-MAIN-ELECTED.
+
            CALL    "PC-MAIN-LOAD"
            IF    WS-MAIN NOT = WS-MAIN-ELECTED
+
+               *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then
+               *> gives every agent its instructions from the main prompt: the SYSTEM section (with
+               *> the topic's prompt) for the orchestrator, the ASSISTANT section for the others.
+               *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+               *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN
+               *>         (loaded again) and RTPL-FILE (through PC-TEMPLATES); reached only when the
+               *>         reloaded WS-MAIN differs from WS-MAIN-ELECTED (the main prompt was
+               *>         edited).
+               *> Result: The edited prompt reaches the agents. WS-N-AGENTS, WS-N-TOOLS, WS-ORCH and
+               *>         WS-WORKER are set (0 = none); Lbl-Status::Caption = T-NO-MODEL if no agent
+               *>         has a model. With an orchestrator, WS-CATALOG is rebuilt (PC-TEMPLATES
+               *>         also upgrades unchanged old templates in RTPL-FILE once per run, and seeds
+               *>         an empty file). Each AGENT-n gets its SystemPrompt and ToolProtocol
+               *>         ("Native" for the tool worker, else "None"). The former topic's Knowledge
+               *>         Base grant (WS-ALLOWED-TOPIC), if any, is withdrawn from every agent; only
+               *>         if WS-CUR-TOPIC is not SPACES is its collection granted, to the tool
+               *>         worker alone if there is one. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC
+               *>         = WS-CUR-TOPIC, WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
                CALL    "PC-ELECT"
            END-IF
 
            SET     WS-TPL-NAME WS-TPL-SKEL       TO    SPACES
            SET     WS-TPL-DONE                   TO    "N"
 
+           *> PC-COUNT-SOURCES: counts the topic's sources again before each question (Knowledge
+           *> Base documents plus registered data files) and elects the agents again only when the
+           *> count crossed zero, either way.
+           *> Uses:   KB-1 (collection WS-CUR-TOPIC), WS-REG-COUNT registered data files and the
+           *>         last count in WS-SOURCES.
+           *> Result: WS-SOURCES-WAS = the old count and WS-SOURCES = KB-1::ListDocuments() +
+           *>         WS-REG-COUNT. PC-ELECT runs again only if the count crossed zero, so a
+           *>         document added while the chat was open is noticed.
+
            CALL    "PC-COUNT-SOURCES"
+
+           *> PC-START-CONV: creates the conversation when its first question is sent: its id is the
+           *> date and time, its title the question, and the sidebar list is rebuilt. If a
+           *> conversation is already open nothing happens.
+           *> Uses:   WS-CUR-CONV (SPACES for a new conversation), WS-QUESTION = Txt-Input::Text,
+           *>         the question just typed, and WS-CUR-TOPIC.
+           *> Result: For a new conversation: WS-CUR-CONV = the first 16 characters of the current
+           *>         date and time, WS-SEQ = 0, CONVS-FILE gets a record titled by the question
+           *>         (its first 60 characters) and the list is rebuilt. An open conversation is
+           *>         left alone.
+
            CALL    "PC-START-CONV"
 
            SET     WS-ROLE                       TO    "U"
            SET     WS-TEXT                       TO    WS-QUESTION
+
+           *> PC-SAVE-TURN: stores WS-TEXT as the next turn of the current conversation in
+           *> TURNS-FILE (data/turns.idx) under role WS-ROLE, 2000 characters a record, committed at
+           *> once; a longer text continues in further records under the lower-case role letter.
+           *> Uses:   WS-ROLE = "U" and WS-TEXT = WS-QUESTION, the user's question (both set just
+           *>         above); WS-CUR-CONV, set by PC-START-CONV; WS-SEQ.
+           *> Result: TURNS-FILE gets the question as the next turn of WS-CUR-CONV under role "U",
+           *>         2000 characters a record, committed. WS-SEQ rises by one per record and ends
+           *>         on the question's last record.
 
            CALL    "PC-SAVE-TURN"
 
@@ -1315,6 +1573,15 @@
            *> WS-HISTORY keeps the history alone: the PLAN section below is appended
            *> to WS-PROMPT, while the compose and template stages rebuild their own
            *> prompts from WS-HISTORY.
+
+           *> PC-BUILD-PROMPT: builds the prompt from the last WS-HISTORY-TURNS (10) records of the
+           *> conversation, oldest first, the current question last, as "User: ..." /
+           *> "Assistant: ..." lines.
+           *> Uses:   WS-SEQ = the record just saved (the question), WS-HISTORY-TURNS = 10,
+           *>         TURNS-FILE for WS-CUR-CONV.
+           *> Result: WS-PROMPT = the last 10 records of the conversation, oldest first, as
+           *>         "User: ..." / "Assistant: ..." lines ending with this question; WS-PTR = the
+           *>         next free position. The next line keeps it in WS-HISTORY.
 
            CALL    "PC-BUILD-PROMPT"
            SET     WS-HISTORY                    TO    WS-PROMPT
@@ -1329,11 +1596,32 @@
                *>       The main prompt's PLAN section says how.
 
                SET     WS-SEC-NAME               TO    "PLAN"
+
+               *> PC-SECTION: cuts one section out of the main prompt: the text after its
+               *> "=== NAME ===" line up to the next "=== " line or the end. A section the prompt
+               *> does not have gives an empty result.
+               *> Uses:   WS-SEC-NAME = "PLAN" (set just above); WS-MAIN. Reached only when WS-STAGE
+               *>         = "PLAN" (several agents have a model).
+               *> Result: WS-SEC = the PLAN section, which tells the orchestrator how to split the
+               *>         question into TASK: lines (SPACES if the main prompt has none). The STRING
+               *>         below appends it to WS-PROMPT.
+
                CALL    "PC-SECTION"
                STRING    X"0A" X"0A" WS-SEC::Trim() INTO WS-PROMPT WITH POINTER WS-PTR
                END-STRING
            END-IF
            SET     WS-FROM                       TO    WS-ORCH
+
+           *> PC-ASK: sends WS-PROMPT as a question to the AgentObject numbered WS-FROM (1 to 3).
+           *> Ask returns at once with an empty string; the answer arrives later in that agent's
+           *> onResponse (PC-ON-REPLY), or in onError / onTimeout.
+           *> Uses:   WS-FROM = WS-ORCH (set just above) and WS-PROMPT = the conversation, with the
+           *>         PLAN section appended when WS-STAGE = "PLAN".
+           *> Result: The orchestrator is asked and the call returns at once; Ask returns an empty
+           *>         string, so WS-OK ends SPACES. The reply arrives later in its onResponse
+           *>         (PC-ON-REPLY): the answer for stage "SINGLE", the plan for "PLAN"; or in
+           *>         onError / onTimeout.
+
            CALL    "PC-ASK"
 
            SET     Lbl-Status::Caption           TO    T-THINKING::Trim()
@@ -1344,6 +1632,17 @@
            ELSE
                SET     WS-STATUS-TEXT            TO    T-THINKING
            END-IF
+
+           *> PC-SAY-STATUS: shows WS-STATUS-TEXT in italics in the status bubble of Vwr-Chat (made
+           *> the first time, changed in place after that) and scrolls to the latest message.
+           *> Uses:   WS-STATUS-ID = SPACES (set above), so a new bubble is made; WS-STATUS-TEXT =
+           *>         T-ST-COORD ("Coordinating the agents...") when WS-STAGE = "PLAN", else
+           *>         T-THINKING ("Thinking..."), in the current language.
+           *> Result: Vwr-Chat gets an agent message in italics, the status bubble; WS-STATUS-ID =
+           *>         its id. The bubble later becomes the answer. The view jumps to the latest
+           *>         message; WS-MSG = "*text*" and WS-OK ends SPACES (JumpToLatest returns
+           *>         nothing).
+
            CALL    "PC-SAY-STATUS"
 
            Txt-Input::SetFocus()
@@ -1382,6 +1681,18 @@
            SET     WS-T-IN                       TO    AGENT-1::LastInputTokens
            SET     WS-T-OUT                      TO    AGENT-1::LastOutputTokens
 
+           *> PC-ON-REPLY: handles an agent's answer: it adds its tokens to the conversation, then
+           *> acts by WS-STAGE: a "TEMPLATE: name" reply makes the agent write the report in that
+           *> template; a plan is dispatched; a task answer closes the task; a final answer is shown
+           *> and kept.
+           *> Uses:   WS-FROM = 1, WS-REPLY = AGENT-1::LastReply, WS-T-IN / WS-T-OUT = its
+           *>         LastInputTokens / LastOutputTokens (all set just above); WS-STAGE says what
+           *>         the reply is for.
+           *> Result: Its tokens are added to the conversation's totals in CONVS-FILE, then by
+           *>         WS-STAGE: "PLAN" the plan is dispatched, "WORK" the task is closed, "SINGLE" /
+           *>         "COMPOSE" the answer is shown and kept (first asking again if the reply is
+           *>         "TEMPLATE: name").
+
            CALL    "PC-ON-REPLY"
 
            GOBACK.
@@ -1404,6 +1715,19 @@
                SET     WS-TEXT                   TO    AGENT-1::LastError
                SET     WS-TASK-OK                TO    "N"
 
+               *> PC-TASK-DONE: closes the task of the agent WS-FROM: the answer (or the reason for
+               *> failure) in WS-TEXT is kept as the task's result, the task is marked done or
+               *> failed. When none is pending the answer is composed; otherwise the agent takes the
+               *> next task or rests, and the progress line is refreshed.
+               *> Uses:   WS-FROM = 1, WS-TEXT = AGENT-1::LastError and WS-TASK-OK = "N" (set just
+               *>         above); reached only when WS-STAGE = "WORK" and agent 1 has a task.
+               *> Result: WS-AG-WAIT(1) becomes "N"; agent 1's task is marked "F" with the error
+               *>         text as its result, WS-PENDING lowered by 1; the other tasks go on. When
+               *>         WS-PENDING is then 0 the answer is composed; otherwise the agent takes the
+               *>         next queued task or, with none queued, rests (WS-AG-WAIT stays "N",
+               *>         WS-AG-TASKNO 0), and Lbl-Status and the status bubble show "Working: N
+               *>         task(s) across M agent(s)...".
+
                CALL    "PC-TASK-DONE"
                EXIT PROGRAM
            END-IF
@@ -1413,9 +1737,29 @@
            SET     WS-FMT                        TO    T-AGENT-FAILED
            SET     WS-ARG1                       TO    "1"
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-AGENT-FAILED ("Agent &1 could not answer:") and WS-ARG1 = "1" (both
+           *>         set just above).
+           *> Result: WS-FMT-OUT = "Agent 1 could not answer:" in the current language. The next
+           *>         lines put it in bold in front of the error text in WS-MSG.
+
            CALL    "PC-FMT"
            SET     WS-MSG                        TO    SPACES
            STRING    "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
+
+           *> PC-SHOW-AGENT: shows the agent's message WS-MSG: a presentation goes straight into the
+           *> conversation (the status bubble is removed), anything else takes the status bubble's
+           *> place as an agent message; then the view jumps to the latest message.
+           *> Uses:   WS-MSG = "**" + WS-FMT-OUT + "** " + AGENT-1::LastError (built just above);
+           *>         WS-SHOW-ANSWER is "N", so only the message itself decides whether it is a
+           *>         presentation.
+           *> Result: The failure message takes the status bubble's place in Vwr-Chat (straight in
+           *>         the conversation if it reads as a presentation) and the view jumps to the
+           *>         latest message. WS-STATUS-ID = SPACES. Lbl-Status::Caption is set from
+           *>         T-LAST-FAILED on the next line.
+
            CALL    "PC-SHOW-AGENT"
            SET     Lbl-Status::Caption           TO    T-LAST-FAILED::Trim()
 
@@ -1444,6 +1788,20 @@
                SET     WS-TEXT                   TO    AGENT-1::LastError
                SET     WS-TASK-OK                TO    "N"
 
+               *> PC-TASK-DONE: closes the task of the agent WS-FROM: the answer (or the reason for
+               *> failure) in WS-TEXT is kept as the task's result, the task is marked done or
+               *> failed. When none is pending the answer is composed; otherwise the agent takes the
+               *> next task or rests, and the progress line is refreshed.
+               *> Uses:   WS-FROM = 1, WS-TEXT = AGENT-1::LastError (the timeout reason) and
+               *>         WS-TASK-OK = "N" (set just above); reached only when WS-STAGE = "WORK" and
+               *>         agent 1 has a task.
+               *> Result: WS-AG-WAIT(1) becomes "N"; agent 1's task is marked "F" with that text as
+               *>         its result, WS-PENDING lowered by 1; the other tasks go on. When
+               *>         WS-PENDING is then 0 the answer is composed; otherwise the agent takes the
+               *>         next queued task or, with none queued, rests (WS-AG-WAIT stays "N",
+               *>         WS-AG-TASKNO 0), and Lbl-Status and the status bubble show "Working: N
+               *>         task(s) across M agent(s)...".
+
                CALL    "PC-TASK-DONE"
                EXIT PROGRAM
            END-IF
@@ -1453,9 +1811,29 @@
            SET     WS-FMT                        TO    T-AGENT-FAILED
            SET     WS-ARG1                       TO    "1"
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-AGENT-FAILED ("Agent &1 could not answer:") and WS-ARG1 = "1" (both
+           *>         set just above).
+           *> Result: WS-FMT-OUT = "Agent 1 could not answer:" in the current language. The next
+           *>         lines put it in bold in front of the timeout reason in WS-MSG.
+
            CALL    "PC-FMT"
            SET     WS-MSG                        TO    SPACES
            STRING    "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
+
+           *> PC-SHOW-AGENT: shows the agent's message WS-MSG: a presentation goes straight into the
+           *> conversation (the status bubble is removed), anything else takes the status bubble's
+           *> place as an agent message; then the view jumps to the latest message.
+           *> Uses:   WS-MSG = "**" + WS-FMT-OUT + "** " + AGENT-1::LastError (built just above);
+           *>         WS-SHOW-ANSWER is "N", so only the message itself decides whether it is a
+           *>         presentation.
+           *> Result: The timeout message takes the status bubble's place in Vwr-Chat (straight in
+           *>         the conversation if it reads as a presentation) and the view jumps to the
+           *>         latest message. WS-STATUS-ID = SPACES. Lbl-Status::Caption is set from
+           *>         T-LAST-FAILED on the next line.
+
            CALL    "PC-SHOW-AGENT"
            SET     Lbl-Status::Caption           TO    T-LAST-FAILED::Trim()
 
@@ -1473,8 +1851,51 @@
        PROCEDURE DIVISION.
            *>   A model an agent uses changed: a new election (R36; 063 R71).
 
+           *> PC-HAND-MODELS: hands the models to the three agents: it syncs MODELS-FILE with the
+           *> application's model list (PC-SYNC-MODELS), then for each agent reads the entry
+           *> assigned in the settings, looks it up in MODELS-FILE and gives it to the AgentObject;
+           *> it also applies the Knowledge Base folder setting.
+           *> Uses:   Settings AGENT-1-ENTRY to AGENT-3-ENTRY (MODEL-ENTRY, KB-LOCATION), the
+           *>         application's model list (MODEL-COUNT / MODEL-GET) and MODELS-FILE: a model
+           *>         that AGENT-1 uses changed or was withdrawn.
+           *> Result: MODELS-FILE is written to match the model list (records added, updated or
+           *>         deleted; the first run ever also calls COBOL::"MODEL-SET" for the old records
+           *>         and saves MODELS-ADOPTED). WS-AG-ENTRY / -MODEL / -TOOLS / -RANK (1 to 3) are
+           *>         reloaded (an entry no longer in MODELS is blanked), AGENT-n::ModelEntry is
+           *>         set, and KB-1::Location follows KB-LOCATION if saved (WS-SET-NAME /
+           *>         WS-SET-VALUE end on it).
+
            CALL    "PC-HAND-MODELS"
+
+           *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then gives
+           *> every agent its instructions from the main prompt: the SYSTEM section (with the
+           *> topic's prompt) for the orchestrator, the ASSISTANT section for the others.
+           *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+           *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN (loaded
+           *>         again) and RTPL-FILE (through PC-TEMPLATES); the models were just reloaded by
+           *>         PC-HAND-MODELS, and WS-TOPIC-PROMPT is the last loaded topic's prompt.
+           *> Result: Elected again with the new models. WS-N-AGENTS, WS-N-TOOLS, WS-ORCH and
+           *>         WS-WORKER are set (0 = none); Lbl-Status::Caption = T-NO-MODEL if no agent has
+           *>         a model. With an orchestrator, WS-CATALOG is rebuilt (PC-TEMPLATES also
+           *>         upgrades unchanged old templates in RTPL-FILE once per run, and seeds an empty
+           *>         file). Each AGENT-n gets its SystemPrompt and ToolProtocol ("Native" for the
+           *>         tool worker, else "None"). The former topic's Knowledge Base grant
+           *>         (WS-ALLOWED-TOPIC), if any, is withdrawn from every agent; only if
+           *>         WS-CUR-TOPIC is not SPACES is its collection granted, to the tool worker alone
+           *>         if there is one. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC = WS-CUR-TOPIC,
+           *>         WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
            CALL    "PC-ELECT"
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE and today's year and month, WS-FAILED / WS-FILE-NOTE, WS-N-AGENTS,
+           *>         WS-ORCH and WS-WORKER from the new election.
+           *> Result: Lbl-Status::Caption = this month's conversations and tokens, plus the
+           *>         unusable-files note and the orchestrator line "Orchestrator: agent x, tools:
+           *>         agent y." when more than one agent has a model.
+
            CALL    "PC-STATUS"
 
            GOBACK.
@@ -1493,6 +1914,15 @@
            *>   status bubble says so while it happens.
 
            SET     WS-TOOL-KIND                  TO    AGENT-1::ToolKind
+
+           *> PC-TOOL-USE: tells the user, in the status bubble, that an agent is using a tool the
+           *> runtime answers: the Knowledge Base or a registered data file.
+           *> Uses:   WS-TOOL-KIND = AGENT-1::ToolKind, "KnowledgeBase" or "IndexedFile" (set just
+           *>         above); WS-STAGE.
+           *> Result: Nothing while WS-STAGE = "IDLE" or for any other kind. Otherwise the status
+           *>         bubble says "Searching the Knowledge Base..." (T-ST-SEARCH-KB) or
+           *>         "Reading the data files..." (T-ST-READ-DATA) in the current language.
+
            CALL    "PC-TOOL-USE"
 
            GOBACK.
@@ -1511,6 +1941,18 @@
            SET     WS-REPLY                      TO    AGENT-2::LastReply
            SET     WS-T-IN                       TO    AGENT-2::LastInputTokens
            SET     WS-T-OUT                      TO    AGENT-2::LastOutputTokens
+
+           *> PC-ON-REPLY: handles an agent's answer: it adds its tokens to the conversation, then
+           *> acts by WS-STAGE: a "TEMPLATE: name" reply makes the agent write the report in that
+           *> template; a plan is dispatched; a task answer closes the task; a final answer is shown
+           *> and kept.
+           *> Uses:   WS-FROM = 2, WS-REPLY = AGENT-2::LastReply, WS-T-IN / WS-T-OUT = its
+           *>         LastInputTokens / LastOutputTokens (all set just above); WS-STAGE says what
+           *>         the reply is for.
+           *> Result: Its tokens are added to the conversation's totals in CONVS-FILE, then by
+           *>         WS-STAGE: "PLAN" the plan is dispatched, "WORK" the task is closed, "SINGLE" /
+           *>         "COMPOSE" the answer is shown and kept (first asking again if the reply is
+           *>         "TEMPLATE: name").
 
            CALL    "PC-ON-REPLY"
 
@@ -1534,6 +1976,19 @@
                SET     WS-TEXT                   TO    AGENT-2::LastError
                SET     WS-TASK-OK                TO    "N"
 
+               *> PC-TASK-DONE: closes the task of the agent WS-FROM: the answer (or the reason for
+               *> failure) in WS-TEXT is kept as the task's result, the task is marked done or
+               *> failed. When none is pending the answer is composed; otherwise the agent takes the
+               *> next task or rests, and the progress line is refreshed.
+               *> Uses:   WS-FROM = 2, WS-TEXT = AGENT-2::LastError and WS-TASK-OK = "N" (set just
+               *>         above); reached only when WS-STAGE = "WORK" and agent 2 has a task.
+               *> Result: WS-AG-WAIT(2) becomes "N"; agent 2's task is marked "F" with the error
+               *>         text as its result, WS-PENDING lowered by 1; the other tasks go on. When
+               *>         WS-PENDING is then 0 the answer is composed; otherwise the agent takes the
+               *>         next queued task or, with none queued, rests (WS-AG-WAIT stays "N",
+               *>         WS-AG-TASKNO 0), and Lbl-Status and the status bubble show "Working: N
+               *>         task(s) across M agent(s)...".
+
                CALL    "PC-TASK-DONE"
                EXIT PROGRAM
            END-IF
@@ -1543,9 +1998,29 @@
            SET     WS-FMT                        TO    T-AGENT-FAILED
            SET     WS-ARG1                       TO    "2"
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-AGENT-FAILED ("Agent &1 could not answer:") and WS-ARG1 = "2" (both
+           *>         set just above).
+           *> Result: WS-FMT-OUT = "Agent 2 could not answer:" in the current language. The next
+           *>         lines put it in bold in front of the error text in WS-MSG.
+
            CALL    "PC-FMT"
            SET     WS-MSG                        TO    SPACES
            STRING    "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
+
+           *> PC-SHOW-AGENT: shows the agent's message WS-MSG: a presentation goes straight into the
+           *> conversation (the status bubble is removed), anything else takes the status bubble's
+           *> place as an agent message; then the view jumps to the latest message.
+           *> Uses:   WS-MSG = "**" + WS-FMT-OUT + "** " + AGENT-2::LastError (built just above);
+           *>         WS-SHOW-ANSWER is "N", so only the message itself decides whether it is a
+           *>         presentation.
+           *> Result: The failure message takes the status bubble's place in Vwr-Chat (straight in
+           *>         the conversation if it reads as a presentation) and the view jumps to the
+           *>         latest message. WS-STATUS-ID = SPACES. Lbl-Status::Caption is set from
+           *>         T-LAST-FAILED on the next line.
+
            CALL    "PC-SHOW-AGENT"
            SET     Lbl-Status::Caption           TO    T-LAST-FAILED::Trim()
 
@@ -1574,6 +2049,20 @@
                SET     WS-TEXT                   TO    AGENT-2::LastError
                SET     WS-TASK-OK                TO    "N"
 
+               *> PC-TASK-DONE: closes the task of the agent WS-FROM: the answer (or the reason for
+               *> failure) in WS-TEXT is kept as the task's result, the task is marked done or
+               *> failed. When none is pending the answer is composed; otherwise the agent takes the
+               *> next task or rests, and the progress line is refreshed.
+               *> Uses:   WS-FROM = 2, WS-TEXT = AGENT-2::LastError (the timeout reason) and
+               *>         WS-TASK-OK = "N" (set just above); reached only when WS-STAGE = "WORK" and
+               *>         agent 2 has a task.
+               *> Result: WS-AG-WAIT(2) becomes "N"; agent 2's task is marked "F" with that text as
+               *>         its result, WS-PENDING lowered by 1; the other tasks go on. When
+               *>         WS-PENDING is then 0 the answer is composed; otherwise the agent takes the
+               *>         next queued task or, with none queued, rests (WS-AG-WAIT stays "N",
+               *>         WS-AG-TASKNO 0), and Lbl-Status and the status bubble show "Working: N
+               *>         task(s) across M agent(s)...".
+
                CALL    "PC-TASK-DONE"
                EXIT PROGRAM
            END-IF
@@ -1583,9 +2072,29 @@
            SET     WS-FMT                        TO    T-AGENT-FAILED
            SET     WS-ARG1                       TO    "2"
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-AGENT-FAILED ("Agent &1 could not answer:") and WS-ARG1 = "2" (both
+           *>         set just above).
+           *> Result: WS-FMT-OUT = "Agent 2 could not answer:" in the current language. The next
+           *>         lines put it in bold in front of the timeout reason in WS-MSG.
+
            CALL    "PC-FMT"
            SET     WS-MSG                        TO    SPACES
            STRING    "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
+
+           *> PC-SHOW-AGENT: shows the agent's message WS-MSG: a presentation goes straight into the
+           *> conversation (the status bubble is removed), anything else takes the status bubble's
+           *> place as an agent message; then the view jumps to the latest message.
+           *> Uses:   WS-MSG = "**" + WS-FMT-OUT + "** " + AGENT-2::LastError (built just above);
+           *>         WS-SHOW-ANSWER is "N", so only the message itself decides whether it is a
+           *>         presentation.
+           *> Result: The timeout message takes the status bubble's place in Vwr-Chat (straight in
+           *>         the conversation if it reads as a presentation) and the view jumps to the
+           *>         latest message. WS-STATUS-ID = SPACES. Lbl-Status::Caption is set from
+           *>         T-LAST-FAILED on the next line.
+
            CALL    "PC-SHOW-AGENT"
            SET     Lbl-Status::Caption           TO    T-LAST-FAILED::Trim()
 
@@ -1603,8 +2112,51 @@
        PROCEDURE DIVISION.
            *>   A model an agent uses changed: a new election (R36; 063 R71).
 
+           *> PC-HAND-MODELS: hands the models to the three agents: it syncs MODELS-FILE with the
+           *> application's model list (PC-SYNC-MODELS), then for each agent reads the entry
+           *> assigned in the settings, looks it up in MODELS-FILE and gives it to the AgentObject;
+           *> it also applies the Knowledge Base folder setting.
+           *> Uses:   Settings AGENT-1-ENTRY to AGENT-3-ENTRY (MODEL-ENTRY, KB-LOCATION), the
+           *>         application's model list (MODEL-COUNT / MODEL-GET) and MODELS-FILE: a model
+           *>         that AGENT-2 uses changed or was withdrawn.
+           *> Result: MODELS-FILE is written to match the model list (records added, updated or
+           *>         deleted; the first run ever also calls COBOL::"MODEL-SET" for the old records
+           *>         and saves MODELS-ADOPTED). WS-AG-ENTRY / -MODEL / -TOOLS / -RANK (1 to 3) are
+           *>         reloaded (an entry no longer in MODELS is blanked), AGENT-n::ModelEntry is
+           *>         set, and KB-1::Location follows KB-LOCATION if saved (WS-SET-NAME /
+           *>         WS-SET-VALUE end on it).
+
            CALL    "PC-HAND-MODELS"
+
+           *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then gives
+           *> every agent its instructions from the main prompt: the SYSTEM section (with the
+           *> topic's prompt) for the orchestrator, the ASSISTANT section for the others.
+           *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+           *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN (loaded
+           *>         again) and RTPL-FILE (through PC-TEMPLATES); the models were just reloaded by
+           *>         PC-HAND-MODELS, and WS-TOPIC-PROMPT is the last loaded topic's prompt.
+           *> Result: Elected again with the new models. WS-N-AGENTS, WS-N-TOOLS, WS-ORCH and
+           *>         WS-WORKER are set (0 = none); Lbl-Status::Caption = T-NO-MODEL if no agent has
+           *>         a model. With an orchestrator, WS-CATALOG is rebuilt (PC-TEMPLATES also
+           *>         upgrades unchanged old templates in RTPL-FILE once per run, and seeds an empty
+           *>         file). Each AGENT-n gets its SystemPrompt and ToolProtocol ("Native" for the
+           *>         tool worker, else "None"). The former topic's Knowledge Base grant
+           *>         (WS-ALLOWED-TOPIC), if any, is withdrawn from every agent; only if
+           *>         WS-CUR-TOPIC is not SPACES is its collection granted, to the tool worker alone
+           *>         if there is one. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC = WS-CUR-TOPIC,
+           *>         WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
            CALL    "PC-ELECT"
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE and today's year and month, WS-FAILED / WS-FILE-NOTE, WS-N-AGENTS,
+           *>         WS-ORCH and WS-WORKER from the new election.
+           *> Result: Lbl-Status::Caption = this month's conversations and tokens, plus the
+           *>         unusable-files note and the orchestrator line "Orchestrator: agent x, tools:
+           *>         agent y." when more than one agent has a model.
+
            CALL    "PC-STATUS"
 
            GOBACK.
@@ -1623,6 +2175,15 @@
            *>   status bubble says so while it happens.
 
            SET     WS-TOOL-KIND                  TO    AGENT-2::ToolKind
+
+           *> PC-TOOL-USE: tells the user, in the status bubble, that an agent is using a tool the
+           *> runtime answers: the Knowledge Base or a registered data file.
+           *> Uses:   WS-TOOL-KIND = AGENT-2::ToolKind, "KnowledgeBase" or "IndexedFile" (set just
+           *>         above); WS-STAGE.
+           *> Result: Nothing while WS-STAGE = "IDLE" or for any other kind. Otherwise the status
+           *>         bubble says "Searching the Knowledge Base..." (T-ST-SEARCH-KB) or
+           *>         "Reading the data files..." (T-ST-READ-DATA) in the current language.
+
            CALL    "PC-TOOL-USE"
 
            GOBACK.
@@ -1641,6 +2202,18 @@
            SET     WS-REPLY                      TO    AGENT-3::LastReply
            SET     WS-T-IN                       TO    AGENT-3::LastInputTokens
            SET     WS-T-OUT                      TO    AGENT-3::LastOutputTokens
+
+           *> PC-ON-REPLY: handles an agent's answer: it adds its tokens to the conversation, then
+           *> acts by WS-STAGE: a "TEMPLATE: name" reply makes the agent write the report in that
+           *> template; a plan is dispatched; a task answer closes the task; a final answer is shown
+           *> and kept.
+           *> Uses:   WS-FROM = 3, WS-REPLY = AGENT-3::LastReply, WS-T-IN / WS-T-OUT = its
+           *>         LastInputTokens / LastOutputTokens (all set just above); WS-STAGE says what
+           *>         the reply is for.
+           *> Result: Its tokens are added to the conversation's totals in CONVS-FILE, then by
+           *>         WS-STAGE: "PLAN" the plan is dispatched, "WORK" the task is closed, "SINGLE" /
+           *>         "COMPOSE" the answer is shown and kept (first asking again if the reply is
+           *>         "TEMPLATE: name").
 
            CALL    "PC-ON-REPLY"
 
@@ -1664,6 +2237,19 @@
                SET     WS-TEXT                   TO    AGENT-3::LastError
                SET     WS-TASK-OK                TO    "N"
 
+               *> PC-TASK-DONE: closes the task of the agent WS-FROM: the answer (or the reason for
+               *> failure) in WS-TEXT is kept as the task's result, the task is marked done or
+               *> failed. When none is pending the answer is composed; otherwise the agent takes the
+               *> next task or rests, and the progress line is refreshed.
+               *> Uses:   WS-FROM = 3, WS-TEXT = AGENT-3::LastError and WS-TASK-OK = "N" (set just
+               *>         above); reached only when WS-STAGE = "WORK" and agent 3 has a task.
+               *> Result: WS-AG-WAIT(3) becomes "N"; agent 3's task is marked "F" with the error
+               *>         text as its result, WS-PENDING lowered by 1; the other tasks go on. When
+               *>         WS-PENDING is then 0 the answer is composed; otherwise the agent takes the
+               *>         next queued task or, with none queued, rests (WS-AG-WAIT stays "N",
+               *>         WS-AG-TASKNO 0), and Lbl-Status and the status bubble show "Working: N
+               *>         task(s) across M agent(s)...".
+
                CALL    "PC-TASK-DONE"
                EXIT PROGRAM
            END-IF
@@ -1673,9 +2259,29 @@
            SET     WS-FMT                        TO    T-AGENT-FAILED
            SET     WS-ARG1                       TO    "3"
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-AGENT-FAILED ("Agent &1 could not answer:") and WS-ARG1 = "3" (both
+           *>         set just above).
+           *> Result: WS-FMT-OUT = "Agent 3 could not answer:" in the current language. The next
+           *>         lines put it in bold in front of the error text in WS-MSG.
+
            CALL    "PC-FMT"
            SET     WS-MSG                        TO    SPACES
            STRING    "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
+
+           *> PC-SHOW-AGENT: shows the agent's message WS-MSG: a presentation goes straight into the
+           *> conversation (the status bubble is removed), anything else takes the status bubble's
+           *> place as an agent message; then the view jumps to the latest message.
+           *> Uses:   WS-MSG = "**" + WS-FMT-OUT + "** " + AGENT-3::LastError (built just above);
+           *>         WS-SHOW-ANSWER is "N", so only the message itself decides whether it is a
+           *>         presentation.
+           *> Result: The failure message takes the status bubble's place in Vwr-Chat (straight in
+           *>         the conversation if it reads as a presentation) and the view jumps to the
+           *>         latest message. WS-STATUS-ID = SPACES. Lbl-Status::Caption is set from
+           *>         T-LAST-FAILED on the next line.
+
            CALL    "PC-SHOW-AGENT"
            SET     Lbl-Status::Caption           TO    T-LAST-FAILED::Trim()
 
@@ -1704,6 +2310,20 @@
                SET     WS-TEXT                   TO    AGENT-3::LastError
                SET     WS-TASK-OK                TO    "N"
 
+               *> PC-TASK-DONE: closes the task of the agent WS-FROM: the answer (or the reason for
+               *> failure) in WS-TEXT is kept as the task's result, the task is marked done or
+               *> failed. When none is pending the answer is composed; otherwise the agent takes the
+               *> next task or rests, and the progress line is refreshed.
+               *> Uses:   WS-FROM = 3, WS-TEXT = AGENT-3::LastError (the timeout reason) and
+               *>         WS-TASK-OK = "N" (set just above); reached only when WS-STAGE = "WORK" and
+               *>         agent 3 has a task.
+               *> Result: WS-AG-WAIT(3) becomes "N"; agent 3's task is marked "F" with that text as
+               *>         its result, WS-PENDING lowered by 1; the other tasks go on. When
+               *>         WS-PENDING is then 0 the answer is composed; otherwise the agent takes the
+               *>         next queued task or, with none queued, rests (WS-AG-WAIT stays "N",
+               *>         WS-AG-TASKNO 0), and Lbl-Status and the status bubble show "Working: N
+               *>         task(s) across M agent(s)...".
+
                CALL    "PC-TASK-DONE"
                EXIT PROGRAM
            END-IF
@@ -1713,9 +2333,29 @@
            SET     WS-FMT                        TO    T-AGENT-FAILED
            SET     WS-ARG1                       TO    "3"
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-AGENT-FAILED ("Agent &1 could not answer:") and WS-ARG1 = "3" (both
+           *>         set just above).
+           *> Result: WS-FMT-OUT = "Agent 3 could not answer:" in the current language. The next
+           *>         lines put it in bold in front of the timeout reason in WS-MSG.
+
            CALL    "PC-FMT"
            SET     WS-MSG                        TO    SPACES
            STRING    "**" WS-FMT-OUT::Trim() "** " WS-TEXT::Trim() INTO WS-MSG
+
+           *> PC-SHOW-AGENT: shows the agent's message WS-MSG: a presentation goes straight into the
+           *> conversation (the status bubble is removed), anything else takes the status bubble's
+           *> place as an agent message; then the view jumps to the latest message.
+           *> Uses:   WS-MSG = "**" + WS-FMT-OUT + "** " + AGENT-3::LastError (built just above);
+           *>         WS-SHOW-ANSWER is "N", so only the message itself decides whether it is a
+           *>         presentation.
+           *> Result: The timeout message takes the status bubble's place in Vwr-Chat (straight in
+           *>         the conversation if it reads as a presentation) and the view jumps to the
+           *>         latest message. WS-STATUS-ID = SPACES. Lbl-Status::Caption is set from
+           *>         T-LAST-FAILED on the next line.
+
            CALL    "PC-SHOW-AGENT"
            SET     Lbl-Status::Caption           TO    T-LAST-FAILED::Trim()
 
@@ -1733,8 +2373,51 @@
        PROCEDURE DIVISION.
            *>   A model an agent uses changed: a new election (R36; 063 R71).
 
+           *> PC-HAND-MODELS: hands the models to the three agents: it syncs MODELS-FILE with the
+           *> application's model list (PC-SYNC-MODELS), then for each agent reads the entry
+           *> assigned in the settings, looks it up in MODELS-FILE and gives it to the AgentObject;
+           *> it also applies the Knowledge Base folder setting.
+           *> Uses:   Settings AGENT-1-ENTRY to AGENT-3-ENTRY (MODEL-ENTRY, KB-LOCATION), the
+           *>         application's model list (MODEL-COUNT / MODEL-GET) and MODELS-FILE: a model
+           *>         that AGENT-3 uses changed or was withdrawn.
+           *> Result: MODELS-FILE is written to match the model list (records added, updated or
+           *>         deleted; the first run ever also calls COBOL::"MODEL-SET" for the old records
+           *>         and saves MODELS-ADOPTED). WS-AG-ENTRY / -MODEL / -TOOLS / -RANK (1 to 3) are
+           *>         reloaded (an entry no longer in MODELS is blanked), AGENT-n::ModelEntry is
+           *>         set, and KB-1::Location follows KB-LOCATION if saved (WS-SET-NAME /
+           *>         WS-SET-VALUE end on it).
+
            CALL    "PC-HAND-MODELS"
+
+           *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then gives
+           *> every agent its instructions from the main prompt: the SYSTEM section (with the
+           *> topic's prompt) for the orchestrator, the ASSISTANT section for the others.
+           *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+           *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN (loaded
+           *>         again) and RTPL-FILE (through PC-TEMPLATES); the models were just reloaded by
+           *>         PC-HAND-MODELS, and WS-TOPIC-PROMPT is the last loaded topic's prompt.
+           *> Result: Elected again with the new models. WS-N-AGENTS, WS-N-TOOLS, WS-ORCH and
+           *>         WS-WORKER are set (0 = none); Lbl-Status::Caption = T-NO-MODEL if no agent has
+           *>         a model. With an orchestrator, WS-CATALOG is rebuilt (PC-TEMPLATES also
+           *>         upgrades unchanged old templates in RTPL-FILE once per run, and seeds an empty
+           *>         file). Each AGENT-n gets its SystemPrompt and ToolProtocol ("Native" for the
+           *>         tool worker, else "None"). The former topic's Knowledge Base grant
+           *>         (WS-ALLOWED-TOPIC), if any, is withdrawn from every agent; only if
+           *>         WS-CUR-TOPIC is not SPACES is its collection granted, to the tool worker alone
+           *>         if there is one. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC = WS-CUR-TOPIC,
+           *>         WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
            CALL    "PC-ELECT"
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE and today's year and month, WS-FAILED / WS-FILE-NOTE, WS-N-AGENTS,
+           *>         WS-ORCH and WS-WORKER from the new election.
+           *> Result: Lbl-Status::Caption = this month's conversations and tokens, plus the
+           *>         unusable-files note and the orchestrator line "Orchestrator: agent x, tools:
+           *>         agent y." when more than one agent has a model.
+
            CALL    "PC-STATUS"
 
            GOBACK.
@@ -1753,6 +2436,15 @@
            *>   status bubble says so while it happens.
 
            SET     WS-TOOL-KIND                  TO    AGENT-3::ToolKind
+
+           *> PC-TOOL-USE: tells the user, in the status bubble, that an agent is using a tool the
+           *> runtime answers: the Knowledge Base or a registered data file.
+           *> Uses:   WS-TOOL-KIND = AGENT-3::ToolKind, "KnowledgeBase" or "IndexedFile" (set just
+           *>         above); WS-STAGE.
+           *> Result: Nothing while WS-STAGE = "IDLE" or for any other kind. Otherwise the status
+           *>         bubble says "Searching the Knowledge Base..." (T-ST-SEARCH-KB) or
+           *>         "Reading the data files..." (T-ST-READ-DATA) in the current language.
+
            CALL    "PC-TOOL-USE"
 
            GOBACK.
@@ -1772,7 +2464,25 @@
            SET     WS-SET-NAME                   TO    "LANG"
            SET     WS-SET-VALUE                  TO    "en"
 
+           *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an existing
+           *> one rewritten. A missing file is created empty first.
+           *> Uses:   WS-SET-NAME = "LANG" and WS-SET-VALUE = "en" (both set just above): English.
+           *> Result: The settings file now holds LANG = "en", committed; PC-TEXTS reads it to pick
+           *>         the language. WS-SET-NAME and WS-SET-VALUE are not changed (the record fields
+           *>         SET-NAME / SET-VALUE and WS-FS are set by the file I/O).
+
            CALL    "PC-SETTING-PUT"
+
+           *> PC-RELABEL: puts every text of the form in the language just picked: the texts
+           *> (PC-TEXTS), the menu rows (PC-LIST-CONVS), the topic heading when it shows a message,
+           *> the open conversation if one is open (shown again) and the status line.
+           *> Uses:   The LANG setting just saved ("en", English).
+           *> Result: Every text is reloaded in English (PC-TEXTS): the designed captions and hints,
+           *>         the menu rows, the topic heading when it shows a message, the open
+           *>         conversation if one is open (the one on screen is first filed into Vwr-Chat's
+           *>         history, then shown again from TURNS-FILE) and the Lbl-Status line.
+
            CALL    "PC-RELABEL"
 
            GOBACK.
@@ -1792,7 +2502,26 @@
            SET     WS-SET-NAME                   TO    "LANG"
            SET     WS-SET-VALUE                  TO    "pt"
 
+           *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an existing
+           *> one rewritten. A missing file is created empty first.
+           *> Uses:   WS-SET-NAME = "LANG" and WS-SET-VALUE = "pt" (both set just above):
+           *>         Portuguese.
+           *> Result: The settings file now holds LANG = "pt", committed; PC-TEXTS reads it to pick
+           *>         the language. WS-SET-NAME and WS-SET-VALUE are not changed (the record fields
+           *>         SET-NAME / SET-VALUE and WS-FS are set by the file I/O).
+
            CALL    "PC-SETTING-PUT"
+
+           *> PC-RELABEL: puts every text of the form in the language just picked: the texts
+           *> (PC-TEXTS), the menu rows (PC-LIST-CONVS), the topic heading when it shows a message,
+           *> the open conversation if one is open (shown again) and the status line.
+           *> Uses:   The LANG setting just saved ("pt", Portuguese).
+           *> Result: Every text is reloaded in Portuguese (PC-TEXTS): the designed captions and
+           *>         hints, the menu rows, the topic heading when it shows a message, the open
+           *>         conversation if one is open (the one on screen is first filed into Vwr-Chat's
+           *>         history, then shown again from TURNS-FILE) and the Lbl-Status line.
+
            CALL    "PC-RELABEL"
 
            GOBACK.
@@ -1812,7 +2541,25 @@
            SET     WS-SET-NAME                   TO    "LANG"
            SET     WS-SET-VALUE                  TO    "es"
 
+           *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an existing
+           *> one rewritten. A missing file is created empty first.
+           *> Uses:   WS-SET-NAME = "LANG" and WS-SET-VALUE = "es" (both set just above): Spanish.
+           *> Result: The settings file now holds LANG = "es", committed; PC-TEXTS reads it to pick
+           *>         the language. WS-SET-NAME and WS-SET-VALUE are not changed (the record fields
+           *>         SET-NAME / SET-VALUE and WS-FS are set by the file I/O).
+
            CALL    "PC-SETTING-PUT"
+
+           *> PC-RELABEL: puts every text of the form in the language just picked: the texts
+           *> (PC-TEXTS), the menu rows (PC-LIST-CONVS), the topic heading when it shows a message,
+           *> the open conversation if one is open (shown again) and the status line.
+           *> Uses:   The LANG setting just saved ("es", Spanish).
+           *> Result: Every text is reloaded in Spanish (PC-TEXTS): the designed captions and hints,
+           *>         the menu rows, the topic heading when it shows a message, the open
+           *>         conversation if one is open (the one on screen is first filed into Vwr-Chat's
+           *>         history, then shown again from TURNS-FILE) and the Lbl-Status line.
+
            CALL    "PC-RELABEL"
 
            GOBACK.
@@ -1832,7 +2579,25 @@
            SET     WS-SET-NAME                   TO    "LANG"
            SET     WS-SET-VALUE                  TO    "fr"
 
+           *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an existing
+           *> one rewritten. A missing file is created empty first.
+           *> Uses:   WS-SET-NAME = "LANG" and WS-SET-VALUE = "fr" (both set just above): French.
+           *> Result: The settings file now holds LANG = "fr", committed; PC-TEXTS reads it to pick
+           *>         the language. WS-SET-NAME and WS-SET-VALUE are not changed (the record fields
+           *>         SET-NAME / SET-VALUE and WS-FS are set by the file I/O).
+
            CALL    "PC-SETTING-PUT"
+
+           *> PC-RELABEL: puts every text of the form in the language just picked: the texts
+           *> (PC-TEXTS), the menu rows (PC-LIST-CONVS), the topic heading when it shows a message,
+           *> the open conversation if one is open (shown again) and the status line.
+           *> Uses:   The LANG setting just saved ("fr", French).
+           *> Result: Every text is reloaded in French (PC-TEXTS): the designed captions and hints,
+           *>         the menu rows, the topic heading when it shows a message, the open
+           *>         conversation if one is open (the one on screen is first filed into Vwr-Chat's
+           *>         history, then shown again from TURNS-FILE) and the Lbl-Status line.
+
            CALL    "PC-RELABEL"
 
            GOBACK.
@@ -1852,7 +2617,25 @@
            SET     WS-SET-NAME                   TO    "LANG"
            SET     WS-SET-VALUE                  TO    "jp"
 
+           *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an existing
+           *> one rewritten. A missing file is created empty first.
+           *> Uses:   WS-SET-NAME = "LANG" and WS-SET-VALUE = "jp" (both set just above): Japanese.
+           *> Result: The settings file now holds LANG = "jp", committed; PC-TEXTS reads it to pick
+           *>         the language. WS-SET-NAME and WS-SET-VALUE are not changed (the record fields
+           *>         SET-NAME / SET-VALUE and WS-FS are set by the file I/O).
+
            CALL    "PC-SETTING-PUT"
+
+           *> PC-RELABEL: puts every text of the form in the language just picked: the texts
+           *> (PC-TEXTS), the menu rows (PC-LIST-CONVS), the topic heading when it shows a message,
+           *> the open conversation if one is open (shown again) and the status line.
+           *> Uses:   The LANG setting just saved ("jp", Japanese).
+           *> Result: Every text is reloaded in Japanese (PC-TEXTS): the designed captions and
+           *>         hints, the menu rows, the topic heading when it shows a message, the open
+           *>         conversation if one is open (the one on screen is first filed into Vwr-Chat's
+           *>         history, then shown again from TURNS-FILE) and the Lbl-Status line.
+
            CALL    "PC-RELABEL"
 
            GOBACK.
@@ -1872,7 +2655,25 @@
            SET     WS-SET-NAME                   TO    "LANG"
            SET     WS-SET-VALUE                  TO    "cn"
 
+           *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an existing
+           *> one rewritten. A missing file is created empty first.
+           *> Uses:   WS-SET-NAME = "LANG" and WS-SET-VALUE = "cn" (both set just above): Chinese.
+           *> Result: The settings file now holds LANG = "cn", committed; PC-TEXTS reads it to pick
+           *>         the language. WS-SET-NAME and WS-SET-VALUE are not changed (the record fields
+           *>         SET-NAME / SET-VALUE and WS-FS are set by the file I/O).
+
            CALL    "PC-SETTING-PUT"
+
+           *> PC-RELABEL: puts every text of the form in the language just picked: the texts
+           *> (PC-TEXTS), the menu rows (PC-LIST-CONVS), the topic heading when it shows a message,
+           *> the open conversation if one is open (shown again) and the status line.
+           *> Uses:   The LANG setting just saved ("cn", Chinese).
+           *> Result: Every text is reloaded in Chinese (PC-TEXTS): the designed captions and hints,
+           *>         the menu rows, the topic heading when it shows a message, the open
+           *>         conversation if one is open (the one on screen is first filed into Vwr-Chat's
+           *>         history, then shown again from TURNS-FILE) and the Lbl-Status line.
+
            CALL    "PC-RELABEL"
 
            GOBACK.
@@ -1972,6 +2773,16 @@
                OPEN    I-O MODELS-FILE
            END-IF
            SET     WS-SET-NAME                   TO    "MODELS-ADOPTED"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) by its name; it writes no setting. A missing file is
+           *> created empty first.
+           *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" (set just above; it is the record key) and the
+           *>         settings file.
+           *> Result: WS-SET-VALUE = "Y" when the models PowerChat kept before were already handed
+           *>         to the application's list, or SPACES when that was never done. The IF below
+           *>         hands them over only when it is not "Y".
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE NOT = "Y"
                SET     MDL-NAME                  TO    LOW-VALUES
@@ -1990,6 +2801,15 @@
 
                SET     WS-SET-NAME               TO    "MODELS-ADOPTED"
                SET     WS-SET-VALUE              TO    "Y"
+
+               *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+               *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an
+               *> existing one rewritten. A missing file is created empty first.
+               *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" and WS-SET-VALUE = "Y" (both set just
+               *>         above).
+               *> Result: The settings file now holds MODELS-ADOPTED = "Y", so the hand-over is not
+               *>         repeated on a later run. WS-SET-NAME and WS-SET-VALUE are not changed (the
+               *>         record fields SET-NAME / SET-VALUE and WS-FS are set by the file I/O).
 
                CALL    "PC-SETTING-PUT"
            END-IF
@@ -2148,6 +2968,17 @@
            *>   The models are the application's, kept by the runtime for every form
            *>   of it (spec 085); MODELS mirrors them with PowerChat's own metadata.
 
+           *> PC-SYNC-MODELS: makes MODELS-FILE (data/models.idx) mirror the application's model
+           *> list, which the runtime keeps for every form: new models are added, changed ones
+           *> updated, withdrawn ones deleted, and PowerChat's own tools flag and rank are kept.
+           *> Once ever, it first hands the models PowerChat kept before to that list.
+           *> Uses:   The application's model list (COBOL::"MODEL-COUNT" / "MODEL-GET"), MODELS-FILE
+           *>         and the setting MODELS-ADOPTED.
+           *> Result: MODELS-FILE holds one record per model-list entry; an entry new to PowerChat
+           *>         gets tools "N" and rank 5, an existing one keeps its own. The first run also
+           *>         hands the old records to the list with COBOL::"MODEL-SET". WS-SET-NAME ends as
+           *>         "MODELS-ADOPTED" and WS-SET-VALUE as "Y".
+
            CALL    "PC-SYNC-MODELS"
            OPEN    I-O MODELS-FILE
            IF    WS-FS = "35"
@@ -2160,12 +2991,31 @@
            PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                SET     WS-SET-NAME               TO    SPACES
                STRING    "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+
+               *> PC-SETTING-GET: reads one setting from the settings file (data/settings.idx, or
+               *> POWERCHAT_DATA/settings.idx) by its name; it writes no setting. A missing file is
+               *> created empty first.
+               *> Uses:   WS-SET-NAME = "AGENT-n-ENTRY", built just above with n = WS-A (1 to 3).
+               *> Result: WS-SET-VALUE = the model-list entry assigned to agent WS-A, or SPACES when
+               *>         none is. It goes into WS-AG-ENTRY(WS-A) below (agent 1: when SPACES,
+               *>         MODEL-ENTRY is read next and replaces it).
+
                CALL    "PC-SETTING-GET"
                *> Agent 1 falls back to MODEL-ENTRY, the single setting PowerChat 1
                *> kept, when it has no AGENT-1-ENTRY of its own.
 
                IF    WS-A = 1 AND WS-SET-VALUE = SPACES
                    SET     WS-SET-NAME           TO    "MODEL-ENTRY"
+
+                   *> PC-SETTING-GET: reads one setting from the settings file (data/settings.idx,
+                   *> or POWERCHAT_DATA/settings.idx) by its name; it writes no setting. A missing
+                   *> file is created empty first.
+                   *> Uses:   WS-SET-NAME = "MODEL-ENTRY" (set just above); reached only for agent 1
+                   *>         when AGENT-1-ENTRY came back SPACES. It is the single setting
+                   *>         PowerChat 1 kept.
+                   *> Result: WS-SET-VALUE = that entry name, or SPACES when it was never saved. It
+                   *>         goes into WS-AG-ENTRY(1) below.
+
                    CALL    "PC-SETTING-GET"
                END-IF
 
@@ -2209,6 +3059,15 @@
            END-PERFORM
            CLOSE    MODELS-FILE
            SET     WS-SET-NAME                   TO    "KB-LOCATION"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) by its name; it writes no setting. A missing file is
+           *> created empty first.
+           *> Uses:   WS-SET-NAME = "KB-LOCATION" (set just above): the Knowledge Base folder saved
+           *>         by the KB folder dialog (kb-folder-form).
+           *> Result: WS-SET-VALUE = that folder, or SPACES when none was saved. When it is not
+           *>         SPACES the next lines copy it to KB-1::Location.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE NOT = SPACES
                SET     KB-1::Location            TO    WS-SET-VALUE
@@ -2254,15 +3113,17 @@
 
        PROCEDURE DIVISION.
            *>   Who orchestrates and who does the tool work (063 R52-R57, R66).
-           *>   Run once per session, and again when a model changes (R70, R71).
+           *>   Held once per session, and again only when an agent's model, its tools flag or
+           *>   its rank has changed (R70, R71); every other call of this paragraph - a new
+           *>   topic, an edited prompt - applies the prompts to the agents already in office.
 
-           SET     WS-N-AGENTS WS-N-TOOLS WS-ORCH WS-WORKER
+           SET     WS-N-AGENTS WS-N-TOOLS WS-ORCH WS-WORKER WS-FIRST-AGENT
                                                  TO    0
 
            SET     WS-SAME-MODEL                 TO    "Y"
-           *> The best-ranked agent orchestrates, the first one on a tie. Also
-           *> counted: assigned agents, tool-capable ones, and whether all of them
-           *> share one model.
+           SET     WS-ELECT-SIG-NEW              TO    SPACES
+           *> Counted: assigned agents, tool-capable ones, whether all of them share one model;
+           *> and written down, what the election depends on.
 
            PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF    WS-AG-ENTRY(WS-A) NOT = SPACES
@@ -2270,39 +3131,81 @@
                    IF    WS-AG-TOOLS(WS-A) = "Y"
                        ADD    1 TO WS-N-TOOLS
                    END-IF
-                   IF    WS-ORCH = 0
-                       SET     WS-ORCH           TO    WS-A
+                   IF    WS-FIRST-AGENT = 0
+                       SET     WS-FIRST-AGENT    TO    WS-A
                    ELSE
-                       IF    WS-AG-MODEL(WS-A) NOT = WS-AG-MODEL(WS-ORCH)
+                       IF    WS-AG-MODEL(WS-A) NOT = WS-AG-MODEL(WS-FIRST-AGENT)
                            SET     WS-SAME-MODEL TO    "N"
                        END-IF
-                       IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
-                           SET     WS-ORCH       TO    WS-A
-                       END-IF
                    END-IF
+                   SET     WS-ELECT-TMP          TO    WS-ELECT-SIG-NEW
+                   SET     WS-ELECT-SIG-NEW      TO    SPACES
+
+                   STRING    WS-ELECT-TMP::Trim() "|" WS-A ":" WS-AG-ENTRY(WS-A)::Trim() "/"
+                             WS-AG-MODEL(WS-A)::Trim() "/" WS-AG-TOOLS(WS-A) WS-AG-RANK(WS-A)
+                             INTO WS-ELECT-SIG-NEW
                END-IF
            END-PERFORM
            EVALUATE    TRUE
                WHEN WS-N-AGENTS = 0
                    SET     Lbl-Status::Caption   TO    T-NO-MODEL::Trim()
+                   SET     WS-ELECT-DONE         TO    "N"
+               WHEN WS-ELECT-DONE = "Y" AND WS-ELECT-SIG-NEW = WS-ELECT-SIG
+                   *>           Nothing the election depends on has changed since it was held:
+                   *>           the same agents stay in office (R70).
+
+                   SET     WS-ORCH               TO    WS-ELECT-ORCH
+                   SET     WS-WORKER             TO    WS-ELECT-WORKER
                WHEN WS-N-AGENTS = 1
                    *>           One agent answers by itself (R52).
 
+                   SET     WS-ORCH               TO    WS-FIRST-AGENT
                    IF    WS-AG-TOOLS(WS-ORCH) = "Y"
                        SET     WS-WORKER         TO    WS-ORCH
                    END-IF
                WHEN OTHER
-                   *>           Every agent on the same model: any of them, at random (R57).
+                   *>           The orchestrator is one of the agents whose model cannot call
+                   *>           tools, when there is one (R55), and otherwise any of them (R54):
+                   *>           the best-ranked, the first on a tie.
+
+                   SET     WS-N-CAND             TO    0
+                   PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                       IF    WS-AG-ENTRY(WS-A) NOT = SPACES
+                               AND (WS-N-TOOLS = WS-N-AGENTS OR WS-AG-TOOLS(WS-A) NOT = "Y")
+                           ADD    1 TO WS-N-CAND
+                           IF    WS-ORCH = 0
+                               SET     WS-ORCH   TO    WS-A
+                           ELSE
+                               IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
+                                   SET     WS-ORCH
+                                                 TO    WS-A
+                               END-IF
+                           END-IF
+                       END-IF
+                   END-PERFORM
+                   *>           Every agent on the same model: any candidate, at random (R57).
+                   *>           RANDOM starts from the same number in every run, so it is seeded
+                   *>           from the clock - once - or every session would elect the same one.
 
                    IF    WS-SAME-MODEL = "Y"
-                       *> RANDOM is below 1, so WS-B runs from 1 to the number of agents: the
-                       *> WS-B-th assigned agent, counted in WS-A past any empty slot.
+                       IF    WS-RAND-SEEDED = "Y"
+                           SET     WS-RANDOM     TO    FUNCTION RANDOM
+                       ELSE
+                           SET     WS-NOW        TO    FUNCTION CURRENT-DATE
+                           COMPUTE    WS-RAND-SEED = FUNCTION NUMVAL(WS-NOW(9:8)) + 1
+                           SET     WS-RANDOM     TO    FUNCTION RANDOM(WS-RAND-SEED)
+                           SET     WS-RAND-SEEDED
+                                                 TO    "Y"
+                       END-IF
+                       *> RANDOM is below 1, so WS-B runs from 1 to the number of candidates: the
+                       *> WS-B-th candidate, counted in WS-A past any agent that is not one.
 
-                       SET     WS-RANDOM         TO    FUNCTION RANDOM
-                       COMPUTE    WS-B = WS-RANDOM * WS-N-AGENTS + 1
+                       COMPUTE    WS-B = WS-RANDOM * WS-N-CAND + 1
                        SET     WS-A              TO    0
+                       SET     WS-ORCH           TO    0
                        PERFORM    VARYING WS-BEST FROM 1 BY 1 UNTIL WS-BEST > 3
                            IF    WS-AG-ENTRY(WS-BEST) NOT = SPACES
+                                   AND (WS-N-TOOLS = WS-N-AGENTS OR WS-AG-TOOLS(WS-BEST) NOT = "Y")
                                ADD    1 TO WS-A
                                IF    WS-A = WS-B
                                    SET     WS-ORCH
@@ -2311,48 +3214,44 @@
                            END-IF
                        END-PERFORM
                    END-IF
-                   *>           The only tool-capable model does the tool work; the next
-                   *>           best orchestrates (R55, R56).
+                   *>           The tool work goes to the best-ranked tool-capable agent that is
+                   *>           not orchestrating (R55, R56); with none, the chat runs without
+                   *>           tools (R66).
 
-                   IF    WS-N-TOOLS = 1 AND WS-AG-TOOLS(WS-ORCH) = "Y"
-                       SET     WS-WORKER         TO    WS-ORCH
-                       SET     WS-ORCH           TO    0
-
-                       PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-                           IF    WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-WORKER
-                               IF    WS-ORCH = 0
-                                   SET     WS-ORCH
-                                                 TO    WS-A
-                               ELSE
-                                   IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
-                                       SET     WS-ORCH
-                                                 TO    WS-A
-                                   END-IF
-                               END-IF
-                           END-IF
-                       END-PERFORM
-                   ELSE
-                       *>               The best-ranked tool-capable agent that is not orchestrating.
-
-                       PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-                           IF    WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-ORCH
-                                   AND WS-AG-TOOLS(WS-A) = "Y"
-                               IF    WS-WORKER = 0
+                   PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                       IF    WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-ORCH
+                               AND WS-AG-TOOLS(WS-A) = "Y"
+                           IF    WS-WORKER = 0
+                               SET     WS-WORKER TO    WS-A
+                           ELSE
+                               IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-WORKER)
                                    SET     WS-WORKER
                                                  TO    WS-A
-                               ELSE
-                                   IF    WS-AG-RANK(WS-A) > WS-AG-RANK(WS-WORKER)
-                                       SET     WS-WORKER
-                                                 TO    WS-A
-                                   END-IF
                                END-IF
                            END-IF
-                       END-PERFORM
-                   END-IF
+                       END-IF
+                   END-PERFORM
            END-EVALUATE
+           *>   What was elected, and for which agents, is kept until one of them changes.
+
+           IF    WS-N-AGENTS > 0
+               SET     WS-ELECT-SIG              TO    WS-ELECT-SIG-NEW
+               SET     WS-ELECT-ORCH             TO    WS-ORCH
+               SET     WS-ELECT-WORKER           TO    WS-WORKER
+               SET     WS-ELECT-DONE             TO    "Y"
+           END-IF
            *>   Prompts: the topic's to the orchestrator only (R63); the others
            *>   keep their role prompts (R64). The Knowledge Base goes to the tool
            *>   worker alone; with none, the chat runs without tools (R66).
+
+           *> PC-MAIN-LOAD: loads the main prompt: the active version the Prompt screen keeps under
+           *> topic id *MAIN in data/prompt-versions.idx, or, before it has one, the shipped
+           *> samples/main-prompt.md.
+           *> Uses:   MAINP-FILE (the Prompt screen's saved versions) and, when it has none,
+           *>         samples/main-prompt.md.
+           *> Result: WS-MAIN = the main prompt text, or SPACES when neither exists. The sections
+           *>         below are cut from it; WS-MAIN-ELECTED is set from it right after. WS-EOF ends
+           *>         "N".
 
            CALL    "PC-MAIN-LOAD"
            *> The main prompt these instructions were built from: each question
@@ -2371,35 +3270,111 @@
                    SET     WS-NOTE               TO    SPACES
                    IF    WS-SOURCES = 0 AND WS-CUR-TOPIC NOT = SPACES
                        SET     WS-SEC-NAME       TO    "NO SOURCES"
+
+                       *> PC-SECTION: cuts one section out of the main prompt: the text after its
+                       *> "=== NAME ===" line up to the next "=== " line or the end. A section the
+                       *> prompt does not have gives an empty result.
+                       *> Uses:   WS-SEC-NAME = "NO SOURCES" (set just above) and WS-MAIN.
+                       *> Result: WS-SEC = the NO SOURCES section: the note telling the orchestrator
+                       *>         that the topic has no documents and no data files (SPACES if the
+                       *>         main prompt has no such section). The two PC-FILL calls below fill
+                       *>         the menu names into it.
+
                        CALL    "PC-SECTION"
 
                        SET     WS-TOKEN          TO    "{DOCUMENTS MENU}"
                        SET     WS-INS            TO    T-DOCS-TITLE
+
+                       *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text
+                       *> (one occurrence per pass, 20 passes at most); the placeholder is simply
+                       *> removed when the text is spaces.
+                       *> Uses:   WS-TOKEN = "{DOCUMENTS MENU}" and WS-INS = T-DOCS-TITLE, the
+                       *>         Documents menu label in the current language (both set just
+                       *>         above); WS-SEC = the NO SOURCES section.
+                       *> Result: Every {DOCUMENTS MENU} in WS-SEC is replaced by that label. Only
+                       *>         WS-SEC changes (WS-SPL and WS-SX-* are scratch).
 
                        CALL    "PC-FILL"
 
                        SET     WS-TOKEN          TO    "{DATA FILES MENU}"
                        SET     WS-INS            TO    T-FILES-TITLE
 
+                       *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text
+                       *> (one occurrence per pass, 20 passes at most); the placeholder is simply
+                       *> removed when the text is spaces.
+                       *> Uses:   WS-TOKEN = "{DATA FILES MENU}" and WS-INS = T-FILES-TITLE, the
+                       *>         Data files menu label in the current language (both set just
+                       *>         above); WS-SEC = the NO SOURCES section.
+                       *> Result: Every {DATA FILES MENU} in WS-SEC is replaced by that label.
+                       *>         WS-SEC is then the finished note, which the next line copies to
+                       *>         WS-NOTE.
+
                        CALL    "PC-FILL"
                        SET     WS-NOTE           TO    WS-SEC
                    END-IF
+
+                   *> PC-TEMPLATES: builds the catalog of report templates, one
+                   *> "- name: what it suits" line each, from the templates file
+                   *> (data/templates.idx). Once per run it first upgrades unchanged old templates,
+                   *> and it fills an empty file from samples/report-templates.txt.
+                   *> Uses:   RTPL-FILE (data/templates.idx) and WS-RT-UPGRADED (an upgrade of old
+                   *>         templates runs once per run).
+                   *> Result: WS-CATALOG = one "- name: what it suits" line per stored report
+                   *>         template, for the {TEMPLATES} placeholder filled below. The first call
+                   *>         of a run also upgrades unchanged old templates (WS-RT-UPGRADED = "Y"),
+                   *>         and an empty file is first filled from samples/report-templates.txt.
+
                    CALL    "PC-TEMPLATES"
                    SET     WS-SEC-NAME           TO    "SYSTEM"
+
+                   *> PC-SECTION: cuts one section out of the main prompt: the text after its
+                   *> "=== NAME ===" line up to the next "=== " line or the end. A section the
+                   *> prompt does not have gives an empty result.
+                   *> Uses:   WS-SEC-NAME = "SYSTEM" (set just above) and WS-MAIN.
+                   *> Result: WS-SEC = the SYSTEM section, the orchestrator's instructions (SPACES
+                   *>         if the main prompt has none). The PC-FILL calls below fill its
+                   *>         {TOPIC}, {SOURCES NOTE} and {TEMPLATES} placeholders.
+
                    CALL    "PC-SECTION"
 
                    SET     WS-TOKEN              TO    "{TOPIC}"
                    SET     WS-INS                TO    WS-TOPIC-PROMPT
+
+                   *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text (one
+                   *> occurrence per pass, 20 passes at most); the placeholder is simply removed
+                   *> when the text is spaces.
+                   *> Uses:   WS-TOKEN = "{TOPIC}" and WS-INS = WS-TOPIC-PROMPT, the prompt of the
+                   *>         current topic (both set just above); WS-SEC = the SYSTEM section.
+                   *> Result: Every {TOPIC} in WS-SEC is replaced by the topic's prompt (removed if
+                   *>         the prompt is SPACES).
 
                    CALL    "PC-FILL"
 
                    SET     WS-TOKEN              TO    "{SOURCES NOTE}"
                    SET     WS-INS                TO    WS-NOTE
 
+                   *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text (one
+                   *> occurrence per pass, 20 passes at most); the placeholder is simply removed
+                   *> when the text is spaces.
+                   *> Uses:   WS-TOKEN = "{SOURCES NOTE}" and WS-INS = WS-NOTE (both set just
+                   *>         above): the NO SOURCES text when the topic has no documents and no
+                   *>         data files, else SPACES.
+                   *> Result: Every {SOURCES NOTE} in WS-SEC is replaced by that note, or removed
+                   *>         when WS-NOTE is SPACES.
+
                    CALL    "PC-FILL"
 
                    SET     WS-TOKEN              TO    "{TEMPLATES}"
                    SET     WS-INS                TO    WS-CATALOG
+
+                   *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text (one
+                   *> occurrence per pass, 20 passes at most); the placeholder is simply removed
+                   *> when the text is spaces.
+                   *> Uses:   WS-TOKEN = "{TEMPLATES}" and WS-INS = WS-CATALOG, the template list
+                   *>         built by PC-TEMPLATES (both set just above).
+                   *> Result: Every {TEMPLATES} in WS-SEC is replaced by that list. WS-SEC is then
+                   *>         the orchestrator's finished instructions, which the next line copies
+                   *>         to WS-TEXT.
 
                    CALL    "PC-FILL"
                    SET     WS-TEXT               TO    WS-SEC
@@ -2414,6 +3389,16 @@
                    *>           The assistants: the main prompt's ASSISTANT section.
 
                    SET     WS-SEC-NAME           TO    "ASSISTANT"
+
+                   *> PC-SECTION: cuts one section out of the main prompt: the text after its
+                   *> "=== NAME ===" line up to the next "=== " line or the end. A section the
+                   *> prompt does not have gives an empty result.
+                   *> Uses:   WS-SEC-NAME = "ASSISTANT" (set just above) and WS-MAIN; reached for
+                   *>         each agent WS-A that is not the orchestrator.
+                   *> Result: WS-SEC = the ASSISTANT section, the instructions of every agent that
+                   *>         does not orchestrate (SPACES if the main prompt has none). The next
+                   *>         line copies it to WS-TEXT.
+
                    CALL    "PC-SECTION"
                    SET     WS-TEXT               TO    WS-SEC
                END-IF
@@ -2543,6 +3528,16 @@
                            AT END MOVE "Y" TO WS-EOF
                            NOT AT END
                                SET     WS-LN-BUF TO    MPSEED-REC
+
+                               *> PC-LINE-LEN: measures a line: its length without the trailing
+                               *> spaces, so the indentation is kept and the padding is not.
+                               *> Uses:   WS-LN-BUF = MPSEED-REC, the line of samples/main-prompt.md
+                               *>         just read.
+                               *> Result: WS-LN-LEN = the length of that line without trailing
+                               *>         spaces (0 for a blank line); WS-LN-REV is scratch. The IF
+                               *>         below appends WS-LN-BUF(1:WS-LN-LEN) and a line feed to
+                               *>         WS-MAIN (a line feed alone when it is 0).
+
                                CALL    "PC-LINE-LEN"
                                IF    WS-LN-LEN > 0
                                    STRING    WS-LN-BUF(1:WS-LN-LEN) X"0A" INTO WS-MAIN
@@ -2752,15 +3747,39 @@
            *>   TEMPLATE section with the chosen template filled in.
 
            SET     WS-SEC-NAME                   TO    "TEMPLATE"
+
+           *> PC-SECTION: cuts one section out of the main prompt: the text after its "=== NAME ==="
+           *> line up to the next "=== " line or the end. A section the prompt does not have gives
+           *> an empty result.
+           *> Uses:   WS-SEC-NAME = "TEMPLATE" (set just above) and WS-MAIN.
+           *> Result: WS-SEC = the TEMPLATE section, which asks for the report to be written in the
+           *>         chosen template (SPACES if the main prompt has none). The two PC-FILL calls
+           *>         below fill its {NAME} and {SKELETON}.
+
            CALL    "PC-SECTION"
 
            SET     WS-TOKEN                      TO    "{NAME}"
            SET     WS-INS                        TO    WS-TPL-NAME
 
+           *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text (one
+           *> occurrence per pass, 20 passes at most); the placeholder is simply removed when the
+           *> text is spaces.
+           *> Uses:   WS-TOKEN = "{NAME}" and WS-INS = WS-TPL-NAME, the name of the template the
+           *>         user chose (both set just above).
+           *> Result: Every {NAME} in WS-SEC is replaced by that name.
+
            CALL    "PC-FILL"
 
            SET     WS-TOKEN                      TO    "{SKELETON}"
            SET     WS-INS                        TO    WS-TPL-SKEL
+
+           *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text (one
+           *> occurrence per pass, 20 passes at most); the placeholder is simply removed when the
+           *> text is spaces.
+           *> Uses:   WS-TOKEN = "{SKELETON}" and WS-INS = WS-TPL-SKEL, the chosen template's HTML
+           *>         page (both set just above).
+           *> Result: Every {SKELETON} in WS-SEC is replaced by that page. WS-SEC is then the
+           *>         finished TEMPLATE text, this procedure's result.
 
            CALL    "PC-FILL"
 
@@ -2800,6 +3819,16 @@
            END-IF
            IF    WS-FB > 0
                SET     WS-TPL-NAME               TO    WS-REPLY(WS-FA:WS-FB)
+
+               *> PC-TPL-FIND: looks a report template up by name, in any case, in the templates
+               *> file (data/templates.idx) and returns its HTML skeleton.
+               *> Uses:   WS-TPL-NAME = the name written after "TEMPLATE:" on the reply's first
+               *>         line, WS-REPLY(WS-FA:WS-FB), at most 80 characters (set just above);
+               *>         RTPL-FILE.
+               *> Result: WS-TPL-SKEL = that template's HTML skeleton and WS-TPL-NAME = the name as
+               *>         stored. When no such template exists WS-TPL-SKEL is SPACES and WS-TPL-NAME
+               *>         is unchanged.
+
                CALL    "PC-TPL-FIND"
            END-IF
 
@@ -2830,6 +3859,19 @@
            END-IF
            IF    WS-RT-UPGRADED = "N"
                SET     WS-RT-UPGRADED            TO    "Y"
+
+               *> PC-UPGRADE-TEMPLATES: upgrades the stored report templates: each one still exactly
+               *> as an earlier version shipped it takes the shipped template of its name; one the
+               *> user changed is left alone.
+               *> Uses:   RTPL-FILE open I-O; WS-RT-UPGRADED, set to "Y" just above, so this runs
+               *>         once per run; samples/report-templates-previous.txt and
+               *>         samples/report-templates.txt.
+               *> Result: A stored template still equal to a previously shipped one takes the
+               *>         shipped template of its name; one the user changed is kept. Afterwards
+               *>         WS-RTSEED-PATH is the shipped file again and WS-RT-MODE "S"; WS-OLD-N =
+               *>         how many previous templates were read (at most 40; 0 if the previous file
+               *>         is missing, and then nothing changes).
+
                CALL    "PC-UPGRADE-TEMPLATES"
            END-IF
 
@@ -2841,6 +3883,20 @@
            END-START
            IF    WS-EOF = "Y"
                SET     WS-RT-MODE                TO    "S"
+
+               *> PC-SEED-TEMPLATES: reads a report-templates samples file ("=== name", a "Suits:"
+               *> line, then the HTML skeleton) and hands each template to PC-TAKE-TEMPLATE, which
+               *> acts by WS-RT-MODE.
+               *> Uses:   WS-RT-MODE = "S" (set just above) and WS-RTSEED-PATH =
+               *>         samples/report-templates.txt (from PC-PATHS, or put back by
+               *>         PC-UPGRADE-TEMPLATES); RTPL-FILE, open I-O. Reached only when it is empty
+               *>         (the START above found no record).
+               *> Result: Each template of the samples file is written to RTPL-FILE (name, suits
+               *>         line, HTML skeleton). Nothing is written when the file is missing, and the
+               *>         chat still answers. WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL are scratch;
+               *>         WS-EOF ends "N" when the file was read (a missing file leaves it "Y";
+               *>         PC-TEMPLATES resets it next).
+
                CALL    "PC-SEED-TEMPLATES"
 
                SET     RT-NAME                   TO    LOW-VALUES
@@ -2897,6 +3953,20 @@
                    NOT AT END
                        EVALUATE    TRUE
                            WHEN RTSEED-REC(1:4) = "=== "
+
+                               *> PC-TAKE-TEMPLATE: acts on one template read from a samples file
+                               *> (WS-RT-NAME, WS-RT-SUITS, WS-RT-SKEL) by WS-RT-MODE: "O" keeps it,
+                               *> "U" offers it to the store, "S" writes it.
+                               *> Uses:   WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL = the template
+                               *>         collected from the lines since the previous "=== " line;
+                               *>         WS-RT-MODE.
+                               *> Result: With a template in hand (name and skeleton not SPACES; not
+                               *>         so at the first "=== " line): "O" counts it in WS-OLD-N
+                               *>         and keeps it in WS-OLD-NAME / WS-OLD-SKEL (up to 40), "U"
+                               *>         offers it to the store, "S" writes it; otherwise nothing.
+                               *>         The lines below then start the template named on this
+                               *>         "=== " line.
+
                                CALL    "PC-TAKE-TEMPLATE"
                                SET     WS-RT-NAME
                                                  TO    FUNCTION TRIM(RTSEED-REC(5:))
@@ -2910,6 +3980,16 @@
                                                  TO    FUNCTION TRIM(RTSEED-REC(7:))
                            WHEN WS-RT-NAME NOT = SPACES
                                SET     WS-LN-BUF TO    RTSEED-REC
+
+                               *> PC-LINE-LEN: measures a line: its length without the trailing
+                               *> spaces, so the indentation is kept and the padding is not.
+                               *> Uses:   WS-LN-BUF = RTSEED-REC, a skeleton line of the template
+                               *>         being read (set just above).
+                               *> Result: WS-LN-LEN = its length without trailing spaces (0 for a
+                               *>         blank line); WS-LN-REV is scratch. The IF below appends
+                               *>         WS-LN-BUF(1:WS-LN-LEN) and a line feed to WS-RT-SKEL, or a
+                               *>         line feed alone when it is 0.
+
                                CALL    "PC-LINE-LEN"
                                IF    WS-LN-LEN > 0
                                    STRING    WS-LN-BUF(1:WS-LN-LEN) X"0A" INTO WS-RT-SKEL
@@ -2925,6 +4005,15 @@
            END-PERFORM
            *> The last template has no "=== " line after it to hand it over, so
            *> it is handed over here.
+
+           *> PC-TAKE-TEMPLATE: acts on one template read from a samples file (WS-RT-NAME,
+           *> WS-RT-SUITS, WS-RT-SKEL) by WS-RT-MODE: "O" keeps it, "U" offers it to the store, "S"
+           *> writes it.
+           *> Uses:   WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL = the last template of the file; no
+           *>         "=== " line follows it to hand it over. WS-RT-MODE says where it goes.
+           *> Result: As at each "=== " line: with a template in hand (name and skeleton not
+           *>         SPACES), "O" counts it in WS-OLD-N and keeps it in WS-OLD-NAME / WS-OLD-SKEL
+           *>         (up to 40), "U" offers it to the store, "S" writes it; otherwise nothing.
 
            CALL    "PC-TAKE-TEMPLATE"
            CLOSE    RTSEED-FILE
@@ -2963,8 +4052,29 @@
                                                  TO    WS-RT-SKEL
                    END-IF
                WHEN "U"
+
+                   *> PC-UPGRADE-ONE: upgrades one stored template: the stored one of that name is
+                   *> replaced by the shipped one only when it still equals a previous shipped
+                   *> version, so a change by the user is never lost.
+                   *> Uses:   WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL = a template of the shipped
+                   *>         samples file (WS-RT-MODE = "U"); WS-OLD-NAME / WS-OLD-SKEL (1 to
+                   *>         WS-OLD-N) = the previously shipped versions; RTPL-FILE.
+                   *> Result: The stored template of that name is replaced by this one (its suits
+                   *>         line too, when WS-RT-SUITS is not SPACES) and committed, only if it
+                   *>         still equals a previously shipped version. Otherwise, or when none of
+                   *>         that name is stored, RTPL-FILE is left as it is.
+
                    CALL    "PC-UPGRADE-ONE"
                WHEN OTHER
+
+                   *> PC-PUT-TEMPLATE: writes a report template to RTPL-FILE (open I-O), or rewrites
+                   *> it when one of that name exists, and commits.
+                   *> Uses:   WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL = the template just read from
+                   *>         the samples file (mode "S"); RTPL-FILE open I-O.
+                   *> Result: The template is written to RTPL-FILE, or rewritten when one of that
+                   *>         name exists (its suits line is kept when WS-RT-SUITS is SPACES), and
+                   *>         committed. Nothing when the name or the skeleton is SPACES.
+
                    CALL    "PC-PUT-TEMPLATE"
            END-EVALUATE
 
@@ -2988,10 +4098,28 @@
            SET     WS-RTSEED-PATH                TO    WS-RTPREV-PATH
            SET     WS-RT-MODE                    TO    "O"
 
+           *> PC-SEED-TEMPLATES: reads a report-templates samples file ("=== name", a "Suits:" line,
+           *> then the HTML skeleton) and hands each template to PC-TAKE-TEMPLATE, which acts by
+           *> WS-RT-MODE.
+           *> Uses:   WS-RTSEED-PATH = WS-RTPREV-PATH (samples/report-templates-previous.txt) and
+           *>         WS-RT-MODE = "O", with WS-OLD-N = 0 (all set just above).
+           *> Result: The previously shipped templates are read into WS-OLD-NAME(n) /
+           *>         WS-OLD-SKEL(n), at most 40, and WS-OLD-N counts them; it stays 0 when the file
+           *>         is missing. RTPL-FILE is not touched.
+
            CALL    "PC-SEED-TEMPLATES"
            IF    WS-OLD-N > 0
                SET     WS-RTSEED-PATH            TO    WS-RTNEW-PATH
                SET     WS-RT-MODE                TO    "U"
+
+               *> PC-SEED-TEMPLATES: reads a report-templates samples file ("=== name", a "Suits:"
+               *> line, then the HTML skeleton) and hands each template to PC-TAKE-TEMPLATE, which
+               *> acts by WS-RT-MODE.
+               *> Uses:   WS-RTSEED-PATH = WS-RTNEW-PATH (the shipped samples/report-templates.txt)
+               *>         and WS-RT-MODE = "U" (set just above); reached only when WS-OLD-N > 0.
+               *> Result: Each shipped template is offered to PC-UPGRADE-ONE, which replaces a
+               *>         stored template only if it still equals a previously shipped version.
+               *>         RTPL-FILE changes only for those.
 
                CALL    "PC-SEED-TEMPLATES"
            END-IF
@@ -3181,6 +4309,17 @@
                    CLOSE    RTPL-FILE
                    OPEN    I-O RTPL-FILE
                END-IF
+
+               *> PC-PUT-TEMPLATE: writes a report template to RTPL-FILE (open I-O), or rewrites it
+               *> when one of that name exists, and commits.
+               *> Uses:   WS-RT-NAME and WS-RT-SUITS from the NAME: and SUITS: lines of the model's
+               *>         REPORT-TEMPLATE block, WS-RT-SKEL = the answer's HTML page (the IF above
+               *>         checked name and skeleton are not SPACES); RTPL-FILE opened I-O just
+               *>         above.
+               *> Result: The template is added to RTPL-FILE, or the one of that name is rewritten
+               *>         (its suits line is kept when WS-RT-SUITS is SPACES), and committed. The
+               *>         file is closed on the next line.
+
                CALL    "PC-PUT-TEMPLATE"
                CLOSE    RTPL-FILE
            END-IF
@@ -3276,6 +4415,14 @@
            *>   prompt and its Knowledge Base collection, and nothing else (R7).
 
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) by its name; it writes no setting. A missing file is
+           *> created empty first.
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" (set just above).
+           *> Result: WS-SET-VALUE = the id of the topic last chosen, or SPACES when none was. The
+           *>         next line keeps its first 16 characters in WS-CUR-TOPIC.
+
            CALL    "PC-SETTING-GET"
            SET     WS-CUR-TOPIC                  TO    WS-SET-VALUE(1:16)
            IF    WS-CUR-TOPIC = SPACES
@@ -3303,6 +4450,16 @@
            SET     WS-TOPIC-PROMPT               TO    TOP-PROMPT
            SET     KB-1::Collection              TO    WS-CUR-TOPIC
 
+           *> PC-REGISTER-FILES: registers the current topic's data files with the agents: it first
+           *> withdraws the files registered for the previous topic, then registers each indexed
+           *> file of the topic (data path plus .cidx) listed in TFILES-FILE (data/topic-files.idx).
+           *> Uses:   WS-CUR-TOPIC (the topic found above), TFILES-FILE, and WS-REG-COUNT /
+           *>         WS-REG-NAME from the previous topic.
+           *> Result: The files registered before are withdrawn, then each data file of this topic
+           *>         is registered with AGENT-1::RegisterFile. WS-REG-COUNT = how many succeeded
+           *>         (their names in WS-REG-NAME); WS-FAILED = how many did not, named with the
+           *>         reason in WS-FILE-NOTE.
+
            CALL    "PC-REGISTER-FILES"
            *>   What the agents can draw on for this topic: its documents and the
            *>   data files that registered. None, and PC-ELECT tells the
@@ -3310,6 +4467,25 @@
 
            SET     WS-SOURCES                    TO    KB-1::ListDocuments()
            ADD    WS-REG-COUNT TO WS-SOURCES
+
+           *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then gives
+           *> every agent its instructions from the main prompt: the SYSTEM section (with the
+           *> topic's prompt) for the orchestrator, the ASSISTANT section for the others.
+           *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+           *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN (loaded
+           *>         again) and RTPL-FILE (through PC-TEMPLATES); WS-SOURCES was counted just
+           *>         above.
+           *> Result: WS-N-AGENTS, WS-N-TOOLS, WS-ORCH and WS-WORKER are set (0 = none);
+           *>         Lbl-Status::Caption = T-NO-MODEL if no agent has a model. With an
+           *>         orchestrator, WS-CATALOG is rebuilt (PC-TEMPLATES also upgrades unchanged old
+           *>         templates in RTPL-FILE once per run, and seeds an empty file). Each AGENT-n
+           *>         gets its SystemPrompt and ToolProtocol ("Native" for the tool worker, else
+           *>         "None"). The former topic's Knowledge Base grant (WS-ALLOWED-TOPIC), if any,
+           *>         is withdrawn from every agent; only if WS-CUR-TOPIC is not SPACES is its
+           *>         collection granted, to the tool worker alone if there is one. WS-MAIN-ELECTED
+           *>         = WS-MAIN, WS-ALLOWED-TOPIC = WS-CUR-TOPIC, WS-STAGE = "IDLE"; WS-OK is left
+           *>         as scratch.
+
            CALL    "PC-ELECT"
 
            GOBACK.
@@ -3338,10 +4514,52 @@
            ADD    WS-REG-COUNT TO WS-SOURCES
            IF    WS-SOURCES-WAS = 0
                IF    WS-SOURCES > 0
+
+                   *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then
+                   *> gives every agent its instructions from the main prompt: the SYSTEM section
+                   *> (with the topic's prompt) for the orchestrator, the ASSISTANT section for the
+                   *> others.
+                   *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+                   *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN
+                   *>         (loaded again) and RTPL-FILE (through PC-TEMPLATES); reached only when
+                   *>         WS-SOURCES-WAS = 0 and WS-SOURCES > 0 (the first source gained).
+                   *> Result: The SYSTEM text loses the NO SOURCES note. WS-N-AGENTS, WS-N-TOOLS,
+                   *>         WS-ORCH and WS-WORKER are set (0 = none); Lbl-Status::Caption =
+                   *>         T-NO-MODEL if no agent has a model. With an orchestrator, WS-CATALOG
+                   *>         is rebuilt (PC-TEMPLATES also upgrades unchanged old templates in
+                   *>         RTPL-FILE once per run, and seeds an empty file). Each AGENT-n gets
+                   *>         its SystemPrompt and ToolProtocol ("Native" for the tool worker, else
+                   *>         "None"). The former topic's Knowledge Base grant (WS-ALLOWED-TOPIC),
+                   *>         if any, is withdrawn from every agent; only if WS-CUR-TOPIC is not
+                   *>         SPACES is its collection granted, to the tool worker alone if there is
+                   *>         one. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC = WS-CUR-TOPIC,
+                   *>         WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
                    CALL    "PC-ELECT"
                END-IF
            ELSE
                IF    WS-SOURCES = 0
+
+                   *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then
+                   *> gives every agent its instructions from the main prompt: the SYSTEM section
+                   *> (with the topic's prompt) for the orchestrator, the ASSISTANT section for the
+                   *> others.
+                   *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+                   *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN
+                   *>         (loaded again) and RTPL-FILE (through PC-TEMPLATES); reached only when
+                   *>         WS-SOURCES-WAS > 0 and WS-SOURCES = 0 (the last source lost).
+                   *> Result: The SYSTEM text gains the NO SOURCES note. WS-N-AGENTS, WS-N-TOOLS,
+                   *>         WS-ORCH and WS-WORKER are set (0 = none); Lbl-Status::Caption =
+                   *>         T-NO-MODEL if no agent has a model. With an orchestrator, WS-CATALOG
+                   *>         is rebuilt (PC-TEMPLATES also upgrades unchanged old templates in
+                   *>         RTPL-FILE once per run, and seeds an empty file). Each AGENT-n gets
+                   *>         its SystemPrompt and ToolProtocol ("Native" for the tool worker, else
+                   *>         "None"). The former topic's Knowledge Base grant (WS-ALLOWED-TOPIC),
+                   *>         if any, is withdrawn from every agent; only if WS-CUR-TOPIC is not
+                   *>         SPACES is its collection granted, to the tool worker alone if there is
+                   *>         one. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC = WS-CUR-TOPIC,
+                   *>         WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
                    CALL    "PC-ELECT"
                END-IF
            END-IF
@@ -3707,6 +4925,15 @@
            *>   unless it is a presentation, which goes straight into the
            *>   conversation, full width, with no bubble.
 
+           *> PC-IS-FORMATTED: decides whether WS-MSG is a presentation rather than a plain reply:
+           *> HTML blocks, a Markdown table or a fenced block - or, for the live answer, a question
+           *> that asked for a table, Markdown or HTML.
+           *> Uses:   WS-MSG = the agent's message; WS-SHOW-ANSWER, "Y" when PC-FINISH is showing a
+           *>         real answer (then WS-QUESTION is also checked for a request for a table,
+           *>         Markdown or HTML), otherwise "N", as for an error message.
+           *> Result: WS-FORMATTED = "Y" when WS-MSG is a presentation, else "N"; WS-FMT-HTML = "Y"
+           *>         only when it is HTML that starts with a tag. WS-FMT-T and WS-LOWQ are scratch.
+
            CALL    "PC-IS-FORMATTED"
            SET     WS-SHOW-ANSWER                TO    "N"
            IF    WS-FORMATTED = "Y"
@@ -3714,6 +4941,18 @@
                    SET     WS-OK                 TO    Vwr-Chat::RemoveMessage(WS-STATUS-ID::Trim())
                    SET     WS-STATUS-ID          TO    SPACES
                END-IF
+
+               *> PC-APPEND-FORMATTED: puts a presentation (WS-MSG) straight into the conversation
+               *> of Vwr-Chat, with no bubble: HTML is rendered as HTML, Markdown as Markdown, and a
+               *> page inside it (a ```html fence, or a raw <!DOCTYPE, <html or <style) is cut out
+               *> and rendered as HTML, the text around it staying Markdown, in order.
+               *> Uses:   WS-MSG = the presentation and WS-FMT-HTML, both from the check just above.
+               *> Result: Vwr-Chat gets WS-MSG straight in the conversation, no bubble: HTML as
+               *>         HTML, Markdown as Markdown with any page in it rendered as HTML. WS-OK
+               *>         only receives the Append calls' returns (the new messages' ids); WS-FP,
+               *>         WS-FA, WS-FB, WS-BS, WS-FC, WS-REST, WS-FKIND, WS-FQ and WS-FSTRIP are
+               *>         scratch.
+
                CALL    "PC-APPEND-FORMATTED"
                SET     WS-OK                     TO    Vwr-Chat::JumpToLatest()
                EXIT PROGRAM
@@ -3750,6 +4989,18 @@
                WHEN "IndexedFile" MOVE T-ST-READ-DATA TO WS-STATUS-TEXT
                WHEN OTHER EXIT PROGRAM
            END-EVALUATE
+
+           *> PC-SAY-STATUS: shows WS-STATUS-TEXT in italics in the status bubble of Vwr-Chat (made
+           *> the first time, changed in place after that) and scrolls to the latest message.
+           *> Uses:   WS-STATUS-TEXT = T-ST-SEARCH-KB ("Searching the Knowledge Base...") when
+           *>         WS-TOOL-KIND = "KnowledgeBase", or T-ST-READ-DATA
+           *>         ("Reading the data files...") when "IndexedFile", chosen just above in the
+           *>         current language.
+           *> Result: The status bubble in Vwr-Chat shows it in italics, made now if WS-STATUS-ID is
+           *>         SPACES, else changed in place; the view jumps to the latest message. WS-MSG =
+           *>         "*text*"; WS-STATUS-ID = the new bubble's id when one was made; WS-OK ends
+           *>         SPACES (JumpToLatest returns nothing).
+
            CALL    "PC-SAY-STATUS"
 
            GOBACK.
@@ -3770,12 +5021,40 @@
            *> Before the answer is shown or kept: its template block is cut out of
            *> WS-REPLY here.
 
+           *> PC-SAVE-TEMPLATE: saves a report template the model defined: the "<!--REPORT-TEMPLATE"
+           *> block of the answer (NAME:, SUITS:) with the answer's own HTML page as its skeleton, a
+           *> new one added or a changed one replaced; the block is cut out of WS-REPLY.
+           *> Uses:   WS-REPLY = the answer just received, before it is shown or kept.
+           *> Result: If it holds a "<!--REPORT-TEMPLATE" block, that block is cut out of WS-REPLY,
+           *>         and the template it names (NAME:, SUITS:, with the answer's HTML page as
+           *>         skeleton) is saved to RTPL-FILE when it has a name and a page. Without the
+           *>         block WS-REPLY is unchanged. WS-TEXT, WS-SEC and WS-RT-* are scratch.
+
            CALL    "PC-SAVE-TEMPLATE"
            SET     WS-MSG                        TO    WS-REPLY
+
+           *> PC-DROP-MARKER: removes a leading "TEMPLATE: name" line from WS-MSG when the answer
+           *> goes on after it (the line is how the model chooses a template; it must not show above
+           *> the report).
+           *> Uses:   WS-MSG = WS-REPLY (copied just above).
+           *> Result: If WS-MSG opens with a "TEMPLATE: name" line and goes on after it, that line
+           *>         is removed and the rest trimmed (WS-TEXT is scratch); otherwise it is
+           *>         unchanged. The next line copies it back to WS-REPLY.
+
            CALL    "PC-DROP-MARKER"
 
            SET     WS-REPLY                      TO    WS-MSG
            SET     WS-SHOW-ANSWER                TO    "Y"
+
+           *> PC-SHOW-AGENT: shows the agent's message WS-MSG: a presentation goes straight into the
+           *> conversation (the status bubble is removed), anything else takes the status bubble's
+           *> place as an agent message; then the view jumps to the latest message.
+           *> Uses:   WS-MSG = the final answer (WS-REPLY without its TEMPLATE: line) and
+           *>         WS-SHOW-ANSWER = "Y" (both set just above); WS-STATUS-ID, the status bubble.
+           *> Result: Vwr-Chat shows the answer: a presentation straight into the conversation,
+           *>         anything else in an agent message that replaces the status bubble; the view
+           *>         jumps to the latest message. WS-STATUS-ID = SPACES and WS-SHOW-ANSWER = "N"
+           *>         afterwards; WS-FORMATTED and WS-FMT-HTML are set.
 
            CALL    "PC-SHOW-AGENT"
 
@@ -3787,8 +5066,39 @@
 
            COMPUTE    WS-ANSWER-SEQ = WS-SEQ + 1
 
+           *> PC-SAVE-TURN: stores WS-TEXT as the next turn of the current conversation in
+           *> TURNS-FILE (data/turns.idx) under role WS-ROLE, 2000 characters a record, committed at
+           *> once; a longer text continues in further records under the lower-case role letter.
+           *> Uses:   WS-ROLE = "A" and WS-TEXT = WS-REPLY, the answer (both set just above);
+           *>         WS-CUR-CONV; WS-SEQ.
+           *> Result: TURNS-FILE gets the answer as the next turn of WS-CUR-CONV, 2000 characters a
+           *>         record, committed. The first record is number WS-SEQ + 1, which is
+           *>         WS-ANSWER-SEQ computed just above; WS-SEQ rises by one per record.
+
            CALL    "PC-SAVE-TURN"
+
+           *> PC-SAVE-TASKS: saves the tasks of the answer just stored (WS-ANSWER-SEQ), each with
+           *> what its assistant wrote, in data/taskresults.idx, 2000 characters a record. Nothing
+           *> reads them back into the chat.
+           *> Uses:   WS-TASKS-RAN ("Y" once a plan has queued tasks, until they are saved),
+           *>         WS-TASK-COUNT, WS-TASK(n), WS-TASK-ST(n), WS-TASK-RES(n), WS-CUR-CONV and
+           *>         WS-ANSWER-SEQ (set just above).
+           *> Result: When tasks ran, each task's text, state and result go to TASKRES-FILE in
+           *>         2000-character pieces and WS-TASKS-RAN = "N". Otherwise nothing is done.
+
            CALL    "PC-SAVE-TASKS"
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE (every conversation), today's year and month, WS-FAILED /
+           *>         WS-FILE-NOTE, WS-N-AGENTS, WS-ORCH and WS-WORKER.
+           *> Result: Lbl-Status::Caption = "This month: n conversation(s), x input and y output
+           *>         tokens." in the current language, plus the unusable-files note and the
+           *>         orchestrator line when they apply. The tokens of the replies already received
+           *>         are in the totals (PC-ADD-TOKENS adds them). WS-LINE, WS-SUM-* and WS-E1 to
+           *>         WS-E3 are scratch.
+
            CALL    "PC-STATUS"
 
            GOBACK.
@@ -3864,6 +5174,22 @@
                    SET     WS-TEXT               TO    WS-REPLY(WS-FP + 4:)
                    SET     WS-REPLY              TO    WS-TEXT::Trim()
 
+                   *> PC-FINISH: ends a question: the answer in WS-REPLY, cleaned of a
+                   *> report-template block and of a leading TEMPLATE: line, is shown to the user
+                   *> and kept as the next turn of the conversation; its task results are saved and
+                   *> the totals line is refreshed.
+                   *> Uses:   WS-REPLY = the text after "ASK:" in the orchestrator's plan, trimmed
+                   *>         (set just above): a question for the user, such as which report
+                   *>         template to use.
+                   *> Result: PC-SAVE-TEMPLATE cuts any "<!--REPORT-TEMPLATE" block from WS-REPLY
+                   *>         (saving that template to RTPL-FILE) and PC-DROP-MARKER any leading
+                   *>         "TEMPLATE:" line; the edited WS-REPLY is shown in Vwr-Chat
+                   *>         (WS-STATUS-ID = SPACES) and stored in TURNS-FILE (WS-ROLE "A",
+                   *>         WS-ANSWER-SEQ = WS-SEQ + 1, WS-SEQ rises). WS-STAGE = "IDLE". No tasks
+                   *>         were queued, so PC-SAVE-TASKS normally has nothing to store (it acts
+                   *>         only when WS-TASKS-RAN = "Y"); Lbl-Status::Caption is refreshed.
+                   *>         PC-DISPATCH ends right after.
+
                    CALL    "PC-FINISH"
                    EXIT PROGRAM
                END-IF
@@ -3887,6 +5213,15 @@
 
                IF    FUNCTION UPPER-CASE(WS-L(WS-I)(1:9)) = "TEMPLATE:"
                    SET     WS-TPL-NAME           TO    WS-L(WS-I)(10:)
+
+                   *> PC-TPL-FIND: looks a report template up by name, in any case, in the templates
+                   *> file (data/templates.idx) and returns its HTML skeleton.
+                   *> Uses:   WS-TPL-NAME = the text after "TEMPLATE:" on the plan line WS-L(WS-I)
+                   *>         (set just above); RTPL-FILE.
+                   *> Result: WS-TPL-SKEL = that template's HTML skeleton and WS-TPL-NAME = the name
+                   *>         as stored. When no such template exists WS-TPL-SKEL is SPACES and
+                   *>         WS-TPL-NAME is unchanged.
+
                    CALL    "PC-TPL-FIND"
                    SET     WS-TPL-DONE           TO    "Y"
                END-IF
@@ -3934,6 +5269,20 @@
            PERFORM    VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF    WS-B NOT = WS-ORCH AND WS-AG-ENTRY(WS-B) NOT = SPACES
                    SET     WS-FROM               TO    WS-B
+
+                   *> PC-NEXT-TASK: gives the agent WS-FROM the next queued task and asks it (the
+                   *> main prompt's TASK section with the task filled in); with no task left the
+                   *> agent is marked idle.
+                   *> Uses:   WS-FROM = WS-B, an agent with a model that is not the orchestrator
+                   *>         (the tool worker first), set just above; WS-NEXT-TASK (1 for the first
+                   *>         agent, then counting up), WS-TASK-COUNT and WS-TASK(WS-NEXT-TASK), the
+                   *>         next queued task; WS-MAIN, for the TASK section.
+                   *> Result: The agent takes the next queued task: WS-AG-TASKNO(WS-FROM) = its
+                   *>         number, WS-AG-TASK(WS-FROM) = its text, WS-TASK-ST = "R", WS-AG-WAIT =
+                   *>         "Y", WS-NEXT-TASK + 1; WS-PROMPT = the TASK section with {TASK} filled
+                   *>         in, sent to the agent. With no task left it rests instead (WS-AG-WAIT
+                   *>         "N", WS-AG-TASKNO 0).
+
                    CALL    "PC-NEXT-TASK"
                END-IF
                ADD    1 TO WS-B
@@ -3941,6 +5290,16 @@
                    SET     WS-B                  TO    1
                END-IF
            END-PERFORM
+
+           *> PC-WORK-STATUS: reports the progress as "Working: N task(s) across M agent(s)..." (N
+           *> the tasks still pending, M the agents with a task), in Lbl-Status and in the status
+           *> bubble.
+           *> Uses:   WS-PENDING = WS-TASK-COUNT (set above: every task still to do) and
+           *>         WS-AG-WAIT(1 to 3), the agents just started.
+           *> Result: Lbl-Status::Caption and the status bubble say "Working: <WS-PENDING> task(s)
+           *>         across <agents with a task> agent(s)..." in the current language. WS-B, WS-FMT
+           *>         and WS-ARG1 / WS-ARG2 are scratch.
+
            CALL    "PC-WORK-STATUS"
 
            GOBACK.
@@ -3974,15 +5333,40 @@
            SET     WS-AG-WAIT(WS-FROM)           TO    "Y"
            SET     WS-SEC-NAME                   TO    "TASK"
 
+           *> PC-SECTION: cuts one section out of the main prompt: the text after its "=== NAME ==="
+           *> line up to the next "=== " line or the end. A section the prompt does not have gives
+           *> an empty result.
+           *> Uses:   WS-SEC-NAME = "TASK" (set just above) and WS-MAIN.
+           *> Result: WS-SEC = the TASK section, which carries the {TASK} placeholder (SPACES if the
+           *>         main prompt has none).
+
            CALL    "PC-SECTION"
 
            SET     WS-TOKEN                      TO    "{TASK}"
            SET     WS-INS                        TO    WS-AG-TASK(WS-FROM)
 
+           *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text (one
+           *> occurrence per pass, 20 passes at most); the placeholder is simply removed when the
+           *> text is spaces.
+           *> Uses:   WS-TOKEN = "{TASK}" and WS-INS = WS-AG-TASK(WS-FROM), the text of the task
+           *>         this agent just took (both set just above).
+           *> Result: Every {TASK} in WS-SEC is replaced by it. The next lines make WS-SEC the
+           *>         agent's prompt.
+
            CALL    "PC-FILL"
 
            SET     WS-PROMPT                     TO    SPACES
            SET     WS-PROMPT                     TO    WS-SEC
+
+           *> PC-ASK: sends WS-PROMPT as a question to the AgentObject numbered WS-FROM (1 to 3).
+           *> Ask returns at once with an empty string; the answer arrives later in that agent's
+           *> onResponse (PC-ON-REPLY), or in onError / onTimeout.
+           *> Uses:   WS-FROM = the agent that took the task (1 to 3) and WS-PROMPT = the filled
+           *>         TASK section (set just above).
+           *> Result: The AgentObject numbered WS-FROM is asked and the call returns at once; Ask
+           *>         returns an empty string, so WS-OK ends SPACES and is not used. The answer
+           *>         comes later in that agent's onResponse (PC-ON-REPLY, stage "WORK"), or its
+           *>         onError / onTimeout.
 
            CALL    "PC-ASK"
 
@@ -4020,9 +5404,46 @@
                SUBTRACT    1 FROM WS-PENDING
            END-IF
            IF    WS-PENDING = 0
+
+               *> PC-COMPOSE: the orchestrator answers from the tasks' results; a JOIN plan with no
+               *> report template gives the parts as written instead.
+               *> Uses:   Reached only when WS-PENDING = 0 (just decreased): every task is done
+               *>         ("D") or failed ("F"). WS-TASK(n), WS-TASK-ST(n), WS-TASK-RES(n),
+               *>         WS-JOIN-MODE, WS-TPL-SKEL, WS-HISTORY and WS-MAIN (COMPOSE and TEMPLATE
+               *>         sections).
+               *> Result: For a JOIN plan with no template, WS-REPLY is built from the results and
+               *>         finished at once (PC-FINISH). Otherwise WS-STAGE = "COMPOSE", WS-FROM =
+               *>         WS-ORCH, and WS-PROMPT = WS-HISTORY plus the COMPOSE section with the
+               *>         results (plus the TEMPLATE text when a template was chosen) is sent to the
+               *>         orchestrator for the final answer; the status bubble shows
+               *>         "Preparing the answer...".
+
                CALL    "PC-COMPOSE"
            ELSE
+
+               *> PC-NEXT-TASK: gives the agent WS-FROM the next queued task and asks it (the main
+               *> prompt's TASK section with the task filled in); with no task left the agent is
+               *> marked idle.
+               *> Uses:   WS-FROM = the agent that has just finished; WS-NEXT-TASK, WS-TASK-COUNT,
+               *>         WS-TASK(WS-NEXT-TASK), the next queued task, and WS-MAIN (TASK section).
+               *>         Reached only when WS-PENDING > 0.
+               *> Result: The agent takes the next queued task: WS-AG-TASKNO(WS-FROM) = its number,
+               *>         WS-AG-TASK(WS-FROM) = its text, WS-TASK-ST = "R", WS-AG-WAIT = "Y",
+               *>         WS-NEXT-TASK + 1; WS-PROMPT = the TASK section with {TASK} filled in, sent
+               *>         to the agent. With no task left it rests instead (WS-AG-WAIT "N",
+               *>         WS-AG-TASKNO 0).
+
                CALL    "PC-NEXT-TASK"
+
+               *> PC-WORK-STATUS: reports the progress as "Working: N task(s) across M agent(s)..."
+               *> (N the tasks still pending, M the agents with a task), in Lbl-Status and in the
+               *> status bubble.
+               *> Uses:   WS-PENDING (tasks not yet finished, after the subtraction above) and
+               *>         WS-AG-WAIT(1 to 3).
+               *> Result: Lbl-Status::Caption and the status bubble say "Working: <WS-PENDING>
+               *>         task(s) across <agents with a task> agent(s)..." in the current language.
+               *>         WS-B counts the agents with a task.
+
                CALL    "PC-WORK-STATUS"
            END-IF
 
@@ -4052,10 +5473,26 @@
            SET     WS-ARG1                       TO    WS-NUM-ED::Trim()
            SET     WS-ARG2                       TO    WS-B
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-WORKING ("Working: &1 task(s) across &2 agent(s)..." in the current
+           *>         language), WS-ARG1 = WS-PENDING edited and trimmed, WS-ARG2 = WS-B, the agents
+           *>         with a task (all set just above).
+           *> Result: WS-FMT-OUT = the sentence with &1 and &2 replaced, e.g. "Working: 3 task(s)
+           *>         across 2 agent(s)...". The lines below show it in Lbl-Status.
+
            CALL    "PC-FMT"
 
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
            SET     WS-STATUS-TEXT                TO    WS-FMT-OUT
+
+           *> PC-SAY-STATUS: shows WS-STATUS-TEXT in italics in the status bubble of Vwr-Chat (made
+           *> the first time, changed in place after that) and scrolls to the latest message.
+           *> Uses:   WS-STATUS-TEXT = WS-FMT-OUT, the "Working: ..." sentence (set just above).
+           *> Result: The status bubble in Vwr-Chat (WS-STATUS-ID, made when the question was sent)
+           *>         now shows it in italics, changed in place, and the view jumps to the latest
+           *>         message. WS-MSG = "*text*"; WS-OK ends SPACES (JumpToLatest returns nothing).
 
            CALL    "PC-SAY-STATUS"
 
@@ -4190,7 +5627,32 @@
                    END-IF
                END-PERFORM
 
+               *> PC-NOTE-MISSING: names the tasks that failed or came back empty at the end of
+               *> WS-REPLY ("> **Part not answered:** task"), so a missing part is never left out in
+               *> silence.
+               *> Uses:   WS-REPLY = the done tasks' results in task order, separated by blank lines
+               *>         (built just above); WS-TASK-ST(n) and WS-TASK(n).
+               *> Result: For each failed task ("F") a blank line and "> **Part not answered:**
+               *>         <task text>" (in the current language) are added after the last non-blank
+               *>         character of WS-REPLY. WS-TASK-OK ends "Y" if some task failed, else "N"
+               *>         (scratch flag); WS-SX-B and WS-TK are scratch.
+
                CALL    "PC-NOTE-MISSING"
+
+               *> PC-FINISH: ends a question: the answer in WS-REPLY, cleaned of a report-template
+               *> block and of a leading TEMPLATE: line, is shown to the user and kept as the next
+               *> turn of the conversation; its task results are saved and the totals line is
+               *> refreshed.
+               *> Uses:   WS-REPLY = the parts as written, in task order, plus the missing-part
+               *>         notes.
+               *> Result: No agent is asked. PC-SAVE-TEMPLATE cuts any "<!--REPORT-TEMPLATE" block
+               *>         from WS-REPLY (saving that template to RTPL-FILE) and PC-DROP-MARKER any
+               *>         leading "TEMPLATE:" line; the edited WS-REPLY is shown in Vwr-Chat
+               *>         (WS-STATUS-ID = SPACES) and stored in TURNS-FILE (WS-ROLE "A",
+               *>         WS-ANSWER-SEQ = WS-SEQ + 1, WS-SEQ rises). WS-STAGE = "IDLE". The task
+               *>         results are saved to TASKRES-FILE (WS-TASKS-RAN = "N");
+               *>         Lbl-Status::Caption is refreshed.
+
                CALL    "PC-FINISH"
 
                EXIT PROGRAM
@@ -4213,8 +5675,26 @@
                END-IF
            END-PERFORM
            SET     WS-SEC-NAME                   TO    "COMPOSE"
+
+           *> PC-SECTION: cuts one section out of the main prompt: the text after its "=== NAME ==="
+           *> line up to the next "=== " line or the end. A section the prompt does not have gives
+           *> an empty result.
+           *> Uses:   WS-SEC-NAME = "COMPOSE" (set just above) and WS-MAIN.
+           *> Result: WS-SEC = the COMPOSE section, which carries the {RESULTS} placeholder (SPACES
+           *>         if the main prompt has none).
+
            CALL    "PC-SECTION"
            SET     WS-TOKEN                      TO    "{RESULTS}"
+
+           *> PC-FILL: replaces every occurrence of a placeholder in WS-SEC by a text (one
+           *> occurrence per pass, 20 passes at most); the placeholder is simply removed when the
+           *> text is spaces.
+           *> Uses:   WS-TOKEN = "{RESULTS}" (set just above) and WS-INS = the list built above: one
+           *>         line per task, "- On <task>: <result>" for a done task, "- On <task>: NO
+           *>         RESULT - this part could not be answered." for the others.
+           *> Result: Every {RESULTS} in WS-SEC is replaced by that list. The STRING below puts
+           *>         WS-SEC after WS-HISTORY in WS-PROMPT.
+
            CALL    "PC-FILL"
 
            SET     WS-PROMPT                     TO    SPACES
@@ -4223,6 +5703,17 @@
            STRING    WS-HISTORY::Trim() X"0A" X"0A" WS-SEC::Trim() INTO WS-PROMPT WITH POINTER WS-PTR
            END-STRING
            IF    WS-TPL-SKEL NOT = SPACES
+
+               *> PC-TEMPLATE-TEXT: builds the main prompt's TEMPLATE section for the report
+               *> template the user chose, with its name and HTML skeleton filled in.
+               *> Uses:   WS-TPL-NAME and WS-TPL-SKEL = the report template the user chose
+               *>         (WS-TPL-SKEL is not SPACES here); WS-MAIN, which holds the TEMPLATE
+               *>         section.
+               *> Result: WS-SEC = the TEMPLATE section with the template's name and HTML page
+               *>         filled in (SPACES if the main prompt has no TEMPLATE section); the next
+               *>         STRING appends it to WS-PROMPT. WS-SEC-NAME = "TEMPLATE"; WS-TOKEN and
+               *>         WS-INS are scratch.
+
                CALL    "PC-TEMPLATE-TEXT"
                STRING    X"0A" X"0A" WS-SEC::Trim() INTO WS-PROMPT WITH POINTER WS-PTR
                END-STRING
@@ -4231,8 +5722,28 @@
            SET     WS-STAGE                      TO    "COMPOSE"
            SET     WS-FROM                       TO    WS-ORCH
 
+           *> PC-ASK: sends WS-PROMPT as a question to the AgentObject numbered WS-FROM (1 to 3).
+           *> Ask returns at once with an empty string; the answer arrives later in that agent's
+           *> onResponse (PC-ON-REPLY), or in onError / onTimeout.
+           *> Uses:   WS-FROM = WS-ORCH (set just above) and WS-PROMPT = WS-HISTORY plus the COMPOSE
+           *>         section with the results (plus the TEMPLATE text when a template was chosen);
+           *>         WS-STAGE = "COMPOSE".
+           *> Result: The orchestrator is asked to write the final answer and the call returns at
+           *>         once; Ask returns an empty string, so WS-OK ends SPACES. The answer comes
+           *>         later in its onResponse (PC-ON-REPLY, stage "COMPOSE"), or onError /
+           *>         onTimeout.
+
            CALL    "PC-ASK"
            SET     WS-STATUS-TEXT                TO    T-ST-COMPOSING
+
+           *> PC-SAY-STATUS: shows WS-STATUS-TEXT in italics in the status bubble of Vwr-Chat (made
+           *> the first time, changed in place after that) and scrolls to the latest message.
+           *> Uses:   WS-STATUS-TEXT = T-ST-COMPOSING ("Preparing the answer...", in the current
+           *>         language; set just above).
+           *> Result: The status bubble in Vwr-Chat (WS-STATUS-ID, made when the question was sent)
+           *>         now shows it in italics, changed in place, and the view jumps to the latest
+           *>         message. WS-MSG = "*text*"; WS-OK ends SPACES (JumpToLatest returns nothing).
+
            CALL    "PC-SAY-STATUS"
 
            GOBACK.
@@ -4249,6 +5760,16 @@
        PROCEDURE DIVISION.
            *>   WS-FROM, WS-REPLY, WS-T-IN, WS-T-OUT in: an agent answered.
 
+           *> PC-ADD-TOKENS: adds one request's tokens (WS-T-IN, WS-T-OUT) to the current
+           *> conversation's totals in CONVS-FILE.
+           *> Uses:   WS-T-IN and WS-T-OUT = the input and output tokens the agent just reported
+           *>         (LastInputTokens / LastOutputTokens, copied by its onResponse); WS-CUR-CONV;
+           *>         WS-SEQ.
+           *> Result: In CONVS-FILE the record of WS-CUR-CONV has CNV-IN-TOKENS and CNV-OUT-TOKENS
+           *>         increased by them and CNV-TURNS = WS-SEQ; committed. Nothing happens if the
+           *>         record is not found. WS-T-IN, WS-T-OUT and WS-CUR-CONV are not changed (the
+           *>         CONV-REC fields and WS-FS are set by the file I/O).
+
            CALL    "PC-ADD-TOKENS"
            *>   "TEMPLATE: name" from the orchestrator: the user chose a report
            *>   template. Its skeleton goes back with the main prompt's TEMPLATE
@@ -4256,12 +5777,47 @@
 
            IF    (WS-STAGE = "SINGLE" OR WS-STAGE = "COMPOSE")
                    AND WS-TPL-DONE NOT = "Y"
+
+               *> PC-TPL-LINE: checks whether the agent's reply opens with a "TEMPLATE: name" line
+               *> (the user chose a report template) and, if so, loads that template.
+               *> Uses:   WS-REPLY = the agent's answer; RTPL-FILE, through PC-TPL-FIND. Reached
+               *>         only when WS-STAGE is "SINGLE" or "COMPOSE" and no template has been taken
+               *>         yet for this question (WS-TPL-DONE is not "Y").
+               *> Result: If WS-REPLY opens, after blanks, with "TEMPLATE: name" (the user chose a
+               *>         report template), WS-TPL-NAME = the name as written and PC-TPL-FIND then
+               *>         sets WS-TPL-SKEL = that template's skeleton and WS-TPL-NAME = its stored
+               *>         spelling; with no stored template of that name WS-TPL-SKEL is SPACES. A
+               *>         reply that does not open with TEMPLATE: leaves both as they were. WS-FP,
+               *>         WS-FA and WS-FB are scratch.
+
                CALL    "PC-TPL-LINE"
                IF    WS-TPL-SKEL NOT = SPACES
                    SET     WS-TPL-DONE           TO    "Y"
                    IF    WS-STAGE = "COMPOSE"
+
+                       *> PC-COMPOSE: the orchestrator answers from the tasks' results (the COMPOSE
+                       *> section, plus the TEMPLATE section once a report template is chosen).
+                       *> Uses:   Reached only when WS-STAGE = "COMPOSE"; WS-TPL-SKEL = the chosen
+                       *>         template (not SPACES) and WS-TPL-DONE = "Y" (set above); the
+                       *>         tasks' results in WS-TASK-RES(n), WS-HISTORY and WS-MAIN.
+                       *> Result: The compose prompt is built again, now with the TEMPLATE section
+                       *>         added, WS-FROM = WS-ORCH, and the orchestrator is asked a second
+                       *>         time; the status bubble shows "Preparing the answer..." again.
+                       *>         WS-TPL-DONE is "Y", so this happens once per question.
+
                        CALL    "PC-COMPOSE"
                    ELSE
+
+                       *> PC-TEMPLATE-TEXT: builds the main prompt's TEMPLATE section for the report
+                       *> template the user chose, with its name and HTML skeleton filled in.
+                       *> Uses:   WS-TPL-NAME and WS-TPL-SKEL = the template the single agent named
+                       *>         (taken by PC-TPL-LINE above); WS-MAIN, which holds the TEMPLATE
+                       *>         section.
+                       *> Result: WS-SEC = the TEMPLATE section with that template's name and HTML
+                       *>         page filled in (SPACES if the main prompt has no TEMPLATE
+                       *>         section). The lines below make WS-PROMPT = WS-HISTORY plus WS-SEC.
+                       *>         WS-SEC-NAME = "TEMPLATE"; WS-TOKEN and WS-INS are scratch.
+
                        CALL    "PC-TEMPLATE-TEXT"
 
                        SET     WS-PROMPT         TO    SPACES
@@ -4271,23 +5827,90 @@
                            WS-SEC::Trim()
                            INTO WS-PROMPT WITH POINTER WS-PTR
                        END-STRING
+
+                       *> PC-ASK: sends WS-PROMPT as a question to the AgentObject numbered WS-FROM
+                       *> (1 to 3). Ask returns at once with an empty string; the answer arrives
+                       *> later in that agent's onResponse (PC-ON-REPLY), or in onError / onTimeout.
+                       *> Uses:   WS-FROM = the agent that just answered (set by its onResponse) and
+                       *>         WS-PROMPT = WS-HISTORY plus the TEMPLATE text (built just above);
+                       *>         WS-STAGE = "SINGLE".
+                       *> Result: The same agent is asked again, to write the report in the chosen
+                       *>         template; the call returns at once with an empty string, so WS-OK
+                       *>         ends SPACES. Its next answer arrives in onResponse (PC-ON-REPLY).
+
                        CALL    "PC-ASK"
                    END-IF
                    EXIT PROGRAM
                END-IF
            END-IF
            IF    WS-STAGE = "COMPOSE"
+
+               *> PC-NOTE-MISSING: names the tasks that failed or came back empty at the end of
+               *> WS-REPLY ("> **Part not answered:** task"), so a missing part is never left out in
+               *> silence.
+               *> Uses:   WS-REPLY = the orchestrator's composed answer; WS-TASK-ST(n) and
+               *>         WS-TASK(n) of the tasks.
+               *> Result: Each failed task ("F") is named at the end of WS-REPLY as "> **Part not
+               *>         answered:** <task text>" (in the current language); with none failed
+               *>         WS-REPLY is unchanged. WS-TASK-OK ends "Y" or "N" (scratch flag).
+
                CALL    "PC-NOTE-MISSING"
            END-IF
            EVALUATE    WS-STAGE
                WHEN "SINGLE"
                WHEN "COMPOSE"
+
+                   *> PC-FINISH: ends a question: the answer in WS-REPLY, cleaned of a
+                   *> report-template block and of a leading TEMPLATE: line, is shown to the user
+                   *> and kept as the next turn of the conversation; its task results are saved and
+                   *> the totals line is refreshed.
+                   *> Uses:   WS-REPLY = the final answer: the single agent's reply (WS-STAGE
+                   *>         "SINGLE") or the orchestrator's composed answer with any missing parts
+                   *>         noted (WS-STAGE "COMPOSE").
+                   *> Result: PC-SAVE-TEMPLATE cuts any "<!--REPORT-TEMPLATE" block from WS-REPLY
+                   *>         (saving that template to RTPL-FILE) and PC-DROP-MARKER any leading
+                   *>         "TEMPLATE:" line; the edited WS-REPLY is shown in Vwr-Chat
+                   *>         (WS-STATUS-ID = SPACES) and stored in TURNS-FILE (WS-ROLE "A",
+                   *>         WS-ANSWER-SEQ = WS-SEQ + 1, WS-SEQ rises). WS-STAGE = "IDLE". The task
+                   *>         results are saved to TASKRES-FILE when tasks ran (WS-TASKS-RAN = "N");
+                   *>         Lbl-Status::Caption is refreshed.
+
                    CALL    "PC-FINISH"
                WHEN "PLAN"
+
+                   *> PC-DISPATCH: reads the orchestrator's plan in WS-REPLY: an ASK: plan is a
+                   *> question for the user; otherwise its TASK: lines (12 at most) are queued and
+                   *> handed to the agents that do not orchestrate.
+                   *> Uses:   WS-REPLY = the orchestrator's plan: TASK: lines for the other agents,
+                   *>         with optional JOIN: and TEMPLATE: lines, or a question starting ASK:;
+                   *>         WS-QUESTION, WS-ORCH, WS-WORKER and WS-AG-ENTRY(1 to 3) (tasks go only
+                   *>         to agents with a model that are not WS-ORCH).
+                   *> Result: An ASK: plan is shown as the answer (PC-FINISH). Otherwise up to 12
+                   *>         tasks (the question itself when the plan has none) are queued in
+                   *>         WS-TASK(n) with state "Q"; WS-PENDING = WS-TASK-COUNT, WS-NEXT-TASK,
+                   *>         WS-TASKS-RAN = "Y", WS-STAGE = "WORK", WS-JOIN-MODE and WS-TPL-* are
+                   *>         set from the plan; the idle agents are asked, the tool worker first,
+                   *>         and Lbl-Status::Caption and the status bubble show the progress.
+
                    CALL    "PC-DISPATCH"
                WHEN "WORK"
                    SET     WS-TEXT               TO    WS-REPLY
                    SET     WS-TASK-OK            TO    "Y"
+
+                   *> PC-TASK-DONE: closes the task of the agent WS-FROM: the answer (or the reason
+                   *> for failure) in WS-TEXT is kept as the task's result, the task is marked done
+                   *> or failed. When none is pending the answer is composed; otherwise the agent
+                   *> takes the next task or rests, and the progress line is refreshed.
+                   *> Uses:   WS-FROM = the agent that answered; WS-TEXT = WS-REPLY and WS-TASK-OK =
+                   *>         "Y" (both set just above). WS-AG-WAIT(WS-FROM) must be "Y" (the agent
+                   *>         has a task open); otherwise nothing happens.
+                   *> Result: With WS-AG-WAIT(WS-FROM) at "Y", it becomes "N" and the agent's task
+                   *>         is marked "D" (or "F" if the answer is empty): WS-TASK-RES(task) =
+                   *>         WS-TEXT, WS-PENDING lowered by 1. When WS-PENDING is then 0 the answer
+                   *>         is composed; otherwise the agent takes the next queued task or, with
+                   *>         none queued, rests (WS-AG-WAIT stays "N", WS-AG-TASKNO 0), and
+                   *>         Lbl-Status and the status bubble show "Working: N task(s) across M
+                   *>         agent(s)...".
 
                    CALL    "PC-TASK-DONE"
                WHEN OTHER
@@ -4375,9 +5998,55 @@
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
            SET     WS-SET-VALUE                  TO    WS-PICK-ID(WS-PICK-N)
 
+           *> PC-SETTING-PUT: writes one setting to the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) and commits it at once: a new name is added, an existing
+           *> one rewritten. A missing file is created empty first.
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" and WS-SET-VALUE = WS-PICK-ID(WS-PICK-N), the id of
+           *>         the topic the user chose in PICK-FORM (both set just above).
+           *> Result: The settings file now holds CUR-TOPIC = that id, committed. WS-SET-NAME and
+           *>         WS-SET-VALUE are not changed (the record fields SET-NAME / SET-VALUE and WS-FS
+           *>         are set by the file I/O).
+
            CALL    "PC-SETTING-PUT"
+
+           *> PC-LOAD-TOPIC: loads the selected topic, which decides everything the agents may use:
+           *> it reads the CUR-TOPIC setting, shows the topic's name, takes its prompt and Knowledge
+           *> Base collection, registers its data files, counts its sources and elects the agents
+           *> (PC-ELECT).
+           *> Uses:   The CUR-TOPIC setting just saved (the id of the topic the user chose),
+           *>         TOPICS-FILE, TFILES-FILE, the documents of KB-1, WS-REG-COUNT / WS-REG-NAME
+           *>         (files registered for the old topic) and WS-ALLOWED-TOPIC.
+           *> Result: WS-CUR-TOPIC = that id; Lbl-Topic::Caption = its name, WS-TOPIC-PROMPT = its
+           *>         prompt, KB-1::Collection = its id; its data files are registered
+           *>         (WS-REG-COUNT, WS-FAILED, WS-FILE-NOTE), WS-SOURCES counted and the agents
+           *>         elected again (WS-ALLOWED-TOPIC = WS-CUR-TOPIC). If the topic no longer
+           *>         exists: WS-CUR-TOPIC = SPACES, Lbl-Topic::Caption = T-TOPIC-GONE, and nothing
+           *>         else changes (nothing is elected).
+
            CALL    "PC-LOAD-TOPIC"
+
+           *> PC-NEW-CONV: starts an empty conversation: no current conversation id (the first
+           *> question creates it), the turn counter at 0, and Vwr-Chat cleared (an open
+           *> conversation is filed into history, which keeps the last 10 entries; an empty pane is
+           *> left alone).
+           *> Uses:   Vwr-Chat, showing the previous conversation (if any).
+           *> Result: WS-CUR-CONV = SPACES (the first question will create the conversation), WS-SEQ
+           *>         = 0, and a non-empty Vwr-Chat is cleared with the old conversation filed into
+           *>         history (an empty pane is left alone). NewConversation returns nothing, so
+           *>         WS-OK ends SPACES.
+
            CALL    "PC-NEW-CONV"
+
+           *> PC-LIST-CONVS: rebuilds the sidebar's conversation list: the newest 50 conversations
+           *> of the current topic, read from CONVS-FILE, become run-time rows of SideMenu-1, while
+           *> the designed rows are relabelled in the current language and the Getting started row
+           *> is restored.
+           *> Uses:   WS-CUR-TOPIC = the topic just chosen; CONVS-FILE.
+           *> Result: WS-CONV-COUNT and WS-CONV-ROW (the newest 50 conversations of that topic) are
+           *>         rebuilt, and the SideMenu-1 rows with them: labels in the current language,
+           *>         the Getting started row and, when the topic has conversations, a Conversations
+           *>         section with one row each, newest first.
+
            CALL    "PC-LIST-CONVS"
 
            *>   The topic is chosen: show the chat, wherever the user was - what a
@@ -4549,11 +6218,29 @@
            SET     WS-ARG2                       TO    WS-E1
            SET     WS-ARG3                       TO    WS-E2
 
+           *> PC-FMT: builds a message whose words go round numbers and names differently in each
+           *> language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the result is
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-THIS-MONTH ("This month: &1 conversation(s), &2 input and &3 output
+           *>         tokens."), WS-ARG1 = WS-E3 (conversations), WS-ARG2 = WS-E1 (input tokens),
+           *>         WS-ARG3 = WS-E2 (output tokens), all set just above.
+           *> Result: WS-FMT-OUT = the sentence with &1, &2 and &3 replaced by the trimmed numbers,
+           *>         in the current language. The next line copies it to WS-LINE.
+
            CALL    "PC-FMT"
            SET     WS-LINE                       TO    WS-FMT-OUT
            IF    WS-FAILED > 0
                SET     WS-FMT                    TO    T-FILES-UNUSABLE
                SET     WS-ARG1                   TO    WS-FILE-NOTE
+
+               *> PC-FMT: builds a message whose words go round numbers and names differently in
+               *> each language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the
+               *> result is WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-FILES-UNUSABLE ("Data files not usable: &1.") and WS-ARG1 =
+               *>         WS-FILE-NOTE, the names and reasons PC-REGISTER-FILES collected; reached
+               *>         only when WS-FAILED > 0.
+               *> Result: WS-FMT-OUT = the sentence with &1 replaced by that list. The lines below
+               *>         append it to WS-LINE.
 
                CALL    "PC-FMT"
 
@@ -4566,6 +6253,14 @@
                SET     WS-FMT                    TO    T-ORCH-LINE
                SET     WS-ARG1                   TO    WS-ORCH
                SET     WS-ARG2                   TO    WS-WORKER
+
+               *> PC-FMT: builds a message whose words go round numbers and names differently in
+               *> each language: WS-FMT holds "&1" to "&4" where WS-ARG1 to WS-ARG4 go, and the
+               *> result is WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-ORCH-LINE ("Orchestrator: agent &1, tools: agent &2."), WS-ARG1
+               *>         = WS-ORCH and WS-ARG2 = WS-WORKER; reached only when WS-N-AGENTS > 1.
+               *> Result: WS-FMT-OUT = e.g. "Orchestrator: agent 2, tools: agent 1." in the current
+               *>         language. The lines below append it to WS-LINE.
 
                CALL    "PC-FMT"
 
@@ -4676,6 +6371,17 @@
            END-WRITE
            COMMIT
            CLOSE    CONVS-FILE
+
+           *> PC-LIST-CONVS: rebuilds the sidebar's conversation list: the newest 50 conversations
+           *> of the current topic, read from CONVS-FILE, become run-time rows of SideMenu-1, while
+           *> the designed rows are relabelled in the current language and the Getting started row
+           *> is restored.
+           *> Uses:   WS-CUR-TOPIC and CONVS-FILE, which now holds the conversation record just
+           *>         written.
+           *> Result: WS-CONV-COUNT and WS-CONV-ROW are rebuilt and the SideMenu-1 rows with them,
+           *>         so the new conversation appears at the top of the Conversations section with
+           *>         its question as the title.
+
            CALL    "PC-LIST-CONVS"
 
            GOBACK.
@@ -4729,12 +6435,35 @@
                        IF    TRN-CONV NOT = WS-CUR-CONV
                            SET     WS-EOF        TO    "Y"
                        ELSE
+
+                           *> PC-JOIN-PIECE: takes one TURNS-FILE record just read: a continuation
+                           *> record ("u" / "a") extends the turn in hand (one with no turn before
+                           *> it is skipped); any other record first delivers the turn in hand
+                           *> (PC-JOIN-FLUSH) and starts the next turn.
+                           *> Uses:   TURN-REC just read from TURNS-FILE (TRN-ROLE, TRN-TEXT) for
+                           *>         WS-CUR-CONV; WS-JOIN-TO = "P" (set above): finished turns go
+                           *>         to WS-PROMPT.
+                           *> Result: A continuation record ("u" / "a") is appended to WS-JOIN when
+                           *>         a turn is in hand (WS-JOIN-ROLE not SPACE), else skipped; any
+                           *>         other record first delivers the turn in hand to WS-PROMPT
+                           *>         (PC-JOIN-FLUSH), then WS-JOIN = TRN-TEXT and WS-JOIN-ROLE =
+                           *>         TRN-ROLE start the next turn.
+
                            CALL    "PC-JOIN-PIECE"
                        END-IF
                END-READ
            END-PERFORM
            CLOSE    TURNS-FILE
            SET     WS-JOIN-TO                    TO    "P"
+
+           *> PC-JOIN-FLUSH: delivers the turn in hand (WS-JOIN, role WS-JOIN-ROLE), whole, to where
+           *> WS-JOIN-TO says: "P" appends it to WS-PROMPT, "V" shows it in Vwr-Chat.
+           *> Uses:   The last turn in hand (WS-JOIN, WS-JOIN-ROLE) and WS-JOIN-TO = "P" (set just
+           *>         above).
+           *> Result: If a turn is in hand (WS-JOIN-ROLE not SPACE) it is appended to WS-PROMPT at
+           *>         WS-PTR as "User: <text>" or "Assistant: <text>" plus a line feed, and
+           *>         WS-JOIN-ROLE = SPACE. WS-PROMPT then ends with the current question.
+
            CALL    "PC-JOIN-FLUSH"
 
            GOBACK.
@@ -4762,6 +6491,19 @@
                END-IF
                EXIT PROGRAM
            END-IF
+
+           *> PC-JOIN-FLUSH: delivers the turn in hand (WS-JOIN, role WS-JOIN-ROLE), whole, to where
+           *> WS-JOIN-TO says: "P" appends it to WS-PROMPT, "V" shows it in Vwr-Chat.
+           *> Uses:   The turn in hand (WS-JOIN, WS-JOIN-ROLE), before the record just read replaces
+           *>         it; WS-JOIN-TO says where it goes ("P" the prompt, "V" the chat).
+           *> Result: That turn is delivered whole: for "P", "User: <text>" or "Assistant: <text>"
+           *>         plus a line feed is appended to WS-PROMPT at WS-PTR; for "V" it is shown in
+           *>         Vwr-Chat (a user turn as a "user" message; an assistant turn through WS-MSG =
+           *>         WS-JOIN, WS-SHOW-ANSWER = "N" and WS-FORMATTED / WS-FMT-HTML, as a
+           *>         presentation or an "agent" message). WS-JOIN-ROLE = SPACE; nothing happens
+           *>         when no turn is in hand. The lines below then start the new turn from
+           *>         TRN-TEXT.
+
            CALL    "PC-JOIN-FLUSH"
 
            SET     WS-JOIN                       TO    SPACES
@@ -4804,10 +6546,42 @@
                    *>           A presentation reopens as it was shown: in the stream.
 
                    SET     WS-MSG                TO    WS-JOIN
+
+                   *> PC-DROP-MARKER: removes a leading "TEMPLATE: name" line from WS-MSG when the
+                   *> answer goes on after it (the line is how the model chooses a template; it must
+                   *> not show above the report).
+                   *> Uses:   WS-MSG = WS-JOIN, a stored assistant turn (set just above).
+                   *> Result: If the turn opens with a "TEMPLATE: name" line and goes on after it,
+                   *>         that line is removed and the rest trimmed; otherwise WS-MSG is
+                   *>         unchanged.
+
                    CALL    "PC-DROP-MARKER"
                    SET     WS-SHOW-ANSWER        TO    "N"
+
+                   *> PC-IS-FORMATTED: decides whether WS-MSG is a presentation rather than a plain
+                   *> reply: HTML blocks, a Markdown table or a fenced block - or, for the live
+                   *> answer, a question that asked for a table, Markdown or HTML.
+                   *> Uses:   WS-MSG = the stored assistant turn and WS-SHOW-ANSWER = "N" (set
+                   *>         above), so the question is not consulted.
+                   *> Result: WS-FORMATTED = "Y" when the turn is a presentation (HTML, a Markdown
+                   *>         table or a fenced block), else "N"; WS-FMT-HTML = "Y" when it is HTML
+                   *>         that starts with a tag. The IF below shows it accordingly.
+
                    CALL    "PC-IS-FORMATTED"
                    IF    WS-FORMATTED = "Y"
+
+                       *> PC-APPEND-FORMATTED: puts a presentation (WS-MSG) straight into the
+                       *> conversation of Vwr-Chat, with no bubble: HTML is rendered as HTML,
+                       *> Markdown as Markdown, and a page inside it (a ```html fence, or a raw
+                       *> <!DOCTYPE, <html or <style) is cut out and rendered as HTML, the text
+                       *> around it staying Markdown, in order.
+                       *> Uses:   WS-MSG = the stored assistant turn, a presentation (WS-FORMATTED =
+                       *>         "Y"); WS-FMT-HTML.
+                       *> Result: Vwr-Chat shows it as it was first shown: straight in the
+                       *>         conversation, no bubble, HTML as HTML and Markdown as Markdown
+                       *>         with any page in it rendered as HTML. WS-OK (the Append calls'
+                       *>         returns) and the WS-F* scratch items change.
+
                        CALL    "PC-APPEND-FORMATTED"
                    ELSE
                        SET     WS-OK             TO    Vwr-Chat::AppendMarkdown(WS-JOIN::Trim(), "agent")
@@ -4862,12 +6636,35 @@
                            *> turn PC-SAVE-TURN writes (WS-SEQ + 1) follows it.
 
                            SET     WS-SEQ        TO    TRN-SEQ
+
+                           *> PC-JOIN-PIECE: takes one TURNS-FILE record just read: a continuation
+                           *> record ("u" / "a") extends the turn in hand (one with no turn before
+                           *> it is skipped); any other record first delivers the turn in hand
+                           *> (PC-JOIN-FLUSH) and starts the next turn.
+                           *> Uses:   TURN-REC just read from TURNS-FILE (TRN-ROLE, TRN-TEXT) for
+                           *>         WS-CUR-CONV; WS-JOIN-TO = "V" (set before the loop): finished
+                           *>         turns go to Vwr-Chat.
+                           *> Result: A continuation record ("u" / "a") is appended to WS-JOIN when
+                           *>         a turn is in hand (WS-JOIN-ROLE not SPACE), else skipped; any
+                           *>         other record first delivers the turn in hand to Vwr-Chat
+                           *>         (PC-JOIN-FLUSH), then WS-JOIN = TRN-TEXT and WS-JOIN-ROLE =
+                           *>         TRN-ROLE start the next turn.
+
                            CALL    "PC-JOIN-PIECE"
                        END-IF
                END-READ
            END-PERFORM
            CLOSE    TURNS-FILE
            SET     WS-JOIN-TO                    TO    "V"
+
+           *> PC-JOIN-FLUSH: delivers the turn in hand (WS-JOIN, role WS-JOIN-ROLE), whole, to where
+           *> WS-JOIN-TO says: "P" appends it to WS-PROMPT, "V" shows it in Vwr-Chat.
+           *> Uses:   The last turn in hand (WS-JOIN, WS-JOIN-ROLE) and WS-JOIN-TO = "V" (set just
+           *>         above).
+           *> Result: If a turn is in hand (WS-JOIN-ROLE not SPACE) it is shown in Vwr-Chat: a user
+           *>         turn as a "user" message, an assistant turn as a presentation or an "agent"
+           *>         message; WS-JOIN-ROLE = SPACE. The whole conversation is then on screen.
+
            CALL    "PC-JOIN-FLUSH"
 
            GOBACK.
@@ -4973,24 +6770,116 @@
            *>   Everything the other forms may have changed while the chat was out
            *>   of sight: the models and agents, the topic, its files, the menu.
 
+           *> PC-HAND-MODELS: hands the models to the three agents: it syncs MODELS-FILE with the
+           *> application's model list (PC-SYNC-MODELS), then for each agent reads the entry
+           *> assigned in the settings, looks it up in MODELS-FILE and gives it to the AgentObject;
+           *> it also applies the Knowledge Base folder setting.
+           *> Uses:   Settings AGENT-1-ENTRY to AGENT-3-ENTRY (MODEL-ENTRY, KB-LOCATION), the
+           *>         application's model list (MODEL-COUNT / MODEL-GET) and MODELS-FILE, which
+           *>         other forms may have changed meanwhile.
+           *> Result: MODELS-FILE is written to match the model list (records added, updated or
+           *>         deleted; the first run ever also calls COBOL::"MODEL-SET" for the old records
+           *>         and saves MODELS-ADOPTED). WS-AG-ENTRY / -MODEL / -TOOLS / -RANK (1 to 3) are
+           *>         reloaded (an entry no longer in MODELS is blanked), AGENT-n::ModelEntry is
+           *>         set, and KB-1::Location follows KB-LOCATION if saved (WS-SET-NAME /
+           *>         WS-SET-VALUE end on it).
+
            CALL    "PC-HAND-MODELS"
            SET     WS-SHOWN-TOPIC                TO    WS-CUR-TOPIC
+
+           *> PC-LOAD-TOPIC: loads the selected topic, which decides everything the agents may use:
+           *> it reads the CUR-TOPIC setting, shows the topic's name, takes its prompt and Knowledge
+           *> Base collection, registers its data files, counts its sources and elects the agents
+           *> (PC-ELECT).
+           *> Uses:   The CUR-TOPIC setting, TOPICS-FILE, TFILES-FILE, the documents of KB-1,
+           *>         WS-REG-COUNT / WS-REG-NAME (the files registered for the old topic) and
+           *>         WS-ALLOWED-TOPIC. It overwrites WS-CUR-TOPIC, which is why the line above
+           *>         copied it to WS-SHOWN-TOPIC for the IF below.
+           *> Result: WS-CUR-TOPIC = the saved topic (SPACES if none, or if it was deleted). When it
+           *>         exists: Lbl-Topic::Caption = its name, WS-TOPIC-PROMPT, KB-1::Collection, the
+           *>         registered data files (WS-REG-COUNT, WS-FAILED, WS-FILE-NOTE), WS-SOURCES and
+           *>         the election are refreshed. Otherwise Lbl-Topic::Caption holds T-NO-TOPIC or
+           *>         T-TOPIC-GONE, the old prompt, collection and registered files are left as they
+           *>         were, and nothing is elected.
+
            CALL    "PC-LOAD-TOPIC"
            *> A conversation belongs to one topic: if the topic changed meanwhile,
            *> the open conversation is not this topic's, so start a blank one.
 
            IF    WS-CUR-TOPIC NOT = WS-SHOWN-TOPIC AND WS-CUR-TOPIC NOT = SPACES
+
+               *> PC-NEW-CONV: starts an empty conversation: no current conversation id (the first
+               *> question creates it), the turn counter at 0, and Vwr-Chat cleared (an open
+               *> conversation is filed into history, which keeps the last 10 entries; an empty pane
+               *> is left alone).
+               *> Uses:   Vwr-Chat (the conversation on screen, if any). Reached only when
+               *>         WS-CUR-TOPIC is not SPACES and differs from WS-SHOWN-TOPIC: the topic
+               *>         changed meanwhile, and the open conversation belonged to the old one.
+               *> Result: WS-CUR-CONV = SPACES, WS-SEQ = 0; if Vwr-Chat holds a conversation it is
+               *>         filed into history and cleared; the first question creates a new
+               *>         conversation. WS-OK ends SPACES.
+
                CALL    "PC-NEW-CONV"
            END-IF
            *> PC-LOAD-TOPIC elects the agents only when it finds a topic; with none,
            *> redo the election here so changed models still take effect.
 
            IF    WS-CUR-TOPIC = SPACES
+
+               *> PC-ELECT: chooses which agent orchestrates and which does the tool work, then
+               *> gives every agent its instructions from the main prompt: the SYSTEM section (with
+               *> the topic's prompt) for the orchestrator, the ASSISTANT section for the others.
+               *> Uses:   WS-AG-ENTRY / -TOOLS / -RANK / -MODEL (1 to 3) from PC-HAND-MODELS,
+               *>         WS-CUR-TOPIC, WS-TOPIC-PROMPT, WS-SOURCES, WS-ALLOWED-TOPIC, WS-MAIN
+               *>         (loaded again) and RTPL-FILE (through PC-TEMPLATES); WS-CUR-TOPIC = SPACES
+               *>         here (PC-LOAD-TOPIC elects only when it finds a topic) and WS-TOPIC-PROMPT
+               *>         still holds the prompt of the last topic loaded in this run, if any, which
+               *>         goes into the orchestrator's {TOPIC}.
+               *> Result: WS-N-AGENTS, WS-N-TOOLS, WS-ORCH and WS-WORKER are set (0 = none);
+               *>         Lbl-Status::Caption = T-NO-MODEL if no agent has a model. With an
+               *>         orchestrator, WS-CATALOG is rebuilt (PC-TEMPLATES also upgrades unchanged
+               *>         old templates in RTPL-FILE once per run, and seeds an empty file). Each
+               *>         AGENT-n gets its SystemPrompt and ToolProtocol ("Native" for the tool
+               *>         worker, else "None"). WS-CUR-TOPIC is SPACES: no NO SOURCES note, no
+               *>         collection granted; the former topic's grant (WS-ALLOWED-TOPIC), if any,
+               *>         is withdrawn from every agent. WS-MAIN-ELECTED = WS-MAIN, WS-ALLOWED-TOPIC
+               *>         = SPACES, WS-STAGE = "IDLE"; WS-OK is left as scratch.
+
                CALL    "PC-ELECT"
            END-IF
 
+           *> PC-LIST-CONVS: rebuilds the sidebar's conversation list: the newest 50 conversations
+           *> of the current topic, read from CONVS-FILE, become run-time rows of SideMenu-1, while
+           *> the designed rows are relabelled in the current language and the Getting started row
+           *> is restored.
+           *> Uses:   WS-CUR-TOPIC (possibly just changed) and CONVS-FILE.
+           *> Result: WS-CONV-COUNT and WS-CONV-ROW (the newest 50 conversations of that topic) are
+           *>         rebuilt and the SideMenu-1 rows with them: the Getting started row and, when
+           *>         the topic has conversations, a Conversations section with one row each, newest
+           *>         first.
+
            CALL    "PC-LIST-CONVS"
+
+           *> PC-MENU-STATE: enables or disables the menu rows: Topics, Documents, Data files and
+           *> Prompt need an agent with a model; Chat needs a topic; New conversation needs both.
+           *> RAG settings and Getting started are not touched.
+           *> Uses:   WS-AG-ENTRY(1 to 3), just reloaded, and TOPICS-FILE.
+           *> Result: WS-CONFIGURED = "Y" if some agent has a model, WS-HAS-TOPIC = "Y" if some
+           *>         topic exists; the rows are enabled accordingly (Topics, Documents, Data files,
+           *>         Prompt need a model; Chat needs a topic; New conversation both). WS-OK and
+           *>         WS-ITEM are scratch.
+
            CALL    "PC-MENU-STATE"
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE and today's year and month, WS-FAILED / WS-FILE-NOTE, WS-N-AGENTS,
+           *>         WS-ORCH and WS-WORKER, as refreshed above.
+           *> Result: Lbl-Status::Caption = this month's conversations and tokens, plus the
+           *>         unusable-files note and the orchestrator line when they apply. WS-LINE,
+           *>         WS-SUM-* and WS-E1 to WS-E3 are scratch.
+
            CALL    "PC-STATUS"
 
            GOBACK.
@@ -5009,17 +6898,73 @@
            *>   ones, the menu, the status line, the topic heading when it is a
            *>   message, and the open conversation's labels.
 
+           *> PC-TEXTS: loads the interface language: reads the LANG setting, copies that language's
+           *> column of PC-TEXT into the T-... items and sets the captions and hints of Txt-Input,
+           *> Btn-Send, Btn-Pdf and Lbl-Status. An unset or unknown code means English.
+           *> Uses:   The LANG setting just saved by the flag's onClick.
+           *> Result: WS-LANG and WS-LANG-IX are set, the 36 T-... texts are reloaded in the new
+           *>         language, and Txt-Input::HintText, Btn-Send::Caption, Btn-Pdf::Caption and
+           *>         Lbl-Status::Caption are set from them.
+
            CALL    "PC-TEXTS"
+
+           *> PC-LIST-CONVS: rebuilds the sidebar's conversation list: the newest 50 conversations
+           *> of the current topic, read from CONVS-FILE, become run-time rows of SideMenu-1, while
+           *> the designed rows are relabelled in the current language and the Getting started row
+           *> is restored.
+           *> Uses:   The T-MENU-... texts just reloaded in the new language; WS-CUR-TOPIC and
+           *>         CONVS-FILE.
+           *> Result: The SideMenu-1 rows are rebuilt with their labels in the new language:
+           *>         designed rows relabelled, the Getting started row restored and, when the topic
+           *>         has conversations, the Conversations section with one row each.
+
            CALL    "PC-LIST-CONVS"
 
            IF    WS-CUR-TOPIC = SPACES
+
+               *> PC-LOAD-TOPIC: loads the selected topic, which decides everything the agents may
+               *> use: it reads the CUR-TOPIC setting, shows the topic's name, takes its prompt and
+               *> Knowledge Base collection, registers its data files, counts its sources and elects
+               *> the agents (PC-ELECT).
+               *> Uses:   The CUR-TOPIC setting. Reached only when WS-CUR-TOPIC = SPACES, i.e. the
+               *>         topic heading shows a message (no topic, or the topic is gone) written in
+               *>         the old language.
+               *> Result: The CUR-TOPIC setting is read again. If there is still no topic
+               *>         (WS-CUR-TOPIC stays SPACES), Lbl-Topic::Caption = T-NO-TOPIC (or
+               *>         T-TOPIC-GONE) in the new language; if one exists now it is loaded (name,
+               *>         prompt, KB collection, data files, sources) and the agents are elected.
+
                CALL    "PC-LOAD-TOPIC"
            END-IF
            IF    WS-CUR-CONV NOT = SPACES
                SET     WS-ITEM                   TO    SPACES
                STRING    "c" WS-CUR-CONV DELIMITED BY SIZE INTO WS-ITEM
+
+               *> PC-OPEN-CONV: opens a saved conversation: the sidebar row id in WS-ITEM ("c" +
+               *> conversation id) becomes the current conversation, the conversation on screen, if
+               *> any, is first filed into Vwr-Chat's history, Vwr-Chat is cleared and all its turns
+               *> are shown again, so the next question continues it.
+               *> Uses:   WS-ITEM = "c" + WS-CUR-CONV (built just above), as if the open
+               *>         conversation's sidebar row had been clicked; reached only when a
+               *>         conversation is open.
+               *> Result: The conversation on screen, if any, is first filed into Vwr-Chat's history
+               *>         (NewConversation), so each call adds an entry there; Vwr-Chat is cleared
+               *>         and the conversation's turns are shown again from TURNS-FILE; WS-SEQ = the
+               *>         number of its last record.
+
                CALL    "PC-OPEN-CONV"
            END-IF
+
+           *> PC-STATUS: refreshes the status line Lbl-Status: this month's conversations and
+           *> input/output tokens, summed over every topic in CONVS-FILE, plus the
+           *> unusable-data-files note and the orchestrator / tool-worker line when they apply.
+           *> Uses:   CONVS-FILE and today's year and month, WS-FAILED / WS-FILE-NOTE, WS-N-AGENTS,
+           *>         WS-ORCH and WS-WORKER; T-THIS-MONTH and the other T-... texts, now in the new
+           *>         language.
+           *> Result: Lbl-Status::Caption is rewritten in the new language: this month's
+           *>         conversations and tokens, plus the unusable-files note and the orchestrator
+           *>         line when they apply.
+
            CALL    "PC-STATUS"
 
            GOBACK.
@@ -5039,6 +6984,14 @@
            *>   whenever the language changes (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (data/settings.idx, or
+           *> POWERCHAT_DATA/settings.idx) by its name; it writes no setting. A missing file is
+           *> created empty first.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above).
+           *> Result: WS-SET-VALUE = the saved language code (en, pt, es, fr, jp or cn), or SPACES
+           *>         if none was chosen. The next line keeps its first two characters in WS-LANG.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            *> WS-LANG-IX is the language's column in PC-TEXT (en pt es fr jp cn);

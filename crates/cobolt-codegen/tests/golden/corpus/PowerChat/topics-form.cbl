@@ -755,6 +755,19 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-OPEN: prepares what the form shows: the data file paths, the texts in the user's
+           *> language, the samples location, the Knowledge Base location and the topics grid.
+           *> Uses:   the environment variables POWERCHAT_DATA and POWERCHAT_SAMPLES, the LANG and
+           *>         KB-LOCATION settings, and TOPICS-FILE.
+           *> Result: WS-DATA-DIR and the WS-*-PATH items (PC-PATHS); WS-LANG, WS-LANG-IX and every
+           *>         caption and hint (PC-TEXTS); WS-SAMPLES-DIR = POWERCHAT_SAMPLES, or "samples"
+           *>         when empty; WS-SAMPLES-LIST = <WS-SAMPLES-DIR>/samples.txt; KB-T::Location =
+           *>         the KB-LOCATION setting when one is saved; Dg-List, WS-TOPIC-COUNT and
+           *>         WS-TOPIC-ID reloaded (PC-LOAD-TOPICS, which also asks the chat to refresh
+           *>         itself, fire-and-forget); Lbl-Status::Caption = the "no topics yet" text when
+           *>         WS-TOPIC-COUNT = 0, else the "pick a topic" text.
+
            CALL    "PC-OPEN"
 
            GOBACK.
@@ -770,6 +783,19 @@
 
        PROCEDURE DIVISION.
            *>   Back on the pane: the topic or the language may have changed.
+
+           *> PC-OPEN: refreshes what the form shows, now that it is back on the pane (the topic
+           *> list or the language may have changed meanwhile): paths, texts, samples location,
+           *> Knowledge Base location and grid.
+           *> Uses:   the environment variables POWERCHAT_DATA and POWERCHAT_SAMPLES, the LANG and
+           *>         KB-LOCATION settings, and TOPICS-FILE.
+           *> Result: WS-DATA-DIR and the WS-*-PATH items (PC-PATHS); WS-LANG, WS-LANG-IX and every
+           *>         caption and hint (PC-TEXTS); WS-SAMPLES-DIR = POWERCHAT_SAMPLES, or "samples"
+           *>         when empty; WS-SAMPLES-LIST = <WS-SAMPLES-DIR>/samples.txt; KB-T::Location =
+           *>         the KB-LOCATION setting when one is saved; Dg-List, WS-TOPIC-COUNT and
+           *>         WS-TOPIC-ID reloaded (PC-LOAD-TOPICS, which also asks the chat to refresh
+           *>         itself, fire-and-forget); Lbl-Status::Caption = the "no topics yet" text when
+           *>         WS-TOPIC-COUNT = 0, else the "pick a topic" text.
 
            CALL    "PC-OPEN"
 
@@ -805,6 +831,13 @@
            *>   with the listed documents, and its data files registered by path.
            *>   Nothing about any sample is written in this code (R10).
 
+           *> PC-HAS-SAMPLES: tells whether the sample topics are already installed, by scanning
+           *> TOPICS-FILE for a topic marked as a sample.
+           *> Uses:   TOP-SAMPLE of every record of TOPICS-FILE (created empty when missing).
+           *> Result: WS-OK = "Y" when at least one topic has TOP-SAMPLE = "Y", else "N"; the IF
+           *>         below then stops the install with the "already installed" text. WS-EOF is a
+           *>         work area.
+
            CALL    "PC-HAS-SAMPLES"
            IF    WS-OK = "Y"
                SET     Lbl-Status::Caption       TO    T-SAMPLES-ALREADY::Trim()
@@ -814,6 +847,14 @@
            IF    WS-FS NOT = "00"
                SET     WS-FMT                    TO    T-SAMPLES-NONE
                SET     WS-ARG1                   TO    WS-SAMPLES-LIST
+
+               *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+               *> WS-ARG1 to WS-ARG4 (trimmed).
+               *> Uses:   WS-FMT = T-SAMPLES-NONE (the "No sample topics found (&1)." text in the
+               *>         current language); WS-ARG1 = WS-SAMPLES-LIST, the samples.txt path that
+               *>         could not be opened.
+               *> Result: WS-FMT-OUT = the message with that path in it, shown on Lbl-Status just
+               *>         below, after which the install ends. Nothing else changes.
 
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
@@ -841,8 +882,34 @@
                        END-UNSTRING
                        EVALUATE    WS-KIND
                            WHEN "TOPIC"
+
+                               *> PC-ADD-SAMPLE-TOPIC: creates a sample topic from a TOPIC line of
+                               *> samples.txt.
+                               *> Uses:   WS-F3 = the topic name, WS-F4 = its prompt, WS-FOLDER =
+                               *>         its folder (the line's fields); WS-NOW; WS-SEQ-N;
+                               *>         WS-MAP-COUNT.
+                               *> Result: nothing when WS-MAP-COUNT is already 10. Else WS-SEQ-N
+                               *>         (PIC 9: a 10th topic would overflow it) and WS-MAP-COUNT
+                               *>         go up by 1, WS-NEW-ID = WS-NOW(1:15) + WS-SEQ-N,
+                               *>         WS-MAP-FOLDER/WS-MAP-ID(WS-MAP-COUNT) =
+                               *>         WS-FOLDER/WS-NEW-ID; a TOPICS-FILE record is written and
+                               *>         committed (TOP-NAME = WS-F3 cut to 40 characters,
+                               *>         TOP-PROMPT = WS-F4, TOP-SAMPLE = "Y"; a duplicate id is
+                               *>         ignored) and the Knowledge Base collection WS-NEW-ID is
+                               *>         created (WS-OK = its answer).
+
                                CALL    "PC-ADD-SAMPLE-TOPIC"
                            WHEN "DOC"
+
+                               *> PC-TOPIC-OF: finds the topic the installer made for a sample
+                               *> folder.
+                               *> Uses:   WS-FOLDER (the folder named on this DOC line) and the
+                               *>         WS-MAP-FOLDER(n) / WS-MAP-ID(n) pairs filled by the TOPIC
+                               *>         lines so far.
+                               *> Result: WS-TOPIC-ID-OF = the id of that folder's topic, or SPACES
+                               *>         when its TOPIC line did not come first; the IF below then
+                               *>         queues nothing. WS-J is a work area.
+
                                CALL    "PC-TOPIC-OF"
                                IF    WS-TOPIC-ID-OF NOT = SPACES AND WS-Q-COUNT < 60
                                    ADD    1 TO WS-Q-COUNT
@@ -859,6 +926,19 @@
                                        INTO WS-Q-PATH(WS-Q-COUNT)
                                END-IF
                            WHEN "FILE"
+
+                               *> PC-ADD-SAMPLE-FILE: registers a sample's indexed data file and its
+                               *> .cidx for its topic, by path (nothing is copied).
+                               *> Uses:   WS-FOLDER, WS-F3 (data file), WS-F4 (.cidx) from this FILE
+                               *>         line; WS-SAMPLES-DIR; WS-TF-SEQ.
+                               *> Result: nothing when the folder has no topic (WS-TOPIC-ID-OF =
+                               *>         SPACES via PC-TOPIC-OF). Else WS-TF-SEQ goes up by 1 and a
+                               *>         TFILES-FILE record is written and committed: TF-TOPIC =
+                               *>         WS-TOPIC-ID-OF, TF-SEQ = WS-TF-SEQ, TF-NAME = WS-F3 (cut
+                               *>         to 30 characters), TF-DATA and TF-CIDX =
+                               *>         <WS-SAMPLES-DIR>/<WS-FOLDER>/ + WS-F3 or WS-F4 (each 250
+                               *>         characters wide).
+
                                CALL    "PC-ADD-SAMPLE-FILE"
                            WHEN OTHER
                                CONTINUE
@@ -866,6 +946,21 @@
                END-READ
            END-PERFORM
            CLOSE    SAMPLES-FILE
+
+           *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in TOPICS-FILE,
+           *> in key (creation) order. Called here once the sample topics are written.
+           *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+           *>         missing). It holds the new sample topics.
+           *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on one
+           *>         line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows added;
+           *>         WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form (the chat) to
+           *>         run its PC-REFRESH, INVOKE super::"PC-REFRESH"() (fire-and-forget: it runs
+           *>         when the chat next waits for an event): the chat re-hands the models to its
+           *>         agents, reloads the current topic (a blank conversation starts when the
+           *>         current topic changed to another topic) and rebuilds the conversation list,
+           *>         the menu state and the status line. Their documents are not indexed yet; that
+           *>         follows.
+
            CALL    "PC-LOAD-TOPICS"
 
            *> The documents were only queued above. The Knowledge Base indexes one
@@ -874,6 +969,24 @@
 
            SET     WS-INSTALLING                 TO    "Y"
            SET     WS-Q-NEXT                     TO    1
+
+           *> PC-NEXT-IMPORT: imports the next queued sample document into the Knowledge Base, or
+           *> ends the install when none is left. Called here to start the install, with
+           *> WS-INSTALLING = "Y".
+           *> Uses:   WS-Q-NEXT (the queue position to import) against WS-Q-COUNT (documents
+           *>         queued), WS-Q-TOPIC(n) and WS-Q-PATH(n) (the collection and file of each),
+           *>         WS-MAP-COUNT and the T-SAMPLES-PROGRESS / T-SAMPLES-INSTALLED texts. Here
+           *>         WS-Q-NEXT = 1 (set just above).
+           *> Result: while WS-Q-NEXT <= WS-Q-COUNT: KB-T::Collection = WS-Q-TOPIC(WS-Q-NEXT),
+           *>         Lbl-Status::Caption = the "document n of m" text,
+           *>         KB-T::ImportDocument(WS-Q-PATH(WS-Q-NEXT)) starts in the background (WS-OK =
+           *>         its answer, not tested here) and WS-Q-NEXT goes up by 1; when WS-OK = "1",
+           *>         KB-T then raises onIndexed, onError or onBusy and each calls this procedure
+           *>         again (with "0" no event follows and the chain stops). Past the last document
+           *>         (at once when none was queued): WS-INSTALLING = "N", Lbl-Status::Caption = the
+           *>         "installed" text with the topic and document counts, and the grid is reloaded
+           *>         (PC-LOAD-TOPICS, which also asks the chat to refresh itself, fire-and-forget).
+           *>         WS-N1, WS-N2, WS-FMT, WS-ARG1, WS-ARG2 and WS-FMT-OUT are work areas.
 
            CALL    "PC-NEXT-IMPORT"
 
@@ -931,13 +1044,40 @@
                SET     WS-OK                     TO    KB-T::RemoveCollection(WS-MAP-ID(WS-J))
                SET     WS-TOPIC-ID-OF            TO    WS-MAP-ID(WS-J)
 
+               *> PC-DROP-TOPIC-ROWS: removes what a topic registered besides its own record: its
+               *> files in TFILES-FILE and its prompt versions in PROMPTS-FILE.
+               *> Uses:   WS-TOPIC-ID-OF = WS-MAP-ID(WS-J), the sample topic just deleted (set just
+               *>         above); TFILES-FILE and PROMPTS-FILE (each created empty when missing).
+               *> Result: every TFILES-FILE record whose TF-TOPIC is that id and every PROMPTS-FILE
+               *>         record whose PRM-TOPIC is that id is deleted and committed (at most 200 of
+               *>         each per call: the keys are gathered first). WS-SEQ-COUNT, WS-SEQ-OF, WS-K
+               *>         and WS-EOF are work areas.
+
                CALL    "PC-DROP-TOPIC-ROWS"
            END-PERFORM
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = the id of the current topic, or SPACES when none; the loop
+           *>         below compares its first 16 characters with each removed sample id.
+
            CALL    "PC-SETTING-GET"
            PERFORM    VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
                IF    WS-SET-VALUE(1:16) = WS-MAP-ID(WS-J)
                    SET     WS-SET-VALUE          TO    SPACES
+
+                   *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+                   *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and
+                   *> committed at once. The file is created empty when missing. Reached only when
+                   *> the current topic is one of the sample topics removed.
+                   *> Uses:   WS-SET-NAME = "CUR-TOPIC" and WS-SET-VALUE = SPACES (set just above).
+                   *> Result: the CUR-TOPIC record of the settings file is blank, so no topic is
+                   *>         current. Only WS-FS and the settings record area (SET-NAME, SET-VALUE)
+                   *>         change.
+
                    CALL    "PC-SETTING-PUT"
                END-IF
            END-PERFORM
@@ -946,8 +1086,30 @@
            SET     WS-FMT                        TO    T-SAMPLES-REMOVED
            SET     WS-ARG1                       TO    WS-N1
 
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-SAMPLES-REMOVED (the "Removed &1 sample topic(s)." text in the
+           *>         current language); WS-ARG1 = WS-N1 (the number of sample topics deleted,
+           *>         WS-REMOVED).
+           *> Result: WS-FMT-OUT = the message with that count in it, shown on Lbl-Status just
+           *>         below. Nothing else changes.
+
            CALL    "PC-FMT"
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
+
+           *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in TOPICS-FILE,
+           *> in key (creation) order. Called here after the sample topics were deleted.
+           *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+           *>         missing). It no longer holds the sample topics.
+           *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on one
+           *>         line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows added;
+           *>         WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form (the chat) to
+           *>         run its PC-REFRESH, INVOKE super::"PC-REFRESH"() (fire-and-forget: it runs
+           *>         when the chat next waits for an event): the chat re-hands the models to its
+           *>         agents, reloads the current topic (a blank conversation starts when the
+           *>         current topic changed to another topic) and rebuilds the conversation list,
+           *>         the menu state and the status line. The grid no longer lists them.
+
            CALL    "PC-LOAD-TOPICS"
 
            GOBACK.
@@ -963,6 +1125,25 @@
 
        PROCEDURE DIVISION.
            IF    WS-INSTALLING = "Y"
+
+               *> PC-NEXT-IMPORT: imports the next queued sample document into the Knowledge Base,
+               *> or ends the install when none is left. Called by onIndexed: a document was just
+               *> indexed (only while WS-INSTALLING = "Y").
+               *> Uses:   WS-Q-NEXT (the queue position to import) against WS-Q-COUNT (documents
+               *>         queued), WS-Q-TOPIC(n) and WS-Q-PATH(n) (the collection and file of each),
+               *>         WS-MAP-COUNT and the T-SAMPLES-PROGRESS / T-SAMPLES-INSTALLED texts.
+               *> Result: while WS-Q-NEXT <= WS-Q-COUNT: KB-T::Collection = WS-Q-TOPIC(WS-Q-NEXT),
+               *>         Lbl-Status::Caption = the "document n of m" text,
+               *>         KB-T::ImportDocument(WS-Q-PATH(WS-Q-NEXT)) starts in the background (WS-OK
+               *>         = its answer, not tested here) and WS-Q-NEXT goes up by 1; when WS-OK =
+               *>         "1", KB-T then raises onIndexed, onError or onBusy and each calls this
+               *>         procedure again (with "0" no event follows and the chain stops). Past the
+               *>         last document (at once when none was queued): WS-INSTALLING = "N",
+               *>         Lbl-Status::Caption = the "installed" text with the topic and document
+               *>         counts, and the grid is reloaded (PC-LOAD-TOPICS, which also asks the chat
+               *>         to refresh itself, fire-and-forget). WS-N1, WS-N2, WS-FMT, WS-ARG1,
+               *>         WS-ARG2 and WS-FMT-OUT are work areas.
+
                CALL    "PC-NEXT-IMPORT"
            END-IF
 
@@ -980,6 +1161,26 @@
        PROCEDURE DIVISION.
            SET     Lbl-Status::Caption           TO    KB-T::LastError
            IF    WS-INSTALLING = "Y"
+
+               *> PC-NEXT-IMPORT: imports the next queued sample document into the Knowledge Base,
+               *> or ends the install when none is left. Called by onError: the import failed, that
+               *> document is skipped and the install goes on (only while WS-INSTALLING = "Y").
+               *> Uses:   WS-Q-NEXT (the queue position to import) against WS-Q-COUNT (documents
+               *>         queued), WS-Q-TOPIC(n) and WS-Q-PATH(n) (the collection and file of each),
+               *>         WS-MAP-COUNT and the T-SAMPLES-PROGRESS / T-SAMPLES-INSTALLED texts.
+               *> Result: while WS-Q-NEXT <= WS-Q-COUNT: KB-T::Collection = WS-Q-TOPIC(WS-Q-NEXT),
+               *>         Lbl-Status::Caption = the "document n of m" text,
+               *>         KB-T::ImportDocument(WS-Q-PATH(WS-Q-NEXT)) starts in the background (WS-OK
+               *>         = its answer, not tested here) and WS-Q-NEXT goes up by 1; when WS-OK =
+               *>         "1", KB-T then raises onIndexed, onError or onBusy and each calls this
+               *>         procedure again (with "0" no event follows and the chain stops). Past the
+               *>         last document (at once when none was queued): WS-INSTALLING = "N",
+               *>         Lbl-Status::Caption = the "installed" text with the topic and document
+               *>         counts, and the grid is reloaded (PC-LOAD-TOPICS, which also asks the chat
+               *>         to refresh itself, fire-and-forget). WS-N1, WS-N2, WS-FMT, WS-ARG1,
+               *>         WS-ARG2 and WS-FMT-OUT are work areas. The progress or "installed" text
+               *>         replaces the KB-T::LastError text just put on Lbl-Status.
+
                CALL    "PC-NEXT-IMPORT"
            END-IF
 
@@ -997,6 +1198,27 @@
        PROCEDURE DIVISION.
            SET     Lbl-Status::Caption           TO    KB-T::LastError
            IF    WS-INSTALLING = "Y"
+
+               *> PC-NEXT-IMPORT: imports the next queued sample document into the Knowledge Base,
+               *> or ends the install when none is left. Called by onBusy: another write held the
+               *> collection too long, that document was not written and the install goes on (only
+               *> while WS-INSTALLING = "Y").
+               *> Uses:   WS-Q-NEXT (the queue position to import) against WS-Q-COUNT (documents
+               *>         queued), WS-Q-TOPIC(n) and WS-Q-PATH(n) (the collection and file of each),
+               *>         WS-MAP-COUNT and the T-SAMPLES-PROGRESS / T-SAMPLES-INSTALLED texts.
+               *> Result: while WS-Q-NEXT <= WS-Q-COUNT: KB-T::Collection = WS-Q-TOPIC(WS-Q-NEXT),
+               *>         Lbl-Status::Caption = the "document n of m" text,
+               *>         KB-T::ImportDocument(WS-Q-PATH(WS-Q-NEXT)) starts in the background (WS-OK
+               *>         = its answer, not tested here) and WS-Q-NEXT goes up by 1; when WS-OK =
+               *>         "1", KB-T then raises onIndexed, onError or onBusy and each calls this
+               *>         procedure again (with "0" no event follows and the chain stops). Past the
+               *>         last document (at once when none was queued): WS-INSTALLING = "N",
+               *>         Lbl-Status::Caption = the "installed" text with the topic and document
+               *>         counts, and the grid is reloaded (PC-LOAD-TOPICS, which also asks the chat
+               *>         to refresh itself, fire-and-forget). WS-N1, WS-N2, WS-FMT, WS-ARG1,
+               *>         WS-ARG2 and WS-FMT-OUT are work areas. The progress or "installed" text
+               *>         replaces the KB-T::LastError text just put on Lbl-Status.
+
                CALL    "PC-NEXT-IMPORT"
            END-IF
 
@@ -1015,8 +1237,25 @@
            *>   A flag in the chat's menu changes the language while this form is
            *>   on the pane; nothing tells a pane occupant, so it looks (R46).
 
+           *> PC-LANG-NOW: reads the language saved now, without creating anything.
+           *> Uses:   the LANG record of the settings file, opened for input only.
+           *> Result: WS-LANG-NOW = "pt", "es", "fr", "jp" or "cn" when LANG holds that code, else
+           *>         "en" (also when the file cannot be opened). The IF below compares it with
+           *>         WS-LANG, the language on screen.
+
            CALL    "PC-LANG-NOW"
            IF    WS-LANG-NOW NOT = WS-LANG
+
+               *> TOPICS-FORM--ONACTIVATE: this form's onActivate event, which runs PC-OPEN. Called
+               *> here because WS-LANG-NOW differs from WS-LANG: the user picked another language
+               *> since the texts were loaded.
+               *> Uses:   the environment variables POWERCHAT_DATA and POWERCHAT_SAMPLES, the LANG
+               *>         and KB-LOCATION settings, and TOPICS-FILE.
+               *> Result: PC-OPEN runs again: WS-LANG and WS-LANG-IX follow the saved language, all
+               *>         captions and hints are redone, the grid is reloaded (WS-TOPIC-COUNT,
+               *>         WS-TOPIC-ID; the chat is asked to refresh itself, fire-and-forget) and
+               *>         Lbl-Status::Caption = the "no topics yet" or "pick a topic" text.
+
                CALL    "TOPICS-FORM--ONACTIVATE"
            END-IF
 
@@ -1032,6 +1271,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-NEW-TOPIC: empties the Create/Update page and switches to it for a new topic.
+           *> Uses:   T-NEW-TOPIC (the "New topic" text in the current language).
+           *> Result: WS-EDIT-ID = SPACES, Txt-Name::Text and Txt-Prompt::Text = SPACES,
+           *>         Lbl-New::Caption = that text, Tab-Crud::SelectedTab = 2. No file is touched.
+
            CALL    "PC-NEW-TOPIC"
 
            GOBACK.
@@ -1057,8 +1302,42 @@
            END-IF
            SET     WS-TOPIC-ID-OF                TO    WS-TOPIC-ID(WS-ROW-NO)
            EVALUATE    WS-COL-NO
+
+               *> PC-OPEN-TOPIC: makes a topic the current one (the open icon of a grid row).
+               *> Uses:   WS-TOPIC-ID-OF = WS-TOPIC-ID(WS-ROW-NO), the id of the clicked row (column
+               *>         3).
+               *> Result: the CUR-TOPIC setting holds that id (via PC-SETTING-PUT; WS-SET-NAME =
+               *>         "CUR-TOPIC", WS-SET-VALUE = the id), and Lbl-Status::Caption = the "topic
+               *>         opened" text.
+
                WHEN 3 CALL "PC-OPEN-TOPIC"
+
+               *> PC-EDIT-TOPIC: loads a topic into the Create/Update page for editing (the pencil
+               *> icon of a grid row).
+               *> Uses:   WS-TOPIC-ID-OF = WS-TOPIC-ID(WS-ROW-NO), the id of the clicked row (column
+               *>         4); TOPICS-FILE (created empty when missing).
+               *> Result: when the topic is found: WS-EDIT-ID = WS-TOPIC-ID-OF, Txt-Name::Text =
+               *>         TOP-NAME and Txt-Prompt::Text = TOP-PROMPT (both trimmed),
+               *>         Lbl-New::Caption = the "Edit topic" text, Tab-Crud::SelectedTab = 2. When
+               *>         it is gone: Lbl-Status::Caption = the "pick a topic first" text and the
+               *>         grid is reloaded (PC-LOAD-TOPICS, which also asks the chat to refresh
+               *>         itself, fire-and-forget). WS-SAVE-OK = "Y" or "N" accordingly.
+
                WHEN 4 CALL "PC-EDIT-TOPIC"
+
+               *> PC-DELETE-TOPIC: deletes a topic after the user confirms (the trash icon of a grid
+               *> row).
+               *> Uses:   WS-TOPIC-ID-OF = WS-TOPIC-ID(WS-ROW-NO), the id of the clicked row (column
+               *>         5); TOPICS-FILE (created empty when missing); the answer of CONFIRM-FORM.
+               *> Result: unless the topic is gone (then only the "pick a topic first" text and a
+               *>         grid reload) or the answer is not "Y" (then no file or control changes):
+               *>         the topic record, its Knowledge Base collection (moved aside), its
+               *>         registered files and prompt versions are removed, CUR-TOPIC is blanked
+               *>         when it was this topic, Lbl-Status::Caption = the "topic deleted" text and
+               *>         the grid is reloaded (PC-LOAD-TOPICS, which also asks the chat to refresh
+               *>         itself, fire-and-forget). WS-ANSWER, WS-QUESTION and WS-SAVE-OK are work
+               *>         areas.
+
                WHEN 5 CALL "PC-DELETE-TOPIC"
                WHEN OTHER CONTINUE
            END-EVALUATE
@@ -1075,6 +1354,23 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE-TOPIC: saves the topic typed on the Create/Update page: a new topic when
+           *> WS-EDIT-ID is SPACES, otherwise the topic with that id is rewritten in TOPICS-FILE.
+           *> Uses:   Txt-Name::Text and Txt-Prompt::Text (what the user typed) and WS-EDIT-ID
+           *>         (SPACES = new topic, else the id being edited).
+           *> Result: with a blank name only Lbl-Status::Caption = the "give the topic a name" text
+           *>         and nothing is written. Otherwise the TOPICS-FILE record is written (new id =
+           *>         the first 16 characters of the current date-time; the name is cut to 40
+           *>         characters, the prompt to 1000) or rewritten, and committed; a new topic also
+           *>         gets its Knowledge Base collection (KB-T::CreateCollection).
+           *>         Lbl-Status::Caption = created (KB-T::LastError when the collection cannot be
+           *>         made), saved, "same instant" or "could not be saved (status ..)". On success
+           *>         WS-EDIT-ID = SPACES, both text boxes are cleared, the grid is reloaded
+           *>         (PC-LOAD-TOPICS, which also asks the chat to refresh itself, fire-and-forget)
+           *>         and Tab-Crud::SelectedTab = 1 (Browse); on a failed save the page is left as
+           *>         it is.
+
            CALL    "PC-SAVE-TOPIC"
 
            GOBACK.
@@ -1089,6 +1385,12 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-CANCEL-EDIT: leaves the Create/Update page without saving.
+           *> Uses:   No data item is read.
+           *> Result: WS-EDIT-ID = SPACES and Tab-Crud::SelectedTab = 1 (Browse). Nothing is
+           *>         written, the grid is not reloaded and the text boxes keep what was typed.
+
            CALL    "PC-CANCEL-EDIT"
 
            GOBACK.
@@ -1103,6 +1405,24 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE-TOPIC: saves the topic typed on the Create/Update page: a new topic when
+           *> WS-EDIT-ID is SPACES, otherwise the topic with that id is rewritten in TOPICS-FILE.
+           *> Here from the Save button at the bottom of the page.
+           *> Uses:   Txt-Name::Text and Txt-Prompt::Text (what the user typed) and WS-EDIT-ID
+           *>         (SPACES = new topic, else the id being edited).
+           *> Result: with a blank name only Lbl-Status::Caption = the "give the topic a name" text
+           *>         and nothing is written. Otherwise the TOPICS-FILE record is written (new id =
+           *>         the first 16 characters of the current date-time; the name is cut to 40
+           *>         characters, the prompt to 1000) or rewritten, and committed; a new topic also
+           *>         gets its Knowledge Base collection (KB-T::CreateCollection).
+           *>         Lbl-Status::Caption = created (KB-T::LastError when the collection cannot be
+           *>         made), saved, "same instant" or "could not be saved (status ..)". On success
+           *>         WS-EDIT-ID = SPACES, both text boxes are cleared, the grid is reloaded
+           *>         (PC-LOAD-TOPICS, which also asks the chat to refresh itself, fire-and-forget)
+           *>         and Tab-Crud::SelectedTab = 1 (Browse); on a failed save the page is left as
+           *>         it is.
+
            CALL    "PC-SAVE-TOPIC"
 
            GOBACK.
@@ -1117,6 +1437,13 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-CANCEL-EDIT: leaves the Create/Update page without saving. Here from the Cancel
+           *> button at the bottom of the page.
+           *> Uses:   No data item is read.
+           *> Result: WS-EDIT-ID = SPACES and Tab-Crud::SelectedTab = 1 (Browse). Nothing is
+           *>         written, the grid is not reloaded and the text boxes keep what was typed.
+
            CALL    "PC-CANCEL-EDIT"
 
            GOBACK.
@@ -1298,8 +1625,32 @@
                SET     WS-ARG1                   TO    WS-N1
                SET     WS-ARG2                   TO    WS-N2
 
+               *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+               *> WS-ARG1 to WS-ARG4 (trimmed).
+               *> Uses:   WS-FMT = T-SAMPLES-INSTALLED (the "Sample topics installed: &1 topics, &2
+               *>         documents." text in the current language); WS-ARG1 = WS-N1 (the sample
+               *>         topics made, WS-MAP-COUNT); WS-ARG2 = WS-N2 (the documents queued,
+               *>         WS-Q-COUNT).
+               *> Result: WS-FMT-OUT = that text with both counts filled in, shown on Lbl-Status
+               *>         just below. Nothing else changes.
+
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
+
+               *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in
+               *> TOPICS-FILE, in key (creation) order. Called here when the last sample document
+               *> has been handled.
+               *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+               *>         missing). It holds all the sample topics now.
+               *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on
+               *>         one line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows
+               *>         added; WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form
+               *>         (the chat) to run its PC-REFRESH, INVOKE super::"PC-REFRESH"()
+               *>         (fire-and-forget: it runs when the chat next waits for an event): the chat
+               *>         re-hands the models to its agents, reloads the current topic (a blank
+               *>         conversation starts when the current topic changed to another topic) and
+               *>         rebuilds the conversation list, the menu state and the status line.
+
                CALL    "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
@@ -1310,6 +1661,14 @@
            SET     WS-FMT                        TO    T-SAMPLES-PROGRESS
            SET     WS-ARG1                       TO    WS-N1
            SET     WS-ARG2                       TO    WS-N2
+
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-SAMPLES-PROGRESS (the "Installing the sample topics: document &1 of
+           *>         &2..." text in the current language); WS-ARG1 = WS-N1 (the document about to
+           *>         be imported, WS-Q-NEXT); WS-ARG2 = WS-N2 (the documents queued, WS-Q-COUNT).
+           *> Result: WS-FMT-OUT = that text with both numbers filled in, shown on Lbl-Status just
+           *>         below. Nothing else changes.
 
            CALL    "PC-FMT"
 
@@ -1541,6 +1900,14 @@
            *>   A FILE line: the data file and its .cidx, registered by path for the
            *>   topic. They stay in samples/ and are only ever read.
 
+           *> PC-TOPIC-OF: finds the topic the installer made for a sample folder.
+           *> Uses:   WS-FOLDER (the folder named on the FILE line of samples.txt) and the
+           *>         WS-MAP-FOLDER(n) / WS-MAP-ID(n) pairs the TOPIC lines filled, n = 1 to
+           *>         WS-MAP-COUNT.
+           *> Result: WS-TOPIC-ID-OF = the id of that folder's topic, or SPACES when no TOPIC line
+           *>         named the folder; the procedure then ends and the FILE line registers nothing.
+           *>         WS-J is a work area.
+
            CALL    "PC-TOPIC-OF"
            IF    WS-TOPIC-ID-OF = SPACES
                EXIT PROGRAM
@@ -1584,6 +1951,14 @@
            *>   whenever the language changes (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = the language code saved under LANG ("en", "pt", "es", "fr",
+           *>         "jp" or "cn"), or SPACES when none was saved. Used right below to set WS-LANG.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            *> Unset or unknown falls back to English, and WS-LANG says "en" too:
@@ -1698,7 +2073,26 @@
        PROCEDURE DIVISION.
            *>   What the form shows: run on load, and again when it comes back.
 
+           *> PC-PATHS: works out where PowerChat keeps its own indexed files.
+           *> Uses:   the environment variable POWERCHAT_DATA.
+           *> Result: WS-DATA-DIR = POWERCHAT_DATA, or "data" when it is empty; WS-SETTINGS-PATH =
+           *>         <WS-DATA-DIR>/settings.idx, WS-TOPICS-PATH = <WS-DATA-DIR>/topics.idx,
+           *>         WS-TFILES-PATH = <WS-DATA-DIR>/topic-files.idx, WS-PROMPTS-PATH =
+           *>         <WS-DATA-DIR>/prompt-versions.idx. No file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: puts the form in the user's language: it reads the LANG setting, loads the
+           *> matching texts and sets every designed caption and hint.
+           *> Uses:   the LANG setting (read through PC-SETTING-GET), the PC-TEXT table of 35 texts
+           *>         in 6 languages, and WS-EDIT-ID (SPACES = the page is for a new topic).
+           *> Result: WS-LANG = "en", "pt", "es", "fr", "jp" or "cn" ("en" when unset or unknown)
+           *>         and WS-LANG-IX = 1 to 6, its column; PC-TEXT-NOW(1..35) = the texts in that
+           *>         language, which the T-... names read. Captions, hints and titles are set on
+           *>         Lbl-Title, Tab-Crud, Dg-List, Btn-New, Btn-Save, Btn-Save2, Btn-Cancel,
+           *>         Btn-Cancel2, Lbl-New, Txt-Name, Txt-Prompt, Btn-Install, Btn-RemoveSamples and
+           *>         Lbl-Status. WS-SET-NAME = "LANG" and WS-SET-VALUE hold the saved code.
+
            CALL    "PC-TEXTS"
 
            DISPLAY    "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
@@ -1709,10 +2103,34 @@
            SET     WS-SAMPLES-LIST               TO    SPACES
            STRING    WS-SAMPLES-DIR::Trim() "/samples.txt" INTO WS-SAMPLES-LIST
            SET     WS-SET-NAME                   TO    "KB-LOCATION"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "KB-LOCATION" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = the Knowledge Base folder saved under KB-LOCATION, or SPACES
+           *>         when none was saved; the IF below sets KB-T::Location from it only when it is
+           *>         not SPACES.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE NOT = SPACES
                SET     KB-T::Location            TO    WS-SET-VALUE
            END-IF
+
+           *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in TOPICS-FILE,
+           *> in key (creation) order. Called by PC-OPEN, right after PC-PATHS set the file paths.
+           *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+           *>         missing).
+           *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on one
+           *>         line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows added;
+           *>         WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form (the chat) to
+           *>         run its PC-REFRESH, INVOKE super::"PC-REFRESH"() (fire-and-forget: it runs
+           *>         when the chat next waits for an event): the chat re-hands the models to its
+           *>         agents, reloads the current topic (a blank conversation starts when the
+           *>         current topic changed to another topic) and rebuilds the conversation list,
+           *>         the menu state and the status line. The IF below then reads WS-TOPIC-COUNT to
+           *>         choose the Lbl-Status text.
+
            CALL    "PC-LOAD-TOPICS"
            IF    WS-TOPIC-COUNT = 0
                SET     Lbl-Status::Caption       TO    T-NO-TOPICS::Trim()
@@ -1770,6 +2188,15 @@
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
            SET     WS-SET-VALUE                  TO    WS-TOPIC-ID-OF
 
+           *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+           *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and committed
+           *> at once. The file is created empty when missing.
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" and WS-SET-VALUE = WS-TOPIC-ID-OF, the id of the
+           *>         topic whose open button was clicked (both set just above).
+           *> Result: the CUR-TOPIC record of the settings file holds that id, i.e. that topic
+           *>         becomes the current one. Only WS-FS and the settings record area (SET-NAME,
+           *>         SET-VALUE) change.
+
            CALL    "PC-SETTING-PUT"
            SET     Lbl-Status::Caption           TO    T-TOPIC-OPENED::Trim()
 
@@ -1825,6 +2252,23 @@
            CLOSE    TOPICS-FILE
            IF    WS-SAVE-OK NOT = "Y"
                SET     Lbl-Status::Caption       TO    T-PICK-TOPIC-FIRST::Trim()
+
+               *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in
+               *> TOPICS-FILE, in key (creation) order. Called here because the clicked row's topic
+               *> is no longer in the file (Lbl-Status::Caption was just set to the "pick a topic
+               *> first" text).
+               *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+               *>         missing).
+               *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on
+               *>         one line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows
+               *>         added; WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form
+               *>         (the chat) to run its PC-REFRESH, INVOKE super::"PC-REFRESH"()
+               *>         (fire-and-forget: it runs when the chat next waits for an event): the chat
+               *>         re-hands the models to its agents, reloads the current topic (a blank
+               *>         conversation starts when the current topic changed to another topic) and
+               *>         rebuilds the conversation list, the menu state and the status line. The
+               *>         edit page stays as it was; the procedure ends after this call.
+
                CALL    "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
@@ -1906,6 +2350,14 @@
                                SET     WS-FMT    TO    T-SAVE-FAILED
                                SET     WS-ARG1   TO    WS-FS
 
+                               *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT
+                               *> is replaced by WS-ARG1 to WS-ARG4 (trimmed).
+                               *> Uses:   WS-FMT = T-SAVE-FAILED (the "The topic could not be saved
+                               *>         (status &1)." text in the current language); WS-ARG1 =
+                               *>         WS-FS, the file status of the REWRITE that just failed.
+                               *> Result: WS-FMT-OUT = the message with that status in it, shown on
+                               *>         Lbl-Status just below. Nothing else changes.
+
                                CALL    "PC-FMT"
                                SET     Lbl-Status::Caption
                                                  TO    WS-FMT-OUT::Trim()
@@ -1937,6 +2389,20 @@
            SET     WS-EDIT-ID                    TO    SPACES
            SET     Txt-Name::Text                TO    SPACES
            SET     Txt-Prompt::Text              TO    SPACES
+
+           *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in TOPICS-FILE,
+           *> in key (creation) order. Called here after the topic was written.
+           *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+           *>         missing). It holds the new or changed topic.
+           *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on one
+           *>         line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows added;
+           *>         WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form (the chat) to
+           *>         run its PC-REFRESH, INVOKE super::"PC-REFRESH"() (fire-and-forget: it runs
+           *>         when the chat next waits for an event): the chat re-hands the models to its
+           *>         agents, reloads the current topic (a blank conversation starts when the
+           *>         current topic changed to another topic) and rebuilds the conversation list,
+           *>         the menu state and the status line. Tab-Crud::SelectedTab is set to 1 right
+           *>         after.
 
            CALL    "PC-LOAD-TOPICS"
            SET     Tab-Crud::SelectedTab         TO    1
@@ -1992,12 +2458,37 @@
            CLOSE    TOPICS-FILE
            IF    WS-SAVE-OK NOT = "Y"
                SET     Lbl-Status::Caption       TO    T-PICK-TOPIC-FIRST::Trim()
+
+               *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in
+               *> TOPICS-FILE, in key (creation) order. Called here because the clicked row's topic
+               *> is no longer in the file (Lbl-Status::Caption was just set to the "pick a topic
+               *> first" text).
+               *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+               *>         missing).
+               *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on
+               *>         one line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows
+               *>         added; WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form
+               *>         (the chat) to run its PC-REFRESH, INVOKE super::"PC-REFRESH"()
+               *>         (fire-and-forget: it runs when the chat next waits for an event): the chat
+               *>         re-hands the models to its agents, reloads the current topic (a blank
+               *>         conversation starts when the current topic changed to another topic) and
+               *>         rebuilds the conversation list, the menu state and the status line.
+               *>         Nothing is deleted; the procedure ends after this call.
+
                CALL    "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
 
            SET     WS-FMT                        TO    T-CONFIRM-DELETE
            SET     WS-ARG1                       TO    TOP-NAME
+
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-CONFIRM-DELETE (the "Delete the topic "&1" and its Knowledge Base?"
+           *>         text in the current language); WS-ARG1 = TOP-NAME, the name of the topic just
+           *>         read.
+           *> Result: WS-FMT-OUT = the question with the topic's name in it; the next line copies it
+           *>         to WS-QUESTION for the confirmation dialog. Nothing else changes.
 
            CALL    "PC-FMT"
            SET     WS-QUESTION                   TO    WS-FMT-OUT
@@ -2024,14 +2515,58 @@
            COMMIT
            CLOSE    TOPICS-FILE
            SET     WS-OK                         TO    KB-T::RemoveCollection(WS-TOPIC-ID-OF)
+
+           *> PC-DROP-TOPIC-ROWS: removes what a topic registered besides its own record: its files
+           *> in TFILES-FILE and its prompt versions in PROMPTS-FILE.
+           *> Uses:   WS-TOPIC-ID-OF = the id of the topic just deleted from TOPICS-FILE;
+           *>         TFILES-FILE and PROMPTS-FILE (each created empty when missing).
+           *> Result: every TFILES-FILE record whose TF-TOPIC is that id and every PROMPTS-FILE
+           *>         record whose PRM-TOPIC is that id is deleted and committed (at most 200 of
+           *>         each per call: the keys are gathered first). WS-SEQ-COUNT, WS-SEQ-OF, WS-K and
+           *>         WS-EOF are work areas.
+
            CALL    "PC-DROP-TOPIC-ROWS"
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = the id of the current topic, or SPACES when none; the IF below
+           *>         compares its first 16 characters with WS-TOPIC-ID-OF.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE(1:16) = WS-TOPIC-ID-OF
                SET     WS-SET-VALUE              TO    SPACES
+
+               *> PC-SETTING-PUT: writes one setting by name to the settings file (indexed,
+               *> WS-SETTINGS-PATH): the record is written, or rewritten when it exists, and
+               *> committed at once. The file is created empty when missing. Reached only when the
+               *> deleted topic was the current one.
+               *> Uses:   WS-SET-NAME = "CUR-TOPIC" and WS-SET-VALUE = SPACES (set just above).
+               *> Result: the CUR-TOPIC record of the settings file is blank, so no topic is
+               *>         current. Only WS-FS and the settings record area (SET-NAME, SET-VALUE)
+               *>         change.
+
                CALL    "PC-SETTING-PUT"
            END-IF
            SET     Lbl-Status::Caption           TO    T-TOPIC-DELETED::Trim()
+
+           *> PC-LOAD-TOPICS: fills the topics grid Dg-List with every topic stored in TOPICS-FILE,
+           *> in key (creation) order. Called here after the topic and its rows were deleted
+           *> (Lbl-Status::Caption was just set to the "topic deleted" text).
+           *> Uses:   TOPICS-FILE (<WS-DATA-DIR>/topics.idx = WS-TOPICS-PATH; created empty when
+           *>         missing). It no longer holds the topic.
+           *> Result: Dg-List is emptied and gets one row per topic (up to 500): name, prompt on one
+           *>         line, and the open, edit and delete icons. WS-TOPIC-COUNT = rows added;
+           *>         WS-TOPIC-ID(n) = id of grid row n. Then it asks the parent form (the chat) to
+           *>         run its PC-REFRESH, INVOKE super::"PC-REFRESH"() (fire-and-forget: it runs
+           *>         when the chat next waits for an event): the chat re-hands the models to its
+           *>         agents, reloads the current topic (a blank conversation starts when the
+           *>         current topic changed to another topic) and rebuilds the conversation list,
+           *>         the menu state and the status line. The grid no longer lists the deleted
+           *>         topic.
+
            CALL    "PC-LOAD-TOPICS"
 
            GOBACK.

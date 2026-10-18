@@ -974,6 +974,22 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-OPEN: loads what the form shows: paths, texts, the current topic and its documents
+           *> tree, then starts fetching the semantic model (here: the form has just been loaded).
+           *> Uses:   the environment variable POWERCHAT_DATA; the settings LANG, CUR-TOPIC and
+           *>         KB-LOCATION; TOPICS-FILE (the topic's name); and what PC-LIST-DOCS reads.
+           *> Result: the paths and texts are set; Drop-Docs::AllowedExtensions = WS-DOC-TYPES;
+           *>         WS-CUR-TOPIC = the current topic and WS-KB-LOCATION = the Knowledge Base
+           *>         folder ("assets/KB" when none is saved). With no topic it stops there and
+           *>         Lbl-Status::Caption = T-OPEN-TOPIC-FIRST ("Open a topic first."). Otherwise
+           *>         Lbl-Title::Caption = "Documents - <topic name>"; KB-D::Location =
+           *>         WS-KB-LOCATION, KB-D::Collection = WS-CUR-TOPIC and WS-DOCS-DIR =
+           *>         <WS-KB-LOCATION>/<WS-CUR-TOPIC>/documents; the documents tree and Lbl-Count
+           *>         are filled; then KB-D::FetchModel() is asked: when it starts (WS-KB-STEP =
+           *>         "M") the refresh follows from KB-D--ONINDEXED, or from KB-D--ONERROR if the
+           *>         fetch fails; when it does not, no refresh is started.
+
            CALL    "PC-OPEN"
 
            GOBACK.
@@ -989,6 +1005,22 @@
 
        PROCEDURE DIVISION.
            *>   Back on the pane: the topic or the language may have changed.
+
+           *> PC-OPEN: loads what the form shows: paths, texts, the current topic and its documents
+           *> tree, then starts fetching the semantic model (here: the form is back on the pane, so
+           *> the topic or the language may have changed).
+           *> Uses:   the environment variable POWERCHAT_DATA; the settings LANG, CUR-TOPIC and
+           *>         KB-LOCATION; TOPICS-FILE (the topic's name); and what PC-LIST-DOCS reads.
+           *> Result: the paths and texts are set; Drop-Docs::AllowedExtensions = WS-DOC-TYPES;
+           *>         WS-CUR-TOPIC = the current topic and WS-KB-LOCATION = the Knowledge Base
+           *>         folder ("assets/KB" when none is saved). With no topic it stops there and
+           *>         Lbl-Status::Caption = T-OPEN-TOPIC-FIRST ("Open a topic first."). Otherwise
+           *>         Lbl-Title::Caption = "Documents - <topic name>"; KB-D::Location =
+           *>         WS-KB-LOCATION, KB-D::Collection = WS-CUR-TOPIC and WS-DOCS-DIR =
+           *>         <WS-KB-LOCATION>/<WS-CUR-TOPIC>/documents; the documents tree and Lbl-Count
+           *>         are filled; then KB-D::FetchModel() is asked: when it starts (WS-KB-STEP =
+           *>         "M") the refresh follows from KB-D--ONINDEXED, or from KB-D--ONERROR if the
+           *>         fetch fails; when it does not, no refresh is started.
 
            CALL    "PC-OPEN"
 
@@ -1035,6 +1067,18 @@
                SET     WS-SEL-KIND               TO    WS-NODE-KIND(WS-J)
                SET     WS-SEL-PATH               TO    WS-NODE-PATH(WS-J)
            END-IF
+
+           *> PC-SELECT-SYNC: finds the selection again in WS-TREE after a rebuild or a click, and
+           *> works out the folder new documents go into.
+           *> Uses:   WS-SEL-KIND and WS-SEL-PATH (the selection, kept by path), WS-NODE-N, the rows
+           *>         of WS-TREE and WS-DOCS-DIR. (When CONTROL-NODE-INDEX was a valid row,
+           *>         WS-SEL-KIND and WS-SEL-PATH were just set from that row.)
+           *> Result: WS-SEL-IX = the row of the selection (0 when it is not there: WS-SEL-KIND and
+           *>         WS-SEL-PATH are then cleared to SPACES); WS-FOLDER = the selected folder, or
+           *>         the folder holding the selected document (SPACES = top level); WS-LINE = that
+           *>         folder on disk (WS-DOCS-DIR/WS-FOLDER). WS-J is overwritten when WS-SEL-PATH
+           *>         was not SPACES; WS-K, WS-L and WS-P when the selection is a document.
+
            CALL    "PC-SELECT-SYNC"
            *>   While a document waits to be moved, say where Move here puts it.
 
@@ -1047,6 +1091,15 @@
                ELSE
                    SET     WS-ARG2               TO    WS-FOLDER
                END-IF
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-MOVE-INTO ("Move here puts &1 into &2." in English); WS-ARG1 =
+               *>         WS-MOVE-SRC, the document waiting to be moved; WS-ARG2 = WS-FOLDER, or
+               *>         T-TOP-LEVEL ("the top level") when WS-FOLDER is SPACES.
+               *> Result: WS-FMT-OUT = e.g. "Move here puts a.md into docs."; the next line shows it
+               *>         in Lbl-Status::Caption.
+
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
@@ -1057,6 +1110,15 @@
            ELSE
                SET     WS-ARG1                   TO    WS-FOLDER
            END-IF
+
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-DROP-INTO ("New documents go into &1." in English) and WS-ARG1 =
+           *>         WS-FOLDER, the folder a drop will go to, or T-TOP-LEVEL ("the top level") when
+           *>         WS-FOLDER is SPACES.
+           *> Result: WS-FMT-OUT = e.g. "New documents go into docs."; the next line shows it in
+           *>         Lbl-Status::Caption.
+
            CALL    "PC-FMT"
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
 
@@ -1086,8 +1148,30 @@
                SET     WS-SEL-KIND               TO    WS-NODE-KIND(WS-J)
                SET     WS-SEL-PATH               TO    WS-NODE-PATH(WS-J)
 
+               *> PC-SELECT-SYNC: finds the selection again in WS-TREE after a rebuild or a click,
+               *> and works out the folder new documents go into.
+               *> Uses:   WS-SEL-KIND and WS-SEL-PATH (the selection, kept by path), WS-NODE-N, the
+               *>         rows of WS-TREE and WS-DOCS-DIR. (WS-SEL-KIND and WS-SEL-PATH were just
+               *>         set from the double-clicked row WS-J.)
+               *> Result: WS-SEL-IX = the row of the selection (0 when it is not there: WS-SEL-KIND
+               *>         and WS-SEL-PATH are then cleared to SPACES); WS-FOLDER = the selected
+               *>         folder, or the folder holding the selected document (SPACES = top level);
+               *>         WS-LINE = that folder on disk (WS-DOCS-DIR/WS-FOLDER). WS-J is overwritten
+               *>         when WS-SEL-PATH was not SPACES; WS-K, WS-L and WS-P when the selection is
+               *>         a document.
+
                CALL    "PC-SELECT-SYNC"
                IF    WS-SEL-KIND = "D"
+
+                   *> PC-PREVIEW: opens PREVIEW-FORM (modal) on the selected document.
+                   *> Uses:   WS-SEL-IX (not 0 here), WS-SEL-KIND = "D" (tested just above),
+                   *>         WS-SEL-PATH (the document's path under WS-DOCS-DIR), WS-DOCS-DIR and
+                   *>         T-CLOSE.
+                   *> Result: WS-LINE = WS-DOCS-DIR/WS-SEL-PATH, the file on disk. The form
+                   *>         properties PreviewPath (= WS-LINE), PreviewTitle (= WS-SEL-PATH) and
+                   *>         PreviewClose (= T-CLOSE) are set, PREVIEW-FORM opens modal
+                   *>         (OpenFormSync) and the call returns when the user closes it.
+
                    CALL    "PC-PREVIEW"
                END-IF
            END-IF
@@ -1152,6 +1236,24 @@
                    END-IF
                END-IF
            END-IF
+
+           *> PC-MOVE-GO: moves the document WS-MOVE-SRC into the folder WS-MOVE-TO (SPACES = top
+           *> level): it copies it to WS-MOVE-DEST through KB-D::ImportDocument; KB-D--ONINDEXED
+           *> deletes the original once the copy is indexed.
+           *> Uses:   WS-MOVE-SRC = the path of the dragged document (it is kind "D"); WS-MOVE-TO =
+           *>         the folder it was dropped on, the folder of the document it was dropped on, or
+           *>         SPACES (top level) for empty space. It also reads the rows of WS-TREE (a name
+           *>         already taken) and WS-DOCS-DIR.
+           *> Result: either the move is refused (WS-MOVE-SRC = SPACES; Lbl-Status::Caption =
+           *>         T-MOVE-SAME, "The document is already in that folder.", when the target is
+           *>         where it already is; T-MOVE-EXISTS with WS-MOVE-DEST, "A document of that name
+           *>         is already there: <path>.", when that name is taken; or KB-D::LastError when
+           *>         KB-D did not accept the import) or it starts (WS-MOVE-DEST = the target path,
+           *>         WS-MOVE-STEP = "I", Lbl-Progress::Caption = T-KB-UPDATING, "Updating the
+           *>         Knowledge Base..."). WS-L, WS-P and WS-K are always overwritten; past the
+           *>         same-folder check also WS-J and WS-FOUND, then WS-FMT, WS-ARG1 and WS-FMT-OUT
+           *>         (name taken) or WS-LINE and WS-OK (import tried).
+
            CALL    "PC-MOVE-GO"
 
            GOBACK.
@@ -1228,6 +1330,14 @@
                        SET     WS-FMT            TO    T-REPLACE-Q
                        SET     WS-ARG1           TO    WS-UP-DEST(WS-UP-N)
 
+                       *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the
+                       *> trimmed WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+                       *> Uses:   WS-FMT = T-REPLACE-Q ("&1 already exists in this folder. Replace
+                       *>         it?" in English) and WS-ARG1 = WS-UP-DEST(WS-UP-N), the topic path
+                       *>         of the file just queued, which is already in the tree.
+                       *> Result: WS-FMT-OUT = that question with the path in it; the next line
+                       *>         copies it to WS-UP-QUESTION for CONFIRM-FORM.
+
                        CALL    "PC-FMT"
                        SET     WS-UP-QUESTION    TO    WS-FMT-OUT
 
@@ -1247,6 +1357,14 @@
                            SET     WS-FMT        TO    T-UP-KEPT
                            SET     WS-ARG1       TO    WS-UP-DEST(WS-UP-N)
 
+                           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the
+                           *> trimmed WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+                           *> Uses:   WS-FMT = T-UP-KEPT ("Not replaced: &1." in English) and
+                           *>         WS-ARG1 = WS-UP-DEST(WS-UP-N), the path whose replacement the
+                           *>         user refused.
+                           *> Result: WS-FMT-OUT = "Not replaced: <path>."; the next line shows it
+                           *>         in Lbl-Status::Caption.
+
                            CALL    "PC-FMT"
                            SET     Lbl-Status::Caption
                                                  TO    WS-FMT-OUT::Trim()
@@ -1254,6 +1372,24 @@
                    END-IF
                END-IF
            END-PERFORM
+
+           *> PC-UP-NEXT: imports the next queued upload (WS-UP-STATE "Q") into the Knowledge Base,
+           *> or, when none is left, shows the summary of a multi-file drop.
+           *> Uses:   WS-UP-STEP, WS-UP-N and WS-UP-STATE(1..WS-UP-N) (the first "Q" is taken) with
+           *>         its WS-UP-SRC / WS-UP-DEST; for the summary WS-UP-ADDED, WS-UP-UPDATED and
+           *>         WS-UP-KEPT. The queue was just filled from Drop-Docs::DroppedFiles (WS-UP-SRC
+           *>         = the file's own path, WS-UP-DEST = its path in the topic, WS-UP-STATE "Q" or
+           *>         "K").
+           *> Result: if WS-UP-STEP is not SPACE (an upload is already running) nothing is done.
+           *>         Otherwise the first "Q" item becomes WS-UP-CUR and KB-D::ImportDocument starts
+           *>         for it: WS-UP-STEP = "U", Lbl-Progress::Caption = "Adding <path> to the
+           *>         Knowledge Base..."; KB-D--ONINDEXED goes on with the rest, and if KB-D is busy
+           *>         the item stays queued. With no "Q" item left, WS-UP-N = 0, and when it was > 1
+           *>         Lbl-Status::Caption = "<n> added, <n> updated, <n> not replaced." Past that
+           *>         check these are overwritten: WS-UP-CUR and WS-UP-I; for the summary WS-FMT,
+           *>         WS-KB1, WS-ARG1..WS-ARG3 and WS-FMT-OUT; for an import KB-D::SearchModeReason
+           *>         (cleared), WS-OK, WS-FMT, WS-ARG1 and WS-FMT-OUT.
+
            CALL    "PC-UP-NEXT"
 
            GOBACK.
@@ -1312,6 +1448,14 @@
            SET     WS-FMT                        TO    T-REJECTED-TYPE
            SET     WS-ARG1                       TO    LK-NAMES
 
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-REJECTED-TYPE ("Not added - this type of file cannot be read: &1"
+           *>         in English) and WS-ARG1 = LK-NAMES, the names of the refused files, separated
+           *>         by ", ".
+           *> Result: WS-FMT-OUT = that message with the names in it; the next lines keep it in
+           *>         WS-REJECT-MSG and show it in Lbl-Status::Caption.
+
            CALL    "PC-FMT"
 
            SET     WS-REJECT-MSG                 TO    WS-FMT-OUT
@@ -1343,6 +1487,14 @@
                    SET     WS-DELETING           TO    WS-SEL-PATH
                    SET     WS-FMT                TO    T-REMOVING
                    SET     WS-ARG1               TO    WS-SEL-PATH
+
+                   *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+                   *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+                   *> Uses:   WS-FMT = T-REMOVING ("Removing &1 from the Knowledge Base..." in
+                   *>         English) and WS-ARG1 = WS-SEL-PATH, the document KB-D::DeleteDocument
+                   *>         was just asked to remove.
+                   *> Result: WS-FMT-OUT = "Removing <path> from the Knowledge Base..."; the next
+                   *>         line shows it in Lbl-Progress::Caption.
 
                    CALL    "PC-FMT"
                    SET     Lbl-Progress::Caption TO    WS-FMT-OUT::Trim()
@@ -1383,10 +1535,35 @@
            SET     WS-GONE                       TO    WS-SEL-PATH
            SET     WS-SEL-KIND WS-SEL-PATH       TO    SPACES
 
+           *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+           *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+           *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them to
+           *> Trv-Docs.
+           *> Uses:   FOLDERS-FILE (the folder's record was deleted from it just above, if the OPEN
+           *>         I-O succeeded), WS-CUR-TOPIC, the documents folder as KB-D lists it,
+           *>         WS-DOCS-DIR, and WS-SEL-KIND / WS-SEL-PATH (cleared to SPACES).
+           *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+           *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n> document(s).".
+           *>         The selection is found again by path: WS-SEL-IX, WS-FOLDER and WS-LINE (the
+           *>         drop folder on disk) are set, and WS-SEL-KIND and WS-SEL-PATH are cleared to
+           *>         SPACES when its row is gone. Always overwritten: WS-I, WS-J, WS-OK, WS-FS,
+           *>         WS-N1, WS-FMT, WS-ARG1 and WS-FMT-OUT. Only when there is a row to list:
+           *>         WS-ONE-KIND, WS-ONE-PATH, WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH,
+           *>         WS-NAME and WS-ICON (WS-DOC too when there is a document); with two rows or
+           *>         more WS-K1 and WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file
+           *>         opens. The deleted folder is gone from the tree.
+
            CALL    "PC-LIST-DOCS"
 
            SET     WS-FMT                        TO    T-FOLDER-DELETED
            SET     WS-ARG1                       TO    WS-GONE
+
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-FOLDER-DELETED ("Folder deleted: &1." in English) and WS-ARG1 =
+           *>         WS-GONE, the path of the folder just deleted.
+           *> Result: WS-FMT-OUT = "Folder deleted: <path>."; the next line shows it in
+           *>         Lbl-Status::Caption.
 
            CALL    "PC-FMT"
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
@@ -1403,6 +1580,15 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PREVIEW: opens PREVIEW-FORM (modal) on the selected document.
+           *> Uses:   WS-SEL-IX, WS-SEL-KIND and WS-SEL-PATH (the selection kept by the clicks in
+           *>         Trv-Docs), WS-DOCS-DIR and T-CLOSE.
+           *> Result: When a document is selected: WS-LINE = WS-DOCS-DIR/WS-SEL-PATH, the properties
+           *>         PreviewPath, PreviewTitle and PreviewClose are set and PREVIEW-FORM opens
+           *>         modal until the user closes it. Otherwise Lbl-Status::Caption =
+           *>         T-PICK-DOC-TO-PREVIEW and nothing opens.
+
            CALL    "PC-PREVIEW"
 
            GOBACK.
@@ -1417,6 +1603,16 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-KB-REFRESH: starts KB-D::Refresh(), which indexes in the background what was added,
+           *> changed or removed in the topic's documents folder since the last run.
+           *> Uses:   KB-D::Location and KB-D::Collection (set by PC-OPEN) and the documents folder
+           *>         behind them.
+           *> Result: KB-D::SearchModeReason = SPACES; WS-OK = "1" when the refresh started (then
+           *>         Lbl-Progress::Caption = T-KB-UPDATING), otherwise Lbl-Status::Caption =
+           *>         KB-D::LastError. The outcome arrives later in KB-D--ONINDEXED (or ONBUSY /
+           *>         ONERROR).
+
            CALL    "PC-KB-REFRESH"
 
            GOBACK.
@@ -1486,10 +1682,36 @@
            SET     WS-SEL-PATH                   TO    WS-ONE-PATH
            SET     Txt-Folder::Text              TO    SPACES
 
+           *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+           *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+           *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them to
+           *> Trv-Docs.
+           *> Uses:   FOLDERS-FILE (the new folder was written to it just above), WS-CUR-TOPIC, the
+           *>         documents folder as KB-D lists it, WS-DOCS-DIR; WS-SEL-KIND = "F" and
+           *>         WS-SEL-PATH = WS-ONE-PATH, the new folder's path.
+           *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+           *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n> document(s).".
+           *>         The selection is found again by path: WS-SEL-IX, WS-FOLDER and WS-LINE (the
+           *>         drop folder on disk) are set, and WS-SEL-KIND and WS-SEL-PATH are cleared to
+           *>         SPACES when its row is gone. Always overwritten: WS-I, WS-J, WS-OK, WS-FS,
+           *>         WS-N1, WS-FMT, WS-ARG1 and WS-FMT-OUT. Only when there is a row to list:
+           *>         WS-ONE-KIND, WS-ONE-PATH, WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH,
+           *>         WS-NAME and WS-ICON (WS-DOC too when there is a document); with two rows or
+           *>         more WS-K1 and WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file
+           *>         opens. The new, still empty folder is in the tree and is the recorded
+           *>         selection, so the next drop goes into it.
+
            CALL    "PC-LIST-DOCS"
 
            SET     WS-FMT                        TO    T-FOLDER-CREATED
            SET     WS-ARG1                       TO    WS-SEL-PATH
+
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-FOLDER-CREATED ("Folder created: &1." in English) and WS-ARG1 =
+           *>         WS-SEL-PATH, the path of the new folder.
+           *> Result: WS-FMT-OUT = "Folder created: <path>."; the next line shows it in
+           *>         Lbl-Status::Caption.
 
            CALL    "PC-FMT"
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
@@ -1519,16 +1741,48 @@
                    EXIT PROGRAM
                END-IF
                SET     WS-MOVE-SRC               TO    WS-SEL-PATH
+
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> first press: the selected document is now the one to move).
+               *> Uses:   WS-MOVE-SRC = WS-SEL-PATH (set just above) and WS-MOVE-STEP = SPACE.
+               *> Result: Btn-Move::Caption = T-MOVE-HERE ("Move here") and Btn-MoveTop::Enabled =
+               *>         "true". No data item changes.
+
                CALL    "PC-MOVE-UI"
 
                SET     WS-FMT                    TO    T-MOVE-PICK
                SET     WS-ARG1                   TO    WS-MOVE-SRC
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-MOVE-PICK ("Moving &1: pick a folder, then press Move here." in
+               *>         English) and WS-ARG1 = WS-MOVE-SRC, the document picked.
+               *> Result: WS-FMT-OUT = that instruction with the path in it; the next line shows it
+               *>         in Lbl-Status::Caption.
 
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
            END-IF
            SET     WS-MOVE-TO                    TO    WS-FOLDER
+
+           *> PC-MOVE-GO: moves the document WS-MOVE-SRC into the folder WS-MOVE-TO (SPACES = top
+           *> level): it copies it to WS-MOVE-DEST through KB-D::ImportDocument; KB-D--ONINDEXED
+           *> deletes the original once the copy is indexed.
+           *> Uses:   WS-MOVE-SRC = the document picked by the first press; WS-MOVE-TO = WS-FOLDER
+           *>         (set just above): the selected folder, or the folder of the selected document,
+           *>         SPACES for the top level. It also reads the rows of WS-TREE (a name already
+           *>         taken) and WS-DOCS-DIR.
+           *> Result: either the move is refused (WS-MOVE-SRC = SPACES; Lbl-Status::Caption =
+           *>         T-MOVE-SAME, "The document is already in that folder.", when the target is
+           *>         where it already is; T-MOVE-EXISTS with WS-MOVE-DEST, "A document of that name
+           *>         is already there: <path>.", when that name is taken; or KB-D::LastError when
+           *>         KB-D did not accept the import) or it starts (WS-MOVE-DEST = the target path,
+           *>         WS-MOVE-STEP = "I", Lbl-Progress::Caption = T-KB-UPDATING, "Updating the
+           *>         Knowledge Base..."). WS-L, WS-P and WS-K are always overwritten; past the
+           *>         same-folder check also WS-J and WS-FOUND, then WS-FMT, WS-ARG1 and WS-FMT-OUT
+           *>         (name taken) or WS-LINE and WS-OK (import tried).
+
            CALL    "PC-MOVE-GO"
 
            GOBACK.
@@ -1549,6 +1803,23 @@
                EXIT PROGRAM
            END-IF
            SET     WS-MOVE-TO                    TO    SPACES
+
+           *> PC-MOVE-GO: moves the document WS-MOVE-SRC into the folder WS-MOVE-TO (SPACES = top
+           *> level): it copies it to WS-MOVE-DEST through KB-D::ImportDocument; KB-D--ONINDEXED
+           *> deletes the original once the copy is indexed.
+           *> Uses:   WS-MOVE-SRC = the document picked with Move; WS-MOVE-TO = SPACES (set just
+           *>         above): the top level. It also reads the rows of WS-TREE (a name already
+           *>         taken) and WS-DOCS-DIR.
+           *> Result: either the move is refused (WS-MOVE-SRC = SPACES; Lbl-Status::Caption =
+           *>         T-MOVE-SAME, "The document is already in that folder.", when the target is
+           *>         where it already is; T-MOVE-EXISTS with WS-MOVE-DEST, "A document of that name
+           *>         is already there: <path>.", when that name is taken; or KB-D::LastError when
+           *>         KB-D did not accept the import) or it starts (WS-MOVE-DEST = the target path,
+           *>         WS-MOVE-STEP = "I", Lbl-Progress::Caption = T-KB-UPDATING, "Updating the
+           *>         Knowledge Base..."). WS-L, WS-P and WS-K are always overwritten; past the
+           *>         same-folder check also WS-J and WS-FOUND, then WS-FMT, WS-ARG1 and WS-FMT-OUT
+           *>         (name taken) or WS-LINE and WS-OK (import tried).
+
            CALL    "PC-MOVE-GO"
 
            GOBACK.
@@ -1578,6 +1849,14 @@
                SET     WS-ARG2                   TO    WS-KB1
                SET     WS-ARG3                   TO    WS-KB2
 
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-MODEL-FETCH ("Downloading the semantic model: &1 - &2 of &3 KB"
+               *>         in English); WS-ARG1 = KB-D::ProgressDocument, WS-ARG2 = WS-KB1
+               *>         (KB-D::ProgressCurrent), WS-ARG3 = WS-KB2 (KB-D::ProgressTotal).
+               *> Result: WS-FMT-OUT = that message with KB-D::ProgressDocument and the two sizes in
+               *>         it; the next line shows it in Lbl-Progress::Caption.
+
                CALL    "PC-FMT"
                SET     Lbl-Progress::Caption     TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
@@ -1606,6 +1885,14 @@
                SET     WS-ARG1                   TO    WS-KB1
                SET     WS-ARG2                   TO    WS-KB2
 
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-CHUNK-BAR ("Chunking: &1 of &2 documents" in English); WS-ARG1
+               *>         = WS-KB1 = WS-DOC-CUR and WS-ARG2 = WS-KB2 = WS-DOC-TOT (documents split
+               *>         so far, documents in the update).
+               *> Result: WS-FMT-OUT = e.g. "Chunking: 2 of 5 documents"; the next line shows it in
+               *>         Lbl-Chunk::Caption.
+
                CALL    "PC-FMT"
 
                SET     Lbl-Chunk::Caption        TO    WS-FMT-OUT::Trim()
@@ -1623,6 +1910,14 @@
                SET     WS-FMT                    TO    T-EMBED-BAR
                SET     WS-ARG1                   TO    WS-KB1
                SET     WS-ARG2                   TO    WS-KB2
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-EMBED-BAR ("Embeddings: &1 of &2 passages" in English); WS-ARG1
+               *>         = WS-KB1 = WS-PASSAGE and WS-ARG2 = WS-KB2 = WS-PASSAGES (passages
+               *>         embedded, passages in the document).
+               *> Result: WS-FMT-OUT = e.g. "Embeddings: 32 of 80 passages"; the next line shows it
+               *>         in Lbl-Embed::Caption.
 
                CALL    "PC-FMT"
 
@@ -1642,6 +1937,14 @@
            SET     WS-ARG1                       TO    WS-N1
            SET     WS-ARG2                       TO    WS-N2
            SET     WS-ARG3                       TO    KB-D::ProgressDocument
+
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-KB-PROGRESS ("Updating the Knowledge Base: &1 of &2 - &3" in
+           *>         English); WS-ARG1 = WS-N1 (KB-D::ProgressCurrent), WS-ARG2 = WS-N2
+           *>         (KB-D::ProgressTotal), WS-ARG3 = KB-D::ProgressDocument.
+           *> Result: WS-FMT-OUT = e.g. "Updating the Knowledge Base: 2 of 5 - a.md"; the next line
+           *>         shows it in Lbl-Progress::Caption.
 
            CALL    "PC-FMT"
            SET     Lbl-Progress::Caption         TO    WS-FMT-OUT::Trim()
@@ -1667,7 +1970,25 @@
            IF    WS-KB-STEP = "M"
                SET     WS-KB-STEP                TO    SPACE
 
+               *> PC-PROGRESS-IDLE: empties the progress strip at the bottom of the form (here: the
+               *> model fetch ended, WS-KB-STEP "M" was just reset to SPACE).
+               *> Uses:   No data item; it only writes controls.
+               *> Result: Lbl-Progress::Caption = SPACES, Prg-Index::Value = 0, and Prg-Index,
+               *>         Lbl-Chunk, Prg-Chunk, Lbl-Embed and Prg-Embed are hidden. No data item
+               *>         changes.
+
                CALL    "PC-PROGRESS-IDLE"
+
+               *> PC-KB-REFRESH: starts KB-D::Refresh(), which indexes in the background what was
+               *> added, changed or removed in the topic's documents folder since the last run
+               *> (here: the semantic model is ready: just fetched, or already installed).
+               *> Uses:   KB-D::Location and KB-D::Collection (set by PC-OPEN) and the documents
+               *>         folder behind them.
+               *> Result: KB-D::SearchModeReason = SPACES; WS-OK = "1" when the refresh started
+               *>         (then Lbl-Progress::Caption = T-KB-UPDATING), otherwise
+               *>         Lbl-Status::Caption = KB-D::LastError. The outcome arrives later in
+               *>         KB-D--ONINDEXED (or ONBUSY / ONERROR).
+
                CALL    "PC-KB-REFRESH"
 
                EXIT PROGRAM
@@ -1679,7 +2000,34 @@
                SET     WS-UP-STEP                TO    SPACE
                SET     WS-UP-STATE(WS-UP-CUR)    TO    "D"
 
+               *> PC-PROGRESS-IDLE: empties the progress strip at the bottom of the form (here: the
+               *> upload being imported has been indexed).
+               *> Uses:   No data item; it only writes controls.
+               *> Result: Lbl-Progress::Caption = SPACES, Prg-Index::Value = 0, and Prg-Index,
+               *>         Lbl-Chunk, Prg-Chunk, Lbl-Embed and Prg-Embed are hidden. No data item
+               *>         changes.
+
                CALL    "PC-PROGRESS-IDLE"
+
+               *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+               *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+               *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them
+               *> to Trv-Docs (here: the imported upload's file is now in the documents folder).
+               *> Uses:   the documents folder as KB-D::ListDocuments lists it (files on disk, not
+               *>         the index), FOLDERS-FILE, WS-CUR-TOPIC, WS-SEL-KIND / WS-SEL-PATH and
+               *>         WS-DOCS-DIR.
+               *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+               *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n>
+               *>         document(s).". The selection is found again by path: WS-SEL-IX, WS-FOLDER
+               *>         and WS-LINE (the drop folder on disk) are set, and WS-SEL-KIND and
+               *>         WS-SEL-PATH are cleared to SPACES when its row is gone. Always
+               *>         overwritten: WS-I, WS-J, WS-OK, WS-FS, WS-N1, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT. Only when there is a row to list: WS-ONE-KIND, WS-ONE-PATH,
+               *>         WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH, WS-NAME and WS-ICON
+               *>         (WS-DOC too when there is a document); with two rows or more WS-K1 and
+               *>         WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file opens. The
+               *>         new document is in the tree.
+
                CALL    "PC-LIST-DOCS"
 
                SET     WS-NUM-TEXT               TO    KB-D::UpdatedCount
@@ -1692,6 +2040,15 @@
                    ADD    1 TO WS-UP-ADDED
                END-IF
                SET     WS-ARG1                   TO    WS-UP-DEST(WS-UP-CUR)
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-UP-UPDATED ("Updated: &1.") when KB-D::UpdatedCount > 0, else
+               *>         T-UP-ADDED ("Added: &1."); WS-ARG1 = WS-UP-DEST(WS-UP-CUR), the topic path
+               *>         of the upload.
+               *> Result: WS-FMT-OUT = "Added: <path>." or "Updated: <path>." in the user's
+               *>         language; the next line keeps it in WS-LINE.
+
                CALL    "PC-FMT"
 
                SET     WS-LINE                   TO    WS-FMT-OUT
@@ -1708,6 +2065,15 @@
                    SET     WS-FMT                TO    T-KB-PASSAGES
                END-IF
                SET     WS-ARG1                   TO    WS-KB1
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-KB-EMBEDDED ("&1 passages embedded: semantic search.") when
+               *>         KB-D::SearchMode is "Semantic", else T-KB-PASSAGES ("&1 passages
+               *>         indexed."); WS-ARG1 = WS-KB1 = KB-D::PassageCount.
+               *> Result: WS-FMT-OUT = that sentence with the passage count in it; the lines after
+               *>         it append it to WS-LINE.
+
                CALL    "PC-FMT"
 
                SET     WS-ARG2                   TO    WS-LINE
@@ -1722,6 +2088,25 @@
                    SET     WS-REJECT-MSG         TO    SPACES
                END-IF
                SET     Lbl-Status::Caption       TO    WS-LINE
+
+               *> PC-UP-NEXT: imports the next queued upload (WS-UP-STATE "Q") into the Knowledge
+               *> Base, or, when none is left, shows the summary of a multi-file drop (here: the
+               *> upload just imported is marked "D" and WS-UP-STEP is SPACE again).
+               *> Uses:   WS-UP-STEP, WS-UP-N and WS-UP-STATE(1..WS-UP-N) (the first "Q" is taken)
+               *>         with its WS-UP-SRC / WS-UP-DEST; for the summary WS-UP-ADDED,
+               *>         WS-UP-UPDATED and WS-UP-KEPT.
+               *> Result: If WS-UP-STEP is not SPACE (an upload is already running) nothing is done.
+               *>         Otherwise the first "Q" item becomes WS-UP-CUR and KB-D::ImportDocument
+               *>         starts for it: WS-UP-STEP = "U", Lbl-Progress::Caption = "Adding <path> to
+               *>         the Knowledge Base..."; KB-D--ONINDEXED goes on with the rest, and if KB-D
+               *>         is busy the item stays queued. With no "Q" item left, WS-UP-N = 0, and
+               *>         when it was > 1 Lbl-Status::Caption = "<n> added, <n> updated, <n> not
+               *>         replaced." Past that check these are overwritten: WS-UP-CUR and WS-UP-I;
+               *>         for the summary WS-FMT, WS-KB1, WS-ARG1..WS-ARG3 and WS-FMT-OUT; for an
+               *>         import KB-D::SearchModeReason (cleared), WS-OK, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT. The summary replaces the line just shown in
+               *>         Lbl-Status::Caption.
+
                CALL    "PC-UP-NEXT"
                EXIT PROGRAM
            END-IF
@@ -1738,13 +2123,57 @@
                SET     WS-MOVE-STEP              TO    SPACE
                SET     WS-MOVE-SRC               TO    SPACES
 
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> the original could not be deleted (KB-D did not accept DeleteDocument), so the
+               *> move stops).
+               *> Uses:   WS-MOVE-STEP = SPACE and WS-MOVE-SRC = SPACES, both just reset.
+               *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false". No
+               *>         data item changes.
+
                CALL    "PC-MOVE-UI"
+
+               *> PC-PROGRESS-IDLE: empties the progress strip at the bottom of the form (here: the
+               *> move has stopped).
+               *> Uses:   No data item; it only writes controls.
+               *> Result: Lbl-Progress::Caption = SPACES, Prg-Index::Value = 0, and Prg-Index,
+               *>         Lbl-Chunk, Prg-Chunk, Lbl-Embed and Prg-Embed are hidden. No data item
+               *>         changes.
+
                CALL    "PC-PROGRESS-IDLE"
 
                SET     Lbl-Status::Caption       TO    KB-D::LastError
+
+               *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+               *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+               *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them
+               *> to Trv-Docs (here: the move stopped after the copy was indexed: the documents
+               *> folder holds both the copy and the original).
+               *> Uses:   the documents folder as KB-D::ListDocuments lists it (files on disk, not
+               *>         the index), FOLDERS-FILE, WS-CUR-TOPIC, WS-SEL-KIND / WS-SEL-PATH and
+               *>         WS-DOCS-DIR.
+               *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+               *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n>
+               *>         document(s).". The selection is found again by path: WS-SEL-IX, WS-FOLDER
+               *>         and WS-LINE (the drop folder on disk) are set, and WS-SEL-KIND and
+               *>         WS-SEL-PATH are cleared to SPACES when its row is gone. Always
+               *>         overwritten: WS-I, WS-J, WS-OK, WS-FS, WS-N1, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT. Only when there is a row to list: WS-ONE-KIND, WS-ONE-PATH,
+               *>         WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH, WS-NAME and WS-ICON
+               *>         (WS-DOC too when there is a document); with two rows or more WS-K1 and
+               *>         WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file opens. The
+               *>         tree shows both documents, as they really are.
+
                CALL    "PC-LIST-DOCS"
                EXIT PROGRAM
            END-IF
+
+           *> PC-PROGRESS-IDLE: empties the progress strip at the bottom of the form (here: a
+           *> document delete, the delete half of a move, or a plain refresh has ended).
+           *> Uses:   No data item; it only writes controls.
+           *> Result: Lbl-Progress::Caption = SPACES, Prg-Index::Value = 0, and Prg-Index,
+           *>         Lbl-Chunk, Prg-Chunk, Lbl-Embed and Prg-Embed are hidden. No data item
+           *>         changes.
+
            CALL    "PC-PROGRESS-IDLE"
            *>   A document deleted: say which, and that it left the index.
 
@@ -1752,10 +2181,38 @@
                *>       The tree first: PC-LIST-DOCS formats its own count line.
 
                SET     WS-SEL-KIND WS-SEL-PATH   TO    SPACES
+
+               *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+               *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+               *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them
+               *> to Trv-Docs (here: the document named in WS-DELETING has been deleted).
+               *> Uses:   the documents folder as KB-D lists it (the document named in WS-DELETING
+               *>         is gone from it), FOLDERS-FILE, WS-CUR-TOPIC, WS-DOCS-DIR, and WS-SEL-KIND
+               *>         / WS-SEL-PATH (SPACES, set just above).
+               *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+               *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n>
+               *>         document(s).". The selection is found again by path: WS-SEL-IX, WS-FOLDER
+               *>         and WS-LINE (the drop folder on disk) are set, and WS-SEL-KIND and
+               *>         WS-SEL-PATH are cleared to SPACES when its row is gone. Always
+               *>         overwritten: WS-I, WS-J, WS-OK, WS-FS, WS-N1, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT. Only when there is a row to list: WS-ONE-KIND, WS-ONE-PATH,
+               *>         WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH, WS-NAME and WS-ICON
+               *>         (WS-DOC too when there is a document); with two rows or more WS-K1 and
+               *>         WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file opens. The
+               *>         deleted document is gone and nothing is selected.
+
                CALL    "PC-LIST-DOCS"
 
                SET     WS-FMT                    TO    T-DOC-REMOVED
                SET     WS-ARG1                   TO    WS-DELETING
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-DOC-REMOVED ("Deleted: &1 - removed from the Knowledge Base."
+               *>         in English) and WS-ARG1 = WS-DELETING, the path of the document just
+               *>         deleted.
+               *> Result: WS-FMT-OUT = that confirmation with the path in it; Lbl-Status::Caption
+               *>         shows it a few lines below.
 
                CALL    "PC-FMT"
 
@@ -1769,6 +2226,27 @@
                SET     WS-SEL-KIND               TO    "D"
                SET     WS-SEL-PATH               TO    WS-MOVE-DEST
 
+               *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+               *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+               *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them
+               *> to Trv-Docs (here: the move is done: the copy is indexed and the original
+               *> deleted).
+               *> Uses:   the documents folder as KB-D lists it (the original is gone),
+               *>         FOLDERS-FILE, WS-CUR-TOPIC, WS-DOCS-DIR; WS-SEL-KIND = "D" and WS-SEL-PATH
+               *>         = WS-MOVE-DEST (set just above), the moved document's new path.
+               *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+               *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n>
+               *>         document(s).". The selection is found again by path: WS-SEL-IX, WS-FOLDER
+               *>         and WS-LINE (the drop folder on disk) are set, and WS-SEL-KIND and
+               *>         WS-SEL-PATH are cleared to SPACES when its row is gone. Always
+               *>         overwritten: WS-I, WS-J, WS-OK, WS-FS, WS-N1, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT. Only when there is a row to list: WS-ONE-KIND, WS-ONE-PATH,
+               *>         WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH, WS-NAME and WS-ICON
+               *>         (WS-DOC too when there is a document); with two rows or more WS-K1 and
+               *>         WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file opens. The
+               *>         document appears at its new path and is the recorded selection, so the
+               *>         next drop goes into its folder.
+
                CALL    "PC-LIST-DOCS"
 
                SET     WS-FMT                    TO    T-MOVED
@@ -1779,10 +2257,25 @@
                ELSE
                    SET     WS-ARG2               TO    WS-MOVE-TO
                END-IF
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-MOVED ("Moved &1 to &2." in English); WS-ARG1 = WS-MOVE-SRC
+               *>         (the old path), WS-ARG2 = WS-MOVE-TO, or T-TOP-LEVEL ("the top level")
+               *>         when WS-MOVE-TO is SPACES.
+               *> Result: WS-FMT-OUT = e.g. "Moved a.md to docs."; the next line shows it in
+               *>         Lbl-Status::Caption.
+
                CALL    "PC-FMT"
 
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                SET     WS-MOVE-SRC               TO    SPACES
+
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> the move is finished).
+               *> Uses:   WS-MOVE-STEP = SPACE (set above) and WS-MOVE-SRC = SPACES (just set).
+               *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false". No
+               *>         data item changes.
 
                CALL    "PC-MOVE-UI"
                EXIT PROGRAM
@@ -1821,6 +2314,14 @@
            SET     WS-ARG3                       TO    WS-N3
            SET     WS-ARG4                       TO    WS-N4
 
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-KB-COUNTS ("Added &1, updated &2, removed &3, skipped &4." in
+           *>         English); WS-ARG1..WS-ARG4 = WS-N1..WS-N4 = KB-D::AddedCount, UpdatedCount,
+           *>         RemovedCount, SkippedCount.
+           *> Result: WS-FMT-OUT = e.g. "Added 2, updated 0, removed 1, skipped 0."; the next line
+           *>         keeps it in WS-LINE.
+
            CALL    "PC-FMT"
 
            SET     WS-LINE                       TO    WS-FMT-OUT
@@ -1829,6 +2330,14 @@
            IF    WS-SKIPPED NOT = SPACES
                SET     WS-FMT                    TO    T-KB-SKIPPED
                SET     WS-ARG1                   TO    WS-SKIPPED
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-KB-SKIPPED ("Skipped: &1" in English) and WS-ARG1 = WS-SKIPPED
+               *>         = KB-D::SkippedDocuments, each document the update could not read, with
+               *>         its reason. Only reached when WS-SKIPPED is not SPACES.
+               *> Result: WS-FMT-OUT = "Skipped: <documents>"; the lines after it append it to
+               *>         WS-LINE.
 
                CALL    "PC-FMT"
 
@@ -1853,6 +2362,16 @@
                    SET     WS-FMT                TO    T-KB-PASSAGES
                END-IF
                SET     WS-ARG1                   TO    WS-KB1
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-KB-EMBEDDED ("&1 passages embedded: semantic search.") when
+               *>         KB-D::SearchMode is "Semantic", else T-KB-PASSAGES ("&1 passages
+               *>         indexed."); WS-ARG1 = WS-KB1 = WS-PASSAGES (KB-D::PassageCount, more than
+               *>         0 here).
+               *> Result: WS-FMT-OUT = that sentence with the passage count in it; the lines after
+               *>         it append it to WS-LINE.
+
                CALL    "PC-FMT"
 
                SET     WS-ARG2                   TO    WS-LINE
@@ -1865,6 +2384,14 @@
            IF    WS-MODE-WHY NOT = SPACES
                SET     WS-FMT                    TO    T-WORDS-ONLY
                SET     WS-ARG1                   TO    WS-MODE-WHY
+
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-WORDS-ONLY ("Search is by words only: &1" in English) and
+               *>         WS-ARG1 = WS-MODE-WHY, the KB-D::SearchModeReason read at the start (not
+               *>         SPACES here).
+               *> Result: WS-FMT-OUT = "Search is by words only: <reason>"; the lines after it
+               *>         append it to WS-LINE.
 
                CALL    "PC-FMT"
 
@@ -1881,10 +2408,48 @@
                SET     WS-REJECT-MSG             TO    SPACES
            END-IF
            SET     Lbl-Status::Caption           TO    WS-LINE
+
+           *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+           *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+           *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them to
+           *> Trv-Docs (here: the refresh summary has just been shown in Lbl-Status::Caption).
+           *> Uses:   the documents folder as KB-D lists it (the refresh indexes its files, it does
+           *>         not change them), FOLDERS-FILE, WS-CUR-TOPIC, WS-DOCS-DIR and WS-SEL-KIND /
+           *>         WS-SEL-PATH.
+           *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+           *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n> document(s).".
+           *>         The selection is found again by path: WS-SEL-IX, WS-FOLDER and WS-LINE (the
+           *>         drop folder on disk) are set, and WS-SEL-KIND and WS-SEL-PATH are cleared to
+           *>         SPACES when its row is gone. Always overwritten: WS-I, WS-J, WS-OK, WS-FS,
+           *>         WS-N1, WS-FMT, WS-ARG1 and WS-FMT-OUT. Only when there is a row to list:
+           *>         WS-ONE-KIND, WS-ONE-PATH, WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH,
+           *>         WS-NAME and WS-ICON (WS-DOC too when there is a document); with two rows or
+           *>         more WS-K1 and WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file
+           *>         opens. WS-LINE, the summary built above, is replaced by the drop folder.
+
            CALL    "PC-LIST-DOCS"
            *>   Uploads that arrived while this update ran go now.
 
            IF    WS-UP-N > 0
+
+               *> PC-UP-NEXT: imports the next queued upload (WS-UP-STATE "Q") into the Knowledge
+               *> Base, or, when none is left, shows the summary of a multi-file drop (here: uploads
+               *> dropped while this update ran are waiting).
+               *> Uses:   WS-UP-STEP, WS-UP-N and WS-UP-STATE(1..WS-UP-N) (the first "Q" is taken)
+               *>         with its WS-UP-SRC / WS-UP-DEST; for the summary WS-UP-ADDED,
+               *>         WS-UP-UPDATED and WS-UP-KEPT. WS-UP-N > 0: the waiting uploads have state
+               *>         "Q".
+               *> Result: If WS-UP-STEP is not SPACE (an upload is already running) nothing is done.
+               *>         Otherwise the first "Q" item becomes WS-UP-CUR and KB-D::ImportDocument
+               *>         starts for it: WS-UP-STEP = "U", Lbl-Progress::Caption = "Adding <path> to
+               *>         the Knowledge Base..."; KB-D--ONINDEXED goes on with the rest, and if KB-D
+               *>         is busy the item stays queued. With no "Q" item left, WS-UP-N = 0, and
+               *>         when it was > 1 Lbl-Status::Caption = "<n> added, <n> updated, <n> not
+               *>         replaced." Past that check these are overwritten: WS-UP-CUR and WS-UP-I;
+               *>         for the summary WS-FMT, WS-KB1, WS-ARG1..WS-ARG3 and WS-FMT-OUT; for an
+               *>         import KB-D::SearchModeReason (cleared), WS-OK, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT.
+
                CALL    "PC-UP-NEXT"
            END-IF
 
@@ -1900,6 +2465,15 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PROGRESS-IDLE: empties the progress strip at the bottom of the form (here: KB-D
+           *> reported it is busy: the index write timed out waiting for the lock, so the job did
+           *> not finish).
+           *> Uses:   No data item; it only writes controls.
+           *> Result: Lbl-Progress::Caption = SPACES, Prg-Index::Value = 0, and Prg-Index,
+           *>         Lbl-Chunk, Prg-Chunk, Lbl-Embed and Prg-Embed are hidden. No data item
+           *>         changes.
+
            CALL    "PC-PROGRESS-IDLE"
 
            SET     Lbl-Status::Caption           TO    KB-D::LastError
@@ -1909,6 +2483,24 @@
                SET     WS-UP-STEP                TO    SPACE
                SET     WS-UP-STATE(WS-UP-CUR)    TO    "D"
 
+               *> PC-UP-NEXT: imports the next queued upload (WS-UP-STATE "Q") into the Knowledge
+               *> Base, or, when none is left, shows the summary of a multi-file drop (here: the
+               *> upload in flight did not finish; it is marked "D" all the same and the next one is
+               *> tried, WS-UP-ADDED / WS-UP-UPDATED are not incremented).
+               *> Uses:   WS-UP-STEP, WS-UP-N and WS-UP-STATE(1..WS-UP-N) (the first "Q" is taken)
+               *>         with its WS-UP-SRC / WS-UP-DEST; for the summary WS-UP-ADDED,
+               *>         WS-UP-UPDATED and WS-UP-KEPT.
+               *> Result: If WS-UP-STEP is not SPACE (an upload is already running) nothing is done.
+               *>         Otherwise the first "Q" item becomes WS-UP-CUR and KB-D::ImportDocument
+               *>         starts for it: WS-UP-STEP = "U", Lbl-Progress::Caption = "Adding <path> to
+               *>         the Knowledge Base..."; KB-D--ONINDEXED goes on with the rest, and if KB-D
+               *>         is busy the item stays queued. With no "Q" item left, WS-UP-N = 0, and
+               *>         when it was > 1 Lbl-Status::Caption = "<n> added, <n> updated, <n> not
+               *>         replaced." Past that check these are overwritten: WS-UP-CUR and WS-UP-I;
+               *>         for the summary WS-FMT, WS-KB1, WS-ARG1..WS-ARG3 and WS-FMT-OUT; for an
+               *>         import KB-D::SearchModeReason (cleared), WS-OK, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT.
+
                CALL    "PC-UP-NEXT"
            END-IF
            *>   No model (no network, say): index anyway - by words, and the
@@ -1916,6 +2508,22 @@
 
            IF    WS-KB-STEP = "M"
                SET     WS-KB-STEP                TO    SPACE
+
+               *> PC-KB-REFRESH: starts KB-D::Refresh(), which indexes in the background what was
+               *> added, changed or removed in the topic's documents folder since the last run
+               *> (here: defensive branch: WS-KB-STEP is still "M" (a model fetch never ends in
+               *> onBusy); the form treats it like the failed fetch in KB-D--ONERROR and indexes the
+               *> documents anyway).
+               *> Uses:   KB-D::Location and KB-D::Collection (set by PC-OPEN) and the documents
+               *>         folder behind them.
+               *> Result: KB-D::SearchModeReason = SPACES; WS-OK = "1" when the refresh started
+               *>         (then Lbl-Progress::Caption = T-KB-UPDATING), otherwise
+               *>         Lbl-Status::Caption = KB-D::LastError. The outcome arrives later in
+               *>         KB-D--ONINDEXED (or ONBUSY / ONERROR). Documents this refresh indexes
+               *>         while the semantic model is missing are stored as text only
+               *>         (KB-D::SearchMode "Lexical", SearchModeReason says why) and are found by
+               *>         their words.
+
                CALL    "PC-KB-REFRESH"
            END-IF
            SET     WS-KB-STEP                    TO    SPACE
@@ -1926,7 +2534,33 @@
                SET     WS-MOVE-STEP              TO    SPACE
                SET     WS-MOVE-SRC               TO    SPACES
 
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> the move stops where it failed).
+               *> Uses:   WS-MOVE-STEP = SPACE and WS-MOVE-SRC = SPACES, both just reset.
+               *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false". No
+               *>         data item changes.
+
                CALL    "PC-MOVE-UI"
+
+               *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+               *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+               *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them
+               *> to Trv-Docs (here: after the failed move).
+               *> Uses:   the documents folder as KB-D::ListDocuments lists it (files on disk, not
+               *>         the index), FOLDERS-FILE, WS-CUR-TOPIC, WS-SEL-KIND / WS-SEL-PATH and
+               *>         WS-DOCS-DIR.
+               *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+               *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n>
+               *>         document(s).". The selection is found again by path: WS-SEL-IX, WS-FOLDER
+               *>         and WS-LINE (the drop folder on disk) are set, and WS-SEL-KIND and
+               *>         WS-SEL-PATH are cleared to SPACES when its row is gone. Always
+               *>         overwritten: WS-I, WS-J, WS-OK, WS-FS, WS-N1, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT. Only when there is a row to list: WS-ONE-KIND, WS-ONE-PATH,
+               *>         WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH, WS-NAME and WS-ICON
+               *>         (WS-DOC too when there is a document); with two rows or more WS-K1 and
+               *>         WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file opens. The
+               *>         tree shows what is really there.
+
                CALL    "PC-LIST-DOCS"
            END-IF
 
@@ -1942,6 +2576,14 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PROGRESS-IDLE: empties the progress strip at the bottom of the form (here: KB-D
+           *> reported an error: the job failed).
+           *> Uses:   No data item; it only writes controls.
+           *> Result: Lbl-Progress::Caption = SPACES, Prg-Index::Value = 0, and Prg-Index,
+           *>         Lbl-Chunk, Prg-Chunk, Lbl-Embed and Prg-Embed are hidden. No data item
+           *>         changes.
+
            CALL    "PC-PROGRESS-IDLE"
 
            SET     Lbl-Status::Caption           TO    KB-D::LastError
@@ -1951,6 +2593,24 @@
                SET     WS-UP-STEP                TO    SPACE
                SET     WS-UP-STATE(WS-UP-CUR)    TO    "D"
 
+               *> PC-UP-NEXT: imports the next queued upload (WS-UP-STATE "Q") into the Knowledge
+               *> Base, or, when none is left, shows the summary of a multi-file drop (here: the
+               *> upload in flight failed; it is marked "D" all the same and the next one is tried,
+               *> WS-UP-ADDED / WS-UP-UPDATED are not incremented).
+               *> Uses:   WS-UP-STEP, WS-UP-N and WS-UP-STATE(1..WS-UP-N) (the first "Q" is taken)
+               *>         with its WS-UP-SRC / WS-UP-DEST; for the summary WS-UP-ADDED,
+               *>         WS-UP-UPDATED and WS-UP-KEPT.
+               *> Result: If WS-UP-STEP is not SPACE (an upload is already running) nothing is done.
+               *>         Otherwise the first "Q" item becomes WS-UP-CUR and KB-D::ImportDocument
+               *>         starts for it: WS-UP-STEP = "U", Lbl-Progress::Caption = "Adding <path> to
+               *>         the Knowledge Base..."; KB-D--ONINDEXED goes on with the rest, and if KB-D
+               *>         is busy the item stays queued. With no "Q" item left, WS-UP-N = 0, and
+               *>         when it was > 1 Lbl-Status::Caption = "<n> added, <n> updated, <n> not
+               *>         replaced." Past that check these are overwritten: WS-UP-CUR and WS-UP-I;
+               *>         for the summary WS-FMT, WS-KB1, WS-ARG1..WS-ARG3 and WS-FMT-OUT; for an
+               *>         import KB-D::SearchModeReason (cleared), WS-OK, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT.
+
                CALL    "PC-UP-NEXT"
            END-IF
            *>   No model (no network, say): index anyway - by words, and the
@@ -1958,6 +2618,21 @@
 
            IF    WS-KB-STEP = "M"
                SET     WS-KB-STEP                TO    SPACE
+
+               *> PC-KB-REFRESH: starts KB-D::Refresh(), which indexes in the background what was
+               *> added, changed or removed in the topic's documents folder since the last run
+               *> (here: WS-KB-STEP "M": the model fetch did not complete, so the documents are
+               *> indexed anyway, without it).
+               *> Uses:   KB-D::Location and KB-D::Collection (set by PC-OPEN) and the documents
+               *>         folder behind them.
+               *> Result: KB-D::SearchModeReason = SPACES; WS-OK = "1" when the refresh started
+               *>         (then Lbl-Progress::Caption = T-KB-UPDATING), otherwise
+               *>         Lbl-Status::Caption = KB-D::LastError. The outcome arrives later in
+               *>         KB-D--ONINDEXED (or ONBUSY / ONERROR). Documents this refresh indexes
+               *>         while the semantic model is missing are stored as text only
+               *>         (KB-D::SearchMode "Lexical", SearchModeReason says why) and are found by
+               *>         their words.
+
                CALL    "PC-KB-REFRESH"
            END-IF
            SET     WS-KB-STEP                    TO    SPACE
@@ -1968,7 +2643,33 @@
                SET     WS-MOVE-STEP              TO    SPACE
                SET     WS-MOVE-SRC               TO    SPACES
 
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> the move stops where it failed).
+               *> Uses:   WS-MOVE-STEP = SPACE and WS-MOVE-SRC = SPACES, both just reset.
+               *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false". No
+               *>         data item changes.
+
                CALL    "PC-MOVE-UI"
+
+               *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+               *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+               *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them
+               *> to Trv-Docs (here: after the failed move).
+               *> Uses:   the documents folder as KB-D::ListDocuments lists it (files on disk, not
+               *>         the index), FOLDERS-FILE, WS-CUR-TOPIC, WS-SEL-KIND / WS-SEL-PATH and
+               *>         WS-DOCS-DIR.
+               *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+               *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n>
+               *>         document(s).". The selection is found again by path: WS-SEL-IX, WS-FOLDER
+               *>         and WS-LINE (the drop folder on disk) are set, and WS-SEL-KIND and
+               *>         WS-SEL-PATH are cleared to SPACES when its row is gone. Always
+               *>         overwritten: WS-I, WS-J, WS-OK, WS-FS, WS-N1, WS-FMT, WS-ARG1 and
+               *>         WS-FMT-OUT. Only when there is a row to list: WS-ONE-KIND, WS-ONE-PATH,
+               *>         WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH, WS-NAME and WS-ICON
+               *>         (WS-DOC too when there is a document); with two rows or more WS-K1 and
+               *>         WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file opens. The
+               *>         tree shows what is really there.
+
                CALL    "PC-LIST-DOCS"
            END-IF
 
@@ -1987,8 +2688,25 @@
            *>   A flag in the chat's menu changes the language while this form is
            *>   on the pane; nothing tells a pane occupant, so it looks (R46).
 
+           *> PC-LANG-NOW: reads the saved language (LANG) without creating anything.
+           *> Uses:   The LANG record of SETTINGS-FILE (key "LANG"); the file is opened INPUT only.
+           *> Result: WS-LANG-NOW = "pt", "es", "fr", "jp" or "cn" when LANG holds that code,
+           *>         otherwise "en" (also when the file does not exist). WS-LANG, the language of
+           *>         the texts on screen, is not changed. WS-FS and the record area SETTINGS-REC
+           *>         are overwritten.
+
            CALL    "PC-LANG-NOW"
            IF    WS-LANG-NOW NOT = WS-LANG
+
+               *> DOCUMENTS-FORM--ONACTIVATE: the form's own onActivate event paragraph; it runs
+               *> PC-OPEN (here: WS-LANG-NOW, the language saved now, differs from WS-LANG, the
+               *> language of the texts on screen).
+               *> Uses:   the environment variable POWERCHAT_DATA; the settings LANG, CUR-TOPIC and
+               *>         KB-LOCATION; TOPICS-FILE (the topic's name); and what PC-LIST-DOCS reads.
+               *> Result: PC-OPEN reloads everything as at load time: WS-LANG becomes WS-LANG-NOW,
+               *>         the texts, captions and hints change language, and the topic and the
+               *>         documents tree are read again.
+
                CALL    "DOCUMENTS-FORM--ONACTIVATE"
            END-IF
 
@@ -2107,6 +2825,17 @@
                SET     WS-ONE-KIND               TO    "D"
                SET     WS-ONE-PATH               TO    WS-DOC::Trim()
 
+               *> PC-TREE-ADD: puts the path WS-ONE-PATH and every folder above it into WS-TREE,
+               *> each only once.
+               *> Uses:   WS-ONE-KIND = "D" and WS-ONE-PATH = WS-DOC trimmed, the WS-I-th document
+               *>         of the topic as KB-D::GetDocument(WS-I) gave it (a path under the
+               *>         documents folder, such as "policies/leave.md"); the rows of WS-TREE
+               *>         already added.
+               *> Result: WS-TREE gains a "D" row for the document and an "F" row for each parent
+               *>         folder not in it yet (WS-NODE-N grows; the table holds 1000 rows at most).
+               *>         WS-ONE-KIND and WS-ONE-PATH end as they were; WS-FOUND and WS-J are
+               *>         overwritten, and WS-L and WS-KEY-TMP whenever a row is added.
+
                CALL    "PC-TREE-ADD"
            END-PERFORM
            *>   The folders made here, including the empty ones.
@@ -2133,6 +2862,18 @@
                        ELSE
                            SET     WS-ONE-KIND   TO    "F"
                            SET     WS-ONE-PATH   TO    FLD-PATH
+
+                           *> PC-TREE-ADD: puts the path WS-ONE-PATH and every folder above it into
+                           *> WS-TREE, each only once.
+                           *> Uses:   WS-ONE-KIND = "F" and WS-ONE-PATH = FLD-PATH, the folder path
+                           *>         just read from FOLDERS-FILE for the topic in WS-CUR-TOPIC; the
+                           *>         rows of WS-TREE already added.
+                           *> Result: WS-TREE gains an "F" row for that folder, and for any parent
+                           *>         folder above it that is not there yet (a folder that holds a
+                           *>         document is already in); WS-NODE-N grows accordingly.
+                           *>         WS-ONE-KIND and WS-ONE-PATH end as they were; WS-FOUND and
+                           *>         WS-J are overwritten, and WS-L and WS-KEY-TMP whenever a row
+                           *>         is added.
 
                            CALL    "PC-TREE-ADD"
                        END-IF
@@ -2210,8 +2951,26 @@
            SET     WS-FMT                        TO    T-DOC-COUNT
            SET     WS-ARG1                       TO    WS-N1
 
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-DOC-COUNT ("&1 document(s)." in English) and WS-ARG1 = WS-N1, the
+           *>         document count WS-DOC-COUNT that KB-D::ListDocuments() reported.
+           *> Result: WS-FMT-OUT = the count as a sentence in the user's language, e.g. "3
+           *>         document(s)."; the next line shows it in Lbl-Count::Caption.
+
            CALL    "PC-FMT"
            SET     Lbl-Count::Caption            TO    WS-FMT-OUT::Trim()
+
+           *> PC-SELECT-SYNC: finds the selection again in WS-TREE after a rebuild or a click, and
+           *> works out the folder new documents go into.
+           *> Uses:   WS-SEL-KIND and WS-SEL-PATH (the selection, kept by path), WS-NODE-N, the rows
+           *>         of WS-TREE and WS-DOCS-DIR. (WS-TREE was just rebuilt above.)
+           *> Result: WS-SEL-IX = the row of the selection (0 when it is not there: WS-SEL-KIND and
+           *>         WS-SEL-PATH are then cleared to SPACES); WS-FOLDER = the selected folder, or
+           *>         the folder holding the selected document (SPACES = top level); WS-LINE = that
+           *>         folder on disk (WS-DOCS-DIR/WS-FOLDER). WS-J is overwritten when WS-SEL-PATH
+           *>         was not SPACES; WS-K, WS-L and WS-P when the selection is a document.
+
            CALL    "PC-SELECT-SYNC"
 
            GOBACK.
@@ -2249,12 +3008,33 @@
                    SET     WS-ONE-PATH           TO    SPACES
                    SET     WS-ONE-PATH           TO    LK-PATH(1:LK-P - 1)
 
+                   *> PC-TREE-ONE: adds one row to WS-TREE for WS-ONE-PATH unless that path is
+                   *> already in it.
+                   *> Uses:   WS-ONE-KIND = "F" and WS-ONE-PATH = LK-PATH(1:LK-P - 1), the part of
+                   *>         the path before the "/" at position LK-P: one parent folder of the
+                   *>         item being added; WS-NODE-N and the rows of WS-TREE.
+                   *> Result: When that folder is not in WS-TREE yet and the table has room,
+                   *>         WS-NODE-N grows by one and the new row holds "F", the path and its
+                   *>         sort key (the path with "/" turned into X"01", LOW-VALUES after it);
+                   *>         otherwise nothing changes. WS-FOUND and WS-J are overwritten; when a
+                   *>         row is added, WS-L and WS-KEY-TMP too.
+
                    CALL    "PC-TREE-ONE"
                END-IF
            END-PERFORM
 
            SET     WS-ONE-KIND                   TO    LK-KIND
            SET     WS-ONE-PATH                   TO    LK-PATH
+
+           *> PC-TREE-ONE: adds one row to WS-TREE for WS-ONE-PATH unless that path is already in
+           *> it.
+           *> Uses:   WS-ONE-KIND and WS-ONE-PATH, put back just above to the kind and path that
+           *>         PC-TREE-ADD was called with (kept in LK-KIND and LK-PATH); WS-NODE-N and the
+           *>         rows of WS-TREE.
+           *> Result: Unless that path is already in WS-TREE (and the table has room), WS-NODE-N
+           *>         grows by one and the new row holds the item's kind, its path and its sort key
+           *>         (the path with "/" turned into X"01", LOW-VALUES after it). WS-FOUND and WS-J
+           *>         are overwritten; when a row is added, WS-L and WS-KEY-TMP too.
 
            CALL    "PC-TREE-ONE"
 
@@ -2368,6 +3148,15 @@
            *>   whenever the language changes (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the saved language code (PC-TEXTS reads its first two
+           *>         characters), or SPACES when it was never saved. WS-SET-NAME is unchanged;
+           *>         WS-FS and the record area SETTINGS-REC are overwritten.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            *> WS-LANG-IX is the language's column in PC-TEXT (en pt es fr jp cn);
@@ -2398,10 +3187,26 @@
            SET     Lbl-Status::Caption           TO    T-STATUS::Trim()
            SET     Btn-MoveTop::Caption          TO    T-MOVE-TOP::Trim()
 
+           *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press.
+           *> Uses:   WS-MOVE-SRC (the document picked for a move, SPACES when none) and
+           *>         WS-MOVE-STEP (SPACE unless a move is running); T-MOVE and T-MOVE-HERE were
+           *>         reloaded in the user's language just above.
+           *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false" while
+           *>         no document is picked or a move is running; otherwise "Move here" and "true".
+           *>         No data item changes.
+
            CALL    "PC-MOVE-UI"
 
            SET     WS-FMT                        TO    T-ACCEPTED-TYPES
            SET     WS-ARG1                       TO    WS-DOC-TYPES
+
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-ACCEPTED-TYPES ("Accepted types: &1" in English) and WS-ARG1 =
+           *>         WS-DOC-TYPES, the list of file extensions the Knowledge Base can read (".md
+           *>         .markdown .txt ...").
+           *> Result: WS-FMT-OUT = "Accepted types: .md .markdown .txt ..." in the user's language;
+           *>         the next line shows it in Lbl-Types::Caption.
 
            CALL    "PC-FMT"
            SET     Lbl-Types::Caption            TO    WS-FMT-OUT::Trim()
@@ -2441,6 +3246,14 @@
                    SET     WS-KB1                TO    WS-UP-KEPT
                    SET     WS-ARG3               TO    WS-KB1
 
+                   *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+                   *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+                   *> Uses:   WS-FMT = T-UP-SUMMARY ("&1 added, &2 updated, &3 not replaced." in
+                   *>         English); WS-ARG1 = WS-UP-ADDED, WS-ARG2 = WS-UP-UPDATED and WS-ARG3 =
+                   *>         WS-UP-KEPT (the three counters of this batch, via WS-KB1).
+                   *> Result: WS-FMT-OUT = e.g. "3 added, 1 updated, 0 not replaced."; the next line
+                   *>         shows it in Lbl-Status::Caption.
+
                    CALL    "PC-FMT"
                    SET     Lbl-Status::Caption   TO    WS-FMT-OUT::Trim()
                END-IF
@@ -2459,6 +3272,14 @@
            SET     WS-UP-STEP                    TO    "U"
            SET     WS-FMT                        TO    T-UP-SENDING
            SET     WS-ARG1                       TO    WS-UP-DEST(WS-UP-CUR)
+
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-UP-SENDING ("Adding &1 to the Knowledge Base..." in English) and
+           *>         WS-ARG1 = WS-UP-DEST(WS-UP-CUR), the topic path of the upload now being
+           *>         imported.
+           *> Result: WS-FMT-OUT = "Adding <path> to the Knowledge Base..."; the next line shows it
+           *>         in Lbl-Progress::Caption.
 
            CALL    "PC-FMT"
            SET     Lbl-Progress::Caption         TO    WS-FMT-OUT::Trim()
@@ -2576,6 +3397,13 @@
            END-IF
            IF    WS-MOVE-DEST = WS-MOVE-SRC
                SET     WS-MOVE-SRC               TO    SPACES
+
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> the move is dropped: the target is where the document already is).
+               *> Uses:   WS-MOVE-SRC, just cleared to SPACES, and WS-MOVE-STEP (SPACE).
+               *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false". No
+               *>         data item changes.
+
                CALL    "PC-MOVE-UI"
                SET     Lbl-Status::Caption       TO    T-MOVE-SAME::Trim()
                EXIT PROGRAM
@@ -2592,8 +3420,23 @@
                SET     WS-FMT                    TO    T-MOVE-EXISTS
                SET     WS-ARG1                   TO    WS-MOVE-DEST
 
+               *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+               *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-MOVE-EXISTS ("A document of that name is already there: &1." in
+               *>         English) and WS-ARG1 = WS-MOVE-DEST, the target path that is already in
+               *>         the tree.
+               *> Result: WS-FMT-OUT = that sentence with the path in it; Lbl-Status::Caption shows
+               *>         it a few lines below.
+
                CALL    "PC-FMT"
                SET     WS-MOVE-SRC               TO    SPACES
+
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> the move is dropped: the target name is taken).
+               *> Uses:   WS-MOVE-SRC, just cleared to SPACES, and WS-MOVE-STEP (SPACE).
+               *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false". No
+               *>         data item changes.
+
                CALL    "PC-MOVE-UI"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
@@ -2604,11 +3447,26 @@
            WS-MOVE-DEST::Trim()) TO WS-OK
            IF    WS-OK NOT = "1"
                SET     WS-MOVE-SRC               TO    SPACES
+
+               *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here:
+               *> the move is dropped: KB-D did not accept the import).
+               *> Uses:   WS-MOVE-SRC, just cleared to SPACES, and WS-MOVE-STEP (SPACE).
+               *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false". No
+               *>         data item changes.
+
                CALL    "PC-MOVE-UI"
                SET     Lbl-Status::Caption       TO    KB-D::LastError
                EXIT PROGRAM
            END-IF
            SET     WS-MOVE-STEP                  TO    "I"
+
+           *> PC-MOVE-UI: sets the Move and To-the-top-level buttons for the next press (here: the
+           *> copy has been handed to KB-D to be indexed).
+           *> Uses:   WS-MOVE-STEP = "I" (set just above) and WS-MOVE-SRC, still the document being
+           *>         moved.
+           *> Result: Btn-Move::Caption = T-MOVE ("Move") and Btn-MoveTop::Enabled = "false" while
+           *>         the move runs. No data item changes.
+
            CALL    "PC-MOVE-UI"
            SET     Lbl-Progress::Caption         TO    T-KB-UPDATING::Trim()
 
@@ -2675,7 +3533,26 @@
        PROCEDURE DIVISION.
            *>   What the form shows: run on load, and again when it comes back.
 
+           *> PC-PATHS: sets the paths of the three indexed files PowerChat reads here.
+           *> Uses:   The environment variable POWERCHAT_DATA.
+           *> Result: WS-DATA-DIR = $POWERCHAT_DATA, or "data" when that is empty; WS-SETTINGS-PATH
+           *>         = <WS-DATA-DIR>/settings.idx, WS-TOPICS-PATH = <WS-DATA-DIR>/topics.idx,
+           *>         WS-FOLDERS-PATH = <WS-DATA-DIR>/folders.idx. No file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the form's texts in the language the user picked and sets every
+           *> designed caption, hint and button state that shows one.
+           *> Uses:   The LANG setting in the settings file whose path PC-PATHS just set
+           *>         (WS-SETTINGS-PATH), PC-TEXT (54 texts x 6 languages en pt es fr jp cn),
+           *>         WS-DOC-TYPES and, for the Move buttons, WS-MOVE-SRC and WS-MOVE-STEP.
+           *> Result: WS-LANG = the saved code ("en" when unset or unknown), WS-LANG-IX = its column
+           *>         1-6, PC-TEXT-NOW(1..54) (the T-... names) = that column; titles, hints and
+           *>         buttons are set in that language, Lbl-Status::Caption = T-STATUS,
+           *>         Lbl-Types::Caption = "Accepted types: <extensions>". WS-SET-NAME = "LANG" and
+           *>         WS-SET-VALUE hold the lookup; WS-FMT, WS-ARG1 and WS-FMT-OUT are overwritten.
+           *>         WS-TX-I and WS-FS are overwritten.
+
            CALL    "PC-TEXTS"
 
            *>   The zone refuses whatever the Knowledge Base could not read.
@@ -2683,10 +3560,28 @@
            SET     Drop-Docs::AllowedExtensions  TO    WS-DOC-TYPES
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
 
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the id of the current topic (set by Open in TOPICS-FORM or by
+           *>         New conversation in the chat form), or SPACES when none; WS-CUR-TOPIC takes
+           *>         its first 16 characters next. WS-SET-NAME is unchanged; WS-FS and the record
+           *>         area SETTINGS-REC are overwritten.
+
            CALL    "PC-SETTING-GET"
 
            SET     WS-CUR-TOPIC                  TO    WS-SET-VALUE(1:16)
            SET     WS-SET-NAME                   TO    "KB-LOCATION"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "KB-LOCATION" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the Knowledge Base folder saved by KB-FOLDER-FORM (Save) or
+           *>         restored by the settings form's Import, or SPACES; the next lines copy it to
+           *>         WS-KB-LOCATION and fall back to "assets/KB". WS-SET-NAME is unchanged; WS-FS
+           *>         and the record area SETTINGS-REC are overwritten.
 
            CALL    "PC-SETTING-GET"
            SET     WS-KB-LOCATION                TO    WS-SET-VALUE
@@ -2712,6 +3607,14 @@
            SET     WS-FMT                        TO    T-DOCS-OF
            SET     WS-ARG1                       TO    TOP-NAME
 
+           *> PC-FMT: replaces the &1..&4 placeholders of the template WS-FMT by the trimmed
+           *> WS-ARG1..WS-ARG4 and leaves the finished text in WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-DOCS-OF ("Documents - &1" in English) and WS-ARG1 = TOP-NAME, the
+           *>         name of the current topic read from TOPICS-FILE ("?" when its record is
+           *>         missing).
+           *> Result: WS-FMT-OUT = "Documents - <topic name>" in the user's language; the next line
+           *>         shows it in Lbl-Title::Caption.
+
            CALL    "PC-FMT"
 
            SET     Lbl-Title::Caption            TO    WS-FMT-OUT::Trim()
@@ -2724,6 +3627,26 @@
 
            SET     WS-DOCS-DIR                   TO    SPACES
            STRING    WS-KB-LOCATION::Trim() "/" WS-CUR-TOPIC::Trim() "/documents" INTO WS-DOCS-DIR
+
+           *> PC-LIST-DOCS: rebuilds the documents tree of the current topic: its documents (the
+           *> files KB-D::ListDocuments finds in the documents folder on disk) and its folders
+           *> (FOLDERS-FILE), sorted so a folder comes right before its contents, then adds them to
+           *> Trv-Docs.
+           *> Uses:   WS-CUR-TOPIC, KB-D::Location = WS-KB-LOCATION and KB-D::Collection =
+           *>         WS-CUR-TOPIC (set above), WS-DOCS-DIR =
+           *>         <WS-KB-LOCATION>/<WS-CUR-TOPIC>/documents, FOLDERS-FILE, and WS-SEL-KIND /
+           *>         WS-SEL-PATH.
+           *> Result: WS-TREE, WS-NODE-N and WS-DOC-COUNT hold the new rows; Trv-Docs shows them
+           *>         (empty folders get the folder icon); Lbl-Count::Caption = "<n> document(s).".
+           *>         The selection is found again by path: WS-SEL-IX, WS-FOLDER and WS-LINE (the
+           *>         drop folder on disk) are set, and WS-SEL-KIND and WS-SEL-PATH are cleared to
+           *>         SPACES when its row is gone. Always overwritten: WS-I, WS-J, WS-OK, WS-FS,
+           *>         WS-N1, WS-FMT, WS-ARG1 and WS-FMT-OUT. Only when there is a row to list:
+           *>         WS-ONE-KIND, WS-ONE-PATH, WS-FOUND, WS-KEY-TMP, WS-K, WS-L, WS-P, WS-DEPTH,
+           *>         WS-NAME and WS-ICON (WS-DOC too when there is a document); with two rows or
+           *>         more WS-K1 and WS-NODE-TMP; FLD-TOPIC and FLD-PATH only if the folders file
+           *>         opens.
+
            CALL    "PC-LIST-DOCS"
            *>   The semantic model first - fetched once per installation, a quick
            *>   no-op after that - then pick up whatever changed in the folder

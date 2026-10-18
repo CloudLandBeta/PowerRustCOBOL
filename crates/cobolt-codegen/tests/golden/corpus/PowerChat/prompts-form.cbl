@@ -751,6 +751,21 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-OPEN: prepares the prompt screen: the data file paths, the old prompt file
+           *> migrated, the texts in the user's language, then the prompt for the chosen scope.
+           *> Uses:   WS-SCOPE ("M" = the main prompt, "T" = the open topic's), the CUR-TOPIC and
+           *>         LANG settings, PROMPTS-FILE and the old prompts.idx (migration) and, in scope
+           *>         "T", TOPICS-FILE.
+           *> Result: paths, migration and texts as their procedures leave them. Scope "M":
+           *>         WS-CUR-TOPIC = "*MAIN", the main-prompt title and hint are set, Btn-Default is
+           *>         shown, the versions grid is loaded and Tab-Crud::SelectedTab = 1. Scope "T":
+           *>         Btn-Default is hidden and WS-CUR-TOPIC = the CUR-TOPIC setting. With no topic
+           *>         open Lbl-Status::Caption = the "open a topic first" text and the grid is left
+           *>         as it was; otherwise Lbl-Title::Caption = "Prompt - <topic name>" ("?" when
+           *>         the topic record is missing), the grid is loaded and Tab-Crud::SelectedTab =
+           *>         1.
+
            CALL    "PC-OPEN"
 
            GOBACK.
@@ -766,6 +781,21 @@
 
        PROCEDURE DIVISION.
            *>   Back on the pane: the topic or the language may have changed.
+
+           *> PC-OPEN: prepares the prompt screen again, now that the form is back on the pane (the
+           *> open topic or the language may have changed meanwhile): paths, texts, then the prompt
+           *> for the chosen scope.
+           *> Uses:   WS-SCOPE ("M" = the main prompt, "T" = the open topic's), the CUR-TOPIC and
+           *>         LANG settings, PROMPTS-FILE and the old prompts.idx (migration) and, in scope
+           *>         "T", TOPICS-FILE.
+           *> Result: paths, migration and texts as their procedures leave them. Scope "M":
+           *>         WS-CUR-TOPIC = "*MAIN", the main-prompt title and hint are set, Btn-Default is
+           *>         shown, the versions grid is loaded and Tab-Crud::SelectedTab = 1. Scope "T":
+           *>         Btn-Default is hidden and WS-CUR-TOPIC = the CUR-TOPIC setting. With no topic
+           *>         open Lbl-Status::Caption = the "open a topic first" text and the grid is left
+           *>         as it was; otherwise Lbl-Title::Caption = "Prompt - <topic name>" ("?" when
+           *>         the topic record is missing), the grid is loaded and Tab-Crud::SelectedTab =
+           *>         1.
 
            CALL    "PC-OPEN"
 
@@ -797,6 +827,23 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE: saves the text of Txt-Prompt as a prompt version: a new one when WS-EDIT-VER
+           *> = 0, otherwise that version is rewritten. Here from the Save button at the top of the
+           *> editor.
+           *> Uses:   Txt-Prompt::Text (what the user typed), WS-EDIT-VER (0 = new version, else the
+           *>         version being edited), WS-CUR-TOPIC, and WS-LAST-VER (to number a new version)
+           *>         or WS-ACTIVE-VER (to tell whether an edited version is the active one).
+           *> Result: an empty text or no prompt open only sets Lbl-Status::Caption and writes
+           *>         nothing. A new version is written as WS-LAST-VER + 1 and activated through
+           *>         PC-ACTIVATE (it becomes the active prompt and the topic's prompt follows, cut
+           *>         to 1000 characters; WS-LAST-VER, WS-PICKED and WS-ACTIVE-VER end as its
+           *>         number); an edited version keeps its date and active flag, and when it is the
+           *>         active one PC-ACTIVATE runs for it too. Lbl-Status::Caption = "Saved as v<n>,
+           *>         now active.", "v<n> saved." or "Could not save v<n> (file status ..)" (then
+           *>         rollback and stop). On success WS-EDIT-VER = 0, the grid is reloaded and
+           *>         Tab-Crud::SelectedTab = 1 (Browse).
+
            CALL    "PC-SAVE"
 
            GOBACK.
@@ -814,8 +861,25 @@
            *>   A flag in the chat's menu changes the language while this form is
            *>   on the pane; nothing tells a pane occupant, so it looks (R46).
 
+           *> PC-LANG-NOW: reads the language saved now, without creating anything.
+           *> Uses:   the LANG record of the settings file, opened for input only.
+           *> Result: WS-LANG-NOW = "pt", "es", "fr", "jp" or "cn" when LANG holds that code, else
+           *>         "en" (also when the file cannot be opened). The IF below compares it with
+           *>         WS-LANG, the language on screen.
+
            CALL    "PC-LANG-NOW"
            IF    WS-LANG-NOW NOT = WS-LANG
+
+               *> PROMPTS-FORM--ONACTIVATE: this form's onActivate event, which runs PC-OPEN. Called
+               *> here because WS-LANG-NOW differs from WS-LANG: the user picked another language
+               *> since the texts were loaded.
+               *> Uses:   WS-SCOPE ("M" = the main prompt, "T" = the open topic's), the CUR-TOPIC
+               *>         and LANG settings, PROMPTS-FILE and the old prompts.idx (migration) and,
+               *>         in scope "T", TOPICS-FILE.
+               *> Result: PC-OPEN runs again: WS-LANG and WS-LANG-IX follow the saved language, all
+               *>         captions and hints are redone and the prompt for the current scope is
+               *>         shown again (title, versions grid).
+
                CALL    "PROMPTS-FORM--ONACTIVATE"
            END-IF
 
@@ -831,6 +895,14 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-NEW: opens an empty editor on the Create/Update tab for a new prompt version.
+           *> Uses:   WS-CUR-TOPIC (SPACES = no prompt is open).
+           *> Result: with no prompt open only Lbl-Status::Caption = the "open a topic first" text.
+           *>         Otherwise WS-EDIT-VER = 0, WS-TEXT and Txt-Prompt::Text = SPACES,
+           *>         Lbl-Edit-Ver::Caption = the "New version" text and Tab-Crud::SelectedTab = 2.
+           *>         No file is touched.
+
            CALL    "PC-NEW"
 
            GOBACK.
@@ -848,6 +920,15 @@
            *>   The main prompt: every instruction the models get, every topic.
 
            SET     WS-SCOPE                      TO    "M"
+
+           *> PC-OPEN: prepares the prompt screen: the data file paths, the old prompt file
+           *> migrated, the texts in the user's language, then the prompt for the chosen scope.
+           *> Uses:   WS-SCOPE = "M" (set just above), so the main prompt is chosen; the CUR-TOPIC
+           *>         and LANG settings, PROMPTS-FILE and the old prompts.idx (migration).
+           *> Result: paths, migration and texts as their procedures leave them; WS-CUR-TOPIC =
+           *>         "*MAIN", the main-prompt title and hint are set, Btn-Default is shown, the
+           *>         versions grid is loaded and Tab-Crud::SelectedTab = 1.
+
            CALL    "PC-OPEN"
 
            GOBACK.
@@ -865,6 +946,18 @@
            *>   Back to the open topic's own prompt.
 
            SET     WS-SCOPE                      TO    "T"
+
+           *> PC-OPEN: prepares the prompt screen: the data file paths, the old prompt file
+           *> migrated, the texts in the user's language, then the prompt for the chosen scope.
+           *> Uses:   WS-SCOPE = "T" (set just above), so the open topic's own prompt is chosen; the
+           *>         CUR-TOPIC and LANG settings, PROMPTS-FILE and the old prompts.idx (migration)
+           *>         and TOPICS-FILE.
+           *> Result: paths, migration and texts as their procedures leave them. Btn-Default is
+           *>         hidden and WS-CUR-TOPIC = the CUR-TOPIC setting. With no topic open
+           *>         Lbl-Status::Caption = the "open a topic first" text and the grid is left as it
+           *>         was; otherwise Lbl-Title::Caption = "Prompt - <topic name>" ("?" when the
+           *>         topic record is missing), the grid is loaded and Tab-Crud::SelectedTab = 1.
+
            CALL    "PC-OPEN"
 
            GOBACK.
@@ -882,10 +975,31 @@
            *>   The main prompt as shipped, saved as a new version and made the
            *>   active one - the versions before it stay in the list.
 
+           *> PC-MAIN-DEFAULT: reads the main prompt as shipped (the samples folder's
+           *> main-prompt.md) into WS-TEXT, keeping every line's indentation.
+           *> Uses:   WS-MPSEED-PATH = <WS-SAMPLES-DIR>/main-prompt.md (WS-SAMPLES-DIR =
+           *>         POWERCHAT_SAMPLES, else "samples"; set by PC-PATHS).
+           *> Result: WS-TEXT = every line of the file (a line is held in 1000 characters, the whole
+           *>         text in 32000), each followed by a line break (the last one too), or SPACES
+           *>         when the file cannot be opened. The lines below put it in Txt-Prompt::Text.
+
            CALL    "PC-MAIN-DEFAULT"
 
            SET     WS-EDIT-VER                   TO    0
            SET     Txt-Prompt::Text              TO    WS-TEXT
+
+           *> PC-SAVE: saves the text of Txt-Prompt as a prompt version: a new one when WS-EDIT-VER
+           *> = 0, otherwise that version is rewritten. Here it saves the shipped main prompt.
+           *> Uses:   Txt-Prompt::Text = the shipped default (set just above), WS-EDIT-VER = 0 (new
+           *>         version), WS-CUR-TOPIC = "*MAIN" (the button shows only on the main-prompt
+           *>         page) and WS-LAST-VER.
+           *> Result: the default text is written as version WS-LAST-VER + 1 of "*MAIN" and made the
+           *>         active one; the versions before it stay in the list. Lbl-Status::Caption =
+           *>         "Saved as v<n>, now active."; WS-LAST-VER, WS-PICKED and WS-ACTIVE-VER = n;
+           *>         WS-EDIT-VER = 0; the grid is reloaded and Tab-Crud::SelectedTab = 1. If the
+           *>         write fails: "Could not save v<n> (file status ..)" and a rollback. If
+           *>         main-prompt.md could not be read, Txt-Prompt::Text is blank: nothing is saved
+           *>         and Lbl-Status::Caption = "The prompt is empty."
 
            CALL    "PC-SAVE"
 
@@ -934,6 +1048,15 @@
                        EXIT PROGRAM
                    END-IF
                    SET     WS-FMT                TO    T-CONFIRM-ACTIVATE
+
+                   *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced
+                   *> by WS-ARG1 to WS-ARG4 (trimmed).
+                   *> Uses:   WS-FMT = T-CONFIRM-ACTIVATE (the "Make v&1 the active prompt?" text in
+                   *>         the current language); WS-ARG1 = WS-VNUM, the clicked row's version
+                   *>         (WS-PICKED).
+                   *> Result: WS-FMT-OUT = the question; the next line copies it, trimmed, to
+                   *>         WS-QUESTION for the confirmation dialog. Nothing else changes.
+
                    CALL    "PC-FMT"
                    SET     WS-QUESTION           TO    WS-FMT-OUT::Trim()
 
@@ -945,22 +1068,81 @@
                    INVOKE    ME::GetProperty("ConfirmAnswer") RETURNING WS-ANSWER
 
                    IF    WS-ANSWER = "Y"
+
+                       *> PC-ACTIVATE: makes version WS-PICKED of WS-CUR-TOPIC's prompt the active
+                       *> one and, for a topic, copies its text to the topic's prompt, which the
+                       *> chat reads. Called here after the user answered "Y" to "Make v<n> the
+                       *> active prompt?" for a version that is not already the active one.
+                       *> Uses:   WS-PICKED (the version to activate), WS-LAST-VER (how many
+                       *>         versions to walk), WS-CUR-TOPIC, PROMPTS-FILE and TOPICS-FILE
+                       *>         (each created empty when missing). Here WS-PICKED = the version
+                       *>         number read from column 1 of the clicked grid row.
+                       *> Result: in PROMPTS-FILE, versions 1 to WS-LAST-VER of the prompt get
+                       *>         PRM-ACTIVE = "Y" for WS-PICKED and "N" for the others (committed).
+                       *>         WS-TEXT = the picked version's text; WS-ACTIVE-VER = WS-PICKED.
+                       *>         Unless WS-CUR-TOPIC = "*MAIN" (or the topic is missing from
+                       *>         TOPICS-FILE), TOP-PROMPT of the topic = the first 1000 characters
+                       *>         of that text (rewritten and committed).
+
                        CALL    "PC-ACTIVATE"
 
                        SET     WS-FMT            TO    T-NOW-ACTIVE
                        SET     WS-ARG1           TO    WS-VNUM
 
+                       *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is
+                       *> replaced by WS-ARG1 to WS-ARG4 (trimmed).
+                       *> Uses:   WS-FMT = T-NOW-ACTIVE (the "v&1 is the active prompt." text in the
+                       *>         current language); WS-ARG1 = WS-VNUM (set just above), the version
+                       *>         just activated.
+                       *> Result: WS-FMT-OUT = that message, shown on Lbl-Status just below. Nothing
+                       *>         else changes.
+
                        CALL    "PC-FMT"
                        SET     Lbl-Status::Caption
                                                  TO    WS-FMT-OUT::Trim()
 
+                       *> PC-LOAD-VERSIONS: fills the versions grid Dg-List with the prompt versions
+                       *> of WS-CUR-TOPIC, newest first, the active one marked; a prompt with no
+                       *> version yet gets version 1, active, written to the file. Called here after
+                       *> the clicked version was made the active one.
+                       *> Uses:   WS-CUR-TOPIC, PROMPTS-FILE (<WS-DATA-DIR>/prompt-versions.idx =
+                       *>         WS-PROMPTS-PATH; created empty when missing) and T-ACTIVE-MARK
+                       *>         (the "[active]" text).
+                       *> Result: Dg-List is emptied and gets one row per version (up to 200):
+                       *>         number, created date and time, "[active]" marker, the first 57
+                       *>         characters of the text ("..." when longer) and the promote, edit
+                       *>         and delete icons. WS-VER-COUNT = rows; WS-VER(n) = version of row
+                       *>         n; WS-LAST-VER = highest version; WS-ACTIVE-VER = the version
+                       *>         flagged active. The "[active]" marker moves to the activated
+                       *>         version.
+
                        CALL    "PC-LOAD-VERSIONS"
                    END-IF
                WHEN 6
+
+                   *> PC-EDIT: loads one prompt version into the editor on the Create/Update tab.
+                   *> Uses:   WS-PICKED = the version number read from column 1 of the clicked grid
+                   *>         row (column 6 is the pencil icon); WS-CUR-TOPIC; PROMPTS-FILE (created
+                   *>         empty when missing).
+                   *> Result: when the version exists: WS-EDIT-VER = WS-PICKED, WS-TEXT and
+                   *>         Txt-Prompt::Text = its text, Lbl-Edit-Ver::Caption = "Editing v<n>"
+                   *>         and Tab-Crud::SelectedTab = 2. When it is gone: Lbl-Status::Caption =
+                   *>         the "pick a version first" text and the editor is left as it was.
+                   *>         WS-VNUM = WS-PICKED and WS-SAVE-OK = "Y" or "N" accordingly.
+
                    CALL    "PC-EDIT"
                WHEN 7
                    IF    WS-PICKED = WS-ACTIVE-VER
                        SET     WS-FMT            TO    T-ACTIVE-NO-DELETE
+
+                       *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is
+                       *> replaced by WS-ARG1 to WS-ARG4 (trimmed).
+                       *> Uses:   WS-FMT = T-ACTIVE-NO-DELETE (the "v&1 is the active prompt and
+                       *>         cannot be deleted..." text in the current language); WS-ARG1 =
+                       *>         WS-VNUM, the clicked version, which is the active one.
+                       *> Result: WS-FMT-OUT = that message, shown on Lbl-Status just below, after
+                       *>         which the click ends. Nothing else changes.
+
                        CALL    "PC-FMT"
                        SET     Lbl-Status::Caption
                                                  TO    WS-FMT-OUT::Trim()
@@ -968,6 +1150,14 @@
                        EXIT PROGRAM
                    END-IF
                    SET     WS-FMT                TO    T-CONFIRM-DELETE
+
+                   *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced
+                   *> by WS-ARG1 to WS-ARG4 (trimmed).
+                   *> Uses:   WS-FMT = T-CONFIRM-DELETE (the "Delete v&1? This cannot be undone."
+                   *>         text in the current language); WS-ARG1 = WS-VNUM, the clicked version.
+                   *> Result: WS-FMT-OUT = the question; the next line copies it, trimmed, to
+                   *>         WS-QUESTION for the confirmation dialog. Nothing else changes.
+
                    CALL    "PC-FMT"
                    SET     WS-QUESTION           TO    WS-FMT-OUT::Trim()
 
@@ -979,6 +1169,18 @@
                    INVOKE    ME::GetProperty("ConfirmAnswer") RETURNING WS-ANSWER
 
                    IF    WS-ANSWER = "Y"
+
+                       *> PC-DELETE: deletes one prompt version from the history. The caller refuses
+                       *> the active version before asking. Called here after the user answered "Y"
+                       *> to the confirmation.
+                       *> Uses:   WS-PICKED = the version number read from column 1 of the clicked
+                       *>         grid row (column 7 is the trash icon); WS-CUR-TOPIC; PROMPTS-FILE
+                       *>         (created empty when missing).
+                       *> Result: the record of that version is deleted and committed, or a rollback
+                       *>         leaves it and WS-FS-ERR holds the file status. Lbl-Status::Caption
+                       *>         = "v<n> deleted." or "Could not delete v<n> (file status ..)"; the
+                       *>         grid is reloaded.
+
                        CALL    "PC-DELETE"
                    END-IF
            END-EVALUATE
@@ -1012,6 +1214,23 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-SAVE: saves the text of Txt-Prompt as a prompt version: a new one when WS-EDIT-VER
+           *> = 0, otherwise that version is rewritten. Here from the Save button at the bottom of
+           *> the editor.
+           *> Uses:   Txt-Prompt::Text (what the user typed), WS-EDIT-VER (0 = new version, else the
+           *>         version being edited), WS-CUR-TOPIC, and WS-LAST-VER (to number a new version)
+           *>         or WS-ACTIVE-VER (to tell whether an edited version is the active one).
+           *> Result: an empty text or no prompt open only sets Lbl-Status::Caption and writes
+           *>         nothing. A new version is written as WS-LAST-VER + 1 and activated through
+           *>         PC-ACTIVATE (it becomes the active prompt and the topic's prompt follows, cut
+           *>         to 1000 characters; WS-LAST-VER, WS-PICKED and WS-ACTIVE-VER end as its
+           *>         number); an edited version keeps its date and active flag, and when it is the
+           *>         active one PC-ACTIVATE runs for it too. Lbl-Status::Caption = "Saved as v<n>,
+           *>         now active.", "v<n> saved." or "Could not save v<n> (file status ..)" (then
+           *>         rollback and stop). On success WS-EDIT-VER = 0, the grid is reloaded and
+           *>         Tab-Crud::SelectedTab = 1 (Browse).
+
            CALL    "PC-SAVE"
 
            GOBACK.
@@ -1195,6 +1414,17 @@
                *> default (samples/main-prompt.md), not a topic's prompt.
 
                IF    WS-CUR-TOPIC = "*MAIN"
+
+                   *> PC-MAIN-DEFAULT: reads the main prompt as shipped (the samples folder's
+                   *> main-prompt.md) into WS-TEXT, keeping every line's indentation. Called here
+                   *> because the main prompt ("*MAIN") has no version yet.
+                   *> Uses:   WS-MPSEED-PATH = <WS-SAMPLES-DIR>/main-prompt.md (WS-SAMPLES-DIR =
+                   *>         POWERCHAT_SAMPLES, else "samples"; set by PC-PATHS).
+                   *> Result: WS-TEXT = every line of the file (a line is held in 1000 characters,
+                   *>         the whole text in 32000), each followed by a line break (the last one
+                   *>         too), or SPACES when the file cannot be opened. The lines below store
+                   *>         it as version 1 of "*MAIN", active, and write it.
+
                    CALL    "PC-MAIN-DEFAULT"
 
                    SET     PRM-TOPIC             TO    WS-CUR-TOPIC
@@ -1346,6 +1576,14 @@
            *>   whenever the language changes (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = the language code saved under LANG ("en", "pt", "es", "fr",
+           *>         "jp" or "cn"), or SPACES when none was saved. Used right below to set WS-LANG.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            EVALUATE    WS-LANG
@@ -1448,11 +1686,50 @@
        PROCEDURE DIVISION.
            *>   What the form shows: run on load, and again when it comes back.
 
+           *> PC-PATHS: works out where PowerChat keeps its own files and where the shipped samples
+           *> are.
+           *> Uses:   the environment variables POWERCHAT_DATA and POWERCHAT_SAMPLES.
+           *> Result: WS-DATA-DIR = POWERCHAT_DATA, or "data" when empty; WS-SETTINGS-PATH,
+           *>         WS-TOPICS-PATH, WS-PROMPTS-PATH and WS-OLDPRM-PATH =
+           *>         <WS-DATA-DIR>/settings.idx, topics.idx, prompt-versions.idx and prompts.idx;
+           *>         WS-SAMPLES-DIR = POWERCHAT_SAMPLES, or "samples" when empty; WS-MPSEED-PATH =
+           *>         <WS-SAMPLES-DIR>/main-prompt.md. No file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-MIGRATE: copies the prompt versions of the old file prompts.idx into
+           *> prompt-versions.idx, once.
+           *> Uses:   PROMPTS-FILE (WS-PROMPTS-PATH, just set by PC-PATHS) and OLDPRM-FILE
+           *>         (WS-OLDPRM-PATH).
+           *> Result: only while PROMPTS-FILE has no record, and only if the old file opens: every
+           *>         old version is written to PROMPTS-FILE (topic, number, date, active flag,
+           *>         text) and committed. The old file is only read. Otherwise no file changes.
+           *>         WS-EMPTY = "Y" when PROMPTS-FILE was empty; WS-EOF = "N".
+
            CALL    "PC-MIGRATE"
+
+           *> PC-TEXTS: puts the form in the user's language: it reads the LANG setting, loads the
+           *> matching texts and sets every designed caption and hint.
+           *> Uses:   the LANG setting (read through PC-SETTING-GET) and the PC-TEXT table of 37
+           *>         texts in 6 languages.
+           *> Result: WS-LANG = "en", "pt", "es", "fr", "jp" or "cn" ("en" when unknown) and
+           *>         WS-LANG-IX = 1 to 6, its column; PC-TEXT-NOW(1..37) = the texts in that
+           *>         language, which the T-... names read. Captions, hints and column titles are
+           *>         set on Lbl-Title, Txt-Prompt, Btn-New, Btn-Save, Btn-Save-Bottom, Btn-Cancel,
+           *>         Btn-Cancel-Bottom, Btn-Main, Btn-Topic, Btn-Default, Lbl-Status, Tab-Crud and
+           *>         Dg-List. WS-SET-NAME = "LANG" and WS-SET-VALUE hold the saved code.
+
            CALL    "PC-TEXTS"
 
            SET     WS-SET-NAME                   TO    "CUR-TOPIC"
+
+           *> PC-SETTING-GET: reads one setting by name from the settings file (indexed,
+           *> WS-SETTINGS-PATH = <WS-DATA-DIR>/settings.idx). The file is created empty when
+           *> missing; nothing is written.
+           *> Uses:   WS-SET-NAME = "CUR-TOPIC" (set just above; it is the record key).
+           *> Result: WS-SET-VALUE = the id of the topic opened on the Topics form, or SPACES when
+           *>         none; the next line copies its first 16 characters to WS-TOPIC-ID.
+
            CALL    "PC-SETTING-GET"
            SET     WS-TOPIC-ID                   TO    WS-SET-VALUE(1:16)
            *>   The main prompt: every topic's, whether one is open or not.
@@ -1462,6 +1739,20 @@
                SET     Lbl-Title::Caption        TO    T-MAIN-TITLE::Trim()
                SET     Txt-Prompt::HintText      TO    T-HINT-MAIN-EDITOR::Trim()
                SET     Btn-Default::Visible      TO    TRUE
+
+               *> PC-LOAD-VERSIONS: fills the versions grid Dg-List with the prompt versions of
+               *> WS-CUR-TOPIC, newest first, the active one marked; a prompt with no version yet
+               *> gets version 1, active, written to the file. Called here for the main prompt
+               *> shared by every topic.
+               *> Uses:   WS-CUR-TOPIC, PROMPTS-FILE (<WS-DATA-DIR>/prompt-versions.idx =
+               *>         WS-PROMPTS-PATH; created empty when missing) and T-ACTIVE-MARK (the
+               *>         "[active]" text). Here WS-CUR-TOPIC = "*MAIN" (just set).
+               *> Result: Dg-List is emptied and gets one row per version (up to 200): number,
+               *>         created date and time, "[active]" marker, the first 57 characters of the
+               *>         text ("..." when longer) and the promote, edit and delete icons.
+               *>         WS-VER-COUNT = rows; WS-VER(n) = version of row n; WS-LAST-VER = highest
+               *>         version; WS-ACTIVE-VER = the version flagged active. With no version,
+               *>         version 1 is the shipped default (PC-MAIN-DEFAULT).
 
                CALL    "PC-LOAD-VERSIONS"
                SET     Tab-Crud::SelectedTab     TO    1
@@ -1490,8 +1781,30 @@
            SET     WS-FMT                        TO    T-PROMPT-OF
            SET     WS-ARG1                       TO    TOP-NAME
 
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-PROMPT-OF (the "Prompt - &1" text in the current language); WS-ARG1
+           *>         = TOP-NAME, the name of the open topic ("?" when its record was not found).
+           *> Result: WS-FMT-OUT = the heading with the topic's name in it; the next line puts it on
+           *>         Lbl-Title. Nothing else changes.
+
            CALL    "PC-FMT"
            SET     Lbl-Title::Caption            TO    WS-FMT-OUT::Trim()
+
+           *> PC-LOAD-VERSIONS: fills the versions grid Dg-List with the prompt versions of
+           *> WS-CUR-TOPIC, newest first, the active one marked; a prompt with no version yet gets
+           *> version 1, active, written to the file. Called here for the open topic's prompt.
+           *> Uses:   WS-CUR-TOPIC, PROMPTS-FILE (<WS-DATA-DIR>/prompt-versions.idx =
+           *>         WS-PROMPTS-PATH; created empty when missing) and T-ACTIVE-MARK (the "[active]"
+           *>         text). Here WS-CUR-TOPIC = the open topic's id; TOP-PROMPT (read just above)
+           *>         is used only when the topic has no version.
+           *> Result: Dg-List is emptied and gets one row per version (up to 200): number, created
+           *>         date and time, "[active]" marker, the first 57 characters of the text ("..."
+           *>         when longer) and the promote, edit and delete icons. WS-VER-COUNT = rows;
+           *>         WS-VER(n) = version of row n; WS-LAST-VER = highest version; WS-ACTIVE-VER =
+           *>         the version flagged active. With no version, version 1 is the topic's current
+           *>         prompt, TOP-PROMPT.
+
            CALL    "PC-LOAD-VERSIONS"
            SET     Tab-Crud::SelectedTab         TO    1
 
@@ -1560,6 +1873,13 @@
            SET     Txt-Prompt::Text              TO    WS-TEXT
            SET     WS-FMT                        TO    T-EDITING-V
            SET     WS-ARG1                       TO    WS-VNUM
+
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-EDITING-V (the "Editing v&1" text in the current language); WS-ARG1
+           *>         = WS-VNUM, the number of the version being edited (WS-PICKED).
+           *> Result: WS-FMT-OUT = "Editing v<n>" in that language; the next line puts it on
+           *>         Lbl-Edit-Ver. Nothing else changes.
 
            CALL    "PC-FMT"
 
@@ -1644,6 +1964,14 @@
                SET     WS-ARG1                   TO    WS-VNUM
                SET     WS-ARG2                   TO    WS-FS-ERR
 
+               *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+               *> WS-ARG1 to WS-ARG4 (trimmed).
+               *> Uses:   WS-FMT = T-SAVE-FAILED (the "Could not save v&1 (file status &2)." text in
+               *>         the current language); WS-ARG1 = WS-VNUM (the version number tried);
+               *>         WS-ARG2 = WS-FS-ERR, the file status of the REWRITE that failed.
+               *> Result: WS-FMT-OUT = the message with both values in it, shown on Lbl-Status just
+               *>         below, after which PC-SAVE ends. Nothing else changes.
+
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
@@ -1655,20 +1983,72 @@
                SET     WS-LAST-VER               TO    WS-SAVE-VER
                SET     WS-PICKED                 TO    WS-SAVE-VER
 
+               *> PC-ACTIVATE: makes version WS-PICKED of WS-CUR-TOPIC's prompt the active one and,
+               *> for a topic, copies its text to the topic's prompt, which the chat reads.
+               *> Uses:   WS-PICKED (the version to activate), WS-LAST-VER (how many versions to
+               *>         walk), WS-CUR-TOPIC, PROMPTS-FILE and TOPICS-FILE (each created empty when
+               *>         missing). Here WS-PICKED and WS-LAST-VER both = WS-SAVE-VER, the new
+               *>         version just written (set just above).
+               *> Result: in PROMPTS-FILE, versions 1 to WS-LAST-VER of the prompt get PRM-ACTIVE =
+               *>         "Y" for WS-PICKED and "N" for the others (committed). WS-TEXT = the picked
+               *>         version's text; WS-ACTIVE-VER = WS-PICKED. Unless WS-CUR-TOPIC = "*MAIN"
+               *>         (or the topic is missing from TOPICS-FILE), TOP-PROMPT of the topic = the
+               *>         first 1000 characters of that text (rewritten and committed). So the new
+               *>         version becomes the active prompt.
+
                CALL    "PC-ACTIVATE"
                SET     WS-FMT                    TO    T-SAVED-AS
            ELSE
                IF    WS-SAVE-VER = WS-ACTIVE-VER
                    SET     WS-PICKED             TO    WS-SAVE-VER
+
+                   *> PC-ACTIVATE: makes version WS-PICKED of WS-CUR-TOPIC's prompt the active one
+                   *> and, for a topic, copies its text to the topic's prompt, which the chat reads.
+                   *> Called here because the edited version is the active one (WS-SAVE-VER =
+                   *> WS-ACTIVE-VER).
+                   *> Uses:   WS-PICKED (the version to activate), WS-LAST-VER (how many versions to
+                   *>         walk), WS-CUR-TOPIC, PROMPTS-FILE and TOPICS-FILE (each created empty
+                   *>         when missing). Here WS-PICKED = WS-SAVE-VER, the edited version (set
+                   *>         just above).
+                   *> Result: in PROMPTS-FILE, versions 1 to WS-LAST-VER of the prompt get
+                   *>         PRM-ACTIVE = "Y" for WS-PICKED and "N" for the others (committed).
+                   *>         WS-TEXT = the picked version's text; WS-ACTIVE-VER = WS-PICKED. Unless
+                   *>         WS-CUR-TOPIC = "*MAIN" (or the topic is missing from TOPICS-FILE),
+                   *>         TOP-PROMPT of the topic = the first 1000 characters of that text
+                   *>         (rewritten and committed). So the topic's prompt follows the edit.
+
                    CALL    "PC-ACTIVATE"
                END-IF
                SET     WS-FMT                    TO    T-SAVED-V
            END-IF
            SET     WS-ARG1                       TO    WS-VNUM
+
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-SAVED-AS ("Saved as v&1, now active.") for a new version, or
+           *>         T-SAVED-V ("v&1 saved.") for an edited one, in the current language; WS-ARG1 =
+           *>         WS-VNUM, the version number saved.
+           *> Result: WS-FMT-OUT = that message, shown on Lbl-Status just below. Nothing else
+           *>         changes.
+
            CALL    "PC-FMT"
 
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
            SET     WS-EDIT-VER                   TO    0
+
+           *> PC-LOAD-VERSIONS: fills the versions grid Dg-List with the prompt versions of
+           *> WS-CUR-TOPIC, newest first, the active one marked; a prompt with no version yet gets
+           *> version 1, active, written to the file. Called here after the version was written, so
+           *> none is created.
+           *> Uses:   WS-CUR-TOPIC, PROMPTS-FILE (<WS-DATA-DIR>/prompt-versions.idx =
+           *>         WS-PROMPTS-PATH; created empty when missing) and T-ACTIVE-MARK (the "[active]"
+           *>         text).
+           *> Result: Dg-List is emptied and gets one row per version (up to 200): number, created
+           *>         date and time, "[active]" marker, the first 57 characters of the text ("..."
+           *>         when longer) and the promote, edit and delete icons. WS-VER-COUNT = rows;
+           *>         WS-VER(n) = version of row n; WS-LAST-VER = highest version; WS-ACTIVE-VER =
+           *>         the version flagged active. The new or edited version shows, and "[active]"
+           *>         sits on the active one.
 
            CALL    "PC-LOAD-VERSIONS"
            SET     Tab-Crud::SelectedTab         TO    1
@@ -1717,8 +2097,33 @@
                SET     WS-ARG2                   TO    WS-FS-ERR
            END-IF
            SET     WS-ARG1                       TO    WS-VNUM
+
+           *> PC-FMT: builds a message: each "&1" to "&4" in the template WS-FMT is replaced by
+           *> WS-ARG1 to WS-ARG4 (trimmed).
+           *> Uses:   WS-FMT = T-DELETED ("v&1 deleted.") when the delete worked, else
+           *>         T-DELETE-FAILED ("Could not delete v&1 (file status &2)."), in the current
+           *>         language; WS-ARG1 = WS-VNUM (the version, WS-PICKED); WS-ARG2 = WS-FS-ERR, set
+           *>         only on a failure.
+           *> Result: WS-FMT-OUT = that message, shown on Lbl-Status just below. Nothing else
+           *>         changes.
+
            CALL    "PC-FMT"
            SET     Lbl-Status::Caption           TO    WS-FMT-OUT::Trim()
+
+           *> PC-LOAD-VERSIONS: fills the versions grid Dg-List with the prompt versions of
+           *> WS-CUR-TOPIC, newest first, the active one marked; a prompt with no version yet gets
+           *> version 1, active, written to the file. Called here after the delete was tried (also
+           *> when it failed).
+           *> Uses:   WS-CUR-TOPIC, PROMPTS-FILE (<WS-DATA-DIR>/prompt-versions.idx =
+           *>         WS-PROMPTS-PATH; created empty when missing) and T-ACTIVE-MARK (the "[active]"
+           *>         text).
+           *> Result: Dg-List is emptied and gets one row per version (up to 200): number, created
+           *>         date and time, "[active]" marker, the first 57 characters of the text ("..."
+           *>         when longer) and the promote, edit and delete icons. WS-VER-COUNT = rows;
+           *>         WS-VER(n) = version of row n; WS-LAST-VER = highest version; WS-ACTIVE-VER =
+           *>         the version flagged active. The version no longer shows unless the delete
+           *>         failed.
+
            CALL    "PC-LOAD-VERSIONS"
 
            GOBACK.

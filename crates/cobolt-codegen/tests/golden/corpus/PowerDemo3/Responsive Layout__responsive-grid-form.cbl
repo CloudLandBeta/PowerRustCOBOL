@@ -685,6 +685,13 @@
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
 
+           *> GRD-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint) and WS-FSC (me::FontScale), copied just above as the form
+           *>         loads.
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
+
            CALL    "GRD-SHOW-INFO"
 
            GOBACK.
@@ -722,6 +729,13 @@
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
 
+           *> GRD-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint) and WS-FSC (me::FontScale), copied just above after the
+           *>         resize settled.
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
+
            CALL    "GRD-SHOW-INFO"
 
            GOBACK.
@@ -742,6 +756,13 @@
            SET     WS-WIN-H                      TO    WS-NUM
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
+
+           *> GRD-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint) and WS-FSC (me::FontScale), copied just above after the
+           *>         window crossed into another breakpoint (WS-BP is the new one).
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
 
            CALL    "GRD-SHOW-INFO"
 

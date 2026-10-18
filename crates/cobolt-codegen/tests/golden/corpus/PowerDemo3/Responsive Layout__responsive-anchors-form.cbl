@@ -327,6 +327,13 @@
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
 
+           *> ANC-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint) and WS-FSC (me::FontScale), copied just above as the form
+           *>         loads.
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
+
            CALL    "ANC-SHOW-INFO"
 
            GOBACK.
@@ -364,6 +371,13 @@
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
 
+           *> ANC-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint) and WS-FSC (me::FontScale), copied just above after the
+           *>         resize settled.
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
+
            CALL    "ANC-SHOW-INFO"
 
            GOBACK.
@@ -385,6 +399,13 @@
            SET     WS-BP                         TO    me::Breakpoint
            SET     WS-FSC                        TO    me::FontScale
 
+           *> ANC-SHOW-INFO: shows the window size, breakpoint and font scale in the status bar.
+           *> Uses:   WS-WIN-W and WS-WIN-H (me::Width and me::Height, shown through Z(4)9), WS-BP
+           *>         (me::Breakpoint) and WS-FSC (me::FontScale), copied just above after the
+           *>         window crossed into another breakpoint (WS-BP is the new one).
+           *> Result: WS-LINE = "Window <W> x <H>   |   breakpoint <BP>   |   font scale <FSC>"
+           *>         (parts trimmed); SB-INFO::Items = WS-LINE. No other data item changes.
+
            CALL    "ANC-SHOW-INFO"
 
            GOBACK.
@@ -399,6 +420,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ANC-APPLY-LIVE: applies the four anchor check boxes to the live label A-LIVE.
+           *> Uses:   CHK-TOP, CHK-BOTTOM, CHK-LEFT and CHK-RIGHT::Checked (1 = ticked); CHK-TOP is
+           *>         the box whose onCheckedChanged fired (the operator's click, or the Reset
+           *>         button writing it).
+           *> Result: WS-ANCHOR = the ticked names in the order Top, Bottom, Left, Right, each
+           *>         followed by a comma (Top and Left give "Top,Left,"). A-LIVE::Anchor =
+           *>         WS-ANCHOR. A-LIVE::Caption = "Live: (none)" when nothing is ticked, otherwise
+           *>         "Live: " + WS-ANCHOR. WS-PTR (and WS-LINE when something is ticked) are left
+           *>         as work values.
+
            CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
@@ -413,6 +445,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ANC-APPLY-LIVE: applies the four anchor check boxes to the live label A-LIVE.
+           *> Uses:   CHK-TOP, CHK-BOTTOM, CHK-LEFT and CHK-RIGHT::Checked (1 = ticked); CHK-BOTTOM
+           *>         is the box whose onCheckedChanged fired (the operator's click, or the Reset
+           *>         button writing it).
+           *> Result: WS-ANCHOR = the ticked names in the order Top, Bottom, Left, Right, each
+           *>         followed by a comma (Top and Left give "Top,Left,"). A-LIVE::Anchor =
+           *>         WS-ANCHOR. A-LIVE::Caption = "Live: (none)" when nothing is ticked, otherwise
+           *>         "Live: " + WS-ANCHOR. WS-PTR (and WS-LINE when something is ticked) are left
+           *>         as work values.
+
            CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
@@ -427,6 +470,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ANC-APPLY-LIVE: applies the four anchor check boxes to the live label A-LIVE.
+           *> Uses:   CHK-TOP, CHK-BOTTOM, CHK-LEFT and CHK-RIGHT::Checked (1 = ticked); CHK-LEFT is
+           *>         the box whose onCheckedChanged fired (the operator's click, or the Reset
+           *>         button writing it).
+           *> Result: WS-ANCHOR = the ticked names in the order Top, Bottom, Left, Right, each
+           *>         followed by a comma (Top and Left give "Top,Left,"). A-LIVE::Anchor =
+           *>         WS-ANCHOR. A-LIVE::Caption = "Live: (none)" when nothing is ticked, otherwise
+           *>         "Live: " + WS-ANCHOR. WS-PTR (and WS-LINE when something is ticked) are left
+           *>         as work values.
+
            CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
@@ -441,6 +495,17 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> ANC-APPLY-LIVE: applies the four anchor check boxes to the live label A-LIVE.
+           *> Uses:   CHK-TOP, CHK-BOTTOM, CHK-LEFT and CHK-RIGHT::Checked (1 = ticked); CHK-RIGHT
+           *>         is the box whose onCheckedChanged fired (the operator's click, or the Reset
+           *>         button writing it).
+           *> Result: WS-ANCHOR = the ticked names in the order Top, Bottom, Left, Right, each
+           *>         followed by a comma (Top and Left give "Top,Left,"). A-LIVE::Anchor =
+           *>         WS-ANCHOR. A-LIVE::Caption = "Live: (none)" when nothing is ticked, otherwise
+           *>         "Live: " + WS-ANCHOR. WS-PTR (and WS-LINE when something is ticked) are left
+           *>         as work values.
+
            CALL    "ANC-APPLY-LIVE"
 
            GOBACK.
@@ -459,6 +524,16 @@
            SET     CHK-BOTTOM::Checked           TO    0
            SET     CHK-LEFT::Checked             TO    1
            SET     CHK-RIGHT::Checked            TO    0
+
+           *> ANC-APPLY-LIVE: applies the four anchor check boxes to the live label A-LIVE.
+           *> Uses:   CHK-TOP = 1, CHK-BOTTOM = 0, CHK-LEFT = 1 and CHK-RIGHT = 0 (set just above:
+           *>         the reset state). The host compares the text of the held and the written value
+           *>         (a designed Bool may be held as 1/0 and a program write as true/false), so
+           *>         each of the four writes may count as a change and raise onCheckedChanged,
+           *>         which calls this procedure again with the same result; a box already holding
+           *>         the written text raises nothing.
+           *> Result: WS-ANCHOR = "Top,Left,". A-LIVE::Anchor = WS-ANCHOR; A-LIVE::Caption =
+           *>         "Live: " + WS-ANCHOR. WS-PTR and WS-LINE are left as work values.
 
            CALL    "ANC-APPLY-LIVE"
 

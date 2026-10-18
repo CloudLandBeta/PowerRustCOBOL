@@ -709,15 +709,64 @@
        DATA DIVISION.
 
        PROCEDURE DIVISION.
+
+           *> PC-PATHS: builds the paths of PowerChat's two indexed files from its data folder.
+           *> Uses:   the environment variable POWERCHAT_DATA, the data folder; when it is not set
+           *>         the folder is "data".
+           *> Result: WS-DATA-DIR = POWERCHAT_DATA or "data"; WS-SETTINGS-PATH = WS-DATA-DIR
+           *>         followed by "/settings.idx"; WS-MODELS-PATH = WS-DATA-DIR followed by
+           *>         "/models.idx". No file is opened; the OPEN of SETTINGS-FILE and of MODELS-FILE
+           *>         needs these two paths.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the interface texts in the language the user picked and puts them on
+           *> the form's captions, hints, tooltips, tab titles and grid column titles.
+           *> Uses:   the setting "LANG" in the settings file (WS-SETTINGS-PATH, built by PC-PATHS
+           *>         just above) and PC-TEXT-TABLE, 37 texts in 6 languages (en, pt, es, fr, jp,
+           *>         cn).
+           *> Result: WS-LANG = the saved code, "en" when unset or unknown; WS-LANG-IX = 1 to 6, its
+           *>         column; PC-TEXT-NOW (the T-... names) = the 37 texts in that language. Set
+           *>         from them: the captions of Lbl-Title, Lbl-Name, Lbl-Api, Lbl-Url, Lbl-Key,
+           *>         Btn-Test, Btn-Save, Btn-Cancel, Btn-Save-Top, Btn-Cancel-Top, Btn-New,
+           *>         Btn-Close and Lbl-Status; the hints of Txt-Name, Txt-Url and Txt-Key; the
+           *>         tooltips of Txt-Name, Cmb-Provider, Txt-Url, Txt-Key and Btn-Test; the two tab
+           *>         titles (Tab-Crud::Tabs) and the five column titles of Dg-List.
+
            CALL    "PC-TEXTS"
+
+           *> PC-LOAD-PROVIDERS: loads the IDE's model providers, from the runtime, into the
+           *> provider combo.
+           *> Uses:   the runtime's provider list (PROVIDER-COUNT, PROVIDER-GET); no file.
+           *> Result: WS-PROV-COUNT = the number of providers; Cmb-Provider is cleared and filled
+           *>         with their display names in the IDE's order (item n = provider n). WS-PROV-ID,
+           *>         WS-PROV-LABEL, WS-PROV-EP and WS-PROV-NEEDS end holding the last provider.
+
            CALL    "PC-LOAD-PROVIDERS"
 
            *>   Every saved connection in the Browse grid; the Create/Update page
            *>   starts empty, ready for a new one.
 
+           *> PC-FILL-GRID: fills the Browse grid with one row per saved connection, in name order,
+           *> each ending with its pencil (edit) and trash can (delete) buttons.
+           *> Uses:   MODELS-FILE (mirrored from the application's model list first), the key store
+           *>         and the provider list loaded just above.
+           *> Result: Dg-List is cleared and refilled (empty when there is no connection);
+           *>         WS-CONN-COUNT and WS-CONN-NAME(1..) = the saved connections. The Create/Update
+           *>         page is emptied next. Through PC-LOAD-CONNS, MODELS-FILE is first mirrored
+           *>         from the application's model list (records may be added, updated or deleted).
+
            CALL    "PC-FILL-GRID"
            SET     WS-KEY-NAME                   TO    SPACES
+
+           *> PC-SHOW-CONN: puts the connection named in WS-KEY-NAME on the Create/Update page; with
+           *> WS-KEY-NAME blank it empties the page for a new connection.
+           *> Uses:   WS-KEY-NAME = SPACES (set just above).
+           *> Result: The page is ready for a new connection: Txt-Name::Text, Txt-Url::Text,
+           *>         Txt-Key::Text, Lbl-Status::Caption, WS-KEY, WS-EDIT-NAME and WS-LAST-DEFAULT =
+           *>         SPACES; WS-EDIT-MODE = "N"; Txt-Name is enabled; no provider is selected in
+           *>         Cmb-Provider.
+
            CALL    "PC-SHOW-CONN"
            SET     Tab-Crud::SelectedTab         TO    1
 
@@ -752,6 +801,15 @@
            *>   A new provider brings its own address: fill it in, unless the field
            *>   holds one the user typed.
 
+           *> PC-PICKED-PROVIDER: reads the provider chosen in the Cmb-Provider combo and loads its
+           *> details from the IDE's provider list.
+           *> Uses:   Cmb-Provider::GetSelectedIndex(), the provider the user has just picked, and
+           *>         WS-PROV-COUNT.
+           *> Result: WS-PROV-IX = the item selected (0 when none; the event then ends); otherwise
+           *>         WS-PROV-ID, WS-PROV-LABEL, WS-PROV-EP (its default address) and WS-PROV-NEEDS
+           *>         describe that provider. The lines below put WS-PROV-EP in Txt-Url::Text unless
+           *>         the user typed another address.
+
            CALL    "PC-PICKED-PROVIDER"
            IF    WS-PROV-IX = 0
                EXIT PROGRAM
@@ -781,6 +839,15 @@
            *>   The connection test: ask the provider for its models. That proves
            *>   the address and the key; which model to use is chosen afterwards.
 
+           *> PC-PICKED-PROVIDER: reads the provider chosen in the Cmb-Provider combo and loads its
+           *> details from the IDE's provider list.
+           *> Uses:   Cmb-Provider::GetSelectedIndex(), the provider chosen on the page, and
+           *>         WS-PROV-COUNT.
+           *> Result: WS-PROV-IX = the item selected (0 when none; then WS-PROV-ID and WS-PROV-EP =
+           *>         SPACES); otherwise WS-PROV-ID, WS-PROV-LABEL, WS-PROV-EP and WS-PROV-NEEDS
+           *>         describe that provider. With 0 the IF below shows T-PICK-PROVIDER in
+           *>         Lbl-Status::Caption and the test stops.
+
            CALL    "PC-PICKED-PROVIDER"
            IF    WS-PROV-IX = 0
                SET     Lbl-Status::Caption       TO    T-PICK-PROVIDER::Trim()
@@ -789,6 +856,13 @@
 
            SET     WS-FMT                        TO    T-LISTING
            SET     WS-ARG1                       TO    WS-PROV-LABEL
+
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-LISTING ("Asking &1 for its models..." in English); WS-ARG1 =
+           *>         WS-PROV-LABEL, the provider picked (set just above).
+           *> Result: WS-FMT-OUT = that text with the provider label; the next line shows it in
+           *>         Lbl-Status::Caption while the provider is asked.
 
            CALL    "PC-FMT"
 
@@ -812,6 +886,14 @@
                SET     WS-NE                     TO    WS-N
                SET     WS-ARG1                   TO    WS-NE
 
+               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+               *> WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-CONN-OK-MODELS ("Connection OK: &1 models available." in
+               *>         English); WS-ARG1 = WS-NE, the number of models the provider listed
+               *>         (WS-N), edited.
+               *> Result: WS-FMT-OUT = that text with the number; the next line shows it in
+               *>         Lbl-Status::Caption.
+
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
            ELSE
@@ -832,6 +914,13 @@
        PROCEDURE DIVISION.
            *>   The bottom Cancel; Btn-Cancel-Top does the same.
 
+           *> PC-CANCEL-EDIT: leaves the Create/Update page without saving and returns to the Browse
+           *> tab.
+           *> Uses:   no data item is read (called from the Cancel button at the bottom).
+           *> Result: WS-KEY and Txt-Key::Text = SPACES (a key typed and not saved is dropped);
+           *>         Tab-Crud::SelectedTab = 1 (Browse). Nothing is written and the grid is not
+           *>         refreshed.
+
            CALL    "PC-CANCEL-EDIT"
 
            GOBACK.
@@ -847,6 +936,24 @@
 
        PROCEDURE DIVISION.
            *>   The bottom Save; Btn-Save-Top does the same.
+
+           *> PC-SAVE-CONN: adds or changes the connection on the Create/Update page (both Save
+           *> buttons use it).
+           *> Uses:   Txt-Name::Text (its first 30 characters are the record key; WS-EDIT-NAME when
+           *>         an existing connection is edited), the provider selected in Cmb-Provider,
+           *>         Txt-Url::Text, Txt-Key::Text (an API key typed now) and WS-EDIT-MODE ("N" new,
+           *>         "E" existing). MODELS-FILE is created empty if missing.
+           *> Result: Without a name or a provider, Lbl-Status::Caption = T-CONN-NEEDS and nothing
+           *>         is saved. Otherwise the connection record is written or rewritten and
+           *>         committed (MDL-API = the provider id, MDL-URL = the address typed (first 200
+           *>         characters) or the provider's default; the model, tools flag and rank are kept
+           *>         only while the provider is unchanged, else MDL-MODEL = SPACES, MDL-TOOLS =
+           *>         "N", MDL-RANK = 5) and handed to the application with MODEL-SET. A typed key
+           *>         goes to the key store. The page then holds the saved record (WS-EDIT-MODE =
+           *>         "E"), Dg-List is rebuilt and Lbl-List-Status::Caption shows T-CONN-SAVED,
+           *>         T-CONN-KEY-SAVED or the key store's failure text, on the Browse tab. The page
+           *>         stays, with Lbl-Status::Caption = T-CONN-NEEDS-KEY, when the provider needs a
+           *>         key and none is stored, or T-SAVE-FAILED when the write failed.
 
            CALL    "PC-SAVE-CONN"
 
@@ -865,6 +972,16 @@
            *>   An empty Create/Update page for a new connection.
 
            SET     WS-KEY-NAME                   TO    SPACES
+
+           *> PC-SHOW-CONN: puts the connection named in WS-KEY-NAME on the Create/Update page; with
+           *> WS-KEY-NAME blank it empties the page for a new connection.
+           *> Uses:   WS-KEY-NAME = SPACES (set just above): a new connection is wanted.
+           *> Result: The page is ready for the new connection: Txt-Name::Text, Txt-Url::Text,
+           *>         Txt-Key::Text, Lbl-Status::Caption, WS-KEY, WS-EDIT-NAME and WS-LAST-DEFAULT =
+           *>         SPACES; WS-EDIT-MODE = "N"; Txt-Name is enabled; no provider is selected in
+           *>         Cmb-Provider. The lines below then clear Lbl-List-Status::Caption and select
+           *>         the Create/Update tab.
+
            CALL    "PC-SHOW-CONN"
 
            SET     Lbl-List-Status::Caption      TO    SPACES
@@ -914,12 +1031,38 @@
            END-IF
            EVALUATE    WS-COL-NO
                WHEN 6
+
+                   *> PC-SHOW-CONN: puts the connection named in WS-KEY-NAME on the Create/Update
+                   *> page; with WS-KEY-NAME blank it empties the page for a new connection.
+                   *> Uses:   WS-KEY-NAME = the name in column 1 of the grid row whose pencil was
+                   *>         clicked, and its record in MODELS-FILE (created empty if missing).
+                   *> Result: The page holds that connection: WS-EDIT-MODE = "E", WS-EDIT-NAME =
+                   *>         WS-KEY-NAME, Txt-Name::Text = its name (disabled, it is the record
+                   *>         key), Cmb-Provider has its provider selected, Txt-Url::Text = its
+                   *>         address, WS-LAST-DEFAULT = the provider's default address,
+                   *>         Txt-Key::Text empty (a key is never read back). The lines below clear
+                   *>         Lbl-List-Status::Caption and select the Create/Update tab.
+
                    CALL    "PC-SHOW-CONN"
                    SET     Lbl-List-Status::Caption
                                                  TO    SPACES
 
                    SET     Tab-Crud::SelectedTab TO    2
                WHEN 7
+
+                   *> PC-DELETE-CONN: asks the user to confirm, then deletes a connection: its
+                   *> record, its copy in the application's list and its stored API key.
+                   *> Uses:   WS-KEY-NAME = the name in column 1 of the grid row whose trash can was
+                   *>         clicked; the answer of the confirm dialog (CONFIRM-FORM); MODELS-FILE
+                   *>         (created empty if missing); the agent settings.
+                   *> Result: Answer other than "Y": nothing is deleted. Otherwise the record is
+                   *>         deleted from MODELS-FILE and committed, removed from the application's
+                   *>         list (MODEL-REMOVE) and its key from the key store (KEY-REMOVE); the
+                   *>         agent settings that named it are blanked (WS-CLEARED = how many
+                   *>         agents); the Create/Update page is emptied if it held it; Dg-List is
+                   *>         rebuilt; Lbl-List-Status::Caption = T-CONN-REMOVED, or
+                   *>         T-CONN-REMOVED-AGENTS with the count.
+
                    CALL    "PC-DELETE-CONN"
            END-EVALUATE
 
@@ -937,6 +1080,13 @@
        PROCEDURE DIVISION.
            *>   The top Cancel; Btn-Cancel does the same.
 
+           *> PC-CANCEL-EDIT: leaves the Create/Update page without saving and returns to the Browse
+           *> tab.
+           *> Uses:   no data item is read (called from the Cancel button at the top).
+           *> Result: WS-KEY and Txt-Key::Text = SPACES (a key typed and not saved is dropped);
+           *>         Tab-Crud::SelectedTab = 1 (Browse). Nothing is written and the grid is not
+           *>         refreshed.
+
            CALL    "PC-CANCEL-EDIT"
 
            GOBACK.
@@ -952,6 +1102,24 @@
 
        PROCEDURE DIVISION.
            *>   The top Save; Btn-Save does the same.
+
+           *> PC-SAVE-CONN: adds or changes the connection on the Create/Update page (both Save
+           *> buttons use it).
+           *> Uses:   the same items as the Save button at the bottom: Txt-Name::Text (first 30
+           *>         characters; WS-EDIT-NAME when editing), the provider selected in Cmb-Provider,
+           *>         Txt-Url::Text, Txt-Key::Text and WS-EDIT-MODE. MODELS-FILE is created empty if
+           *>         missing.
+           *> Result: Without a name or a provider, Lbl-Status::Caption = T-CONN-NEEDS and nothing
+           *>         is saved. Otherwise the connection record is written or rewritten and
+           *>         committed (MDL-API = the provider id, MDL-URL = the address typed (first 200
+           *>         characters) or the provider's default; the model, tools flag and rank are kept
+           *>         only while the provider is unchanged, else MDL-MODEL = SPACES, MDL-TOOLS =
+           *>         "N", MDL-RANK = 5) and handed to the application with MODEL-SET. A typed key
+           *>         goes to the key store. The page then holds the saved record (WS-EDIT-MODE =
+           *>         "E"), Dg-List is rebuilt and Lbl-List-Status::Caption shows T-CONN-SAVED,
+           *>         T-CONN-KEY-SAVED or the key store's failure text, on the Browse tab. The page
+           *>         stays, with Lbl-Status::Caption = T-CONN-NEEDS-KEY, when the provider needs a
+           *>         key and none is stored, or T-SAVE-FAILED when the write failed.
 
            CALL    "PC-SAVE-CONN"
 
@@ -1018,6 +1186,16 @@
                OPEN    I-O MODELS-FILE
            END-IF
            SET     WS-SET-NAME                   TO    "MODELS-ADOPTED"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" (set just above; it is the record key) and the
+           *>         settings file.
+           *> Result: WS-SET-VALUE = "Y" when the models PowerChat kept before were already handed
+           *>         to the application, otherwise SPACES (setting never saved). The IF below acts
+           *>         on it.
+
            CALL    "PC-SETTING-GET"
            IF    WS-SET-VALUE NOT = "Y"
                SET     MDL-NAME                  TO    LOW-VALUES
@@ -1036,6 +1214,15 @@
 
                SET     WS-SET-NAME               TO    "MODELS-ADOPTED"
                SET     WS-SET-VALUE              TO    "Y"
+
+               *> PC-SETTING-PUT: stores one setting in the settings file (indexed, settings.idx in
+               *> the data folder): inserts the record or replaces it, and commits at once. A
+               *> missing file is created empty first.
+               *> Uses:   WS-SET-NAME = "MODELS-ADOPTED" and WS-SET-VALUE = "Y" (both set just
+               *>         above).
+               *> Result: The settings file holds MODELS-ADOPTED = "Y", committed, so later runs
+               *>         skip this one-time handover. The record area (SET-NAME, SET-VALUE) and
+               *>         WS-FS are overwritten; WS-SET-NAME and WS-SET-VALUE are not changed.
 
                CALL    "PC-SETTING-PUT"
            END-IF
@@ -1195,6 +1382,19 @@
            *>   Every saved connection's name, in key order, into WS-CONN-NAME -
            *>   the application's models, mirrored first (spec 085).
 
+           *> PC-SYNC-MODELS: makes the models file (models.idx) mirror the application's own model
+           *> list, which the runtime keeps for every form of the application.
+           *> Uses:   the application's model list (MODEL-COUNT, MODEL-GET), MODELS-FILE
+           *>         (WS-MODELS-PATH, built by PC-PATHS) and the setting MODELS-ADOPTED in the
+           *>         settings file.
+           *> Result: MODELS-FILE holds one record per model of the application: a new one gets
+           *>         MDL-TOOLS = "N" and MDL-RANK = 5, a known one only has API, URL and model name
+           *>         refreshed (its tools and rank stay), and records the application no longer
+           *>         lists are deleted. Once only, the models PowerChat kept before are first
+           *>         handed to the application and MODELS-ADOPTED is set to "Y". Committed.
+           *>         WS-SET-NAME and WS-SET-VALUE end as "MODELS-ADOPTED" and "Y". A missing
+           *>         MODELS-FILE is created empty first.
+
            CALL    "PC-SYNC-MODELS"
            SET     WS-CONN-COUNT                 TO    0
            OPEN    I-O MODELS-FILE
@@ -1238,6 +1438,15 @@
            *>   The Browse grid: one row per saved connection, in name order,
            *>   ending with its pencil (edit) and trash can (delete) buttons.
 
+           *> PC-LOAD-CONNS: lists the names of the saved connections, after refreshing models.idx
+           *> from the application's model list.
+           *> Uses:   MODELS-FILE (WS-MODELS-PATH) and, through PC-SYNC-MODELS, the application's
+           *>         model list.
+           *> Result: WS-CONN-COUNT = the number of records (at most 200); WS-CONN-NAME(1) to
+           *>         WS-CONN-NAME(WS-CONN-COUNT) = their MDL-NAME, in ascending key order.
+           *>         MODELS-FILE is mirrored first and is created empty if it is missing. The grid
+           *>         is cleared and refilled from these names by the lines below.
+
            CALL    "PC-LOAD-CONNS"
            Dg-List::ClearRows()
            IF    WS-CONN-COUNT = 0
@@ -1251,6 +1460,18 @@
                SET     MDL-NAME                  TO    WS-CONN-NAME(WS-G)
                READ    MODELS-FILE
                    INVALID KEY CONTINUE
+
+                   *> PC-GRID-ROW: builds the grid row of the connection record in MODEL-REC and
+                   *> adds it to Dg-List.
+                   *> Uses:   MODEL-REC, just read by key WS-CONN-NAME(WS-G) from MODELS-FILE
+                   *>         (opened for input): MDL-NAME, MDL-API, MDL-URL and MDL-MODEL; whether
+                   *>         a key is stored for MDL-NAME; WS-PROV-COUNT.
+                   *> Result: Dg-List gains one row: name, provider label, endpoint, model, "Yes" or
+                   *>         "No" (T-YES, T-NO) for a stored key (the key itself is never read),
+                   *>         then the pencil and trash can icons. WS-PROV-LABEL (set by
+                   *>         PC-PROVIDER-LABEL), WS-KEY-FLAG, WS-YESNO and WS-ROW end holding this
+                   *>         row's parts.
+
                    NOT INVALID KEY CALL "PC-GRID-ROW"
                END-READ
            END-PERFORM
@@ -1272,6 +1493,16 @@
            *>   whether a key is stored (never the key itself), edit, delete.
 
            SET     WS-PROV-ID                    TO    MDL-API
+
+           *> PC-PROVIDER-LABEL: finds a provider in the IDE's provider list by its id (any case)
+           *> and loads its label, default endpoint and whether it needs an API key.
+           *> Uses:   WS-PROV-ID = MDL-API of the row's record (set just above) and WS-PROV-COUNT,
+           *>         the number of providers.
+           *> Result: WS-PROV-LABEL = the provider's display name (the stored id itself when the IDE
+           *>         does not list it), shown in the Provider column. WS-PROV-IX (0 = unknown),
+           *>         WS-PROV-ID (the IDE's own spelling), WS-PROV-EP and WS-PROV-NEEDS are set too.
+           *>         It also uses WS-XVAL, WS-XNAME and WS-P as scratch.
+
            CALL    "PC-PROVIDER-LABEL"
            COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
            IF    WS-KEY-FLAG = "Y"
@@ -1342,6 +1573,16 @@
                    SET     Txt-Name::Text        TO    MDL-NAME
                    SET     WS-PROV-ID            TO    MDL-API
 
+                   *> PC-PROVIDER-LABEL: finds a provider in the IDE's provider list by its id (any
+                   *> case) and loads its label, default endpoint and whether it needs an API key.
+                   *> Uses:   WS-PROV-ID = MDL-API of the connection record just read (the one named
+                   *>         in WS-KEY-NAME) and WS-PROV-COUNT.
+                   *> Result: WS-PROV-IX = the provider's place in the list (0 = unknown); the next
+                   *>         lines select that item in Cmb-Provider when it is above 0. WS-PROV-EP
+                   *>         = its default address, kept next as WS-LAST-DEFAULT. WS-PROV-ID (the
+                   *>         IDE's own spelling), WS-PROV-LABEL and WS-PROV-NEEDS are set too. It
+                   *>         also uses WS-XVAL, WS-XNAME and WS-P as scratch.
+
                    CALL    "PC-PROVIDER-LABEL"
                    IF    WS-PROV-IX > 0
                        SET     WS-P              TO    WS-PROV-IX
@@ -1373,6 +1614,14 @@
            *>   is never written to a file of ours, never shown again (spec 071
            *>   R34, R37); an empty key field keeps the stored key. The model
            *>   chosen for it survives, unless the provider changed.
+
+           *> PC-PICKED-PROVIDER: reads the provider chosen in the Cmb-Provider combo and loads its
+           *> details from the IDE's provider list.
+           *> Uses:   Cmb-Provider::GetSelectedIndex(), the provider chosen on the page, and
+           *>         WS-PROV-COUNT.
+           *> Result: WS-PROV-IX = the item selected (0 when none; then WS-PROV-ID and WS-PROV-EP =
+           *>         SPACES); otherwise WS-PROV-ID, WS-PROV-LABEL, WS-PROV-EP and WS-PROV-NEEDS
+           *>         describe that provider. PC-SAVE-CONN refuses to save when WS-PROV-IX is 0.
 
            CALL    "PC-PICKED-PROVIDER"
            SET     WS-XVAL                       TO    Txt-Name::Text
@@ -1424,6 +1673,15 @@
                SET     WS-ARG1                   TO    WS-FS
 
                CLOSE    MODELS-FILE
+
+               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+               *> WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-SAVE-FAILED ("The connection could not be saved (file status
+               *>         &1)." in English); WS-ARG1 = WS-FS, the file status left by the failed
+               *>         WRITE / REWRITE (copied before the CLOSE).
+               *> Result: WS-FMT-OUT = that text with the file status; the next line shows it in
+               *>         Lbl-Status::Caption and PC-SAVE-CONN ends without saving.
+
                CALL    "PC-FMT"
                SET     Lbl-Status::Caption       TO    WS-FMT-OUT::Trim()
                EXIT PROGRAM
@@ -1460,11 +1718,32 @@
                COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
                IF    WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
                    SET     Lbl-Status::Caption   TO    T-CONN-NEEDS-KEY::Trim()
+
+                   *> PC-FILL-GRID: fills the Browse grid with one row per saved connection, in name
+                   *> order, each ending with its pencil (edit) and trash can (delete) buttons.
+                   *> Uses:   MODELS-FILE as the save left it, the key store and the provider list.
+                   *> Result: Dg-List is rebuilt and shows the connection just saved; WS-CONN-COUNT
+                   *>         and WS-CONN-NAME are refreshed. The page stays on Create/Update, with
+                   *>         Lbl-Status::Caption = T-CONN-NEEDS-KEY (set above) so the key can be
+                   *>         typed, and PC-SAVE-CONN ends right after. Through PC-LOAD-CONNS,
+                   *>         MODELS-FILE is first mirrored from the application's model list
+                   *>         (records may be added, updated or deleted).
+
                    CALL    "PC-FILL-GRID"
                    EXIT PROGRAM
                END-IF
            END-IF
            *>   Saved: back to Browse, refreshed.
+
+           *> PC-FILL-GRID: fills the Browse grid with one row per saved connection, in name order,
+           *> each ending with its pencil (edit) and trash can (delete) buttons.
+           *> Uses:   MODELS-FILE as the save left it (committed), the key store and the provider
+           *>         list.
+           *> Result: Dg-List is rebuilt with the connection included; WS-CONN-COUNT and
+           *>         WS-CONN-NAME are refreshed. The lines below show WS-STATUS in
+           *>         Lbl-List-Status::Caption and select the Browse tab (Tab-Crud::SelectedTab =
+           *>         1). Through PC-LOAD-CONNS, MODELS-FILE is first mirrored from the
+           *>         application's model list (records may be added, updated or deleted).
 
            CALL    "PC-FILL-GRID"
 
@@ -1508,6 +1787,14 @@
            SET     WS-FMT                        TO    T-CONFIRM-DELETE
            SET     WS-ARG1                       TO    WS-KEY-NAME
 
+           *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+           *> WS-FMT-OUT.
+           *> Uses:   WS-FMT = T-CONFIRM-DELETE ("Delete the connection &1 and its key?" in
+           *>         English); WS-ARG1 = WS-KEY-NAME, the connection whose trash can was clicked
+           *>         (set just above).
+           *> Result: WS-FMT-OUT = the question with the connection name in it; the next line copies
+           *>         it to WS-QUESTION (300 characters) for the confirm dialog.
+
            CALL    "PC-FMT"
            SET     WS-QUESTION                   TO    WS-FMT-OUT
 
@@ -1537,17 +1824,57 @@
            COBOL::"MODEL-REMOVE" ( MDL-NAME )
            COBOL::"KEY-REMOVE" ( MDL-NAME )
 
+           *> PC-CLEAR-AGENT-REFS: takes the deleted connection out of the agent settings, so no
+           *> chat agent keeps pointing at it.
+           *> Uses:   WS-KEY-NAME = the connection just deleted; the settings AGENT-1-ENTRY,
+           *>         MODEL-ENTRY (the fallback of agent 1), AGENT-2-ENTRY and AGENT-3-ENTRY.
+           *> Result: If agent 1's connection (AGENT-1-ENTRY, else MODEL-ENTRY) is WS-KEY-NAME, both
+           *>         AGENT-1-ENTRY and MODEL-ENTRY are set to SPACES, whatever MODEL-ENTRY held;
+           *>         otherwise MODEL-ENTRY is blanked only if it names WS-KEY-NAME. AGENT-2-ENTRY
+           *>         and AGENT-3-ENTRY are blanked only if they name it. Each change is committed.
+           *>         WS-CLEARED = how many agents lost the connection (0 to 3). WS-XVAL = agent 1's
+           *>         connection name as read; WS-SET-NAME ends as "AGENT-3-ENTRY" and WS-SET-VALUE
+           *>         holds what was read for it (SPACES if cleared).
+
            CALL    "PC-CLEAR-AGENT-REFS"
            *>   The Create/Update page must not keep holding a deleted record.
 
            IF    WS-EDIT-MODE = "E" AND WS-EDIT-NAME = WS-KEY-NAME
                SET     WS-KEY-NAME               TO    SPACES
+
+               *> PC-SHOW-CONN: puts the connection named in WS-KEY-NAME on the Create/Update page;
+               *> with WS-KEY-NAME blank it empties the page for a new connection.
+               *> Uses:   WS-KEY-NAME = SPACES (set just above), so the page is emptied.
+               *> Result: The page is emptied for a new connection: Txt-Name::Text, Txt-Url::Text,
+               *>         Txt-Key::Text, Lbl-Status::Caption, WS-KEY, WS-EDIT-NAME and
+               *>         WS-LAST-DEFAULT = SPACES; WS-EDIT-MODE = "N"; Txt-Name is enabled; no
+               *>         provider is selected in Cmb-Provider.
+
                CALL    "PC-SHOW-CONN"
            END-IF
+
+           *> PC-FILL-GRID: fills the Browse grid with one row per saved connection, in name order,
+           *> each ending with its pencil (edit) and trash can (delete) buttons.
+           *> Uses:   MODELS-FILE without the deleted record (the DELETE is committed above); the
+           *>         application's copy was removed with MODEL-REMOVE, so PC-SYNC-MODELS does not
+           *>         bring it back.
+           *> Result: Dg-List is rebuilt without the deleted connection; WS-CONN-COUNT and
+           *>         WS-CONN-NAME are refreshed. Through PC-LOAD-CONNS, MODELS-FILE is first
+           *>         mirrored from the application's model list (records may be added, updated or
+           *>         deleted).
+
            CALL    "PC-FILL-GRID"
            IF    WS-CLEARED > 0
                SET     WS-FMT                    TO    T-CONN-REMOVED-AGENTS
                SET     WS-ARG1                   TO    WS-CLEARED
+
+               *> PC-FMT: fills the placeholders &1 to &4 of WS-FMT with WS-ARG1 to WS-ARG4 into
+               *> WS-FMT-OUT.
+               *> Uses:   WS-FMT = T-CONN-REMOVED-AGENTS ("Connection removed, with its key. &1
+               *>         agent(s) that used it now have no model." in English); WS-ARG1 =
+               *>         WS-CLEARED, how many agents used the connection (above 0 in this branch).
+               *> Result: WS-FMT-OUT = that text with the number; the next line shows it in
+               *>         Lbl-List-Status::Caption.
 
                CALL    "PC-FMT"
                SET     Lbl-List-Status::Caption  TO    WS-FMT-OUT::Trim()
@@ -1577,10 +1904,27 @@
                EXIT PROGRAM
            END-IF
            SET     WS-SET-NAME                   TO    "AGENT-1-ENTRY"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "AGENT-1-ENTRY" (set just above): the connection agent 1 uses.
+           *> Result: WS-SET-VALUE = that connection name, or SPACES; the next line copies it to
+           *>         WS-XVAL.
+
            CALL    "PC-SETTING-GET"
            SET     WS-XVAL                       TO    WS-SET-VALUE
            IF    WS-XVAL = SPACES
                SET     WS-SET-NAME               TO    "MODEL-ENTRY"
+
+               *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in
+               *> the data folder) by its name. It never writes a setting; a missing file is only
+               *> created empty.
+               *> Uses:   WS-SET-NAME = "MODEL-ENTRY" (set just above): the single model setting
+               *>         PowerChat 1 kept, read because AGENT-1-ENTRY is blank.
+               *> Result: WS-SET-VALUE = that connection name, or SPACES; the next line copies it to
+               *>         WS-XVAL.
+
                CALL    "PC-SETTING-GET"
                SET     WS-XVAL                   TO    WS-SET-VALUE
            END-IF
@@ -1590,17 +1934,55 @@
                SET     WS-SET-VALUE              TO    SPACES
                SET     WS-SET-NAME               TO    "AGENT-1-ENTRY"
 
+               *> PC-SETTING-PUT: stores one setting in the settings file (indexed, settings.idx in
+               *> the data folder): inserts the record or replaces it, and commits at once. A
+               *> missing file is created empty first.
+               *> Uses:   WS-SET-NAME = "AGENT-1-ENTRY" and WS-SET-VALUE = SPACES (both set just
+               *>         above).
+               *> Result: AGENT-1-ENTRY is stored blank and committed: agent 1 no longer has a
+               *>         connection. The record area (SET-NAME, SET-VALUE) and WS-FS are
+               *>         overwritten; WS-SET-NAME and WS-SET-VALUE are not changed.
+
                CALL    "PC-SETTING-PUT"
                SET     WS-SET-NAME               TO    "MODEL-ENTRY"
+
+               *> PC-SETTING-PUT: stores one setting in the settings file (indexed, settings.idx in
+               *> the data folder): inserts the record or replaces it, and commits at once. A
+               *> missing file is created empty first.
+               *> Uses:   WS-SET-NAME = "MODEL-ENTRY" (set just above) and WS-SET-VALUE, still
+               *>         SPACES.
+               *> Result: MODEL-ENTRY is stored blank and committed whatever it held (it is agent
+               *>         1's fallback), so agent 1 cannot fall back to the deleted connection
+               *>         through it. The record area (SET-NAME, SET-VALUE) and WS-FS are
+               *>         overwritten; WS-SET-NAME and WS-SET-VALUE are not changed.
+
                CALL    "PC-SETTING-PUT"
            ELSE
                *>       Agent 1 uses another connection; a stale MODEL-ENTRY naming
                *>       the deleted one is cleared all the same.
 
                SET     WS-SET-NAME               TO    "MODEL-ENTRY"
+
+               *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in
+               *> the data folder) by its name. It never writes a setting; a missing file is only
+               *> created empty.
+               *> Uses:   WS-SET-NAME = "MODEL-ENTRY" (set just above): agent 1 uses another
+               *>         connection, so this looks for a stale entry.
+               *> Result: WS-SET-VALUE = the connection MODEL-ENTRY names, or SPACES; the IF below
+               *>         blanks it when it is the deleted one.
+
                CALL    "PC-SETTING-GET"
                IF    WS-SET-VALUE = WS-KEY-NAME
                    SET     WS-SET-VALUE          TO    SPACES
+
+                   *> PC-SETTING-PUT: stores one setting in the settings file (indexed, settings.idx
+                   *> in the data folder): inserts the record or replaces it, and commits at once. A
+                   *> missing file is created empty first.
+                   *> Uses:   WS-SET-NAME = "MODEL-ENTRY" and WS-SET-VALUE = SPACES (set above).
+                   *> Result: MODEL-ENTRY is stored blank and committed: it named the deleted
+                   *>         connection. The record area (SET-NAME, SET-VALUE) and WS-FS are
+                   *>         overwritten; WS-SET-NAME and WS-SET-VALUE are not changed.
+
                    CALL    "PC-SETTING-PUT"
                END-IF
            END-IF
@@ -1609,10 +1991,29 @@
            PERFORM    VARYING WS-A FROM 2 BY 1 UNTIL WS-A > 3
                SET     WS-SET-NAME               TO    SPACES
                STRING    "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+
+               *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in
+               *> the data folder) by its name. It never writes a setting; a missing file is only
+               *> created empty.
+               *> Uses:   WS-SET-NAME = "AGENT-n-ENTRY" with n = WS-A (2, then 3), built by the
+               *>         STRING just above.
+               *> Result: WS-SET-VALUE = the connection agent n uses, or SPACES; the IF below
+               *>         compares it with WS-KEY-NAME.
+
                CALL    "PC-SETTING-GET"
                IF    WS-SET-VALUE = WS-KEY-NAME
                    ADD    1 TO WS-CLEARED
                    SET     WS-SET-VALUE          TO    SPACES
+
+                   *> PC-SETTING-PUT: stores one setting in the settings file (indexed, settings.idx
+                   *> in the data folder): inserts the record or replaces it, and commits at once. A
+                   *> missing file is created empty first.
+                   *> Uses:   WS-SET-NAME = "AGENT-n-ENTRY" with n = WS-A (2 or 3) and WS-SET-VALUE
+                   *>         = SPACES (set above).
+                   *> Result: AGENT-n-ENTRY is stored blank and committed: agent n no longer has a
+                   *>         connection. The record area (SET-NAME, SET-VALUE) and WS-FS are
+                   *>         overwritten; WS-SET-NAME and WS-SET-VALUE are not changed.
+
                    CALL    "PC-SETTING-PUT"
                END-IF
            END-PERFORM
@@ -1721,6 +2122,15 @@
            *>   designed caption and hint that shows one (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from the settings file (indexed, settings.idx in the
+           *> data folder) by its name. It never writes a setting; a missing file is only created
+           *> empty.
+           *> Uses:   WS-SET-NAME = "LANG" (set just above; it is the record key) and the settings
+           *>         file.
+           *> Result: WS-SET-VALUE = the saved interface language code (PC-TEXTS below accepts "en",
+           *>         "pt", "es", "fr", "jp" and "cn"), or SPACES when none was ever saved.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            EVALUATE    WS-LANG

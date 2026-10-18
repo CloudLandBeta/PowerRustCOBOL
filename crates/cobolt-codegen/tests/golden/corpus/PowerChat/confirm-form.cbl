@@ -213,7 +213,23 @@
            *>   The designed texts in the user's language first; what the
            *>   caller hands over below replaces them.
 
+           *> PC-PATHS: sets the path of the settings file.
+           *> Uses:   The environment variable POWERCHAT_DATA.
+           *> Result: WS-DATA-DIR = $POWERCHAT_DATA, or "data" when that is empty; WS-SETTINGS-PATH
+           *>         = <WS-DATA-DIR>/settings.idx. No file is opened.
+
            CALL    "PC-PATHS"
+
+           *> PC-TEXTS: loads the form's texts in the language the user picked and sets the three
+           *> captions that show them.
+           *> Uses:   The LANG setting in the settings file whose path PC-PATHS just set
+           *>         (WS-SETTINGS-PATH), and PC-TEXT (3 texts x 6 languages en pt es fr jp cn).
+           *> Result: WS-LANG = the saved code ("en" when unset or unknown), WS-LANG-IX = its column
+           *>         1-6, PC-TEXT-NOW(1..3) = T-ARE-YOU-SURE, T-YES and T-NO in that language;
+           *>         Lbl-Question::Caption, Btn-Yes::Caption and Btn-No::Caption show them; a text
+           *>         the caller hands over replaces its caption below. WS-SET-NAME = "LANG" and
+           *>         WS-SET-VALUE hold the lookup. WS-TX-I and WS-FS are overwritten.
+
            CALL    "PC-TEXTS"
 
            INVOKE    super::GetProperty("ConfirmText") RETURNING WS-TEXT
@@ -349,6 +365,15 @@
            *>   designed caption that shows one (R46).
 
            SET     WS-SET-NAME                   TO    "LANG"
+
+           *> PC-SETTING-GET: reads one setting from SETTINGS-FILE (indexed,
+           *> <WS-DATA-DIR>/settings.idx) by its name; it never writes a setting (a missing file is
+           *> only created, empty).
+           *> Uses:   WS-SET-NAME = "LANG" (set just above), the record key.
+           *> Result: WS-SET-VALUE = the saved language code (PC-TEXTS reads its first two
+           *>         characters), or SPACES when it was never saved. WS-SET-NAME is unchanged;
+           *>         WS-FS and the record area SETTINGS-REC are overwritten.
+
            CALL    "PC-SETTING-GET"
            SET     WS-LANG                       TO    WS-SET-VALUE(1:2)
            *> WS-LANG-IX is the language's column in PC-TEXT (en pt es fr jp cn);
