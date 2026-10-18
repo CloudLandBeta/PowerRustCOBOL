@@ -6,7 +6,8 @@
 # What it creates
 #   * a private, encrypted S3 bucket for the pet photos (objects under photos/);
 #   * a small Lambda function, powercloud-presign, that hands out a short-lived
-#     download link for one photo (this is the "temporary URL" the DynamoDB tab uses);
+#     download link for one photo (the Lambda tab shows one; the application itself reads
+#     photos through AWS's MCP server);
 #   * an IAM managed policy with exactly what the person who runs the demo needs;
 #   * optionally the DynamoDB table of pets (the DynamoDB tab can also create it itself);
 #   * optionally one small demo EC2 instance for the EC2 tab to list, start and stop.
@@ -19,6 +20,11 @@
 #
 #     aws cloudformation deploy --template-file powercloud.yaml --stack-name powercloud \
 #         --capabilities CAPABILITY_IAM
+#
+#   To let a user without administrator rights deploy it from the Settings tab, an
+#   administrator deploys powercloud-deployer.yaml once: it makes the function's role and
+#   gives that user what deploying and running the demo take. The Deploy button then passes
+#   the role in FunctionRoleArn, and this stack makes no IAM of its own.
 #
 # Cost: the bucket, the function and the table (on-demand) cost nothing while idle. The demo
 # instance, if you ask for one, is a t3.micro that bills while it runs: stop it from the EC2 tab.
@@ -68,12 +74,24 @@ Parameters:
     MinValue: 60
     MaxValue: 3600
     Description: How long a temporary photo link stays valid.
+  FunctionRoleArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(|arn:aws[a-z-]*:iam::[0-9]{12}:role/.+)$"
+    Description: >-
+      A role made for the function by an administrator (the powercloud-deployer stack). Given,
+      this stack makes no IAM at all - no role, no OperatorPolicy: the deployer stack holds
+      both. Empty: this stack makes them itself, which takes an administrator.
 
 Conditions:
   MakeTable:
     Fn::Equals: [{Ref: CreateTable}, "true"]
   MakeInstance:
     Fn::Equals: [{Ref: CreateDemoInstance}, "true"]
+  # Deployed by a user without administrator rights (a role handed in), the stack writes no
+  # IAM: a user who may write a policy attached to themselves may give themselves anything.
+  MakeIam:
+    Fn::Equals: [{Ref: FunctionRoleArn}, ""]
 
 Resources:
 
@@ -127,6 +145,7 @@ Resources:
 
   PresignRole:
     Type: AWS::IAM::Role
+    Condition: MakeIam
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -149,9 +168,9 @@ Resources:
         - Key: PowerCloud
           Value: demo
 
-  # The function the DynamoDB tab calls for a photo's temporary link. It signs a GET for one
-  # object under photos/ with its own role, so the person using PowerCloud never needs
-  # permission to read photos directly through the link.
+  # The function the Lambda tab calls for a photo's temporary link, to hand a photo to someone
+  # outside the application. It signs a GET for one object under photos/ with its own role, so
+  # whoever opens the link needs no AWS permission at all.
   PresignFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -160,7 +179,7 @@ Resources:
       Runtime: python3.12
       Handler: index.handler
       Role:
-        Fn::GetAtt: [PresignRole, Arn]
+        Fn::If: [MakeIam, {Fn::GetAtt: [PresignRole, Arn]}, {Ref: FunctionRoleArn}]
       Timeout: 10
       MemorySize: 128
       Environment:
@@ -227,9 +246,11 @@ Resources:
         - Key: PowerCloud
           Value: demo
 
-  # Everything the person who runs PowerCloud needs, and nothing more.
+  # Everything the person who runs PowerCloud needs, and nothing more. Deployed through the
+  # powercloud-deployer stack, its RunPolicy is this policy, attached already.
   OperatorPolicy:
     Type: AWS::IAM::ManagedPolicy
+    Condition: MakeIam
     Properties:
       Description: What the PowerCloud example needs - attach it to the user or role it signs in as.
       PolicyDocument:
@@ -308,6 +329,7 @@ Outputs:
     Description: The DynamoDB table of pets.
     Value: {Ref: TableName}
   OperatorPolicyArn:
+    Condition: MakeIam
     Description: Attach this managed policy to the user or role PowerCloud signs in as.
     Value: {Ref: OperatorPolicy}
   DemoInstanceId:

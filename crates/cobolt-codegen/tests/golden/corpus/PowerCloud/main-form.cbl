@@ -149,6 +149,7 @@
        01 WS-PARAMS       PIC X(26000)    GLOBAL.
        01 WS-STACK-STATE  PIC X(40)       GLOBAL.
        01 WS-OUTPUTS      PIC X(2000)     GLOBAL.
+       01 WS-FN-ROLE      PIC X(300)      GLOBAL.
        01 WS-TICKS        PIC 999         GLOBAL VALUE 0.
 
        01 WS-PET-COUNT   PIC 999     GLOBAL VALUE 0.
@@ -2186,8 +2187,20 @@
                GOBACK
            END-IF
 
+           *> A role an administrator made for the function (the powercloud-deployer stack, see
+           *> the README) is handed to the stack: keys allowed to deploy, but never to create an
+           *> IAM role, can deploy it then. Without that stack the stack makes its own role.
+
+           SET     WS-FN-ROLE                    TO    SPACES
+           SET     WS-OUT                        TO    AWS-MCP::AwsCall( "cloudformation" "DescribeStacks" '{"StackName":"powercloud-deployer"}' )
+           IF AWS-MCP::LastError = SPACES
+               SET     WS-OUTPUTS                    TO    AWS-MCP::GetField( 1 "Outputs" )::Replace( '": "', '":"' )
+               SET     WS-FN-ROLE                    TO    WS-OUTPUTS::Split( '"OutputKey":"FunctionRoleArn","OutputValue":"' )(2)::Split( '"' )(1)
+           END-IF
+
            STRING '{"StackName":"' TXT-STACK::Text::Trim() '","Capabilities":["CAPABILITY_IAM"],'
-                  '"Parameters":[{"ParameterKey":"FunctionName","ParameterValue":"' TXT-FUNCTION::Text::Trim() '"}],'
+                  '"Parameters":[{"ParameterKey":"FunctionName","ParameterValue":"' TXT-FUNCTION::Text::Trim() '"},'
+                  '{"ParameterKey":"FunctionRoleArn","ParameterValue":"' WS-FN-ROLE::Trim() '"}],'
                   '"TemplateBody":"' WS-TEMPLATE::Trim() '"}'
                   DELIMITED BY SIZE INTO WS-PARAMS
 

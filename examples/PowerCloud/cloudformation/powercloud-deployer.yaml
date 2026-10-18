@@ -1,0 +1,285 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# PowerCloud deployer — lets one AWS user deploy the PowerCloud stack (powercloud.yaml)
+# from the Settings tab, without administrator rights.
+#
+# What it creates
+#   * FunctionRole - the role the temporary-link function runs with. It may read the photos
+#     and write the function's own logs, nothing else. PowerCloud's Deploy button finds it in
+#     this stack's Outputs and hands it to the PowerCloud stack, so the user never creates a role.
+#   * DeployerPolicy - what deploying, updating and deleting the PowerCloud stack takes, and
+#     nothing more, attached to the user named in UserName.
+#   * RunPolicy - what running the demo takes (the PowerCloud stack's OperatorPolicy, which
+#     that stack does not make when it gets FunctionRole), attached to the same user.
+#
+# Why the user writes no IAM at all: whoever may create a role and hand it to a function can
+# give that function any right, and whoever may write a policy attached to themselves can give
+# themselves any right. Here the one role and both policies are the administrator's, and the
+# user may only pass that role, and only to Lambda.
+#
+# How to run it - once, as an administrator, in the region of the demo, named
+# powercloud-deployer (the Deploy button looks for that name):
+#
+#     aws cloudformation deploy --template-file powercloud-deployer.yaml \
+#         --stack-name powercloud-deployer --capabilities CAPABILITY_IAM \
+#         --parameter-overrides UserName=<the user PowerCloud signs in as>
+#
+# That user then needs nothing else. The demo server (CreateDemoInstance) is not covered:
+# launching instances is left to an administrator.
+
+AWSTemplateFormatVersion: "2010-09-09"
+Description: PowerCloud deployer - lets one user deploy the PowerCloud stack without creating IAM roles.
+
+Parameters:
+  UserName:
+    Type: String
+    Default: ""
+    Description: The IAM user that deploys PowerCloud. Leave it empty to attach DeployerPolicy yourself.
+  StackName:
+    Type: String
+    Default: powercloud
+    AllowedPattern: "^powercloud[a-zA-Z0-9-]{0,40}$"
+    ConstraintDescription: Must start with powercloud (the application's own policy reads stacks by that prefix).
+    Description: The name the PowerCloud stack is deployed under (the Stack name box of the Settings tab).
+  BucketPrefix:
+    Type: String
+    Default: powercloud-photos
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$"
+    Description: The BucketPrefix the PowerCloud stack is deployed with.
+  TableName:
+    Type: String
+    Default: PowerCloudPets
+    AllowedPattern: "^[a-zA-Z0-9_.-]{3,64}$"
+    Description: The TableName the PowerCloud stack is deployed with (used only when it creates the table).
+
+Conditions:
+  HasUser:
+    Fn::Not: [{Fn::Equals: [{Ref: UserName}, ""]}]
+
+Resources:
+
+  # The temporary-link function's role: read the photos, write its own logs.
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: read-photos-write-logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "s3:GetObject"
+                Resource:
+                  Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*/photos/*"
+              - Effect: Allow
+                Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+                Resource:
+                  Fn::Sub: "arn:${AWS::Partition}:logs:*:${AWS::AccountId}:log-group:/aws/lambda/powercloud-*"
+      Tags:
+        - Key: PowerCloud
+          Value: demo
+
+  DeployerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Deploy, update and delete the PowerCloud stack - nothing else. Made by the powercloud-deployer stack.
+      Users:
+        Fn::If: [HasUser, [{Ref: UserName}], {Ref: "AWS::NoValue"}]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ThePowerCloudStack
+            Effect: Allow
+            Action:
+              - "cloudformation:CreateStack"
+              - "cloudformation:UpdateStack"
+              - "cloudformation:DeleteStack"
+              - "cloudformation:DescribeStacks"
+              - "cloudformation:DescribeStackEvents"
+              - "cloudformation:DescribeStackResource"
+              - "cloudformation:DescribeStackResources"
+              - "cloudformation:ListStackResources"
+              - "cloudformation:GetTemplate"
+              - "cloudformation:CreateChangeSet"
+              - "cloudformation:DescribeChangeSet"
+              - "cloudformation:ExecuteChangeSet"
+              - "cloudformation:DeleteChangeSet"
+              - "cloudformation:ListChangeSets"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/${StackName}/*"
+          # Read the deployer stack, where the Deploy button finds FunctionRole.
+          - Sid: ReadThisStack
+            Effect: Allow
+            Action: "cloudformation:DescribeStacks"
+            Resource: {Ref: "AWS::StackId"}
+          # Neither takes a resource: they read a template, nothing in the account.
+          - Sid: ReadATemplate
+            Effect: Allow
+            Action: ["cloudformation:ValidateTemplate", "cloudformation:GetTemplateSummary"]
+            Resource: "*"
+          - Sid: HandTheFunctionItsRole
+            Effect: Allow
+            Action: "iam:PassRole"
+            Resource:
+              Fn::GetAtt: [FunctionRole, Arn]
+            Condition:
+              StringEquals:
+                "iam:PassedToService": lambda.amazonaws.com
+          - Sid: SeeTheFunctionRole
+            Effect: Allow
+            Action: "iam:GetRole"
+            Resource:
+              Fn::GetAtt: [FunctionRole, Arn]
+          # The bucket itself, not its objects. CloudFormation reads back every setting of a
+          # bucket it makes, hence the read-only Get*.
+          - Sid: ThePhotoBucket
+            Effect: Allow
+            Action:
+              - "s3:CreateBucket"
+              - "s3:DeleteBucket"
+              - "s3:ListBucket"
+              - "s3:Get*"
+              - "s3:PutBucket*"
+              - "s3:DeleteBucketPolicy"
+              - "s3:PutEncryptionConfiguration"
+              - "s3:PutLifecycleConfiguration"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*"
+          - Sid: TheLinkFunction
+            Effect: Allow
+            Action:
+              - "lambda:CreateFunction"
+              - "lambda:DeleteFunction"
+              - "lambda:Get*"
+              - "lambda:ListVersionsByFunction"
+              - "lambda:UpdateFunctionCode"
+              - "lambda:UpdateFunctionConfiguration"
+              - "lambda:TagResource"
+              - "lambda:UntagResource"
+              - "lambda:ListTags"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:powercloud-*"
+          - Sid: ThePetsTable
+            Effect: Allow
+            Action:
+              - "dynamodb:CreateTable"
+              - "dynamodb:DeleteTable"
+              - "dynamodb:UpdateTable"
+              - "dynamodb:Describe*"
+              - "dynamodb:ListTagsOfResource"
+              - "dynamodb:TagResource"
+              - "dynamodb:UntagResource"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:dynamodb:*:${AWS::AccountId}:table/${TableName}"
+          # The demo server's image is a public parameter the template names; reading it is
+          # harmless, and launching the server stays an administrator's.
+          - Sid: TheDemoServerImageName
+            Effect: Allow
+            Action: "ssm:GetParameters"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+          # This stack holds the user's own rights: never changed or removed by that user.
+          - Sid: NeverTheDeployerStack
+            Effect: Deny
+            Action:
+              - "cloudformation:UpdateStack"
+              - "cloudformation:DeleteStack"
+              - "cloudformation:CreateChangeSet"
+              - "cloudformation:ExecuteChangeSet"
+              - "cloudformation:SetStackPolicy"
+              - "cloudformation:CancelUpdateStack"
+              - "cloudformation:ContinueUpdateRollback"
+            Resource: {Ref: "AWS::StackId"}
+
+  # What running the demo takes - the PowerCloud stack's OperatorPolicy, which that stack does
+  # not make when it is deployed with FunctionRole. Here, so no policy the user may write is
+  # ever attached to the user.
+  RunPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Run the PowerCloud example - nothing else. Made by the powercloud-deployer stack.
+      Users:
+        Fn::If: [HasUser, [{Ref: UserName}], {Ref: "AWS::NoValue"}]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PhotosInTheBucket
+            Effect: Allow
+            Action: ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*/photos/*"
+          - Sid: ListTheBucket
+            Effect: Allow
+            Action: "s3:ListBucket"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:s3:::${BucketPrefix}-${AWS::AccountId}-*"
+          - Sid: ChooseABucket
+            Effect: Allow
+            Action: "s3:ListAllMyBuckets"
+            Resource: "*"
+          - Sid: PetsTable
+            Effect: Allow
+            Action:
+              - "dynamodb:CreateTable"
+              - "dynamodb:DescribeTable"
+              - "dynamodb:PutItem"
+              - "dynamodb:GetItem"
+              - "dynamodb:UpdateItem"
+              - "dynamodb:DeleteItem"
+              - "dynamodb:Scan"
+              - "dynamodb:Query"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:dynamodb:*:${AWS::AccountId}:table/${TableName}"
+          - Sid: TemporaryLinks
+            Effect: Allow
+            Action: "lambda:InvokeFunction"
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:lambda:*:${AWS::AccountId}:function:powercloud-*"
+          - Sid: FindTheFunction
+            Effect: Allow
+            Action: ["lambda:ListFunctions", "lambda:GetFunction"]
+            Resource: "*"
+          - Sid: Speech
+            Effect: Allow
+            Action: ["polly:SynthesizeSpeech", "polly:DescribeVoices"]
+            Resource: "*"
+          - Sid: Celebrities
+            Effect: Allow
+            Action: "rekognition:RecognizeCelebrities"
+            Resource: "*"
+          - Sid: SeeTheServers
+            Effect: Allow
+            Action: ["ec2:DescribeInstances", "ec2:DescribeRegions"]
+            Resource: "*"
+          - Sid: SwitchTheDemoServers
+            Effect: Allow
+            Action: ["ec2:StartInstances", "ec2:StopInstances"]
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:instance/*"
+            Condition:
+              StringEquals:
+                "aws:ResourceTag/PowerCloud": demo
+          - Sid: DeployThisStack
+            Effect: Allow
+            Action: ["cloudformation:DescribeStacks", "cloudformation:DescribeStackEvents"]
+            Resource:
+              Fn::Sub: "arn:${AWS::Partition}:cloudformation:*:${AWS::AccountId}:stack/powercloud*/*"
+
+Outputs:
+  RunPolicyArn:
+    Description: Running the example. Attached to UserName; attach it yourself when that was left empty.
+    Value: {Ref: RunPolicy}
+  FunctionRoleArn:
+    Description: The temporary-link function's role. PowerCloud's Deploy button hands it to the stack.
+    Value:
+      Fn::GetAtt: [FunctionRole, Arn]
+  DeployerPolicyArn:
+    Description: Deploying the PowerCloud stack. Attached to UserName; attach it yourself when that was left empty.
+    Value: {Ref: DeployerPolicy}

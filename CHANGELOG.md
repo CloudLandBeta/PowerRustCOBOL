@@ -17,6 +17,51 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.207] — 2026-10-18
+
+*(Written on `fixes-powercloud-deployer`, off `main` at 1.91.206.)*
+
+### Fixed: a PowerCloud user who is not an administrator can deploy the stack, without any way to raise their own rights
+
+The operator, 2026-10-18: *"update the policy so the demo can deploy the stack."*
+
+**Why not simply add rights to that user's policy.** Deploying the stack makes an IAM role for the photo-link function and the `OperatorPolicy`. A user allowed to create a role and hand it to a function can give that function any right, and through it themselves. A user allowed to write a policy attached to themselves can do the same. The first draft of this change had the second hole: `iam:CreatePolicyVersion` on the stack's `OperatorPolicy`, which the README tells you to attach to that very user. One `UpdateStack` would have made them an administrator. It was caught in review, before any commit, and a test now forbids it.
+
+**What changed:**
+
+- **New `cloudformation/powercloud-deployer.yaml`.** An administrator deploys it once, as `powercloud-deployer`, naming the user. It holds:
+  - **`FunctionRole`**: reads `photos/*` and writes the function's own logs, nothing else;
+  - **`DeployerPolicy`**: deploy, update and delete the `powercloud` stack, with S3 on the photo bucket only, Lambda on `powercloud-*` functions only, and DynamoDB on the pets table only. It may pass `FunctionRole` to Lambda and nothing else. It has no other IAM action, and an explicit Deny protects the deployer stack itself;
+  - **`RunPolicy`**: what running the demo takes, identical in actions to the stack's `OperatorPolicy`.
+
+  Both policies are attached to the user. The demo server is left to an administrator.
+- **`powercloud.yaml`:**
+  - a new `FunctionRoleArn` parameter, empty by default;
+  - when it is given, the stack makes **no IAM**: `PresignRole`, `OperatorPolicy` and its output carry the new `MakeIam` condition;
+  - two comments still said the DynamoDB tab uses the temporary link; corrected.
+- **Deploy CloudFormation:**
+  - asks for the `powercloud-deployer` stack and hands its `FunctionRoleArn` to `CreateStack`;
+  - without that stack, it hands an empty one, and the stack makes its own IAM as before (an administrator's deploy);
+  - when the deployer stack is missing, that lookup fails, and the failure is also written to the Output panel.
+- The README lists the three ways to deploy.
+
+**Tests** (`powercloud_hosts`, 11 of 11):
+- `the_deployer_lets_a_user_deploy_the_stack_without_any_way_to_raise_its_own_rights`:
+  - what deploying needs is granted;
+  - no Allow is a wildcard;
+  - no IAM action except `iam:PassRole` / `iam:GetRole`, and no `sts:` action;
+  - `PassRole` covers only `FunctionRole`, only to Lambda;
+  - only template reads are on `*`;
+  - the Deny on the deployer stack is present;
+  - the role holds four actions;
+  - `RunPolicy` grants exactly the `OperatorPolicy`'s actions.
+- `deploy_hands_the_stack_the_role_the_deployer_made`.
+- The template test now checks the `MakeIam` conditions.
+
+Codegen: 94 pass.
+
+*Not verified against AWS:* neither template was deployed here, since the keys are never opened. The deployer's resource-level rights follow each resource's CloudFormation handler. If a deploy is refused, the refusal names the missing action, and the deployer's test is where to add it.
+
 ## [PowerRustCOBOL 1.91.206] — 2026-10-18
 
 *(Written on `fixes-powercloud-photos-via-mcp`, off `main` at 1.91.205.)*

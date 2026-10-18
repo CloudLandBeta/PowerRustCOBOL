@@ -32,15 +32,16 @@ with the services wheel on the left and the cloud-access fields on the right.
   file: the keys are kept in memory for this run and the boxes are emptied as soon as you press **Connect**.
   Leave them empty to use the machine's own AWS sign-in instead (`aws configure`, IAM Identity Center, the
   environment), on any machine and with any account.
-- To *deploy the stack from the Settings tab*, the user needs the rights CloudFormation asks for (it creates an
-  IAM role and a policy). To *run the demo*, it needs only the managed policy the stack creates; attach the
-  policy printed in the stack's **Outputs** (`OperatorPolicyArn`) to that user.
+- To *deploy the stack from the Settings tab*, the user needs either an administrator's rights, or the
+  **deployer** below, which an administrator sets up once. To *run the demo*, it needs only the managed policy
+  the stack creates; attach the policy printed in the stack's **Outputs** (`OperatorPolicyArn`) to that user.
+  With the deployer, nothing is to attach.
 
 ## The cloud side
 
 `cloudformation/powercloud.yaml` creates a private, encrypted S3 bucket for the photos, the Lambda function
 `powercloud-presign` that signs a short-lived link to one photo, the policy above, and — only if you ask —
-the DynamoDB table and a small demo server. Two ways to deploy it:
+the DynamoDB table and a small demo server. Three ways to deploy it:
 
 1. **From the application**, with keys allowed to create it (an administrator's): Settings ▸ Connect, then
    **Deploy CloudFormation**. The tab shows the stack's progress and fills in the bucket and function names
@@ -51,6 +52,21 @@ the DynamoDB table and a small demo server. Two ways to deploy it:
    ```
    aws cloudformation deploy --template-file powercloud.yaml --stack-name powercloud --capabilities CAPABILITY_IAM
    ```
+
+3. **From the application, by a user who is not an administrator.** An administrator deploys
+   `cloudformation/powercloud-deployer.yaml` once, in the region of the demo, under the name
+   `powercloud-deployer`, naming that user:
+
+   ```
+   aws cloudformation deploy --template-file powercloud-deployer.yaml --stack-name powercloud-deployer --capabilities CAPABILITY_IAM --parameter-overrides UserName=<the user>
+   ```
+
+   It makes the photo-link function's role and attaches two policies to the user: one to deploy, update
+   and delete the PowerCloud stack, and one to run the demo. **Deploy CloudFormation** then finds that role
+   and hands it to the stack, which makes no IAM of its own. The user never writes IAM. A user who may
+   create a role and give it to a function can give that function any right, and through it themselves.
+   A user who may write a policy attached to themselves can give themselves any right too. The deployer
+   gives neither. The demo server is left to an administrator.
 
 Either way, **Connect** finds the stack named in **Stack name** — deployed now or on an earlier run — and
 fills in the bucket and function names from its outputs. A bucket of your own can be typed into the

@@ -792,9 +792,14 @@ fn the_cloudformation_template_has_what_the_example_needs_and_no_wildcard_admini
     ] {
         assert_eq!(kind(resource), want);
     }
-    for parameter in ["BucketPrefix", "FunctionName", "TableName", "CreateTable", "CreateDemoInstance", "UrlLifetimeSeconds"] {
+    for parameter in ["BucketPrefix", "FunctionName", "TableName", "CreateTable", "CreateDemoInstance", "UrlLifetimeSeconds", "FunctionRoleArn"] {
         assert!(parameters.contains_key(parameter), "no parameter {parameter}");
     }
+    // A role handed in (the powercloud-deployer stack's) replaces the stack's own, and then the
+    // stack writes no IAM at all: the deployer stack holds the role and the run policy.
+    assert_eq!(resources["PresignRole"]["Condition"].as_str(), Some("MakeIam"));
+    assert_eq!(resources["OperatorPolicy"]["Condition"].as_str(), Some("MakeIam"));
+    assert!(resources["PresignFunction"]["Properties"]["Role"].get("Fn::If").is_some(), "the function's role is not chosen");
     for output in ["BucketName", "FunctionName", "TableName", "OperatorPolicyArn", "DemoInstanceId"] {
         assert!(outputs.contains_key(output), "no output {output}");
     }
@@ -841,6 +846,97 @@ fn the_cloudformation_template_has_what_the_example_needs_and_no_wildcard_admini
     walk(&serde_yaml::Value::Mapping(resources.clone()), &mut statements, &mut allows);
     assert!(statements >= 10 && allows >= 9, "{statements} statements, {allows} allows");
     println!("spec 092 AC8 — template: {} resources, {} parameters, {} outputs, {statements} policy statements ({allows} Allow, none a wildcard administrator), {} bytes of inline code", resources.len(), parameters.len(), outputs.len(), code.len());
+}
+
+/// Operator, 2026-10-18: "update the policy so the demo can deploy the stack". The deployer
+/// template gives one user what deploying the PowerCloud stack takes - and never the right to
+/// create a role, a user or a key, or to attach a policy: whoever may create a role and hand it
+/// to a function can give that function any right, and through it themselves.
+#[test]
+fn the_deployer_lets_a_user_deploy_the_stack_without_any_way_to_raise_its_own_rights() {
+    let text = std::fs::read_to_string(example().join("cloudformation/powercloud-deployer.yaml")).unwrap();
+    let doc: serde_yaml::Value = serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("the deployer template is not YAML: {e}"));
+    let resources = &doc["Resources"];
+    assert_eq!(resources["FunctionRole"]["Type"].as_str(), Some("AWS::IAM::Role"));
+    assert_eq!(resources["DeployerPolicy"]["Type"].as_str(), Some("AWS::IAM::ManagedPolicy"));
+    assert!(doc["Outputs"].get("FunctionRoleArn").is_some(), "the Deploy button reads FunctionRoleArn");
+
+    let strings = |v: &serde_yaml::Value| -> Vec<String> {
+        match v {
+            serde_yaml::Value::String(s) => vec![s.clone()],
+            serde_yaml::Value::Sequence(a) => a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect(),
+            _ => Vec::new(),
+        }
+    };
+    let statements = resources["DeployerPolicy"]["Properties"]["PolicyDocument"]["Statement"].as_sequence().expect("statements").clone();
+    let allowed: Vec<String> = statements.iter().filter(|s| s["Effect"].as_str() == Some("Allow")).flat_map(|s| strings(&s["Action"])).collect();
+
+    // What deploying the stack's resources takes.
+    for need in ["cloudformation:CreateStack", "cloudformation:DeleteStack", "s3:CreateBucket", "s3:PutBucket*", "lambda:CreateFunction", "iam:PassRole", "dynamodb:CreateTable"] {
+        assert!(allowed.iter().any(|a| a == need), "the deployer cannot {need}");
+    }
+    // Never a way to more rights: no IAM but handing over and reading the one role - no role,
+    // user, key or policy made, and no policy version written (a stack update rewriting a policy
+    // attached to the user would be one).
+    for a in &allowed {
+        assert!(a != "*" && !a.ends_with(":*"), "a wildcard action: {a}");
+        assert!(!a.starts_with("iam:") || a == "iam:PassRole" || a == "iam:GetRole", "the deployer may {a}");
+        assert!(!a.starts_with("sts:"), "the deployer may {a}");
+    }
+
+    // Running the demo: the run policy grants what the stack's OperatorPolicy grants, no more.
+    let actions_of = |policy: &serde_yaml::Value| -> std::collections::BTreeSet<String> {
+        policy["Properties"]["PolicyDocument"]["Statement"].as_sequence().unwrap().iter().flat_map(|s| strings(&s["Action"])).collect()
+    };
+    let main: serde_yaml::Value = serde_yaml::from_str(&std::fs::read_to_string(example().join("cloudformation/powercloud.yaml")).unwrap()).unwrap();
+    let run = actions_of(&resources["RunPolicy"]);
+    assert_eq!(run, actions_of(&main["Resources"]["OperatorPolicy"]), "RunPolicy and the stack's OperatorPolicy grant different actions");
+    assert!(run.iter().all(|a| !a.starts_with("iam:")), "the run policy writes IAM");
+    // Only the one role, and only to Lambda.
+    let pass = statements.iter().find(|s| strings(&s["Action"]).iter().any(|a| a == "iam:PassRole")).unwrap();
+    assert!(pass["Resource"].get("Fn::GetAtt").is_some(), "PassRole is not limited to FunctionRole: {:?}", pass["Resource"]);
+    assert_eq!(pass["Condition"]["StringEquals"]["iam:PassedToService"].as_str(), Some("lambda.amazonaws.com"));
+    // Every Allow names its resources, but the two that read a template only.
+    for s in statements.iter().filter(|s| s["Effect"].as_str() == Some("Allow")) {
+        if s["Resource"].as_str() == Some("*") {
+            assert!(strings(&s["Action"]).iter().all(|a| a == "cloudformation:ValidateTemplate" || a == "cloudformation:GetTemplateSummary"), "{s:?}");
+        }
+    }
+    // The deployer stack holds the user's rights: the user may not change or remove it.
+    let deny = statements.iter().find(|s| s["Effect"].as_str() == Some("Deny")).expect("no Deny");
+    assert_eq!(deny["Resource"]["Ref"].as_str(), Some("AWS::StackId"));
+    for a in ["cloudformation:UpdateStack", "cloudformation:DeleteStack", "cloudformation:ExecuteChangeSet"] {
+        assert!(strings(&deny["Action"]).iter().any(|x| x == a), "the deployer stack is not protected from {a}");
+    }
+    // The function's role reads photos and writes its own logs, nothing else.
+    let role_actions: Vec<String> = resources["FunctionRole"]["Properties"]["Policies"][0]["PolicyDocument"]["Statement"]
+        .as_sequence()
+        .unwrap()
+        .iter()
+        .flat_map(|s| strings(&s["Action"]))
+        .collect();
+    assert_eq!(role_actions, ["s3:GetObject", "logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]);
+    assert!(resources["FunctionRole"]["Properties"].get("ManagedPolicyArns").is_none(), "a managed policy widens the role");
+}
+
+/// The Deploy button hands the stack the role the powercloud-deployer stack made, so keys that
+/// may deploy but not create a role can deploy; without that stack it hands an empty one.
+#[test]
+fn deploy_hands_the_stack_the_role_the_deployer_made() {
+    let p = project("deployer");
+    let path = p.root.join("fake-hosted.json");
+    let mut hosted: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let role = "arn:aws:iam::123456789012:role/powercloud-deployer-FunctionRole-ABC123";
+    let deployer = json!({"StackName": "powercloud-deployer", "StackStatus": "CREATE_COMPLETE", "Outputs": [
+        {"OutputKey": "FunctionRoleArn", "OutputValue": role}, {"OutputKey": "DeployerPolicyArn", "OutputValue": "arn:aws:iam::123456789012:policy/x"}]});
+    let answer = envelope(json!({"Answer": {"Stacks": [deployer.clone()]}, "Rows": [deployer]}));
+    hosted["answers_when"].as_array_mut().unwrap().insert(0, json!({"tool": "aws___run_script", "contains": r#"StackName\\\":\\\"powercloud-deployer"#, "answer": answer}));
+    std::fs::write(&path, hosted.to_string()).unwrap();
+    run_form(&p, &json!([click("Btn-Deploy"), wait(2500)]), 60);
+    let log = hosted_log(&p);
+    assert!(log.lines().any(|l| l.contains("powercloud-deployer") && l.contains("DescribeStacks") && !l.contains("CreateStack")), "the deployer stack was not asked");
+    let create = log.lines().find(|l| l.contains(r#"operation_name=\"CreateStack\""#)).expect("no CreateStack");
+    assert!(create.contains("FunctionRoleArn") && create.contains(role), "the role was not handed to the stack");
 }
 
 /// Spec 092 R29 — the example holds no credential: no AWS access key id, no secret key, no
