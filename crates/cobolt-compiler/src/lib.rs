@@ -8018,7 +8018,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ],
         "AwsS3" => vec![
             ("List(prefix: String?) → 1/0", "The bucket's objects under `prefix` as rows (`Key`, `Size`, `LastModified`); `onListed`."),
-            ("GetObject(key: String, toFile: String?) → 1/0", "Read an object: as text in `ResponseBody`, and as bytes into `toFile` when one is named; `onObject`."),
+            ("GetObject(key: String, toFile: String?) → 1/0", "Read an object: as text in `ResponseBody`, and as bytes into `toFile` when one is named (a relative path starts at the application's folder; a missing folder is made); `onObject`."),
             ("PutObject(key: String, text: String, fromFile: String?) → 1/0", "Store `text` — or the bytes of `fromFile` when one is named — as the object `key`; `onObjectPut`. Needs `AllowWrite`."),
             ("DeleteObject(key: String) → 1/0", "Remove an object; `onObjectDeleted`. Needs `AllowWrite`."),
             ("ListBuckets() → 1/0", "The account's buckets as rows (`Name`, `CreationDate` in ISO 8601) — whatever `Bucket` says, which it leaves alone; `onBucketsListed`. Read-only."),
@@ -8046,7 +8046,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("IsBusy() → Boolean (0/1)", "An operation is in flight."),
         ],
         "AwsPolly" => vec![
-            ("Synthesize(text: String, voice: String?, format: String?, toFile: String?) → 1/0", "Speak `text` and write the audio to `toFile` (or `OutputFile`); voice and format default to `VoiceId` and `OutputFormat`; `onSynthesized` gives `SavedFile`."),
+            ("Synthesize(text: String, voice: String?, format: String?, toFile: String?) → 1/0", "Speak `text` and write the audio to `toFile` (or `OutputFile`; a relative path starts at the application's folder, a missing folder is made); voice and format default to `VoiceId` and `OutputFormat`; `onSynthesized` gives `SavedFile`."),
             ("GetRow(index: Integer) → String", "The last answer's row `index` (1-based) as JSON; empty past the end."),
             ("GetField(index: Integer, name: String) → String", "One field of that row — text as it is, any other value as JSON; empty when the row or field does not exist."),
             ("Cancel()", "Abandon the operation in flight: `onCancelled` fires and its late answer is discarded."),

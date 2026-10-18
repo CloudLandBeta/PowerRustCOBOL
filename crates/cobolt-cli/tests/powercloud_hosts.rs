@@ -17,6 +17,8 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::{json, Value};
@@ -27,7 +29,9 @@ const TOKEN: &str = "planted-session-token-9876543210";
 
 struct Project {
     root: PathBuf,
-    photo_port: u16,
+    /// Requests that reached the server behind the temporary links. Every AWS call goes
+    /// through MCP (operator, 2026-10-18), so the application never fetches a link itself.
+    photo_hits: Arc<AtomicUsize>,
 }
 
 impl Drop for Project {
@@ -75,11 +79,14 @@ fn copy_dir(from: &Path, to: &Path) {
 
 /// A web server on a free port that answers every GET with the bytes of one JPEG: what the
 /// temporary link of the Lambda function leads to.
-fn photo_server(jpeg: Vec<u8>) -> u16 {
+fn photo_server(jpeg: Vec<u8>) -> (u16, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&hits);
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
+            counted.fetch_add(1, Ordering::SeqCst);
             let mut stream = stream;
             let mut buf = [0u8; 2048];
             let _ = stream.read(&mut buf);
@@ -88,7 +95,20 @@ fn photo_server(jpeg: Vec<u8>) -> u16 {
             let _ = stream.write_all(&jpeg);
         }
     });
-    port
+    (port, hits)
+}
+
+/// Standard base64, as AWS's MCP server answers an object's bytes.
+fn base64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
+            out.push(if i <= c.len() { char::from(A[(n >> shift) as usize & 63]) } else { '=' });
+        }
+    }
+    out
 }
 
 /// A picture of the given size, as a JPEG.
@@ -106,7 +126,7 @@ fn envelope(v: Value) -> Value {
 
 /// What the hosted server's `aws___run_script` answers, by the AWS operation the script
 /// calls. The first rule whose text is in the script wins, so the specific ones come first.
-fn hosted_rules() -> Value {
+fn hosted_rules(photo: &[u8]) -> Value {
     let stack_ok = json!({"StackName": "powercloud", "StackStatus": "CREATE_COMPLETE", "Outputs": [
         {"OutputKey": "BucketName", "OutputValue": "powercloud-photos-123456789012-us-east-1"},
         {"OutputKey": "FunctionName", "OutputValue": "powercloud-presign"},
@@ -125,6 +145,7 @@ fn hosted_rules() -> Value {
         ("operation_name='PutItem'", json!({"Done": "1"})),
         ("operation_name='DeleteItem'", json!({"Done": "1"})),
         ("operation_name='PutObject'", json!({"ETag": "abc"})),
+        ("operation_name='GetObject'", json!({"Base64": base64(photo), "Text": "", "ContentType": "image/jpeg"})),
         ("operation_name='DeleteObject'", json!({"Done": "1"})),
         ("operation_name='ListBuckets'", json!({"Buckets": [{"Name": "photos", "CreationDate": "2026-10-01T09:30:00+00:00"}, {"Name": "reports", "CreationDate": "2025-02-14T18:00:00+00:00"}]})),
         ("operation_name='ListObjectsV2'", json!({"Contents": [{"Key": "photos/20261001000001.jpg", "Size": 4096, "LastModified": "2026-10-07 10:00:00+00:00"}, {"Key": "photos/20261001000002.jpg", "Size": 5120, "LastModified": "2026-10-08 11:00:00+00:00"}]})),
@@ -226,7 +247,8 @@ fn project(tag: &str) -> Project {
         }
     }
 
-    let port = photo_server(picture(1200, 800));
+    let photo = picture(1200, 800);
+    let (port, photo_hits) = photo_server(photo.clone());
     let presign = format!(r#"Function powercloud-presign returned: {{"url": "http://127.0.0.1:{port}/photo.jpg?X-Amz-Signature=SECRETSIG", "expires": 900}}"#);
     let lambda = json!({
         "tools": [{"name": "powercloud_presign", "inputSchema": {"type": "object", "properties": {"parameters": {"type": "object"}}}}],
@@ -237,7 +259,7 @@ fn project(tag: &str) -> Project {
     std::fs::write(root.join("fake-lambda.json"), lambda.to_string()).unwrap();
     let hosted = json!({
         "tools": [{"name": "aws___run_script", "inputSchema": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}}],
-        "answers_when": hosted_rules(),
+        "answers_when": hosted_rules(&photo),
         "call_log": root.join("hosted-calls.jsonl").to_string_lossy(),
         "pid_file": root.join("pids.txt").to_string_lossy(),
     });
@@ -272,7 +294,7 @@ fn project(tag: &str) -> Project {
     let integrations = doc.as_table_mut().unwrap().entry("integrations").or_insert_with(|| toml::Value::Table(Default::default()));
     integrations.as_table_mut().unwrap().insert("aws_connections".into(), toml::Value::Array(connections));
     std::fs::write(&manifest_path, toml::to_string(&doc).unwrap()).unwrap();
-    Project { root, photo_port: port }
+    Project { root, photo_hits }
 }
 
 fn run_form(p: &Project, steps: &Value, limit: u32) -> Value {
@@ -383,7 +405,13 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
             let dims = image::image_dimensions(&thumb).unwrap_or_else(|e| panic!("no thumbnail {}: {e}", thumb.display()));
             assert_eq!(dims, (40, 40));
         }
-        let _ = p.photo_port;
+        // A run that never pressed Connect: the bucket came from the stack, and the photos
+        // through AWS's MCP server.
+        let log = hosted_log(p);
+        let gets: Vec<_> = log.lines().filter(|l| l.contains("operation_name='GetObject'")).collect();
+        for key in ["photos/20261001000001.jpg", "photos/20261001000002.jpg"] {
+            assert!(gets.iter().any(|l| l.contains(key) && l.contains("powercloud-photos-123456789012-us-east-1")), "no GetObject of {key} in the bucket");
+        }
     });
 
     phase("S3", "buckets listed; objects of the first one in a grid", &p, &|p| {
@@ -425,15 +453,6 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
         assert_eq!(read(&r, "Shp-Box3", "Visible"), "false");
         // 600 x 400 in a 480 x 420 picture box: scale 0.8, the face is half the picture wide.
         assert_eq!(read(&r, "Shp-Box1", "Width"), "240");
-    });
-
-    // Operator, 2026-10-18: a run after the one that deployed the stack sent PutObject with
-    // an empty bucket name. Every run_form is such a run.
-    phase("DynamoDB", "no bucket known: a pet with a photo is refused, nothing sent", &p, &|p| {
-        let before = hosted_log(p).matches("operation_name='PutObject'").count();
-        let r = run_form(p, &json!([click("Btn-NewPet"), wait(3500), get("Lbl-DdbState", "Caption")]), 60);
-        assert!(read(&r, "Lbl-DdbState", "Caption").starts_with("No photo bucket yet"), "{r}");
-        assert_eq!(hosted_log(p).matches("operation_name='PutObject'").count(), before, "a PutObject went out without a bucket");
     });
 
     // Operator, 2026-10-18: the example runs on any machine, with any account. Boxes left
@@ -491,7 +510,30 @@ fn every_tab_of_powercloud_runs_against_the_fake_servers() {
         assert_eq!(read(&r, "Lbl-Ec2State", "Caption"), "2 server(s) in us-east-1");
     });
 
+    assert_eq!(p.photo_hits.load(Ordering::SeqCst), 0, "the application fetched a temporary link itself, outside MCP");
     println!("\nspec 092 — PowerCloud, tab by tab, against the fake servers\n{}\n  total hosted calls: {}   (no secret reached any output: {KEY_ID}, the secret and the token were planted)", summary.join("\n"), calls_to(&p));
+}
+
+/// Operator, 2026-10-18: a run after the one that deployed the stack sent PutObject with an
+/// empty bucket name. With no stack and no bucket typed, a pet with a photo is refused with
+/// what to do, and nothing goes to S3.
+#[test]
+fn without_a_stack_or_a_bucket_a_photo_is_refused_and_nothing_is_sent() {
+    let p = project("no-stack");
+    let path = p.root.join("fake-hosted.json");
+    let mut hosted: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let missing = envelope(json!({"Status": "error", "Error": "ValidationError: Stack with id powercloud does not exist"}));
+    hosted["answers_when"].as_array_mut().unwrap().insert(0, json!({"tool": "aws___run_script", "contains": r#"operation_name=\"DescribeStacks\""#, "answer": missing}));
+    std::fs::write(&path, hosted.to_string()).unwrap();
+    let r = run_form(&p, &json!([click("Btn-NewPet"), wait(3500), get("Lbl-DdbState", "Caption")]), 60);
+    assert_eq!(
+        read(&r, "Lbl-DdbState", "Caption"),
+        "No photo bucket yet: deploy the stack on the Settings tab, or type the bucket's name there.",
+        "{r}"
+    );
+    let log = hosted_log(&p);
+    assert!(log.contains("DescribeStacks"), "the stack was not asked for its bucket");
+    assert!(!log.contains("operation_name='PutObject'"), "a PutObject went out without a bucket");
 }
 
 /// Keys made to run the demo are not allowed to deploy it: the Settings tab says what to do,

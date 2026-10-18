@@ -224,8 +224,13 @@ fn save_answer(r: &cobolt_mcp::ToolResult, def: &SaveDef, path: &str) -> Result<
         Some("base64") => super::b64::decode(&content).map_err(|e| format!("the answer could not be saved: {e}"))?,
         _ => content.into_bytes(),
     };
-    // A relative path starts at the application's folder, as an `ASSIGN` does.
+    // A relative path starts at the application's folder, as an `ASSIGN` does, and its folder
+    // is made when missing, as HTTP-DOWNLOAD and IMAGE-FIT make theirs: a first run has no
+    // `data/cache` yet (operator, 2026-10-18).
     let target = crate::interpreter::anchor_relative_path(path);
+    if let Some(dir) = std::path::Path::new(&target).parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| format!("could not write \"{path}\": {e}"))?;
+    }
     std::fs::write(&target, &bytes).map_err(|e| format!("could not write \"{path}\": {e}"))?;
     Ok(Some(path.to_owned()))
 }
@@ -388,6 +393,22 @@ mod tests {
             assert!(m.contains("AWS credentials set for this connection") && !m.contains("profile"), "{raw} -> {m}");
         }
         assert_eq!(plain_error_with_keys("ValidationException: no such table"), "ValidationException: no such table");
+    }
+
+    /// `AwsS3::GetObject( key "data/cache/x.jpg" )` on a first run, before anything made the
+    /// folder: the answer is written all the same (operator, 2026-10-18).
+    #[test]
+    fn an_answer_is_saved_into_a_folder_that_does_not_exist_yet() {
+        let dir = std::env::temp_dir().join(format!("prc-save-answer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let file = dir.join("data").join("cache").join("photo.bin");
+        let text = json!({"status": "success", "return_value": {"Base64": "AAEC/w=="}}).to_string();
+        let r: cobolt_mcp::ToolResult = serde_json::from_value(json!({"content": [{"type": "text", "text": text}]})).unwrap();
+        let def: SaveDef = serde_json::from_value(json!({"path": "{arg:2}", "from": "$json:/return_value/Base64", "decode": "base64"})).unwrap();
+        let saved = save_answer(&r, &def, file.to_str().unwrap()).unwrap();
+        assert_eq!(saved.as_deref(), file.to_str());
+        assert_eq!(std::fs::read(&file).unwrap(), [0, 1, 2, 255]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn view<'a>(ty: &'a str, method: &'a str, args: &'a [String], prop: &'a dyn Fn(&str) -> String, allow: bool) -> ControlView<'a> {

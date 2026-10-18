@@ -17,6 +17,40 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.206] — 2026-10-18
+
+*(Written on `fixes-powercloud-photos-via-mcp`, off `main` at 1.91.205.)*
+
+### Fixed: PowerCloud reads its photos through AWS's MCP server, and an AWS answer is saved into a folder that does not exist yet
+
+The operator, 2026-10-18: *"AWS access must go through MCP, for agents and for deterministic processes alike (no AI, MCP only as an API), so that we never break AWS's rule of reaching the cloud by official means."*
+
+**Where the runtime stands.** Every AWS service is reached through an MCP server:
+- AWS's hosted MCP server (`aws-mcp.us-east-1.api.aws/mcp`), signed with SigV4;
+- or one of the AWS Labs MCP servers (Lambda, Bedrock KB, AgentCore, S3 Tables, data processing), run with `uvx`.
+
+The credential chain (`aws-config`) only obtains the credentials that sign those MCP calls.
+
+**What was outside MCP.** The one exception was in the example. The thumbnails on the DynamoDB tab and the pet's photo popup asked the `powercloud-presign` function (through the Lambda MCP server) for a temporary link, then downloaded the bytes with `HTTP-DOWNLOAD`: plain HTTPS straight to S3.
+
+**What changed:**
+
+- **`PC-PHOTO-DOWNLOAD`** reads the object with `AwsS3::GetObject( key cache-file )` through the hosted MCP server. The DynamoDB tab therefore no longer needs `uvx`; only the Lambda tab does. `WS-HTTP`, declared only for the removed `HTTP-DOWNLOAD`, is gone.
+- **`PC-BUCKET-ENSURE`** (new) finds the photo bucket when it is needed. It takes the name in **Photo bucket**, or else asks the stack for its outputs. A run that never pressed **Connect** therefore still finds its bucket. Saving, deleting and reading a photo all use it, which replaces the three copies of the 1.91.203 check.
+- **The Lambda tab** still asks the function for a link and only shows it. Its explanation, in six languages, now says what such a link is for (handing a photo to someone outside the application), and that the application itself never fetches one. The README says every AWS call goes through MCP.
+- **Runtime (`cobolt-runtime`, `aws/ops.rs`).** An answer a route saves to a file (`AwsS3::GetObject`'s `toFile`, `AwsPolly::Synthesize`'s audio) is now written into a folder that does not exist yet: the folder is made, as `HTTP-DOWNLOAD` and `IMAGE-FIT` already make theirs. On a first run, `data/cache` is missing and every photo failed with *could not write …: No such file or directory*. Polly had the same latent fault, hidden because the thumbnails used to make the folder first. All three hosts share this code.
+- **System KB.** `GetObject` and `Synthesize` now say that a relative path starts at the application's folder and that a missing folder is made. `chunked.data` was rebuilt.
+
+**Tests:**
+- New runtime unit test `an_answer_is_saved_into_a_folder_that_does_not_exist_yet`.
+- `powercloud_hosts`:
+  - the fake server answers `GetObject`;
+  - the thumbnails must come from `GetObject`, in the bucket the stack names, in a run that never pressed Connect;
+  - the server behind the temporary links must receive **no** request;
+  - the no-bucket case is its own test, with no stack: it is refused, `DescribeStacks` is asked, and no `PutObject` goes out.
+  - 9 of 9 pass.
+- `cobolt-runtime` 1509 and `cobolt-compiler` 192 pass, 0 fail. The KB freshness test passes. The codegen goldens were regenerated.
+
 ## [PowerRustCOBOL 1.91.205] — 2026-10-18
 
 *(Written on `fixes-powercloud-default-signin`, off `main` at 1.91.204.)*

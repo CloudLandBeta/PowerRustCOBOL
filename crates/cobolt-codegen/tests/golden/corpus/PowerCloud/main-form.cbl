@@ -169,7 +169,6 @@
        01 WS-LOCAL        PIC X(120)  GLOBAL.
        01 WS-THUMB        PIC X(120)  GLOBAL.
        01 WS-URL          PIC X(2000) GLOBAL.
-       01 WS-HTTP         PIC 999     GLOBAL.
        01 WS-OK           PIC X(40)   GLOBAL.
        01 WS-W            PIC 9(5)    GLOBAL.
        01 WS-H            PIC 9(5)    GLOBAL.
@@ -1209,12 +1208,12 @@
            05 FILLER PIC X(800) VALUE "AWS ユーザーのキーを入力してください。キーはこの実行中だけメモリに保持され、「接続」を押すとすぐにこれらの入力欄から消去されます。空のままにすると、このマシンの既定の AWS プロファイルが使われます。".
            05 FILLER PIC X(800) VALUE "请输入某个 AWS 用户的密钥。密钥仅在本次运行期间保留在内存中，按下“连接”后会立即从这些输入框中清除。留空则使用本机默认的 AWS 配置文件。".
            *>   LAM-TEXT
-           05 FILLER PIC X(800) VALUE "PowerCloud never signs a download link itself. When the grid or the pet's popup needs a photo, the application asks a small function, powercloud-presign, for a link to that one object. The function runs with a role that can only read the photo bucket, and the link stops working after 15 minutes. The application then saves the bytes behind the link into its local cache with HTTP-DOWNLOAD. AwsLambda.Invoke needs AllowWrite on, because a function can do whatever its code says.".
-           05 FILLER PIC X(800) VALUE "O PowerCloud nunca assina por conta própria um link de download. Quando a grade ou a janela do animal precisa de uma foto, o aplicativo pede a uma pequena função, powercloud-presign, um link para esse único objeto. A função roda com um papel que só pode ler o bucket das fotos, e o link deixa de funcionar após 15 minutos. Em seguida, o aplicativo grava os bytes do link em seu cache local com HTTP-DOWNLOAD. AwsLambda.Invoke exige AllowWrite ativado, porque uma função pode fazer tudo o que o seu código disser.".
-           05 FILLER PIC X(800) VALUE "PowerCloud nunca firma por sí mismo un enlace de descarga. Cuando la cuadrícula o la ventana de la mascota necesita una foto, la aplicación le pide a una pequeña función, powercloud-presign, un enlace a ese único objeto. La función se ejecuta con un rol que solo puede leer el bucket de fotos, y el enlace deja de funcionar a los 15 minutos. Después, la aplicación guarda los bytes del enlace en su caché local con HTTP-DOWNLOAD. AwsLambda.Invoke necesita AllowWrite activado, porque una función puede hacer lo que diga su código.".
-           05 FILLER PIC X(800) VALUE "PowerCloud ne signe jamais lui-même un lien de téléchargement. Quand la grille ou la fenêtre de l'animal a besoin d'une photo, l'application demande à une petite fonction, powercloud-presign, un lien vers cet unique objet. La fonction s'exécute avec un rôle qui ne peut que lire le bucket des photos, et le lien cesse de fonctionner au bout de 15 minutes. L'application enregistre ensuite les octets derrière le lien dans son cache local avec HTTP-DOWNLOAD. AwsLambda.Invoke exige AllowWrite activé, car une fonction peut faire tout ce que dit son code.".
-           05 FILLER PIC X(800) VALUE "PowerCloud は、ダウンロード用リンクを自分で署名することはありません。グリッドやペットのポップアップが写真を必要とするとき、アプリは小さな関数 powercloud-presign に、その 1 つのオブジェクトへのリンクを求めます。この関数は写真バケットの読み取りしかできないロールで動作し、リンクは 15 分後に無効になります。アプリは続いて、リンク先のバイト列を HTTP-DOWNLOAD でローカルキャッシュに保存します。関数はコードに書かれたことを何でも実行できるため、AwsLambda.Invoke には AllowWrite をオンにする必要があります。".
-           05 FILLER PIC X(800) VALUE "PowerCloud 从不自己对下载链接签名。当表格或宠物弹出窗口需要一张照片时，应用程序会向一个小函数 powercloud-presign 请求指向该对象的链接。该函数使用只能读取照片存储桶的角色运行，链接在 15 分钟后失效。随后应用程序用 HTTP-DOWNLOAD 把链接背后的字节保存到本地缓存中。AwsLambda.Invoke 需要打开 AllowWrite，因为函数可以执行其代码所写的任何操作。".
+           05 FILLER PIC X(800) VALUE "PowerCloud never signs a download link itself. The function powercloud-presign does: given the key of one photo, it answers a link to that object that works for 15 minutes, signed with a role that can only read the photo bucket. Use it to hand a photo to someone outside the application, in a browser or an e-mail. The application itself reads its photos through AWS's MCP server, as it makes every other AWS call; it never fetches the bytes behind a link. AwsLambda.Invoke needs AllowWrite on, because a function can do whatever its code says.".
+           05 FILLER PIC X(800) VALUE "O PowerCloud nunca assina por conta própria um link de download. Quem assina é a função powercloud-presign: dada a chave de uma foto, ela responde um link para esse objeto que vale por 15 minutos, assinado com um papel que só pode ler o bucket das fotos. Use-a para entregar uma foto a alguém fora do aplicativo, num navegador ou num e-mail. O próprio aplicativo lê suas fotos pelo servidor MCP da AWS, como faz todas as outras chamadas à AWS; ele nunca busca os bytes por trás de um link. AwsLambda.Invoke exige AllowWrite ativado, porque uma função pode fazer tudo o que o seu código disser.".
+           05 FILLER PIC X(800) VALUE "PowerCloud nunca firma por sí mismo un enlace de descarga. Lo firma la función powercloud-presign: dada la clave de una foto, responde un enlace a ese objeto que vale 15 minutos, firmado con un rol que solo puede leer el bucket de fotos. Úsala para pasar una foto a alguien fuera de la aplicación, en un navegador o un correo. La propia aplicación lee sus fotos a través del servidor MCP de AWS, como hace todas las demás llamadas a AWS; nunca descarga los bytes de un enlace. AwsLambda.Invoke necesita AllowWrite activado, porque una función puede hacer lo que diga su código.".
+           05 FILLER PIC X(800) VALUE "PowerCloud ne signe jamais lui-même un lien de téléchargement. C'est la fonction powercloud-presign qui le signe : à partir de la clé d'une photo, elle renvoie un lien vers cet objet valable 15 minutes, signé avec un rôle qui ne peut que lire le bucket des photos. Servez-vous-en pour transmettre une photo à quelqu'un hors de l'application, dans un navigateur ou un e-mail. L'application lit elle-même ses photos par le serveur MCP d'AWS, comme tous ses autres appels à AWS ; elle ne récupère jamais les octets derrière un lien. AwsLambda.Invoke exige AllowWrite activé, car une fonction peut faire tout ce que dit son code.".
+           05 FILLER PIC X(800) VALUE "PowerCloud は、ダウンロード用リンクを自分で署名することはありません。署名するのは関数 powercloud-presign です。写真のキーを渡すと、そのオブジェクトへの 15 分間有効なリンクを、写真バケットの読み取りしかできないロールで署名して返します。ブラウザーやメールで、アプリの外の人に写真を渡すときに使います。アプリ自身は、他のすべての AWS 呼び出しと同じく、AWS の MCP サーバーを通して写真を読みます。リンクの先のバイト列を取得することはありません。関数はコードに書かれたことを何でも実行できるため、AwsLambda.Invoke には AllowWrite をオンにする必要があります。".
+           05 FILLER PIC X(800) VALUE "PowerCloud 从不自己对下载链接签名，签名由函数 powercloud-presign 完成：给它一张照片的键，它就返回指向该对象、有效期 15 分钟的链接，并用只能读取照片存储桶的角色签名。可用它把照片交给应用程序之外的人，在浏览器或电子邮件中打开。应用程序本身和它的其他所有 AWS 调用一样，通过 AWS 的 MCP 服务器读取照片，从不获取链接背后的字节。AwsLambda.Invoke 需要打开 AllowWrite，因为函数可以执行其代码所写的任何操作。".
        01 PC-LONG-TABLE REDEFINES PC-LONG-DATA GLOBAL.
            05 PC-LONG-ROW OCCURS 2.
                10 PC-LONG PIC X(800) OCCURS 6.
@@ -1552,7 +1551,7 @@
           05 WS-Lbl-LamHead-ENABLED    PIC 9      VALUE 1.
 
        01 WS-Lbl-LamText.
-          05 WS-Lbl-LamText-TEXT       PIC X(478) VALUE 'PowerCloud never signs a download link itself. When the grid or the pet''s popup needs a photo, the application asks a small function, powercloud-presign, for a link to that one object. The function runs with a role that can only read the photo bucket, and the link stops working after 15 minutes. The application then saves the bytes behind the link into its local cache with HTTP-DOWNLOAD. AwsLambda.Invoke needs AllowWrite on, because a function can do whatever its code says.'.
+          05 WS-Lbl-LamText-TEXT       PIC X(544) VALUE 'PowerCloud never signs a download link itself. The function powercloud-presign does: given the key of one photo, it answers a link to that object that works for 15 minutes, signed with a role that can only read the photo bucket. Use it to hand a photo to someone outside the application, in a browser or an e-mail. The application itself reads its photos through AWS''s MCP server, as it makes every other AWS call; it never fetches the bytes behind a link. AwsLambda.Invoke needs AllowWrite on, because a function can do whatever its code says.'.
           05 WS-Lbl-LamText-VISIBLE    PIC 9      VALUE 1.
           05 WS-Lbl-LamText-ENABLED    PIC 9      VALUE 1.
 
@@ -2938,6 +2937,35 @@
        END PROGRAM PC-STACK-OUTPUTS.
 
        IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-BUCKET-ENSURE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+
+       PROCEDURE DIVISION.
+
+           *> The photo bucket, found when it is needed: the name the Settings tab shows (typed
+           *> there, or filled in from the stack), else the stack's outputs, asked for now - so a
+           *> run that never pressed Connect, on any machine, still finds it.
+
+           IF TXT-BUCKET::Text NOT = SPACES
+               SET     AWS-S3::Bucket                TO    TXT-BUCKET::Text
+           END-IF
+           IF AWS-S3::Bucket = SPACES
+
+               *> PC-STACK-OUTPUTS: the stack's outputs into the boxes and the controls.
+               *> Uses:   AWS-MCP (DescribeStacks of the stack named in TXT-STACK).
+               *> Result: TXT-BUCKET, TXT-FUNCTION, AWS-S3::Bucket and AWS-LAMBDA::FunctionName.
+
+               CALL    "PC-STACK-OUTPUTS"
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-BUCKET-ENSURE.
+
+       IDENTIFICATION DIVISION.
        PROGRAM-ID. PC-PETS-LOAD IS COMMON PROGRAM.
 
        ENVIRONMENT DIVISION.
@@ -3026,25 +3054,23 @@
                GOBACK
            END-IF
 
-           *> The temporary link comes from the Lambda function; the bytes come from the link.
+           *> The photo is read from the bucket through AWS's MCP server, as every AWS call of this
+           *> application is - never from a link over plain HTTPS (operator, 2026-10-18).
+           *> GetObject saves the object's bytes into the cache file.
+           *> PC-BUCKET-ENSURE: the photo bucket into AWS-S3::Bucket - typed, or from the stack.
+           *> Result: AWS-S3::Bucket, SPACES when none is known.
 
-           SET     WS-JSON                       TO    SPACES
-           STRING '{"key":"' WS-PHOTO-KEY::Trim() '"}' INTO WS-JSON
-           SET     WS-OUT                        TO    AWS-LAMBDA::Invoke( "" WS-JSON::Trim() )
-           IF AWS-LAMBDA::LastError NOT = SPACES
-               SET     WS-OK                         TO    "LAMBDA"
+           CALL    "PC-BUCKET-ENSURE"
+           IF AWS-S3::Bucket = SPACES
+               SET     WS-OK                         TO    "NOBUCKET"
                GOBACK
            END-IF
-
-           *> The function answers one JSON object, which is not a list of rows: the link is cut out
-           *> of the text.
-
-           SET     WS-URL                        TO    WS-OUT::Replace( '": "', '":"' )::Split( '"url":"' )(2)::Split( '"' )(1)
-           IF WS-URL = SPACES
-               SET     WS-OK                         TO    "NOURL"
+           SET     WS-OUT                        TO    AWS-S3::GetObject( WS-PHOTO-KEY::Trim() WS-LOCAL::Trim() )
+           IF AWS-S3::LastError NOT = SPACES
+               SET     WS-OK                         TO    "S3"
                GOBACK
            END-IF
-           COBOL::"HTTP-DOWNLOAD" ( WS-URL::Trim() WS-LOCAL::Trim() WS-HTTP WS-OK )
+           SET     WS-OK                         TO    "OK"
 
            GOBACK.
 
@@ -3103,12 +3129,11 @@
            SET     WS-OK                         TO    "OK"
            IF WS-PET-PHOTO NOT = SPACES
 
-               *> The bucket is the one the Settings tab shows - found from the stack, or typed
-               *> there. Without one, say what to do rather than ask S3 for a bucket named "".
+               *> Without a bucket, say what to do rather than ask S3 for a bucket named "".
+               *> PC-BUCKET-ENSURE: the photo bucket into AWS-S3::Bucket - typed, or from the stack.
+               *> Result: AWS-S3::Bucket, SPACES when none is known.
 
-               IF TXT-BUCKET::Text NOT = SPACES
-                   SET     AWS-S3::Bucket                TO    TXT-BUCKET::Text
-               END-IF
+               CALL    "PC-BUCKET-ENSURE"
                IF AWS-S3::Bucket = SPACES
                    SET     WS-DDB-MSG                    TO    M-NO-BUCKET
                    SET     LBL-DDBSTATE::Caption         TO    PC-TEXT-NOW(WS-DDB-MSG)::Trim()
@@ -3294,11 +3319,10 @@
            END-IF
            STRING "photos/" WS-ID::Trim() ".jpg" INTO WS-PHOTO-KEY
 
-           *> The bucket the Settings tab shows, as the store uses (a name typed there included).
+           *> PC-BUCKET-ENSURE: the photo bucket into AWS-S3::Bucket - typed, or from the stack.
+           *> Result: AWS-S3::Bucket, SPACES when none is known.
 
-           IF TXT-BUCKET::Text NOT = SPACES
-               SET     AWS-S3::Bucket                TO    TXT-BUCKET::Text
-           END-IF
+           CALL    "PC-BUCKET-ENSURE"
            SET     WS-OUT                        TO    AWS-S3::DeleteObject( WS-PHOTO-KEY::Trim() )
            SET     WS-OUT                        TO    AWS-DDB::DeleteItem( '{"id":"' & WS-ID::Trim() & '"}' )
            IF AWS-DDB::LastError NOT = SPACES

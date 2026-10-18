@@ -14,22 +14,24 @@ with the services wheel on the left and the cloud-access fields on the right.
 | Tab | What it does | AWS control it uses |
 |---|---|---|
 | **Settings** | Takes an AWS user's keys (kept in memory only), proves them with one read-only call, deploys the CloudFormation stack the demo needs or saves the template for you to run yourself. | `AwsMcp` (`AwsCall`) |
-| **DynamoDB** | A table of pets with a photo each: create the table, filter the grid, add, view, edit and delete a pet in popups. The photo is cut to a 400 × 400 square, kept in S3 and shown through a temporary link. | `AwsDynamoDB`, `AwsS3`, `AwsLambda` |
+| **DynamoDB** | A table of pets with a photo each: create the table, filter the grid, add, view, edit and delete a pet in popups. The photo is cut to a 400 × 400 square, kept in S3 and read back through AWS's MCP server. | `AwsDynamoDB`, `AwsS3` |
 | **S3** | Pick one of the account's buckets and read the objects in it. | `AwsS3` |
-| **Lambda** | Explains the function that makes the temporary links and lets you call it. | `AwsLambda` |
+| **Lambda** | Explains the function that makes temporary links — for handing a photo to someone outside the application — and lets you call it. | `AwsLambda` |
 | **Polly** | Type a sentence, pick a voice, listen to it with a play / pause / stop player. | `AwsPolly` |
 | **EC2** | The servers of a region with their class, vCPU and memory, and an on / off column that starts or stops one while a Working window waits. | `AwsEC2` |
 | **Rekognition** | Drop a photo; a box is drawn over every celebrity found, with their name and links beside it. | `AwsRekognition` |
 
 ## What you need
 
-- **Nothing to install for most of it.** The DynamoDB, S3, Polly, EC2, Rekognition and CloudFormation parts reach
+- **Nothing to install for most of it.** Every AWS call goes through MCP, AWS's official way for programs to reach
+  it. The DynamoDB, S3, Polly, EC2, Rekognition and CloudFormation parts — the pets' photos included — reach
   AWS's hosted MCP service directly, over the internet. **`uvx`** (from [uv](https://docs.astral.sh/uv/)) is needed
-  only for the Lambda tab and for the temporary photo links on the DynamoDB tab, because both call a Lambda
-  function through the server program AWS publishes for it; its first start takes a minute because it downloads it.
+  only for the Lambda tab, which calls a Lambda function through the MCP server program AWS publishes for it;
+  its first start takes a minute because it downloads it.
 - **An AWS account and an AWS user** whose keys you type into the Settings tab. Nothing is written to a
   file: the keys are kept in memory for this run and the boxes are emptied as soon as you press **Connect**.
-  Leave them empty to use the default AWS credentials of the machine instead.
+  Leave them empty to use the machine's own AWS sign-in instead (`aws configure`, IAM Identity Center, the
+  environment), on any machine and with any account.
 - To *deploy the stack from the Settings tab*, the user needs the rights CloudFormation asks for (it creates an
   IAM role and a policy). To *run the demo*, it needs only the managed policy the stack creates; attach the
   policy printed in the stack's **Outputs** (`OperatorPolicyArn`) to that user.
