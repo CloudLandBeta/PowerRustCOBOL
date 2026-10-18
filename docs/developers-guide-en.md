@@ -2306,15 +2306,19 @@ CheckBox, RadioButton, ListBox, ComboBox, DataGrid, DateTimePicker,
 NumericUpDown, TreeView, Slider, TabControl — and **Label**. At run time only
 the visible, enabled ones are visited.
 
-**A TabControl on the keyboard.** Tab lands on its selected tab, marked by a
-thin dashed border inside the tab, in the tab's own text colour. From there
-**Tab moves to the next tab and Shift+Tab to the previous one**, each becoming
-the active tab exactly as a click would make it; Tab on the last tab (Shift+Tab
-on the first) leaves the TabControl for the next (previous) control. The
-arrows along the strip — ← / →, or ↑ / ↓ when the strip is on the left or
-right — and Home / End do the same without ever leaving. Every one of these
-raises `onTabClick` and, when the selection moved, `onTabChanged`. Clicking a
-tab also gives the TabControl the focus.
+**A TabControl on the keyboard**, as Windows and the web have it. Tab lands on
+its selected tab, marked by a thin dashed border inside the tab, in the tab's
+own text colour. From there **Tab enters the active page**, at its first
+control in the tab order, and goes on through the page; past the page's last
+control it moves on to whatever follows. **Shift+Tab from the page's first
+control returns to the strip.** To change tabs: the arrows along the strip — ←
+/ →, or ↑ / ↓ when the strip is on the left or right — and Home / End, or
+**Ctrl+Tab / Ctrl+Shift+Tab** for the next / previous tab (wrapping), which
+work from the strip and from anywhere inside a page and leave the focus on the
+strip. Each makes the tab active exactly as a click would, and raises
+`onTabClick` and, when the selection moved, `onTabChanged`. Clicking a tab also
+gives the TabControl the focus. Until 1.91.208 a plain Tab on the strip selected
+the next tab, so a page's own controls could not be reached by keyboard.
 
 **Labels never keep the focus.** A Label is numbered so the order reads the way
 the form does, but when Tab, Enter or a click reaches it, it raises

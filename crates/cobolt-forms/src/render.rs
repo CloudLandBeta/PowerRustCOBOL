@@ -4015,9 +4015,26 @@ struct TabTarget {
     announces: bool,
     /// Enter in this control moves on, as Tab does (`Control::enter_as_tab`).
     enter_as_tab: bool,
-    /// A TabControl's `(selected tab, tab count)`: Tab and Shift+Tab walk its
-    /// tabs before they leave it.
+    /// A TabControl's `(selected tab, tab count)`: Ctrl+Tab and Ctrl+Shift+Tab
+    /// select the next and previous one.
     tabs: Option<(usize, usize)>,
+    /// The TabControl whose page holds this control, the nearest one: Tab from
+    /// that TabControl's strip enters the page, Shift+Tab from the page's first
+    /// control returns to the strip.
+    tab_host: Option<String>,
+}
+
+/// The id of the TabControl whose page holds `controls[idx]`, the nearest one.
+fn tab_host_of(controls: &[Control], idx: usize) -> Option<String> {
+    let mut cur = &controls[idx];
+    while let Some(pid) = cur.parent.as_deref() {
+        let parent = controls.iter().find(|c| c.id == pid)?;
+        if parent.control_type == ControlType::TabControl {
+            return Some(parent.id.clone());
+        }
+        cur = parent;
+    }
+    None
 }
 
 struct DefaultButtonTarget {
@@ -4067,6 +4084,7 @@ fn collect_tab_targets(
                     let sel = selected_tab_position(&live);
                     (sel, crate::paint::tabcontrol_tab_rects(egui::Pos2::ZERO, &live).len())
                 }),
+                tab_host: tab_host_of(controls, idx),
             });
         }
         sequence += 1;
@@ -4460,7 +4478,10 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
     // a click into another field has moved them, and Tab goes on from there.
     let focused_idx = ui.ctx().memory(|m| m.focused()).and_then(position);
 
-    let (mut tab, shift) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
+    let (mut tab, shift, ctrl) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift, i.modifiers.ctrl));
+    // Where a plain Tab from a TabControl's strip goes: the first control of its
+    // active page (the walk starts AT it, passing Labels as usual).
+    let mut enter_at: Option<usize> = None;
     // Tab belongs to the form that holds the focus. A shell draws two forms
     // in one frame — the SideMenu footer's pass and the ContentPane's — and
     // the first one to look used to take every Tab, even with the focus in
@@ -4482,6 +4503,7 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
         ui.input_mut(|i| {
             let modifiers = egui::Modifiers {
                 shift,
+                ctrl,
                 ..egui::Modifiers::default()
             };
             i.consume_key(modifiers, egui::Key::Tab);
@@ -4504,17 +4526,46 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
         // and the control whose TabOrder was changed was skipped (operator,
         // 2026-09-23). The form owns Tab: cancel egui's move.
         ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
-        // A TabControl with a tab further along takes this Tab itself: the
-        // next (Shift+Tab: previous) tab becomes the active one, as a click
-        // would make it, and the focus stays on the control. Past its last
-        // tab (before its first) the walk leaves it as usual (operator,
-        // 2026-09-27).
+        // A TabControl on the keyboard, as Windows and the web have it (operator,
+        // 2026-10-18, replacing the 2026-09-27 walk through the tabs, which left
+        // the pages' own controls out of reach - PowerCloud's Settings fields
+        // could not be reached at all):
+        // - Ctrl+Tab / Ctrl+Shift+Tab select the next / previous tab, wrapping,
+        //   from the strip or from inside a page; the focus goes to the strip.
+        // - Tab from the strip enters the active page, at its first control.
+        // - Shift+Tab from the page's first control returns to the strip.
+        // The arrows and Home / End along the strip still select tabs.
+        let host_of = |t: &TabTarget| -> Option<usize> {
+            if t.tabs.is_some() {
+                return targets.iter().position(|x| x.focus_id == t.focus_id);
+            }
+            t.tab_host.as_ref().and_then(|h| targets.iter().position(|x| &x.ctrl_id == h && x.tabs.is_some()))
+        };
         if let Some(fi) = focused_idx {
-            if let Some((sel, count)) = targets[fi].tabs {
-                let to = if shift { sel.checked_sub(1) } else { (sel + 1 < count).then_some(sel + 1) };
-                if let Some(to) = to {
-                    step.select_tab = Some((targets[fi].ctrl_id.clone(), to, sel));
-                    return step;
+            if ctrl {
+                if let Some(hi) = host_of(&targets[fi]) {
+                    if let Some((sel, count)) = targets[hi].tabs.filter(|&(_, n)| n > 1) {
+                        let to = if shift { (sel + count - 1) % count } else { (sel + 1) % count };
+                        step.select_tab = Some((targets[hi].ctrl_id.clone(), to, sel));
+                        ui.data_mut(|d| d.insert_temp(tab_memory_id(), targets[hi].focus_id));
+                        step.focus = Some(targets[hi].focus_id);
+                        return step;
+                    }
+                }
+            } else if !shift && targets[fi].tabs.is_some() {
+                let host = &targets[fi].ctrl_id;
+                enter_at = targets.iter().position(|t| t.tab_host.as_deref() == Some(host.as_str()));
+            } else if shift {
+                if let Some(host) = targets[fi].tab_host.as_deref() {
+                    let first = targets.iter().position(|t| t.tab_host.as_deref() == Some(host) && !t.is_label);
+                    let strip = targets.iter().position(|t| t.ctrl_id == host && t.tabs.is_some());
+                    if let (Some(first), Some(strip)) = (first, strip) {
+                        if first == fi {
+                            ui.data_mut(|d| d.insert_temp(tab_memory_id(), targets[strip].focus_id));
+                            step.focus = Some(targets[strip].focus_id);
+                            return step;
+                        }
+                    }
                 }
             }
         }
@@ -4547,10 +4598,11 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
 
     let n = targets.len();
     let next = |idx: usize| if backwards { (idx + n - 1) % n } else { (idx + 1) % n };
-    let mut idx = match from {
-        Some(idx) => next(idx),
-        None if backwards => n - 1,
-        None => 0,
+    let mut idx = match (enter_at, from) {
+        (Some(first), _) => first,
+        (None, Some(idx)) => next(idx),
+        (None, None) if backwards => n - 1,
+        (None, None) => 0,
     };
     for _ in 0..n {
         let target = &targets[idx];
@@ -23382,12 +23434,21 @@ mod tests {
     ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
-        let active = ActiveTabs::new();
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let mut all: Vec<UiEvent> = Vec::new();
         let mut copied: Vec<String> = Vec::new();
 
         for (i, (time, evs)) in frames.into_iter().enumerate() {
+            // Each TabControl's live page, as the host builds it every frame
+            // (`FormBody::active_tabs`): a selected tab shows its page.
+            let active: ActiveTabs = controls
+                .iter()
+                .filter(|c| c.control_type == ControlType::TabControl)
+                .filter_map(|c| {
+                    let page = overrides.borrow().get(&c.id).and_then(|m| m.get("SelectedTab")).and_then(|v| v.parse().ok());
+                    page.map(|p| (c.id.clone(), p))
+                })
+                .collect();
             let mut input = egui::RawInput::default();
             input.screen_rect = Some(Rect::from_min_size(
                 pos2(0.0, 0.0),
@@ -24934,55 +24995,91 @@ mod tests {
     /// next tab the active one, as a click would; past the last tab the focus
     /// moves on; Shift+Tab walks back the same way (operator, 2026-09-27).
     #[test]
-    fn tab_and_shift_tab_walk_the_tabs() {
-        let mut before = ctrlp("Before", ControlType::TextBox, 0, 0, 160, 24, &[("Text", "")]);
-        before.tab_order = 1;
-        let mut tabs = ctrlp(
-            "TAB-1",
-            ControlType::TabControl,
-            0,
-            40,
-            400,
-            200,
-            &[("Tabs", "One\nTwo\nThree"), ("SelectedTab", "1")],
-        );
-        tabs.tab_order = 2;
-        let mut after = ctrlp("After", ControlType::TextBox, 0, 260, 160, 24, &[("Text", "")]);
-        after.tab_order = 3;
-        let controls = [before, tabs, after];
+    /// A TabControl on the keyboard, as Windows and the web have it (operator,
+    /// 2026-10-18): Tab from the strip enters the active page, Shift+Tab from the
+    /// page's first control returns to the strip, and Ctrl+Tab / Ctrl+Shift+Tab
+    /// select the next / previous tab - from the strip or from inside a page.
+    /// Until then Tab on the strip selected the next tab, and a page's own
+    /// controls could not be reached by keyboard.
+    #[test]
+    fn tab_enters_the_page_and_ctrl_tab_selects_the_tabs() {
+        let text = |id: &str, y: i32| ctrlp(id, ControlType::TextBox, 0, y, 160, 24, &[("Text", "")]);
+        let on_page = |mut c: Control, page: u32| {
+            c.parent = Some("TAB-1".into());
+            c.tab = Some(page);
+            c
+        };
+        let tabs = ctrlp("TAB-1", ControlType::TabControl, 0, 40, 400, 200, &[("Tabs", "One\nTwo\nThree"), ("SelectedTab", "1")]);
+        let controls = [
+            text("Before", 0),
+            tabs,
+            on_page(text("One-A", 80), 1),
+            on_page(text("One-B", 120), 1),
+            on_page(text("Two-A", 80), 2),
+            text("After", 260),
+        ];
+        let ctrl_tab = |shift: bool, pressed: bool| match tab_key(shift, pressed) {
+            Event::Key { key, physical_key, pressed, repeat, modifiers } => {
+                Event::Key { key, physical_key, pressed, repeat, modifiers: Modifiers { ctrl: true, ..modifiers } }
+            }
+            other => other,
+        };
         let mut frames = vec![(0.0, vec![])];
         let mut t = 1.0;
         let mut push = |evs: Vec<Event>| {
             frames.push((t, evs));
             t += 1.0;
         };
-        // Before → TabControl → Two → Three → After, type there,
-        // then Shift+Tab: → TabControl (Three) → Two.
-        for _ in 0..5 {
-            push(vec![tab_key(false, true)]);
-            push(vec![tab_key(false, false)]);
+        let mut press = |push: &mut dyn FnMut(Vec<Event>), key: &dyn Fn(bool, bool) -> Event, shift: bool| {
+            push(vec![key(shift, true)]);
+            push(vec![key(shift, false)]);
+        };
+        // Before → the strip → into page One: One-A, One-B.
+        for _ in 0..3 {
+            press(&mut push, &tab_key, false);
         }
-        push(vec![Event::Text("A".to_owned())]);
-        for _ in 0..2 {
-            push(vec![tab_key(true, true)]);
-            push(vec![tab_key(true, false)]);
-        }
+        push(vec![Event::Text("a".to_owned())]);
+        press(&mut push, &tab_key, false);
+        push(vec![Event::Text("b".to_owned())]);
+        // Shift+Tab: One-A, then the strip.
+        press(&mut push, &tab_key, true);
+        press(&mut push, &tab_key, true);
+        // Ctrl+Tab on the strip: page Two; Tab enters it.
+        press(&mut push, &ctrl_tab, false);
+        press(&mut push, &tab_key, false);
+        push(vec![Event::Text("c".to_owned())]);
+        // Ctrl+Shift+Tab from inside page Two: back to page One, on the strip.
+        press(&mut push, &ctrl_tab, true);
         let (evs, map) = drive(&controls, frames);
-        let changed: Vec<&str> = evs
-            .iter()
-            .filter(|e| e.event == "onTabChanged")
-            .filter_map(|e| e.value.as_deref())
-            .collect();
-        assert_eq!(changed, ["2", "3", "2"], "pages count from 1: {:?}", names(&evs));
-        assert_eq!(
-            map.get("After").and_then(|m| m.get("Text")).map(String::as_str),
-            Some("A"),
-            "past the last tab the focus moved on"
-        );
-        assert_eq!(
-            map.get("TAB-1").and_then(|m| m.get("SelectedTab")).map(String::as_str),
-            Some("2")
-        );
+        let text_of = |id: &str| map.get(id).and_then(|m| m.get("Text")).cloned().unwrap_or_default();
+        assert_eq!(text_of("One-A"), "a", "Tab from the strip enters the active page: {:?}", names(&evs));
+        assert_eq!(text_of("One-B"), "b");
+        assert_eq!(text_of("Two-A"), "c", "Ctrl+Tab selected page Two and Tab entered it");
+        assert_eq!(text_of("After"), "", "the walk never left the TabControl");
+        let changed: Vec<&str> = evs.iter().filter(|e| e.event == "onTabChanged").filter_map(|e| e.value.as_deref()).collect();
+        assert_eq!(changed, ["2", "1"], "pages count from 1: {:?}", names(&evs));
+        assert_eq!(map.get("TAB-1").and_then(|m| m.get("SelectedTab")).map(String::as_str), Some("1"));
+    }
+
+    /// Past the last control of the active page, Tab goes on to whatever follows
+    /// in the tab order - here, past a TabControl whose page is empty.
+    #[test]
+    fn tab_passes_a_tabcontrol_whose_page_is_empty() {
+        let mut before = ctrlp("Before", ControlType::TextBox, 0, 0, 160, 24, &[("Text", "")]);
+        before.tab_order = 1;
+        let mut tabs = ctrlp("TAB-1", ControlType::TabControl, 0, 40, 400, 200, &[("Tabs", "One\nTwo"), ("SelectedTab", "1")]);
+        tabs.tab_order = 2;
+        let mut after = ctrlp("After", ControlType::TextBox, 0, 260, 160, 24, &[("Text", "")]);
+        after.tab_order = 3;
+        let mut frames = vec![(0.0, vec![])];
+        for i in 0..3 {
+            frames.push((1.0 + i as f64, vec![tab_key(false, true)]));
+            frames.push((1.5 + i as f64, vec![tab_key(false, false)]));
+        }
+        frames.push((9.0, vec![Event::Text("A".to_owned())]));
+        let (evs, map) = drive(&[before, tabs, after], frames);
+        assert_eq!(map.get("After").and_then(|m| m.get("Text")).map(String::as_str), Some("A"));
+        assert!(evs.iter().all(|e| e.event != "onTabChanged"), "a plain Tab never selects a tab");
     }
 
     /// The focus on a tab is a 1 px DASHED border inside it, in the tab's
@@ -25053,6 +25150,78 @@ mod tests {
             "inset, not on the tab's edge"
         );
         assert_eq!(rings, 0, "no ring around the whole control");
+    }
+
+    /// Operator, 2026-10-18: "PowerCloud is not supporting TAB/SHIFT TAB to move the
+    /// focus to the next data input control". Every control of the example sits in
+    /// one TabControl, and Tab on its strip selected the next tab instead of
+    /// entering the page. The real form, laid out as the host lays it out: from
+    /// nothing focused, Tab reaches the Settings fields one after the other and
+    /// never changes the tab.
+    #[test]
+    fn tab_reaches_powerclouds_settings_fields_in_order() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerCloud/forms/main-form.cfrm");
+        let form = crate::load_form(&path).unwrap();
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mut steps: Vec<Vec<Event>> = vec![vec![]];
+        for i in 1..=8 {
+            steps.push(vec![tab_key(false, true)]);
+            steps.push(vec![tab_key(false, false)]);
+            steps.push(vec![Event::Text(format!("<{i}>"))]);
+        }
+        for (i, evs) in steps.into_iter().enumerate() {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1200.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            let held = evs.iter().find_map(|e| match e {
+                Event::Key { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            });
+            input.events = held.map(Event::ModifiersChanged).into_iter().chain(evs).collect();
+            let updates = RefCell::new(Vec::<(String, String, String)>::new());
+            let st = MapState(&overrides);
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let spec = crate::layout::apply::FormSpec {
+                        designed_size: (form.width as f32, form.height as f32),
+                        layout: &form.layout,
+                        breakpoints: &form.breakpoints,
+                        system_text_factor: 1.0,
+                        pinned_breakpoint: None,
+                        pinned_font_scale: None,
+                    };
+                    let prepared = crate::layout::apply::prepare_with_rail(ui.ctx(), &form.controls, &st, &spec, Vec2::new(1200.0, 800.0), None);
+                    let laid = crate::layout::apply::LaidOutState { inner: &st };
+                    let inp = RenderInput {
+                        controls: &prepared.controls,
+                        state: &laid,
+                        form_size: prepared.form_size,
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    updates.borrow_mut().extend(render_form(ui, &inp).prop_updates);
+                });
+            });
+            full.textures_delta.clear();
+            for (id, k, v) in updates.into_inner() {
+                overrides.borrow_mut().entry(id).or_default().insert(k, v);
+            }
+        }
+        let map = overrides.into_inner();
+        let mark = |id: &str| -> Option<u32> {
+            let t = map.get(id)?.get("Text")?;
+            t.trim_start_matches('<').trim_end_matches('>').parse().ok()
+        };
+        let (key, token, secret) = (mark("Txt-KeyId"), mark("Txt-Token"), mark("Txt-Secret"));
+        assert!(key.is_some(), "Tab never reached the access key field: {map:?}");
+        assert_eq!((token, secret), (key.map(|k| k + 1), key.map(|k| k + 2)), "Settings fields out of order: {map:?}");
+        assert!(map.get("Tab-Main").and_then(|m| m.get("SelectedTab")).is_none(), "a plain Tab selected a tab: {map:?}");
     }
 
     #[test]

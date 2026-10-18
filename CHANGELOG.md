@@ -17,6 +17,33 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.208] — 2026-10-18
+
+*(Written on `fixes-tabcontrol-keyboard`, off `main` at 1.91.207.)*
+
+### Fixed: Tab enters a TabControl's page, and Ctrl+Tab changes tabs, as Windows and the web have it
+
+The operator, 2026-10-18: *"PowerCloud is not supporting TAB/SHIFT TAB to move the focus to the next data input control."*
+
+PowerCloud keeps every control inside one TabControl. Since 1.70.279 (operator, 2026-09-27), Tab on a TabControl's strip selected the next tab and only left the control after the last one. So Tab from the Settings strip went to the DynamoDB tab, never into the Settings fields, and after the last Settings field Tab came back to the strip and changed tabs again. Between fields that a click had reached, Tab already worked.
+
+The operator chose the standard behaviour (`resolve_tab_traversal`, `cobolt-forms`):
+
+- **Tab from the strip enters the active page**, at its first control in the tab order, and goes on through the page; past its last control, the walk moves on to whatever follows.
+- **Shift+Tab from the page's first control returns to the strip.**
+- **Ctrl+Tab / Ctrl+Shift+Tab select the next / previous tab**, wrapping, from the strip or from anywhere inside a page; the focus goes to the strip.
+- The arrows and Home / End along the strip still select tabs. Each way raises `onTabClick` and `onTabChanged` as a click does.
+
+Each tab-order target now records the TabControl whose page holds it (`tab_host`). The test harness builds each TabControl's live page every frame, as the host does (`FormBody::active_tabs`). Before, it kept the designed page, so a test could not tell which page a key landed on.
+
+**Tests:**
+- `tab_enters_the_page_and_ctrl_tab_selects_the_tabs` replaces `tab_and_shift_tab_walk_the_tabs`.
+- `tab_passes_a_tabcontrol_whose_page_is_empty` is new.
+- `tab_reaches_powerclouds_settings_fields_in_order` is new. It loads the real PowerCloud form, lays it out as the host does, and from nothing focused Tab reaches the access key, token and secret fields in order without changing the tab.
+- `cobolt-forms` (`--features render`): 1678 passed, 0 failed. `cobolt-form-host`: 201 passed, 0 failed.
+
+The Developer's Guide (*A TabControl on the keyboard*) describes the new keys. It exists in English only, so there is no translation to delete.
+
 ## [PowerRustCOBOL 1.91.207] — 2026-10-18
 
 *(Written on `fixes-powercloud-deployer`, off `main` at 1.91.206.)*
