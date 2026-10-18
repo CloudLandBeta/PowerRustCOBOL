@@ -240,6 +240,20 @@ pub fn format_row_height_overrides(map: &std::collections::BTreeMap<usize, f32>)
         .join(";")
 }
 
+/// Read a DataGrid's `Rows`: one row per line, its cells separated by TAB.
+///
+/// The one rule every surface reads `Rows` by — the renderer, the designer's
+/// grid edit mode and the runtime's `GetCellValue` / `DeleteRow` — because a
+/// row's index here is the `ClickedRow` a handler is told and the row it then
+/// asks for. An EMPTY line is a row: in a one-column grid it is the row whose
+/// only cell is empty, and a bound table or file can hold one. (A single
+/// trailing line break ends the last row; it does not add one.)
+pub fn parse_rows(text: &str) -> Vec<Vec<String>> {
+    text.lines()
+        .map(|line| line.split('\t').map(str::to_owned).collect())
+        .collect()
+}
+
 /// Where each of a run of rows starts, when they need not share a height.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RowGeometry {
@@ -668,6 +682,19 @@ mod tests {
         assert_eq!(m.into_iter().collect::<Vec<_>>(), vec![(0, 40.0), (2, 400.0), (7, 64.0)]);
         let m = parse_row_height_overrides("1=40;8=64");
         assert_eq!(format_row_height_overrides(&m), "1=40;8=64");
+    }
+
+    /// `Rows` is one row per line, and an empty line is a row (a one-column
+    /// row whose cell is empty) — the renderer's `ClickedRow` and the
+    /// runtime's `GetCellValue` both index this list. One trailing line break
+    /// adds nothing; nothing at all is no rows.
+    #[test]
+    fn rows_keep_an_empty_line_as_a_row() {
+        let cells = |rows: Vec<Vec<String>>| rows.iter().map(|r| r.join("|")).collect::<Vec<_>>();
+        assert_eq!(parse_rows("\nBia"), vec![vec![String::new()], vec!["Bia".to_owned()]]);
+        assert_eq!(cells(parse_rows("Ana\t1\n\nCid\t3\n")), vec!["Ana|1", "", "Cid|3"]);
+        assert_eq!(cells(parse_rows("Ana\t\r\nBia\t2")), vec!["Ana|", "Bia|2"], "CRLF ends a line too");
+        assert!(parse_rows("").is_empty());
     }
 
     /// Rows of different heights: tops accumulate, a y finds its row, and the

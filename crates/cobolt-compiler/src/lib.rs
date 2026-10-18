@@ -6579,7 +6579,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
 
         // ── DataGrid ──
         "Columns" => ("one `Name:Type` per line; Type ∈ `string` | `number` | `datetime` | `image` (default `string`)", "Column definitions. A column typed `image` (`img` and `picture` mean the same) shows each cell's value — the path of a picture file — as a picture, at most at its own size. How else a column shows its cells (a Button, an Image scaled to the cell, a Checkbox…) is its Edit control in **Edit DataGrid settings…**, not part of `Columns`: see the DataGrid notes."),
-        "Rows" => ("rows separated by newline, cells within a row by TAB", "Cell data (usually populated at runtime)."),
+        "Rows" => ("rows separated by newline, cells within a row by TAB", "Cell data (usually populated at runtime). An empty line is a row — in a one-column grid, the row whose only cell is empty — and `ClickedRow`, `onRowButtonClick`'s `ROW-NUMBER`, `GetRowCount` and `GetCellValue` all count it."),
         "AlternatingRowColor" => (COLOR_DOMAIN, "Tint applied to alternating rows/columns."),
         "AlternatingRowOpacity" => ("0-100 (percent)", "Strength of the alternating tint."),
         "AlternatingMode" => ("one of: `Rows` | `Columns` | `None`", "Axis the alternating highlight applies to."),

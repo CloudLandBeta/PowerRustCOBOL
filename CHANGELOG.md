@@ -17,6 +17,53 @@
 > entries below, `main`'s first. Both records are kept and nothing has been
 > renumbered, as before; 1.90.25 carries the version forward past them all.
 
+## [PowerRustCOBOL 1.91.210] — 2026-10-18
+
+*(Written for `fixes`, off `main` at 1.91.191, and rebased onto `main` at 1.91.209 before landing.)*
+
+### Fixed: an empty line in a DataGrid's `Rows` made a click name the wrong row
+
+*What was wrong.* `Rows` is one row per line, its cells separated by TAB, and three places read it by different rules. The renderer (`render_interactive`) and the Designer's grid edit mode (`grid_edit::rows_of`, which the DataGrid settings window's column buttons also use) **dropped** empty lines. The runtime (`datagrid_rows`) **kept** them; it is behind `GetCellValue`, `GetRowCount`, `DeleteRow`, `SetCellValue`, `AddRow`, `Sort`, `Save()` and spec 106's DATAGRID-ROW-CONTENT. `ClickedRow` and `onRowButtonClick`'s `ROW-NUMBER` are indexes into the renderer's list, so in a one-column grid with `Rows = "\nBia"` a click on Bia's Delete button reported row 1. The handler then read row 1, the empty one, `DeleteRow(1)` deleted it instead of Bia, and `GetRowCount` said 2 while the screen showed 1. `_RowOrigins` and `RowHeightOverrides`, both indexed like the runtime's rows, were misaligned too. Worse, a cell edit at run time and every Designer grid edit (cell, add/remove row or column) write `Rows` back from the parsed list, so they silently deleted every empty-line row. A line break at the very end was never the issue: `str::lines()` ignores one.
+
+*The rule.* **An empty line is a row** — in a one-column grid, the row whose only cell is empty. The runtime already counted it, and a bound indexed file or SQL query can produce one (a one-field record whose value is blank). It is written once, as `cobolt_forms::datagrid::parse_rows`, beside `parse_row_height_overrides`, and all three readers call it. No `.cfrm` under `examples/` has an empty line inside `Rows`, so none of them looks different.
+
+*One Designer consequence, handled.* Removing a grid's last data column in grid edit mode left each row with no cells. That wrote N-1 line breaks, which used to read as no rows and would now read as N-1 empty rows. `grid_edit::remove_column` now clears `Rows` when no data column is left.
+
+*Tests.* The render and Designer tests fail under the old rule. The runtime test pins the side that was already right, so the two halves name the same row:
+
+- `datagrid::tests::rows_keep_an_empty_line_as_a_row`: the rule itself, including a CRLF line and a trailing newline.
+- `render::tests::a_datagrid_counts_an_empty_line_of_rows_as_a_row`: Bia is painted on the second row, and a click on her Delete button (a Button column with its own caption) reports `ClickedRow` 2 and `onRowButtonClick` `"2\tDelete"`. Shown failing with the old filter put back: Bia was painted on row 1.
+- `interpreter::tests::an_empty_line_of_rows_is_the_row_the_renderer_counts`: `GetRowCount` 2, `GetCellValue(2, 1)` is Bia, and `DeleteRow(2)` on `"\nBia\nCid"` leaves `"\nCid"`.
+- `interpreter::tests::a_row_button_click_on_a_grid_with_an_empty_line_packs_the_clicked_row`: for that click, DATAGRID-ROW-CONTENT carries `ROW-NUMBER` 2 and Bia.
+- `grid_edit::tests::an_empty_line_is_a_row_the_designer_keeps`: removing the row after the empty one removes that row, adding a row keeps the empty one, and removing the only data column clears `Rows`.
+- `designer_grid_edit_094_tests::an_empty_line_of_rows_is_a_row_the_canvas_draws_and_keeps`: on the canvas, Bia is drawn on row 2 and editing her cell writes `"\nZed"`, keeping the empty row.
+
+Runs, with this change on `main` at 1.91.209:
+
+- `cobolt-forms --features render`: 1680 passed, 0 failed, 2 ignored, over 91 test binaries.
+- `cobolt-runtime --lib`: 502 passed, 3 ignored.
+- `cobolt-ide --bin cobolt-ide`: 1815 passed, 4 failed, 4 ignored. None of the four touches DataGrid rows:
+  - `every_document_ships_in_every_language` is the intended red under GOLDEN RULE #8.
+  - The two `external_crates_service::flow_tests` resolve live against crates.io, which now offers egui 0.37.0.
+  - `every_completion_description_exists_in_six_languages` names four English-only descriptions: SideMenu `Collapse`/`Open`, and the `toFile` texts of S3 `GetObject` and Polly `Synthesize`.
+- `prebuilt_chunked_kb_matches_the_published_documentation` passes.
+
+On `main` at 1.91.207, not re-run on top of 1.91.208 and 1.91.209. Those two changed only the TabControl keys in `render.rs`, the guide and PowerCloud files:
+
+- `cobolt-runtime` `test_grid_write_back` 55, `test_data_binding_runtime` 8, `test_data_binding_e2e` 1, `test_grid_write_back_demo` 1, all passing.
+- `cobolt-compiler --lib`: 184 passed, 1 ignored.
+
+The DataGrid Quality & Compatibility review passed with notes, twice: once before the rebase, and once for what spec 106 added. It found no regression. Every consumer it traced now indexes the same rows: `ClickedRow`, `onRowButtonClick`'s `ROW-NUMBER` (the same `row_index`), `bind_row_content`, `EditedRow`, `RowHeightOverrides`, `_RowOrigins`, frozen rows, selection and the row-number gutter. The settings window's column buttons go through `grid_edit`. An empty row now takes its place in the alternating colours and a row number, and a Button column draws its button on it, as the runtime always counted it.
+
+*Docs.* The Developer's Guide (Advanced DataGrid) and the System KB's `Rows` entry now state the rule; `assets/knowledge/chunked.data` was rebuilt.
+
+*Still open, and not changed here.* `Rows` does not yet round-trip in two cases:
+
+- **Writing back.** The writers cannot hold a one-column grid's **last** row when it is empty: written back, it becomes a trailing line break, which reads as nothing. So `AddRow()` with no arguments adds nothing to a one-column grid. That was so before this fix, for every reader.
+- **Saving.** Loading a `.cfrm` trims every property value (`xml.rs` `parse_prop_value`), so a saved `Rows` loses a leading empty row, and a first row whose first cell is empty loses that cell.
+
+Both are left for a follow-up fix.
+
 ## [PowerRustCOBOL 1.91.209] — 2026-10-18
 
 *(Written on `fixes-powercloud-bucket-name`, off `main` at 1.91.208.)*

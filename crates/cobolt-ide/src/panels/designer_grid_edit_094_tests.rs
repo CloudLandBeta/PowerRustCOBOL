@@ -507,6 +507,27 @@ fn a_cell_edited_on_the_canvas_lands_in_rows_and_undoes() {
     assert_eq!(rig.prop("DG", "Rows"), "Zed\t30\nann\t9\nCid\t100", "and redo replays it");
 }
 
+/// An empty line of `Rows` is a row on the canvas too — a one-column row whose
+/// cell is empty — so Bia is drawn on the SECOND row, the cell edited there is
+/// Bia's, and the edit keeps the empty row instead of dropping it.
+#[test]
+fn an_empty_line_of_rows_is_a_row_the_canvas_draws_and_keeps() {
+    let mut form = grid_form();
+    let g = form.find_control_mut("DG").unwrap();
+    g.set_prop("Columns", PropValue::String("Name:string".into()));
+    g.set_prop("Rows", PropValue::String("\nBia".into()));
+    let mut rig = Rig::new(form);
+    enter(&mut rig, "DG");
+    let second_row = 40.0 + 22.0 + 22.0;
+    let bia = rig.text_rect("Bia").expect("Bia is drawn");
+    let row = rig.at(0.0, second_row).y..rig.at(0.0, second_row + 22.0).y;
+    assert!(row.contains(&bia.center().y), "Bia is on the second row: {bia:?}, row {row:?}");
+    rig.double_click(rig.at(BOB.0, second_row + 11.0));
+    rig.type_replacing("Zed");
+    rig.press_key(Key::Enter);
+    assert_eq!(rig.prop("DG", "Rows"), "\nZed", "Bia's cell changed and the empty row is kept");
+}
+
 #[test]
 fn escape_cancels_a_cell_edit_and_only_the_next_escape_leaves_the_mode() {
     let mut rig = Rig::new(grid_form());

@@ -4245,6 +4245,14 @@ and `Rows` properties for compatibility, while newer layout and formatting
 settings are stored as advanced metadata on the grid (including per-column
 background/foreground).
 
+`Rows` holds one row per line, its cells separated by TAB. **An empty line is a
+row** — in a one-column grid, the row whose only cell is empty — and every
+surface counts it the same way: the Designer and the running form draw it,
+`ClickedRow` and `onRowButtonClick`'s `ROW-NUMBER` count it, and
+`GetRowCount`, `GetCellValue` and `DeleteRow` see it, so the row a click names
+is the row your handler reads. (A line break at
+the very end of `Rows` ends the last row; it does not add one.)
+
 **Appearance & border rules (unified across all surfaces)**
 
 - Background defined in appearance now correctly applies to the **last

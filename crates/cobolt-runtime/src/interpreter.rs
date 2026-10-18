@@ -14185,10 +14185,7 @@ impl Interpreter {
     }
 
     fn datagrid_rows(&self, control_id: &str) -> Vec<Vec<String>> {
-        self.obj_get(control_id, "Rows")
-            .lines()
-            .map(|line| line.split('\t').map(str::to_owned).collect())
-            .collect()
+        cobolt_forms::datagrid::parse_rows(&self.obj_get(control_id, "Rows"))
     }
 
     fn set_datagrid_rows(&mut self, control_id: &str, rows: &[Vec<String>]) {
@@ -20764,6 +20761,62 @@ MAIN.
         println!("row 2 after a run-time reorder → {:?}", String::from_utf8_lossy(&bytes));
     }
 
+    /// The row a Delete button's `onRowButtonClick` names in `"\nBia"` is row 2 —
+    /// the renderer counts the empty line (cobolt-forms:
+    /// `a_datagrid_counts_an_empty_line_of_rows_as_a_row`) — and row 2 is what
+    /// DATAGRID-ROW-CONTENT carries: Bia, not the empty row.
+    #[test]
+    fn a_row_button_click_on_a_grid_with_an_empty_line_packs_the_clicked_row() {
+        use cobolt_forms::model::{DataGridAdvanced, DataGridColumn};
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. ROW-EMPTY.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 DATAGRID-ROW-BUFFER PIC X(51).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let program = parse(tokenize(source, SourceFormat::Free)).program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        let advanced = DataGridAdvanced {
+            columns: vec![
+                DataGridColumn {
+                    id: "NAME".into(),
+                    title: "Name".into(),
+                    source_name: "NAME".into(),
+                    cobol_mask: "X(12)".into(),
+                    edit_control: "Textbox".into(),
+                    ..DataGridColumn::default()
+                },
+                DataGridColumn {
+                    id: "DELETE".into(),
+                    title: "Delete".into(),
+                    edit_control: "Button".into(),
+                    button_caption: "Delete".into(),
+                    ..DataGridColumn::default()
+                },
+            ],
+            ..DataGridAdvanced::default()
+        };
+        interp.seed_objects([(
+            "DG".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                ("Columns".to_owned(), "NAME:string".to_owned()),
+                ("Rows".to_owned(), "\nBia".to_owned()),
+                ("AdvancedGrid".to_owned(), advanced.to_json().unwrap()),
+                (cobolt_forms::row_content::LAYOUT_PROP.to_owned(), cobolt_forms::row_content::layout_seed(&advanced)),
+            ],
+        )]);
+        interp.bind_row_content("DG", "2\tDELETE");
+        let bytes = interp.env.display_bytes(cobolt_forms::row_content::BUFFER).expect("the buffer exists");
+        // 9 (ROW-NUMBER) + 30 (ROW-NAME) + 12 (NAME) = 51 bytes.
+        let want = format!("000000002{:<30}{:<12}", "DELETE", "Bia");
+        assert_eq!(String::from_utf8_lossy(&bytes), want, "row 2 is Bia");
+    }
+
     /// An interpreter with one Viewer control carrying `props`.
     fn viewer_interp(props: &[(&str, &str)]) -> Interpreter {
         let source = "\
@@ -22721,6 +22774,32 @@ MAIN.
         assert!(gone.contains("does not exist"), "no empty database is created: {gone}");
         assert!(!dir.join("sales.db").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An empty line of `Rows` is a row — a one-column row whose cell is empty —
+    /// as it is to the renderer, which reports a click on Bia's button in
+    /// `"\nBia"` as `ClickedRow` 2 (cobolt-forms:
+    /// `a_datagrid_counts_an_empty_line_of_rows_as_a_row`): row 2 is Bia, and
+    /// `DeleteRow(2)` removes Bia, not the empty row.
+    #[test]
+    fn an_empty_line_of_rows_is_the_row_the_renderer_counts() {
+        let mut interp = Interpreter::new(
+            parse(tokenize("IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n    STOP RUN.\n", SourceFormat::Free))
+                .program
+                .expect("parses"),
+        );
+        interp.seed_objects([("DG-1".to_owned(), "DataGrid".to_owned(), vec![])]);
+        let s = |x: &str| CobolValue::from_str(x, x.len());
+        interp.obj_set("DG-1", "Rows", "\nBia".into());
+        let cell = |interp: &mut Interpreter, row: &str| {
+            interp.exec_method("DG-1", "GetCellValue", &[s(row), s("1")]).as_display_string()
+        };
+        assert_eq!(interp.exec_method("DG-1", "GetRowCount", &[]).as_display_string(), "2");
+        assert_eq!(cell(&mut interp, "2"), "Bia", "ClickedRow 2 is Bia");
+        assert_eq!(cell(&mut interp, "1").trim(), "", "row 1 is the empty one");
+        interp.obj_set("DG-1", "Rows", "\nBia\nCid".into());
+        interp.exec_method("DG-1", "DeleteRow", &[s("2")]);
+        assert_eq!(interp.obj_get("DG-1", "Rows"), "\nCid", "Bia is deleted, the empty row stays");
     }
 
     /// `SetRowHeight(row, pixels)` gives one row its own height; the height

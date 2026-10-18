@@ -10684,11 +10684,8 @@ fn render_interactive(
                     Some((name, ty))
                 })
                 .collect();
-            let rows: Vec<Vec<String>> = rows_raw
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|l| l.split('\t').map(|c| c.to_owned()).collect())
-                .collect();
+            // The runtime's rows, line for line: `ClickedRow` indexes them.
+            let rows = crate::datagrid::parse_rows(&rows_raw);
             // 14–120, the range a row-edge drag writes: clamping at 60 here
             // stopped a row dragged taller than that from growing on screen.
             let row_h = sv(ctrl, "RowHeight")
@@ -26592,6 +26589,64 @@ mod tests {
         let (events, _) = drive(&[audit_grid(&[])], frames);
         assert_eq!(events.iter().filter(|e| e.event == "onCellClick").count(), 1, "{events:?}");
         println!("DataGrid keyboard — onCellClick values {clicks:?}, ClickedRow {}", props["DG"]["ClickedRow"]);
+    }
+
+    /// An empty line of `Rows` is a row — a one-column row whose cell is empty
+    /// — as it is to the runtime, so a click on Bia's Delete button reports
+    /// `ClickedRow` 2 and `onRowButtonClick` row 2, the row `GetCellValue(2, 1)`
+    /// and DATAGRID-ROW-CONTENT read as Bia (cobolt-runtime:
+    /// `an_empty_line_of_rows_is_the_row_the_renderer_counts`,
+    /// `a_row_button_click_on_a_grid_with_an_empty_line_packs_the_clicked_row`).
+    /// Dropping the line drew Bia on row 1, and the handler then read and
+    /// deleted the empty row.
+    #[test]
+    fn a_datagrid_counts_an_empty_line_of_rows_as_a_row() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "Name".into(),
+            title: "Name".into(),
+            source_name: "Name".into(),
+            width: 140.0,
+            ..DataGridColumn::default()
+        });
+        advanced.columns.push(DataGridColumn {
+            id: "Delete".into(),
+            title: "Delete".into(),
+            width: 140.0,
+            edit_control: "Button".into(),
+            button_caption: "Delete".into(),
+            ..DataGridColumn::default()
+        });
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("Columns", "Name:string"),
+                ("Rows", "\nBia"),
+                ("ShowCSVExportButton", "false"),
+                ("RowHeight", "22"),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        // Titles on 20..42, row 1 on 42..64, row 2 on 64..86.
+        let painted = drive_painted(&[grid.clone()], vec![(0.0, vec![]), (0.05, vec![])]);
+        let bia = painted.texts.iter().find(|t| t.text == "Bia").expect("Bia is drawn");
+        assert!((64.0..86.0).contains(&bia.ink.center().y), "Bia is on the second row: {:?}", bia.ink);
+        // Bia's Delete button: the second column (no data behind it), the second row.
+        let (events, props) = drive(&[grid], click_at(pos2(20.0 + 230.0, 64.0 + 11.0), 0.0));
+        let dg = props.get("DG").expect("the click reported its cell");
+        assert_eq!(dg.get("ClickedRow").map(String::as_str), Some("2"), "Bia's row, counting the empty one");
+        assert_eq!(dg.get("ClickedColumn").map(String::as_str), Some("0"));
+        assert!(events.iter().any(|e| e.event == "onCellClick"));
+        let fired: Vec<_> = events.iter().map(|e| (e.event.as_str(), e.value.as_deref().unwrap_or(""))).collect();
+        assert!(fired.contains(&("onRowButtonClick", "2\tDelete")), "the button names Bia's row: {fired:?}");
+        assert_eq!(crate::datagrid::parse_rows("\nBia")[1], ["Bia"], "and row 2 is Bia to the runtime's reader");
     }
 
     /// `AllowSorting`: a click on a column title orders the rows the grid
